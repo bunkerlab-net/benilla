@@ -370,7 +370,11 @@ fn spawn_screen(
                         art,
                         &font,
                         LoginAction::Login,
-                        p2p.map_or_else(|| strings.text("LOGIN", "Login"), p2p_start_label),
+                        if let Some(settings) = p2p {
+                            p2p_start_label(settings)
+                        } else {
+                            strings.text("LOGIN", "Login")
+                        },
                         if p2p.is_some() { 260.0 } else { 170.0 },
                         45.0,
                         GlueBtnKind::Normal,

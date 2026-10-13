@@ -203,7 +203,6 @@ impl Cvars {
         self.row(name).map(|r| r.default.as_str())
     }
 
-    #[cfg(test)]
     pub(crate) fn is_session_owned(&self, name: &str) -> bool {
         self.session_owned.contains(&name.to_ascii_lowercase())
     }
