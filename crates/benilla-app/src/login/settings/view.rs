@@ -99,7 +99,7 @@ fn content(
         for (page, title) in [
             (Page::Graphics, "Graphics"),
             (Page::Audio, "Sound"),
-            (Page::All, "All game settings"),
+            (Page::All, "Advanced CVars"),
             (Page::Startup, "Startup / P2P"),
         ] {
             button(r, Action::Page(page), title, s);

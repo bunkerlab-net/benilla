@@ -112,7 +112,7 @@ All existing upstream copyright/license notices remain intact.
 
 Each job first snapshots the selected full Git commit, runs `cargo vendor --locked
 --versioned-dirs`, and checks the locked graph resolves offline using the generated
-`vendor-config.toml`. It then builds from that snapshot, with those vendored
+`.cargo/vendor-config.toml`. It then builds from that snapshot, with those vendored
 sources, using `--offline --locked`. `SOURCE-MANIFEST.json` records the source
 commit and SHA-256 of every source/dependency file. `BUILD-INFO.txt` records the
 Rust, Cargo, and mbx versions. Packaging checks that the snapshot has not changed
@@ -128,7 +128,7 @@ To reproduce the build, extract `corresponding-source.tar.gz`, change into its
 platform prerequisites above, then run:
 
 ```sh
-cargo build --config vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>
+cargo build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>
 ```
 
 Cargo is the underlying builder; mbx is an optional cache wrapper. The archive
@@ -145,7 +145,7 @@ are refused), then run from the clean checkout:
 commit=$(git rev-parse HEAD)
 python3 scripts/package-player.py --prepare-source --commit "$commit"
 export CARGO_TARGET_DIR="$PWD/target"
-(cd "target/player-source/$commit" && mbx build --config vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>)
+(cd "target/player-source/$commit" && mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>)
 python3 scripts/package-player.py --platform <platform> --commit "$commit"
 ```
 

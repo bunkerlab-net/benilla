@@ -29,7 +29,7 @@ REQUIRED_SOURCE = (*DOCUMENTS, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"
                    ".github/workflows/build.yml", "crates/benilla/src/main.rs",
                    "crates/benilla-session/src/lib.rs", "crates/benilla-sim/src/lib.rs",
                    "crates/benilla-encounter/src/lib.rs",
-                   "vendor-config.toml", "BUILD-INFO.txt")
+                   ".cargo/vendor-config.toml", "BUILD-INFO.txt")
 MANIFEST = "SOURCE-MANIFEST.json"
 
 
@@ -47,19 +47,34 @@ def safe_path(name):
     if not name or path.is_absolute() or ".." in path.parts or "\\" in name:
         raise ValueError(f"unsafe source path: {name}")
     parts = {part.lower() for part in path.parts}
+    vendored = name.startswith("vendor/")
+    # This subtree is freshly produced by cargo vendor --locked, never copied from
+    # local user settings. Public crate sources include .env build examples and
+    # Windows Credentials API modules; preserve their complete source.
     forbidden = {"wow", "extracted", ".git", ".ssh", ".aws",
-                 ".probe-identity", "credentials", "id_rsa", "id_ed25519"}
+                 ".probe-identity", "id_rsa", "id_ed25519"}
+    if not vendored:
+        forbidden.add("credentials")
     if parts & forbidden or ("benilla-config" in parts and not (name == "crates/benilla-config" or name.startswith("crates/benilla-config/"))):
         raise ValueError(f"forbidden source input: {name}")
     if not name.startswith("vendor/") and path.suffix.lower() in {".pem", ".key"}:
         raise ValueError(f"credential-like source input requires review: {name}")
-    if (name == "config.toml" or path.name.startswith(".env")
+    if (name == "config.toml" or (not vendored and path.name.startswith(".env"))
             or path.suffix.lower() in {".mpq", ".blp", ".m2", ".adt", ".wdt", ".wmo", ".dbc"}):
         raise ValueError(f"forbidden source input: {name}")
 
 
-def regular(path):
-    if path.is_symlink() or not path.is_file() or any(p.is_symlink() for p in path.parents):
+def regular(path, root):
+    relative = path.relative_to(root)
+    if ".." in relative.parts:
+        raise ValueError(f"file outside package root: {path}")
+    # Resolve trusted ancestors (for example macOS /var), never package inputs.
+    current = root.resolve()
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"required regular file missing or symlinked: {path}")
+    if not current.is_file():
         raise ValueError(f"required regular file missing or symlinked: {path}")
 
 
@@ -71,7 +86,10 @@ def digest(path):
     return result.hexdigest()
 
 
-def inventory(source):
+def inventory(source, root=None):
+    root = source.parent if root is None else root
+    if source.is_symlink():
+        raise ValueError(f"symlink in source: {source}")
     result = {}
     for path in sorted(source.rglob("*")):
         name = path.relative_to(source).as_posix()
@@ -79,7 +97,7 @@ def inventory(source):
             raise ValueError(f"symlink in source: {name}")
         if path.is_file() and name != MANIFEST:
             safe_path(name)
-            regular(path)
+            regular(path, root)
             result[name] = digest(path)
     return result
 
@@ -114,8 +132,9 @@ def prepare_source(root, commit):
                 path.chmod(member.mode & 0o777)
     lock_hash = digest(source / "Cargo.lock")
     config = run(source, "cargo", "vendor", "--locked", "--versioned-dirs", "vendor")
-    (source / "vendor-config.toml").write_bytes(config)
-    run(source, "cargo", "--config", "vendor-config.toml", "metadata", "--offline",
+    (source / ".cargo").mkdir(exist_ok=True)
+    (source / ".cargo/vendor-config.toml").write_bytes(config)
+    run(source, "cargo", "--config", ".cargo/vendor-config.toml", "metadata", "--offline",
         "--locked", "--format-version", "1")
     if digest(source / "Cargo.lock") != lock_hash:
         raise ValueError("dependency preparation changed Cargo.lock")
@@ -124,22 +143,23 @@ def prepare_source(root, commit):
         info += run(root, *command).decode() + "\n"
     (source / "BUILD-INFO.txt").write_text(info, encoding="utf-8")
     for name in REQUIRED_SOURCE:
-        regular(source / name)
-    files = inventory(source)
+        regular(source / name, root)
+    files = inventory(source, root)
     if not any(p.startswith("vendor/") and p.endswith("/.cargo-checksum.json") for p in files):
         raise ValueError("vendored dependency source missing")
     (source / MANIFEST).write_text(json.dumps({"commit": commit, "files": files}, indent=2) + "\n")
     return source
 
 
-def validate_source(source, commit):
-    regular(source / MANIFEST)
+def validate_source(source, commit, root=None):
+    root = source.parent if root is None else root
+    regular(source / MANIFEST, root)
     manifest = json.loads((source / MANIFEST).read_text())
     if manifest.get("commit") != commit:
         raise ValueError("source manifest commit does not match binary label")
     for name in REQUIRED_SOURCE:
-        regular(source / name)
-    files = inventory(source)
+        regular(source / name, root)
+    files = inventory(source, root)
     if manifest.get("files") != files:
         raise ValueError("source changed after preparation, or source files are missing")
     if not any(p.startswith("vendor/") and p.endswith("/.cargo-checksum.json") for p in files):
@@ -147,11 +167,11 @@ def validate_source(source, commit):
     return files
 
 
-def write_tar(archive, files, prefix):
+def write_tar(archive, files, prefix, executable=None):
     with tarfile.open(archive, "w:gz") as output:
         for source, destination in files:
             info = output.gettarinfo(str(source), f"{prefix}/{destination}")
-            info.mode = 0o755 if source.stat().st_mode & 0o111 else 0o644
+            info.mode = 0o755 if destination == executable or source.stat().st_mode & 0o111 else 0o644
             info.uid = info.gid = 0
             info.uname = info.gname = ""
             with source.open("rb") as content:
@@ -161,12 +181,12 @@ def write_tar(archive, files, prefix):
 def package(root, platform, commit):
     check_commit(commit)
     source = source_dir(root, commit)
-    source_files = validate_source(source, commit)
+    source_files = validate_source(source, commit, root)
     executable = "benilla.exe" if platform == "windows-amd64" else "benilla"
     files = [(root / "target" / TARGETS[platform] / "release" / executable, executable)]
     files.extend((source / path, path) for path in DOCUMENTS)
     for path, _ in files:
-        regular(path)
+        regular(path, root)
     name = f"benilla-{platform}-{commit}"
     dist = root / "dist"
     dist.mkdir(exist_ok=True)
@@ -181,7 +201,7 @@ def package(root, platform, commit):
                 output.write(path, f"{name}/{destination}")
     else:
         archive = dist / f"{name}.tar.gz"
-        write_tar(archive, files, name)
+        write_tar(archive, files, name, executable=executable)
     archive.with_name(archive.name + ".sha256").write_text(
         f"{digest(archive)}  {archive.name}\n", encoding="utf-8")
     return archive

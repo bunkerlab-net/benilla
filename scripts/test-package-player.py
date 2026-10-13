@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import subprocess
 from pathlib import Path
 import tarfile
 import tempfile
@@ -42,7 +43,8 @@ class PackagingTests(unittest.TestCase):
         for platform in packager.TARGETS:
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                _, executable, source = self.fixture(root, platform)
+                binary, executable, source = self.fixture(root, platform)
+                binary.chmod(0o644)  # Windows cannot set POSIX executable bits.
                 archive = packager.package(root, platform, SHA)
                 prefix = f"benilla-{platform}-{SHA}"
                 expected = {f"{prefix}/{p}" for p in [executable, *packager.DOCUMENTS, "corresponding-source.tar.gz"]}
@@ -60,6 +62,63 @@ class PackagingTests(unittest.TestCase):
                     self.assertEqual(set(output.getnames()), wanted)
                 self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
                                  f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+
+    def test_packaging_under_symlinked_ancestor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            real = parent / "real"
+            real.mkdir()
+            alias = parent / "alias"
+            try:
+                alias.symlink_to(real, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(str(error))
+            root = alias / "repo"
+            self.fixture(root)
+            self.assertTrue(packager.package(root, "linux-amd64", SHA).is_file())
+
+    def test_source_script_modes_are_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, source = self.fixture(root)
+            script = source / "scripts/package-player.py"
+            script.chmod(0o755)
+            if not script.stat().st_mode & 0o111:
+                self.skipTest("filesystem does not support POSIX executable bits")
+            packager.package(root, "linux-amd64", SHA)
+            archive = root / "dist" / f"benilla-linux-amd64-{SHA}-source.tar.gz"
+            with tarfile.open(archive) as output:
+                self.assertEqual(output.getmember(f"benilla-source-{SHA}/scripts/package-player.py").mode, 0o755)
+                self.assertEqual(output.getmember(f"benilla-source-{SHA}/Cargo.toml").mode, 0o644)
+
+    def test_input_directory_symlinks_fail(self):
+        for target in ["binary_parent", "source", "source_parent", "source_child"]:
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
+                parent = Path(directory)
+                root = parent / "repo"
+                binary, _, source = self.fixture(root)
+                original = {"binary_parent": binary.parent, "source": source,
+                            "source_parent": source.parent, "source_child": source / "vendor"}[target]
+                moved = parent / "moved"
+                original.rename(moved)
+                try:
+                    original.symlink_to(moved, target_is_directory=True)
+                except OSError as error:
+                    self.skipTest(str(error))
+                with self.assertRaises(ValueError):
+                    packager.package(root, "linux-amd64", SHA)
+                self.assertFalse((root / "dist").exists())
+
+    def test_regular_rejects_paths_outside_trusted_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "repo"
+            root.mkdir()
+            outside = parent / "outside"
+            outside.write_text("must not ship", encoding="utf-8")
+            for path in [outside, root / ".." / "outside"]:
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    packager.regular(path, root)
 
     def test_required_inputs_fail_closed(self):
         for missing in ["binary", packager.MANIFEST, *packager.REQUIRED_SOURCE,
@@ -99,7 +158,9 @@ class PackagingTests(unittest.TestCase):
                      "benilla-config/config.toml", "config.toml", ".probe-identity", ".env", ".git/config"]:
             with self.subTest(name=name), self.assertRaises(ValueError):
                 packager.safe_path(name)
-        for name in ["crates/benilla-config", "crates/benilla-config/src/lib.rs", "config.example.toml"]:
+        for name in ["crates/benilla-config", "crates/benilla-config/src/lib.rs", "config.example.toml",
+                     "vendor/convert_case-0.10.0/.envrc", "vendor/voracious_radix_sort-1.2.0/.env",
+                     "vendor/windows-0.62.2/src/Windows/Security/Credentials/mod.rs"]:
             packager.safe_path(name)
 
     def test_source_symlinks_fail(self):
@@ -146,7 +207,7 @@ class PackagingTests(unittest.TestCase):
             blob = io.BytesIO()
             with tarfile.open(fileobj=blob, mode="w") as archive:
                 for name in packager.REQUIRED_SOURCE:
-                    if name in {"vendor-config.toml", "BUILD-INFO.txt"}:
+                    if name in {".cargo/vendor-config.toml", "BUILD-INFO.txt"}:
                         continue
                     info = tarfile.TarInfo(name)
                     info.size = 7
@@ -171,7 +232,27 @@ class PackagingTests(unittest.TestCase):
                 source = packager.prepare_source(root, SHA)
             packager.validate_source(source, SHA)
             self.assertIn(("cargo", "vendor", "--locked", "--versioned-dirs", "vendor"), commands)
-            self.assertIn(("cargo", "--config", "vendor-config.toml", "metadata", "--offline", "--locked", "--format-version", "1"), commands)
+            self.assertIn(("cargo", "--config", ".cargo/vendor-config.toml", "metadata", "--offline", "--locked", "--format-version", "1"), commands)
+
+    def test_vendor_config_resolves_inside_relocated_source(self):
+        # Real Cargo resolution catches the two-level --config path rule that mocks missed.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "relocated-source"
+            (root / ".cargo").mkdir(parents=True)
+            (root / "src").mkdir()
+            (root / "src/lib.rs").write_text("")
+            (root / "Cargo.toml").write_text('[package]\nname="packaging-probe"\nversion="0.1.0"\nedition="2021"\n[dependencies]\npackaging-vendor-probe="=1.0.0"\n')
+            dep = root / "vendor/packaging-vendor-probe-1.0.0"
+            (dep / "src").mkdir(parents=True)
+            (dep / "src/lib.rs").write_text("")
+            (dep / "Cargo.toml").write_text('[package]\nname="packaging-vendor-probe"\nversion="1.0.0"\nedition="2021"\n')
+            (dep / ".cargo-checksum.json").write_text('{"files":{},"package":null}')
+            (root / ".cargo/vendor-config.toml").write_text('[source.crates-io]\nreplace-with="vendored-sources"\n[source.vendored-sources]\ndirectory="vendor"\n')
+            result = subprocess.run(["cargo", "--config", ".cargo/vendor-config.toml", "metadata", "--offline", "--format-version", "1"], cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            resolved = json.loads(result.stdout)
+            vendor = next(p for p in resolved["packages"] if p["name"] == "packaging-vendor-probe")
+            self.assertEqual(Path(vendor["manifest_path"]), dep / "Cargo.toml")
 
 
 if __name__ == "__main__":
