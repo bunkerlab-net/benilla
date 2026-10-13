@@ -20,9 +20,15 @@ steps. Creating the pull request does not produce downloadable binaries.
 
 Artifacts expire after 14 days, subject to repository retention settings. Each
 artifact contains a player archive and its SHA-256 checksum. The player archive
-always includes `corresponding-source.tar.gz`, with the exact committed source,
-locked vendored dependencies, build scripts, and license/provenance notices. Names include the platform
-and full source commit. Extract the GitHub artifact ZIP first, then the archive
+includes `SOURCE-DOWNLOAD.txt`, with an exact link and SHA-256 for its separate
+`benilla-source-<platform>-<commit>` artifact in the same run. That source download
+contains the exact committed source, locked vendored dependencies, build scripts,
+and license/provenance notices. Source uploads happen before binary uploads and
+request 90-day retention, longer than the player's 14 days. CI verifies the actual
+source expiration is more than 15 days away before packaging the player; stricter
+repository limits fail closed. Never manually remove a source artifact while its
+binary is available.
+Names include the platform and full source commit. Extract the GitHub artifact ZIP first, then the archive
 inside it. Unix archives preserve the executable permission.
 
 To verify the archive on Linux, run `sha256sum -c <archive>.sha256`. On macOS, run
@@ -116,14 +122,18 @@ Each job first snapshots the selected full Git commit, runs `cargo vendor --lock
 sources, using `--offline --locked`. `SOURCE-MANIFEST.json` records the source
 commit and SHA-256 of every source/dependency file. `BUILD-INFO.txt` records the
 Rust, Cargo, and mbx versions. Packaging checks that the snapshot has not changed
-and includes its entire contents in `corresponding-source.tar.gz` inside the player
-archive. Source and binary therefore share the same download and expiration.
+and archives its entire contents in the matching separate source download. CI
+uploads source first and packages the player only after upload succeeds, using
+the returned exact artifact URL and source archive hash. Both are available
+through the same run with the same GitHub sign-in requirement. Source retention
+is longer than binary retention; keep it available while offering the binary.
 Packaging refuses missing source, licenses, dependencies, changed source, symlinks,
 and known game-data/local-state paths. Only Git-tracked project files and Cargo's
 dependency sources enter the snapshot, never arbitrary checkout contents. This
 is not a general secret scanner: review tracked additions before building.
 
-To reproduce the build, extract `corresponding-source.tar.gz`, change into its
+To reproduce the build, download the source using `SOURCE-DOWNLOAD.txt`, verify
+its SHA-256, extract the artifact ZIP and its `*-source.tar.gz`, and change into its
 `benilla-source-<commit>` folder, install the repository Rust toolchain and the
 platform prerequisites above, then run:
 
@@ -149,18 +159,25 @@ export CARGO_TARGET_DIR="$PWD/target"
 python3 scripts/package-player.py --platform <platform> --commit "$commit"
 ```
 
+Local packaging without `--source-url` still embeds `corresponding-source.tar.gz`
+for a self-contained distribution. CI uses `--source-only` to create and checksum
+the source first, uploads it, then supplies the upload's exact artifact URL through
+`--source-url`. Do not supply an unverified URL or one pointing at different source.
+
 Preparation requires Git, Cargo, Rust and mbx and downloads the locked dependencies.
 It refuses to reuse an existing staging directory. After a failed preparation,
 review/remove only `target/player-source/<commit>` before retrying. Packaging tests
 use fake local fixtures: `python3 scripts/test-package-player.py` needs no game data,
-Rust compiler, dependency download, or paid runner.
+dependency download or paid runner; one offline vendor-resolution test needs Cargo.
 
 GPLv3 section 1 describes Corresponding Source including necessary build scripts
 and non-system dependencies; section 6 covers object-code distribution and source
 access. See the [GNU GPLv3 text](https://www.gnu.org/licenses/gpl-3.0.html) and
 [GNU licensing FAQ](https://www.gnu.org/licenses/gpl-faq.html). This workflow uses
-accompanying matching source, not a written-offer mechanism or a repository URL
-alone. Keep the complete archive when sharing it. If mirroring binary downloads,
+equivalent access to matching source under section 6(d), not a written-offer
+mechanism or a repository URL alone. Keep source and license notices available
+when sharing the player. A GitHub artifact URL expires: for a mirror or longer-lived
+download, host the matching source alongside the binary and update the directions. If mirroring binary downloads,
 provide the matching source with equivalent access for as long as the binary is
 offered. If distributing the executable itself by peer-to-peer transfer, review
 section 6(e)'s public source/object-code availability and notice requirements;

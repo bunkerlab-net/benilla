@@ -63,6 +63,51 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
                                  f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
 
+    def test_separate_source_all_platforms(self):
+        url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
+        for platform in packager.TARGETS:
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                _, executable, _ = self.fixture(root, platform)
+                source_archive = packager.package_source(root, platform, SHA)
+                before = source_archive.read_bytes()
+                archive = packager.package(root, platform, SHA, url)
+                prefix = f"benilla-{platform}-{SHA}"
+                expected = {f"{prefix}/{p}" for p in [executable, *packager.DOCUMENTS, "SOURCE-DOWNLOAD.txt"]}
+                if platform == "windows-amd64":
+                    with zipfile.ZipFile(archive) as output:
+                        self.assertEqual(set(output.namelist()), expected)
+                        notice = output.read(f"{prefix}/SOURCE-DOWNLOAD.txt").decode()
+                else:
+                    with tarfile.open(archive) as output:
+                        self.assertEqual(set(output.getnames()), expected)
+                        notice = output.extractfile(f"{prefix}/SOURCE-DOWNLOAD.txt").read().decode()
+                self.assertIn(url, notice)
+                self.assertIn(SHA, notice)
+                self.assertIn(hashlib.sha256(before).hexdigest(), notice)
+                self.assertEqual(source_archive.read_bytes(), before)
+                self.assertEqual(source_archive.with_name(source_archive.name + ".sha256").read_text(),
+                                 f"{hashlib.sha256(before).hexdigest()}  {source_archive.name}\n")
+
+    def test_separate_source_fails_closed(self):
+        url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
+        for failure in ["missing", "corrupt", "changed_source", "invalid_url", "wrong_repo"]:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                _, _, source = self.fixture(root)
+                archive = packager.package_source(root, "linux-amd64", SHA)
+                if failure == "missing":
+                    archive.unlink()
+                elif failure == "corrupt":
+                    archive.write_bytes(b"corrupt")
+                elif failure == "changed_source":
+                    (source / "Cargo.lock").write_text("changed")
+                with self.assertRaises(ValueError):
+                    packager.package(root, "linux-amd64", SHA,
+                                     "https://example.com/source" if failure == "invalid_url" else
+                                     url.replace("bunkerlab-net", "wrong-owner") if failure == "wrong_repo" else url)
+                self.assertFalse((root / "dist" / f"benilla-linux-amd64-{SHA}.tar.gz").exists())
+
     def test_packaging_under_symlinked_ancestor(self):
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)

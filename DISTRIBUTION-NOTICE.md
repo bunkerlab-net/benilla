@@ -8,7 +8,8 @@ applicable law.
 Original Benilla files retain their MIT OR Apache-2.0 grants and copyright
 notices; `LICENSE-MIT` and `LICENSE-APACHE` remain applicable to those files.
 This notice does not replace or relicense individual third-party files. Dependency
-licenses and notices accompany their source in `corresponding-source.tar.gz`.
+licenses and notices accompany their source in the matching source archive
+(see `SOURCE-DOWNLOAD.txt`, or the embedded `corresponding-source.tar.gz`).
 The patched Kira and Lua source and notices are included there too.
 
 The simulation contains a partial Rust translation of CMaNGOS Classic XP helpers,
@@ -20,10 +21,13 @@ and license documents in `crates/benilla-sim/licenses/`. The synthetic encounter
 harness is not a port of full Classic combat or a claim of full gameplay parity.
 
 The matching build source, locked dependency sources, license texts, build scripts,
-and build information accompany this executable in `corresponding-source.tar.gz`.
-Extract that archive and follow `docs/BUILDS.md`. Keep source and notices with the
-binary when redistributing it; a source repository URL alone is not this delivery
-mechanism. Do not redistribute a binary artifact after dropping its source archive.
+and build information are provided through the exact download and SHA-256 in
+`SOURCE-DOWNLOAD.txt`, or through an embedded `corresponding-source.tar.gz` in a
+self-contained package. Extract that archive and follow `docs/BUILDS.md`. When
+redistributing, keep the source and notices with the binary or provide equivalent
+source access alongside its download and update the directions. A source repository
+URL alone is not this delivery mechanism. Do not offer a binary after its matching
+source download expires or is removed.
 
 No Blizzard game-install files, extracted assets, original FrameXML, account
 credentials, or populated local configuration are part of this distribution.

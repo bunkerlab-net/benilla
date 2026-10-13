@@ -4,11 +4,13 @@ import argparse
 import hashlib
 import io
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tarfile
 import zipfile
+from urllib.parse import urlparse
 
 TARGETS = {
     "linux-amd64": "x86_64-unknown-linux-gnu",
@@ -178,10 +180,31 @@ def write_tar(archive, files, prefix, executable=None):
                 output.addfile(info, content)
 
 
-def package(root, platform, commit):
+def source_archive_path(root, platform, commit):
+    return root / "dist" / f"benilla-{platform}-{commit}-source.tar.gz"
+
+
+def checksum(archive):
+    archive.with_name(archive.name + ".sha256").write_text(
+        f"{digest(archive)}  {archive.name}\n", encoding="utf-8")
+
+
+def package_source(root, platform, commit):
     check_commit(commit)
     source = source_dir(root, commit)
     source_files = validate_source(source, commit, root)
+    archive = source_archive_path(root, platform, commit)
+    archive.parent.mkdir(exist_ok=True)
+    write_tar(archive, [(source / p, p) for p in sorted([*source_files, MANIFEST])],
+              f"benilla-source-{commit}")
+    checksum(archive)
+    return archive
+
+
+def package(root, platform, commit, source_url=None):
+    check_commit(commit)
+    source = source_dir(root, commit)
+    validate_source(source, commit, root)
     executable = "benilla.exe" if platform == "windows-amd64" else "benilla"
     files = [(root / "target" / TARGETS[platform] / "release" / executable, executable)]
     files.extend((source / path, path) for path in DOCUMENTS)
@@ -190,10 +213,38 @@ def package(root, platform, commit):
     name = f"benilla-{platform}-{commit}"
     dist = root / "dist"
     dist.mkdir(exist_ok=True)
-    source_archive = dist / f"{name}-source.tar.gz"
-    write_tar(source_archive, [(source / p, p) for p in sorted([*source_files, MANIFEST])],
-              f"benilla-source-{commit}")
-    files.append((source_archive, "corresponding-source.tar.gz"))
+    if source_url is None:
+        source_archive = package_source(root, platform, commit)
+        files.append((source_archive, "corresponding-source.tar.gz"))
+    else:
+        # CI passes upload-artifact's verified URL only after source upload succeeds.
+        # Reject arbitrary hosts, credentials, queries and malformed artifact links.
+        url = urlparse(source_url)
+        repository = os.environ.get("GITHUB_REPOSITORY", "bunkerlab-net/benilla")
+        if (url.scheme != "https" or url.netloc != "github.com" or url.query or url.fragment
+                or not re.fullmatch(r"/" + re.escape(repository) + r"/actions/runs/[0-9]+/artifacts/[0-9]+", url.path)):
+            raise ValueError("source URL must be an exact HTTPS GitHub Actions artifact URL")
+        source_archive = source_archive_path(root, platform, commit)
+        regular(source_archive, root)
+        source_checksum = source_archive.with_name(source_archive.name + ".sha256")
+        regular(source_checksum, root)
+        expected = f"{digest(source_archive)}  {source_archive.name}\n"
+        if source_checksum.read_text(encoding="utf-8") != expected:
+            raise ValueError("prepared source archive checksum mismatch")
+        notice = dist / f"{name}-SOURCE-DOWNLOAD.txt"
+        notice.write_text(
+            f"Corresponding Source for Benilla\nSource commit: {commit}\n"
+            f"Platform: {platform}\n\nDownload: {source_url}\n"
+            f"Archive: {source_archive.name}\nSHA-256: {digest(source_archive)}\n\n"
+            "Download access is through the same GitHub Actions run as the player; "
+            "GitHub sign-in is required for both. Extract the downloaded ZIP, then "
+            "the source tar.gz. See docs/BUILDS.md for offline build instructions.\n"
+            "The complete source includes locked dependencies and license notices. "
+            "Keep this source available with equivalent access for as long as the "
+            "binary is offered. When mirroring or redistributing, include the source "
+            "archive or host it alongside the binary and update these directions; "
+            "do not rely on an expired GitHub artifact.\n", encoding="utf-8")
+        files.append((notice, "SOURCE-DOWNLOAD.txt"))
     if platform == "windows-amd64":
         archive = dist / f"{name}.zip"
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
@@ -202,8 +253,7 @@ def package(root, platform, commit):
     else:
         archive = dist / f"{name}.tar.gz"
         write_tar(archive, files, name, executable=executable)
-    archive.with_name(archive.name + ".sha256").write_text(
-        f"{digest(archive)}  {archive.name}\n", encoding="utf-8")
+    checksum(archive)
     return archive
 
 
@@ -212,11 +262,20 @@ if __name__ == "__main__":
     parser.add_argument("--platform", choices=TARGETS)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--prepare-source", action="store_true")
+    parser.add_argument("--source-only", action="store_true")
+    parser.add_argument("--source-url", help="already uploaded exact source artifact URL; omit to embed source")
     args = parser.parse_args()
+    if args.prepare_source and (args.source_only or args.source_url):
+        parser.error("source preparation cannot be combined with packaging options")
+    if args.source_only and args.source_url:
+        parser.error("--source-only cannot be combined with --source-url")
     root = Path(__file__).resolve().parent.parent
     if args.prepare_source:
         print(prepare_source(root, args.commit))
     elif args.platform:
-        print(package(root, args.platform, args.commit))
+        if args.source_only:
+            print(package_source(root, args.platform, args.commit))
+        else:
+            print(package(root, args.platform, args.commit, args.source_url))
     else:
         parser.error("--platform is required unless --prepare-source is used")
