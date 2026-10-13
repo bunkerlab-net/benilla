@@ -7,6 +7,7 @@ use benilla_world_runtime::{Digest, JoinBoundary, Journal, Rules, World, WorldId
 use sha2::{Digest as _, Sha256};
 use std::{fmt, path::Path};
 mod envelope;
+pub mod native;
 mod storage;
 use envelope::Envelope;
 use storage::Storage;

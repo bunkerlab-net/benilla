@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from .columns import COLUMNS, STARTER_SCHEMA
-from . import event_ai, starter
+from . import event_ai, starter, learning, native_spawn
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -26,6 +26,8 @@ class Query:
         check(self.table in COLUMNS and self.table in KEYS, "query.unreviewed_table")
         check(self.table != event_ai.TABLE or self.mode == "event_ai_selectors",
               "query.event_ai_mode")
+        check(self.table not in native_spawn.TABLES or self.mode == "native_spawn_selectors",
+              "query.native_spawn_mode")
         integer(self.limit, 1, MAX_ROWS, "query.limit")
         columns = ",".join(f"`{name}` AS `{name}`" for name in COLUMNS[self.table])
         order = ",".join(f"`{name}`" for name in KEYS[self.table])
@@ -45,6 +47,20 @@ class Query:
                 check(value != 0, "query.event_ai_zero_selector")
             where = f"`creature_id` IN ({','.join(['%s']*len(self.ids))})"
             params = self.ids
+        elif self.mode == "native_spawn_selectors":
+            check(self.table in native_spawn.TABLES and self.selection is None
+                  and 0 < len(self.ids) <= MAX_ROWS, "query.native_spawn_selectors")
+            check(len(set(self.ids)) == len(self.ids), "query.duplicate_ids")
+            for value in self.ids:
+                integer(value, 0 if self.table == "creature_spawn_data_template" else 1,
+                        0xffffffff, "query.native_spawn_selector")
+            field = native_spawn.SELECTOR_COLUMNS[self.table]
+            where = f"`{field}` IN ({','.join(['%s']*len(self.ids))})"
+            params = self.ids
+        elif self.mode == "learning_presence":
+            check(self.table == "spell_learn_spell" and self.selection is None and not self.ids
+                  and self.limit == 1, "query.learning_presence")
+            where, params = "1=1", ()
         elif self.mode == "region":
             check(self.table == "creature" and self.selection is not None and not self.ids, "query.region")
             # Revalidate programmatic callers too.
@@ -67,7 +83,7 @@ class Query:
                 raise ValueError("query.unreviewed_mode")
             where = f"`{field}` IN ({','.join(['%s']*len(self.ids))})"
             params = self.ids
-        return f"SELECT {columns} FROM `{self.table}` WHERE {where} ORDER BY {order} LIMIT %s", params + (self.limit+1,)
+        return f"SELECT {columns} FROM `{self.table}` WHERE {where} ORDER BY {order} LIMIT %s", params + (self.limit if self.mode == "learning_presence" else self.limit+1,)
 
 class ReadSource(Protocol):
     def inspect(self) -> dict[str, Any]: ...
@@ -77,8 +93,11 @@ class ReadSource(Protocol):
     def finish_read(self) -> None: ...
 
 
-def capture(source: ReadSource, selection: Selection, quiescent: bool = False) -> dict[str, Any]:
+def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
+            dependency_request: dict[str, Any] | None = None) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
+    if dependency_request is not None:
+        learning.request(dependency_request, selection)
     inventory = source.inspect()
     minimum = required_tables(selection)
     profiles = schema_profile(inventory, minimum)
@@ -165,7 +184,16 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False) -
             rows = source.fetch(query) if selected else []
             tables[event_ai.TABLE] = account(normalize_rows(event_ai.TABLE, rows,
                                                             profiles[event_ai.TABLE], MAX_ROWS))
+        if selection.starter is not None:
+            # These reads share the same transaction/quiescent snapshot and budgets
+            # as creature rows. Read all rows, including neutral-looking hooks.
+            tables["creature_spawn_data"] = get("creature_spawn_data", {r["guid"] for r in spawns},
+                                                mode="native_spawn_selectors")
+            for table, ids in native_spawn.selectors(tables).items():
+                if table != "creature_spawn_data":
+                    tables[table] = get(table, set(ids), mode="native_spawn_selectors")
         model_ids = {r[f"DisplayId{i}"] for r in creatures.values() for i in range(1,5) if r[f"DisplayId{i}"] > 0}
+        model_ids.update(r["ModelId"] for r in tables.get("creature_spawn_data_template", []) if r["ModelId"])
         models = get("creature_model_info", model_ids)
         require_ids("creature_model_info", models, model_ids)
         tables["creature_model_info"] = models
@@ -182,11 +210,15 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False) -
         stats = [r for r in stats if (r["Class"], r["Level"]) in needed_stats]
         tables["creature_template_classlevelstats"] = stats
         item_ids = referenced_items(quests) | starter_items
+        if dependency_request is not None:
+            item_ids.update(dependency_request["item_ids"])
         items = get("item_template", item_ids, MAX_ITEMS)
         require_ids("item_template", items, item_ids)
         tables["item_template"] = items
         required["item_template"] = item_ids
         spell_ids = set(selection.spell_ids) | starter_spells
+        if dependency_request is not None:
+            spell_ids.update(dependency_request["spell_ids"])
         for quest in quests:
             spell_ids.update(quest[k] for k in ["SrcSpell", "RewSpell", "RewSpellCast"] if quest[k] > 0)
         for item in items:
@@ -194,17 +226,37 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False) -
             if selection.starter is not None and item["requiredspell"]:
                 spell_ids.add(integer(item["requiredspell"], 1, 0xffffffff, "reference.required_spell"))
         spells: dict[int, dict[str, Any]] = {}
-        for _ in range(16):
+        global_learning_rows = []
+        if selection.starter is not None:
+            # Native LoadSpellLearnSpells exits before its effect scan if the
+            # entire SQL table is empty. Selected-empty rows cannot prove that.
+            query = Query("spell_learn_spell", "learning_presence", limit=1)
+            query.sql()
+            global_learning_rows = account(normalize_rows("spell_learn_spell", source.fetch(query),
+                                                          profiles["spell_learn_spell"], 1))
+        if selection.starter is not None:
+            tables.update({table: [] for table in learning.TABLES})
+        # Each productive pass consumes a previously unseen spell. Cycles terminate
+        # at the visited set, not at an arbitrary sixteen-edge truncation.
+        for _ in range(MAX_SPELLS + 1):
             missing = spell_ids - set(spells)
             if not missing:
                 break
             rows = get("spell_template", missing, MAX_SPELLS)
             require_ids("spell_template", rows, missing)
             spells.update((r["Id"], r) for r in rows)
+            if selection.starter is not None:
+                for table in learning.TABLES:
+                    tables[table].extend(get(table, missing))
+                    check(len(tables[table]) <= MAX_ROWS, "learning.row_limit")
+                spell_ids.update(learning.references(tables))
             for row in rows:
                 spell_ids.update(row[f"EffectTriggerSpell{i}"] for i in range(1,4) if row[f"EffectTriggerSpell{i}"] > 0)
             check(len(spell_ids) <= MAX_SPELLS, "closure.spell_limit")
         check(spell_ids == set(spells), "closure.spell_depth")
+        if selection.starter is not None:
+            for table in learning.TABLES:
+                tables[table].sort(key=lambda r: tuple(r[k] for k in KEYS[table]))
         if spells or selection.starter is not None:
             tables["spell_template"] = [spells[k] for k in sorted(spells)]
             required["spell_template"] = spell_ids
@@ -224,6 +276,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False) -
         if selection.starter is not None:
             bundle["starter_required_keys"] = starter.keys(tables)
             bundle["event_ai_capture"] = event_ai.evidence(tables)
+            bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
+            bundle["learning_capture"] = learning.evidence(tables, dependency_request, global_learning_rows)
         check(len(canonical(bundle)) <= MAX_BUNDLE_BYTES, "bundle.byte_limit")
         validate_bundle(bundle)
         return bundle
@@ -240,6 +294,10 @@ def validate_bundle(bundle: Any) -> None:
         expected.add("starter_required_keys")
         if "event_ai_capture" in bundle:
             expected.add("event_ai_capture")
+        if "learning_capture" in bundle:
+            expected.add("learning_capture")
+        if "native_spawn_capture" in bundle:
+            expected.add("native_spawn_capture")
     check(set(bundle) == expected, "bundle.fields")
     check(bundle["format"] in {FORMAT, STARTER_FORMAT} and bundle["core_revision"] == CORE_REVISION
           and bundle["database_revision"] == DATABASE_REVISION and bundle["client_build"] == 5875,
@@ -281,6 +339,16 @@ def validate_bundle(bundle: Any) -> None:
     if "event_ai_capture" in bundle:
         check(selection.starter is not None, "event_ai.starter_selection_required")
         event_ai.validate(bundle["event_ai_capture"], bundle["tables"])
+    check(bool(set(learning.TABLES) & set(bundle["tables"])) == ("learning_capture" in bundle),
+          "learning.coverage_required_with_tables")
+    if "learning_capture" in bundle:
+        check(selection.starter is not None, "learning.starter_selection_required")
+        learning.validate(bundle["learning_capture"], bundle["tables"], selection, profiles["spell_learn_spell"])
+    check(bool(set(native_spawn.TABLES) & set(bundle["tables"])) == ("native_spawn_capture" in bundle),
+          "native_spawn.coverage_required_with_tables")
+    if "native_spawn_capture" in bundle:
+        check(selection.starter is not None, "native_spawn.starter_selection_required")
+        native_spawn.validate(bundle)
     check(type(bundle["required_ids"]) is dict and set(bundle["required_ids"]) <= set(bundle["tables"]), "bundle.references")
     reference_tables = {"creature_template", "creature_model_info", "quest_template", "item_template"}
     if "spell_template" in bundle["tables"]:

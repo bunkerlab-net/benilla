@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .columns import COLUMNS, STARTER_SCHEMA
+from .columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA
 
 FORMAT = "benilla-classic-source-slice-v1"
 STARTER_FORMAT = "benilla-classic-source-slice-v2"
@@ -27,6 +27,14 @@ MAX_BUNDLE_BYTES = 64 * 1024 * 1024
 MAX_SCHEMA_BYTES = 2 * 1024 * 1024
 MAX_TEXT_BYTES = 16384
 KEYS = {
+    "creature_spawn_data": ("Guid",),
+    # Native SQL allows repeated Entry, but the loader overwrites by Entry without
+    # ORDER BY. Reject duplicate Entries rather than choose a nondeterministic row.
+    "creature_spawn_data_template": ("Entry",),
+    "game_event_creature": ("guid", "event"), "pool_creature": ("guid",),
+    "pool_creature_template": ("id",), "creature_addon": ("guid",),
+    "creature_template_addon": ("entry",),
+    "spell_chain": ("spell_id",), "spell_learn_spell": ("entry", "SpellID"),
     "creature_ai_scripts": ("id",),
     "creature": ("guid",), "creature_template": ("Entry",),
     "creature_model_info": ("modelid",), "quest_template": ("entry",),
@@ -45,6 +53,9 @@ KEYS = {
     "player_levelstats": ("race", "class", "level"), "player_xp_for_level": ("lvl",),
 }
 TEXT_COLUMNS = {
+    "creature_spawn_data_template": {"Name"},
+    "pool_creature": {"description"}, "pool_creature_template": {"description"},
+    "creature_addon": {"auras"}, "creature_template_addon": {"auras"},
     "db_version": {"version", "creature_ai_version"},
     "playercreateinfo_spell": {"Note"}, "playercreateinfo_skills": {"note"},
     "creature_template": {"Name", "SubName", "AIName", "ScriptName"},
@@ -162,6 +173,8 @@ def required_tables(selection: Selection) -> set[str]:
         minimum.add("spell_template")
     if selection.starter is not None:
         minimum.update(STARTER_SCHEMA)
+        minimum.update(LEARNING_SCHEMA)
+        minimum.update(SPAWN_SCHEMA)
         minimum.add("creature_ai_scripts")
     return minimum
 
@@ -193,9 +206,9 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
         missing = wanted - set(by_name)
         if table in required:
             check(not missing, f"schema.missing_columns:{table}")
-        if table in STARTER_SCHEMA and table in required:
+        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA) and table in required:
             check(wanted == set(by_name), f"schema.starter_columns:{table}")
-            for ordinal, (name, kind, nullable) in enumerate(STARTER_SCHEMA[table], 1):
+            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA)[table], 1):
                 actual = by_name[name.casefold()]
                 observed, expected = sql_type(actual["type"]), sql_type(kind)
                 # Ignore display width for integer types, never size/signedness/nullability/order.
@@ -303,8 +316,10 @@ def normalize_rows(table: str, rows: list[dict[str, Any]], profile: dict[str, An
         converted = {name: normalize_cell(row[name], column) for name, column in columns.items()}
         key = tuple(converted[name] for name in KEYS[table])
         zero_keys = {"playercreateinfo_action": {"button"},
-                     "playercreateinfo_skills": {"raceMask", "classMask"}}.get(table, set())
-        check(all(type(row_value) is int and row_value >= (0 if name in zero_keys else 1)
+                     "playercreateinfo_skills": {"raceMask", "classMask"},
+                     "creature_spawn_data_template": {"Entry"}}.get(table, set())
+        check(all(type(row_value) is int and row_value >= (-32768 if table == "game_event_creature" and name == "event"
+                               else 0 if name in zero_keys else 1)
                   for name, row_value in zip(KEYS[table], key)), f"row.key:{table}")
         check(key not in keys, f"row.duplicate_key:{table}")
         keys.add(key)
@@ -341,7 +356,8 @@ def report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any]) ->
         for row in rows:
             key = ":".join(str(row[name]) for name in KEYS[table])
             if table == "creature":
-                add(table, key, "spawn.overrides_pools_events_not_captured")
+                if not set(SPAWN_SCHEMA) <= set(tables):
+                    add(table, key, "spawn.overrides_pools_events_not_captured")
                 if row["MovementType"] or row["spawndist"] != {"decimal": "0"}:
                     add(table, key, "movement.native_rules_required")
             elif table == "creature_template":

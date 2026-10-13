@@ -11,6 +11,7 @@ import sys
 import tempfile
 
 from classic_export.capture import capture, validate_bundle
+from classic_export import learning
 from classic_export.core import (COLUMNS, CORE_REVISION, DATABASE_REVISION, ExportError,
                                  MAX_BUNDLE_BYTES, MAX_SCHEMA_BYTES, Selection,
                                  canonical, check, decode_json, digest, required_tables, schema_profile)
@@ -59,6 +60,7 @@ def main() -> int:
         cmd.add_argument("--output", type=Path, required=True, help="new private local file, preferably under benilla-config")
         if name == "capture":
             cmd.add_argument("--selection", type=Path, required=True)
+            cmd.add_argument("--dependency-request", type=Path, help="bounded native preparation recapture request")
             cmd.add_argument("--quiescent-snapshot", action="store_true",
                              help="operator confirms no writer can change this already prepared local snapshot")
     cmd = sub.add_parser("plan")
@@ -88,10 +90,14 @@ def main() -> int:
         else:
             # Import/authentication occurs only in an explicit user's local read action.
             selection = Selection.parse(read_json(args.selection, 65536)) if args.command == "capture" else None
+            dependency_request = None
+            if args.command == "capture" and args.dependency_request is not None:
+                dependency_request = learning.request(read_json(args.dependency_request, 65536), selection)
             from classic_export.driver import LocalSqlSource
             source = LocalSqlSource(args.database, args.user, args.port)
             try:
-                output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot)
+                output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot,
+                    dependency_request)
             finally:
                 source.close()
         write_new(args.output, output)

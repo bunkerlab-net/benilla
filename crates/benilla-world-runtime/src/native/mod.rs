@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Versioned integration of native-mechanic components. Production admission is closed.
+//! OriginalFixture `World` v2 remains distinct. This module is not a full Classic server.
+mod combat;
+mod engine;
+pub mod equipment;
+pub use combat::*;
+mod model;
+mod persistence;
+mod rng;
+use benilla_sim::{classic_spell as spell, creature_ai as ai, mage_resource as mana};
+pub use model::*;
+pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIdentity, TickRecord};
+pub use rng::{Draw, DrawPurpose, RNG_POLICY};
+use std::collections::BTreeMap;
+
+pub const NATIVE_FORMAT_VERSION: u32 = 2;
+pub const NATIVE_POLICY: &str = "benilla-native-integration-source-melee-order-v2";
+// Keeps direct/periodic combat receipts under the AI component's 64-event bound.
+pub const MAX_CASTS: usize = 16;
+pub const MAX_AURAS: usize = 16;
+pub const MAX_RECORDS: usize = 2048;
+pub const MAX_RNG_WORDS_PER_TICK: u64 = 1_000_000;
+pub const MAX_BYTES: usize = 8 * 1024 * 1024;
+pub const SOLO_UNIT: u64 = 1;
+/// Deliberately uninhabited until a Rust raw-input compiler can prove every critical dependency.
+/// No JSON preparation file, hash, test constructor or network packet grants this capability.
+/// ```compile_fail
+/// use benilla_world_runtime::native::NativeCapability;
+/// let capability: NativeCapability = serde_json::from_str("{}").unwrap();
+/// ```
+pub enum NativeCapability {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeError {
+    InvalidProfile,
+    InvalidInput,
+    InvalidState,
+    InvalidCheckpoint,
+    Incompatible,
+    TooLarge,
+    Limit,
+    AuthorityBinding,
+    AuthorityUnavailable(&'static str),
+    UnsupportedAbility(u32),
+    UnknownTarget,
+    Navigation(ai::AiError),
+    Spell(spell::SpellError),
+    ReplayMismatch,
+    UnsupportedMechanic(&'static str),
+    Equipment(equipment::EquipmentError),
+    Initialization(benilla_sim::starter_init::InitError),
+    Melee(benilla_sim::npc_melee::MeleeError),
+}
+impl std::fmt::Display for NativeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "native world: {self:?}")
+    }
+}
+impl std::error::Error for NativeError {}
+impl From<spell::SpellError> for NativeError {
+    fn from(e: spell::SpellError) -> Self {
+        Self::Spell(e)
+    }
+}
+impl From<ai::AiError> for NativeError {
+    fn from(e: ai::AiError) -> Self {
+        Self::Navigation(e)
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeWorld {
+    profile: Profile,
+    profile_digest: crate::Digest,
+    state: State,
+    journal: Vec<TickRecord>,
+    journal_bytes: usize,
+    journal_tip: crate::Digest,
+}
+impl NativeWorld {
+    pub fn from_verified_native(_profile: Profile, capability: NativeCapability) -> Self {
+        match capability {}
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub fn synthetic_component_test(
+        profile: Profile,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+        seed: u64,
+    ) -> Result<Self, NativeError> {
+        profile.validate()?;
+        if world == [0; 16] || player.owner == [0; 16] || player.character == [0; 16] {
+            return Err(NativeError::InvalidProfile);
+        }
+        let mut npcs = BTreeMap::new();
+        for p in &profile.npcs {
+            npcs.insert(
+                p.ai.creature_id,
+                Npc {
+                    id: crate::NpcId {
+                        spawn: p.ai.creature_id,
+                        generation: 0,
+                    },
+                    health: p.max_health,
+                    ai: ai::SoloCreatureAi::new(p.ai.clone())?,
+                    auras: BTreeMap::new(),
+                },
+            );
+        }
+        let resources = mana::MageManaState::from_state(
+            spell::CasterResources::new(profile.player.current_mana)?,
+            profile.player.max_mana,
+            profile.player.regen(),
+            0,
+            0,
+        )?;
+        let state = State {
+            domain: Domain::SyntheticComponentTest,
+            world,
+            player,
+            seed,
+            tick: 0,
+            next_sequence: 0,
+            now_ms: profile.clock_origin_ms,
+            position: profile.player.start,
+            health: profile.player.current_health,
+            resources,
+            npcs,
+            casts: BTreeMap::new(),
+            next_cast_id: 1,
+            rng_counter: 0,
+            combat: profile
+                .combat
+                .as_ref()
+                .map(PlayerCombatState::new)
+                .transpose()?,
+        };
+        Ok(Self {
+            profile_digest: profile.digest(),
+            profile,
+            state,
+            journal: Vec::new(),
+            journal_bytes: 2,
+            journal_tip: [0; 32],
+        })
+    }
+    pub fn profile(&self) -> &Profile {
+        &self.profile
+    }
+    pub fn state(&self) -> &State {
+        &self.state
+    }
+    pub fn state_digest(&self) -> crate::Digest {
+        crate::digest(b"benilla-native-state-v2\0", &self.checkpoint_state())
+    }
+    pub fn profile_digest(&self) -> crate::Digest {
+        self.profile_digest
+    }
+    pub fn last_tick(&self) -> Option<&TickRecord> {
+        self.journal.last()
+    }
+    pub fn records(&self) -> &[TickRecord] {
+        &self.journal
+    }
+}
+
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_fixture;
+#[cfg(test)]
+mod tests;
+
+impl From<equipment::EquipmentError> for NativeError {
+    fn from(e: equipment::EquipmentError) -> Self {
+        Self::Equipment(e)
+    }
+}
+impl From<benilla_sim::starter_init::InitError> for NativeError {
+    fn from(e: benilla_sim::starter_init::InitError) -> Self {
+        Self::Initialization(e)
+    }
+}
+impl From<benilla_sim::npc_melee::MeleeError> for NativeError {
+    fn from(e: benilla_sim::npc_melee::MeleeError) -> Self {
+        Self::Melee(e)
+    }
+}
+
+#[cfg(test)]
+mod melee_tests;

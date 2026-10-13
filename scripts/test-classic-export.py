@@ -16,7 +16,7 @@ import warnings
 import getpass
 
 from classic_export.capture import Query, capture, validate_bundle
-from classic_export.columns import COLUMNS, STARTER_SCHEMA
+from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA
 from classic_export import starter
 from classic_export.core import (ExportError, MAX_ROWS, Selection, TEXT_COLUMNS,
                                  canonical, decode_json, digest, normalize_cell,
@@ -37,6 +37,9 @@ def schema():
             if table == "creature_ai_scripts":
                 kind = "int unsigned" if name == "id" else "int"
             columns.append({"name": name, "type": kind, "nullable": False, "ordinal": ordinal})
+        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA):
+            columns = [{"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
+                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA)[table], 1)]
         tables[table] = {"engine": "InnoDB", "table_type": "BASE TABLE", "columns": columns}
     return {"format_version": 1, "tables": tables}
 
@@ -110,6 +113,8 @@ class FakeSource:
                 values = [r for r in values if r["class"] == s.class_id
                           and ("race" not in r or r["race"] == s.race)
                           and ("level" not in r or 1 <= r["level"] <= s.level_cap)]
+        elif query.mode == "learning_presence":
+            return copy.deepcopy(values[:1])
         elif query.mode == "quest_ids":
             values = [r for r in values if r["quest"] in query.ids]
         elif query.mode == "event_ai_selectors":
@@ -410,6 +415,8 @@ def starter_selection(cap=3):
 
 def starter_source(cap=3):
     source = FakeSource()
+    source.rows["creature_spawn_data_template"] = [row("creature_spawn_data_template", Entry=0,
+        NpcFlags=-1, UnitFlags=-1, EquipmentId=-1, Name="Original synthetic defaults")]
     for table, fields in STARTER_SCHEMA.items():
         source.inventory["tables"][table]["columns"] = [
             {"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
@@ -772,6 +779,8 @@ class EventAiCaptureTests(unittest.TestCase):
         bundle["table_sha256"].pop("creature_ai_scripts")
         bundle["schema"]["tables"].pop("creature_ai_scripts")
         bundle["schema_sha256"] = digest(bundle["schema"])
+        from classic_export.native_spawn import evidence
+        bundle["native_spawn_capture"] = evidence(bundle)
         profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
         bundle["report"]["unsupported"] = full_report(bundle["tables"], profiles, starter_selection())
         validate_bundle(bundle)
@@ -796,6 +805,356 @@ class EventAiCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError, "rows.limit:creature_ai_scripts"):
             capture(source, starter_selection())
         self.assertTrue(source.finished)
+
+
+
+class LearningExportTests(unittest.TestCase):
+    def request(self, source=None):
+        from classic_export.learning import REQUEST_FORMAT
+        from classic_export.core import CORE_REVISION
+        return {"format": REQUEST_FORMAT, "core_revision": CORE_REVISION,
+                "selection": starter_selection().json(), "source_sha256": "a"*64,
+                "dbc_sha256": {"Spell": "b"*64}, "spell_ids": [50001], "item_ids": []}
+
+    def source(self):
+        source = starter_source()
+        source.rows["spell_template"] += [row("spell_template", Id=i, Effect1=2) for i in range(50001, 50031)]
+        return source
+
+    def test_sql_learning_rank_fixed_point_and_exact_selector_evidence(self):
+        source = self.source()
+        source.rows["spell_learn_spell"] = [row("spell_learn_spell", entry=i, SpellID=i+1, Active=i % 2)
+                                                   for i in range(50001, 50025)]
+        source.rows["spell_chain"] = [row("spell_chain", spell_id=50025, prev_spell=50026,
+                                              first_spell=50027, rank=2, req_spell=50028)]
+        bundle = capture(source, starter_selection(), dependency_request=self.request())
+        validate_bundle(bundle)
+        self.assertTrue(set(range(50001, 50029)) <= set(bundle["required_ids"]["spell_template"]))
+        self.assertNotIn(50029, bundle["required_ids"]["spell_template"])
+        evidence = bundle["learning_capture"]
+        self.assertEqual(evidence["spell_ids"], bundle["required_ids"]["spell_template"])
+        self.assertEqual(evidence["filter"], "all_matching_rows_no_loader_filters")
+        self.assertEqual(evidence["dependency_request"], self.request())
+        self.assertEqual(len(bundle["tables"]["spell_learn_spell"]), 24)
+        self.assertTrue(source.finished)
+
+    def test_learning_and_rank_cycles_terminate_without_duplicates(self):
+        source = self.source()
+        source.rows["spell_learn_spell"] = [row("spell_learn_spell", entry=50001, SpellID=50002, Active=1),
+                                                row("spell_learn_spell", entry=50002, SpellID=50001, Active=0)]
+        source.rows["spell_chain"] = [row("spell_chain", spell_id=50001, prev_spell=50002, first_spell=50001, rank=1),
+                                          row("spell_chain", spell_id=50002, prev_spell=50001, first_spell=50001, rank=2)]
+        bundle = capture(source, starter_selection(), dependency_request=self.request())
+        self.assertEqual(len(bundle["tables"]["spell_learn_spell"]), 2)
+        self.assertEqual(len(bundle["tables"]["spell_chain"]), 2)
+        self.assertEqual(len([q for q in source.queries if "FROM `spell_learn_spell`" in q[0] and "WHERE `entry`" in q[0]]), 2)
+
+    def test_absence_evidence_cannot_be_removed_or_relabelled(self):
+        bundle = capture(starter_source(), starter_selection())
+        self.assertEqual(bundle["tables"]["spell_learn_spell"], [])
+        for mutate in (lambda b: b.pop("learning_capture"),
+                       lambda b: b["learning_capture"]["spell_ids"].pop(),
+                       lambda b: b["tables"].pop("spell_chain")):
+            copy_bundle = copy.deepcopy(bundle)
+            mutate(copy_bundle)
+            with self.assertRaises(ExportError):
+                validate_bundle(copy_bundle)
+
+    def test_missing_table_wrong_signedness_extra_columns_and_nullability_fail(self):
+        for mode in ("missing", "unsigned", "nullable", "extra"):
+            source = starter_source()
+            columns = source.inventory["tables"]["spell_chain"]["columns"]
+            if mode == "missing":
+                source.inventory["tables"].pop("spell_chain")
+            elif mode == "unsigned":
+                columns[0]["type"] = "mediumint unsigned"
+            elif mode == "nullable":
+                columns[0]["nullable"] = True
+            else:
+                columns.append({"name": "unexpected", "type": "int", "nullable": False, "ordinal": 6})
+            with self.subTest(mode=mode), self.assertRaises(ExportError):
+                capture(source, starter_selection())
+            self.assertFalse(source.started)
+
+    def test_missing_learned_spell_fails_and_ends_read(self):
+        source = self.source()
+        source.rows["spell_learn_spell"] = [row("spell_learn_spell", entry=50001, SpellID=55000, Active=1)]
+        with self.assertRaisesRegex(ExportError, "missing_or_unexpected:spell_template"):
+            capture(source, starter_selection(), dependency_request=self.request())
+        self.assertTrue(source.finished)
+
+    def test_bad_request_rejected_before_sql_and_id_queries_are_parameterized(self):
+        for change in ({"spell_ids": [True]}, {"spell_ids": [2, 1]}, {"spell_ids": [1, 1]},
+                       {"spell_ids": [1]*513}, {"item_ids": [-1]}, {"format": "bad"},
+                       {"source_sha256": "x"*64}, {"dbc_sha256": {"../../evil": "a"*64}},
+                       {"selection": selection().json()}):
+            source = self.source()
+            request = self.request() | change
+            with self.subTest(change=change), self.assertRaises(ExportError):
+                capture(source, starter_selection(), dependency_request=request)
+            self.assertFalse(source.started)
+        sql, args = Query("spell_learn_spell", "ids", (50001,), limit=32).sql()
+        self.assertNotIn("50001", sql)
+        self.assertEqual(args, (50001, 33))
+        self.assertIn("ORDER BY `entry`,`SpellID`", sql)
+
+    def test_global_learning_probe_is_bounded_and_distinct_from_selected_empty(self):
+        source = starter_source()
+        source.rows["spell_learn_spell"] = [row("spell_learn_spell", entry=50001+i, SpellID=51001+i, Active=1)
+                                                 for i in range(5)]
+        bundle = capture(source, starter_selection())
+        self.assertEqual(bundle["tables"]["spell_learn_spell"], [])
+        self.assertEqual(bundle["learning_capture"]["global_learn_spell_probe"]["rows"],
+                         source.rows["spell_learn_spell"][:1])
+        probes = [q for q in source.queries if "FROM `spell_learn_spell` WHERE 1=1" in q[0]]
+        self.assertEqual(len(probes), 1)
+        self.assertEqual(probes[0][1], (1,))
+        invalid = copy.deepcopy(bundle)
+        invalid["learning_capture"]["global_learn_spell_probe"]["rows"] *= 2
+        with self.assertRaises(ExportError):
+            validate_bundle(invalid)
+        with self.assertRaises(ExportError):
+            Query("item_template", "learning_presence", limit=1).sql()
+        with self.assertRaises(ExportError):
+            Query("spell_learn_spell", "learning_presence", limit=2).sql()
+
+    def test_probe_cannot_claim_empty_with_captured_relationships(self):
+        source = self.source()
+        source.rows["spell_learn_spell"] = [row("spell_learn_spell", entry=50001, SpellID=50002, Active=1)]
+        bundle = capture(source, starter_selection(), dependency_request=self.request())
+        bundle["learning_capture"]["global_learn_spell_probe"]["rows"] = []
+        with self.assertRaisesRegex(ExportError, "empty_probe_with_selected_rows"):
+            validate_bundle(bundle)
+
+    def test_invalid_cli_request_fails_before_authentication(self):
+        path = Path(__file__).with_name("classic-export.py")
+        spec = importlib.util.spec_from_file_location("export_cli_learning", path)
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            (directory/"selection.json").write_bytes(canonical(starter_selection().json()))
+            (directory/"request.json").write_bytes(canonical(self.request() | {"spell_ids": [True]}))
+            with mock.patch("sys.argv", [str(path), "capture", "--database", "original", "--user", "original",
+                "--selection", str(directory/"selection.json"), "--dependency-request", str(directory/"request.json"),
+                "--output", str(directory/"output.json")]), mock.patch("builtins.print"), \
+                mock.patch("classic_export.driver.LocalSqlSource") as connection:
+                self.assertEqual(cli.main(), 2)
+                connection.assert_not_called()
+            self.assertFalse((directory/"output.json").exists())
+
+    def test_invalid_active_negative_chain_and_budget_fail(self):
+        for changes in ({"Active": 2}, {"SpellID": 0}):
+            source = self.source()
+            source.rows["spell_learn_spell"] = [row("spell_learn_spell", entry=50001, SpellID=50002, Active=1) | changes]
+            with self.assertRaises(ExportError):
+                capture(source, starter_selection(), dependency_request=self.request())
+        source = self.source()
+        source.rows["spell_chain"] = [row("spell_chain", spell_id=50001, prev_spell=-1)]
+        with self.assertRaisesRegex(ExportError, "chain_reference"):
+            capture(source, starter_selection(), dependency_request=self.request())
+        source = self.source()
+        with mock.patch("classic_export.capture.MAX_SPELLS", 3), self.assertRaises(ExportError):
+            capture(source, starter_selection(), dependency_request=self.request())
+
+
+
+class NativeSpawnCaptureTests(unittest.TestCase):
+    def test_capture_selects_all_dependencies_in_one_readonly_snapshot(self):
+        source = starter_source()
+        fetch = source.fetch
+        starts = []
+        start_read = source.start_read
+        def start(*args):
+            starts.append(args)
+            return start_read(*args)
+        def checked_fetch(query):
+            self.assertTrue(source.started)
+            self.assertFalse(source.finished)
+            return fetch(query)
+        source.start_read, source.fetch = start, checked_fetch
+        source.rows["creature_spawn_data"] = [row("creature_spawn_data", Guid=1, Id=17)]
+        source.rows["creature_spawn_data_template"].append(row("creature_spawn_data_template", Entry=17,
+            NpcFlags=-1, UnitFlags=-1, EquipmentId=-1, Name="Original alternate spawn", ModelId=940099))
+        source.rows["creature_model_info"].append(row("creature_model_info", modelid=940099))
+        source.rows["game_event_creature"] = [row("game_event_creature", guid=1, event=-7),
+                                               row("game_event_creature", guid=1, event=0)]
+        source.rows["pool_creature"] = [row("pool_creature", guid=1, pool_entry=18, chance=0)]
+        source.rows["pool_creature_template"] = [row("pool_creature_template", id=900001, pool_entry=19)]
+        result = capture(source, starter_selection())
+        coverage = result["native_spawn_capture"]
+        self.assertEqual(coverage["selectors"]["creature_spawn_data_template"]["ids"], [0, 17])
+        self.assertEqual(coverage["selectors"]["creature_template_addon"]["ids"], [900001])
+        self.assertEqual([r["event"] for r in result["tables"]["game_event_creature"]], [-7, 0])
+        self.assertIn(940099, result["required_ids"]["creature_model_info"])
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(source.versions, 2)
+        self.assertTrue(source.finished)
+        self.assertEqual(coverage["snapshot"]["table_sha256"]["creature_spawn_data"],
+                         result["table_sha256"]["creature_spawn_data"])
+        sql, params = next((sql, params) for sql, params in source.queries
+                           if "FROM `creature_spawn_data_template`" in sql)
+        self.assertEqual(params, (0, 17, MAX_ROWS+1))
+        self.assertIn("`Entry` IN (%s,%s)", sql)
+
+    def test_unhandled_hooks_zero_values_and_addon_text_are_never_filtered(self):
+        source = starter_source()
+        source.rows["game_event_creature"] = [row("game_event_creature", guid=1, event=0)]
+        source.rows["pool_creature"] = [row("pool_creature", guid=1, pool_entry=0, chance=0)]
+        source.rows["creature_addon"] = [row("creature_addon", guid=1, auras="unparsed source text")]
+        result = capture(source, starter_selection())
+        for table in ("game_event_creature", "pool_creature", "creature_addon"):
+            self.assertEqual(len(result["tables"][table]), 1)
+        self.assertEqual(result["tables"]["creature_addon"][0]["auras"], "unparsed source text")
+
+    def test_capture_requires_all_exact_schemas_before_start(self):
+        from classic_export.native_spawn import TABLES
+        for table in TABLES:
+            source = starter_source()
+            source.inventory["tables"].pop(table)
+            with self.subTest(table=table), self.assertRaisesRegex(ExportError, "schema.missing_table"):
+                capture(source, starter_selection())
+            self.assertFalse(source.started)
+        mutations = [("game_event_creature", "event", {"type": "smallint unsigned"}),
+                     ("creature_spawn_data_template", "UnitFlags", {"type": "int"}),
+                     ("creature_spawn_data_template", "NpcFlags", {"type": "int unsigned"}),
+                     ("creature_template_addon", "emote", {"type": "int unsigned"}),
+                     ("creature_addon", "auras", {"nullable": False}),
+                     ("pool_creature", "chance", {"type": "double unsigned"}),
+                     ("creature_spawn_data", "Guid", {"ordinal": 3})]
+        for table, name, changes in mutations:
+            source = starter_source()
+            next(c for c in source.inventory["tables"][table]["columns"] if c["name"] == name).update(changes)
+            with self.subTest(table=table, name=name), self.assertRaisesRegex(ExportError, "schema.starter_type"):
+                capture(source, starter_selection())
+            self.assertFalse(source.started)
+        source = starter_source()
+        source.inventory["tables"]["creature_addon"]["columns"].append(
+            {"name": "UnknownHook", "type": "int", "nullable": False, "ordinal": 8})
+        with self.assertRaisesRegex(ExportError, "schema.starter_columns"):
+            capture(source, starter_selection())
+
+    def test_selector_domains_modes_and_injection_reject(self):
+        for table, ids in [("creature_spawn_data", (0,)), ("creature_spawn_data", (-1,)),
+                           ("creature_spawn_data_template", (-1,)), ("creature_addon", (True,)),
+                           ("creature_addon", (0x100000000,)), ("pool_creature", ("1 OR 1=1",)),
+                           ("creature_template_addon", (1, 1))]:
+            with self.subTest(table=table, ids=ids), self.assertRaises(ExportError):
+                Query(table, "native_spawn_selectors", ids).sql()
+        self.assertEqual(Query("creature_spawn_data_template", "native_spawn_selectors", (0,)).sql()[1],
+                         (0, MAX_ROWS+1))
+        with self.assertRaisesRegex(ExportError, "native_spawn_mode"):
+            Query("creature_addon", "ids", (1,)).sql()
+        with self.assertRaisesRegex(ExportError, "native_spawn_selectors"):
+            Query("creature", "native_spawn_selectors", (1,)).sql()
+
+    def test_missing_coverage_partial_tables_and_tampered_snapshot_reject(self):
+        for mutate in [lambda b: b.pop("native_spawn_capture"),
+                       lambda b: b["native_spawn_capture"]["selectors"]["creature_addon"].update(ids=[]),
+                       lambda b: b["native_spawn_capture"]["selectors"]["creature_spawn_data_template"].update(ids=[]),
+                       lambda b: b["native_spawn_capture"].update(filter="nonzero_rows_only"),
+                       lambda b: b["native_spawn_capture"]["snapshot"].update(consistency="other_snapshot")]:
+            bundle = capture(starter_source(), starter_selection())
+            mutate(bundle)
+            with self.assertRaisesRegex(ExportError, "native_spawn"):
+                validate_bundle(bundle)
+        bundle = capture(starter_source(), starter_selection())
+        bundle["tables"].pop("pool_creature")
+        bundle["table_sha256"].pop("pool_creature")
+        with self.assertRaisesRegex(ExportError, "native_spawn.tables_required"):
+            validate_bundle(bundle)
+
+    def test_legacy_missing_is_valid_but_empty_cannot_be_invented(self):
+        from classic_export import native_spawn
+        from classic_export.capture import full_report
+        bundle = capture(starter_source(), starter_selection())
+        bundle.pop("native_spawn_capture")
+        for table in native_spawn.TABLES:
+            bundle["tables"].pop(table)
+            bundle["table_sha256"].pop(table)
+            bundle["schema"]["tables"].pop(table)
+        bundle["schema_sha256"] = digest(bundle["schema"])
+        profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
+        bundle["report"]["unsupported"] = full_report(bundle["tables"], profiles, starter_selection())
+        validate_bundle(bundle)
+        self.assertIsNone(native_spawn.scope(bundle, 900001))
+        self.assertTrue(any(i["reason"] == "spawn.overrides_pools_events_not_captured"
+                            for i in bundle["report"]["unsupported"]))
+
+    def test_reference_and_duplicate_entry_fail_without_default_substitution(self):
+        source = starter_source()
+        source.rows["creature_spawn_data"] = [row("creature_spawn_data", Guid=1, Id=17)]
+        with self.assertRaisesRegex(ExportError, "native_spawn.template_reference_missing"):
+            capture(source, starter_selection())
+        self.assertTrue(source.finished)
+        source = starter_source()
+        source.rows["creature_spawn_data_template"][0]["ModelId"] = 941234
+        with self.assertRaisesRegex(ExportError, "reference.missing"):
+            capture(source, starter_selection())
+        source = starter_source()
+        source.rows["creature_spawn_data_template"].append(
+            dict(source.rows["creature_spawn_data_template"][0], UnitFlags=1))
+        with self.assertRaisesRegex(ExportError, "duplicate_key"):
+            capture(source, starter_selection())
+
+    def test_signed_event_and_override_domains_are_checked(self):
+        for name, value in [("NpcFlags", -2), ("NpcFlags", 0x80000000),
+                            ("UnitFlags", -2), ("UnitFlags", 0x100000000), ("EquipmentId", -2)]:
+            source = starter_source()
+            source.rows["creature_spawn_data_template"][0][name] = value
+            with self.subTest(name=name, value=value), self.assertRaises(ExportError):
+                capture(source, starter_selection())
+        for value in (-32769, 32768, True):
+            source = starter_source()
+            source.rows["game_event_creature"] = [row("game_event_creature", guid=1, event=value)]
+            with self.subTest(event=value), self.assertRaises(ExportError):
+                capture(source, starter_selection())
+
+    def test_unselected_rows_max_plus_one_and_snapshot_changes_reject(self):
+        source = starter_source()
+        fetch = source.fetch
+        def extra(query):
+            if query.table == "creature_addon":
+                return [row("creature_addon", guid=2)]
+            return fetch(query)
+        source.fetch = extra
+        with self.assertRaisesRegex(ExportError, "native_spawn.unselected_row"):
+            capture(source, starter_selection())
+        source = starter_source()
+        source.rows["game_event_creature"] = [row("game_event_creature", guid=1, event=i)
+                                               for i in range(MAX_ROWS+1)]
+        with self.assertRaisesRegex(ExportError, "rows.limit:game_event_creature"):
+            capture(source, starter_selection())
+        self.assertTrue(source.finished)
+        source = starter_source()
+        source.mutate_version = True
+        with self.assertRaisesRegex(ExportError, "snapshot.version_changed"):
+            capture(source, starter_selection())
+
+    def test_selector_text_and_aggregate_budgets_reject_before_claiming_absence(self):
+        from classic_export import native_spawn
+        tables = {"creature": [{"guid": 1}], "creature_template": [{"Entry": 1}],
+                  "creature_spawn_data": [{"Guid": 1, "Id": 1}]}
+        with mock.patch.object(native_spawn, "MAX_ROWS", 1), self.assertRaisesRegex(ExportError, "selector_limit"):
+            native_spawn.selectors(tables)
+        source = starter_source()
+        source.rows["creature_addon"] = [row("creature_addon", guid=1, auras="x"*16385)]
+        with self.assertRaisesRegex(ExportError, "row.text_limit"):
+            capture(source, starter_selection())
+        source = starter_source()
+        with mock.patch("classic_export.capture.MAX_BUNDLE_BYTES", 1), self.assertRaisesRegex(ExportError, "aggregate_byte_limit"):
+            capture(source, starter_selection())
+        self.assertTrue(source.finished)
+
+    def test_empty_region_does_not_query_empty_in_and_still_captures_default(self):
+        source = starter_source()
+        s = starter_selection().json()
+        s.update(min_milliunits=[50000]*3, max_milliunits=[51000]*3, quest_ids=[])
+        bundle = capture(source, Selection.parse(s))
+        self.assertEqual(bundle["native_spawn_capture"]["selectors"]["creature_addon"]["ids"], [])
+        self.assertEqual(bundle["tables"]["creature_addon"], [])
+        self.assertEqual(bundle["native_spawn_capture"]["selectors"]["creature_spawn_data_template"]["ids"], [0])
+        self.assertFalse(any(" IN ()" in sql for sql, _ in source.queries))
 
 
 if __name__ == "__main__":

@@ -23,5 +23,8 @@
   ],
   "selected_starter_capture": true,
   "starter_max_level": 60,
-  "starter_dbc_dependencies_resolved": false
+  "starter_dbc_dependencies_resolved": false,
+  "server_learning_selector_capture": true,
+  "native_spawn_dependency_selector_capture": true,
+  "bounded_native_dependency_recapture": true
 }

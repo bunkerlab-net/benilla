@@ -9,10 +9,12 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from classic_export.capture import validate_bundle
-from classic_export import event_ai
-from classic_export.columns import COLUMNS, STARTER_SCHEMA
+from classic_export import event_ai, native_spawn
+from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA
 from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
                                  canonical, check, digest, integer)
+from .learning import discover
+from .talent import inputs as talent_inputs
 from .dbc import DbcRow, DbcTable, LAYOUTS, binary32_bits, finite_float, signed
 
 PROFILE = "cmangos-8ec338a1-native-starter-bindings-v1"
@@ -101,6 +103,7 @@ FLOAT_SPELL_FIELDS = {"speed"} | {f"{name}{i}" for name in
 # A preparation disposition is not a gameplay support assertion. Every source
 # field appears exactly once. No zero-valued flag is automatically declared inert.
 CONSUMED = {
+    **{table: set(COLUMNS[table]) for table in LEARNING_SCHEMA},
     "creature_ai_scripts": {"id", "creature_id"},
     "playercreateinfo": set(COLUMNS["playercreateinfo"]),
     "player_classlevelstats": set(COLUMNS["player_classlevelstats"]),
@@ -112,6 +115,7 @@ CONSUMED = {
     "playercreateinfo_skills": {"raceMask", "classMask", "skill", "step"},
 }
 BLOCKED_TABLE_REASON = {
+    **{table: "creature.native_spawn_dependency_execution_required" for table in native_spawn.TABLES},
     "creature": "spawn.overrides_pools_events_not_captured",
     "creature_template": "creature.native_stats_combat_faction_required",
     "creature_model_info": "creature.model_selection_movement_reach_rules_required",
@@ -132,7 +136,8 @@ SPELL_ATTR_EX_CAST_WHEN_LEARNED = 0x80000000
 
 
 def classify_spell_admission(tables: dict[str, Any], spells: list[dict[str, Any]],
-                             issues: list[dict[str, Any]]) -> dict[str, Any]:
+                             issues: list[dict[str, Any]],
+                             learning_dependencies: dict[str, Any] | None = None) -> dict[str, Any]:
     """Unavailable active abilities are not, by themselves, an entry veto.
 
     This classification never proves effective learning or grants a spell. Any
@@ -145,12 +150,18 @@ def classify_spell_admission(tables: dict[str, Any], spells: list[dict[str, Any]
     passive = {i for i in initial if source[i]["Attributes"] & SPELL_ATTR_PASSIVE}
     learning = {i for i in initial if source[i]["Attributes"] & SPELL_ATTR_DO_NOT_DISPLAY
                 or source[i]["AttributesEx"] & SPELL_ATTR_EX_CAST_WHEN_LEARNED
-                or any(source[i][f"Effect{slot}"] in {36, 44} for slot in range(1, 4))}
+                or any(source[i][f"Effect{slot}"] in {36, 44, 118} for slot in range(1, 4))}
+    learning.update(r["entry"] for r in tables.get("spell_learn_spell", []) if r["entry"] in initial)
     role_fields = {"Attributes", "AttributesEx", "Effect1", "Effect2", "Effect3"}
     active_candidates = {i for i in initial-passive-learning if bound[i]["dbc_only_inputs"] is not None
                          and not role_fields.intersection(bound[i]["server_client_differences"])}
     active = set(active_candidates)
     critical = passive | learning
+    if learning_dependencies is not None:
+        for edge in learning_dependencies["edges"]:
+            if edge["to_kind"] == "spell" and edge["role"] in {"ability_spell", "learn_spell", "prev_spell", "first_spell", "req_spell"}:
+                if edge["to_id"] not in active_candidates:
+                    critical.add(edge["to_id"])
     for row in tables["item_template"]:
         critical.update(row[f"spellid_{i}"] for i in range(1, 6) if row[f"spellid_{i}"] > 0)
         if row["requiredspell"]:
@@ -161,8 +172,19 @@ def classify_spell_admission(tables: dict[str, Any], spells: list[dict[str, Any]
     def closure(roots: set[int]) -> set[int]:
         result = set(roots)
         pending = list(roots)
+        learned = {}
+        for link in tables.get("spell_learn_spell", []):
+            learned.setdefault(link["entry"], set()).add(link["SpellID"])
+        for link in tables.get("spell_chain", []):
+            learned.setdefault(link["spell_id"], set()).update(
+                link[field] for field in ("prev_spell", "first_spell", "req_spell") if link[field])
         while pending:
-            row = source.get(pending.pop())
+            parent = pending.pop()
+            row = source.get(parent)
+            for entry in learned.get(parent, set()):
+                if entry not in result:
+                    result.add(entry)
+                    pending.append(entry)
             if row:
                 for slot in range(1, 4):
                     entry = row[f"EffectTriggerSpell{slot}"]
@@ -353,34 +375,12 @@ class Compiler:
         self.issue("Faction", [], "player.native_reputation_initialization_required")
 
     def skills(self) -> dict[str, Any]:
-        ids = {r["skill"] for r in self.tables["playercreateinfo_skills"]}
-        for entry in sorted(ids):
-            self.lookup("SkillLine", entry, {0})
-        candidates, abilities = [], []
-        spell_ids = {r["Id"] for r in self.tables["spell_template"]}
-        table = self.dbcs.get("SkillRaceClassInfo")
-        if table:
-            for row in table.rows:
-                if row.words[1] in ids:
-                    # Retain every row for each skill, not guessed mask semantics.
-                    self.use(row, {0, 1, 6})
-                    candidates.append(row.raw())
-                    if row.words[6]:
-                        self.lookup("SkillTiers", row.words[6], {0})
-        table = self.dbcs.get("SkillLineAbility")
-        spells = {r["Spell"] for r in self.tables["playercreateinfo_spell"]}
-        if table:
-            for row in table.rows:
-                if row.words[1] in ids or row.words[2] in spells:
-                    self.use(row, {0, 1, 2, 8})
-                    abilities.append(row.raw())
-                    for entry in (row.words[2], row.words[8]):
-                        if entry and entry not in spell_ids:
-                            self.need("spell_template", entry, "player.skill_candidate_spell_not_captured")
+        self.learning = discover(self)
         self.issue("SkillRaceClassInfo", [], "player.native_skill_obtainability_and_learning_required")
         return {"sql_candidates": self.tables["playercreateinfo_skills"],
-                "race_class_candidates": candidates, "ability_candidates": abilities,
-                "effective_skills": None}
+                "race_class_candidates": self.learning["race_class_candidates"],
+                "ability_candidates": self.learning["ability_candidates"],
+                "dependency_closure": self.learning, "effective_skills": None}
 
     def spells(self) -> list[dict[str, Any]]:
         result = []
@@ -391,6 +391,7 @@ class Compiler:
             row = self.lookup("Spell", entry, set(SPELL_FIELDS.values()) | set(range(40, 58)) |
                               {159, 161, 162, 163, 167, 168, 169})
             differences = []
+            server_words = list(row.words) if row else None
             if row:
                 for name, column in SPELL_FIELDS.items():
                     value = source[name]
@@ -403,6 +404,7 @@ class Compiler:
                     else:
                         integer(value, -0x80000000, 0xffffffff, "spell.source_integer_domain")
                         matches = value & 0xffffffff == row.words[column]
+                    server_words[column] = bits if name in FLOAT_SPELL_FIELDS else value & 0xffffffff
                     if not matches:
                         differences.append(name)
                         self.issue("spell_template", [entry], "spell.server_client_field_mismatch", field=name)
@@ -410,8 +412,8 @@ class Compiler:
             range_row = self.lookup("SpellRange", source["rangeIndex"], {0, 1, 2, 3})
             if source["Category"]:
                 self.lookup("SpellCategory", source["Category"], {0, 1})
-            if source["DurationIndex"]:
-                self.lookup("SpellDuration", source["DurationIndex"], {0, 1, 2, 3})
+            duration = (self.lookup("SpellDuration", source["DurationIndex"], {0, 1, 2, 3})
+                        if source["DurationIndex"] else None)
             if source["RequiresSpellFocus"]:
                 self.lookup("SpellFocusObject", source["RequiresSpellFocus"], {0})
             for slot in range(1, 4):
@@ -440,7 +442,7 @@ class Compiler:
             effects = [{name: source[f"{name}{slot}"] for name in
                         ("Effect", "EffectDieSides", "EffectBaseDice", "EffectBasePoints",
                          "EffectImplicitTargetA", "EffectImplicitTargetB", "EffectApplyAuraName",
-                         "EffectAmplitude", "EffectTriggerSpell", "EffectBonusCoefficient",
+                         "EffectAmplitude", "EffectMiscValue", "EffectItemType", "EffectTriggerSpell", "EffectBonusCoefficient",
                          "EffectBonusCoefficientFromAP")} for slot in range(1, 4)]
             # These labels choose the next port, not a support allowlist. Every
             # effect, attribute word and target selector remains runtime-blocked.
@@ -464,8 +466,11 @@ class Compiler:
                 "cast_time": {"id": source["CastingTimeIndex"], "base_ms": signed(cast.words[1]),
                               "per_level_ms": signed(cast.words[2]), "minimum_ms": signed(cast.words[3])} if cast else None,
                 "range": range_input, "effects": effects, "speed": source["speed"],
+                "duration": {"id": source["DurationIndex"], "base_ms": signed(duration.words[1]),
+                             "per_level_ms": signed(duration.words[2]), "maximum_ms": signed(duration.words[3])}
+                            if duration else None,
                 "server_client_differences": differences,
-                "source_row": source,
+                "source_row": source, "server_numeric_words": server_words,
                 "dbc_only_inputs": {"totems": list(row.words[40:42]),
                     "reagents": [signed(w) for w in row.words[42:50]], "reagent_counts": list(row.words[50:58]),
                     "max_target_level": row.words[159], "family_mask_words": list(row.words[161:163]),
@@ -478,19 +483,35 @@ class Compiler:
         for creature in self.tables["creature_template"]:
             entry = creature["Entry"]
             event_scope = event_ai.scope(self.tables, entry)
+            spawn_scope = native_spawn.scope(self.source, entry)
+            model_ids = {creature[f"DisplayId{i}"] for i in range(1, 5)}
+            model_ids.update(spawn["spawn_template"]["row"]["ModelId"] for spawn in (spawn_scope or [])
+                             if spawn["spawn_template"]["row"] is not None)
             result.append({"entry": entry, "source_row": creature,
                 "spawns": [r for r in self.tables["creature"] if r["id"] == entry],
                 "class_level_inputs": [r for r in self.tables["creature_template_classlevelstats"]
                                        if r["Class"] == creature["UnitClass"]
                                        and creature["MinLevel"] <= r["Level"] <= creature["MaxLevel"]],
                 "model_inputs": [r for r in self.tables["creature_model_info"]
-                                 if r["modelid"] in {creature[f"DisplayId{i}"] for i in range(1, 5)}],
+                                 if r["modelid"] in model_ids],
                 "event_ai_capture": event_scope,
+                "native_spawn_dependencies": spawn_scope,
                 "resolved_combat_stats": None, "ai_profile": None})
             self.issue("creature_template", [entry], "creature.ai_selection_and_native_melee_required",
                        ai_name=creature["AIName"], scripted=bool(creature["ScriptName"]),
                        movement_type=creature["MovementType"], unit_class=creature["UnitClass"])
-            self.issue("creature_template", [entry], "creature.unexported_groups_addons_assistance_context")
+            if spawn_scope is None:
+                self.issue("creature_template", [entry], "creature.spawn_dependency_coverage_not_proven")
+            else:
+                for spawn in spawn_scope:
+                    if spawn["spawn_template"]["row"] is None:
+                        self.issue("creature", [spawn["guid"]], "creature.default_spawn_template_absent")
+                    if spawn["unimplemented_hook_tables"]:
+                        self.issue("creature", [spawn["guid"]], "creature.applicable_spawn_hooks_require_execution",
+                                   tables=spawn["unimplemented_hook_tables"])
+            self.issue("creature_template", [entry],
+                       "creature.unexported_groups_addons_assistance_context" if spawn_scope is None
+                       else "creature.unexported_groups_assistance_context")
             if event_scope is None:
                 self.issue("creature_template", [entry], "creature.event_ai_applicability_absence_not_proven")
             elif event_scope["matching_rows"]:
@@ -534,6 +555,8 @@ class Compiler:
                 comments = {"Note", "note", "comments"} & set(row)
                 blocked = set(row) - consumed - comments
                 reason = BLOCKED_TABLE_REASON.get(table, "player.native_creation_progression_rules_required")
+                if table == "creature" and "native_spawn_capture" in self.source:
+                    reason = "creature.native_spawn_resolution_required"
                 result.append({"table": table, "key": [row[k] for k in KEYS[table]],
                     "capability": PROFILE, "consumed_by_preparation": sorted(consumed),
                     "inert_source_annotations": sorted(comments),
@@ -574,6 +597,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     c.factions(identity)
     skills = c.skills()
     spells = c.spells()
+    talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
     creatures = c.creature_inputs()
     c.issue("runtime", [], "native.runtime_profile_not_implemented")
     dispositions = c.dispositions()
@@ -587,7 +611,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
             "blocked_for_gameplay": sorted(set(range(len(row.words))) - used),
             "capability": PROFILE})
     issues = sorted({canonical(i): i for i in c.issues}.values(), key=canonical)
-    admission = classify_spell_admission(c.tables, spells, issues)
+    admission = classify_spell_admission(c.tables, spells, issues, c.learning)
     output = {"format": FORMAT, "capability": PROFILE, "core_revision": CORE_REVISION,
         "client_build_claim": 5875, "client_build_authenticity_verified": False,
         "source_sha256": digest(source), "request": request.json(),
@@ -595,10 +619,12 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "dbc_manifest": [t.manifest() for _, t in sorted(dbcs.items())],
         "status": "blocked", "runtime_export": None,
         "ability_admission": admission,
+        "dependency_request": c.learning["dependency_request"],
+        "native_spawn_capture": source.get("native_spawn_capture"),
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
                    "actions": source["tables"]["playercreateinfo_action"], "skills": skills},
-        "spells": spells, "creatures": creatures,
+        "spells": spells, "creatures": creatures, "talent_inputs": talents,
         "candidate_paths": c.candidate_paths(spells),
         "required_additional_rows": [{"table": t, "id": i, "reason": r}
                                      for t, i, r in sorted(c.dependencies)],

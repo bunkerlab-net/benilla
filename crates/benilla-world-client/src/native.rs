@@ -1,0 +1,934 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Native-component protocol projection. The app controller must explicitly select this
+//! adapter; it does not enable native admission or reinterpret OriginalFixture World v2.
+use crate::{ClientCatalog, Error, NpcHandle, UiRequest};
+use benilla_protocol::{messages as p, EntityKind, ObjectFields, SessionEvent};
+use benilla_sim::{classic_spell as spell, creature_ai as ai};
+use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
+use std::collections::{BTreeMap, BTreeSet};
+
+pub struct NativeProjection {
+    player: PlayerId,
+    player_guid: u64,
+    profile: Digest,
+    world: benilla_world_runtime::WorldId,
+    previous: n::State,
+    previous_digest: Digest,
+    npcs: BTreeMap<NpcId, u64>,
+}
+fn point(p: ai::Point) -> [f32; 3] {
+    [p.x.as_f32(), p.y.as_f32(), p.z.as_f32()]
+}
+fn equipment_guid(w: &n::NativeWorld, slot: u8, item: u32) -> u64 {
+    let hash = crate::hash(
+        b"benilla-native-equipment-guid-v2\0",
+        &(w.state().world, w.state().player, slot, item),
+    );
+    let mut bytes = [0; 8];
+    bytes[..6].copy_from_slice(&hash[..6]);
+    0x4000_0000_0000_0000 | u64::from_le_bytes(bytes).max(1)
+}
+fn npc_guid(w: &n::NativeWorld, id: NpcId) -> Result<u64, Error> {
+    let p = w.profile().npc(id.spawn).ok_or(Error::UnknownTarget)?;
+    let digest = crate::hash(b"benilla-native-npc-guid-v1\0", &(w.state().world, id));
+    let low = u32::from_le_bytes([digest[0], digest[1], digest[2], 0]).max(1);
+    Ok(0xf130_0000_0000_0000 | (u64::from(p.entry) << 24) | u64::from(low))
+}
+impl NativeProjection {
+    pub fn new(
+        w: &n::NativeWorld,
+        selected: PlayerId,
+        catalog: &impl ClientCatalog,
+    ) -> Result<Self, Error> {
+        if w.state().player != selected {
+            return Err(Error::UnknownPlayer);
+        }
+        if catalog.build() != 5875 || catalog.manifest_digest() == [0; 32] {
+            return Err(Error::InvalidClientManifest);
+        }
+        if catalog.player_power_type(selected) != Some(0) {
+            return Err(Error::UnsupportedPower);
+        }
+        if !catalog.contains_map(w.profile().map_id) {
+            return Err(Error::UnboundMap(w.profile().map_id));
+        }
+        for npc in &w.profile().npcs {
+            if !catalog.contains_creature_display(npc.display_id) {
+                return Err(Error::UnboundCreatureDisplay(npc.entry));
+            }
+        }
+        for a in &w.profile().abilities {
+            if !catalog.contains_spell(a.id) {
+                return Err(Error::UnboundSpell(a.id));
+            }
+        }
+        let mut out = Self {
+            player: selected,
+            player_guid: crate::player_guid(selected),
+            profile: w.profile_digest(),
+            world: w.state().world,
+            previous: w.state().clone(),
+            previous_digest: w.state_digest(),
+            npcs: BTreeMap::new(),
+        };
+        out.npcs = out.guids(w)?;
+        Ok(out)
+    }
+    fn check(&self, w: &n::NativeWorld) -> Result<(), Error> {
+        if self.player != w.state().player
+            || self.profile != w.profile_digest()
+            || self.world != w.state().world
+        {
+            return Err(Error::Incompatible);
+        }
+        Ok(())
+    }
+    fn guids(&self, w: &n::NativeWorld) -> Result<BTreeMap<NpcId, u64>, Error> {
+        let mut seen = BTreeSet::from([self.player_guid]);
+        let mut npcs = BTreeMap::new();
+        for npc in w
+            .state()
+            .npcs
+            .values()
+            .filter(|n| n.ai.phase() != ai::Phase::Despawned)
+        {
+            let guid = npc_guid(w, npc.id)?;
+            if !seen.insert(guid) {
+                return Err(Error::GuidCollision);
+            }
+            npcs.insert(npc.id, guid);
+        }
+        Ok(npcs)
+    }
+    pub fn player_guid(&self) -> u64 {
+        self.player_guid
+    }
+    pub fn npc_guid(&self, id: NpcId) -> Option<u64> {
+        self.npcs.get(&id).copied()
+    }
+    pub fn capture_npc(&self, guid: u64) -> Result<NpcHandle, Error> {
+        self.npcs
+            .iter()
+            .find(|(_, g)| **g == guid)
+            .map(|(id, _)| NpcHandle { id: *id })
+            .ok_or(Error::UnknownTarget)
+    }
+    /// Preserves stock exact spell IDs, including unavailable learned actives. The runtime
+    /// produces the specific unavailable reason; no synthetic spell-ID aliases are introduced.
+    pub fn local(&self, w: &n::NativeWorld, request: UiRequest) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        let command = match request {
+            UiRequest::CastAtNpc { ability, target } => n::Command::Cast {
+                ability,
+                target: target.id,
+            },
+            _ => return Err(Error::UnsupportedCommand),
+        };
+        Ok(self.input(w, command))
+    }
+    pub fn cancel_cast(&self, w: &n::NativeWorld) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        Ok(self.input(w, n::Command::CancelCast))
+    }
+    /// Destination still goes through the runtime's bound trusted navigation callback.
+    pub fn move_to(
+        &self,
+        w: &n::NativeWorld,
+        destination: ai::Point,
+    ) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        Ok(self.input(w, n::Command::Move { destination }))
+    }
+    fn input(&self, w: &n::NativeWorld, command: n::Command) -> n::OwnedInput {
+        n::OwnedInput {
+            authenticated_owner: self.player.owner,
+            input: n::Input {
+                world: w.state().world,
+                tick: w.state().tick + 1,
+                player: self.player,
+                sequence: w.state().next_sequence,
+                command,
+            },
+        }
+    }
+    fn player_values(&self, w: &n::NativeWorld) -> SessionEvent {
+        let mut pairs = vec![
+            (22, w.state().health),
+            (28, w.player_limits().0),
+            (23, w.state().resources.caster.mana),
+            (29, w.player_limits().1),
+            (34, u32::from(w.profile().player.level)),
+        ];
+        if let Some(c) = &w.state().combat {
+            pairs.extend([
+                (46, 8 | if c.in_combat { 0x80000 } else { 0 }),
+                (125, u32::from(c.defense_reactive_ms > 0)),
+                (138, u32::from(!c.standing)),
+            ]);
+            for (i, value) in c.stats.attributes.iter().enumerate() {
+                pairs.push((150 + i as u16, *value as u32));
+            }
+            for (i, value) in c.stats.resistances.iter().enumerate() {
+                pairs.push((155 + i as u16, *value as u32));
+            }
+            for (slot, skill) in c.skills.values().enumerate() {
+                let base = 718 + 3 * slot as u16;
+                pairs.extend([
+                    (base, u32::from(skill.id) | (u32::from(skill.step) << 16)),
+                    (
+                        base + 1,
+                        u32::from(skill.value) | (u32::from(skill.maximum) << 16),
+                    ),
+                    (
+                        base + 2,
+                        u32::from(skill.temporary_bonus as u16)
+                            | (u32::from(skill.permanent_bonus as u16) << 16),
+                    ),
+                ]);
+            }
+            for slot in 0..19u8 {
+                let guid = c
+                    .equipment
+                    .item(slot)
+                    .map(|i| equipment_guid(w, slot, i.item_id))
+                    .unwrap_or(0);
+                pairs.extend([
+                    (486 + 2 * u16::from(slot), guid as u32),
+                    (487 + 2 * u16::from(slot), (guid >> 32) as u32),
+                ]);
+            }
+        }
+        SessionEvent::ObjectValues {
+            guid: self.player_guid,
+            fields: ObjectFields::from_pairs(&pairs),
+        }
+    }
+    fn equipment_events(
+        &self,
+        w: &n::NativeWorld,
+        initial: bool,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        let mut events = Vec::new();
+        let mut seen = BTreeSet::new();
+        if let Some(c) = &w.state().combat {
+            for item in c.equipment.items() {
+                let guid = equipment_guid(w, item.slot, item.item_id);
+                if !seen.insert(guid) {
+                    return Err(Error::GuidCollision);
+                }
+                if initial {
+                    events.push(SessionEvent::ItemCreate {
+                        guid,
+                        container: false,
+                        fields: ObjectFields::from_pairs(&[
+                            (0, guid as u32),
+                            (1, (guid >> 32) as u32),
+                            (2, 3),
+                            (3, item.item_id),
+                            (4, 1.0f32.to_bits()),
+                            (6, self.player_guid as u32),
+                            (7, (self.player_guid >> 32) as u32),
+                            (8, self.player_guid as u32),
+                            (9, (self.player_guid >> 32) as u32),
+                            (14, 1),
+                            (46, item.current_durability),
+                            (47, item.max_durability),
+                        ])
+                        .into_created(p::ObjectType::Item),
+                    });
+                } else if self
+                    .previous
+                    .combat
+                    .as_ref()
+                    .and_then(|c| c.equipment.item(item.slot))
+                    != Some(item)
+                {
+                    events.push(SessionEvent::ObjectValues {
+                        guid,
+                        fields: ObjectFields::from_pairs(&[
+                            (46, item.current_durability),
+                            (47, item.max_durability),
+                        ]),
+                    });
+                }
+            }
+        }
+        Ok(events)
+    }
+    fn npc_fields(&self, w: &n::NativeWorld, npc: &n::Npc) -> Result<ObjectFields, Error> {
+        let profile = w.profile().npc(npc.id.spawn).ok_or(Error::UnknownTarget)?;
+        if npc.auras.len() > 16 {
+            return Err(Error::Unrepresentable);
+        }
+        let mut pairs = vec![
+            (3, profile.entry),
+            (22, npc.health),
+            (28, profile.max_health),
+            (34, u32::from(profile.ai.level)),
+            (35, profile.faction_template),
+            (129, profile.ai.bounding_radius.bits()),
+            (130, profile.ai.combat_reach.bits()),
+            (131, profile.display_id),
+            (132, profile.display_id),
+        ];
+        // All 16 harmful slots are materialized so expired/replaced auras clear in stock UI.
+        let auras = npc.auras.iter().collect::<Vec<_>>();
+        let mut flags = [0u32; 2];
+        let mut levels = [0u32; 4];
+        for offset in 0..16 {
+            let slot = 32 + offset;
+            let id = if let Some((id, target)) = auras.get(offset) {
+                let aura = target.aura().ok_or(Error::Unrepresentable)?;
+                flags[offset / 8] |= (1u32 << aura.effect_slot) << ((offset % 8) * 4);
+                levels[offset / 4] |= u32::from(w.profile().player.level) << ((offset % 4) * 8);
+                **id
+            } else {
+                0
+            };
+            pairs.push((47 + slot as u16, id));
+        }
+        pairs.extend([(99, flags[0]), (100, flags[1])]);
+        for (i, level) in levels.into_iter().enumerate() {
+            pairs.push((109 + i as u16, level));
+            pairs.push((121 + i as u16, 0));
+        }
+        Ok(ObjectFields::from_pairs(&pairs))
+    }
+    fn create(&self, w: &n::NativeWorld, npc: &n::Npc) -> Result<Vec<SessionEvent>, Error> {
+        let profile = w.profile().npc(npc.id.spawn).ok_or(Error::UnknownTarget)?;
+        let guid = npc_guid(w, npc.id)?;
+        let mut fields = self.npc_fields(w, npc)?;
+        fields.merge(ObjectFields::from_pairs(&[
+            (0, guid as u32),
+            (1, (guid >> 32) as u32),
+            (2, 9),
+            (4, 1f32.to_bits()),
+        ]));
+        Ok(vec![
+            SessionEvent::CreatureName {
+                entry: profile.entry,
+                name: Some(crate::plain_ui_text(&profile.name)),
+                subname: None,
+                creature_type: None,
+                pet_family: 0,
+                rank: 0,
+                type_flags: 0,
+                display_id: profile.display_id,
+                civilian: false,
+                racial_leader: false,
+            },
+            SessionEvent::ObjectCreate {
+                guid,
+                kind: EntityKind::Unit,
+                display_id: Some(profile.display_id),
+                position: point(npc.ai.position()),
+                orientation: 0.0,
+                scale: 1.0,
+                speeds: None,
+                mover: None,
+                transport_progress: None,
+                transport: None,
+                spline: None,
+                fields: fields.into_created(p::ObjectType::Unit),
+            },
+        ])
+    }
+    pub fn initial_events(&self, w: &n::NativeWorld) -> Result<Vec<SessionEvent>, Error> {
+        self.check(w)?;
+        if self.previous_digest != w.state_digest() {
+            return Err(Error::StaleProjection);
+        }
+        let mut events = vec![];
+        for npc in w
+            .state()
+            .npcs
+            .values()
+            .filter(|n| n.ai.phase() != ai::Phase::Despawned)
+        {
+            events.extend(self.create(w, npc)?);
+        }
+        events.extend(self.equipment_events(w, true)?);
+        events.push(self.player_values(w));
+        events.push(SessionEvent::SpellBook {
+            spell_ids: w.profile().abilities.iter().map(|a| a.id).collect(),
+            cooldowns: vec![],
+        });
+        for c in w.state().casts.values() {
+            if let spell::CastState::Casting { remaining_ms } = c.execution.state() {
+                events.push(SessionEvent::SpellStart {
+                    caster: self.player_guid,
+                    spell_id: c.ability,
+                    cast_flags: 0,
+                    cast_time_ms: remaining_ms,
+                    target: self.npcs.get(&c.target).copied(),
+                    ammo_display_id: None,
+                });
+            }
+        }
+        events.extend(self.cooldowns(w));
+        Ok(events)
+    }
+    fn cooldowns(&self, w: &n::NativeWorld) -> Vec<SessionEvent> {
+        let cooldowns = w
+            .profile()
+            .abilities
+            .iter()
+            .filter_map(|a| {
+                w.state()
+                    .resources
+                    .caster
+                    .spell_ready_at(a.id)
+                    .and_then(|t| t.checked_sub(w.state().now_ms))
+                    .filter(|t| *t > 0)
+                    .map(|t| (a.id, t as u32))
+            })
+            .collect::<Vec<_>>();
+        if cooldowns.is_empty() {
+            vec![]
+        } else {
+            vec![SessionEvent::SpellCooldowns {
+                caster: self.player_guid,
+                cooldowns,
+            }]
+        }
+    }
+    pub fn advance(&mut self, w: &n::NativeWorld) -> Result<Vec<SessionEvent>, Error> {
+        self.check(w)?;
+        let record = w.last_tick().ok_or(Error::StaleProjection)?;
+        if w.state().tick != self.previous.tick + 1
+            || record.before != self.previous_digest
+            || record.after != w.state_digest()
+        {
+            return Err(Error::StaleProjection);
+        }
+        let next = self.guids(w)?;
+        let mut events = vec![];
+        for (id, guid) in &self.npcs {
+            if !next.contains_key(id) {
+                events.push(SessionEvent::ObjectDestroyed(*guid));
+            }
+        }
+        for npc in w
+            .state()
+            .npcs
+            .values()
+            .filter(|n| n.ai.phase() != ai::Phase::Despawned)
+        {
+            if let Some(old) = self
+                .previous
+                .npcs
+                .get(&npc.id.spawn)
+                .filter(|n| n.id == npc.id && self.npcs.contains_key(&n.id))
+            {
+                if old.ai.position() != npc.ai.position() {
+                    events.push(SessionEvent::MonsterMove {
+                        guid: next[&npc.id],
+                        transport: None,
+                        start: point(old.ai.position()),
+                        spline_id: w.state().tick as u32,
+                        path: vec![point(old.ai.position()), point(npc.ai.position())],
+                        facing: p::MonsterMoveFacing::None,
+                        stop: false,
+                        duration_ms: w.profile().tick_ms,
+                        flying: false,
+                        run_mode: true,
+                    });
+                }
+                if old != npc {
+                    events.push(SessionEvent::ObjectValues {
+                        guid: next[&npc.id],
+                        fields: self.npc_fields(w, npc)?,
+                    });
+                }
+            } else {
+                events.extend(self.create(w, npc)?);
+            }
+        }
+        events.extend(self.equipment_events(w, false)?);
+        events.push(self.player_values(w));
+        if let Some(input) = &record.input {
+            if let n::Command::Cast { ability, .. } = input.command {
+                let rejected = record
+                    .events
+                    .iter()
+                    .any(|e| matches!(e, n::Event::Rejected(_)));
+                events.push(SessionEvent::CastResult {
+                    spell_id: ability,
+                    success: !rejected,
+                    reason: None,
+                    arg: None,
+                });
+            }
+        }
+        for event in &record.events {
+            let target_guid = |id: &NpcId| {
+                next.get(id)
+                    .or_else(|| self.npcs.get(id))
+                    .copied()
+                    .ok_or(Error::UnknownTarget)
+            };
+            match event {
+                n::Event::Combat(n::CombatEvent::CriticalWound) => {
+                    events.push(SessionEvent::Emote {
+                        guid: self.player_guid,
+                        emote_id: 34,
+                    })
+                }
+                n::Event::Rejected(r) => events.push(SessionEvent::Notification {
+                    text: format!("Native action rejected: {r:?}"),
+                }),
+                n::Event::PlayerMoved(position) => events.push(SessionEvent::ObjectMove {
+                    guid: self.player_guid,
+                    position: point(*position),
+                    orientation: 0.0,
+                }),
+                n::Event::Spell {
+                    cast_id,
+                    ability,
+                    target,
+                    event,
+                } => {
+                    let guid = target_guid(target).ok();
+                    let school = w
+                        .profile()
+                        .ability(*ability)
+                        .ok_or(Error::UnboundSpell(*ability))?
+                        .school;
+                    match event {
+                        spell::SpellEvent::Started { cast_ms } => {
+                            events.push(SessionEvent::SpellStart {
+                                caster: self.player_guid,
+                                spell_id: *ability,
+                                cast_flags: 0,
+                                cast_time_ms: *cast_ms,
+                                target: guid,
+                                ammo_display_id: None,
+                            })
+                        }
+                        spell::SpellEvent::Launched { .. } => {
+                            let guid = guid.ok_or(Error::UnknownTarget)?;
+                            let hit = record
+                                .draws
+                                .iter()
+                                .find(|d| d.cast_id == *cast_id && d.purpose == n::DrawPurpose::Hit)
+                                .ok_or(Error::StaleProjection)?
+                                .value;
+                            let chance = record
+                                .replies
+                                .iter()
+                                .find_map(|r| match (&r.request.query, &r.facts) {
+                                    (
+                                        n::Query::Spell {
+                                            cast_id: id,
+                                            ability: spell,
+                                            phase: n::CastPhase::Release,
+                                            ..
+                                        },
+                                        n::Facts::Spell(f),
+                                    ) if id == cast_id
+                                        && spell == ability
+                                        && r.request.binding.npc == Some(*target) =>
+                                    {
+                                        Some(f.resist_chance)
+                                    }
+                                    _ => None,
+                                })
+                                .ok_or(Error::StaleProjection)?;
+                            let resisted = hit <= i64::from(chance);
+                            // SharedDefines.h SPELL_MISS_RESIST=2 in the pinned 1.12 core.
+                            events.push(SessionEvent::SpellGo {
+                                caster: self.player_guid,
+                                spell_id: *ability,
+                                cast_flags: 0,
+                                hits: if resisted { vec![] } else { vec![guid] },
+                                misses: if resisted { vec![(guid, 2)] } else { vec![] },
+                                target: Some(guid),
+                                go_target: None,
+                                dest: None,
+                                ammo_display_id: None,
+                                item_caster: None,
+                            });
+                        }
+                        spell::SpellEvent::Failed(_) => {
+                            events.push(SessionEvent::SpellFailedOther {
+                                caster: self.player_guid,
+                                spell_id: *ability,
+                            })
+                        }
+                        spell::SpellEvent::Pushback(delay) => {
+                            events.push(SessionEvent::SpellDelayed {
+                                caster: self.player_guid,
+                                delay_ms: *delay,
+                            })
+                        }
+                        spell::SpellEvent::DirectDamage {
+                            amount, critical, ..
+                        } => events.push(SessionEvent::SpellDamageLog(p::SpellDamageLog {
+                            target: guid.ok_or(Error::UnknownTarget)?,
+                            attacker: self.player_guid,
+                            spell_id: *ability,
+                            damage: *amount,
+                            school,
+                            absorb: 0,
+                            resist: 0,
+                            periodic: false,
+                            blocked: 0,
+                            hit_info: if *critical { 2 } else { 0 },
+                        })),
+                        spell::SpellEvent::PeriodicDamage { amount, .. } => {
+                            events.push(SessionEvent::PeriodicAuraLog(p::PeriodicAuraLog {
+                                target: guid.ok_or(Error::UnknownTarget)?,
+                                caster: self.player_guid,
+                                spell_id: *ability,
+                                ticks: vec![p::PeriodicTick::Damage {
+                                    amount: *amount,
+                                    school: u32::from(school),
+                                    absorb: 0,
+                                    resist: 0,
+                                }],
+                            }))
+                        }
+                        spell::SpellEvent::CooldownStarted => events.extend(self.cooldowns(w)),
+                        spell::SpellEvent::Resisted | spell::SpellEvent::Immune => {
+                            events.push(SessionEvent::Notification {
+                                text: format!("Spell {ability}: {event:?}"),
+                            })
+                        }
+                        _ => {}
+                    }
+                }
+                n::Event::Npc { id, effect } => match effect {
+                    ai::Effect::CombatStarted { .. } => {
+                        let guid = target_guid(id)?;
+                        events.push(SessionEvent::AttackStart {
+                            attacker: guid,
+                            victim: self.player_guid,
+                        });
+                        events.push(SessionEvent::AiReaction {
+                            unit: guid,
+                            reaction: 2,
+                        });
+                    }
+                    ai::Effect::EvadeStarted(_) | ai::Effect::Died => {
+                        events.push(SessionEvent::AttackStop {
+                            attacker: target_guid(id)?,
+                            victim: self.player_guid,
+                        })
+                    }
+                    _ => {}
+                },
+                n::Event::Melee { id, outcome, .. } => {
+                    events.push(SessionEvent::AttackerState(p::AttackerState {
+                        attacker: target_guid(id)?,
+                        victim: self.player_guid,
+                        hit_info: outcome.hit_info,
+                        damage: outcome.damage,
+                        victim_state: outcome.victim_state,
+                        absorb: outcome.absorb,
+                        resist: outcome.resist,
+                        blocked: outcome.blocked,
+                        melee_spell_id: 0,
+                        school: outcome.school,
+                    }))
+                }
+                _ => {}
+            }
+        }
+        self.previous = w.state().clone();
+        self.previous_digest = record.after;
+        self.npcs = next;
+        Ok(events)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use n::synthetic_fixture::{world, SyntheticAuthority};
+    pub(super) struct Catalog;
+    impl ClientCatalog for Catalog {
+        fn build(&self) -> u32 {
+            5875
+        }
+        fn manifest_digest(&self) -> Digest {
+            [9; 32]
+        }
+        fn contains_map(&self, id: u32) -> bool {
+            id == 7
+        }
+        fn contains_creature_display(&self, id: u32) -> bool {
+            id == 60001
+        }
+        fn contains_item_display(&self, _: u32) -> bool {
+            false
+        }
+        fn contains_spell(&self, id: u32) -> bool {
+            matches!(id, 60001 | 60002)
+        }
+        fn player_power_type(&self, _: PlayerId) -> Option<u8> {
+            Some(0)
+        }
+        fn item_metadata(&self, _: u32) -> Option<p::ItemInfo> {
+            None
+        }
+        fn quest_metadata(&self, _: u32) -> Option<crate::QuestMetadata> {
+            None
+        }
+        fn quest_greeting(&self, _: u32) -> Option<String> {
+            None
+        }
+    }
+    #[test]
+    fn native_projection_reaches_stock_cast_projectile_damage_auras_and_moving_objects() {
+        let mut w = world();
+        let mut projection = NativeProjection::new(&w, w.state().player, &Catalog).unwrap();
+        let initial = projection.initial_events(&w).unwrap();
+        assert!(initial.iter().any(
+            |e| matches!(e,SessionEvent::SpellBook{spell_ids,..} if spell_ids==&vec![60001,60002])
+        ));
+        let handle = projection
+            .capture_npc(projection.npc_guid(w.state().npcs[&2].id).unwrap())
+            .unwrap();
+        let input = projection
+            .local(
+                &w,
+                UiRequest::CastAtNpc {
+                    ability: 60001,
+                    target: handle,
+                },
+            )
+            .unwrap();
+        let mut authority = SyntheticAuthority::default();
+        w.step(1, Some(input), &mut authority).unwrap();
+        let mut all = projection.advance(&w).unwrap();
+        for tick in 2..=65 {
+            w.step(tick, None, &mut authority).unwrap();
+            all.extend(projection.advance(&w).unwrap());
+        }
+        assert!(all.iter().any(|e| matches!(
+            e,
+            SessionEvent::SpellStart {
+                spell_id: 60001,
+                ..
+            }
+        )));
+        assert!(all.iter().any(|e| matches!(
+            e,
+            SessionEvent::SpellGo {
+                spell_id: 60001,
+                ..
+            }
+        )));
+        assert!(all.iter().any(|e| matches!(
+            e,
+            SessionEvent::SpellDamageLog(p::SpellDamageLog {
+                spell_id: 60001,
+                ..
+            })
+        )));
+        assert!(all.iter().any(|e| matches!(
+            e,
+            SessionEvent::PeriodicAuraLog(p::PeriodicAuraLog {
+                spell_id: 60001,
+                ..
+            })
+        )));
+        assert!(all.iter().any(
+            |e| matches!(e,SessionEvent::MonsterMove{path,..} if path.len()==2 && path[0]!=path[1])
+        ));
+        assert!(all
+            .iter()
+            .any(|e| matches!(e, SessionEvent::AttackStart { .. })));
+        assert!(all.iter().any(|e|matches!(e,SessionEvent::ObjectValues{fields,..} if fields.unit_auras().any(|a|a.spell_id==60001 && !a.is_helpful()))));
+    }
+    #[test]
+    fn unsupported_known_active_emits_failure_and_specific_reason() {
+        let mut w = world();
+        let mut p = NativeProjection::new(&w, w.state().player, &Catalog).unwrap();
+        let target = NpcHandle {
+            id: w.state().npcs[&2].id,
+        };
+        let input = p
+            .local(
+                &w,
+                UiRequest::CastAtNpc {
+                    ability: 60002,
+                    target,
+                },
+            )
+            .unwrap();
+        w.step(1, Some(input), &mut SyntheticAuthority::default())
+            .unwrap();
+        let events = p.advance(&w).unwrap();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            SessionEvent::CastResult {
+                spell_id: 60002,
+                success: false,
+                ..
+            }
+        )));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e,SessionEvent::Notification{text} if text.contains("77"))));
+    }
+    #[test]
+    fn projection_rejects_skipped_ticks_without_partial_advancement() {
+        let mut w = world();
+        let mut p = NativeProjection::new(&w, w.state().player, &Catalog).unwrap();
+        let mut a = SyntheticAuthority::default();
+        w.step(1, None, &mut a).unwrap();
+        w.step(2, None, &mut a).unwrap();
+        assert!(matches!(p.advance(&w), Err(Error::StaleProjection)));
+        assert_eq!(p.previous.tick, 0);
+    }
+}
+#[cfg(test)]
+mod stale_target_tests {
+    use super::*;
+    struct Catalog;
+    impl ClientCatalog for Catalog {
+        fn build(&self) -> u32 {
+            5875
+        }
+        fn manifest_digest(&self) -> Digest {
+            [9; 32]
+        }
+        fn contains_map(&self, _: u32) -> bool {
+            true
+        }
+        fn contains_creature_display(&self, _: u32) -> bool {
+            true
+        }
+        fn contains_item_display(&self, _: u32) -> bool {
+            false
+        }
+        fn contains_spell(&self, _: u32) -> bool {
+            true
+        }
+        fn player_power_type(&self, _: PlayerId) -> Option<u8> {
+            Some(0)
+        }
+        fn item_metadata(&self, _: u32) -> Option<p::ItemInfo> {
+            None
+        }
+        fn quest_metadata(&self, _: u32) -> Option<crate::QuestMetadata> {
+            None
+        }
+        fn quest_greeting(&self, _: u32) -> Option<String> {
+            None
+        }
+    }
+    #[test]
+    fn long_flight_failure_after_target_corpse_removal_needs_no_visible_target_guid() {
+        let mut profile = n::synthetic_fixture::profile();
+        let n::AbilityAdmission::Available(mut spec) = profile.abilities[0].admission.clone()
+        else {
+            unreachable!()
+        };
+        spec.spell_id = 60002;
+        spec.projectile_speed = n::synthetic_fixture::float(1000.0);
+        let spell::MageEffect::SchoolDamage(ref mut value) = spec.effects[0] else {
+            unreachable!()
+        };
+        value.base_points = 2000;
+        profile.abilities[1].admission = n::AbilityAdmission::Available(spec);
+        let mut w = n::NativeWorld::synthetic_component_test(
+            profile,
+            [8; 16],
+            n::synthetic_fixture::player(),
+            1234,
+        )
+        .unwrap();
+        let mut p = NativeProjection::new(&w, w.state().player, &Catalog).unwrap();
+        let mut a = n::synthetic_fixture::SyntheticAuthority::default();
+        let mut all = vec![];
+        for tick in 1..=14 {
+            let input = if tick == 1 || tick == 4 {
+                Some(
+                    p.local(
+                        &w,
+                        UiRequest::CastAtNpc {
+                            ability: if tick == 1 { 60001 } else { 60002 },
+                            target: NpcHandle {
+                                id: w.state().npcs[&2].id,
+                            },
+                        },
+                    )
+                    .unwrap(),
+                )
+            } else {
+                None
+            };
+            w.step(tick, input, &mut a).unwrap();
+            all.extend(p.advance(&w).unwrap());
+        }
+        assert!(all
+            .iter()
+            .any(|e| matches!(e, SessionEvent::ObjectDestroyed(_))));
+        assert!(all.iter().any(|e| matches!(
+            e,
+            SessionEvent::SpellFailedOther {
+                spell_id: 60001,
+                ..
+            }
+        )));
+    }
+}
+#[cfg(test)]
+mod resisted_launch_test {
+    use super::*;
+    #[test]
+    fn committed_resisted_launch_projects_miss_without_hit_or_damage() {
+        let mut w = n::synthetic_fixture::world();
+        let mut projection =
+            NativeProjection::new(&w, w.state().player, &super::tests::Catalog).unwrap();
+        let mut authority = n::synthetic_fixture::SyntheticAuthority {
+            resist_chance: 10000,
+            ..Default::default()
+        };
+        let mut events = vec![];
+        for tick in 1..=44 {
+            let input = (tick == 1).then(|| n::synthetic_fixture::cast(&w, 60001));
+            w.step(tick, input, &mut authority).unwrap();
+            events.extend(projection.advance(&w).unwrap());
+        }
+        assert!(events.iter().any(|event|matches!(event,SessionEvent::SpellGo{hits,misses,..} if hits.is_empty() && misses.len()==1 && misses[0].1==2)));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            SessionEvent::SpellDamageLog(_) | SessionEvent::PeriodicAuraLog(_)
+        )));
+    }
+}
+
+#[cfg(test)]
+mod melee_projection_tests {
+    use super::*;
+    use n::synthetic_fixture::{cast, initialized_world, KernelAuthority};
+    #[test]
+    fn initialized_fields_equipment_and_real_attack_results_reach_session() {
+        let mut world = initialized_world(9);
+        let mut a = KernelAuthority::default();
+        let mut projection =
+            NativeProjection::new(&world, world.state().player, &super::tests::Catalog).unwrap();
+        let initial = projection.initial_events(&world).unwrap();
+        assert!(initial.iter().any(|e|matches!(e,SessionEvent::ItemCreate{fields,..} if fields.item_durability()==Some(1) && fields.item_max_durability()==Some(1))));
+        assert!(initial.iter().any(|e|matches!(e,SessionEvent::ObjectValues{fields,..} if fields.unit_stat(1)==Some(23) && fields.player_skill(1).is_some_and(|s|s.skill_id==95 && s.value==1))));
+        let command = cast(&world, 60001);
+        let mut events = Vec::new();
+        world.step(1, Some(command), &mut a).unwrap();
+        events.extend(projection.advance(&world).unwrap());
+        for tick in 2..=180 {
+            world.step(tick, None, &mut a).unwrap();
+            events.extend(projection.advance(&world).unwrap());
+        }
+        assert!(events
+            .iter()
+            .any(|e| matches!(e,SessionEvent::AttackerState(s) if s.damage>0)));
+        assert!(events.iter().any(|e|matches!(e,SessionEvent::ObjectValues{fields,..} if fields.item_durability()==Some(0) && fields.item_max_durability()==Some(1))));
+        assert!(events.iter().any(
+            |e| matches!(e,SessionEvent::ObjectValues{fields,..} if fields.unit_aura_state()&1!=0)
+        ));
+        assert!(events.iter().any(|e|matches!(e,SessionEvent::ObjectValues{fields,..} if fields.player_skill(1).is_some_and(|s|s.value>1))));
+    }
+}

@@ -91,9 +91,20 @@ impl Storage {
         bytes: &[u8],
         expected: Option<(Digest, Option<Digest>)>,
     ) -> Result<(), Error> {
+        self.write_checked(bytes, expected, |old| Envelope::decode(old).map(|_| ()))
+    }
+    /// Format-specific validation keeps the filesystem protocol shared without treating a
+    /// native checkpoint as an original-fixture envelope (or the reverse).
+    pub(super) fn write_checked(
+        &self,
+        bytes: &[u8],
+        expected: Option<(Digest, Option<Digest>)>,
+        validate: impl Fn(&[u8]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         if bytes.len() > MAX_CHECKPOINT_BYTES {
             return Err(Error::Corrupt);
         }
+        validate(bytes)?;
         self.check_lock()?;
         if let Some((expected, previous)) = expected {
             let old = self.read().map_err(|_| Error::ConcurrentModification)?;
@@ -112,7 +123,7 @@ impl Storage {
                     if e.kind() == std::io::ErrorKind::NotFound && previous.is_none() => {}
                 Err(_) => return Err(Error::ConcurrentModification),
             }
-            Envelope::decode(&old)?;
+            validate(&old)?;
             // A separate replacement; there is deliberately no multi-file atomicity claim.
             self.replace(PREVIOUS, &old)?;
         } else {
@@ -216,6 +227,16 @@ enum Access {
 }
 
 fn absolute_parts(path: &Path) -> Result<PathBuf, Error> {
+    // Windows joining onto a verbatim base can normalize `..` away. Reject the
+    // caller's traversal before resolving it, not only the resulting path.
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(Error::Invalid(
+            "world path must not contain parent traversal",
+        ));
+    }
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {

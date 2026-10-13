@@ -44,8 +44,10 @@ matchmaking service or elected game host runs in P2P mode.
   command/tick/checkpoint controller, but native-content entry remains gated; these
   mechanics are not yet available through the player UI
 - `benilla-sim` contains GPL-covered CMaNGOS-derived deterministic XP, selected
-  stat/armor, quest-reward and target-validation primitives
-  with provenance and parity tests, plus an original headless fixed-roster
+  stat/armor, quest-reward and target-validation primitives, plus bounded native
+  spell/AI/melee, creation/equipment and death reducers with provenance and parity
+  tests. A separate native runtime/checkpoint path is tested but still awaiting
+  real data/geometry admission. The crate also has an original headless fixed-roster
   encounter harness with deterministic combat fixtures, XP, guaranteed loot,
   snapshots and replay hashes. This is preparatory simulation code, not a full
   server port; an explicit [synthetic encounter mode](docs/P2P-ENCOUNTER.md) now

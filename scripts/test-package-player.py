@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+from datetime import datetime, timezone
+from unittest.mock import Mock
 
 spec = importlib.util.spec_from_file_location("package_player", Path(__file__).with_name("package-player.py"))
 packager = importlib.util.module_from_spec(spec)
@@ -334,6 +336,72 @@ class PackagingTests(unittest.TestCase):
             resolved = json.loads(result.stdout)
             vendor = next(p for p in resolved["packages"] if p["name"] == "packaging-vendor-probe")
             self.assertEqual(Path(vendor["manifest_path"]), dep / "Cargo.toml")
+
+
+class SourceRetentionTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("source_retention", Path(__file__).with_name("verify-source-retention.py"))
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+        self.now = datetime(2026, 10, 13, tzinfo=timezone.utc)
+
+    def response(self, status=0, **changes):
+        artifact = {"id": 123, "expired": False, "expires_at": "2027-01-11T00:00:00Z"}
+        artifact.update(changes)
+        return subprocess.CompletedProcess([], int(status != 0), json.dumps(artifact),
+                                           f"gh: service response (HTTP {status})" if status else "")
+
+    def verify(self, run, sleep):
+        return self.module.verify("bunkerlab-net/benilla", "123", run=run, sleep=sleep, now=self.now)
+
+    def test_artifact_visibility_retry_keeps_exact_identity(self):
+        run = Mock(side_effect=[self.response(404), self.response()])
+        sleep = Mock()
+        self.verify(run, sleep)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args.args[0], ["gh", "api", "repos/bunkerlab-net/benilla/actions/artifacts/123"])
+        sleep.assert_called_once_with(1)
+
+    def test_retries_are_bounded_and_never_accept_missing_source(self):
+        run = Mock(return_value=self.response(404))
+        sleep = Mock()
+        with self.assertRaises(RuntimeError):
+            self.verify(run, sleep)
+        self.assertEqual(run.call_count, 6)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2, 4, 8, 16])
+
+    def test_permission_failure_is_not_retried(self):
+        run, sleep = Mock(return_value=self.response(403)), Mock()
+        with self.assertRaises(RuntimeError):
+            self.verify(run, sleep)
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_timeout_and_service_failure_retry_then_verify(self):
+        run = Mock(side_effect=[subprocess.TimeoutExpired("gh", 30), self.response(503), self.response()])
+        sleep = Mock()
+        self.verify(run, sleep)
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+
+    def test_invalid_artifact_and_expiry_never_pass_or_retry(self):
+        for changes in [{"id": 124}, {"id": True}, {"expired": True},
+                        {"expires_at": "2026-10-28T00:00:00Z"},
+                        {"expires_at": "2027-01-11T00:00:00"}, {"expires_at": "invalid"}]:
+            with self.subTest(changes=changes):
+                run, sleep = Mock(return_value=self.response(**changes)), Mock()
+                with self.assertRaises(ValueError):
+                    self.verify(run, sleep)
+                run.assert_called_once()
+                sleep.assert_not_called()
+
+    def test_invalid_request_never_invokes_cli(self):
+        for repository, artifact in [("../benilla", "123"), ("bunkerlab-net/benilla", "123?x=1"),
+                                     ("bunkerlab-net/benilla", "0")]:
+            run = Mock()
+            with self.assertRaises(ValueError):
+                self.module.verify(repository, artifact, run=run)
+            run.assert_not_called()
 
 
 if __name__ == "__main__":

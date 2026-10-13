@@ -32,6 +32,7 @@ pub const TABLES: &[(&str, u32, u32)] = &[
     ("SpellFocusObject", 10, 40),
     ("SpellRadius", 4, 16),
     ("SpellRange", 22, 88),
+    ("Talent", 21, 84),
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,7 +137,7 @@ pub fn extract(data: &Path, output: &Path) -> Result<Manifest> {
         payloads.push((file, bytes));
     }
     let manifest = Manifest {
-        format: "benilla-native-dbc-extraction-v1",
+        format: "benilla-native-dbc-extraction-v2",
         chain_policy: "benilla-formats-vanilla-chain",
         client_build_claim: 5875,
         client_build_authenticity_verified: false,

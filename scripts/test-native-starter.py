@@ -90,7 +90,7 @@ def parsed(files):
 
 
 def extraction_metadata(files):
-    return {"format": "benilla-native-dbc-extraction-v1",
+    return {"format": "benilla-native-dbc-extraction-v2",
             "chain_policy": "benilla-formats-vanilla-chain", "client_build_claim": 5875,
             "client_build_authenticity_verified": False,
             "files": [{**table.manifest(), "winning_archive": "dbc.MPQ"}
@@ -103,6 +103,9 @@ def rehash_source(bundle):
     from classic_export.starter import keys
     bundle["table_sha256"] = {name: digest(rows) for name, rows in bundle["tables"].items()}
     bundle["starter_required_keys"] = keys(bundle["tables"])
+    if "native_spawn_capture" in bundle:
+        from classic_export.native_spawn import evidence
+        bundle["native_spawn_capture"] = evidence(bundle)
     profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
     bundle["report"]["unsupported"] = full_report(bundle["tables"], profiles, Selection.parse(bundle["selection"]))
 
@@ -210,6 +213,7 @@ class DbcTests(unittest.TestCase):
                 ("imported path", lambda v: v["files"][0].__setitem__("file", "../CharBaseInfo.dbc")),
                 ("archive path", lambda v: v["files"][0].__setitem__("winning_archive", "../dbc.MPQ")),
                 ("extra field", lambda v: v.__setitem__("extra", 1)),
+                ("legacy extraction", lambda v: v.__setitem__("format", "benilla-native-dbc-extraction-v1")),
                 ("unsupported policy", lambda v: v.__setitem__("chain_policy", "other")),
                 ("authenticity claim", lambda v: v.__setitem__("client_build_authenticity_verified", True)),
             ]:
@@ -444,7 +448,7 @@ class CompilerTests(unittest.TestCase):
         self.assertEqual(creature["event_ai_capture"]["status"], "captured_selectors_empty")
         self.assertEqual(creature["event_ai_capture"]["selectors"], [-1, 900001])
         self.assertIsNone(creature["ai_profile"])
-        self.assertIn("creature.unexported_groups_addons_assistance_context",
+        self.assertIn("creature.unexported_groups_assistance_context",
                       {i["reason"] for i in result["unsupported"]})
         self.source.pop("event_ai_capture")
         self.source["tables"].pop("creature_ai_scripts")
@@ -559,6 +563,19 @@ class CompilerTests(unittest.TestCase):
             verify = subprocess.run([sys.executable, str(ROOT/"native-starter.py"), "verify", "--source", str(source),
                                      "--dbc-dir", str(dbc), str(output)], capture_output=True, text=True)
             self.assertEqual(verify.returncode, 0, verify.stderr)
+            dependency_output = root/"dependencies.json"
+            dependency_command = list(command)
+            dependency_command[2] = "dependencies"
+            dependency_command[-1] = str(dependency_output)
+            dependencies = subprocess.run(dependency_command, capture_output=True, text=True)
+            self.assertEqual(dependencies.returncode, 0, dependencies.stderr)
+            request_data = decode_json(dependency_output.read_bytes(), 65536)
+            from classic_export.learning import request as validate_request
+            self.assertEqual(validate_request(request_data, export_tests.starter_selection()), request_data)
+            self.assertEqual(request_data, decode_json(output.read_bytes(), 128*1024*1024)["dependency_request"])
+            self.assertEqual(subprocess.run(dependency_command, capture_output=True).returncode, 2)
+            if os.name == "posix":
+                self.assertEqual(dependency_output.stat().st_mode & 0o777, 0o600)
             manifest.write_bytes(manifest.read_bytes()+b"\n")
             changed = subprocess.run([sys.executable, str(ROOT/"native-starter.py"), "verify", "--source", str(source),
                                      "--dbc-dir", str(dbc), str(output)], capture_output=True, text=True)
@@ -577,6 +594,343 @@ class CompilerTests(unittest.TestCase):
             command[-1] = str(dbc/"forbidden-output.json")
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
             self.assertFalse((dbc/"forbidden-output.json").exists())
+
+
+class LearningClosureTests(unittest.TestCase):
+    setUp = CompilerTests.setUp
+    compile = CompilerTests.compile
+    def test_recursive_missing_sql_spells_still_expand_local_skill_effects(self):
+        ability = []
+        skill_rows = [{0: 60001}, {0: 60002}]
+        spell_rows = [{i: word for i, word in enumerate(r.words)}
+                      for r in parsed(self.files)["Spell"].rows]
+        for index in range(24):
+            skill = 60001 if index == 0 else 61000 + index
+            next_skill = 61000 + index + 1 if index < 23 else 60001
+            ability.append({0: 830000+index, 1: skill, 2: 50001+index, 9: 2})
+            spell_rows.append({0: 50001+index, 63: 44, 108: next_skill})
+            if index:
+                skill_rows.append({0: skill})
+        self.files["SkillLine"] = dbc_bytes("SkillLine", skill_rows)
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", ability)
+        self.files["Spell"] = dbc_bytes("Spell", spell_rows)
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertTrue(closure["fixed_point_reached"])
+        self.assertFalse(closure["captured_inputs_complete"])
+        self.assertEqual(len(closure["ability_candidates"]), 24)
+        self.assertTrue(set(range(50001, 50025)) <= set(closure["spell_ids"]))
+        self.assertIn(61023, closure["skill_ids"])
+        missing = {r["id"] for r in result["required_additional_rows"] if r["table"] == "spell_template"}
+        self.assertEqual(missing, set(range(50001, 50025)))
+        self.assertEqual(result["dependency_request"]["spell_ids"], closure["spell_ids"])
+        self.assertTrue(any(e["role"] == "skill_step" and e["slot"] == 3 for e in closure["edges"]))
+
+    def test_zero_auto_learn_ability_and_spell_to_skill_reverse_edge_are_retained(self):
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [
+            {0: 830002, 1: 60003, 2: 930101, 9: 0},
+            {0: 830001, 1: 60003, 2: 50001, 3: 0xffffffff, 4: 0xffffffff, 9: 0, 8: 50002}])
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIn(60003, closure["skill_ids"])
+        self.assertTrue({50001, 50002} <= set(closure["spell_ids"]))
+        self.assertEqual([r["key"][0] for r in closure["ability_candidates"]], [830001, 830002])
+        self.assertTrue(any(r["table"] == "SkillLine" and r["id"] == 60003
+                            for r in result["required_additional_rows"]))
+
+    def test_raw_effect_roles_only_skill_and_skill_step_introduce_skills(self):
+        spell = self.source["tables"]["spell_template"][0]
+        spell.update(Effect1=118, EffectMiscValue1=60003, Effect2=6, EffectMiscValue2=60004)
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIn(60003, closure["skill_ids"])
+        self.assertNotIn(60004, closure["skill_ids"])
+        effects = result["spells"][0]["effects"]
+        self.assertEqual(effects[0]["EffectMiscValue"], 60003)
+        self.assertEqual(effects[1]["EffectMiscValue"], 60004)
+
+    def test_client_server_role_disagreement_expands_both_and_stays_blocked(self):
+        rows = [{i: w for i, w in enumerate(r.words)} for r in parsed(self.files)["Spell"].rows]
+        rows[0].update({61: 44, 106: 60003})
+        self.files["Spell"] = dbc_bytes("Spell", rows)
+        result = self.compile()
+        self.assertIn(60003, result["player"]["skills"]["dependency_closure"]["skill_ids"])
+        spell = result["spells"][0]
+        self.assertIn("Effect1", spell["server_client_differences"])
+        self.assertEqual(spell["server_numeric_words"][61], self.source["tables"]["spell_template"][0]["Effect1"])
+        self.assertTrue(any(i["reason"] == "spell.server_client_field_mismatch" for i in result["unsupported"]))
+
+    def test_omitted_learning_coverage_is_not_captured_empty(self):
+        self.source.pop("learning_capture")
+        for name in ("spell_chain", "spell_learn_spell"):
+            self.source["tables"].pop(name)
+        rehash_source(self.source)
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIsNone(closure["sql_relationship_coverage"])
+        self.assertIsNone(closure["server_relationships"]["spell_learn_spell"])
+        self.assertFalse(closure["captured_inputs_complete"])
+        self.assertTrue(any(i["reason"] == "player.server_learning_relationships_not_captured"
+                            for i in result["unsupported"]))
+
+    def test_missing_skill_table_and_tier_are_not_complete(self):
+        for missing in ("SkillLineAbility", "SkillRaceClassInfo", "SkillTiers", "SpellCastTimes", "SpellRange"):
+            files = dict(self.files)
+            del files[missing]
+            result = compile_starter(self.source, parsed(files), self.request)
+            self.assertFalse(result["player"]["skills"]["dependency_closure"]["captured_inputs_complete"])
+        for missing in ("SkillTiers", "SpellCastTimes", "SpellRange"):
+            files = dict(self.files)
+            files[missing] = dbc_bytes(missing, [])
+            result = compile_starter(self.source, parsed(files), self.request)
+            self.assertFalse(result["player"]["skills"]["dependency_closure"]["captured_inputs_complete"])
+
+    def test_dependency_node_edge_and_ability_budgets_fail_closed(self):
+        from native_starter import learning
+        for name, limit, error in (("MAX_SKILLS", 1, "skill_limit"), ("MAX_SPELLS", 1, "spell_limit"),
+                                   ("MAX_ITEMS", 1, "item_limit"), ("MAX_EDGES", 0, "edge_limit"),
+                                   ("MAX_ABILITY_ROWS", 0, "ability_row_limit"),
+                                   ("MAX_DBC_REFERENCES", 0, "dbc_reference_limit")):
+            with self.subTest(name=name), mock.patch.object(learning, name, limit):
+                with self.assertRaisesRegex(ExportError, error):
+                    self.compile()
+
+    def test_learning_cycle_terminates_and_is_entry_blocker(self):
+        rows = [{i: w for i, w in enumerate(r.words)} for r in parsed(self.files)["Spell"].rows]
+        rows += [{0: 50001, 61: 36, 109: 50002}, {0: 50002, 62: 36, 110: 50001}]
+        self.files["Spell"] = dbc_bytes("Spell", rows)
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 830001, 1: 60001, 2: 50001}])
+        result = self.compile()
+        issues = [i for i in result["unsupported"] if i["reason"] == "player.learning_spell_cycle"]
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["admission_scope"], {"kind": "selection_entry"})
+
+    def test_rank_passive_cannot_be_scoped_to_unavailable_active_cast(self):
+        spell = next(r for r in self.source["tables"]["spell_template"] if r["Id"] == 930102)
+        spell["Attributes"] = 0x40
+        self.source["tables"]["spell_chain"] = [
+            {"spell_id": 930101, "prev_spell": 930102, "first_spell": 930102, "rank": 2, "req_spell": 0},
+            {"spell_id": 930102, "prev_spell": 0, "first_spell": 930102, "rank": 1, "req_spell": 0}]
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        self.assertIn(930102, result["ability_admission"]["entry_critical_spell_ids"])
+        for issue in result["unsupported"]:
+            if issue["table"] == "spell_template" and issue["key"] in ([930102], "930102"):
+                self.assertEqual(issue["admission_scope"], {"kind": "selection_entry"})
+
+    def test_zero_ability_row_id_and_reverse_forward_reference_are_preserved(self):
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [
+            {0: 0, 1: 60003, 2: 50001, 8: 930101}])
+        result = self.compile()
+        closure = result["player"]["skills"]["dependency_closure"]
+        self.assertIn(50001, closure["spell_ids"])
+        self.assertIn(60003, closure["skill_ids"])
+        self.assertTrue(any(e["from_id"] == 0 and e["role"] == "ability_spell" for e in closure["edges"]))
+        self.assertIn(50001, result["ability_admission"]["entry_critical_spell_ids"])
+
+    def test_global_table_scan_state_is_not_inferred_from_selected_empty(self):
+        self.assertEqual(self.compile()["player"]["skills"]["dependency_closure"]["derived_learn_spell_scan"],
+                         "skipped_for_empty_table")
+        self.source["learning_capture"]["global_learn_spell_probe"]["rows"] = [
+            {"entry": 50001, "SpellID": 50002, "Active": 1}]
+        result = self.compile()
+        self.assertEqual(result["player"]["skills"]["dependency_closure"]["derived_learn_spell_scan"],
+                         "enabled_by_nonempty_table")
+        self.assertEqual(result["player"]["skills"]["dependency_closure"]["server_relationships"]["spell_learn_spell"], [])
+
+    def test_rank_cycle_terminates_and_is_entry_blocker(self):
+        self.source["tables"]["spell_chain"] = [
+            {"spell_id": 930101, "prev_spell": 930102, "first_spell": 930101, "rank": 1, "req_spell": 0},
+            {"spell_id": 930102, "prev_spell": 930101, "first_spell": 930101, "rank": 2, "req_spell": 0}]
+        rehash_source(self.source)
+        result = self.compile()
+        issues = [i for i in result["unsupported"] if i["reason"] == "player.learning_rank_cycle"]
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["admission_scope"], {"kind": "selection_entry"})
+
+    def test_known_active_skill_effect_is_initialization_sensitive(self):
+        spell = next(r for r in self.source["tables"]["spell_template"] if r["Id"] == 930101)
+        spell.update(Effect3=118, EffectMiscValue3=60001)
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        self.assertIn(930101, result["ability_admission"]["learning_sensitive_initial_spell_ids"])
+        self.assertFalse(any(r["id"] == 930101 for r in result["ability_admission"]["unavailable_active_abilities"]))
+
+    def test_recapture_can_close_local_dependencies_without_cloud_data(self):
+        source = export_tests.starter_source()
+        source.inventory = copy.deepcopy(self.source["schema"])
+        source.rows = {name: [] for name in source.rows}
+        for name, rows in self.source["tables"].items():
+            source.rows[name] = [{k: export_tests.Decimal(v["decimal"]) if type(v) is dict else v for k, v in row.items()}
+                                 for row in rows]
+        source.rows["spell_template"].append(export_tests.row("spell_template", Id=50001,
+            Effect1=118, EffectMiscValue1=60003, CastingTimeIndex=700001, rangeIndex=710001))
+        self.files["SkillLineAbility"] = dbc_bytes("SkillLineAbility", [{0: 830001, 1: 60001, 2: 50001, 9: 2}])
+        self.files["SkillLine"] = dbc_bytes("SkillLine", [{0: 60001}, {0: 60002}, {0: 60003}])
+        spell_rows = [{i: w for i, w in enumerate(r.words)} for r in parsed(self.files)["Spell"].rows]
+        spell_rows.append({0: 50001, 61: 118, 106: 60003, 18: 700001, 36: 710001})
+        self.files["Spell"] = dbc_bytes("Spell", spell_rows)
+        first = self.compile()
+        self.assertFalse(first["player"]["skills"]["dependency_closure"]["captured_inputs_complete"])
+        recaptured = capture(source, export_tests.starter_selection(), dependency_request=first["dependency_request"])
+        second = compile_starter(recaptured, parsed(self.files), self.request)
+        closure = second["player"]["skills"]["dependency_closure"]
+        self.assertTrue(closure["captured_inputs_complete"])
+        self.assertEqual(closure["skill_ids"], [60001, 60002, 60003])
+        self.assertEqual(closure["server_relationships"]["spell_learn_spell"], [])
+        self.assertFalse(second["required_additional_rows"])
+        self.assertEqual(second["status"], "blocked")
+        self.assertIsNone(second["runtime_export"])
+
+    def test_deterministic_bindings_and_no_mutation(self):
+        before = canonical(self.source), dict(self.files)
+        a, b = self.compile(), self.compile()
+        self.assertEqual(a, b)
+        self.assertEqual((canonical(self.source), self.files), before)
+        self.assertEqual(a["dependency_request"]["source_sha256"], digest(self.source))
+        self.assertTrue(all(len(spell["server_numeric_words"]) == 173 for spell in a["spells"]))
+        self.assertEqual(a["spells"][0]["server_numeric_words"][67],
+                         self.source["tables"]["spell_template"][0]["EffectBaseDice1"])
+        self.assertEqual(a["player"]["skills"]["dependency_closure"]["talent_membership"], "raw_table_captured_effective_loader_unproven")
+
+
+class TalentInputTests(unittest.TestCase):
+    def test_missing_empty_and_unrelated_talent_rows_are_distinct(self):
+        from native_starter.talent import inputs
+        self.assertIsNone(inputs(None, {900001})["matches"])
+        empty = inputs(parse_table("Talent", dbc_bytes("Talent", [])), {900001})
+        self.assertEqual(empty["coverage"], "complete_raw_table")
+        self.assertEqual(empty["matches"], [])
+        table = parse_table("Talent", dbc_bytes("Talent", [{0: 10, 4: 900002}]))
+        self.assertEqual(inputs(table, {900001})["matches"], [])
+        self.assertEqual(inputs(table, {900001})["row_count"], 1)
+
+    def test_every_real_rank_slot_and_duplicate_membership_is_preserved(self):
+        from native_starter.talent import inputs
+        rows = [{0: 20, 4: 900001, 8: 900005, 9: 900009}, {0: 10, 5: 900001}]
+        value = inputs(parse_table("Talent", dbc_bytes("Talent", rows)), {900001, 900005, 900009})
+        self.assertEqual([r["talent_id"] for r in value["matches"]], [10, 20])
+        self.assertEqual(value["matches"][1]["rank_slots"], [{"slot": 0, "spell": 900001}, {"slot": 4, "spell": 900005}])
+        self.assertEqual(len(value["matches"][1]["source"]["words"]), 21)
+
+    def test_compiler_talent_evidence_is_recomputed(self):
+        source = source_bundle(); tables = parsed(dbcs_for(source))
+        value = compile_starter(source, tables, Request(1, 1, 0))
+        self.assertEqual(value["talent_inputs"]["coverage"], "complete_raw_table")
+        value["talent_inputs"]["matches"] = [{"forged": True}]
+        with self.assertRaises(ExportError):
+            verify_preparation(value, source, tables)
+
+class NativeSpawnPreparationTests(unittest.TestCase):
+    setUp = CompilerTests.setUp
+    compile = CompilerTests.compile
+
+    def test_complete_empty_is_usable_evidence_without_enabling_runtime(self):
+        result = self.compile()
+        creature = result["creatures"][0]
+        spawn = creature["native_spawn_dependencies"][0]
+        self.assertEqual((spawn["guid"], spawn["entry"]), (1, 900001))
+        self.assertEqual(spawn["tables"]["game_event_creature"], {"status": "complete", "rows": []})
+        self.assertEqual(spawn["tables"]["creature_spawn_data"], {"status": "complete", "rows": []})
+        self.assertEqual(spawn["addon"], {"status": "captured_absent", "table": None, "row": None})
+        self.assertEqual(spawn["spawn_template"]["selection"], "default_zero")
+        self.assertEqual(spawn["spawn_template"]["status"], "captured_row_present")
+        self.assertEqual(spawn["spawn_template"]["row"]["NpcFlags"], -1)
+        self.assertEqual(spawn["coverage_sha256"], digest(result["native_spawn_capture"]))
+        self.assertEqual(spawn["unimplemented_hook_tables"], [])
+        self.assertIsNone(creature["resolved_combat_stats"])
+        self.assertIsNone(result["runtime_export"])
+        reasons = {i["reason"] for i in result["unsupported"]}
+        self.assertNotIn("creature.spawn_dependency_coverage_not_proven", reasons)
+        self.assertNotIn("spawn.overrides_pools_events_not_captured", reasons)
+        self.assertIn("creature.unexported_groups_assistance_context", reasons)
+        verify_preparation(result, self.source, parsed(self.files))
+
+    def test_legacy_coverage_is_null_and_cannot_be_empty(self):
+        from classic_export.native_spawn import TABLES
+        self.source.pop("native_spawn_capture")
+        for table in TABLES:
+            self.source["tables"].pop(table)
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertIsNone(result["native_spawn_capture"])
+        self.assertIsNone(result["creatures"][0]["native_spawn_dependencies"])
+        self.assertIn("creature.spawn_dependency_coverage_not_proven", {i["reason"] for i in result["unsupported"]})
+        self.assertIn("spawn.overrides_pools_events_not_captured", {i["reason"] for i in result["unsupported"]})
+
+    def test_missing_default_is_captured_absence_not_an_invented_default(self):
+        self.source["tables"]["creature_spawn_data_template"] = []
+        rehash_source(self.source)
+        result = self.compile()
+        template = result["creatures"][0]["native_spawn_dependencies"][0]["spawn_template"]
+        self.assertEqual(template, {"id": 0, "selection": "default_zero",
+                                    "status": "captured_row_absent", "row": None})
+        self.assertIn("creature.default_spawn_template_absent", {i["reason"] for i in result["unsupported"]})
+
+    def test_guid_addon_precedence_keeps_shadowed_template_and_neutral_hooks(self):
+        row = export_tests.row
+        self.source["tables"]["creature_addon"] = [row("creature_addon", guid=1, auras=None)]
+        self.source["tables"]["creature_template_addon"] = [row("creature_template_addon", entry=900001,
+                                                                    auras="original unparsed aura text")]
+        self.source["tables"]["game_event_creature"] = [row("game_event_creature", guid=1, event=-1),
+                                                         row("game_event_creature", guid=1, event=0)]
+        rehash_source(self.source)
+        result = self.compile()
+        spawn = result["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["addon"]["table"], "creature_addon")
+        self.assertIsNone(spawn["addon"]["row"]["auras"])
+        self.assertEqual(len(spawn["tables"]["creature_template_addon"]["rows"]), 1)
+        self.assertEqual(spawn["unimplemented_hook_tables"], ["game_event_creature", "creature_addon"])
+        issue = next(i for i in result["unsupported"] if i["reason"] == "creature.applicable_spawn_hooks_require_execution")
+        self.assertEqual(issue["tables"], ["game_event_creature", "creature_addon"])
+        self.source["tables"]["creature_addon"] = []
+        rehash_source(self.source)
+        spawn = self.compile()["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["addon"]["table"], "creature_template_addon")
+        self.assertEqual(spawn["addon"]["row"]["auras"], "original unparsed aura text")
+
+    def test_explicit_override_row_and_zero_binding_preserve_native_selection(self):
+        template = dict(self.source["tables"]["creature_spawn_data_template"][0], Entry=19, CurHealth=11,
+                        SpawnFlags=4, RelayId=77, StringId=88)
+        self.source["tables"]["creature_spawn_data_template"].append(template)
+        self.source["tables"]["creature_spawn_data"] = [export_tests.row("creature_spawn_data", Guid=1, Id=19)]
+        rehash_source(self.source)
+        spawn = self.compile()["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["spawn_template"]["row"], template)
+        self.assertEqual(spawn["spawn_template"]["selection"], "guid_binding")
+        self.source["tables"]["creature_spawn_data"][0]["Id"] = 0
+        self.source["tables"]["creature_spawn_data_template"].pop()
+        rehash_source(self.source)
+        spawn = self.compile()["creatures"][0]["native_spawn_dependencies"][0]
+        self.assertEqual(spawn["spawn_template"]["id"], 0)
+        self.assertEqual(spawn["spawn_template"]["selection"], "default_zero")
+
+    def test_selected_override_model_row_reaches_native_preparation(self):
+        model = dict(self.source["tables"]["creature_model_info"][0], modelid=940099)
+        self.source["tables"]["creature_model_info"].append(model)
+        self.source["required_ids"]["creature_model_info"].append(940099)
+        self.source["tables"]["creature_spawn_data_template"][0]["ModelId"] = 940099
+        rehash_source(self.source)
+        creature = self.compile()["creatures"][0]
+        self.assertEqual([r["modelid"] for r in creature["model_inputs"]], [940001, 940099])
+        self.assertEqual(creature["native_spawn_dependencies"][0]["spawn_template"]["row"]["ModelId"], 940099)
+
+    def test_forged_absence_rejects_even_with_rehashed_preparation(self):
+        self.source["tables"]["creature_addon"] = [export_tests.row("creature_addon", guid=1)]
+        rehash_source(self.source)
+        result = self.compile()
+        result["creatures"][0]["native_spawn_dependencies"][0]["addon"] = {
+            "status": "captured_absent", "table": None, "row": None}
+        result.pop("preparation_sha256")
+        result["preparation_sha256"] = digest(result)
+        with self.assertRaises(ExportError):
+            verify_preparation(result, self.source, parsed(self.files))
+
+
 
 if __name__ == "__main__":
     unittest.main()

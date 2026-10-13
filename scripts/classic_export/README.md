@@ -92,7 +92,8 @@ Capture follows these reviewed references:
 - Selected spells, quest/item spells and bounded triggered-spell references
 - With an explicit starter selector: eight native creation/stat/XP tables;
   custom item and action references, initial spells, zero-wildcard skill masks,
-  every selected level and XP threshold, and item requiredspell references
+  every selected level and XP threshold, item requiredspell references, and
+  exact-schema spell_chain/spell_learn_spell selector coverage and references
 
 The full projected column allowlist is `columns.py`, from the pinned source
 schemas/structures linked in `docs/CLASSIC-WORLD-IMPORT.md`. `db_version` metadata
@@ -100,9 +101,19 @@ is inspected as a base table before its fixed singleton read. Column inventory
 includes extra columns, but they are not silently treated as supported mechanics:
 unreviewed columns are reported. A missing projected column fails.
 
-Not captured: spawn override/pool/event/group state; gameobjects; loot rows;
-conditions; AI/script data; local starter outfits/DBC records; quest chains
-beyond referenced fields; spell chains/procs/stacking or the local client DBCs.
+New v2 captures also include exact-schema [native spawn dependency evidence](NATIVE-SPAWN-CONTRACT.md):
+spawn-data bindings and referenced templates plus Entry 0, selected event/pool
+membership, and GUID/template addon rows in the same read-only snapshot.
+Legacy v2 captures without that evidence stay unproven; applicable hooks remain
+unexecuted, including neutral-looking rows.
+
+Not captured: other event override/group/linking state; gameobjects; loot rows;
+conditions; other AI/script data; local starter outfits/DBC records; quest chains
+beyond referenced fields; spell procs/stacking or the local client DBCs.
+Legacy v2 captures without server learning coverage remain valid but unproven;
+new v2 captures require both reviewed learning tables. A bounded native compiler
+request may add exact item/spell roots through `--dependency-request`; see the
+[local dependency flow](../native_starter/README.md#local-dependency-recapture).
 The tool does not turn missing requirements into default values. These gaps and
 unimplemented gameplay rules are reported; `capture_complete` and `runnable` are
 always false. A zero `unsupported` count in an empty region still cannot make it
@@ -117,8 +128,8 @@ identity. Exact gameplay arithmetic still needs its own reviewed port.
 
 ## Bounds and output safety
 
-Hard caps: 4,096 spawns/templates, 512 quests, 2,048 items, 512 spells, 16 dependency
-rounds, 64 KiB/row, 16 MiB/query/table and 64 MiB aggregate responses/output. SQL
+Hard caps: 4,096 spawns/templates, 512 quests, 2,048 items, 512 spells, sixteen
+creature rounds and at most 512 newly visited spell nodes, 64 KiB/row, 16 MiB/query/table and 64 MiB aggregate responses/output. SQL
 uses `LIMIT cap+1` and rejects overflow without truncating. Row budgets apply
 while streaming, before retaining the next row. A single driver row is received
 before its limit is checked; the tool does not claim a malicious SQL server

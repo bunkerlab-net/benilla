@@ -64,3 +64,42 @@ The repository's [GPL license](../../LICENSE-GPL-3.0) and simulation's
   fill uncaptured server overrides authoritatively
 - No runtime native gameplay gate was changed, and no real local SQL/DBC/native
   gameplay or graphical run was performed
+
+## Learning dependency closure
+
+`learning.py` is an original bounded dependency traversal based on the pinned
+[DBCStructure.h layouts](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCStructure.h#L620-L671),
+[Player::LearnDefaultSkills](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Player.cpp#L5813),
+and [SpellMgr learning loaders](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/SpellMgr.cpp#L1632-L1768).
+The exact `spell_chain` and `spell_learn_spell` column domains are reviewed from
+[the pinned base schema](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/sql/base/mangos.sql).
+No upstream SQL data rows are included. Synthetic tests use newly authored IDs,
+values, long chains, cycles, mismatches and missing-data/budget failures.
+
+Every SkillLineAbility row touching a reachable skill or spell is retained,
+including zero learnOnGetSkill and unmatched masks, because resolving native
+obtainability and effect-118 profession repair belongs to initialization.
+Effects start at Spell words 61–63, not equipped-item mask words 58–60; misc
+skill IDs are words 106–108 and trigger spell IDs are 109–111. All three slots
+remain raw and source-tagged. The canonical server numeric array overlays only
+reviewed SQL fields on 173 client words and preserves their disagreements.
+It does not synthesize uncaptured server fields, talent membership, external
+hooks, effective learned spells, passive application or final player stats.
+
+The source SQL query's global-empty branch returns before the Effect36-derived
+learning scan. The exporter retains a bounded one-row whole-table existence
+probe separately from exact selected-parent relationships, so a selected-empty
+result never fabricates an initialized derived map. It neither executes the
+loader nor interprets an unrelated probe row as a selected dependency. Existing
+rank learning in Player::addSpell means passive predecessors stay entry-critical
+when a higher active cast is unavailable. These are dependency/branch facts, not
+initialization execution or a playable-content certification.
+
+
+Native spawn dependency selection follows the same pinned
+[ObjectMgr::LoadCreatureSpawnDataTemplates and LoadCreatures](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L1758-L2027)
+and [Creature::GetCreatureAddon](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.cpp#L2295-L2353).
+The [bounded evidence contract](../classic_export/NATIVE-SPAWN-CONTRACT.md)
+documents exact selectors, schema domains, missing/empty distinctions and
+unexecuted semantics. Schema metadata only is transcribed; all test rows are
+original synthetic inputs.

@@ -47,12 +47,12 @@ def write_new(path: Path, value) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("prepare", "verify"):
+    for command in ("prepare", "dependencies", "verify"):
         cmd = sub.add_parser(command)
         cmd.add_argument("--source", type=Path, required=True)
         cmd.add_argument("--dbc-dir", type=Path, required=True,
                          help="completed benilla-native-dbc output directory, including extraction.json")
-        if command == "prepare":
+        if command in {"prepare", "dependencies"}:
             cmd.add_argument("--race", type=int, required=True)
             cmd.add_argument("--class", dest="class_id", type=int, required=True)
             cmd.add_argument("--gender", type=int, required=True)
@@ -73,6 +73,10 @@ def main() -> int:
         check(not args.output.exists(), "output.already_exists")
         request = Request.parse({"race": args.race, "class": args.class_id, "gender": args.gender})
         preparation = compile_starter(source, tables, request, errors, extraction)
+        if args.command == "dependencies":
+            write_new(args.output, preparation["dependency_request"])
+            print("Wrote bounded SQL recapture request; no gameplay activated")
+            return 0
         write_new(args.output, preparation)
         print(f"Prepared exact native bindings; {len(preparation['unsupported'])} blockers; "
               f"{len(preparation['required_additional_rows'])} dependency requests; "

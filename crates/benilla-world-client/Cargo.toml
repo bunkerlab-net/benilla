@@ -8,8 +8,12 @@ description = "Validated command and protocol projection boundary for the solo w
 workspace = true
 [dependencies]
 benilla-world-runtime = { path = "../benilla-world-runtime" }
+benilla-sim = { path = "../benilla-sim" }
 benilla-world-data = { path = "../benilla-world-data" }
 benilla-protocol = { path = "../benilla-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+
+[dev-dependencies]
+benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }

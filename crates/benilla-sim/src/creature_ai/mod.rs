@@ -19,7 +19,8 @@ pub const CREATURE_AI_POLICY_ID: &str = "cmangos-8ec338a1-outdoor-solo-ai-binary
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Unsupported {
     ScriptedAi,
     SpellList,
@@ -47,7 +48,8 @@ impl std::fmt::Display for AiError {
 }
 impl std::error::Error for AiError {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Reaction {
     Passive,
     Defensive,
@@ -55,7 +57,8 @@ pub enum Reaction {
 }
 /// Resolved native configuration, not a DB row and not evidence of complete metadata.
 /// No Default: native values must be supplied and unsupported features audited.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Profile {
     pub creature_id: u64,
     pub map_id: u32,
@@ -118,7 +121,8 @@ impl Profile {
 
 /// An ordinary player sampled by the authority, including resolved native relationship
 /// and visibility predicates. This must not be filled from a peer's claimed state.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Target {
     pub id: u64,
     pub position: Point,
@@ -134,12 +138,14 @@ pub struct Target {
     pub accessible: bool,
     pub line_of_sight: bool,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum ThreatKind {
     DirectDamage,
     PeriodicDamage,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CombatEvent {
     /// UnitAI::AttackedBy; authenticated successful attack initiation, not a peer command.
     AttackedBy {
@@ -153,7 +159,8 @@ pub enum CombatEvent {
     },
     Died,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Receipt {
     pub id: u64,
     pub event: CombatEvent,
@@ -181,7 +188,8 @@ pub trait CombatAuthority {
     fn observe(&mut self, creature_id: u64) -> Result<Observation, AiError>;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Phase {
     Idle,
     Combat,
@@ -189,20 +197,23 @@ pub enum Phase {
     Corpse,
     Despawned,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum EvadeReason {
     NoTarget,
     PursuitLeash,
     HardLeash,
     Unreachable,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MotionCommand {
     pub command_id: u64,
     pub purpose: MovementPurpose,
     pub home: Option<Point>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Effect {
     CombatStarted {
         target: u64,
@@ -230,7 +241,8 @@ pub enum Effect {
         position: Point,
     },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum SwingError {
     OutOfRange,
     BadFacing,
@@ -292,6 +304,8 @@ pub struct SoloCreatureAi {
     combat_tick_ms: u32,
     unreachable_ms: u32,
     corpse_at_ms: u64,
+    death_at_ms: Option<u64>,
+    despawned_at_ms: Option<u64>,
     respawn_at_ms: u64,
 }
 impl SoloCreatureAi {
@@ -316,6 +330,8 @@ impl SoloCreatureAi {
             combat_tick_ms: COMBAT_TICK_MS,
             unreachable_ms: 0,
             corpse_at_ms: 0,
+            death_at_ms: None,
+            despawned_at_ms: None,
             respawn_at_ms: 0,
         })
     }
@@ -356,13 +372,29 @@ impl SoloCreatureAi {
     /// Input rejection is transactional. The adapter's observations and movement proposals
     /// must be non-mutating; commit returned effects together with this state.
     pub fn step(&mut self, authority: &mut impl CombatAuthority) -> Result<Vec<Effect>, AiError> {
+        self.step_with_mainhand(authority, &mut |_, _, _| Ok(()))
+    }
+    /// Source AI-to-DealMeleeDamage callback before CombatManager::Update. The callback
+    /// receives target ID, post-movement position, and whether CombatStarted happened
+    /// earlier in this step. Rejection preserves AI; the caller must discard its staged
+    /// callback state too. Ordinary NPC attacks do not refresh NPC pursuit: the source
+    /// TriggerCombatTimer target is the player, who cannot hold a threat list.
+    pub fn step_with_mainhand(
+        &mut self,
+        authority: &mut impl CombatAuthority,
+        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<(), AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
         let observation = authority.observe(self.profile.creature_id)?;
         let mut next = self.clone();
-        let effects = next.apply(observation)?;
+        let effects = next.apply(observation, mainhand)?;
         *self = next;
         Ok(effects)
     }
-    fn apply(&mut self, o: Observation) -> Result<Vec<Effect>, AiError> {
+    fn apply(
+        &mut self,
+        o: Observation,
+        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<(), AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
         if Some(o.sequence) != self.next_sequence()
             || o.elapsed_ms == 0
             || o.elapsed_ms > 60_000
@@ -411,6 +443,7 @@ impl SoloCreatureAi {
                 }
                 if self.now_ms >= self.corpse_at_ms {
                     self.phase = Phase::Despawned;
+                    self.despawned_at_ms = Some(self.now_ms);
                     self.position = self.profile.spawn; // native invisible corpse removal relocation
                     effects.push(Effect::CorpseRemoved);
                 }
@@ -422,6 +455,8 @@ impl SoloCreatureAi {
                 }
                 if self.now_ms >= self.respawn_at_ms {
                     self.phase = Phase::Idle;
+                    self.death_at_ms = None;
+                    self.despawned_at_ms = None;
                     effects.push(Effect::Respawned {
                         position: self.position,
                     });
@@ -513,6 +548,13 @@ impl SoloCreatureAi {
                 }
                 self.mainhand_ms = self.profile.mainhand_interval_ms;
                 effects.push(Effect::MainhandSwing { target: t.id });
+                mainhand(
+                    t.id,
+                    self.position,
+                    effects
+                        .iter()
+                        .any(|e| matches!(e, Effect::CombatStarted { .. })),
+                )?;
             }
             SwingDecision::Retry(error) => {
                 // Upstream SWING_ERROR_NOT_IN_RANGE is enum value zero, so this particular
@@ -570,6 +612,7 @@ impl SoloCreatureAi {
             if matches!(self.phase, Phase::Corpse | Phase::Despawned) {
                 return Err(AiError::Invalid("duplicate death"));
             }
+            self.death_at_ms = Some(self.now_ms);
             self.phase = Phase::Corpse;
             self.target = None;
             self.threat = Real::ZERO;
@@ -764,3 +807,6 @@ impl SoloCreatureAi {
         }
     }
 }
+
+mod checkpoint;
+pub use checkpoint::*;

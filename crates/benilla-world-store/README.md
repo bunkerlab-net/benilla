@@ -166,3 +166,34 @@ The child lock probe is marked ignored for standalone test discovery but runs
 as a subprocess from the main suite. Linux results do not establish Windows or
 macOS runtime behavior: native CI must execute this crate on each release target.
 No synthetic test proves actual power-loss behavior on every filesystem/device.
+
+## Native component checkpoints
+
+`native::NativeStore` is an additive, distinct `BNNATV1` format for the versioned
+native component runtime. It uses the same bounded, exclusive-writer,
+backup-before-current filesystem protocol and the same platform durability limits.
+The original-fixture envelope and native envelope cannot be opened as each other.
+
+Identity binds the selected world, owner and character, the entire runtime profile
+(including content, authority, geometry and RNG policy), and its explicit domain.
+The store replays the journal suffix against its last verified admitted state before
+writing. A successful receipt clears only the exact committed checkpoint's journal;
+an older receipt cannot discard later ticks. Unacknowledged successful saves can be
+followed by another save without losing the intermediate history.
+
+Opening requires a caller-supplied local runtime restore function. This is a
+capability boundary: decoding a checkpoint never authorizes native gameplay. The
+store checks the restored checkpoint exactly before replay and rejects a substituted
+world. Current tests use the explicitly synthetic component domain; real local
+content admission and app/controller wiring remain separate prerequisites.
+
+Checkpoint periodically before the native runtime's 2,048-record/8MiB journal cap.
+The 4,100-tick native persistence regression crosses the cap twice with periodic
+checkpoints and resumes the same exact state. This module does not automatically
+schedule app checkpoints. Never clear records on a failed publication. Keep the
+live controller and store lock for retry; `CommitUncertain` requires explicit reopen.
+
+Checksums and local history chaining detect corruption and mismatched branches.
+They do not prevent the local owner restoring an entire old directory, and are not
+anti-cheat signatures or atomic distributed persistence. No peer-supplied restore
+closure, identity or unauthenticated checkpoint may be trusted as character ownership.

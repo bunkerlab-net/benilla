@@ -32,7 +32,8 @@ V1 does not require, query or accept captured player rows.
 
 Columns below are from the pinned [base schema][schema]; loader references are
 from [`ObjectMgr::LoadPlayerInfo`][objects]. Every listed column is preserved.
-For these eight tables only, capture requires the exact column set, order,
+For these eight tables and the two learning tables described below, capture
+requires the exact column set, order,
 SQL value domain and nullability. Integer display widths are ignored, but integer
 size, signedness and nullable semantics are not. Engine restrictions and the
 operator-confirmed MyISAM snapshot requirement remain unchanged. Installed key
@@ -83,6 +84,51 @@ still apply; no free-form query or player/account/character database is read.
 
 ## Reference closure and remaining blockers
 
+### Additive server learning/rank evidence
+
+New v2 captures require two additional exact-schema tables from the pinned base
+schema. `spell_chain` retains nonnull signed mediumint spell_id, prev_spell,
+first_spell, req_spell and signed tinyint rank, in native column order
+(spell_id, prev_spell, first_spell, rank, req_spell). `spell_learn_spell` retains
+nonnull unsigned smallint entry/SpellID and unsigned tinyint Active. The capture
+requires Active 0 or 1 and nonnegative rank references without narrowing. Keys
+are spell_id and (entry, SpellID), respectively; duplicate keys reject.
+
+For every captured spell, fixed parameterized SELECTs retain all matching rows
+without native-loader filtering. A visited-set fixed point follows all nonzero
+prev/first/required spell references, SpellID learning links and all three raw
+EffectTriggerSpell fields. Missing referenced spell_template rows or the
+existing 512-spell/4,096-relation-row/aggregate-byte limits fail the whole capture.
+Cycles terminate discovery; runtime semantic cycle rejection remains separate.
+
+`learning_capture` binds the exact captured spell selector set, tables, cap,
+unfiltered predicate and optional bounded native dependency request. Schema and
+table hashes cover all retained values. Offline validation recomputes selector
+coverage, rejects out-of-scope rows and enforces every referenced template.
+Missing learning tables/coverage in older v2 artifacts remain accepted as
+legacy unknown input; partial tables or missing/altered coverage with present
+tables reject. An empty captured relationship array is never inferred from an
+absent table. This is not a claim that the upstream loader accepted those rows.
+
+A separate fixed, ordered `LIMIT 1` probe over the whole spell_learn_spell table
+retains zero or one typed row in `global_learn_spell_probe`; it does not fetch
+another selected spell's dependency graph. This distinction is required because
+pinned `SpellMgr::LoadSpellLearnSpells` returns before scanning Effect36 when the
+entire SQL table is empty. Selected-empty relationships alone cannot establish
+that loader branch. Validation rejects more than one probe row, an empty probe
+with captured learning rows, and disagreement when the probe's parent is in the
+selected set. Probe bytes count toward the same snapshot/aggregate budget.
+
+An optional `--dependency-request` contains only bounded sorted unique item/spell
+IDs and their discovery source/DBC hashes. It must match the exact starter
+selection and pinned core revision, and cannot contain query text. The capture
+retains the request and adds its roots before ordinary closure. Hashes describe
+lineage rather than SQL snapshot identity or authenticity. Reprepare against
+the resulting new snapshot to discover any additional edges. See the
+[native preparation flow](../scripts/native_starter/README.md#local-dependency-recapture).
+Talent membership, proc/affect/condition/script hooks and DBC-derived native
+loader behavior are not established by these two tables.
+
 ### Additive EventAI selector evidence
 
 New v2 captures also require `creature_ai_scripts` and read only `id` (nonnull
@@ -110,7 +156,7 @@ or silently supported. No EventAI action executes here.
 Custom creation items and item-type actions (128) require item_template rows.
 Initial spells and spell-type actions (0) require spell_template rows. For v2,
 item requiredspell and all five item spell slots are followed, then the existing
-bounded recursive EffectTriggerSpell closure. Missing referenced rows fail.
+bounded recursive EffectTriggerSpell and server learning/rank closure. Missing referenced rows fail.
 Action existence does not establish that the player learned an active spell;
 an action absent from the initial SQL spell set receives a learning-resolution
 blocker. Other action types are preserved and blocked, never interpreted as

@@ -3,9 +3,11 @@
 //! CMaNGOS PathFinder or a substitute for collision/navigation data. See CREATURE-AI.md.
 use super::{AiError, Point, Real};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Revision(pub [u8; 32]);
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum MovementPurpose {
     Chase { target: u64 },
     Home,
@@ -13,7 +15,8 @@ pub enum MovementPurpose {
 
 /// A trusted adapter resolves a source-style near-point before issuing a chase segment.
 /// `elapsed_ms` is the simulation movement budget, never an arbitrary peer timestamp.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MovementRequest {
     pub request_id: u64,
     pub command_id: u64,
@@ -28,13 +31,15 @@ pub struct MovementRequest {
     pub purpose: MovementPurpose,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Check {
     Passed,
     Failed,
     Unknown,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SegmentChecks {
     pub loaded_coverage: Check,
     pub line_of_sight: Check,
@@ -42,7 +47,8 @@ pub struct SegmentChecks {
     pub continuous_ground_support: Check,
     pub dry_ground: Check,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum BlockReason {
     Obstacle,
     UnsupportedGround,
@@ -54,7 +60,8 @@ pub enum BlockReason {
     StaleContent,
     StaleRequest,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum MovementResult {
     /// Position is computed by the authority's continuous movement solver. `travelled`
     /// is total path length this interval, including every bend/height adjustment.
@@ -67,7 +74,8 @@ pub enum MovementResult {
     /// Known obstruction is different from missing/unsupported geometry.
     Blocked(BlockReason),
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MovementOutcome {
     pub request_id: u64,
     pub map_id: u32,

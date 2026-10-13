@@ -124,15 +124,15 @@
 - **benilla-p2p** (lib.rs): identity internet
 - **benilla-profile** (lib.rs): storage tests
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
-- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai encounter mage_resource quest xp
+- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init encounter mage_resource npc_melee player_death quest starter_init xp
 - **benilla-srp** (lib.rs): vanilla_header
 - **benilla-ui** (lib.rs): bindings_xml civil framexml justify layout loader markup messages order script source status strings toc widget
 - **benilla-visual** (lib.rs): relight
-- **benilla-world-client** (lib.rs): interactions metadata
+- **benilla-world-client** (lib.rs): interactions metadata native
 - **benilla-world-controller-tests** (lib.rs): world
 - **benilla-world-data** (lib.rs): model validate
-- **benilla-world-runtime** (lib.rs): engine model persistence rules
-- **benilla-world-store** (lib.rs): envelope storage tests
+- **benilla-world-runtime** (lib.rs): engine model native persistence rules
+- **benilla-world-store** (lib.rs): envelope native storage tests
 - **benilla-world** (lib.rs): art_scope assets bgwin billboard boot build_id clouds clutter collision decal dev_state doodad_anim entity_shade exterior_cull ffx_glow final_pass frame_pace ground_fx instance_tint interact interior layout_keys lighting liquid log_ring mac_quit map_proj mat_anim_table mesh_tag model_fade model_forms model_render modkeys particles ribbons ride_frame rig_anim rig_palette rig_rider schedule shaders sky sky_order skybox static_gx static_merge straddle sun surface terrain_stream thread_qos view vis_chain water_fx wdl weather wmo_portal world_census world_map world_plugins world_point world_unit worldview zfill
 
 ## CLI binaries

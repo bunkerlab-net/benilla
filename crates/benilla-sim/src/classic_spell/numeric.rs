@@ -44,7 +44,8 @@ impl SpellFloat {
 }
 /// Original effect-value fields, before base-dice addition. No combo points,
 /// spellmods, creature scaling, overridden base points or scripted values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EffectValue {
     pub base_points: i32,
     pub base_dice: i32,
@@ -273,4 +274,16 @@ pub fn zero_resistance_npc_miss(
     }
     let chance = chance.max(integer(1)?).min(integer(100)?);
     combat_chance(SpellFloat(chance.to_bits() as u32))
+}
+
+impl serde::Serialize for SpellFloat {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u32(self.bits())
+    }
+}
+impl<'de> serde::Deserialize<'de> for SpellFloat {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_bits(<u32 as serde::Deserialize>::deserialize(deserializer)?)
+            .map_err(serde::de::Error::custom)
+    }
 }

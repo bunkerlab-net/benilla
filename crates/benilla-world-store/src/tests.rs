@@ -427,7 +427,25 @@ fn lock_child_probe() {
 #[test]
 fn root_and_parent_traversal_are_rejected() {
     let temp = Temp::new();
-    assert!(WorldStore::create(temp.0.join("../escape"), &world()).is_err());
+    // canonicalize() produces a verbatim Windows path. PathBuf::join would
+    // normalize its parent component before the store ever sees the input.
+    let mut raw = temp.0.as_os_str().to_os_string();
+    raw.push(std::path::MAIN_SEPARATOR_STR);
+    raw.push("..");
+    raw.push(std::path::MAIN_SEPARATOR_STR);
+    raw.push("escape");
+    let path = PathBuf::from(raw);
+    assert!(path
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir)));
+    assert!(matches!(
+        WorldStore::create(path, &world()),
+        Err(Error::Invalid(_))
+    ));
+    assert!(matches!(
+        WorldStore::create("../escape", &world()),
+        Err(Error::Invalid(_))
+    ));
     #[cfg(unix)]
     assert!(WorldStore::create("/", &world()).is_err());
 }

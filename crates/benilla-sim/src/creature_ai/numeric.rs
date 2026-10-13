@@ -75,7 +75,8 @@ impl Real {
 }
 
 /// Native WoW coordinates, not renderer-axis coordinates. No transport-local positions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Point {
     pub x: Real,
     pub y: Real,
@@ -99,6 +100,12 @@ impl Point {
             }
         }
         Ok(())
+    }
+    /// Software-binary32 squared world distance for deterministic runtime adapters.
+    pub fn distance_squared(self, to: Self) -> Result<Real, AiError> {
+        self.validate()?;
+        to.validate()?;
+        self.square_distance(to, true)
     }
     pub(crate) fn square_distance(self, to: Self, three_d: bool) -> Result<Real, AiError> {
         let x = self.x.sub(to.x)?;
@@ -271,4 +278,16 @@ pub fn distance_2d(origin: Point, to: Point, bounding_radius: Real) -> Result<Re
     } else {
         result
     })
+}
+
+impl serde::Serialize for Real {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u32(self.bits())
+    }
+}
+impl<'de> serde::Deserialize<'de> for Real {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_bits(<u32 as serde::Deserialize>::deserialize(deserializer)?)
+            .map_err(serde::de::Error::custom)
+    }
 }

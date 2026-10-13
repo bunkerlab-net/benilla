@@ -583,3 +583,43 @@ STARTER_SCHEMA = {
 }
 COLUMNS.update({table: [column[0] for column in columns]
                 for table, columns in STARTER_SCHEMA.items()})
+
+# Exact reviewed native server learning tables; separate from creation predicates.
+LEARNING_SCHEMA = {
+    "spell_chain": [("spell_id", "mediumint", False), ("prev_spell", "mediumint", False),
+                    ("first_spell", "mediumint", False), ("rank", "tinyint", False),
+                    ("req_spell", "mediumint", False)],
+    "spell_learn_spell": [("entry", "smallint unsigned", False),
+                          ("SpellID", "smallint unsigned", False),
+                          ("Active", "tinyint unsigned", False)],
+}
+COLUMNS.update({table: [column[0] for column in columns]
+                for table, columns in LEARNING_SCHEMA.items()})
+
+
+# Full schema-only metadata from pinned sql/base/mangos.sql. No database content.
+SPAWN_SCHEMA = {
+    "creature_spawn_data": [("Guid", "int unsigned", False), ("Id", "int unsigned", False)],
+    "creature_spawn_data_template": [
+        ("Entry", "int unsigned", False), ("NpcFlags", "int", False),
+        ("UnitFlags", "bigint", False), ("Faction", "int unsigned", False),
+        ("ModelId", "mediumint unsigned", False), ("EquipmentId", "mediumint", False),
+        ("CurHealth", "int unsigned", False), ("CurMana", "int unsigned", False),
+        ("SpawnFlags", "int unsigned", False), ("RelayId", "int unsigned", False),
+        ("StringId", "int unsigned", False), ("Name", "varchar(200)", False)],
+    "game_event_creature": [("guid", "int unsigned", False), ("event", "smallint", False)],
+    "pool_creature": [("guid", "int unsigned", False), ("pool_entry", "mediumint unsigned", False),
+                      ("chance", "float unsigned", False), ("description", "varchar(255)", False)],
+    "pool_creature_template": [("id", "int unsigned", False), ("pool_entry", "mediumint unsigned", False),
+                               ("chance", "float unsigned", False), ("description", "varchar(255)", False)],
+    "creature_addon": [("guid", "int unsigned", False), ("mount", "mediumint unsigned", False),
+                       ("stand_state", "tinyint unsigned", False), ("sheath_state", "tinyint unsigned", False),
+                       ("emote", "int unsigned", False), ("moveflags", "int unsigned", False),
+                       ("auras", "text", True)],
+    "creature_template_addon": [("entry", "mediumint unsigned", False), ("mount", "mediumint unsigned", False),
+                                ("stand_state", "tinyint unsigned", False), ("sheath_state", "tinyint unsigned", False),
+                                ("emote", "mediumint unsigned", False), ("moveflags", "int unsigned", False),
+                                ("auras", "text", True)],
+}
+COLUMNS.update({table: [column[0] for column in columns]
+                for table, columns in SPAWN_SCHEMA.items()})

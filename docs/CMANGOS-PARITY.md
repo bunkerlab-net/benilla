@@ -14,25 +14,34 @@ This ledger contains original analysis, no copied implementation, database rows,
 quest text or Blizzard assets.
 
 Local evidence was inspected on 2026-10-13. The saved-character/owner-authenticated
-peer bridge is published on the feature branch at
-`8daf56d4881a64c9264b93e2ca76e4d21a87da4d`; its 19 production-backend harness
-tests passed, while full app CI and asset-backed visual verification remain separate
-gates. Characters now use their saved race/class/appearance and local position;
-this does not implement world progression, NPC simulation or Classic character stats.
-The world-data/exporter source described below is a separate next-stage working tree.
+peer bridge supports local race/class/appearance selection, durable profiles and
+position saves. Full app CI, native-platform tests and asset-backed visual checks
+are distinct gates; a passing pure reducer test is not a playable-world result.
 
-The original solo runtime, protocol projection and durable world store now have
+The original solo runtime, protocol projection and durable world store have
 headless regression tests, including replay, partial loot and checkpoint continuity.
-They remain separate from the app gameplay path and do not establish native Classic
-parity. Named CMaNGOS ports and their differential-test domains are documented in
-[stat/armor primitives](../crates/benilla-sim/CLASSIC.md),
-[quest rewards](../crates/benilla-sim/QUESTS.md), and
-[targeting](../crates/benilla-sim/CLASSIC-TARGETS.md), and
-[bounded cast/projectile/periodic execution](../crates/benilla-sim/SPELLS.md).
-The app controller has source-level tests for command admission, correction,
-checkpoint cadence and failed-save retry, but its native entry remains closed.
-None of these alone supplies full combat,
-AI, spell execution, character creation or quest lifecycle.
+The app controller has tests for command admission, correction, checkpoint cadence
+and failed-save retry, but native-content entry remains closed.
+
+The separate native component path now integrates source-derived spell execution,
+ordinary NPC AI/melee, player stat/skill/equipment initialization and durable replay.
+Its production capability remains unavailable pending a complete local-data compiler
+and real geometry/authority adapters. Named ports, differential domains and explicit
+exclusions are documented in:
+
+- [Stat/armor primitives](../crates/benilla-sim/CLASSIC.md)
+- [Quest reward arithmetic](../crates/benilla-sim/QUESTS.md)
+- [Targeting](../crates/benilla-sim/CLASSIC-TARGETS.md)
+- [Cast/projectile/periodic execution](../crates/benilla-sim/SPELLS.md)
+- [Mana/resources](../crates/benilla-sim/MAGE-RESOURCES.md)
+- [Fresh mage initialization and first-entry replay](../crates/benilla-sim/STARTER-INIT.md)
+- [Ordinary NPC melee](../crates/benilla-sim/NPC-MELEE.md)
+- [Creature initialization](../crates/benilla-sim/CREATURE-INIT.md)
+- [Player death/corpse lifecycle reducer](../crates/benilla-sim/PLAYER-DEATH.md)
+- [Native runtime integration](../crates/benilla-world-runtime/src/native/README.md)
+
+These are bounded ports with synthetic source-derived probes. They do not establish
+full combat, real starter-data admission, quest lifecycle or an asset-backed world.
 
 Three different claims require different evidence:
 
@@ -90,7 +99,11 @@ is meaningful without a bounded content/mechanics inventory.
   complete `Gain`, creature eligibility/modifiers, group/rested XP and level-up
   tables. `benilla-profile/src/lib.rs` supplies owner/character records,
   race/class validation and an explicitly noncanonical meeting-spawn policy,
-  not a stat/progression engine.
+  not a stat/progression engine. The separate `starter_init` reducer now translates
+  bounded level-one mage creation, deferred stat modifiers, first-login skill/spell
+  replay and equipped-item effects. It preserves created current resources rather
+  than refilling to recomputed maxima. Unsupported passive/rank/hook semantics fail
+  explicitly; this does not implement all races/classes or level-up progression.
 - **Dependencies:** player creation/level tables; class/race DBC information;
   item/aura modifiers; skills, talents, spell learning, faction/reputation;
   death/rested state; kill attribution; local rates with explicit semantics.
@@ -133,11 +146,15 @@ is meaningful without a bounded content/mechanics inventory.
   `DealDamage`, `Kill`, `CalcArmorReducedDamage`, `AttackerStateUpdate`,
   `RollMeleeOutcomeAgainst`][unit]; [`ThreatManager::addThreat`,
   `getHostileTarget` and `ThreatContainer::selectNextVictim`][threat].
-- **Current fork:** `benilla-sim/src/encounter.rs` is explicitly synthetic:
-  fixed damage, fixed timers, no space, no randomness and simple killer rewards.
-  `benilla-encounter` exposes it through chat. There is no reviewed CMaNGOS
-  melee/death/threat port in this slice. A stationary original solo encounter
-  would remain a separate original ruleset.
+- **Current fork:** the original encounter remains synthetic. The separate
+  `npc_melee` port now supplies ordinary NPC damage/outcome/armor and ordered
+  callback requirements over a declared bounded domain. The native runtime invokes
+  it within source-ordered AI updates, preserves conditional random draws, applies
+  equipment breaks and maintains defense/reactive state. `player_death` separately
+  ports ordered player death/corpse actions and fixed-step restore; runtime death
+  callbacks, ghost/graveyard release and resurrection still need integration.
+  Creature initialization translates explicit raw classlevel/model/spawn inputs,
+  with source loader preprocessing and no fabricated missing stats.
 - **Dependencies:** derived stats, weapon skill and school, attack timers,
   deterministic random draws, armor/resistance, block/absorb, auras/procs,
   reach/facing/LOS, threat, loot credit, quests, corpses and resurrection.
@@ -159,10 +176,14 @@ is meaningful without a bounded content/mechanics inventory.
   `PeriodicTick`, `SpellAuraHolder::Update`, `ModStackAmount`][auras];
   [`SpellMgr::LoadSpellChains`, `LoadSpellProcEvents`,
   `LoadSpellScriptTarget`][spellmgr].
-- **Current fork:** the world boundary has one direct damage/heal amount, mana,
-  cast/GCD/cooldown and range fields. It does not represent native multi-effect
-  spells, schools, ranks, target rules, channels, auras, procs or scripts.
-  Existing realm-client spell UI/protocol code is not a local spell executor.
+- **Current fork:** the original fixture boundary remains simple. The separate
+  native component runtime supports bounded mage casts, projectile travel, periodic
+  damage, mana timing, interruption/pushback and checked aura/cast persistence.
+  Source spell/learning/initial-effect inputs must be complete; unknown critical
+  semantics cannot disappear. Unsupported learned active executors remain visibly
+  unavailable only after their learning/stat effects have been validated. General
+  channels, procs, triggered scripts and arbitrary aura interactions remain open.
+  Existing realm-client spell UI/protocol code alone is not a local executor.
 - **Dependencies:** the exact spell schema and local DBCs, target selection,
   modifiers, resources, reagents/equipment, immunities, spatial rules, scheduling,
   interrupt state, proc ordering and script registry.

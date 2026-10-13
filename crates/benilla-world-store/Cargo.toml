@@ -16,3 +16,6 @@ libc = "0.2"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }

@@ -110,17 +110,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_ID: ${{ steps.source.outputs.artifact-id }}
-        run: |
-          # Repository retention limits can shorten the requested 90 days.
-          # Refuse binary publication unless source lasts beyond its full 14 days.
-          expiry=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ID" --jq .expires_at)
-          python3 - "$expiry" <<'PYTHON'
-          from datetime import datetime, timedelta, timezone
-          import sys
-          expiry = datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
-          if expiry <= datetime.now(timezone.utc) + timedelta(days=15):
-              raise SystemExit("Source retention must exceed 15 days before publishing a 14-day player")
-          PYTHON
+        run: python3 scripts/verify-source-retention.py
       - name: Package the lightweight player with exact source link
         env:
           SOURCE_URL: ${{ steps.source.outputs.artifact-url }}

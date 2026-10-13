@@ -327,3 +327,27 @@ APFloat dependency. This module does not change native/runtime admission gates.
 The upstream spell-crit table explicitly says its vanilla coefficients
 `MUST BE CHECKED`. Tests establish pinned-CMaNGOS parity only and must not be
 represented as independently verified retail Classic crit coefficients.
+
+## Fresh mage initialization
+
+`starter_init` is a bounded GPL-3.0-or-later source translation from the same
+pinned CMaNGOS revision. See [STARTER-INIT.md](STARTER-INIT.md) for source hashes,
+explicit raw-row dependencies, deferred stat application, supported effects,
+synthetic extracted-source oracles, and the bounded fresh-login replay versus
+arbitrary persistence/login boundary. It ships no native character, spell, skill,
+or item rows.
+
+## Ordinary creature melee and initialization
+
+`npc_melee` and `creature_init` are bounded GPL-3.0-or-later translations
+from the same pinned CMaNGOS revision. Their exact source boundaries, numeric
+policies, synthetic differential probes and unsupported branches are recorded in
+[NPC-MELEE.md](NPC-MELEE.md) and [CREATURE-INIT.md](CREATURE-INIT.md).
+No creature templates, spawn rows or native world data are distributed.
+
+## Player death lifecycle
+
+`player_death` translates the bounded ordered death/corpse lifecycle from the
+same pinned revision. [PLAYER-DEATH.md](PLAYER-DEATH.md) records provenance,
+source-derived callbacks, fixed-step restore constraints and excluded graveyard
+and ghost behavior. It does not independently execute runtime callbacks.

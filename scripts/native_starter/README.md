@@ -26,7 +26,7 @@ oversize or malformed winners instead of falling back to older archive copies.
 It writes into a new private directory and publishes extraction.json last.
 A crash may leave an incomplete directory without that manifest; retry to a new
 output path, never assume those partial files constitute a completed extraction.
-The CLI requires that manifest and verifies the exact 18-file allowlist, hashes,
+The CLI requires that manifest and verifies the exact 19-file allowlist, hashes,
 lengths and layouts before preparing anything. Manual/external unmanifested
 directories are not accepted by the CLI. The diagnostic Python library can still
 inspect synthetic/incomplete tables, recording no extraction claim.
@@ -90,10 +90,16 @@ The tool rejects output inside the DBC input directory.
   record complete EventAI selector coverage for current entries and selected
   spawn GUIDs. Any matching row blocks; no flags/chance/phase filter can turn it
   into a false absence. Old captures without that evidence remain unproven.
-  Empty coverage is narrow: substitutions, groups/addons and other hooks remain
-  unresolved, and no AI profile is constructed
-- Skill candidates, their race/class rows, tier references and linked spell
-  candidates. These are conservative dependencies, not asserted learned skills
+  New source captures also bind [native spawn dependency coverage](../classic_export/NATIVE-SPAWN-CONTRACT.md)
+  for default/explicit spawn templates, events, pools and GUID/template addons.
+  Preparation preserves raw overrides and GUID-addon precedence. Complete-empty
+  evidence is usable only for those named selectors; legacy missing evidence is
+  null. Substitutions, groups and other hooks remain unresolved, and no AI profile
+  is constructed
+- A bounded fixed point over default skills, all matching SkillLineAbility
+  rows, their skill/spell/forward references, all three SkillStep/Skill/LearnSpell
+  effects, items/reagents/totems, and captured SQL learning/rank links. These are
+  conservative dependencies, not asserted learned skills
 - Candidate quest paths using only captured quest IDs, giver/finisher/target
   spawn GUIDs and initial SQL spells with an actual damage/heal effect. They are
   explicitly `eligibility: "not_evaluated"`; a structural candidate does not
@@ -103,8 +109,69 @@ The tool rejects output inside the DBC input directory.
 missing DBC/item/spell inputs. It is not a complete playable-content closure:
 `unsupported` also names unported resolution/learning/overlay/AI/lifecycle paths
 which may discover further dependencies. Never fabricate those rows or modify a
-v2 bundle to satisfy a request; a later bounded capture extension must obtain
-additional SQL rows and preserve its provenance.
+v2 bundle to satisfy a request. Use the bounded recapture flow below to obtain
+additional SQL rows in a new snapshot and preserve its provenance.
+
+## Local dependency recapture
+
+The compiler also emits `dependency_request` and
+`player.skills.dependency_closure`. The latter retains every candidate row in
+native DBC row-ID order and explicit dependency edges with all three effect
+slots. Client and server role disagreements expand both dependency sets and
+remain blocked. An effect's misc value is interpreted as a skill ID only for
+SkillStep (44) and Skill (118); other raw effects and modifier masks retain their
+original roles. SQL learning links and previous/first/required rank references
+are followed in the same bounded graph; reverse forward-spell DBC links also
+recover predecessor candidates. Rank-dependent passives remain entry-critical,
+even when the higher-rank active cast is visible but unavailable. Learn-spell and previous-rank cycles
+terminate discovery and become entry blockers.
+
+A finite `fixed_point_reached` result does not prove that missing SQL rows contain
+no further edges. `captured_inputs_complete` is limited to the named discovery
+scope. It can become true with valid local inputs, independently of whether any
+cloud environment possesses those inputs. It never grants an ability, proves
+initial stats or produces a runtime export. Talent membership and external
+initial hooks remain explicitly unproven; no missing relationship becomes an
+invented false/empty value. SQL captured-empty relationships have explicit
+selector coverage and empty arrays; legacy missing coverage has null arrays.
+The separate one-row global SQL probe determines `derived_learn_spell_scan`:
+`enabled_by_nonempty_table`, `skipped_for_empty_table`, or `not_captured`. This
+reflects the native loader's early return when the whole table is empty. It is
+not an already resolved learned-spell map; talent and native-loader conditions
+still must be applied before initialization.
+
+To obtain a standalone request, recompute it against the original local files:
+
+```sh
+python3 scripts/native-starter.py dependencies \
+  --source benilla-config/classic-source-v2.json \
+  --dbc-dir benilla-config/local-dbc --race 1 --class 8 --gender 0 \
+  --output benilla-config/native-dependencies.json
+
+python3 scripts/classic-export.py capture \
+  --database YOUR_WORLD_DB --user YOUR_EXISTING_READER \
+  --selection benilla-config/selection.json \
+  --dependency-request benilla-config/native-dependencies.json \
+  --output benilla-config/classic-source-v2-expanded.json
+```
+
+Use the existing SELECT-only terminal credential flow and, for MyISAM, the
+explicit quiescent-snapshot option described in the
+[capture instructions](../classic_export/README.md). Reprepare against the new
+capture and the same extracted DBC directory. Repeat only if newly captured
+rows reveal further exact dependencies; all requests retain earlier item/spell IDs, so
+later captures cannot silently discard prior discovery. Every output must be a
+new file. The request is a bounded ID list, never executable SQL or a gameplay
+trust token. Its source/DBC hashes identify the discovery inputs; they are
+lineage metadata, not proof that a later SQL snapshot has identical content.
+The later preparation revalidates that snapshot and recomputes all dependencies.
+
+Limits are 512 spell nodes, 512 skill nodes, 2,048 item nodes, 4,096 selected
+ability rows, 16,384 distinct edges and 16,384 exact DBC references. Each node/ability row is visited once;
+all DBC files retain their existing record/byte caps. SQL spell discovery also
+terminates by its visited set within 512 nodes, rather than truncating a valid
+chain after sixteen links. Overflow rejects the operation, never a partial
+success. All existing entry-critical/passive/initialization blockers remain.
 
 ## Manifest and field-disposition contract
 
@@ -163,6 +230,10 @@ callers retain their existing behavior and the helper uses identical precedence.
 
 ## Remaining native path and app boundary
 
+The [Rust consumer contract](CONSUMER-CONTRACT.md) specifies exact candidate
+initializer/NPC/spell bindings, remaining admission gaps and diagnostic-only
+fields for the next conditionally admitted native profile.
+
 The existing app controller must reject this output as unsupported. A future
 `NativeWorldProfile` must construct opaque validated world/rules/catalog objects
 only when every entry-critical dependency and every enabled ability has
@@ -214,3 +285,8 @@ invalid winners never fall back, and oversize headers fail before member reads.
 Input archives stay byte-identical. The helper is tested on Linux; Windows/macOS
 privacy and durability behavior has not been executed here. On non-Unix systems
 permissions inherit from the selected parent, so choose a user-private parent.
+
+Extraction manifest v2 adds the complete Talent.dbc table for initial-learning
+classification. Earlier v1 extractions must be repeated into a new output directory;
+the old manifest is not silently upgraded. Raw rank membership preserves all five
+rank slots and duplicate matches, and does not claim effective loader admission.

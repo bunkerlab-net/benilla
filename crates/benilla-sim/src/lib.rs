@@ -11,6 +11,9 @@ pub mod classic;
 
 pub mod quest;
 
+/// Bounded source-derived ordinary creature initialization from explicit local rows.
+pub mod creature_init;
+
 pub mod classic_targets;
 
 pub mod classic_spell;
@@ -19,3 +22,10 @@ pub mod classic_spell;
 pub mod creature_ai;
 
 pub mod mage_resource;
+
+pub mod starter_init;
+
+pub mod npc_melee;
+
+/// Bounded source-derived player death and corpse lifecycle.
+pub mod player_death;

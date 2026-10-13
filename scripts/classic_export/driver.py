@@ -75,7 +75,8 @@ class LocalSqlSource:
         tables = self._select(
             "SELECT TABLE_NAME AS name, ENGINE AS engine, TABLE_TYPE AS table_type "
             "FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ("
-            + placeholders + ") ORDER BY TABLE_NAME LIMIT 32", names, 32)
+            + placeholders + ") ORDER BY TABLE_NAME LIMIT %s", names + (len(names)+1,), len(names)+1)
+        check(len(tables) <= len(names), "schema.table_limit")
         columns = self._select(
             "SELECT TABLE_NAME AS table_name,COLUMN_NAME AS name,COLUMN_TYPE AS type,"
             "IS_NULLABLE AS nullable,ORDINAL_POSITION AS ordinal FROM information_schema.COLUMNS "

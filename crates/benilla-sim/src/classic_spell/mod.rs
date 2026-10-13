@@ -33,7 +33,8 @@ impl std::fmt::Display for SpellError {
 impl std::error::Error for SpellError {}
 
 /// Typed effects retain all three source slots. No unknown effect is a no-op.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum MageEffect {
     Empty,
     SchoolDamage(EffectValue),
@@ -52,7 +53,8 @@ pub enum MageEffect {
 /// algorithm, not proof a raw native row has only these semantics. A native
 /// compiler still has to reject every unhandled attribute, target, item, aura,
 /// script and source dependency; its existing admission gates are unchanged.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MageProjectileSpec {
     pub spell_id: u32,
     pub effects: [MageEffect; 3],
@@ -162,7 +164,8 @@ impl CasterResources {
                     .is_some_and(|t| *t > now))
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CastFailure {
     NotReady,
     NoPower,
@@ -176,7 +179,8 @@ pub enum CastFailure {
 /// result of the remaining source CheckCast predicates, including relationship,
 /// LOS, range (strict/non-strict differs), caster auras, items and location.
 /// Absence is an audited precondition, not a replacement for those predicates.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CastChecks {
     pub caster_alive: bool,
     pub target_exists: bool,
@@ -184,14 +188,16 @@ pub struct CastChecks {
     pub position_changed: bool,
     pub other_failure: Option<u32>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CastState {
     Casting { remaining_ms: u32 },
     Traveling { impact_at_ms: u64 },
     Finished,
     Failed(CastFailure),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum SpellEvent {
     Started {
         cast_ms: u32,
@@ -224,13 +230,15 @@ pub enum SpellEvent {
 /// Caller records exact inclusive draws, NOT a seed tied to std RNG. Hit draws
 /// are 1..=10000 and compare <= chance; crit draws compare STRICTLY < chance.
 /// The arrays are indexed by effect slot; only direct-damage dice exist at launch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LaunchRolls {
     pub hit: u16,
     pub direct: [Option<i32>; 3],
     pub critical: Option<u16>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LaunchContext {
     pub distance_squared: SpellFloat,
     pub resist_chance: u16,
@@ -351,6 +359,7 @@ pub struct PeriodicDamageAura {
     applied_ms: u64,
     last_update_ms: u64,
     skip_first_update: bool,
+    effect_roll: Option<i32>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MageProjectileCast {
@@ -360,9 +369,12 @@ pub struct MageProjectileCast {
     created_ms: u64,
     last_update_ms: u64,
     first_update: bool,
-    pushbacks: u8,
+    pushbacks: u64,
+    casting_elapsed_ms: u64,
+    pushback_added_ms: u64,
     state: CastState,
     payload: Option<Payload>,
+    launch: Option<LaunchContext>,
 }
 impl MageProjectileCast {
     /// Non-triggered, non-item player prepare. Caller's generic-cast-slot manager
@@ -419,8 +431,11 @@ impl MageProjectileCast {
                 last_update_ms: now_ms,
                 first_update: true,
                 pushbacks: 0,
+                casting_elapsed_ms: 0,
+                pushback_added_ms: 0,
                 state,
                 payload: None,
+                launch: None,
             },
             events,
         ))
@@ -483,9 +498,18 @@ impl MageProjectileCast {
         if !self.spec.damage_pushback {
             return Err(SpellError::Roll("pushback die on ineligible spell"));
         }
-        let delay = 1000 - u32::from(self.pushbacks.min(4)) * 200;
-        self.pushbacks = self.pushbacks.saturating_add(1);
+        let delay = 1000 - self.pushbacks.min(4) as u32 * 200;
+        let next_pushbacks = self
+            .pushbacks
+            .checked_add(1)
+            .ok_or(SpellError::Domain("pushback count overflow"))?;
         let next = remaining_ms.saturating_add(delay).min(self.spec.cast_ms);
+        let next_added = self
+            .pushback_added_ms
+            .checked_add(u64::from(next - remaining_ms))
+            .ok_or(SpellError::Domain("pushback timer overflow"))?;
+        self.pushbacks = next_pushbacks;
+        self.pushback_added_ms = next_added;
         self.state = CastState::Casting { remaining_ms: next };
         Ok(vec![SpellEvent::Pushback(next - remaining_ms)])
     }
@@ -564,6 +588,10 @@ impl MageProjectileCast {
             }
             return Ok(self.cancel(resources, CastFailure::TargetDead));
         }
+        self.casting_elapsed_ms = self
+            .casting_elapsed_ms
+            .checked_add(u64::from(diff_ms))
+            .ok_or(SpellError::Domain("cast elapsed overflow"))?;
         let remaining_ms = remaining_ms.saturating_sub(diff_ms);
         self.state = CastState::Casting { remaining_ms };
         if remaining_ms != 0 {
@@ -581,46 +609,7 @@ impl MageProjectileCast {
             return Ok(vec![SpellEvent::Failed(failure)]);
         }
         let launch = launch.ok_or(SpellError::State("launch context required"))?;
-        if !(1..=10000).contains(&launch.rolls.hit)
-            || launch.resist_chance > 10000
-            || launch.critical_chance > 10000
-        {
-            return Err(SpellError::Roll("combat die"));
-        }
-        let resisted = launch.rolls.hit <= launch.resist_chance;
-        let mut damage = 0u32;
-        for (index, effect) in self.spec.effects.into_iter().enumerate() {
-            match effect {
-                MageEffect::SchoolDamage(value) if !resisted => {
-                    damage = value
-                        .evaluate(self.spec.spell_rank, launch.rolls.direct[index])?
-                        .max(0) as u32;
-                }
-                _ if launch.rolls.direct[index].is_some() => {
-                    return Err(SpellError::Roll("unexpected launch effect die"))
-                }
-                _ => {}
-            }
-        }
-        let critical = if damage > 0 && launch.critical_chance != 0 {
-            let die = launch
-                .rolls
-                .critical
-                .ok_or(SpellError::Roll("missing crit die"))?;
-            if !(1..=10000).contains(&die) {
-                return Err(SpellError::Roll("crit die"));
-            }
-            die < launch.critical_chance
-        } else {
-            if launch.rolls.critical.is_some() {
-                return Err(SpellError::Roll("unexpected crit die"));
-            }
-            false
-        };
-        // Validate critical result before committing cost; apply its multiplier at impact.
-        if critical {
-            critical_damage(damage)?;
-        }
+        let payload = resolve_payload(&self.spec, launch)?;
         let delay = projectile_delay(launch.distance_squared, self.spec.projectile_speed)?;
         let impact_at_ms = now_ms
             .checked_add(u64::from(delay))
@@ -643,11 +632,8 @@ impl MageProjectileCast {
         if self.spec.mana_cost > 0 {
             resources.last_mana_use_ms = Some(now_ms);
         }
-        self.payload = Some(Payload {
-            damage,
-            critical,
-            resisted,
-        });
+        self.payload = Some(payload);
+        self.launch = Some(launch);
         self.state = CastState::Traveling { impact_at_ms };
         Ok(vec![
             SpellEvent::CooldownStarted,
@@ -736,6 +722,7 @@ impl MageProjectileCast {
                             applied_ms: now_ms,
                             last_update_ms: now_ms,
                             skip_first_update: true,
+                            effect_roll: aura_rolls[index],
                         });
                         events.push(SpellEvent::AuraApplied { replaced });
                     }
@@ -768,4 +755,58 @@ impl MageProjectileCast {
         events.push(SpellEvent::Completed);
         Ok(events)
     }
+}
+
+mod checkpoint;
+pub use checkpoint::*;
+
+fn resolve_payload(
+    spec: &MageProjectileSpec,
+    launch: LaunchContext,
+) -> Result<Payload, SpellError> {
+    if !(1..=10000).contains(&launch.rolls.hit)
+        || launch.resist_chance > 10000
+        || launch.critical_chance > 10000
+    {
+        return Err(SpellError::Roll("combat die"));
+    }
+    let resisted = launch.rolls.hit <= launch.resist_chance;
+    let mut damage = 0u32;
+    for (index, effect) in spec.effects.into_iter().enumerate() {
+        match effect {
+            MageEffect::SchoolDamage(value) if !resisted => {
+                damage = value
+                    .evaluate(spec.spell_rank, launch.rolls.direct[index])?
+                    .max(0) as u32;
+            }
+            _ if launch.rolls.direct[index].is_some() => {
+                return Err(SpellError::Roll("unexpected launch effect die"))
+            }
+            _ => {}
+        }
+    }
+    let critical = if damage > 0 && launch.critical_chance != 0 {
+        let die = launch
+            .rolls
+            .critical
+            .ok_or(SpellError::Roll("missing crit die"))?;
+        if !(1..=10000).contains(&die) {
+            return Err(SpellError::Roll("crit die"));
+        }
+        die < launch.critical_chance
+    } else {
+        if launch.rolls.critical.is_some() {
+            return Err(SpellError::Roll("unexpected crit die"));
+        }
+        false
+    };
+    // Validate critical result before committing cost; apply its multiplier at impact.
+    if critical {
+        critical_damage(damage)?;
+    }
+    Ok(Payload {
+        damage,
+        critical,
+        resisted,
+    })
 }
