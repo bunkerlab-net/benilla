@@ -23,7 +23,7 @@ struct Field {
     locked: bool,
 }
 #[derive(Resource, Default)]
-pub(super) struct Settings {
+pub(crate) struct Settings {
     pub(super) open: bool,
     fields: Vec<Field>,
     offset: usize,
