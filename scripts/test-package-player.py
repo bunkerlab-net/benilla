@@ -246,6 +246,27 @@ class PackagingTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     packager.prepare_source(Path(directory), SHA)
 
+    def test_source_path_is_stable_and_outside_build_cache(self):
+        root = Path("repo")
+        source = packager.source_dir(root, SHA)
+        self.assertEqual(source, root / ".player-source" / "current")
+        self.assertEqual(source, packager.source_dir(root, "b" * 40))
+        self.assertNotIn(root / "target", source.parents)
+        with self.assertRaises(ValueError):
+            packager.source_dir(root, "../bad")
+
+    def test_prepare_refuses_existing_staging_for_any_commit(self):
+        for commit in [SHA, "b" * 40]:
+            with self.subTest(commit=commit), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                _, _, source = self.fixture(root)
+                before = (source / packager.MANIFEST).read_bytes()
+                with patch.object(packager, "run", side_effect=[commit.encode(), b""]) as run:
+                    with self.assertRaisesRegex(ValueError, "source staging already exists"):
+                        packager.prepare_source(root, commit)
+                self.assertEqual(run.call_count, 2)
+                self.assertEqual((source / packager.MANIFEST).read_bytes(), before)
+
     def test_prepare_snapshots_vendors_and_validates_offline(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

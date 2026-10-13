@@ -1,8 +1,9 @@
 # Build and run a player artifact
 
 This fork's `Build player` workflow builds Linux amd64, Linux arm64, macOS arm64,
-and Windows amd64 binaries. It runs only through `workflow_dispatch`. Pushes,
-pull requests, tags, and schedules do not start it. It does not publish releases.
+and Windows amd64 binaries. It runs on pushes to `master` and through
+`workflow_dispatch`. Pull requests, other branch pushes, tags, and schedules do
+not start it. It does not publish releases.
 
 ## Start a build
 
@@ -155,7 +156,7 @@ are refused), then run from the clean checkout:
 commit=$(git rev-parse HEAD)
 python3 scripts/package-player.py --prepare-source --commit "$commit"
 export CARGO_TARGET_DIR="$PWD/target"
-(cd "target/player-source/$commit" && mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>)
+(cd .player-source/current && mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>)
 python3 scripts/package-player.py --platform <platform> --commit "$commit"
 ```
 
@@ -166,7 +167,7 @@ the source first, uploads it, then supplies the upload's exact artifact URL thro
 
 Preparation requires Git, Cargo, Rust and mbx and downloads the locked dependencies.
 It refuses to reuse an existing staging directory. After a failed preparation,
-review/remove only `target/player-source/<commit>` before retrying. Packaging tests
+review/remove only `.player-source/current` before retrying. Packaging tests
 use fake local fixtures: `python3 scripts/test-package-player.py` needs no game data,
 dependency download or paid runner; one offline vendor-resolution test needs Cargo.
 
@@ -198,11 +199,20 @@ The workflow installs the latest Mr Boxington release and pins its setup action
 to a commit. The setup
 step runs after Rust installation so the cache key uses the repository's compiler.
 It uses GitHub Actions cache in `target` mode, which keeps the build outputs at
-`target/<target>/release/` for the packaging script. Successful manual runs save
-cache entries for later builds. Cache keys separate operating systems,
+`target/<target>/release/` for the packaging script. Successful default-branch
+pushes and manual runs save cache entries for later builds. Cache keys separate operating systems,
 architectures, and Rust compiler versions. The cache generation is specific to
 this workflow and its Ubuntu 26.04 baseline. The binary version can change between
 runs; check the setup step's output for the version used.
+
+The fresh distribution snapshot uses the stable `.player-source/current` path so Cargo's
+cached dependency paths do not change with every commit. It stays outside
+`target/` because the cache action prunes that tree; the snapshot is never restored
+from the build cache. Preparation still refuses an existing snapshot, and the
+source manifest must match the requested commit and every file before packaging.
+The first build after a staging-path change needs to warm the new paths. Compare
+later builds' compile duration and Cargo reuse, not just mbx object-cache hits:
+`target` mode transports Cargo artifacts rather than the mbx object store.
 
 Run this workflow only on branches you trust. Cache storage counts against the
 repository's GitHub Actions limits. These cached artifacts are for testing.

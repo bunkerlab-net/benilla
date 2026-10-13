@@ -1,7 +1,9 @@
-# Build only when a maintainer explicitly requests artifacts.
+# Build master pushes and maintainer-requested artifacts.
 name: Build player
 
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -78,7 +80,8 @@ jobs:
       - name: Build the player from the distributed source
         run: |
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
-          cd "target/player-source/$GITHUB_SHA"
+          # Stable source/vendor paths let Cargo reuse restored dependency artifacts.
+          cd .player-source/current
           mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
       - name: Package the matching source
         run: python3 scripts/package-player.py --source-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"

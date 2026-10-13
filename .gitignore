@@ -1,5 +1,7 @@
 # Rust build artifacts
 /target/
+# Fresh distribution source stays outside the cache action's pruned target tree.
+/.player-source/
 **/*.rs.bk
 # Cargo.lock IS committed (this workspace produces binaries).
 

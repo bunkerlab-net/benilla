@@ -105,7 +105,11 @@ def inventory(source, root=None):
 
 
 def source_dir(root, commit):
-    return root / "target" / "player-source" / commit
+    check_commit(commit)
+    # Stable vendor paths preserve Cargo cache identity between commits. Keep
+    # source outside target/, whose cache post-step recursively prunes files.
+    # The manifest, rather than the directory name, binds source to its commit.
+    return root / ".player-source" / "current"
 
 
 def prepare_source(root, commit):
