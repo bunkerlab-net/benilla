@@ -103,8 +103,12 @@ fn headless_panel_reopen_and_close_leave_no_duplicate_or_secret_text() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<Settings>()
+        .init_resource::<super::super::LoginForm>()
         .init_resource::<crate::glue::art::GlueArt>()
-        .add_systems(Update, render);
+        .add_systems(
+            Update,
+            (render, super::super::screen::refresh_boxes).chain(),
+        );
     app.world_mut()
         .spawn((Window::default(), bevy::window::PrimaryWindow));
     let cvars = Cvars::default();

@@ -559,12 +559,29 @@ fn spawn_screen(
 #[allow(clippy::type_complexity)]
 pub(super) fn refresh_boxes(
     form: Res<LoginForm>,
+    settings: Res<super::settings::Settings>,
     mut account: Query<
         (&GlueFieldPart, Option<&mut Text>, &mut Visibility),
-        (With<AccountText>, Without<PasswordText>),
+        (
+            With<AccountText>,
+            Without<PasswordText>,
+            Without<super::settings::Edit>,
+        ),
     >,
-    mut password: Query<(&GlueFieldPart, Option<&mut Text>, &mut Visibility), With<PasswordText>>,
+    mut password: Query<
+        (&GlueFieldPart, Option<&mut Text>, &mut Visibility),
+        (With<PasswordText>, Without<super::settings::Edit>),
+    >,
+    mut settings_box: Query<
+        (&GlueFieldPart, Option<&mut Text>, &mut Visibility),
+        With<super::settings::Edit>,
+    >,
 ) {
+    // One ordered native-login edit-box painting pass. Settings construction precedes this
+    // system, so fresh fields receive their masked text before this frame's layout.
+    if settings.open {
+        paint_glue_field(&settings.edit, true, settings_box.iter_mut());
+    }
     paint_glue_field(
         &form.account,
         form.focus == Field::Account,

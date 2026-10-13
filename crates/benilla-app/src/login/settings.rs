@@ -36,7 +36,7 @@ pub(super) struct Settings {
     page: Option<Page>,
     offset: usize,
     selected: Option<usize>,
-    edit: EditBoxState,
+    pub(super) edit: EditBoxState,
     changes: BTreeMap<String, String>,
     config: Option<ConfigEditor>,
     status: String,
@@ -479,7 +479,7 @@ pub(super) fn close(
 pub(super) fn closed(settings: Res<Settings>) -> bool {
     !settings.open
 }
-pub(super) use view::render;
+pub(super) use view::{render, Edit};
 
 pub(super) fn recover(
     mut settings: ResMut<Settings>,

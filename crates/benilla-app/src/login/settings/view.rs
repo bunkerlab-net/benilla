@@ -1,5 +1,5 @@
 use super::*;
-use crate::glue::widgets::{glue_edit_box, paint_glue_field, GlueFieldPart};
+use crate::glue::widgets::glue_edit_box;
 #[derive(Component)]
 pub(in crate::login) struct Root;
 #[derive(Component, Clone)]
@@ -40,7 +40,6 @@ pub(in crate::login) fn render(
     roots: Query<Entity, With<Root>>,
     art: Res<crate::glue::art::GlueArt>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    mut boxes: Query<(&GlueFieldPart, Option<&mut Text>, &mut Visibility), With<Edit>>,
     mut last_scale: Local<f32>,
 ) {
     let s = crate::glue::screen_scale(windows.single().ok()).min(1.3);
@@ -50,7 +49,6 @@ pub(in crate::login) fn render(
         }
         return;
     }
-    paint_glue_field(&settings.edit, true, boxes.iter_mut());
     if !settings.refresh && *last_scale == s && !roots.is_empty() {
         return;
     }

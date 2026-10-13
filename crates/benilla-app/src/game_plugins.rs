@@ -868,6 +868,49 @@ pub(crate) mod schedule_tests {
         );
     }
 
+    /// A Settings save must be visible to this frame's CVar callbacks and video restart drain.
+    #[test]
+    fn login_settings_precede_the_cvar_flush() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !graph
+            .systems
+            .values()
+            .any(|s| s.name.contains("benilla_app::"))
+        {
+            return; // Player builds omit Bevy's debug type names.
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let input = key("::login::settings::input");
+        let sync = key("::cvars::sync_cvars");
+        let mut seen = HashSet::new();
+        let mut pending = vec![input];
+        while let Some(system) = pending.pop() {
+            if seen.insert(system) {
+                pending.extend(
+                    graph
+                        .dependencies
+                        .iter()
+                        .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                );
+            }
+        }
+        assert!(
+            seen.contains(&sync),
+            "Settings input must precede sync_cvars"
+        );
+        assert!(
+            seen.contains(&key("::login::screen::refresh_boxes")),
+            "Settings input must precede the shared field painter"
+        );
+    }
+
     /// The ratchet. Ids, not names, so it runs in the player build too; prints the class
     /// census beside the number it holds.
     #[test]

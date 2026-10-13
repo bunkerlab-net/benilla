@@ -107,10 +107,15 @@ impl Plugin for LoginPlugin {
                         .chain(),
                     (
                         screen::materialize_screen,
-                        login_input.run_if(crate::ui_script::glue::native_glue),
+                        login_input
+                            // Snapshot settings after the loading-tip cursor's registry write.
+                            .after(crate::game_tip::drive_game_tip)
+                            .run_if(crate::ui_script::glue::native_glue),
                         settings::recover,
                         settings::input,
-                        settings::render,
+                        // Save is observed by the same frame's CVar mirror/callback flush,
+                        // before the video restart drain commits its pending display changes.
+                        settings::render.before(crate::cvars::sync_cvars),
                         tick_login_caret,
                         screen::refresh_boxes,
                         screen::refresh_checkbox,
@@ -1218,6 +1223,7 @@ mod tests {
                 .insert_non_send_resource(HostClipboard::default())
                 .init_resource::<LoginForm>()
                 .init_resource::<settings::Settings>()
+                .init_resource::<crate::cvars::Cvars>()
                 .init_resource::<LoginIntent>()
                 .init_resource::<GlueDialog>()
                 .init_resource::<crate::realm_select::Realms>()
@@ -1324,6 +1330,7 @@ mod tests {
             .insert_non_send_resource(HostClipboard::default())
             .init_resource::<LoginForm>()
             .init_resource::<settings::Settings>()
+            .init_resource::<crate::cvars::Cvars>()
             .init_resource::<LoginIntent>()
             .init_resource::<GlueDialog>()
             .init_resource::<crate::realm_select::Realms>()
