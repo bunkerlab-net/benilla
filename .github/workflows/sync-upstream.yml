@@ -1,0 +1,69 @@
+name: Sync upstream main
+
+on:
+  schedule:
+    # Off the top of the hour to reduce schedule congestion (UTC).
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'bunkerlab-net/benilla' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # No checkout or upstream code execution: only transfer Git objects/refs.
+      - name: Mirror upstream main, preserving rewritten history
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          cd "$work"
+          git init --bare --quiet
+          git remote add origin https://github.com/bunkerlab-net/benilla.git
+          git remote add upstream https://github.com/samwhosung/benilla.git
+          # Apply authentication only to origin commands; never persist it.
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          origin_git() {
+            git -c "http.https://github.com/bunkerlab-net/benilla.git.extraheader=AUTHORIZATION: basic $auth" "$@"
+          }
+          git fetch --no-tags upstream refs/heads/main:refs/remotes/upstream/main
+          target=$(git rev-parse refs/remotes/upstream/main)
+          # Fetch all heads in one snapshot; a missing mirror is safe to create.
+          origin_git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          old=$(git rev-parse --verify refs/remotes/origin/upstream/main 2>/dev/null || true)
+          ref=refs/heads/upstream/main
+          if [[ "$old" == "$target" ]]; then
+            echo "Already synchronized at $target" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          backup=''
+          if [[ -n "$old" ]] && ! git merge-base --is-ancestor "$old" "$target"; then
+            # Upstream force-pushes and accidental local divergence must not
+            # destroy commits. Preserve the old tip before replacing the mirror.
+            backup="refs/heads/upstream-archive/main-${old}"
+            origin_git push --atomic \
+              "--force-with-lease=${ref}:${old}" \
+              origin "${old}:${backup}" "${target}:${ref}"
+          else
+            # Empty expected SHA means the branch must still be absent.
+            origin_git push "--force-with-lease=${ref}:${old}" origin "${target}:${ref}"
+          fi
+          actual=$(origin_git ls-remote --exit-code origin "$ref" | cut -f1)
+          [[ "$actual" == "$target" ]]
+          echo "Synchronized upstream/main to samwhosung/benilla main at $target" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$backup" ]]; then
+            echo "::warning::Non-fast-forward sync: previous tip preserved at $backup"
+            echo "Previous tip preserved at $backup" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,7 @@
+# Hosted labels verified at https://github.com/actions/runner-images.
+# actionlint 1.7.12 predates these labels; its additional-label setting is
+# named self-hosted-runner, but these jobs still use standard hosted runners.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm
