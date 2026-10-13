@@ -70,7 +70,10 @@ class PackagingTests(unittest.TestCase):
             root = Path(directory)
             binary, _ = self.fixture(root, "linux-amd64")
             binary.unlink()
-            binary.symlink_to(root / "WoW/Data/game.MPQ")
+            try:
+                binary.symlink_to(root / "WoW/Data/game.MPQ")
+            except OSError as error:
+                self.skipTest(f"symlink creation unavailable: {error}")
             with self.assertRaises(ValueError):
                 packager.package(root, "linux-amd64", SHA)
 
