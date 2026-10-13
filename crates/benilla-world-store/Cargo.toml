@@ -1,0 +1,18 @@
+[package]
+name = "benilla-world-store"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+description = "Bounded, exclusive-writer local checkpoints for solo worlds"
+
+[dependencies]
+benilla-world-runtime = { path = "../benilla-world-runtime" }
+benilla-world-data = { path = "../benilla-world-data" }
+serde_json = "1"
+sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

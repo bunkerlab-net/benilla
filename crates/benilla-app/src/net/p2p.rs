@@ -20,6 +20,8 @@ use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
 mod encounter;
 mod profile;
+// Native entry is deliberately closed until a supported compiler/runtime profile exists.
+mod world;
 use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
@@ -666,7 +668,108 @@ fn reject_peer(
     Ok(())
 }
 
+/// Explicit gameplay entry is separate from exploration: a failure must return to its caller,
+/// never start exploration, mutate the profile position, or silently create another world.
+/// The native controller constructor is closed until compiled mechanics are supported.
+fn run_gameplay_character(
+    events: &Sender<SessionEvent>,
+    commands: &Receiver<ClientCommand>,
+    controls: &Receiver<world::Control>,
+    store: &ProfileStore,
+    character: &Character,
+    catalog: &AvatarCatalog,
+    controller: &mut world::Controller,
+    stop: &AtomicBool,
+) -> Result<world::Exit> {
+    let _selection = world::Selection::from_profile(store, character)?;
+    if controller.selected_player()
+        != (benilla_world_runtime::PlayerId {
+            owner: store.owner_id(),
+            character: character.id,
+        })
+    {
+        bail!("selected world character does not match the open profile");
+    }
+    let mut display = character.clone();
+    display.position.map_id = controller.position().map;
+    display.position.position = controller.position().xyz.map(|v| v as f32 / 1000.0);
+    display.position.orientation = controller.facing();
+    // Validate local appearance before the first Connected event; use the saved identity,
+    // then let authoritative projection provide progression, inventory and quest fields.
+    let mut avatar = character_avatar(&display, catalog)?;
+    if let SessionEvent::ObjectCreate { fields, .. } = &mut avatar {
+        fields.merge(controller.initial_player_fields()?);
+    }
+    emit(
+        events,
+        SessionEvent::Connected {
+            self_guid: character_guid(character),
+            name: character.name.clone(),
+            billing_time_rested: 0,
+            tutorial_flags: None,
+            addon_info: Some(Vec::new()),
+        },
+    )?;
+    emit(
+        events,
+        SessionEvent::Worldport {
+            map_id: display.position.map_id,
+            position: display.position.position,
+            orientation: display.position.orientation,
+            needs_ack: false,
+        },
+    )?;
+    emit(events, character_name(character))?;
+    emit(events, avatar)?;
+    Ok(world::run(controller, events, commands, controls, stop)?)
+}
+
 fn run_character(
+    settings: P2pSettings,
+    requested_world: Option<world::Request>,
+    events: &Sender<SessionEvent>,
+    commands: &Receiver<ClientCommand>,
+    ticket: &P2pEndpointTicket,
+    store: &mut ProfileStore,
+    character: &mut Character,
+    catalog: &AvatarCatalog,
+    stop: &AtomicBool,
+    local_zone: &AtomicU32,
+) -> Result<()> {
+    world::dispatch(
+        requested_world,
+        (
+            settings, events, commands, ticket, store, character, catalog, stop, local_zone,
+        ),
+        |(settings, events, commands, ticket, store, character, catalog, stop, _), request| {
+            // Solo worlds do not join exploration transport or publish profile state to peers.
+            ticket.clear();
+            let root =
+                crate::local_state::home().context("No local world directory is available")?;
+            let (mut controller, controls) = request.enter(&root, store, character, settings.1)?;
+            let exit = run_gameplay_character(
+                events,
+                commands,
+                &controls,
+                store,
+                character,
+                catalog,
+                &mut controller,
+                stop,
+            )?;
+            bevy::log::info!("p2p: solo world saved at tick {}, generation {} ({:?}); {} pending intentions cancelled",
+                exit.saved.tick, exit.saved.generation, exit.saved.durability, exit.cancelled_inputs);
+            Ok(())
+        },
+        |(settings, events, commands, ticket, store, character, catalog, stop, zone)| {
+            run_exploration_character(
+                settings, events, commands, ticket, store, character, catalog, stop, zone,
+            )
+        },
+    )
+}
+
+fn run_exploration_character(
     settings: P2pSettings,
     events: &Sender<SessionEvent>,
     commands: &Receiver<ClientCommand>,

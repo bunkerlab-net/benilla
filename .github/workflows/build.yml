@@ -75,8 +75,15 @@ jobs:
           save-on-workflow-dispatch: true
       - name: Test packaging
         run: python3 scripts/test-package-player.py
-      - name: Test local profile storage on the native OS
-        run: mbx test --locked -p benilla-profile
+      - name: Test local Classic export boundaries
+        run: python3 scripts/test-classic-export.py
+      - name: Test native starter preparation
+        run: python3 scripts/test-native-starter.py
+      - name: Verify native outfit source oracle on Linux
+        if: runner.os == 'Linux'
+        run: python3 scripts/check-native-outfit-oracle.py
+      - name: Test persistence and simulation on the native OS
+        run: mbx test --locked -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-dbc -p benilla-mpq
       - name: Prepare matching source and locked dependencies
         run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
       - name: Build the player from the distributed source

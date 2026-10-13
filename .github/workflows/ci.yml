@@ -65,6 +65,12 @@ jobs:
       - name: player-tests
         run: mbx test --locked --no-fail-fast -p benilla-formats -p benilla-app --no-default-features --lib
 
+      - name: classic-export-tests
+        run: python3 scripts/test-classic-export.py
+      - name: native-starter-tests
+        run: python3 scripts/test-native-starter.py
+      - name: native-outfit-source-oracle
+        run: python3 scripts/check-native-outfit-oracle.py
       - name: packaging-tests
         run: python3 scripts/test-package-player.py
       - name: Report unavailable data checks

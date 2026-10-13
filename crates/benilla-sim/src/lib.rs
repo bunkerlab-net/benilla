@@ -6,3 +6,16 @@
 pub mod xp;
 
 pub mod encounter;
+
+pub mod classic;
+
+pub mod quest;
+
+pub mod classic_targets;
+
+pub mod classic_spell;
+
+/// Bounded source-derived ordinary creature AI and movement-admission contracts.
+pub mod creature_ai;
+
+pub mod mage_resource;

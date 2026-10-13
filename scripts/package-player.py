@@ -22,6 +22,17 @@ DOCUMENTS = (
     "LICENSE-MIT", "LICENSE-APACHE", "LICENSE-GPL-3.0", "DISTRIBUTION-NOTICE.md",
     "docs/BUILDS.md", "docs/P2P-CONFIG.md", "docs/P2P-ENCOUNTER.md", "docs/P2P-SETTINGS.md",
     "docs/LOGIN-OPTIONS.md", "docs/P2P-CHARACTERS.md", "crates/benilla-profile/README.md", "config.example.toml",
+    "docs/CMANGOS-PARITY.md", "docs/CLASSIC-WORLD-IMPORT.md",
+    "docs/CLASSIC-EXPORTER-CONTRACT.md", "docs/CLASSIC-STARTER-CAPTURE.md",
+    "crates/benilla-sim/CLASSIC.md", "crates/benilla-sim/CLASSIC-TARGETS.md",
+    "crates/benilla-sim/MAGE-RESOURCES.md", "crates/benilla-native-dbc/README.md",
+    "scripts/native_starter/README.md", "scripts/native_starter/PROVENANCE.md",
+    "crates/benilla-sim/CREATURE-AI.md", "crates/benilla-sim/SPELLS.md", "crates/benilla-app/src/net/p2p/world/README.md",
+    "crates/benilla-sim/QUESTS.md", "crates/benilla-world-data/PROVENANCE.md",
+    "crates/benilla-world-runtime/README.md", "crates/benilla-world-store/README.md",
+    "crates/benilla-world-client/APP-CONTRACT.md", "crates/benilla-world-client/README.md",
+    "crates/benilla-world-client/INTERACTIONS.md", "crates/benilla-world-client/NATIVE-STARTER.md",
+    "crates/benilla-world-data/README.md",
     "third_party/kira/LICENSE-MIT", "third_party/kira/LICENSE-APACHE",
     "third_party/lua-src/LICENSE", "crates/benilla-sim/PROVENANCE.md",
     "crates/benilla-sim/licenses/LICENSE", "crates/benilla-sim/licenses/GPL-3.0.txt",
@@ -32,6 +43,13 @@ REQUIRED_SOURCE = (*DOCUMENTS, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"
                    ".github/workflows/build.yml", "crates/benilla/src/main.rs",
                    "crates/benilla-session/src/lib.rs", "crates/benilla-sim/src/lib.rs",
                    "crates/benilla-encounter/src/lib.rs", "crates/benilla-profile/src/lib.rs",
+                   "crates/benilla-world-data/src/lib.rs", "crates/benilla-world-runtime/src/lib.rs",
+                   "crates/benilla-world-client/src/lib.rs", "crates/benilla-world-store/src/lib.rs",
+                   "scripts/classic-export.py", "scripts/native-starter.py",
+                   "scripts/check-native-outfit-oracle.py", "scripts/native_starter/outfit_cases.json",
+                   "crates/benilla-native-dbc/src/main.rs", "crates/benilla-app/src/net/p2p/world.rs",
+                   "crates/benilla-world-data/tests/fixtures/original-camp.json",
+                   "crates/benilla-world-store/tests/fixtures/runtime-v1.checkpoint",
                    ".cargo/vendor-config.toml", "BUILD-INFO.txt")
 MANIFEST = "SOURCE-MANIFEST.json"
 
@@ -62,6 +80,9 @@ def safe_path(name):
         raise ValueError(f"forbidden source input: {name}")
     if not vendored and ("p2p-profile" in parts or path.name.lower() in {"profile.json", "profile.previous.json", "profile.lock"}):
         raise ValueError(f"private profile input forbidden: {name}")
+    if not vendored and ("p2p-worlds" in parts or path.name.lower() in {
+            "world.checkpoint", "world.previous", "world.lock", ".world-checkpoint.pending"}):
+        raise ValueError(f"private world save input forbidden: {name}")
     if not name.startswith("vendor/") and path.suffix.lower() in {".pem", ".key"}:
         raise ValueError(f"credential-like source input requires review: {name}")
     if (name == "config.toml" or (not vendored and path.name.startswith(".env"))

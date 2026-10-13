@@ -23,6 +23,10 @@ bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
 benilla-config = { path = "../benilla-config" }
+benilla-world-client = { path = "../benilla-world-client" }
+benilla-world-data = { path = "../benilla-world-data" }
+benilla-world-runtime = { path = "../benilla-world-runtime" }
+benilla-world-store = { path = "../benilla-world-store" }
 benilla-encounter = { path = "../benilla-encounter" }
 anyhow.workspace = true
 # The EditBox clipboard, on the main thread as NSPasteboard requires; bevy_egui's 3.x.
@@ -120,6 +124,8 @@ windows-sys = { version = "0.59", features = [
 
 # The login cycle's fake realmd runs the server half of SRP6 (`net::io::cycle_tests`).
 [dev-dependencies]
+# Source-level solo-world fixtures exercise the actual app test module as well as its harness.
+serde_json = "1"
 benilla-srp = { path = "../benilla-srp" }
 num-bigint = "0.4.6"
 sha1.workspace = true

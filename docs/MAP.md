@@ -18,6 +18,7 @@
 - **benilla-formats** (no Bevy) — WoW 1.12.1 asset-format adapters (MPQ/BLP/DBC/ADT/WDT) and the benilla-extract CLI
 - **benilla-m2** (no Bevy) — M2 (MD20) model reader for WoW 1.12.1 (build 5875)
 - **benilla-mpq** (no Bevy) — Read-only MPQ archive reader for WoW 1.12.1 (build 5875)
+- **benilla-native-dbc** (no Bevy) — Private bounded extraction of native starter DBC inputs through Benilla's patch chain
 - **benilla-p2p** (no Bevy) — Authenticated, bounded peer-to-peer transport for the Benilla fork
 - **benilla-profile** (no Bevy) — Local owner identities and durable exploration characters for the P2P fork
 - **benilla-protocol** (no Bevy) — WoW 1.12.1 auth (SRP6) + world wire protocol and the benilla-auth CLI
@@ -28,6 +29,11 @@
 - **benilla-visual** (no Bevy) — Perceptual image diff for the visual A/B render harness
 - **benilla-wdt** (no Bevy) — WDT map tile-table reader and tile/world coordinates for WoW 1.12.1 (build 5875)
 - **benilla-wmo** (no Bevy) — WMO (root and group) reader for WoW 1.12.1 (build 5875)
+- **benilla-world-client** (no Bevy) — Validated command and protocol projection boundary for the solo world runtime
+- **benilla-world-controller-tests** (no Bevy) — Source-level app solo-world controller harness without Bevy linking
+- **benilla-world-data** (no Bevy) — Validated local JSON boundary for a deliberately small world-data model
+- **benilla-world-runtime** (no Bevy) — Deterministic solo-first runtime for the original bounded world slice
+- **benilla-world-store** (no Bevy) — Bounded, exclusive-writer local checkpoints for solo worlds
 - **benilla-world** (Bevy) — The world renderer: terrain, water, sky, weather, models, lighting, collision and the frame ladder; everything needed to put something in a world and ask the world about itself, with no game attached
 - **benilla-worldview** (no Bevy) — The world viewer: the engine with no game attached, which keeps the engine and game split honest
 - **benilla** (no Bevy) — The launcher: build.rs stamps the git build id and main() hands it to benilla-app, so a new commit rebuilds this package and not the app crate
@@ -118,16 +124,22 @@
 - **benilla-p2p** (lib.rs): identity internet
 - **benilla-profile** (lib.rs): storage tests
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
-- **benilla-sim** (lib.rs): encounter xp
+- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai encounter mage_resource quest xp
 - **benilla-srp** (lib.rs): vanilla_header
 - **benilla-ui** (lib.rs): bindings_xml civil framexml justify layout loader markup messages order script source status strings toc widget
 - **benilla-visual** (lib.rs): relight
+- **benilla-world-client** (lib.rs): interactions metadata
+- **benilla-world-controller-tests** (lib.rs): world
+- **benilla-world-data** (lib.rs): model validate
+- **benilla-world-runtime** (lib.rs): engine model persistence rules
+- **benilla-world-store** (lib.rs): envelope storage tests
 - **benilla-world** (lib.rs): art_scope assets bgwin billboard boot build_id clouds clutter collision decal dev_state doodad_anim entity_shade exterior_cull ffx_glow final_pass frame_pace ground_fx instance_tint interact interior layout_keys lighting liquid log_ring mac_quit map_proj mat_anim_table mesh_tag model_fade model_forms model_render modkeys particles ribbons ride_frame rig_anim rig_palette rig_rider schedule shaders sky sky_order skybox static_gx static_merge straddle sun surface terrain_stream thread_qos view vis_chain water_fx wdl weather wmo_portal world_census world_map world_plugins world_point world_unit worldview zfill
 
 ## CLI binaries
 
 - `benilla-auth` (in benilla-protocol)
 - `benilla-extract` (in benilla-formats)
+- `benilla-world-data-check` (in benilla-world-data)
 - `benilla-world` (in benilla-protocol)
 - `blpx` (in benilla-blp)
 - `mpqx` (in benilla-formats)
@@ -543,6 +555,8 @@
 
 ## Scripts (`scripts/`)
 
+- `check-native-outfit-oracle.py` — Required Linux source-oracle check; absent compiler is an error, never a skip.
+- `classic-export.py` — Local read-only native capture and offline validation; never a runnable world importer.
 - `doc-links.py` — Fail on a doc link whose target is declared nowhere in the workspace.
 - `gen-message-catalog.py` — Generate `crates/benilla-ui/src/messages/catalog.rs` from `reference/1.12-message-catalog.tsv`.
 - `gen-reference-events.py` — Regenerate `reference/1.12-events.tsv`: each 1.12 FrameScript event and the arguments it carries.
@@ -550,10 +564,13 @@
 - `gen-reference-glue-surface.py` — Regenerate `reference/1.12-glue-surface.tsv`: every Lua function the glue screens' VM has in `_G`.
 - `gen-reference-verb-events.py` — Regenerate `reference/1.12-verb-events.tsv`: the events 1.12 Lua verbs fire, keyed by verb.
 - `mixsum.py` — Read a `$WOW_MIX_TAP` capture and say, in numbers, what the mix was doing when.
+- `native-starter.py` — Prepare exact native starter bindings from a private v2 capture and local DBCs.
 - `package-player.py` — Prepare exact vendored build source and package it with the GPL-covered player.""" import argparse import hashlib import io import json import os from…
 - `pass-span-lint.py` — Refuse a second open `pass_span` on the same render pass (a wgpu validation error on Vulkan).
 - `soundprobe.py` — Read back a `$WOW_SOUND_PROBE` capture and name the mechanism behind a speaker-breaking sound.
+- `test-classic-export.py` — No database/network or game content: original fake-source exporter tests.
 - `test-doc-links.py` — The doc-link gate must fail closed when rustdoc did not run successfully.""" import contextlib import importlib.util import io from pathlib import Pat…
+- `test-native-starter.py` — Original synthetic rows only.
 - `test-package-player.py` — Fast packaging tests: fake binaries/source, no compiler or game data.""" import hashlib import importlib.util import io import json import subprocess …
 - `vplsum.py` — Read a `vpl`/`bub` overlay trace and say where the motion came from: projection, solve or snap.
 - `api-coverage.sh` — Addon-API coverage: how much of the 1.12.1 client's global surface benilla's UI VM presents.

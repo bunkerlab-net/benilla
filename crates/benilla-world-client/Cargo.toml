@@ -1,0 +1,15 @@
+[package]
+name = "benilla-world-client"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+description = "Validated command and protocol projection boundary for the solo world runtime"
+[lints]
+workspace = true
+[dependencies]
+benilla-world-runtime = { path = "../benilla-world-runtime" }
+benilla-world-data = { path = "../benilla-world-data" }
+benilla-protocol = { path = "../benilla-protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

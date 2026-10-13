@@ -36,7 +36,15 @@ matchmaking service or elected game host runs in P2P mode.
 - `[ruleset]` is validated and checked for equality when peers join. Its XP/drop
   settings do not create a missing gameplay system and do not currently award
   anything in exploration mode
-- `benilla-sim` contains GPL-covered CMaNGOS-derived deterministic XP primitives
+- [Classic parity ledger](docs/CMANGOS-PARITY.md) tracks the named ports and remaining
+  dependencies. A [local source exporter](docs/CLASSIC-WORLD-IMPORT.md) captures bounded
+  user-owned server data; its output is not yet runnable Classic content. Separate
+  world runtime/client/store crates test original solo combat, quests, per-slot loot,
+  protocol projection and durable checkpoints. The app now contains a tested
+  command/tick/checkpoint controller, but native-content entry remains gated; these
+  mechanics are not yet available through the player UI
+- `benilla-sim` contains GPL-covered CMaNGOS-derived deterministic XP, selected
+  stat/armor, quest-reward and target-validation primitives
   with provenance and parity tests, plus an original headless fixed-roster
   encounter harness with deterministic combat fixtures, XP, guaranteed loot,
   snapshots and replay hashes. This is preparatory simulation code, not a full

@@ -729,6 +729,10 @@ dependencies = [
  "benilla-srp",
  "benilla-ui",
  "benilla-world",
+ "benilla-world-client",
+ "benilla-world-data",
+ "benilla-world-runtime",
+ "benilla-world-store",
  "bevy",
  "bevy_egui",
  "bytemuck",
@@ -755,6 +759,7 @@ dependencies = [
  "regex",
  "rtrb",
  "serde",
+ "serde_json",
  "sha1 0.10.6",
  "sha2 0.10.9",
  "smithay-clipboard",
@@ -855,6 +860,19 @@ version = "0.2.0"
 dependencies = [
  "benilla-bytes",
  "flate2",
+ "libc",
+]
+
+[[package]]
+name = "benilla-native-dbc"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "benilla-formats",
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -914,6 +932,8 @@ dependencies = [
 name = "benilla-sim"
 version = "0.2.0"
 dependencies = [
+ "benilla-formats",
+ "rustc_apfloat",
  "sha2 0.10.9",
 ]
 
@@ -967,6 +987,64 @@ dependencies = [
  "objc2 0.5.2",
  "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
+]
+
+[[package]]
+name = "benilla-world-client"
+version = "0.2.0"
+dependencies = [
+ "benilla-protocol",
+ "benilla-world-data",
+ "benilla-world-runtime",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "benilla-world-controller-tests"
+version = "0.2.0"
+dependencies = [
+ "benilla-config",
+ "benilla-profile",
+ "benilla-protocol",
+ "benilla-world-client",
+ "benilla-world-data",
+ "benilla-world-runtime",
+ "benilla-world-store",
+ "crossbeam-channel",
+ "serde_json",
+]
+
+[[package]]
+name = "benilla-world-data"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "benilla-world-runtime"
+version = "0.2.0"
+dependencies = [
+ "benilla-sim",
+ "benilla-world-data",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "benilla-world-store"
+version = "0.2.0"
+dependencies = [
+ "benilla-world-data",
+ "benilla-world-runtime",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -7566,6 +7644,16 @@ name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
+
+[[package]]
+name = "rustc_apfloat"
+version = "0.2.3+llvm-462a31f5a5ab"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "486c2179b4796f65bfe2ee33679acf0927ac83ecf583ad6c91c3b4570911b9ad"
+dependencies = [
+ "bitflags 2.11.1",
+ "smallvec",
+]
 
 [[package]]
 name = "rustc_version"

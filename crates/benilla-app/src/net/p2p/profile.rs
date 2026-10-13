@@ -289,6 +289,7 @@ pub(super) fn browse(
                     while commands.try_recv().is_ok() {}
                     let result = run_character(
                         settings.clone(),
+                        None, // Explicit exploration until the native compiler can supply a world request.
                         events,
                         commands,
                         ticket,

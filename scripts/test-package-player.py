@@ -253,6 +253,14 @@ class PackagingTests(unittest.TestCase):
         packager.safe_path("crates/benilla-profile/src/lib.rs")
         packager.safe_path("crates/benilla-profile/README.md")
 
+    def test_private_world_saves_never_enter_source_bundle(self):
+        for path in ["world.checkpoint", "other/world.previous", "world.lock",
+                     "other/.world-checkpoint.pending", "p2p-worlds/notes.txt"]:
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                packager.safe_path(path)
+        packager.safe_path("crates/benilla-world-store/src/lib.rs")
+        packager.safe_path("crates/benilla-world-runtime/README.md")
+
     def test_source_path_is_stable_and_outside_build_cache(self):
         root = Path("repo")
         source = packager.source_dir(root, SHA)

@@ -1,0 +1,27 @@
+{
+  "format": "benilla-classic-source-slice-v1",
+  "offline_plan": true,
+  "offline_validation": true,
+  "optional_local_sql_capture": true,
+  "live_sql_verified": false,
+  "native_to_runtime_compiler": false,
+  "runnable_output": false,
+  "credentials_saved": false,
+  "game_content_bundled": false,
+  "endpoint": "127.0.0.1 only",
+  "max_spawns": 4096,
+  "max_creatures": 4096,
+  "max_quests": 512,
+  "max_items": 2048,
+  "max_spells": 512,
+  "max_row_bytes": 65536,
+  "max_query_bytes": 16777216,
+  "max_response_and_bundle_bytes": 67108864,
+  "formats": [
+    "benilla-classic-source-slice-v1",
+    "benilla-classic-source-slice-v2"
+  ],
+  "selected_starter_capture": true,
+  "starter_max_level": 60,
+  "starter_dbc_dependencies_resolved": false
+}

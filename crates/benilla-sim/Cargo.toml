@@ -9,4 +9,8 @@ description = "Deterministic, provenance-tracked CMaNGOS simulation primitives (
 workspace = true
 
 [dependencies]
+# Reuse the user-local DBC data contract; targeting functions themselves perform no I/O.
+benilla-formats = { path = "../benilla-formats", default-features = false }
 sha2 = "0.10"
+# LLVM APFloat software binary32; Cargo.lock pins the published LLVM revision/checksum.
+rustc_apfloat = "=0.2.3"

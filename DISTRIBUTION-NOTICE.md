@@ -12,7 +12,7 @@ licenses and notices accompany their source in the matching source archive
 (see `SOURCE-DOWNLOAD.txt`, or the embedded `corresponding-source.tar.gz`).
 The patched Kira and Lua source and notices are included there too.
 
-The simulation contains a partial Rust translation of CMaNGOS Classic XP helpers,
+The simulation contains a partial Rust translation of CMaNGOS Classic XP, selected stat/armor, quest-reward and targeting helpers,
 modified by Benilla fork contributors in 2026, from commit
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. CMaNGOS granted GPL version 2 or later;
 this combination uses GPL version 3 or later. Consult
