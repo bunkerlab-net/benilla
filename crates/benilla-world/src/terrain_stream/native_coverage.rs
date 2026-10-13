@@ -205,7 +205,7 @@ fn collider_matches_tile(collider: &Collider, chunks: &[ChunkMesh]) -> bool {
                 return false;
             }
         }
-        for (offset, triangle) in chunk.indices.chunks_exact(3).enumerate() {
+        for (offset, triangle) in chunk.indices.as_chunks::<3>().0.iter().enumerate() {
             let base = vertex_offset as u32;
             if mesh.indices()[triangle_offset + offset]
                 != [base + triangle[0], base + triangle[1], base + triangle[2]]
