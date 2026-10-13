@@ -7,6 +7,29 @@ use benilla_sim::{classic_spell as spell, creature_ai as ai};
 use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Exclusive local session order-counter state. The controller must share it with all
+/// forced movement/speed orders; it is not a world tick or a peer-supplied result.
+pub struct NativeMovementOrders {
+    next: u32,
+}
+impl NativeMovementOrders {
+    pub fn from_session_next_counter(next: u32) -> Self {
+        Self { next }
+    }
+    pub fn next_counter(&self) -> u32 {
+        self.next
+    }
+}
+fn root_order(guid: u64, next: &mut Option<u32>) -> Result<SessionEvent, Error> {
+    let counter = next.ok_or(Error::MissingMovementOrderState)?;
+    *next = Some(counter.checked_add(1).ok_or(Error::Unrepresentable)?);
+    Ok(SessionEvent::MoveMode {
+        guid,
+        counter,
+        mode: p::MoveMode::Root,
+        apply: true,
+    })
+}
 pub struct NativeProjection {
     player: PlayerId,
     player_guid: u64,
@@ -126,6 +149,11 @@ impl NativeProjection {
         };
         Ok(self.input(w, command))
     }
+    /// Body release is visible but explicitly unavailable until ghost/corpse/graveyard support.
+    pub fn release_spirit(&self, w: &n::NativeWorld) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        Ok(self.input(w, n::Command::ReleaseSpirit))
+    }
     pub fn cancel_cast(&self, w: &n::NativeWorld) -> Result<n::OwnedInput, Error> {
         self.check(w)?;
         Ok(self.input(w, n::Command::CancelCast))
@@ -198,6 +226,15 @@ impl NativeProjection {
                 ]);
             }
         }
+        if let Some(d) = w.state().combat.as_ref().and_then(|c| c.death.as_ref()) {
+            let state = d.snapshot();
+            if state.phase == benilla_sim::player_death::DeathPhase::Corpse {
+                pairs.extend([
+                    (143, 0),
+                    (1222, if state.config.map_instanceable { 0 } else { 8 }),
+                ]);
+            }
+        }
         SessionEvent::ObjectValues {
             guid: self.player_guid,
             fields: ObjectFields::from_pairs(&pairs),
@@ -260,7 +297,14 @@ impl NativeProjection {
         if npc.auras.len() > 16 {
             return Err(Error::Unrepresentable);
         }
+        let target = match npc.ai.target() {
+            None => 0,
+            Some(n::SOLO_UNIT) => self.player_guid,
+            Some(_) => return Err(Error::UnknownTarget),
+        };
         let mut pairs = vec![
+            (16, target as u32),
+            (17, (target >> 32) as u32),
             (3, profile.entry),
             (22, npc.health),
             (28, profile.max_health),
@@ -334,6 +378,23 @@ impl NativeProjection {
         ])
     }
     pub fn initial_events(&self, w: &n::NativeWorld) -> Result<Vec<SessionEvent>, Error> {
+        self.initial_events_inner(w, &mut None)
+    }
+    pub fn initial_events_with_movement_orders(
+        &self,
+        w: &n::NativeWorld,
+        orders: &mut NativeMovementOrders,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        let mut next = Some(orders.next);
+        let events = self.initial_events_inner(w, &mut next)?;
+        orders.next = next.unwrap();
+        Ok(events)
+    }
+    fn initial_events_inner(
+        &self,
+        w: &n::NativeWorld,
+        orders: &mut Option<u32>,
+    ) -> Result<Vec<SessionEvent>, Error> {
         self.check(w)?;
         if self.previous_digest != w.state_digest() {
             return Err(Error::StaleProjection);
@@ -349,6 +410,14 @@ impl NativeProjection {
         }
         events.extend(self.equipment_events(w, true)?);
         events.push(self.player_values(w));
+        if w.state()
+            .combat
+            .as_ref()
+            .and_then(|c| c.death.as_ref())
+            .is_some_and(|d| d.phase() == benilla_sim::player_death::DeathPhase::Corpse)
+        {
+            events.push(root_order(self.player_guid, orders)?);
+        }
         events.push(SessionEvent::SpellBook {
             spell_ids: w.profile().abilities.iter().map(|a| a.id).collect(),
             cooldowns: vec![],
@@ -393,6 +462,23 @@ impl NativeProjection {
         }
     }
     pub fn advance(&mut self, w: &n::NativeWorld) -> Result<Vec<SessionEvent>, Error> {
+        self.advance_inner(w, &mut None)
+    }
+    pub fn advance_with_movement_orders(
+        &mut self,
+        w: &n::NativeWorld,
+        orders: &mut NativeMovementOrders,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        let mut next = Some(orders.next);
+        let events = self.advance_inner(w, &mut next)?;
+        orders.next = next.unwrap();
+        Ok(events)
+    }
+    fn advance_inner(
+        &mut self,
+        w: &n::NativeWorld,
+        orders: &mut Option<u32>,
+    ) -> Result<Vec<SessionEvent>, Error> {
         self.check(w)?;
         let record = w.last_tick().ok_or(Error::StaleProjection)?;
         if w.state().tick != self.previous.tick + 1
@@ -460,6 +546,16 @@ impl NativeProjection {
                 });
             }
         }
+        // AttackStop(false) already cleared melee-attacking state during death cleanup.
+        // The visible target may remain until ordinary evade, which must not emit a
+        // second stop in this frame or the next one.
+        let mut attack_stopped = self
+            .previous
+            .npcs
+            .values()
+            .filter(|npc| npc.ai.victim_detached_at_ms().is_some())
+            .map(|npc| npc.id)
+            .collect::<BTreeSet<_>>();
         for event in &record.events {
             let target_guid = |id: &NpcId| {
                 next.get(id)
@@ -468,6 +564,9 @@ impl NativeProjection {
                     .ok_or(Error::UnknownTarget)
             };
             match event {
+                n::Event::Death(benilla_sim::player_death::DeathAction::RootMovement) => events.push(root_order(self.player_guid, orders)?),
+                n::Event::Death(benilla_sim::player_death::DeathAction::SendDurabilityDamageDeath) => events.push(SessionEvent::DurabilityDamageDeath),
+                n::Event::Death(benilla_sim::player_death::DeathAction::ReleaseUnavailable { .. }) => events.push(SessionEvent::Notification { text: "Spirit release is unavailable: corpse, ghost and graveyard traversal are not implemented".into() }),
                 n::Event::Combat(n::CombatEvent::CriticalWound) => {
                     events.push(SessionEvent::Emote {
                         guid: self.player_guid,
@@ -599,6 +698,7 @@ impl NativeProjection {
                 }
                 n::Event::Npc { id, effect } => match effect {
                     ai::Effect::CombatStarted { .. } => {
+                        attack_stopped.remove(id);
                         let guid = target_guid(id)?;
                         events.push(SessionEvent::AttackStart {
                             attacker: guid,
@@ -609,11 +709,12 @@ impl NativeProjection {
                             reaction: 2,
                         });
                     }
-                    ai::Effect::EvadeStarted(_) | ai::Effect::Died => {
+                    ai::Effect::AttackStopped { .. } | ai::Effect::EvadeStarted(_) | ai::Effect::Died
+                        if attack_stopped.insert(*id) => {
                         events.push(SessionEvent::AttackStop {
                             attacker: target_guid(id)?,
                             victim: self.player_guid,
-                        })
+                        });
                     }
                     _ => {}
                 },
@@ -930,5 +1031,183 @@ mod melee_projection_tests {
             |e| matches!(e,SessionEvent::ObjectValues{fields,..} if fields.unit_aura_state()&1!=0)
         ));
         assert!(events.iter().any(|e|matches!(e,SessionEvent::ObjectValues{fields,..} if fields.player_skill(1).is_some_and(|s|s.value>1))));
+    }
+}
+
+#[cfg(test)]
+mod death_projection_tests {
+    use super::*;
+    use n::synthetic_fixture::*;
+    #[test]
+    fn death_projects_durability_attack_stop_release_flag_and_session_bound_root() {
+        use benilla_sim::player_death as d;
+        let mut profile = initialized_profile();
+        let c = profile.npcs[0].combat.as_mut().unwrap();
+        c.minimum_damage = float(10000.0);
+        c.maximum_damage = float(10000.0);
+        profile
+            .configure_player_death(
+                d::DeathConfig {
+                    map_instanceable: false,
+                    pve_reclaim_delay_enabled: true,
+                },
+                d::DeathSupport::checked(&d::REQUIRED_ABSENCES.map(|x| (x, Some(false)))).unwrap(),
+            )
+            .unwrap();
+        let mut w =
+            n::NativeWorld::synthetic_component_test(profile, [1; 16], player(), 7).unwrap();
+        let mut projection = NativeProjection::new(&w, w.state().player, &tests::Catalog).unwrap();
+        let mut orders = NativeMovementOrders::from_session_next_counter(37);
+        let mut authority = KernelAuthority::default();
+        let i = cast(&w, 60001);
+        w.step(1, Some(i), &mut authority).unwrap();
+        projection.advance(&w).unwrap();
+        let mut events = Vec::new();
+        while w.state().health > 0 {
+            w.step(w.state().tick + 1, None, &mut authority).unwrap();
+            events.extend(projection.advance(&w).unwrap());
+        }
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, SessionEvent::DurabilityDamageDeath)));
+        let npc_guid = projection.npc_guid(w.state().npcs[&2].id).unwrap();
+        assert_eq!(w.state().npcs[&2].ai.target(), Some(n::SOLO_UNIT));
+        assert_eq!(
+            projection
+                .npc_fields(&w, &w.state().npcs[&2])
+                .unwrap()
+                .unit_target(),
+            Some(projection.player_guid())
+        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, SessionEvent::AttackStop { .. })));
+        w.step(w.state().tick + 1, None, &mut authority).unwrap();
+        assert!(matches!(
+            projection.advance(&w),
+            Err(Error::MissingMovementOrderState)
+        ));
+        assert_eq!(orders.next_counter(), 37);
+        let events = projection
+            .advance_with_movement_orders(&w, &mut orders)
+            .unwrap();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            SessionEvent::MoveMode {
+                counter: 37,
+                mode: p::MoveMode::Root,
+                apply: true,
+                ..
+            }
+        )));
+        assert!(events.iter().any(|e| matches!(e,SessionEvent::ObjectValues { guid,fields } if *guid==projection.player_guid() && fields.player_release_timer_running() && fields.unit_dynamic_flags()==0)));
+        assert_eq!(orders.next_counter(), 38);
+        assert_eq!(w.state().npcs[&2].ai.target(), None);
+        assert!(events.iter().any(|e| matches!(e, SessionEvent::ObjectValues { guid, fields } if *guid == npc_guid && fields.unit_target().is_none())));
+        assert!(matches!(
+            projection.advance_with_movement_orders(&w, &mut orders),
+            Err(Error::StaleProjection)
+        ));
+        assert_eq!(orders.next_counter(), 38);
+        let restored = n::NativeWorld::restore_synthetic_component_test(
+            w.profile().clone(),
+            w.checkpoint().unwrap(),
+        )
+        .unwrap();
+        let fresh = NativeProjection::new(&restored, w.state().player, &tests::Catalog).unwrap();
+        assert!(matches!(
+            fresh.initial_events(&restored),
+            Err(Error::MissingMovementOrderState)
+        ));
+        let mut restored_orders = NativeMovementOrders::from_session_next_counter(50);
+        assert!(fresh
+            .initial_events_with_movement_orders(&restored, &mut restored_orders)
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, SessionEvent::MoveMode { counter: 50, .. })));
+    }
+}
+#[cfg(test)]
+mod death_stop_tests {
+    use super::*;
+    use n::synthetic_fixture::*;
+    struct Authority(KernelAuthority);
+    impl n::Authority for Authority {
+        fn resolve(
+            &mut self,
+            request: &n::AuthorityRequest,
+        ) -> Result<n::AuthorityReply, n::NativeError> {
+            let mut result = n::Authority::resolve(&mut self.0, request)?;
+            if request.binding.npc.is_some_and(|id| id.spawn == 2) {
+                if let n::Facts::Npc(facts) = &mut result.facts {
+                    facts.can_initiate_attack = request.binding.tick >= 20;
+                }
+            }
+            Ok(result)
+        }
+    }
+    #[test]
+    fn detach_followed_by_same_frame_or_next_frame_evade_sends_one_attack_stop() {
+        use benilla_sim::player_death as d;
+        let mut profile = initialized_profile();
+        let a = &mut profile.npcs[0];
+        a.ai.reaction = ai::Reaction::Aggressive;
+        a.combat.as_mut().unwrap().minimum_damage = float(10000.0);
+        a.combat.as_mut().unwrap().maximum_damage = float(10000.0);
+        let mut b = a.clone();
+        b.ai.creature_id = 3;
+        b.ai.reaction = ai::Reaction::Defensive;
+        b.combat.as_mut().unwrap().minimum_damage = float(0.0);
+        b.combat.as_mut().unwrap().maximum_damage = float(0.0);
+        profile.npcs.push(b);
+        profile
+            .configure_player_death(
+                d::DeathConfig {
+                    map_instanceable: false,
+                    pve_reclaim_delay_enabled: true,
+                },
+                d::DeathSupport::checked(&d::REQUIRED_ABSENCES.map(|d| (d, Some(false)))).unwrap(),
+            )
+            .unwrap();
+        let mut world =
+            n::NativeWorld::synthetic_component_test(profile, [1; 16], player(), 7).unwrap();
+        let mut projection = NativeProjection::new(&world, player(), &tests::Catalog).unwrap();
+        let a_guid = projection.npc_guid(world.state().npcs[&2].id).unwrap();
+        let b_guid = projection.npc_guid(world.state().npcs[&3].id).unwrap();
+        let mut command = cast(&world, 60001);
+        if let n::Command::Cast { target, .. } = &mut command.input.command {
+            *target = world.state().npcs[&3].id;
+        }
+        let mut authority = Authority(KernelAuthority::default());
+        let mut orders = NativeMovementOrders::from_session_next_counter(5);
+        let mut stops = BTreeMap::new();
+        for tick in 1..=21 {
+            world
+                .step(
+                    tick,
+                    if tick == 1 {
+                        Some(command.clone())
+                    } else {
+                        None
+                    },
+                    &mut authority,
+                )
+                .unwrap();
+            let events = projection
+                .advance_with_movement_orders(&world, &mut orders)
+                .unwrap();
+            for event in events {
+                if let SessionEvent::AttackStop { attacker, .. } = event {
+                    *stops.entry(attacker).or_insert(0) += 1;
+                }
+            }
+            if tick == 20 {
+                assert_eq!(world.state().health, 0);
+                assert_eq!(stops.get(&a_guid), Some(&1));
+                assert_eq!(stops.get(&b_guid), Some(&1));
+            }
+        }
+        assert_eq!(stops.get(&a_guid), Some(&1));
+        assert_eq!(stops.get(&b_guid), Some(&1));
     }
 }

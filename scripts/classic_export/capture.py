@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from .columns import COLUMNS, STARTER_SCHEMA
-from . import event_ai, starter, learning, native_spawn
+from . import event_ai, starter, learning, native_spawn, spell_registry
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -28,6 +28,8 @@ class Query:
               "query.event_ai_mode")
         check(self.table not in native_spawn.TABLES or self.mode == "native_spawn_selectors",
               "query.native_spawn_mode")
+        check(self.table != spell_registry.TABLE or self.mode == "spell_registry_selectors",
+              "query.spell_registry_mode")
         integer(self.limit, 1, MAX_ROWS, "query.limit")
         columns = ",".join(f"`{name}` AS `{name}`" for name in COLUMNS[self.table])
         order = ",".join(f"`{name}`" for name in KEYS[self.table])
@@ -56,6 +58,15 @@ class Query:
                         0xffffffff, "query.native_spawn_selector")
             field = native_spawn.SELECTOR_COLUMNS[self.table]
             where = f"`{field}` IN ({','.join(['%s']*len(self.ids))})"
+            params = self.ids
+        elif self.mode == "spell_registry_selectors":
+            check(self.table == spell_registry.TABLE and self.selection is None
+                  and 0 < len(self.ids) <= MAX_SPELLS and self.limit <= MAX_SPELLS,
+                  "query.spell_registry_selectors")
+            check(len(set(self.ids)) == len(self.ids), "query.duplicate_ids")
+            for value in self.ids:
+                integer(value, 1, 0x7fffffff, "spell_registry.selector_domain")
+            where = f"`Id` IN ({','.join(['%s']*len(self.ids))})"
             params = self.ids
         elif self.mode == "learning_presence":
             check(self.table == "spell_learn_spell" and self.selection is None and not self.ids
@@ -192,11 +203,24 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             for table, ids in native_spawn.selectors(tables).items():
                 if table != "creature_spawn_data":
                     tables[table] = get(table, set(ids), mode="native_spawn_selectors")
-        model_ids = {r[f"DisplayId{i}"] for r in creatures.values() for i in range(1,5) if r[f"DisplayId{i}"] > 0}
-        model_ids.update(r["ModelId"] for r in tables.get("creature_spawn_data_template", []) if r["ModelId"])
-        models = get("creature_model_info", model_ids)
-        require_ids("creature_model_info", models, model_ids)
-        tables["creature_model_info"] = models
+        model_ids = native_spawn.model_roots(tables)
+        models: dict[int, dict[str, Any]] = {}
+        # Every pass visits a new ID; recursive gender chains and cycles terminate
+        # at a bounded visited set, never an arbitrary depth cutoff.
+        for _ in range(MAX_ROWS + 1):
+            missing = model_ids - set(models)
+            if not missing:
+                break
+            rows = get("creature_model_info", missing)
+            require_ids("creature_model_info", rows, missing)
+            models.update((row["modelid"], row) for row in rows)
+            if selection.starter is not None:
+                model_ids.update(integer(row["modelid_other_gender"], 0, 0xffffffff,
+                                         "native_spawn.model_domain") for row in rows
+                                 if row["modelid_other_gender"])
+            check(len(model_ids) <= MAX_ROWS, "native_spawn.model_limit")
+        check(model_ids == set(models), "native_spawn.model_closure")
+        tables["creature_model_info"] = [models[key] for key in sorted(models)]
         required["creature_model_info"] = model_ids
         class_ids = {r["UnitClass"] for r in creatures.values() if r["UnitClass"] > 0}
         # Fetch the small reviewed class table, then retain only referenced levels.
@@ -260,6 +284,10 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         if spells or selection.starter is not None:
             tables["spell_template"] = [spells[k] for k in sorted(spells)]
             required["spell_template"] = spell_ids
+        if selection.starter is not None:
+            registry_ids = set(spell_registry.selected_ids(tables))
+            tables[spell_registry.TABLE] = get(spell_registry.TABLE, registry_ids, MAX_SPELLS,
+                                               mode="spell_registry_selectors")
         check(version_before == normalize_version_notes(source.version_notes(), profiles["db_version"]), "snapshot.version_changed")
         findings = full_report(tables, profiles, selection)
         bundle = {
@@ -277,6 +305,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["starter_required_keys"] = starter.keys(tables)
             bundle["event_ai_capture"] = event_ai.evidence(tables)
             bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
+            bundle["spell_script_capture"] = spell_registry.evidence(bundle)
             bundle["learning_capture"] = learning.evidence(tables, dependency_request, global_learning_rows)
         check(len(canonical(bundle)) <= MAX_BUNDLE_BYTES, "bundle.byte_limit")
         validate_bundle(bundle)
@@ -298,6 +327,8 @@ def validate_bundle(bundle: Any) -> None:
             expected.add("learning_capture")
         if "native_spawn_capture" in bundle:
             expected.add("native_spawn_capture")
+        if "spell_script_capture" in bundle:
+            expected.add("spell_script_capture")
     check(set(bundle) == expected, "bundle.fields")
     check(bundle["format"] in {FORMAT, STARTER_FORMAT} and bundle["core_revision"] == CORE_REVISION
           and bundle["database_revision"] == DATABASE_REVISION and bundle["client_build"] == 5875,
@@ -349,6 +380,11 @@ def validate_bundle(bundle: Any) -> None:
     if "native_spawn_capture" in bundle:
         check(selection.starter is not None, "native_spawn.starter_selection_required")
         native_spawn.validate(bundle)
+    check((spell_registry.TABLE in bundle["tables"]) == ("spell_script_capture" in bundle),
+          "spell_registry.coverage_required_with_table")
+    if "spell_script_capture" in bundle:
+        check(selection.starter is not None, "spell_registry.starter_selection_required")
+        spell_registry.validate(bundle)
     check(type(bundle["required_ids"]) is dict and set(bundle["required_ids"]) <= set(bundle["tables"]), "bundle.references")
     reference_tables = {"creature_template", "creature_model_info", "quest_template", "item_template"}
     if "spell_template" in bundle["tables"]:

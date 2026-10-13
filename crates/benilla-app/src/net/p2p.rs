@@ -19,9 +19,12 @@ use sha2::{Digest, Sha256};
 use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
 mod encounter;
+#[path = "p2p/world/native_geometry/mod.rs"]
+mod native_geometry;
 mod profile;
 // Native entry is deliberately closed until a supported compiler/runtime profile exists.
 mod world;
+pub(super) use native_geometry::plugin as native_geometry_plugin;
 use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.

@@ -1260,10 +1260,17 @@ fn first_entry_trains_every_loaded_skill_before_relearning_defaults() {
         }
     }
     phases.push('\n');
-    assert_eq!(
-        phases,
-        include_str!("fixtures/starter_entry_phases_cmangos.tsv")
-    );
+    // Text fixture records are exact; Git may check them out with CRLF on Windows.
+    // Exercise both newline conventions without trimming fields or record content.
+    let fixture = include_str!("fixtures/starter_entry_phases_cmangos.tsv");
+    let lf = fixture.replace("\r\n", "\n");
+    let crlf = lf.replace('\n', "\r\n");
+    for expected in [&lf, &crlf] {
+        assert_eq!(
+            phases.lines().collect::<Vec<_>>(),
+            expected.lines().collect::<Vec<_>>()
+        );
+    }
     // Normalization can newly cross a training threshold even without any
     // effect-44/118 setter. That changed passive closure cannot disappear.
     i.skill_race_class = Rows::Complete(vec![info(1, 60001, 0x10, 0)]);

@@ -2,7 +2,7 @@
 //! Checked AI checkpoints, separate from live non-deserializable authority state.
 use super::*;
 use serde::{Deserialize, Serialize};
-pub const AI_CHECKPOINT_VERSION: u32 = 1;
+pub const AI_CHECKPOINT_VERSION: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiCheckpoint {
@@ -12,6 +12,8 @@ pub struct AiCheckpoint {
     combat_start: Point,
     last_refresh: Point,
     target: Option<u64>,
+    victim_detached_at_ms: Option<u64>,
+    pending_receipts: Option<(u64, u64)>,
     threat: Real,
     now_ms: u64,
     sequence: u64,
@@ -37,6 +39,8 @@ impl SoloCreatureAi {
             combat_start: self.combat_start,
             last_refresh: self.last_refresh,
             target: self.target,
+            victim_detached_at_ms: self.victim_detached_at_ms,
+            pending_receipts: self.pending_receipts,
             threat: self.threat,
             now_ms: self.now_ms,
             sequence: self.sequence,
@@ -66,7 +70,11 @@ impl SoloCreatureAi {
             point.validate()?;
         }
         s.threat.nonnegative("checkpoint threat")?;
-        if s.version != AI_CHECKPOINT_VERSION
+        if s.pending_receipts.is_some()
+            || s.victim_detached_at_ms.is_some_and(|at| {
+                at != now_ms || s.phase != Phase::Combat || s.threat != Real::ZERO
+            })
+            || s.version != AI_CHECKPOINT_VERSION
             || s.now_ms != now_ms
             || s.sequence != sequence
             || now_ms < profile.clock_origin_ms
@@ -159,6 +167,8 @@ impl SoloCreatureAi {
             combat_start: s.combat_start,
             last_refresh: s.last_refresh,
             target: s.target,
+            victim_detached_at_ms: s.victim_detached_at_ms,
+            pending_receipts: None,
             threat: s.threat,
             now_ms: s.now_ms,
             sequence: s.sequence,

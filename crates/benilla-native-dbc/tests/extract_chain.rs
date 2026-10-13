@@ -157,6 +157,16 @@ fn actual_cli_uses_patch_winner_preserves_source_and_exports_fixed_allowlist() {
         .unwrap();
     assert_eq!(map["winning_archive"], "patch-2.MPQ");
     assert_eq!(manifest["client_build_authenticity_verified"], false);
+    assert_eq!(manifest["format"], "benilla-native-dbc-extraction-v3");
+    assert_eq!(TABLES.len(), 20);
+    let display = manifest["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["file"] == "CreatureDisplayInfo.dbc")
+        .unwrap();
+    assert_eq!(display["fields"], 12);
+    assert_eq!(display["record_bytes"], 48);
     assert!(extract(&data, &output).is_err());
 }
 
@@ -250,4 +260,27 @@ fn bounded_chain_enforces_cumulative_indices_and_mount_counts() {
         }
     )
     .is_err());
+}
+
+#[test]
+fn display_member_is_mandatory_and_wrong_layout_never_publishes() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let output = temp.0.join("private");
+    let entries = TABLES
+        .iter()
+        .filter(|(table, _, _)| *table != "CreatureDisplayInfo")
+        .map(|(table, _, _)| entry(table, 1))
+        .collect::<Vec<_>>();
+    fs::write(data.join("dbc.MPQ"), archive(&entries)).unwrap();
+    let error = extract(&data, &output).unwrap_err();
+    assert!(format!("{error:#}").contains("input.missing:CreatureDisplayInfo"));
+    assert!(!output.exists());
+    fs::write(data.join("dbc.MPQ"), base()).unwrap();
+    let mut corrupt = entry("CreatureDisplayInfo", 2);
+    corrupt.bytes[8] = 13;
+    fs::write(data.join("patch.MPQ"), archive(&[corrupt])).unwrap();
+    let error = extract(&data, &output).unwrap_err();
+    assert!(format!("{error:#}").contains("input.invalid:CreatureDisplayInfo"));
+    assert!(!output.exists());
 }

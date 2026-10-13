@@ -351,3 +351,36 @@ No creature templates, spawn rows or native world data are distributed.
 same pinned revision. [PLAYER-DEATH.md](PLAYER-DEATH.md) records provenance,
 source-derived callbacks, fixed-step restore constraints and excluded graveyard
 and ghost behavior. It does not independently execute runtime callbacks.
+
+## Ordinary quest lifecycle
+
+`src/quest_lifecycle/` is a GPL-3.0-or-later Rust translation from the same pinned
+CMaNGOS Classic revision and GPL-2.0-or-later upstream grant. Existing upstream
+authorship, copyright and license notices in `licenses/` apply. Rust translation,
+adapter and original algorithm-probe changes are by 2026 Benilla fork contributors.
+No Blizzard assets, native quest rows, quest text or world database are included.
+See [QUEST-LIFECYCLE.md](QUEST-LIFECYCLE.md) for precise admission, transaction-host
+obligations, source order, tests and exclusions. This does not enable native quests
+in the authored fixture or establish a real-content gameplay result.
+
+Reviewed and oracle-hash-checked files at commit
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
+
+- `src/game/Entities/Player.cpp`: `d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`;
+  CanTakeQuest/CanAddQuest/CanCompleteQuest/CanRewardQuest, AddQuest,
+  CompleteQuest/IncompleteQuest/RewardQuest, status/level/class/race and signed
+  prerequisite/chain predicates, item adjustment/add/remove, kill/talk credit,
+  MoneyChanged, and reviewed future GiveXP/GiveLevel/inventory dependencies
+- `src/game/Entities/Player.h`: `acd3ff726fafecd582673ec918157584d71fde6e3a1f59e26f0374b379cdffbb`;
+  ordered ModifyMoney clamp and money bound
+- `src/game/Quests/QuestDef.cpp`: `e4f868e95421c2be5b90bd046178b6f4413dc5203e945cf5735b9bac26104cfb`;
+  field loading and numeric reward methods reused through `quest`
+- `src/game/Quests/QuestDef.h`: `a03821312ade7e0e30e620bf37d68e32899d65494e37887c9053eee50ebfa66a`;
+  status/flags, objective arrays and relation accessors
+- `src/game/Globals/ObjectMgr.cpp`: `dd27915ca363f81885d20783fc4f6c0392df20c4e3dfa031faa1a30df7a4b78b`;
+  signed reverse NextQuestId, PrevQuestId and previous-chain construction,
+  combined creature-objective KILL_OR_CAST/SPEAKTO flags
+
+The oracle compiles unchanged extracted bodies/loader fragment with explicit
+bounded test adapters. Its synthetic XP recorder is not a GiveXP/GiveLevel port,
+and its source/choice/reward item branches are deliberately unreachable.

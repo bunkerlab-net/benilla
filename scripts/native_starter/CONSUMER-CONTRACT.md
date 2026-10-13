@@ -22,8 +22,10 @@ not evidence. Imported strings remain data, never paths, scripts or SQL.
 `source_sha256`, `dbc_manifest`, `extraction_manifest` and
 `preparation_sha256` provide deterministic integrity/lineage. They are not
 signatures, build authenticity, legal-rights evidence or gameplay certification.
-The existing 18-table extractor does not contain Talent; absent talent data is
-an explicit remaining input gap, not permission to assume no talent spells.
+Extraction v3 requires Talent and CreatureDisplayInfo in its exact 20-table set.
+Legacy v1/v2 manifests require new local extraction, never a silently repaired
+coverage assertion. The diagnostic library may inspect missing tables, but null
+coverage never proves empty membership or a neutral display scale.
 
 ## Initializer inputs
 
@@ -165,3 +167,39 @@ this preparation does not implement overrides, loader corrections or scripts.
 Neither coverage hashes nor successful revalidation create a native admission
 profile. Groups/linking, substituted entries and other server context remain
 separate unresolved requirements.
+
+
+## Selected registry and display evidence
+
+`spell_script_capture` carries the validated source proof described in the
+[registry contract](../classic_export/SPELL-REGISTRY-CONTRACT.md).
+Each `spells[].script_registry` is null for legacy unknown coverage, or a complete
+status, exact matching rows and evidence digest. Complete-empty proves only the
+pinned fresh-load numeric SpellScript/AuraScript registry absence. Every present
+row requires named semantics. Initial-cast area/condition/proc paths still need
+their own source-backed admission proof.
+
+`creature_display_inputs` records full-table coverage, SHA-256, row count,
+selected IDs and known missing IDs. Missing table has `coverage: not_captured`,
+null hash/count/missing IDs; captured table uses `complete_raw_table`, including
+an empty table. Each creature has `selected_display_ids`, recursively selected
+`model_inputs`, and `display_inputs` with ID, model ID, extended-display ID,
+`scale_binary32`, signed `size_class` and `source` (all raw words, decoded strings
+and record SHA-256). The same rows appear in `dbc_bindings` with explicit field
+dispositions. Whole-file manifest and preparation verification bind exact bytes.
+
+CreatureDisplayInfo has 12 words/48 bytes. ID is word 0; model ID 1,
+extended-display ID 3, scale bits 4; strings are exactly 6–8. Word 9 is signed
+SizeClass, including -1, not a portrait string despite an obsolete core comment.
+The selected roots are all nonzero template DisplayId1..4 and actually applicable
+spawn-template ModelId, closed recursively over modelid_other_gender. Missing
+SQL gender rows and DBC display rows are explicit requirements. Alternative model
+IDs stay unsupported context; no unreviewed alternative relation is followed.
+Nonfinite selected scales reject; nonpositive scales are retained and blocked.
+Model/extended-display IDs do not establish renderer assets or visual admission.
+
+New P2P worlds may use an explicit named native-consumer world-rule policy. This
+preparation does not require importing an existing server's config or assume its
+values. Legacy configuration import would need effective parsed values and
+provenance. Rates outside that named policy, aggro/lifecycle and executable
+callbacks remain separate native requirements.

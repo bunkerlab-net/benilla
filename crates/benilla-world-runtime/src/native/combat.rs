@@ -104,6 +104,7 @@ pub struct CombatGenesis {
     pub(super) durability_hit_chance: spell::SpellFloat,
     pub(super) defense_gain: u16,
     pub(super) damage_cancels: Vec<u32>,
+    pub(super) death: Option<DeathPolicy>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -296,6 +297,7 @@ impl Profile {
             durability_hit_chance,
             defense_gain,
             damage_cancels,
+            death: None,
         });
         self.validate()
     }
@@ -315,6 +317,8 @@ pub struct PlayerCombatState {
     pub combat_tick_ms: u32,
     pub next_action: u64,
     pub action_tip: crate::Digest,
+    pub death: Option<benilla_sim::player_death::PlayerDeathState>,
+    pub death_killer: Option<crate::NpcId>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -332,9 +336,11 @@ pub(super) struct CombatSnapshot {
     combat_tick_ms: u32,
     next_action: u64,
     action_tip: crate::Digest,
+    death: Option<benilla_sim::player_death::PlayerDeathSnapshot>,
+    death_killer: Option<crate::NpcId>,
 }
 impl PlayerCombatState {
-    pub(super) fn new(g: &CombatGenesis) -> Result<Self, NativeError> {
+    pub(super) fn new(g: &CombatGenesis, origin: u64) -> Result<Self, NativeError> {
         Ok(Self {
             stats: g.stats.clone(),
             skills: g.skills.clone(),
@@ -349,6 +355,19 @@ impl PlayerCombatState {
             combat_tick_ms: 1200,
             next_action: 1,
             action_tip: [0; 32],
+            death: g
+                .death
+                .as_ref()
+                .map(|p| {
+                    benilla_sim::player_death::PlayerDeathState::new(
+                        SOLO_UNIT,
+                        p.config,
+                        0,
+                        origin / 1000,
+                    )
+                })
+                .transpose()?,
+            death_killer: None,
         })
     }
     pub(super) fn snapshot(&self) -> CombatSnapshot {
@@ -366,6 +385,8 @@ impl PlayerCombatState {
             combat_tick_ms: self.combat_tick_ms,
             next_action: self.next_action,
             action_tip: self.action_tip,
+            death: self.death.as_ref().map(|d| d.snapshot()),
+            death_killer: self.death_killer,
         }
     }
     pub(super) fn restore(
@@ -378,6 +399,32 @@ impl PlayerCombatState {
         origin: u64,
         diff: u32,
     ) -> Result<Self, NativeError> {
+        let death = match (&g.death, s.death) {
+            (Some(p), Some(d)) => Some(
+                benilla_sim::player_death::PlayerDeathState::restore_native_fixed_step(
+                    d,
+                    SOLO_UNIT,
+                    p.config,
+                    benilla_sim::player_death::NativeDeathClock {
+                        clock_origin_ms: origin,
+                        tick_ms: diff,
+                        current_tick: tick,
+                    },
+                )?,
+            ),
+            (None, None) => None,
+            _ => return Err(NativeError::InvalidCheckpoint),
+        };
+        if let Some(d) = &death {
+            if d.is_alive() != (health > 0)
+                || d.is_alive() != s.death_killer.is_none()
+                || (!d.is_alive() && (s.in_combat || s.defense_reactive_ms != 0))
+            {
+                return Err(NativeError::InvalidCheckpoint);
+            }
+        } else if health == 0 || s.death_killer.is_some() {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         let recipe = init::StatRecipe::restore(&g.recipe, &s.recipe)?;
         let equipment = equipment::EquipmentState::restore(
             s.equipment.clone(),
@@ -407,7 +454,6 @@ impl PlayerCombatState {
             || s.has_channeled_spell
             || s.has_auto_repeat_spell
             || s.combat_tick_ms > 1200
-            || health == 0
         {
             return Err(NativeError::InvalidCheckpoint);
         }
@@ -452,6 +498,8 @@ impl PlayerCombatState {
             combat_tick_ms: s.combat_tick_ms,
             next_action: s.next_action,
             action_tip: s.action_tip,
+            death,
+            death_killer: s.death_killer,
         })
     }
     pub(super) fn apply_item_break(
@@ -505,5 +553,43 @@ impl NativeWorld {
             .as_ref()
             .map(|c| (c.stats.max_health, c.stats.max_mana))
             .unwrap_or((self.profile.player.max_health, self.profile.player.max_mana))
+    }
+}
+
+fn serialize_death_support<S: serde::Serializer>(
+    _: &benilla_sim::player_death::DeathSupport,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    (
+        benilla_sim::player_death::PLAYER_DEATH_POLICY,
+        benilla_sim::player_death::REQUIRED_ABSENCES,
+    )
+        .serialize(s)
+}
+/// Captured map/config and checked bounded callback closure. This is not raw-data admission.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DeathPolicy {
+    pub config: benilla_sim::player_death::DeathConfig,
+    #[serde(serialize_with = "serialize_death_support")]
+    pub(super) support: benilla_sim::player_death::DeathSupport,
+}
+impl Profile {
+    pub fn configure_player_death(
+        &mut self,
+        config: benilla_sim::player_death::DeathConfig,
+        support: benilla_sim::player_death::DeathSupport,
+    ) -> Result<(), NativeError> {
+        let g = self.combat.as_mut().ok_or(NativeError::InvalidProfile)?;
+        // Current source initializer admits only passive, unconditional holder modifiers.
+        if g.initial_auras
+            .iter()
+            .any(|a| a.attributes & 0x40 == 0 || a.caster_aura_state != 0)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "death removal of active/conditional player aura modifiers",
+            ));
+        }
+        g.death = Some(DeathPolicy { config, support });
+        Ok(())
     }
 }

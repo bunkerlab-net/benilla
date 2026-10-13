@@ -53,6 +53,7 @@ LAYOUTS = {
     "SkillTiers": Layout(33, 132),
     "SkillLineAbility": Layout(15, 60),
     "Talent": Layout(21, 84),
+    "CreatureDisplayInfo": Layout(12, 48, (6, 7, 8)),
 }
 
 def signed(word: int) -> int:
@@ -229,7 +230,9 @@ def load_extraction_manifest(directory: Path, tables: dict[str, DbcTable]) -> di
     value = decode_json(data, MAX_EXTRACTION_BYTES)
     check(type(value) is dict and set(value) == {"format", "chain_policy", "client_build_claim",
           "client_build_authenticity_verified", "files"}, "extraction.manifest_fields")
-    check(value["format"] == "benilla-native-dbc-extraction-v2"
+    check(value["format"] not in {"benilla-native-dbc-extraction-v1", "benilla-native-dbc-extraction-v2"},
+          "extraction.legacy_manifest_reextract_v3_required")
+    check(value["format"] == "benilla-native-dbc-extraction-v3"
           and value["chain_policy"] == "benilla-formats-vanilla-chain"
           and type(value["client_build_claim"]) is int and value["client_build_claim"] == 5875
           and value["client_build_authenticity_verified"] is False, "extraction.manifest_profile")

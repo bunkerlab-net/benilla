@@ -107,6 +107,12 @@ membership, and GUID/template addon rows in the same read-only snapshot.
 Legacy v2 captures without that evidence stay unproven; applicable hooks remain
 unexecuted, including neutral-looking rows.
 
+New v2 captures also include exact selected [spell/aura registry evidence](SPELL-REGISTRY-CONTRACT.md).
+Every captured spell-template ID is queried without filtering names, and registry
+schema/key/selector/snapshot hashes are validated. Legacy missing coverage stays
+unknown. IDs outside 1..INT32_MAX reject before the registry query because the
+native signed-SQL-to-uint32 cast would otherwise permit false absence.
+
 Not captured: other event override/group/linking state; gameobjects; loot rows;
 conditions; other AI/script data; local starter outfits/DBC records; quest chains
 beyond referenced fields; spell procs/stacking or the local client DBCs.

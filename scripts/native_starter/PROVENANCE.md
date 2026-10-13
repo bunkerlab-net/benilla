@@ -103,3 +103,23 @@ The [bounded evidence contract](../classic_export/NATIVE-SPAWN-CONTRACT.md)
 documents exact selectors, schema domains, missing/empty distinctions and
 unexecuted semantics. Schema metadata only is transcribed; all test rows are
 original synthetic inputs.
+
+
+## Spell registry and creature display bindings
+
+- [ScriptDev2 registry schema](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/sql/scriptdev2/spell.sql#L2-L5),
+  [numeric registry loader](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/Scripts/SpellScript.cpp#L22-L106),
+  [private numeric setters](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/Scripts/SpellScript.h#L146-L177)
+  and [signed conversion](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/shared/Database/Field.h#L59)
+  establish the bounded absence contract. No named native script is implemented
+  by the producer; empty/unknown names remain raw rows
+- [DBCfmt.h](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Server/DBCfmt.h#L34)
+  consumes CreatureDisplayInfo words 0, 1, 3 and 4. The existing build-5875 client
+  [creature display reader](../../crates/benilla-formats/src/creatures.rs)
+  identifies strings 6–8 and signed SizeClass at 9, including the -1 test at
+  client address 0x625509. The old portrait-string comment in DBCStructure.h is
+  not followed. The complete 12-word record stays bound to its original bytes
+- [ObjectMgr model loading](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp#L1635-L1695)
+  establishes the other-gender/alternative relations. Capture follows the
+  selected other-gender closure but preserves alternatives as unresolved
+  context, without executing loader corrections or renderer substitutions

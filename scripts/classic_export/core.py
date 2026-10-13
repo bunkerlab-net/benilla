@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA
+from .columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA
 
 FORMAT = "benilla-classic-source-slice-v1"
 STARTER_FORMAT = "benilla-classic-source-slice-v2"
@@ -27,6 +27,7 @@ MAX_BUNDLE_BYTES = 64 * 1024 * 1024
 MAX_SCHEMA_BYTES = 2 * 1024 * 1024
 MAX_TEXT_BYTES = 16384
 KEYS = {
+    "spell_scripts": ("Id",),
     "creature_spawn_data": ("Guid",),
     # Native SQL allows repeated Entry, but the loader overwrites by Entry without
     # ORDER BY. Reject duplicate Entries rather than choose a nondeterministic row.
@@ -53,6 +54,7 @@ KEYS = {
     "player_levelstats": ("race", "class", "level"), "player_xp_for_level": ("lvl",),
 }
 TEXT_COLUMNS = {
+    "spell_scripts": {"ScriptName"},
     "creature_spawn_data_template": {"Name"},
     "pool_creature": {"description"}, "pool_creature_template": {"description"},
     "creature_addon": {"auras"}, "creature_template_addon": {"auras"},
@@ -175,6 +177,7 @@ def required_tables(selection: Selection) -> set[str]:
         minimum.update(STARTER_SCHEMA)
         minimum.update(LEARNING_SCHEMA)
         minimum.update(SPAWN_SCHEMA)
+        minimum.update(REGISTRY_SCHEMA)
         minimum.add("creature_ai_scripts")
     return minimum
 
@@ -187,7 +190,12 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     check(required <= set(inventory["tables"]), "schema.missing_table")
     profiles = {}
     for table, meta in inventory["tables"].items():
-        check(type(meta) is dict and set(meta) == {"engine", "table_type", "columns"}, "schema.table_fields")
+        fields = {"engine", "table_type", "columns"}
+        if table in REGISTRY_SCHEMA and type(meta) is dict and "primary_key" in meta:
+            fields.add("primary_key")
+        check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
+        if table in REGISTRY_SCHEMA and table in required:
+            check(meta.get("primary_key") == ["Id"], "schema.registry_primary_key")
         check(meta["table_type"] == "BASE TABLE", "schema.views_rejected")
         check(meta["engine"] in {"InnoDB", "MyISAM"}, "schema.engine")
         check(type(meta["columns"]) is list and len(meta["columns"]) <= 512, "schema.columns")
@@ -206,9 +214,9 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
         missing = wanted - set(by_name)
         if table in required:
             check(not missing, f"schema.missing_columns:{table}")
-        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA) and table in required:
+        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA) and table in required:
             check(wanted == set(by_name), f"schema.starter_columns:{table}")
-            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA)[table], 1):
+            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA)[table], 1):
                 actual = by_name[name.casefold()]
                 observed, expected = sql_type(actual["type"]), sql_type(kind)
                 # Ignore display width for integer types, never size/signedness/nullability/order.
@@ -387,6 +395,8 @@ def report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any]) ->
                     add(table, key, "spell.aura_or_trigger_dependency")
             elif table == "item_template":
                 add(table, key, "item.native_inventory_equipment_rules_required")
+            elif table == "spell_scripts":
+                add(table, key, "spell.registry_row_requires_named_handler_semantics")
             elif table == "creature_ai_scripts":
                 add(table, key, "creature.event_ai_matching_row_requires_execution")
     return sorted(issues, key=lambda x: (x["table"], str(x["key"]), x["reason"]))

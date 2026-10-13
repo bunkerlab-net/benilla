@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v2\0", self)
+        crate::digest(b"benilla-native-record-v3\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,10 +135,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v2\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v3\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v2\0",
+                    b"benilla-native-checkpoint-v3\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -223,7 +223,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v2\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v3\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -233,7 +233,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v2\0",
+            b"benilla-native-checkpoint-v3\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -256,10 +256,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v2\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v3\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v2\0",
+                    b"benilla-native-checkpoint-v3\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -404,10 +404,32 @@ impl NativeWorld {
                 },
             );
         }
-        if combat.as_ref().is_some_and(|c| !c.in_combat)
+        if s.health > 0
+            && combat.as_ref().is_some_and(|c| !c.in_combat)
             && npcs.values().any(|n| n.ai.phase() == ai::Phase::Combat)
         {
             return Err(NativeError::InvalidCheckpoint);
+        }
+        if let Some(c) = &combat {
+            if let Some(killer) = c.death_killer {
+                if !npcs
+                    .get(&killer.spawn)
+                    .is_some_and(|n| killer.generation <= n.id.generation)
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+            }
+            for n in npcs.values() {
+                if n.ai.victim_detached_at_ms().is_some() {
+                    if s.health != 0
+                        || c.death.as_ref().and_then(|d| d.snapshot().died_at_tick) != Some(s.tick)
+                    {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
+                } else if s.health == 0 && n.ai.phase() == ai::Phase::Combat {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+            }
         }
         let mut casts = BTreeMap::new();
         for (id, c) in s.casts {
@@ -456,7 +478,10 @@ impl NativeWorld {
             .filter(|c| matches!(c.execution.state(), spell::CastState::Casting { .. }))
             .count()
             > 1
-            || (s.health == 0 && !casts.is_empty())
+            || (s.health == 0
+                && casts
+                    .values()
+                    .any(|c| !matches!(c.execution.state(), spell::CastState::Traveling { .. })))
         {
             return Err(NativeError::InvalidCheckpoint);
         }

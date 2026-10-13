@@ -92,6 +92,17 @@ class LocalSqlSource:
             check(row["nullable"] in {"YES", "NO"}, "schema.nullability")
             result["tables"][row["table_name"]]["columns"].append({
                 "name": row["name"], "type": row["type"], "nullable": row["nullable"] == "YES", "ordinal": row["ordinal"]})
+        if "spell_scripts" in result["tables"]:
+            # Exact current registry primary key; never infer it from row uniqueness.
+            keys = self._select(
+                "SELECT COLUMN_NAME AS name,ORDINAL_POSITION AS ordinal "
+                "FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() "
+                "AND TABLE_NAME=%s AND CONSTRAINT_NAME=%s ORDER BY ORDINAL_POSITION LIMIT 3",
+                ("spell_scripts", "PRIMARY"), 3)
+            check(len(keys) <= 2 and all(type(row) is dict and set(row) == {"name", "ordinal"}
+                  and row["ordinal"] == index for index, row in enumerate(keys, 1)),
+                  "schema.registry_key_metadata")
+            result["tables"]["spell_scripts"]["primary_key"] = [row["name"] for row in keys]
         check(len(canonical(result)) <= MAX_SCHEMA_BYTES, "schema.byte_limit")
         profiles = schema_profile(result, set())
         self._version_profile = profiles.get("db_version")

@@ -726,6 +726,7 @@ dependencies = [
  "benilla-p2p",
  "benilla-profile",
  "benilla-protocol",
+ "benilla-sim",
  "benilla-srp",
  "benilla-ui",
  "benilla-world",
@@ -845,6 +846,7 @@ dependencies = [
  "clap",
  "glam 0.31.1",
  "image",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -872,6 +874,17 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "benilla-native-geometry-tests"
+version = "0.2.0"
+dependencies = [
+ "benilla-formats",
+ "benilla-sim",
+ "benilla-world-runtime",
+ "crossbeam-channel",
  "sha2 0.10.9",
 ]
 
@@ -967,6 +980,9 @@ dependencies = [
 [[package]]
 name = "benilla-wdt"
 version = "0.2.0"
+dependencies = [
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "benilla-wmo"

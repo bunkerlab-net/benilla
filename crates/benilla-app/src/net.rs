@@ -89,6 +89,7 @@ impl Plugin for NetPlugin {
                 .after(crate::login::login_input)
                 .run_if(resource_exists::<P2pStart>),
         );
+        p2p::native_geometry_plugin(app);
         app.init_resource::<P2pEndpointTicket>();
         let ticket = app.world().resource::<P2pEndpointTicket>().clone();
         let handles = match (connect, app.world().get_resource::<P2pSettings>()) {

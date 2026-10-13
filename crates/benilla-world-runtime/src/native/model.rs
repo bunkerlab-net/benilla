@@ -93,7 +93,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v2\0",
+            b"benilla-native-profile-v3\0",
             &(
                 NATIVE_POLICY,
                 RNG_POLICY,
@@ -103,6 +103,7 @@ impl Profile {
                 benilla_sim::starter_init::STARTER_INIT_POLICY_ID,
                 benilla_sim::npc_melee::NPC_MELEE_POLICY_ID,
                 equipment::EQUIPMENT_POLICY,
+                benilla_sim::player_death::PLAYER_DEATH_POLICY,
                 self,
             ),
         )
@@ -283,6 +284,7 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    ReleaseSpirit,
     Cast { ability: u32, target: NpcId },
     CancelCast,
     Move { destination: ai::Point },
@@ -306,17 +308,24 @@ pub struct OwnedInput {
 #[serde(deny_unknown_fields)]
 pub enum Rejection {
     UnknownAbility,
-    UnavailableAbility { ability: u32, reason: String },
+    UnavailableAbility {
+        ability: u32,
+        reason: String,
+    },
     AlreadyCasting,
     UnknownTarget,
     Dead,
     NoCast,
     CastFailed(spell::CastFailure),
     MovementBlocked,
+    SpiritReleaseUnavailable {
+        phase: Option<benilla_sim::player_death::DeathPhase>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    Death(benilla_sim::player_death::DeathAction),
     Combat(CombatEvent),
     Rejected(Rejection),
     Spell {

@@ -62,6 +62,7 @@ def dbc_bytes(name, rows):
 def dbcs_for(source):
     rows = {name: [] for name in LAYOUTS}
     rows.update({
+        "CreatureDisplayInfo": [{0: 940001, 1: 950001, 4: binary32_bits("1.25"), 9: -1}],
         "ChrRaces": [{0: 1, 2: 970001, 4: 940010, 5: 940011}],
         "ChrClasses": [{0: 1, 3: 1}],
         "CharBaseInfo": [(1, 1)],
@@ -90,7 +91,7 @@ def parsed(files):
 
 
 def extraction_metadata(files):
-    return {"format": "benilla-native-dbc-extraction-v2",
+    return {"format": "benilla-native-dbc-extraction-v3",
             "chain_policy": "benilla-formats-vanilla-chain", "client_build_claim": 5875,
             "client_build_authenticity_verified": False,
             "files": [{**table.manifest(), "winning_archive": "dbc.MPQ"}
@@ -103,6 +104,9 @@ def rehash_source(bundle):
     from classic_export.starter import keys
     bundle["table_sha256"] = {name: digest(rows) for name, rows in bundle["tables"].items()}
     bundle["starter_required_keys"] = keys(bundle["tables"])
+    if "spell_script_capture" in bundle:
+        from classic_export.spell_registry import evidence
+        bundle["spell_script_capture"] = evidence(bundle)
     if "native_spawn_capture" in bundle:
         from classic_export.native_spawn import evidence
         bundle["native_spawn_capture"] = evidence(bundle)
@@ -930,6 +934,226 @@ class NativeSpawnPreparationTests(unittest.TestCase):
         with self.assertRaises(ExportError):
             verify_preparation(result, self.source, parsed(self.files))
 
+
+
+class RegistryAndDisplayPreparationTests(unittest.TestCase):
+    def setUp(self):
+        self.source = source_bundle()
+        self.files = dbcs_for(self.source)
+
+    def compile(self):
+        return compile_starter(self.source, parsed(self.files), Request(1, 1, 0))
+
+    def test_registry_rows_and_complete_empty_are_bound_without_hook_defaults(self):
+        self.source["tables"]["spell_scripts"] = [
+            export_tests.row("spell_scripts", Id=930001, ScriptName=""),
+            export_tests.row("spell_scripts", Id=930101, ScriptName="original_unknown_handler")]
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertEqual(result["spell_script_capture"], self.source["spell_script_capture"])
+        spells = {row["id"]: row for row in result["spells"]}
+        for spell in (930001, 930101, 930102):
+            proof = spells[spell]["script_registry"]
+            self.assertEqual(proof["status"], "complete")
+            self.assertEqual(proof["coverage_sha256"], digest(result["spell_script_capture"]))
+            self.assertEqual(proof["rows"], [r for r in self.source["tables"]["spell_scripts"] if r["Id"] == spell])
+        self.assertTrue(any(i["reason"] == "spell.registry_row_requires_named_handler_semantics"
+                            for i in result["unsupported"]))
+        self.assertEqual(result["status"], "blocked")
+        result["spells"][0]["script_registry"]["rows"] = []
+        result.pop("preparation_sha256")
+        result["preparation_sha256"] = digest(result)
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(result, self.source, parsed(self.files))
+
+    def test_legacy_registry_is_unknown_in_preparation(self):
+        self.source.pop("spell_script_capture")
+        self.source["tables"].pop("spell_scripts")
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertIsNone(result["spell_script_capture"])
+        self.assertTrue(all(row["script_registry"] is None for row in result["spells"]))
+        self.assertTrue(any(i["reason"] == "spell.registry_coverage_not_proven" for i in result["unsupported"]))
+
+    def test_active_and_trigger_registry_findings_follow_unavailable_cast_ownership(self):
+        reason = "spell.registry_row_requires_named_handler_semantics"
+        for spell in (930101, 930102):
+            with self.subTest(spell=spell):
+                rows = [export_tests.row("spell_scripts", Id=spell, ScriptName="original_active_handler")]
+                self.source["tables"]["spell_scripts"] = rows
+                rehash_source(self.source)
+                result = self.compile()
+                issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+                self.assertEqual(len(issues), 2)
+                self.assertTrue(any(i.get("origin") == "source_capture" for i in issues))
+                self.assertTrue(all(i["admission_scope"] == {
+                    "kind": "unavailable_active_ability", "spell_ids": [930101]} for i in issues))
+                active = result["ability_admission"]["unavailable_active_abilities"]
+                self.assertEqual([row["id"] for row in active], [930101])
+                self.assertEqual(active[0]["cast_admission"], "reject")
+                self.assertIn(reason, active[0]["reason_ids"])
+                self.assertEqual(result["spell_script_capture"], self.source["spell_script_capture"])
+                selected = next(row for row in result["spells"] if row["id"] == spell)
+                self.assertEqual(selected["script_registry"]["rows"], rows)
+                retained = [i for i in result["source_capture_findings"] if i["table"] == "spell_scripts"]
+                self.assertEqual(len(retained), 1)
+                self.assertEqual(retained[0]["disposition"], "retained")
+                verify_preparation(result, self.source, parsed(self.files))
+
+    def test_passive_learning_and_item_registry_dependencies_remain_entry_critical(self):
+        for role in ("passive", "learning", "item"):
+            with self.subTest(role=role):
+                self.source = source_bundle()
+                spell = next(row for row in self.source["tables"]["spell_template"] if row["Id"] == 930101)
+                if role == "passive":
+                    spell["Attributes"] = 0x40
+                elif role == "learning":
+                    spell["AttributesEx"] = 0x80000000
+                else:
+                    self.source["tables"]["item_template"][0]["spellid_1"] = 930101
+                self.source["tables"]["spell_scripts"] = [
+                    export_tests.row("spell_scripts", Id=930102, ScriptName="original_critical_handler")]
+                rehash_source(self.source)
+                self.files = dbcs_for(self.source)
+                result = self.compile()
+                self.assertIn(930102, result["ability_admission"]["entry_critical_spell_ids"])
+                self.assertFalse(result["ability_admission"]["unavailable_active_abilities"])
+                issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+                self.assertEqual(len(issues), 2)
+                self.assertTrue(all(i["admission_scope"] == {"kind": "selection_entry"} for i in issues))
+
+    def test_registry_trigger_shared_with_passive_is_not_scoped_to_active_cast(self):
+        passive = next(row for row in self.source["tables"]["spell_template"] if row["Id"] == 930001)
+        passive.update(Attributes=0x40, EffectTriggerSpell1=930102)
+        self.source["tables"]["playercreateinfo_spell"].append(
+            export_tests.row("playercreateinfo_spell", race=1, **{"class": 1}, Spell=930001))
+        self.source["tables"]["playercreateinfo_spell"].sort(key=lambda row: row["Spell"])
+        self.source["tables"]["spell_scripts"] = [
+            export_tests.row("spell_scripts", Id=930102, ScriptName="original_shared_handler")]
+        rehash_source(self.source)
+        self.files = dbcs_for(self.source)
+        result = self.compile()
+        admission = result["ability_admission"]
+        self.assertEqual(admission["entry_critical_spell_ids"], [930001, 930102])
+        self.assertEqual([row["id"] for row in admission["unavailable_active_abilities"]], [930101])
+        issues = [i for i in result["unsupported"] if i["table"] == "spell_scripts"]
+        self.assertEqual(len(issues), 2)
+        self.assertTrue(all(i["admission_scope"] == {"kind": "selection_entry"} for i in issues))
+
+    def test_display_scale_signed_size_class_and_raw_row_are_preserved(self):
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [
+            {0: 940001, 1: 950001, 2: 17, 3: 950002, 4: binary32_bits("1.25"),
+             5: 127, 9: -1, 10: 23, 11: 24}])
+        result = self.compile()
+        creature = result["creatures"][0]
+        display = creature["display_inputs"][0]
+        self.assertEqual(creature["selected_display_ids"], [940001])
+        self.assertEqual(display["id"], 940001)
+        self.assertEqual(display["model_id"], 950001)
+        self.assertEqual(display["extended_display_info_id"], 950002)
+        self.assertEqual(display["scale_binary32"], binary32_bits("1.25"))
+        self.assertEqual(display["size_class"], -1)
+        self.assertEqual(display["source"]["words"][9], 0xffffffff)
+        self.assertEqual(display["source"]["strings"], {"6": "", "7": "", "8": ""})
+        table = parse_table("CreatureDisplayInfo", self.files["CreatureDisplayInfo"])
+        self.assertEqual(display["source"], table.rows[0].raw())
+        self.assertEqual(result["creature_display_inputs"], {"coverage": "complete_raw_table",
+            "table_sha256": table.sha256, "row_count": 1, "selected_ids": [940001], "missing_ids": []})
+        bindings = [r for r in result["dbc_bindings"] if r["table"] == "CreatureDisplayInfo"]
+        self.assertEqual(len(bindings), 1)
+        self.assertIn(2, bindings[0]["blocked_for_gameplay"])
+        self.assertIn(10, bindings[0]["blocked_for_gameplay"])
+
+    def test_display_strings_are_only_words_six_through_eight_and_ids_unique(self):
+        for column in (6, 7, 8):
+            with self.subTest(column=column), self.assertRaisesRegex(ExportError, "string_offset"):
+                parse_table("CreatureDisplayInfo", dbc_bytes("CreatureDisplayInfo", [{0: 7, column: 123}]))
+        parsed_row = parse_table("CreatureDisplayInfo", dbc_bytes("CreatureDisplayInfo", [{0: 7, 9: -1}])).rows[0]
+        self.assertEqual(parsed_row.words[9], 0xffffffff)
+        with self.assertRaisesRegex(ExportError, "duplicate_key"):
+            parse_table("CreatureDisplayInfo", dbc_bytes("CreatureDisplayInfo", [{0: 7}, {0: 7}]))
+
+    def test_missing_display_row_and_missing_table_have_distinct_evidence(self):
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [])
+        result = self.compile()
+        self.assertEqual(result["creature_display_inputs"]["coverage"], "complete_raw_table")
+        self.assertEqual(result["creature_display_inputs"]["missing_ids"], [940001])
+        self.assertEqual(result["creatures"][0]["display_inputs"], [])
+        self.assertTrue(any(r["table"] == "CreatureDisplayInfo" and r["id"] == 940001
+                            for r in result["required_additional_rows"]))
+        self.files.pop("CreatureDisplayInfo")
+        result = self.compile()
+        self.assertEqual(result["creature_display_inputs"]["coverage"], "not_captured")
+        self.assertIsNone(result["creature_display_inputs"]["missing_ids"])
+        self.assertIsNone(result["creature_display_inputs"]["table_sha256"])
+        self.assertEqual(result["creatures"][0]["display_inputs"], [])
+
+    def test_nonfinite_and_nonpositive_display_scale_never_gain_neutral_scale(self):
+        for scale in (0x7f800000, 0xff800000, 0x7fc00001):
+            self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: scale}])
+            with self.subTest(scale=scale), self.assertRaisesRegex(ExportError, "display_scale_nonfinite"):
+                self.compile()
+        for scale in (0, 0x80000000, 0xbf800000):
+            self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: scale}])
+            result = self.compile()
+            self.assertEqual(result["creatures"][0]["display_inputs"][0]["scale_binary32"], scale)
+            self.assertTrue(any(r["reason"] == "creature.display_scale_nonpositive" for r in result["unsupported"]))
+
+    def test_recursive_other_gender_override_and_alternative_context_stay_explicit(self):
+        model = self.source["tables"]["creature_model_info"][0]
+        model.update(modelid_other_gender=940002, modelid_alternative=949999)
+        self.source["tables"]["creature_model_info"] += [dict(model, modelid=940002, modelid_other_gender=940003),
+                                                        dict(model, modelid=940003, modelid_other_gender=940001)]
+        self.source["tables"]["creature_spawn_data_template"][0]["ModelId"] = 940003
+        self.source["required_ids"]["creature_model_info"] = [940001, 940002, 940003]
+        rehash_source(self.source)
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [
+            {0: i, 4: binary32_bits("1.5"), 9: -1} for i in (940001, 940002, 940003)])
+        result = self.compile()
+        creature = result["creatures"][0]
+        self.assertEqual(creature["selected_display_ids"], [940001, 940002, 940003])
+        self.assertEqual([r["modelid"] for r in creature["model_inputs"]], [940001, 940002, 940003])
+        self.assertEqual([r["id"] for r in creature["display_inputs"]], [940001, 940002, 940003])
+        self.assertEqual(creature["model_inputs"][0]["modelid_alternative"], 949999)
+        self.assertTrue(any(r["reason"] == "creature.alternative_model_context_required"
+                            for r in result["unsupported"]))
+
+    def test_missing_legacy_gender_row_is_reported_without_fabrication(self):
+        self.source["tables"]["creature_model_info"][0]["modelid_other_gender"] = 940002
+        rehash_source(self.source)
+        result = self.compile()
+        self.assertEqual(result["creatures"][0]["selected_display_ids"], [940001, 940002])
+        self.assertEqual(result["creature_display_inputs"]["missing_ids"], [940002])
+        self.assertTrue(any(r["table"] == "creature_model_info" and r["id"] == 940002
+                            for r in result["required_additional_rows"]))
+
+    def test_changed_display_bytes_and_repaired_preparation_hash_do_not_verify(self):
+        result = self.compile()
+        result["creatures"][0]["display_inputs"][0]["scale_binary32"] = binary32_bits("2")
+        result.pop("preparation_sha256")
+        result["preparation_sha256"] = digest(result)
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(result, self.source, parsed(self.files))
+        original = self.compile()
+        self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: binary32_bits("2")}])
+        with self.assertRaisesRegex(ExportError, "preparation_mismatch"):
+            verify_preparation(original, self.source, parsed(self.files))
+
+    def test_v3_manifest_required_and_changed_bytes_are_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            metadata = extraction_metadata(self.files)
+            for version in (1, 2):
+                metadata["format"] = f"benilla-native-dbc-extraction-v{version}"
+                (directory/"extraction.json").write_bytes(canonical(metadata))
+                with self.assertRaisesRegex(ExportError, "legacy_manifest_reextract_v3_required"):
+                    load_extraction_manifest(directory, parsed(self.files))
+            metadata["format"] = "benilla-native-dbc-extraction-v3"
+            (directory/"extraction.json").write_bytes(canonical(metadata))
+            self.assertTrue(load_extraction_manifest(directory, parsed(self.files))["integrity_verified"])
+            self.files["CreatureDisplayInfo"] = dbc_bytes("CreatureDisplayInfo", [{0: 940001, 4: binary32_bits("3")}])
+            with self.assertRaisesRegex(ExportError, "dbc_manifest_mismatch"):
+                load_extraction_manifest(directory, parsed(self.files))
 
 
 if __name__ == "__main__":

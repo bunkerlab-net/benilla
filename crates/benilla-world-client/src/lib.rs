@@ -40,6 +40,7 @@ pub enum Error {
     InvalidSequence,
     UnsupportedCommand,
     UnsupportedPower,
+    MissingMovementOrderState,
     MissingItemMetadata(u32),
     InvalidItemMetadata(u32),
     MissingQuestMetadata(u32),

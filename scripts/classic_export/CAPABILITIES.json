@@ -26,5 +26,7 @@
   "starter_dbc_dependencies_resolved": false,
   "server_learning_selector_capture": true,
   "native_spawn_dependency_selector_capture": true,
-  "bounded_native_dependency_recapture": true
+  "bounded_native_dependency_recapture": true,
+  "selected_spell_script_registry_capture": true,
+  "recursive_other_gender_model_capture": true
 }

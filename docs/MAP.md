@@ -19,6 +19,7 @@
 - **benilla-m2** (no Bevy) — M2 (MD20) model reader for WoW 1.12.1 (build 5875)
 - **benilla-mpq** (no Bevy) — Read-only MPQ archive reader for WoW 1.12.1 (build 5875)
 - **benilla-native-dbc** (no Bevy) — Private bounded extraction of native starter DBC inputs through Benilla's patch chain
+- **benilla-native-geometry-tests** (no Bevy) — Exact app geometry mailbox and terrain proof tests without Bevy
 - **benilla-p2p** (no Bevy) — Authenticated, bounded peer-to-peer transport for the Benilla fork
 - **benilla-profile** (no Bevy) — Local owner identities and durable exploration characters for the P2P fork
 - **benilla-protocol** (no Bevy) — WoW 1.12.1 auth (SRP6) + world wire protocol and the benilla-auth CLI
@@ -121,10 +122,11 @@
 - **benilla-formats** (lib.rs): anim_data area_poi area_sound area_table area_trigger auction_house bank_bag_slot_prices camera_shakes cfg_categories cfg_configs chain characters chat_channels chr_classes cinematics creature_families creature_sound creature_types creatures dbc death_thud durability elevators emit_timing emote_text emotes environmental_damage exhaustion factions footsteps game_tips gameobjects garble gm_ticket_category ground_effects install item_random_properties item_sounds item_visuals itembagfamily itemclass items itemsets itemsubclass languages light liquid loading_screen lock lock_type macro_icons maps material minimap_translate models npc_greeting packages page_text_material particles pet_stats quest_headers quest_info race_creature_type race_pvp_team race_sound ribbons server_messages sheathe skill_lines sound_entries sound_provider sound_water spell_focus spell_mechanic spell_visual spells stable_slot_prices stationery talents taxi taxi_nodes taxi_path terrain text_filter_lists tga transport_period transports unit_blood value_track vocal_ui_sounds wdl weapon_impact weapon_swing wmo_area world_map_area world_map_continent world_map_overlay world_state_ui wow_ini zone_map
 - **benilla-m2** (lib.rs): error model skin tests track
 - **benilla-mpq** (lib.rs): crypto
+- **benilla-native-geometry-tests** (lib.rs): core planar
 - **benilla-p2p** (lib.rs): identity internet
 - **benilla-profile** (lib.rs): storage tests
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
-- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init encounter mage_resource npc_melee player_death quest starter_init xp
+- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init encounter mage_resource npc_melee player_death quest quest_lifecycle starter_init xp
 - **benilla-srp** (lib.rs): vanilla_header
 - **benilla-ui** (lib.rs): bindings_xml civil framexml justify layout loader markup messages order script source status strings toc widget
 - **benilla-visual** (lib.rs): relight
@@ -572,6 +574,7 @@
 - `test-doc-links.py` — The doc-link gate must fail closed when rustdoc did not run successfully.""" import contextlib import importlib.util import io from pathlib import Pat…
 - `test-native-starter.py` — Original synthetic rows only.
 - `test-package-player.py` — Fast packaging tests: fake binaries/source, no compiler or game data.""" import hashlib import importlib.util import io import json import subprocess …
+- `verify-source-retention.py` — Fail closed unless the uploaded source artifact outlives the player download.
 - `vplsum.py` — Read a `vpl`/`bub` overlay trace and say where the motion came from: projection, solve or snap.
 - `api-coverage.sh` — Addon-API coverage: how much of the 1.12.1 client's global surface benilla's UI VM presents.
 - `check.sh` — The in-loop verify: fmt everywhere, clippy and test on the changed crates and their dependents.

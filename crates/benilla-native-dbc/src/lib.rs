@@ -18,6 +18,7 @@ pub const TABLES: &[(&str, u32, u32)] = &[
     ("CharStartOutfit", 41, 152),
     ("ChrClasses", 17, 68),
     ("ChrRaces", 29, 116),
+    ("CreatureDisplayInfo", 12, 48),
     ("Faction", 37, 148),
     ("FactionTemplate", 14, 56),
     ("Map", 42, 168),
@@ -137,7 +138,7 @@ pub fn extract(data: &Path, output: &Path) -> Result<Manifest> {
         payloads.push((file, bytes));
     }
     let manifest = Manifest {
-        format: "benilla-native-dbc-extraction-v2",
+        format: "benilla-native-dbc-extraction-v3",
         chain_policy: "benilla-formats-vanilla-chain",
         client_build_claim: 5875,
         client_build_authenticity_verified: false,

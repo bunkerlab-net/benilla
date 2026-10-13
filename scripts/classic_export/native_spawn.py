@@ -68,7 +68,7 @@ def validate(bundle: dict[str, Any]) -> None:
         integer(row["UnitFlags"], -1, 0xffffffff, "native_spawn.unit_flags_domain")
         integer(row["EquipmentId"], -1, 0x7fffff, "native_spawn.equipment_domain")
     models = {r["modelid"] for r in tables["creature_model_info"]}
-    check({r["ModelId"] for r in tables["creature_spawn_data_template"] if r["ModelId"]} <= models,
+    check(model_roots(tables) <= models,
           "native_spawn.model_reference_missing")
 
 
@@ -107,3 +107,43 @@ def scope(bundle: dict[str, Any], entry: int) -> list[dict[str, Any]] | None:
                                          ([addon_table] if addon_table else []),
             "scope": "captured_current_static_entry_and_spawn_guid"})
     return result
+
+
+def model_roots(tables: dict[str, Any], entry: int | None = None) -> set[int]:
+    """All template alternatives plus each actually selected spawn override.
+
+    Entry zero is captured for provenance but its model is not applicable when
+    every selected GUID uses an explicit nonzero spawn-data template.
+    """
+    roots = {integer(row[f"DisplayId{i}"], 0, 0xffffffff, "native_spawn.model_domain")
+             for row in tables["creature_template"] if entry is None or row["Entry"] == entry
+             for i in range(1, 5)}
+    bindings = {row["Guid"]: row["Id"] for row in tables.get("creature_spawn_data", [])}
+    templates = {row["Entry"]: row for row in tables.get("creature_spawn_data_template", [])}
+    for spawn in tables["creature"]:
+        if entry is not None and spawn["id"] != entry:
+            continue
+        template = templates.get(bindings.get(spawn["guid"], 0))
+        if template is not None:
+            roots.add(integer(template["ModelId"], 0, 0xffffffff, "native_spawn.model_domain"))
+    return roots - {0}
+
+
+def model_closure(tables: dict[str, Any], roots: set[int]) -> set[int]:
+    """Discover reachable other-gender IDs, including any missing legacy rows.
+
+    Alternatives stay raw unsupported context; do not guess their applicability.
+    """
+    models = {row["modelid"]: row for row in tables["creature_model_info"]}
+    selected, pending = set(), set(roots)
+    while pending:
+        current = pending.pop()
+        integer(current, 1, 0xffffffff, "native_spawn.model_domain")
+        selected.add(current)
+        check(len(selected) <= MAX_ROWS, "native_spawn.model_limit")
+        row = models.get(current)
+        other = integer(row["modelid_other_gender"], 0, 0xffffffff,
+                        "native_spawn.model_domain") if row else 0
+        if other and other not in selected:
+            pending.add(other)
+    return selected

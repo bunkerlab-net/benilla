@@ -38,10 +38,18 @@ exclusions are documented in:
 - [Ordinary NPC melee](../crates/benilla-sim/NPC-MELEE.md)
 - [Creature initialization](../crates/benilla-sim/CREATURE-INIT.md)
 - [Player death/corpse lifecycle reducer](../crates/benilla-sim/PLAYER-DEATH.md)
+- [Integrated bounded native death](../crates/benilla-world-runtime/src/native/DEATH.md)
+- [Ordinary quest lifecycle and host requirements](../crates/benilla-sim/QUEST-LIFECYCLE.md)
+- [Conservative local geometry service](../crates/benilla-app/src/net/p2p/world/native_geometry/README.md)
 - [Native runtime integration](../crates/benilla-world-runtime/src/native/README.md)
+- [Selected spell registry evidence](../scripts/classic_export/SPELL-REGISTRY-CONTRACT.md)
+
+Local extraction now requires manifest v3 with 20 DBC tables, including raw
+CreatureDisplayInfo. Older extraction manifests require explicit re-extraction;
+selected-empty script evidence does not establish absence of other spell hooks.
 
 These are bounded ports with synthetic source-derived probes. They do not establish
-full combat, real starter-data admission, quest lifecycle or an asset-backed world.
+full combat, real starter-data admission, playable native quests or an asset-backed world.
 
 Three different claims require different evidence:
 
@@ -150,9 +158,10 @@ is meaningful without a bounded content/mechanics inventory.
   `npc_melee` port now supplies ordinary NPC damage/outcome/armor and ordered
   callback requirements over a declared bounded domain. The native runtime invokes
   it within source-ordered AI updates, preserves conditional random draws, applies
-  equipment breaks and maintains defense/reactive state. `player_death` separately
-  ports ordered player death/corpse actions and fixed-step restore; runtime death
-  callbacks, ghost/graveyard release and resurrection still need integration.
+  equipment breaks and maintains defense/reactive state. Native schema3 integrates
+  lethal melee, ordered death/durability/stat effects, cast interruption and corpse
+  timers with replay/restore. Root movement orders still require the actual controller
+  counter and acknowledgements; ghost/graveyard release and resurrection are absent.
   Creature initialization translates explicit raw classlevel/model/spawn inputs,
   with source loader preprocessing and no fabricated missing stats.
 - **Dependencies:** derived stats, weapon skill and school, attack timers,
@@ -228,7 +237,11 @@ is meaningful without a bounded content/mechanics inventory.
 - **Current fork:** `KillQuest` represents one to four ordered creature-kill
   objectives, fixed rewards and start/finish relations. The data crate executes
   none of them. An original accept/kill/turn-in runtime does not establish native
-  eligibility, objective credit or reward semantics.
+  eligibility, objective credit or reward semantics. The separate `quest_lifecycle`
+  reducer now ports bounded ordinary acceptance, signed prerequisites, kill/talk/item
+  credit, completion and reward orchestration against pinned source probes. It needs
+  an audited transactional inventory/XP/level host, authenticated commands and atomic
+  persistence before native runtime admission; unsupported quest features reject.
 - **Dependencies:** prerequisites/exclusive groups, reputation/race/class/level,
   timed/repeatable state, inventory, spells, exploration, escort/game-object
   scripts, group sharing/credit, condition evaluation and persistent quest log.

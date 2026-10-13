@@ -16,7 +16,7 @@ import warnings
 import getpass
 
 from classic_export.capture import Query, capture, validate_bundle
-from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA
+from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA
 from classic_export import starter
 from classic_export.core import (ExportError, MAX_ROWS, Selection, TEXT_COLUMNS,
                                  canonical, decode_json, digest, normalize_cell,
@@ -37,10 +37,12 @@ def schema():
             if table == "creature_ai_scripts":
                 kind = "int unsigned" if name == "id" else "int"
             columns.append({"name": name, "type": kind, "nullable": False, "ordinal": ordinal})
-        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA):
+        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA):
             columns = [{"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
-                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA)[table], 1)]
+                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA)[table], 1)]
         tables[table] = {"engine": "InnoDB", "table_type": "BASE TABLE", "columns": columns}
+        if table in REGISTRY_SCHEMA:
+            tables[table]["primary_key"] = ["Id"]
     return {"format_version": 1, "tables": tables}
 
 def row(table, **changes):
@@ -779,6 +781,9 @@ class EventAiCaptureTests(unittest.TestCase):
         bundle["table_sha256"].pop("creature_ai_scripts")
         bundle["schema"]["tables"].pop("creature_ai_scripts")
         bundle["schema_sha256"] = digest(bundle["schema"])
+        if "spell_script_capture" in bundle:
+            from classic_export.spell_registry import evidence as registry_evidence
+            bundle["spell_script_capture"] = registry_evidence(bundle)
         from classic_export.native_spawn import evidence
         bundle["native_spawn_capture"] = evidence(bundle)
         profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
@@ -1074,6 +1079,9 @@ class NativeSpawnCaptureTests(unittest.TestCase):
             bundle["table_sha256"].pop(table)
             bundle["schema"]["tables"].pop(table)
         bundle["schema_sha256"] = digest(bundle["schema"])
+        if "spell_script_capture" in bundle:
+            from classic_export.spell_registry import evidence as registry_evidence
+            bundle["spell_script_capture"] = registry_evidence(bundle)
         profiles = schema_profile(bundle["schema"], set(bundle["tables"]) | {"db_version"})
         bundle["report"]["unsupported"] = full_report(bundle["tables"], profiles, starter_selection())
         validate_bundle(bundle)
@@ -1155,6 +1163,197 @@ class NativeSpawnCaptureTests(unittest.TestCase):
         self.assertEqual(bundle["tables"]["creature_addon"], [])
         self.assertEqual(bundle["native_spawn_capture"]["selectors"]["creature_spawn_data_template"]["ids"], [0])
         self.assertFalse(any(" IN ()" in sql for sql, _ in source.queries))
+
+
+class SpellRegistryCaptureTests(unittest.TestCase):
+    def test_exact_selector_retains_empty_unknown_and_unmatched_rows_are_not_scanned(self):
+        from classic_export import spell_registry
+        source = starter_source()
+        source.rows["spell_scripts"] = [
+            row("spell_scripts", Id=930001, ScriptName=""),
+            row("spell_scripts", Id=930101, ScriptName="original_unimplemented_handler"),
+            row("spell_scripts", Id=-1, ScriptName="unselected_wrapped_id"),
+            row("spell_scripts", Id=22, ScriptName="unselected")]
+        bundle = capture(source, starter_selection())
+        self.assertEqual(bundle["tables"]["spell_scripts"], source.rows["spell_scripts"][:2])
+        proof = bundle["spell_script_capture"]
+        self.assertEqual(proof, spell_registry.evidence(bundle))
+        self.assertEqual(proof["selector"], {"column": "Id", "ids": [930001, 930101, 930102]})
+        self.assertEqual(proof["snapshot"]["table_sha256"],
+                         {table: bundle["table_sha256"][table] for table in ("spell_template", "spell_scripts")})
+        self.assertEqual(spell_registry.scope(bundle, 930001)["rows"], source.rows["spell_scripts"][:1])
+        self.assertEqual(spell_registry.scope(bundle, 930102)["rows"], [])
+        queries = [(sql, args) for sql, args in source.queries if "FROM `spell_scripts`" in sql]
+        self.assertEqual(len(queries), 1)
+        sql, args = queries[0]
+        self.assertEqual(args, (930001, 930101, 930102, 513))
+        self.assertIn("WHERE `Id` IN (%s,%s,%s)", sql)
+        self.assertNotIn("ScriptName` !=", sql)
+        self.assertEqual(sum(i["reason"] == "spell.registry_row_requires_named_handler_semantics"
+                             for i in bundle["report"]["unsupported"]), 2)
+
+    def test_uint32_wrapped_negative_ids_are_rejected_before_registry_query(self):
+        for invalid in (0, -1, -0x80000000, 0x80000000, 0xffffffff, True, "1"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ExportError, "selector_domain"):
+                Query("spell_scripts", "spell_registry_selectors", (invalid,), limit=512).sql()
+        self.assertEqual(Query("spell_scripts", "spell_registry_selectors", (0x7fffffff,), limit=512)
+                         .sql()[1], (0x7fffffff, 513))
+        source = starter_source()
+        source.rows["spell_template"][0]["EffectTriggerSpell1"] = 0xffffffff
+        source.rows["spell_template"].append(row("spell_template", Id=0xffffffff))
+        source.rows["spell_scripts"] = [row("spell_scripts", Id=-1, ScriptName="must_not_appear_absent")]
+        with self.assertRaisesRegex(ExportError, "selector_domain"):
+            capture(source, starter_selection())
+        self.assertFalse(any("FROM `spell_scripts`" in sql for sql, _ in source.queries))
+        self.assertTrue(source.finished)
+        for query in [Query("spell_scripts", "ids", (1,)),
+                      Query("creature", "spell_registry_selectors", (1,), limit=512),
+                      Query("spell_scripts", "spell_registry_selectors", (1, 1), limit=512),
+                      Query("spell_scripts", "spell_registry_selectors", (1,), limit=513)]:
+            with self.assertRaises(ExportError):
+                query.sql()
+
+    def test_schema_primary_key_width_signedness_order_and_nullability_are_exact(self):
+        mutations = [lambda t: t.pop("primary_key"), lambda t: t.update(primary_key=[]),
+                     lambda t: t.update(primary_key=["Id", "ScriptName"]),
+                     lambda t: t["columns"][0].update(type="int unsigned"),
+                     lambda t: t["columns"][0].update(type="bigint"),
+                     lambda t: t["columns"][0].update(nullable=True),
+                     lambda t: t["columns"][1].update(type="varchar(64)"),
+                     lambda t: t["columns"][1].update(type="char(63)"),
+                     lambda t: t["columns"][1].update(nullable=True),
+                     lambda t: t["columns"][1].update(ordinal=3),
+                     lambda t: t["columns"][1].update(name="command")]
+        for mutate in mutations:
+            source = starter_source()
+            mutate(source.inventory["tables"]["spell_scripts"])
+            with self.subTest(mutate=mutate), self.assertRaises(ExportError):
+                capture(source, starter_selection())
+            self.assertFalse(source.started)
+        source = starter_source()
+        source.inventory["tables"]["spell_scripts"]["columns"][0]["type"] = "int(11)"
+        validate_bundle(capture(source, starter_selection()))
+        source.inventory["tables"].pop("spell_scripts")
+        with self.assertRaisesRegex(ExportError, "schema.missing_table"):
+            capture(source, starter_selection())
+
+    def test_driver_inspects_actual_primary_constraint_with_fixed_readonly_query(self):
+        source = LocalSqlSource.__new__(LocalSqlSource)
+        meta = schema()["tables"]["spell_scripts"]
+        source._select = mock.Mock(side_effect=[
+            [{"name": "spell_scripts", "engine": "MyISAM", "table_type": "BASE TABLE"}],
+            [dict(c, table_name="spell_scripts", nullable="NO") for c in meta["columns"]],
+            [{"name": "Id", "ordinal": 1}]])
+        observed = source.inspect()["tables"]["spell_scripts"]
+        self.assertEqual(observed["primary_key"], ["Id"])
+        sql, params, limit = source._select.call_args.args
+        self.assertIn("information_schema.KEY_COLUMN_USAGE", sql)
+        self.assertEqual(params, ("spell_scripts", "PRIMARY"))
+        self.assertEqual(limit, 3)
+        self.assertTrue(sql.startswith("SELECT "))
+        self.assertEqual(observed["engine"], "MyISAM")
+
+    def test_snapshot_engine_policy_applies_to_registry(self):
+        source = starter_source()
+        source.inventory["tables"]["spell_scripts"]["engine"] = "MyISAM"
+        with self.assertRaisesRegex(ExportError, "quiescent_required"):
+            capture(source, starter_selection())
+        result = capture(source, starter_selection(), quiescent=True)
+        self.assertEqual(result["spell_script_capture"]["snapshot"]["consistency"],
+                         "operator_quiescent_snapshot")
+
+    def test_coverage_tampering_and_unselected_driver_rows_fail_closed(self):
+        for mutate in [lambda b: b.pop("spell_script_capture"),
+                       lambda b: b["spell_script_capture"]["selector"]["ids"].pop(),
+                       lambda b: b["spell_script_capture"].update(filter="nonempty_names"),
+                       lambda b: b["spell_script_capture"]["snapshot"].update(selection_sha256="0"*64),
+                       lambda b: b["spell_script_capture"]["snapshot"].update(schema_sha256="0"*64),
+                       lambda b: b["spell_script_capture"]["snapshot"].update(db_version_sha256="0"*64)]:
+            bundle = capture(starter_source(), starter_selection())
+            mutate(bundle)
+            with self.assertRaisesRegex(ExportError, "spell_registry"):
+                validate_bundle(bundle)
+        class WrongRows(FakeSource):
+            def fetch(self, query):
+                if query.table == "spell_scripts":
+                    return [row("spell_scripts", Id=12, ScriptName="outside_selector")]
+                return super().fetch(query)
+        source = starter_source()
+        source.__class__ = WrongRows
+        with self.assertRaisesRegex(ExportError, "unselected_row"):
+            capture(source, starter_selection())
+
+    def test_bounds_duplicates_and_absence_rewrite_are_rejected(self):
+        for rows in [[row("spell_scripts", Id=930001, ScriptName="x"*65)],
+                     [row("spell_scripts", Id=930001)]*2]:
+            source = starter_source()
+            source.rows["spell_scripts"] = rows
+            with self.assertRaises(ExportError):
+                capture(source, starter_selection())
+        source = starter_source()
+        source.rows["spell_scripts"] = [row("spell_scripts", Id=930001)]
+        bundle = capture(source, starter_selection())
+        bundle["tables"]["spell_scripts"] = []
+        bundle["table_sha256"]["spell_scripts"] = digest([])
+        with self.assertRaisesRegex(ExportError, "coverage_mismatch"):
+            validate_bundle(bundle)
+        class Overflow(FakeSource):
+            def fetch(self, query):
+                if query.table == "spell_scripts":
+                    return [row("spell_scripts", Id=i+1) for i in range(513)]
+                return super().fetch(query)
+        source = starter_source()
+        source.__class__ = Overflow
+        with self.assertRaisesRegex(ExportError, "rows.limit:spell_scripts"):
+            capture(source, starter_selection())
+
+    def test_legacy_unknown_and_zero_selector_remain_distinct(self):
+        from classic_export import spell_registry, native_spawn
+        bundle = capture(starter_source(), starter_selection())
+        bundle.pop("spell_script_capture")
+        bundle["tables"].pop("spell_scripts")
+        bundle["table_sha256"].pop("spell_scripts")
+        bundle["schema"]["tables"].pop("spell_scripts")
+        bundle["schema_sha256"] = digest(bundle["schema"])
+        bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
+        validate_bundle(bundle)
+        self.assertIsNone(spell_registry.scope(bundle, 930001))
+        source = starter_source()
+        source.rows["playercreateinfo_spell"] = []
+        source.rows["playercreateinfo_action"] = []
+        source.rows["spell_template"] = []
+        selection_json = starter_selection().json()
+        selection_json["spell_ids"] = []
+        result = capture(source, Selection.parse(selection_json))
+        self.assertEqual(result["spell_script_capture"]["selector"]["ids"], [])
+        self.assertEqual(result["tables"]["spell_scripts"], [])
+        self.assertFalse(any("FROM `spell_scripts`" in sql for sql, _ in source.queries))
+
+
+class RecursiveModelCaptureTests(unittest.TestCase):
+    def test_other_gender_fixed_point_cycles_and_alternatives_are_preserved(self):
+        source = starter_source()
+        source.rows["creature_model_info"][0].update(modelid_other_gender=940002, modelid_alternative=949999)
+        source.rows["creature_model_info"] += [row("creature_model_info", modelid=940002, modelid_other_gender=940003),
+                                                row("creature_model_info", modelid=940003, modelid_other_gender=940001)]
+        result = capture(source, starter_selection())
+        self.assertEqual(result["required_ids"]["creature_model_info"], [940001, 940002, 940003])
+        self.assertEqual(result["tables"]["creature_model_info"][0]["modelid_alternative"], 949999)
+        self.assertFalse(any(949999 in args for sql, args in source.queries if "FROM `creature_model_info`" in sql))
+        source.rows["creature_model_info"].pop()
+        with self.assertRaisesRegex(ExportError, "missing_or_unexpected:creature_model_info"):
+            capture(source, starter_selection())
+
+    def test_only_actually_selected_spawn_override_model_is_a_root(self):
+        source = starter_source()
+        source.rows["creature_spawn_data_template"][0]["ModelId"] = 949999
+        source.rows["creature_spawn_data"] = [row("creature_spawn_data", Guid=1, Id=12)]
+        source.rows["creature_spawn_data_template"].append(row("creature_spawn_data_template", Entry=12, ModelId=940002))
+        source.rows["creature_model_info"].append(row("creature_model_info", modelid=940002, modelid_other_gender=940003))
+        source.rows["creature_model_info"].append(row("creature_model_info", modelid=940003))
+        result = capture(source, starter_selection())
+        self.assertEqual(result["required_ids"]["creature_model_info"], [940001, 940002, 940003])
+        self.assertEqual(result["tables"]["creature_spawn_data_template"][0]["ModelId"], 949999)
 
 
 if __name__ == "__main__":

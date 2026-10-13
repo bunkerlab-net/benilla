@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v2 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v3 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -36,9 +36,10 @@ all-observations-then-swings order; neither mode claims full map-update parity.
 Ordered melee callbacks are combat log, critical wound, stand-up, health/combat,
 durability chance/slot, generic cast cancel or delay, post-health combat predicates,
 defense-skill chance and dodge reactive. Channel/auto-repeat slots and rear-daze
-branches reject explicitly. Lethal initialized melee temporarily rejects at the
-missing full Player::Kill callback; a rolled-back lethal tick is not a playable
-death experience and must not be production-admitted.
+branches reject explicitly. A profile with captured DeathConfig and checked callback
+closure runs source-ordered Player::Kill, durability, cancellation and body lifecycle.
+A profile missing those dependencies still rejects lethal damage before commit.
+See [DEATH.md](DEATH.md) for the bounded first-life policy and pending ghost lifecycle.
 
 Breaking an item removes source modifiers before committing durability zero. Current
 HP/mana clamp after every modifier, while effective stats, regen, crit and maxima
@@ -51,7 +52,8 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
 - One authenticated solo owner and intent per fixed tick; no wall clock, networking,
   central host or trusted peer result frames
 - Commands, monotone cast IDs, spawn/spell-ordered auras, player reactive update,
-  spawn-ordered AI/melee, player combat update, and mage regeneration
+  death update, receipt-only event prelude, spawn-ordered AI/melee, player combat
+  update, and mage regeneration
 - One generic casting slot, multiple traveling casts; at most 16 flights and 16
   harmful holders per target
 - Navigation outcomes bind request, tick, generation, revision, position, elapsed
@@ -71,7 +73,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind schema 2, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind schema 3, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks and checked equipment recipes
 - Live components do not deserialize. Inert DTO restore validates provenance and
@@ -103,15 +105,21 @@ Actual client collision/terrain-stream access is main-thread-bound and needs bou
 request/reply snapshots. Unloaded geometry must never mean clear space. Existing
 client host-float collision is not proof of CMaNGOS vmap or cross-peer parity.
 
-## Next lethal adapter
+## Death and next release adapter
 
-The next source port covers Unit.cpp 1019–1202 (Kill), 5457 (RemoveAllAurasOnDeath),
-8534 (SetDeathState), and Player.cpp 1652/4418 (SetDeathState/KillPlayer). Health zero
-precedes qualifying NPC-death durability loss. Source passive/death-persistent
-holders survive; preparing current casts cancel while detached/released flights
-survive. Proc/script/pet/owner/duel/BG/self-resurrection dependencies must have explicit
-support or rejection. Durable corpse/release timers must let the world continue;
-ghost/graveyard/resurrection navigation is a separate capability dependency.
+Schema 3 applies source Player::Kill/SetDeathState/KillPlayer ordering, retains mana
+except equipment clamping, preserves released flights and passive holders, and
+cancels preparing casts through the existing execution path. Checked durable death
+and reclaim timers continue across reload. The six-minute boundary records release
+unavailable once and continues later world ticks. The client requires a real local
+session movement-order counter for root; controller allocation/acknowledgement
+handling remains to be wired. Ghost aura, corpse creation/placement, graveyard
+selection/navigation, reclaim and resurrection are separate missing dependencies.
+
+The receipt-only prelude performs no NPC timers, movement or AI. It preserves earlier
+spell event-time validity when an earlier NPC kills the caster, while synchronous
+CombatStop detaches all attackers and later ordinary AI selects NoTarget. This fixed
+loop is documented explicitly in DEATH.md and does not claim full MapManager parity.
 
 No Blizzard assets/database rows are distributed. Formula source/license details
 remain in the simulation component documents and EQUIPMENT.md. Focused tests do not

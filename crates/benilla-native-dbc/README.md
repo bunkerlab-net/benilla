@@ -45,3 +45,15 @@ Verification uses original generated MPQ/DBC bytes only. Actual CLI tests cover
 patch precedence, tombstones, corrupt winners, pre-read size caps, unchanged
 input archives, exact allowlists and non-overwrite private publication. No real
 installation or graphical gameplay has been tested here.
+
+
+The manifest contract is `benilla-native-dbc-extraction-v3`: exactly 20 tables.
+CreatureDisplayInfo is mandatory (12 fields, 48-byte records), alongside the v2
+Talent table. The Python verifier checks CreatureDisplayInfo string offsets only
+at words 6–8; word 9 is signed SizeClass, not a string. It binds every selected
+raw row and whole-file hash, preserving missing/invalid input without defaults.
+
+To migrate a v1/v2 extraction, run the current helper into a new private output
+directory and prepare again. Do not edit an old extraction manifest or copy in a
+new table under an old completion marker. Missing/corrupt CreatureDisplayInfo
+fails before publication, just like every other required member.

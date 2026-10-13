@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::NpcId;
+mod death;
 use ai::movement::{
     GeometryAuthority, MovementOutcome, MovementPurpose, MovementRequest, Revision,
 };
@@ -65,6 +66,7 @@ impl NativeWorld {
         frame.casts()?;
         frame.auras()?;
         frame.player_reactives();
+        frame.player_death_update()?;
         frame.npcs()?;
         frame.player_combat_update();
         frame.mana()?;
@@ -80,7 +82,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v2\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v3\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -251,6 +253,14 @@ impl<A: Authority> Frame<'_, A> {
     }
     fn command(&mut self, command: &Command) -> Result<(), NativeError> {
         let rejection = match command {
+            Command::ReleaseSpirit => Some(Rejection::SpiritReleaseUnavailable {
+                phase: self
+                    .state
+                    .combat
+                    .as_ref()
+                    .and_then(|c| c.death.as_ref())
+                    .map(|d| d.phase()),
+            }),
             Command::Cast { ability, target } => {
                 let Some(a) = self.profile.ability(*ability) else {
                     self.events.push(Event::Rejected(Rejection::UnknownAbility));
@@ -564,11 +574,17 @@ impl<A: Authority> Frame<'_, A> {
         Ok(())
     }
     fn npcs(&mut self) -> Result<(), NativeError> {
+        let mut prepared = self.prepare_npc_receipts()?;
         let ids = self.state.npcs.keys().copied().collect::<Vec<_>>();
         let mut swings = Vec::new();
         for id in ids {
             let mut npc = self.state.npcs.remove(&id).unwrap();
             let p = self.profile.npc(id).unwrap();
+            let receipt_step = prepared.remove(&id);
+            let prior_motion = receipt_step
+                .as_ref()
+                .map(|(_, motion)| motion.clone())
+                .unwrap_or_else(|| npc.ai.motion().cloned());
             if npc.health == 0
                 && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned)
             {
@@ -600,7 +616,7 @@ impl<A: Authority> Frame<'_, A> {
             let Facts::Npc(facts) = self.ask(Some(npc.id), query)? else {
                 return Err(NativeError::AuthorityBinding);
             };
-            let movement = if let Some(motion) = npc.ai.motion().cloned().filter(|_| {
+            let movement = if let Some(motion) = prior_motion.filter(|_| {
                 !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned)
                     && npc.health > 0
             }) {
@@ -675,21 +691,33 @@ impl<A: Authority> Frame<'_, A> {
                 let mut failure = None;
                 let npc_id = npc.id;
                 let health = npc.health;
-                let result = npc.ai.step_with_mainhand(
-                    &mut ObservationAdapter(Some(observation)),
-                    &mut |_, position, started| {
-                        if started {
-                            self.enter_player_combat();
+                let mut callback = |_, position, started| {
+                    if started {
+                        self.enter_player_combat();
+                    }
+                    match self.native_melee(npc_id, position, health) {
+                        Ok(()) => Ok(if self.state.health == 0 {
+                            ai::MainhandResult::TargetDied
+                        } else {
+                            ai::MainhandResult::Unchanged
+                        }),
+                        Err(error) => {
+                            failure = Some(error);
+                            Err(ai::AiError::Invalid("native melee callback"))
                         }
-                        match self.native_melee(npc_id, position, health) {
-                            Ok(()) => Ok(()),
-                            Err(error) => {
-                                failure = Some(error);
-                                Err(ai::AiError::Invalid("native melee callback"))
-                            }
-                        }
-                    },
-                );
+                    }
+                };
+                let result = if let Some((token, _)) = receipt_step {
+                    let prefix = token.effects().len();
+                    npc.ai
+                        .finish_receipts(observation, token, &mut callback)
+                        .map(|effects| effects.into_iter().skip(prefix).collect())
+                } else {
+                    npc.ai.step_with_mainhand(
+                        &mut ObservationAdapter(Some(observation)),
+                        &mut |id, point, started| callback(id, point, started).map(|_| ()),
+                    )
+                };
                 if let Some(error) = failure {
                     return Err(error);
                 }
@@ -780,7 +808,7 @@ impl<A: Authority> Frame<'_, A> {
                 effective,
             });
         }
-        if self.state.health == 0 {
+        if self.state.health == 0 && !self.death_enabled() {
             let ids = self.state.casts.keys().copied().collect::<Vec<_>>();
             for id in ids {
                 let mut c = self.state.casts.remove(&id).unwrap();
@@ -808,6 +836,10 @@ impl<A: Authority> Frame<'_, A> {
         }
     }
     fn enter_player_combat(&mut self) {
+        // Unit::SetInCombatState explicitly rejects dead units even though CanEnterCombat does not.
+        if self.state.health == 0 {
+            return;
+        }
         if let Some(c) = self.state.combat.as_mut() {
             if !c.in_combat {
                 c.in_combat = true;
@@ -868,7 +900,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v2\0",
+            b"benilla-native-melee-action-v3\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -951,11 +983,6 @@ impl<A: Authority> Frame<'_, A> {
         )? as u16;
         let result = m::resolve(plan, m::MeleeRolls { damage, outcome })?;
         let callbacks = result.callbacks();
-        if callbacks.killed {
-            return Err(NativeError::UnsupportedMechanic(
-                "Player::Kill: death procs, corpse, aura and resurrection lifecycle",
-            ));
-        }
         let (hit_info, victim_state) = match result.outcome() {
             m::MeleeOutcome::Miss => (2 | 0x10, 0),
             m::MeleeOutcome::Dodge => (2, 2),
@@ -984,7 +1011,11 @@ impl<A: Authority> Frame<'_, A> {
             self.state.combat.as_mut().unwrap().standing = true;
             self.events.push(Event::Combat(CombatEvent::StoodUp));
         }
-        m::apply_health(&mut self.state.health, result)?;
+        if callbacks.killed {
+            self.native_kill(id, result)?;
+        } else {
+            m::apply_health(&mut self.state.health, result)?;
+        }
         if callbacks.surviving_damage_combat
             && facts.player_can_attack_npc
             && facts.player_can_enter_combat
@@ -1105,7 +1136,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v2\0",
+            b"benilla-native-melee-chain-v3\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

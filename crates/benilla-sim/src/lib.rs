@@ -10,6 +10,7 @@ pub mod encounter;
 pub mod classic;
 
 pub mod quest;
+pub mod quest_lifecycle;
 
 /// Bounded source-derived ordinary creature initialization from explicit local rows.
 pub mod creature_init;

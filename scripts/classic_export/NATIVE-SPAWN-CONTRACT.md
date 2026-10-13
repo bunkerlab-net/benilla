@@ -60,7 +60,12 @@ nullable, unparsed aura text. The two pool tables also preserve chance and
 description. A zero-valued hook row remains a row.
 
 Every positive referenced spawn-template ID must exist. ModelId references add
-exact creature-model rows to the existing capture closure. Missing explicit
+exact creature-model rows to the capture closure only when their spawn template
+is actually selected for a GUID. All nonzero template DisplayId1..4 roots and
+recursive nonzero modelid_other_gender references are captured; cycles terminate
+at the visited set and the 4096-model budget. An unused Entry 0 model remains raw
+context, not an applicable override. Nonzero modelid_alternative is preserved as
+unsupported context without guessing its applicability or following that edge. Missing explicit
 references fail rather than silently falling back to zero. An absent Entry 0 is
 recorded as captured absence, and preparation blocks a spawn that needs it.
 Equipment, faction, relay, string and addon aura semantics are not resolved by

@@ -26,7 +26,7 @@ oversize or malformed winners instead of falling back to older archive copies.
 It writes into a new private directory and publishes extraction.json last.
 A crash may leave an incomplete directory without that manifest; retry to a new
 output path, never assume those partial files constitute a completed extraction.
-The CLI requires that manifest and verifies the exact 19-file allowlist, hashes,
+The CLI requires that manifest and verifies the exact 20-file v3 allowlist, hashes,
 lengths and layouts before preparing anything. Manual/external unmanifested
 directories are not accepted by the CLI. The diagnostic Python library can still
 inspect synthetic/incomplete tables, recording no extraction claim.
@@ -286,7 +286,25 @@ Input archives stay byte-identical. The helper is tested on Linux; Windows/macOS
 privacy and durability behavior has not been executed here. On non-Unix systems
 permissions inherit from the selected parent, so choose a user-private parent.
 
-Extraction manifest v2 adds the complete Talent.dbc table for initial-learning
-classification. Earlier v1 extractions must be repeated into a new output directory;
-the old manifest is not silently upgraded. Raw rank membership preserves all five
-rank slots and duplicate matches, and does not claim effective loader admission.
+Extraction manifest v3 requires 20 complete tables, including Talent.dbc and
+CreatureDisplayInfo.dbc. Earlier v1/v2 extractions must be repeated with the
+current helper into a new private output directory. The verifier reports
+`extraction.legacy_manifest_reextract_v3_required`; editing the old manifest or
+adding a coverage boolean is not migration. Re-run preparation against the same
+verified source and newly extracted bytes. Old source-v2 files remain accepted
+for diagnostics, but missing spell-registry evidence and missing gender-model
+closure require a new bounded local capture for those facts.
+
+Selected creature displays retain all 12 raw words, record and whole-file hashes,
+model/extended-display IDs, scale bits and signed SizeClass. Only words 6–8 are
+strings; word 9 accepts -1. All template alternatives, applicable spawn override
+and recursive other-gender rows are bound. Missing table and known absent row
+remain distinct; neither gets scale 1.0. Alternative-model semantics and renderer
+relations are separate requirements. See the [consumer contract](CONSUMER-CONTRACT.md).
+
+Selected spell/aura registry rows and empty results carry their exact source
+[coverage proof](../classic_export/SPELL-REGISTRY-CONTRACT.md). Present unknown or
+empty names stay explicit rows, never a no-hook default. New local world rules
+can be explicit consumer policy; a new P2P world does not require an existing
+server configuration. Importing legacy effective configuration is a distinct,
+unimplemented evidence path.

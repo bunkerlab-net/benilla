@@ -623,3 +623,11 @@ SPAWN_SCHEMA = {
 }
 COLUMNS.update({table: [column[0] for column in columns]
                 for table, columns in SPAWN_SCHEMA.items()})
+
+
+# Pinned sql/scriptdev2/spell.sql, not the historical command/delay table.
+REGISTRY_SCHEMA = {
+    "spell_scripts": [("Id", "int", False), ("ScriptName", "char(64)", False)],
+}
+COLUMNS.update({table: [column[0] for column in columns]
+                for table, columns in REGISTRY_SCHEMA.items()})

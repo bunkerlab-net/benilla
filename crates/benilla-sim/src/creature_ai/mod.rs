@@ -15,7 +15,7 @@ pub use numeric::{
     attack_distance, combat_reach, distance_2d, in_melee_range, pulls_aggro, Point, Real,
 };
 
-pub const CREATURE_AI_POLICY_ID: &str = "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-v1";
+pub const CREATURE_AI_POLICY_ID: &str = "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-v2";
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
 
@@ -215,6 +215,9 @@ pub struct MotionCommand {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Effect {
+    AttackStopped {
+        target: u64,
+    },
     CombatStarted {
         target: u64,
     },
@@ -292,6 +295,8 @@ pub struct SoloCreatureAi {
     combat_start: Point,
     last_refresh: Point,
     target: Option<u64>,
+    victim_detached_at_ms: Option<u64>,
+    pending_receipts: Option<(u64, u64)>,
     threat: Real,
     now_ms: u64,
     sequence: u64,
@@ -308,6 +313,29 @@ pub struct SoloCreatureAi {
     despawned_at_ms: Option<u64>,
     respawn_at_ms: u64,
 }
+/// Single-use receipt prelude token. No timer, movement or AI update has run yet.
+/// Owned by the same enclosing transaction as the mutated AI; never deserialize it.
+pub struct ReceiptStep {
+    prepared: SoloCreatureAi,
+    creature_id: u64,
+    sequence: u64,
+    now_ms: u64,
+    elapsed_ms: u32,
+    prior_command: u64,
+    geometry_revision: Revision,
+    receipts: Vec<Receipt>,
+    effects: Vec<Effect>,
+}
+impl ReceiptStep {
+    pub fn effects(&self) -> &[Effect] {
+        &self.effects
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainhandResult {
+    Unchanged,
+    TargetDied,
+}
 impl SoloCreatureAi {
     pub fn new(profile: Profile) -> Result<Self, AiError> {
         profile.validate()?;
@@ -319,6 +347,8 @@ impl SoloCreatureAi {
             profile,
             phase: Phase::Idle,
             target: None,
+            victim_detached_at_ms: None,
+            pending_receipts: None,
             threat: Real::ZERO,
             sequence: 0,
             receipt_id: 0,
@@ -386,15 +416,107 @@ impl SoloCreatureAi {
     ) -> Result<Vec<Effect>, AiError> {
         let observation = authority.observe(self.profile.creature_id)?;
         let mut next = self.clone();
-        let effects = next.apply(observation, mainhand)?;
+        let token = next.begin_receipts(&observation)?;
+        let effects = next.finish_receipts(observation, token, &mut |id, point, started| {
+            mainhand(id, point, started)?;
+            Ok(MainhandResult::Unchanged)
+        })?;
         *self = next;
         Ok(effects)
     }
-    fn apply(
+    /// Applies already-resolved events at their bound frame instant, without advancing
+    /// this creature's unit clock/timers/movement/AI. Finish in the original update order.
+    pub fn begin_receipts(&mut self, o: &Observation) -> Result<ReceiptStep, AiError> {
+        self.validate_observation(o)?;
+        if self.pending_receipts.is_some() {
+            return Err(AiError::Invalid("unfinished receipt prelude"));
+        }
+        let now_ms = self
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("event time overflow"))?;
+        let mut next = self.clone();
+        let old_now = next.now_ms;
+        next.now_ms = now_ms; // used only by event timestamp derivation, never timers
+        let prior_command = next.command_id;
+        let mut effects = Vec::new();
+        for receipt in &o.receipts {
+            if receipt.id <= next.receipt_id {
+                return Err(AiError::Invalid("replayed/reordered combat receipt"));
+            }
+            next.receipt_id = receipt.id;
+            next.event(&receipt.event, o.target.as_ref(), &mut effects)?;
+        }
+        next.now_ms = old_now;
+        next.pending_receipts = Some((o.sequence, now_ms));
+        let token = ReceiptStep {
+            prepared: next.clone(),
+            creature_id: self.profile.creature_id,
+            sequence: o.sequence,
+            now_ms,
+            elapsed_ms: o.elapsed_ms,
+            prior_command,
+            geometry_revision: o.geometry_revision,
+            receipts: o.receipts.clone(),
+            effects,
+        };
+        *self = next;
+        Ok(token)
+    }
+    /// Synchronous RemoveAllAttackers/hostile-reference removal. AttackStop(false)
+    /// retains visible TargetGuid and chase; ordinary later AI selects no target.
+    pub fn detach_dead_victim(&mut self, target: u64, event_ms: u64) -> Result<bool, AiError> {
+        if event_ms < self.now_ms || self.pending_receipts.is_some_and(|(_, at)| at != event_ms) {
+            return Err(AiError::Invalid("victim detach event time"));
+        }
+        let stopped = self.phase == Phase::Combat
+            && self.target == Some(target)
+            && self.victim_detached_at_ms.is_none();
+        if stopped {
+            self.threat = Real::ZERO;
+            self.victim_detached_at_ms = Some(event_ms);
+        }
+        Ok(stopped)
+    }
+    pub fn victim_detached_at_ms(&self) -> Option<u64> {
+        self.victim_detached_at_ms
+    }
+    pub fn finish_receipts(
         &mut self,
         o: Observation,
-        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<(), AiError>,
+        token: ReceiptStep,
+        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<MainhandResult, AiError>,
     ) -> Result<Vec<Effect>, AiError> {
+        self.validate_observation(&o)?;
+        if token.geometry_revision != o.geometry_revision
+            || (!o.receipts.is_empty() && o.receipts != token.receipts)
+            || token.creature_id != self.profile.creature_id
+            || token.sequence != o.sequence
+            || token.elapsed_ms != o.elapsed_ms
+            || self.pending_receipts != Some((token.sequence, token.now_ms))
+        {
+            return Err(AiError::Invalid("receipt token binding"));
+        }
+        let mut expected = token.prepared.clone();
+        // The only admitted interlude mutation is synchronous victim death cleanup.
+        // Comparing all remaining state also binds profile, movement, timers and receipts;
+        // a token from a different same-ID AI cannot inject its effects into this one.
+        if expected.victim_detached_at_ms.is_none()
+            && self.victim_detached_at_ms == Some(token.now_ms)
+        {
+            if let Some(target) = expected.target {
+                expected.detach_dead_victim(target, token.now_ms)?;
+            }
+        }
+        if *self != expected {
+            return Err(AiError::Invalid("receipt token prepared-state binding"));
+        }
+        let mut next = self.clone();
+        let effects = next.apply(o, token, mainhand)?;
+        *self = next;
+        Ok(effects)
+    }
+    fn validate_observation(&self, o: &Observation) -> Result<(), AiError> {
         if Some(o.sequence) != self.next_sequence()
             || o.elapsed_ms == 0
             || o.elapsed_ms > 60_000
@@ -413,21 +535,19 @@ impl SoloCreatureAi {
                 return Err(AiError::Unsupported(Unsupported::MultipleThreatTargets));
             }
         }
-        self.now_ms = self
-            .now_ms
-            .checked_add(u64::from(o.elapsed_ms))
-            .ok_or(AiError::Invalid("time overflow"))?;
+        Ok(())
+    }
+    fn apply(
+        &mut self,
+        o: Observation,
+        token: ReceiptStep,
+        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<MainhandResult, AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.now_ms = token.now_ms;
         self.sequence = o.sequence;
-        let mut effects = Vec::new();
-        let prior_command = self.command_id;
-        // Event processing precedes timer/movement/AI in Unit::Update.
-        for receipt in &o.receipts {
-            if receipt.id <= self.receipt_id {
-                return Err(AiError::Invalid("replayed/reordered combat receipt"));
-            }
-            self.receipt_id = receipt.id;
-            self.event(&receipt.event, o.target.as_ref(), &mut effects)?;
-        }
+        self.pending_receipts = None;
+        let mut effects = token.effects;
+        let prior_command = token.prior_command;
         // Unit::Update still decrements attack timers on the death tick and while a corpse.
         if self.phase != Phase::Despawned {
             self.mainhand_ms = self.mainhand_ms.saturating_sub(o.elapsed_ms);
@@ -503,11 +623,9 @@ impl SoloCreatureAi {
         if self.phase != Phase::Combat {
             return Ok(effects);
         }
-        let Some(t) = o
-            .target
-            .as_ref()
-            .filter(|t| t.alive && t.online && Some(t.id) == self.target)
-        else {
+        let Some(t) = o.target.as_ref().filter(|t| {
+            t.alive && t.online && Some(t.id) == self.target && self.victim_detached_at_ms.is_none()
+        }) else {
             self.evade(EvadeReason::NoTarget, &mut effects)?;
             return Ok(effects);
         };
@@ -548,13 +666,16 @@ impl SoloCreatureAi {
                 }
                 self.mainhand_ms = self.profile.mainhand_interval_ms;
                 effects.push(Effect::MainhandSwing { target: t.id });
-                mainhand(
+                let result = mainhand(
                     t.id,
                     self.position,
                     effects
                         .iter()
                         .any(|e| matches!(e, Effect::CombatStarted { .. })),
                 )?;
+                if result == MainhandResult::TargetDied {
+                    self.detach_dead_victim(t.id, self.now_ms)?;
+                }
             }
             SwingDecision::Retry(error) => {
                 // Upstream SWING_ERROR_NOT_IN_RANGE is enum value zero, so this particular
@@ -585,7 +706,10 @@ impl SoloCreatureAi {
         if self.combat_tick_ms >= COMBAT_TICK_MS {
             self.combat_tick_ms -= COMBAT_TICK_MS;
             let distance = distance_2d(t.position, self.last_refresh, t.bounding_radius)?;
-            if self.pursuit_ms == 0 && distance.greater(self.profile.leash_radius) {
+            if self.victim_detached_at_ms.is_none()
+                && self.pursuit_ms == 0
+                && distance.greater(self.profile.leash_radius)
+            {
                 self.evade(EvadeReason::PursuitLeash, &mut effects)?;
             } else if let Some(limit) = self.profile.hard_leash_radius {
                 if limit != Real::ZERO
@@ -615,6 +739,7 @@ impl SoloCreatureAi {
             self.death_at_ms = Some(self.now_ms);
             self.phase = Phase::Corpse;
             self.target = None;
+            self.victim_detached_at_ms = None;
             self.threat = Real::ZERO;
             self.motion = None;
             self.unreachable_ms = 0;
@@ -683,6 +808,7 @@ impl SoloCreatureAi {
         }
         self.phase = Phase::Combat;
         self.target = Some(t.id);
+        self.victim_detached_at_ms = None;
         self.combat_start = self.position;
         self.threat = Real::ZERO;
         self.refresh_pursuit();
@@ -725,6 +851,7 @@ impl SoloCreatureAi {
             return Err(AiError::Unsupported(Unsupported::LongDistanceHomeDespawn));
         }
         self.target = None;
+        self.victim_detached_at_ms = None;
         self.threat = Real::ZERO;
         self.unreachable_ms = 0;
         self.pursuit_ms = 0;

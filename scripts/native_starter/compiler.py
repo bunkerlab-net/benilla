@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from classic_export.capture import validate_bundle
-from classic_export import event_ai, native_spawn
+from classic_export import event_ai, native_spawn, spell_registry
 from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA
 from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
                                  canonical, check, digest, integer)
@@ -105,6 +105,7 @@ FLOAT_SPELL_FIELDS = {"speed"} | {f"{name}{i}" for name in
 CONSUMED = {
     **{table: set(COLUMNS[table]) for table in LEARNING_SCHEMA},
     "creature_ai_scripts": {"id", "creature_id"},
+    "spell_scripts": {"Id", "ScriptName"},
     "playercreateinfo": set(COLUMNS["playercreateinfo"]),
     "player_classlevelstats": set(COLUMNS["player_classlevelstats"]),
     "player_levelstats": set(COLUMNS["player_levelstats"]),
@@ -201,7 +202,7 @@ def classify_spell_admission(tables: dict[str, Any], spells: list[dict[str, Any]
     def own(table: str, key: int, spell: int) -> None:
         owners.setdefault((table, key), set()).add(spell)
     for entry, row in source.items():
-        for table in ("spell_template", "Spell"):
+        for table in ("spell_template", "spell_scripts", "Spell"):
             own(table, entry, entry)
         for table, field in (("SpellCastTimes", "CastingTimeIndex"), ("SpellRange", "rangeIndex"),
                              ("SpellCategory", "Category"), ("SpellDuration", "DurationIndex"),
@@ -461,7 +462,13 @@ class Compiler:
                                field=name, bits=source[name])
             if source["speed"]["decimal"] != "0":
                 self.issue("spell_template", [entry], "spell.projectile_timing_execution_required")
+            registry_scope = spell_registry.scope(self.source, entry)
+            if registry_scope is None:
+                self.issue("spell_template", [entry], "spell.registry_coverage_not_proven")
+            elif registry_scope["rows"]:
+                self.issue("spell_scripts", [entry], "spell.registry_row_requires_named_handler_semantics")
             result.append({"id": entry, "initial_sql_spell": entry in initial,
+                "script_registry": registry_scope,
                 "name_locales": [row.text[i] for i in range(120, 128)] if row else None,
                 "cast_time": {"id": source["CastingTimeIndex"], "base_ms": signed(cast.words[1]),
                               "per_level_ms": signed(cast.words[2]), "minimum_ms": signed(cast.words[3])} if cast else None,
@@ -484,9 +491,25 @@ class Compiler:
             entry = creature["Entry"]
             event_scope = event_ai.scope(self.tables, entry)
             spawn_scope = native_spawn.scope(self.source, entry)
-            model_ids = {creature[f"DisplayId{i}"] for i in range(1, 5)}
-            model_ids.update(spawn["spawn_template"]["row"]["ModelId"] for spawn in (spawn_scope or [])
-                             if spawn["spawn_template"]["row"] is not None)
+            model_ids = native_spawn.model_closure(self.tables, native_spawn.model_roots(self.tables, entry))
+            display_inputs = []
+            available_models = {row["modelid"]: row for row in self.tables["creature_model_info"]}
+            for model_id in sorted(model_ids):
+                model = available_models.get(model_id)
+                if model is None:
+                    self.need("creature_model_info", model_id, "creature.gender_model_not_captured")
+                elif model["modelid_alternative"]:
+                    self.issue("creature_model_info", [model_id], "creature.alternative_model_context_required",
+                               alternative=model["modelid_alternative"])
+                display = self.lookup("CreatureDisplayInfo", model_id, {0, 1, 3, 4, 9})
+                if display is not None:
+                    scale = display.words[4]
+                    finite_float(scale, "creature.display_scale_nonfinite")
+                    if scale & 0x80000000 or scale == 0:
+                        self.issue("CreatureDisplayInfo", [model_id], "creature.display_scale_nonpositive")
+                    display_inputs.append({"id": model_id, "model_id": display.words[1],
+                        "extended_display_info_id": display.words[3], "scale_binary32": scale,
+                        "size_class": signed(display.words[9]), "source": display.raw()})
             result.append({"entry": entry, "source_row": creature,
                 "spawns": [r for r in self.tables["creature"] if r["id"] == entry],
                 "class_level_inputs": [r for r in self.tables["creature_template_classlevelstats"]
@@ -494,6 +517,7 @@ class Compiler:
                                        and creature["MinLevel"] <= r["Level"] <= creature["MaxLevel"]],
                 "model_inputs": [r for r in self.tables["creature_model_info"]
                                  if r["modelid"] in model_ids],
+                "display_inputs": display_inputs, "selected_display_ids": sorted(model_ids),
                 "event_ai_capture": event_scope,
                 "native_spawn_dependencies": spawn_scope,
                 "resolved_combat_stats": None, "ai_profile": None})
@@ -519,7 +543,7 @@ class Compiler:
                            event_ids=[r["id"] for r in event_scope["matching_rows"]])
             # Even an empty captured selector set does not cover substituted
             # entries, pools, groups or other hooks; those blockers remain.
-            self.issue("creature_template", [entry], "creature.server_aggro_leash_corpse_config_required")
+            self.issue("creature_template", [entry], "creature.explicit_world_rules_and_aggro_context_required")
             self.issue("creature_template", [entry], "creature.deterministic_respawn_selection_required")
         return result
 
@@ -599,6 +623,14 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
     spells = c.spells()
     talents = talent_inputs(dbcs.get("Talent"), set(c.learning["spell_ids"]))
     creatures = c.creature_inputs()
+    display_table = dbcs.get("CreatureDisplayInfo")
+    display_ids = sorted({entry for creature in creatures for entry in creature["selected_display_ids"]})
+    display_evidence = {"coverage": "complete_raw_table" if display_table else "not_captured",
+        "table_sha256": display_table.sha256 if display_table else None,
+        "row_count": len(display_table.rows) if display_table else None,
+        "selected_ids": display_ids,
+        "missing_ids": [entry for entry in display_ids if entry not in display_table.by_id]
+                       if display_table else None}
     c.issue("runtime", [], "native.runtime_profile_not_implemented")
     dispositions = c.dispositions()
     dbc_bindings = []
@@ -621,6 +653,8 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "ability_admission": admission,
         "dependency_request": c.learning["dependency_request"],
         "native_spawn_capture": source.get("native_spawn_capture"),
+        "spell_script_capture": source.get("spell_script_capture"),
+        "creature_display_inputs": display_evidence,
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],
                    "actions": source["tables"]["playercreateinfo_action"], "skills": skills},
