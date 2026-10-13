@@ -68,11 +68,11 @@ WoW installation without changing it.
   musl-based distributions. Install the runtime ALSA and udev libraries, a
   working graphical session, and a Vulkan-capable graphics driver. Use `ldd
   ./benilla` to check for missing libraries on your machine.
-- The macOS artifact is for Apple silicon. It builds on the `xcode-27` public-preview runner, which uses macOS 27, and has no
+- The macOS artifact is for Apple silicon. It builds on macOS 26 and has no
   signing or notarization step. It is a command-line executable, not an app
   bundle. Follow your organization's policy if macOS blocks it.
 - The Windows artifact is for x64 Windows and uses MSVC on the
-  `windows-2025-vs2026` runner. It has no signing or
+  `windows-2025` runner. It has no signing or
   installer step. It may require Microsoft's Visual C++ x64 runtime. Keep the
   executable in a writable folder rather than `Program Files`.
 
@@ -105,11 +105,9 @@ asset directory, game installation, or local settings. Review dependency license
 obligations before wider redistribution. Packaging tests run with
 `python3 scripts/test-package-player.py` and require no game data or Rust compiler.
 
-The explicit runner labels are `ubuntu-26.04`, `ubuntu-26.04-arm`, `xcode-27`,
-and `windows-2025-vs2026`. These are standard hosted runners listed in
-[GitHub's runner images](https://github.com/actions/runner-images). `xcode-27` is
-in public preview and can change or lose availability without the guarantees of
-a stable image. No larger-runner label is used. Standard runner compute is free
+The explicit runner labels are `ubuntu-26.04`, `ubuntu-26.04-arm`, `macos-26`,
+and `windows-2025`. These are standard hosted runners listed in
+[GitHub's runner images](https://github.com/actions/runner-images). No larger-runner label is used. Standard runner compute is free
 for this public repository; artifact and cache storage follow GitHub's limits.
 The existing CI workflow also uses Ubuntu 26.04.
 
