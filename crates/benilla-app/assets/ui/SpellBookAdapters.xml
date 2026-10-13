@@ -6,6 +6,25 @@
         is 37 x 58/30 (the art fills 33/64 of UI-AutoCastableOverlay.blp).
     -->
     <Script><![CDATA[
+        -- Deviation: an empty exploration book still has one blank page. Stock
+        -- ToggleSpellBook clamps page 1 to ceil(0 / 12), then its slot math produces -11..0.
+        -- Keep the page cursor valid, including a saved zero from an earlier empty book;
+        -- the stock button update disables the empty slots without inventing any spells.
+        local refGetCurrentPage = SpellBook_GetCurrentPage
+        function SpellBook_GetCurrentPage()
+            local page, pages = refGetCurrentPage()
+            if SpellBookFrame.bookType == BOOKTYPE_SPELL then
+                if pages == 0 then
+                    page, pages = 1, 1
+                    SPELLBOOK_PAGENUMBERS[SpellBookFrame.selectedSkillLine] = page
+                elseif page < 1 then
+                    page = 1
+                    SPELLBOOK_PAGENUMBERS[SpellBookFrame.selectedSkillLine] = page
+                end
+            end
+            return page, pages
+        end
+
         for i = 1, 12 do
             local button = getglobal("SpellButton" .. i)
             local overlay = getglobal("SpellButton" .. i .. "AutoCastable")

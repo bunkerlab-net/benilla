@@ -1,0 +1,440 @@
+use super::*;
+use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+struct TempDir(std::path::PathBuf);
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn input(name: &str) -> NewCharacter {
+    NewCharacter {
+        name: name.into(),
+        race: 1,
+        class: 1,
+        gender: 0,
+        appearance: Appearance::default(),
+    }
+}
+fn directory() -> (TempDir, std::path::PathBuf) {
+    let base = std::env::temp_dir().canonicalize().unwrap();
+    let path = base.join(format!(
+        "benilla-profile-fixture-{}-{}",
+        std::process::id(),
+        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    #[allow(unused_mut)] // Unix configures the private creation mode below.
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&path).unwrap();
+    let temp = TempDir(path.clone());
+    let path = path.join("profile");
+    (temp, path)
+}
+#[test]
+fn create_select_save_reopen_preserves_identity_and_characters() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let key = profile.public_key();
+    let owner = profile.owner_id();
+    assert!(profile.characters().is_empty());
+    let first = profile.create_character(input("aLICE")).unwrap();
+    let second = profile
+        .create_character(NewCharacter {
+            name: "Beryl".into(),
+            race: 6,
+            class: 11,
+            gender: 1,
+            appearance: Appearance::default(),
+        })
+        .unwrap();
+    assert_ne!(first, second);
+    assert_eq!(profile.selected_character().unwrap().id, second);
+    profile.select_character(first).unwrap();
+    let mut position = profile.character(first).unwrap().position;
+    position.position[0] += 3.5;
+    profile.save_position(first, position).unwrap();
+    let character = profile.character(first).unwrap().clone();
+    assert_eq!(character.name, "Alice");
+    assert_eq!(character.owner_id, owner);
+    assert_eq!(character.level, 1);
+    drop(profile);
+    let profile = ProfileStore::open(&path).unwrap();
+    assert_eq!(profile.public_key(), key);
+    assert_eq!(profile.owner_id(), owner);
+    assert_eq!(profile.selected_character(), Some(&character));
+    assert_eq!(profile.characters().len(), 2);
+    assert_eq!(
+        profile.character(second).unwrap().spawn_policy,
+        SpawnPolicy::NorthshireMeetingV1
+    );
+}
+#[test]
+fn signatures_bind_owner_domain_and_challenge() {
+    let (_temp, path) = directory();
+    let profile = ProfileStore::create(path).unwrap();
+    let identity = profile.identity();
+    let challenge = [23; 32];
+    let signature = identity.sign_transport_challenge(&challenge);
+    assert!(verify_transport_challenge(
+        &identity.public_key(),
+        &challenge,
+        &signature
+    ));
+    assert!(!verify_transport_challenge(
+        &identity.public_key(),
+        &[24; 32],
+        &signature
+    ));
+    assert!(!verify_transport_challenge(
+        &[0; 32], &challenge, &signature
+    ));
+    let verifier = VerifyingKey::from_bytes(&identity.public_key()).unwrap();
+    assert!(verifier
+        .verify_strict(&challenge, &Signature::from_bytes(&signature))
+        .is_err());
+    // Shared transport/profile parity vector; fictional fixture only, never persisted.
+    let fixture = ProfileIdentity {
+        key: SigningKey::from_bytes(&[1; 32]),
+    };
+    assert_eq!(
+        fixture.owner_id(),
+        [
+            0xa2, 0x43, 0x02, 0xea, 0xb0, 0xac, 0x44, 0xa2, 0xb8, 0x8e, 0x29, 0xbb, 0xac, 0xa5,
+            0x5e, 0x83
+        ]
+    );
+    drop(profile);
+    assert!(verify_transport_challenge(
+        &identity.public_key(),
+        &challenge,
+        &identity.sign_transport_challenge(&challenge)
+    ));
+}
+#[test]
+fn invalid_creation_and_position_do_not_change_valid_save() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let id = profile.create_character(input("Alice")).unwrap();
+    let before = fs::read(path.join("profile.json")).unwrap();
+    for name in [
+        "a",
+        "abcdefghijklmn",
+        "A/lice",
+        "AL Ice",
+        "éclair",
+        "\nAlice",
+    ] {
+        assert!(profile.create_character(input(name)).is_err());
+    }
+    assert!(profile.create_character(input("ALICE")).is_err());
+    for (race, class) in [(0, 1), (10, 2), (1, 7), (4, 8), (7, 5), (6, 4)] {
+        let mut candidate = input("Beryl");
+        candidate.race = race;
+        candidate.class = class;
+        assert!(profile.create_character(candidate).is_err());
+    }
+    let mut candidate = input("Beryl");
+    candidate.gender = 2;
+    assert!(profile.create_character(candidate).is_err());
+    let mut candidate = input("Beryl");
+    candidate.appearance.skin = 16;
+    assert!(profile.create_character(candidate).is_err());
+    let original = profile.character(id).unwrap().position;
+    for invalid in [f32::NAN, f32::INFINITY, -20_001.0] {
+        let mut position = original;
+        position.position[1] = invalid;
+        assert!(profile.save_position(id, position).is_err());
+    }
+    let mut position = original;
+    position.map_id = 2;
+    assert!(profile.save_position(id, position).is_err());
+    let mut position = original;
+    position.orientation = 101.0;
+    assert!(profile.save_position(id, position).is_err());
+    let mut position = original;
+    position.zone_id = 10_001;
+    assert!(profile.save_position(id, position).is_err());
+    assert!(profile.select_character([0; 16]).is_err());
+    assert!(profile.save_position([0; 16], original).is_err());
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), before);
+}
+#[test]
+fn classic_race_class_matrix_and_limits() {
+    assert_eq!(
+        (1..=8).map(|race| valid_classes(race).len()).sum::<usize>(),
+        40
+    );
+    for race in 1..=8 {
+        for class in valid_classes(race) {
+            validate_race_class(race, *class).unwrap();
+        }
+    }
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(path).unwrap();
+    for name in ["Aa", "Ab", "Ac", "Ad", "Ae", "Af", "Ag", "Ah", "Ai", "Aj"] {
+        profile.create_character(input(name)).unwrap();
+    }
+    assert!(profile.create_character(input("Ak")).is_err());
+    assert_eq!(profile.characters().len(), MAX_CHARACTERS);
+}
+#[test]
+fn opening_missing_never_creates_and_create_never_replaces() {
+    let (_temp, path) = directory();
+    assert!(ProfileStore::open(&path).is_err());
+    assert!(!path.exists());
+    let profile = ProfileStore::create(&path).unwrap();
+    let key = profile.public_key();
+    drop(profile);
+    assert!(matches!(
+        ProfileStore::create(&path),
+        Err(Error::AlreadyExists)
+    ));
+    assert_eq!(ProfileStore::open(&path).unwrap().public_key(), key);
+}
+#[test]
+fn exclusive_session_lock_released_on_drop() {
+    let (_temp, path) = directory();
+    let first = ProfileStore::create(&path).unwrap();
+    assert!(matches!(ProfileStore::open(&path), Err(Error::Locked)));
+    assert!(matches!(ProfileStore::create(&path), Err(Error::Locked)));
+    drop(first);
+    assert!(ProfileStore::open(&path).is_ok());
+}
+#[test]
+fn corruption_fails_closed_retains_previous_and_never_regenerates() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    let previous = fs::read(path.join("profile.previous.json")).unwrap();
+    drop(profile);
+    fs::write(path.join("profile.json"), b"{broken").unwrap();
+    assert!(matches!(ProfileStore::open(&path), Err(Error::Corrupt)));
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), b"{broken");
+    assert_eq!(
+        fs::read(path.join("profile.previous.json")).unwrap(),
+        previous
+    );
+    assert!(ProfileStore::create(&path).is_err());
+}
+#[test]
+fn schema_size_checksum_and_owner_checks_fail_closed() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    let original = fs::read(path.join("profile.json")).unwrap();
+    drop(profile);
+    for mutation in [
+        "unknown",
+        "version",
+        "checksum",
+        "owner",
+        "level",
+        "duplicate",
+        "selection",
+    ] {
+        let mut value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        match mutation {
+            "unknown" => value["unexpected"] = true.into(),
+            "version" => value["format_version"] = 99.into(),
+            "checksum" => value["checksum"][0] = 256.into(),
+            "owner" => value["payload"]["owner_id"][0] = 256.into(),
+            "level" => value["payload"]["state"]["characters"][0]["level"] = 60.into(),
+            "duplicate" => {
+                let cloned = value["payload"]["state"]["characters"][0].clone();
+                value["payload"]["state"]["characters"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(cloned);
+            }
+            "selection" => {
+                value["payload"]["state"]["selected"] = serde_json::to_value([0; 16]).unwrap()
+            }
+            _ => unreachable!(),
+        }
+        fs::write(
+            path.join("profile.json"),
+            serde_json::to_vec(&value).unwrap(),
+        )
+        .unwrap();
+        assert!(ProfileStore::open(&path).is_err(), "{mutation}");
+    }
+    fs::write(
+        path.join("profile.json"),
+        vec![b' '; MAX_FILE_BYTES as usize + 1],
+    )
+    .unwrap();
+    assert!(matches!(ProfileStore::open(&path), Err(Error::Corrupt)));
+}
+#[test]
+fn externally_modified_file_is_not_overwritten() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    fs::write(path.join("profile.json"), b"external change").unwrap();
+    assert!(matches!(
+        profile.create_character(input("Beryl")),
+        Err(Error::ConcurrentModification)
+    ));
+    assert_eq!(profile.characters().len(), 1);
+    assert_eq!(
+        fs::read(path.join("profile.json")).unwrap(),
+        b"external change"
+    );
+}
+#[test]
+fn failed_save_retains_memory_and_current() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    let current = fs::read(path.join("profile.json")).unwrap();
+    fs::remove_file(path.join("profile.previous.json")).unwrap();
+    fs::create_dir(path.join("profile.previous.json")).unwrap();
+    assert!(profile.create_character(input("Beryl")).is_err());
+    assert_eq!(profile.characters().len(), 1);
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), current);
+    assert_eq!(
+        fs::read_dir(&path)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count(),
+        0
+    );
+}
+#[test]
+fn public_canonical_character_contains_no_secret_and_roundtrips() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    let character = profile.selected_character().unwrap();
+    let bytes = character.canonical_bytes().unwrap();
+    assert_eq!(bytes, character.canonical_bytes().unwrap());
+    assert!(!String::from_utf8(bytes.clone()).unwrap().contains("secret"));
+    assert_eq!(
+        &serde_json::from_slice::<Character>(&bytes).unwrap(),
+        character
+    );
+}
+#[cfg(unix)]
+#[test]
+fn unix_private_modes_symlinks_and_hardlinks() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    for name in ["profile.json", "profile.previous.json", "profile.lock"] {
+        assert_eq!(
+            fs::metadata(path.join(name)).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    drop(profile);
+    let alias = path.with_extension("link");
+    symlink(&path, &alias).unwrap();
+    assert!(ProfileStore::open(&alias).is_err());
+    let real = path.join("real.json");
+    fs::rename(path.join("profile.json"), &real).unwrap();
+    symlink(&real, path.join("profile.json")).unwrap();
+    assert!(ProfileStore::open(&path).is_err());
+    fs::remove_file(path.join("profile.json")).unwrap();
+    fs::hard_link(&real, path.join("profile.json")).unwrap();
+    assert!(ProfileStore::open(&path).is_err());
+    fs::remove_file(path.join("profile.json")).unwrap();
+    fs::rename(real, path.join("profile.json")).unwrap();
+    fs::set_permissions(path.join("profile.json"), fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(ProfileStore::open(&path).is_err());
+}
+#[cfg(unix)]
+#[test]
+fn replaced_lock_and_symlink_backup_fail_without_overwrite() {
+    use std::os::unix::fs::symlink;
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    let current = fs::read(path.join("profile.json")).unwrap();
+    fs::remove_file(path.join("profile.previous.json")).unwrap();
+    symlink(
+        path.join("profile.json"),
+        path.join("profile.previous.json"),
+    )
+    .unwrap();
+    assert!(profile.create_character(input("Beryl")).is_err());
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), current);
+    fs::remove_file(path.join("profile.lock")).unwrap();
+    assert!(profile.create_character(input("Beryl")).is_err());
+    assert_eq!(profile.characters().len(), 1);
+}
+
+#[test]
+fn pre_commit_io_failures_preserve_current_backup_and_memory() {
+    for fault in [
+        storage::SaveFault::BeforeSync,
+        storage::SaveFault::BeforeRename,
+    ] {
+        let (_temp, path) = directory();
+        let mut profile = ProfileStore::create(&path).unwrap();
+        profile.create_character(input("Alice")).unwrap();
+        let current = fs::read(path.join("profile.json")).unwrap();
+        profile.storage.inject_fault(fault);
+        assert!(matches!(
+            profile.create_character(input("Beryl")),
+            Err(Error::Io(_))
+        ));
+        assert_eq!(profile.characters().len(), 1);
+        assert_eq!(fs::read(path.join("profile.json")).unwrap(), current);
+        assert_eq!(
+            fs::read(path.join("profile.previous.json")).unwrap(),
+            current
+        );
+        assert_eq!(
+            fs::read_dir(&path)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+                .count(),
+            0
+        );
+        drop(profile);
+        assert_eq!(ProfileStore::open(path).unwrap().characters().len(), 1);
+    }
+}
+#[test]
+fn post_rename_failure_preserves_backup_and_requires_reopen() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    profile.create_character(input("Alice")).unwrap();
+    let current = fs::read(path.join("profile.json")).unwrap();
+    profile
+        .storage
+        .inject_fault(storage::SaveFault::AfterRename);
+    assert!(matches!(
+        profile.create_character(input("Beryl")),
+        Err(Error::CommitUncertain)
+    ));
+    assert_eq!(profile.characters().len(), 1);
+    assert_eq!(
+        fs::read(path.join("profile.previous.json")).unwrap(),
+        current
+    );
+    assert!(matches!(
+        profile.create_character(input("Clover")),
+        Err(Error::CommitUncertain)
+    ));
+    drop(profile);
+    // A rename already took effect; reopening validates actual disk state rather than retrying.
+    let profile = ProfileStore::open(path).unwrap();
+    assert_eq!(profile.characters().len(), 2);
+    assert_eq!(profile.selected_character().unwrap().name, "Beryl");
+}

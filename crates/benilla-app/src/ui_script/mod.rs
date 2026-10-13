@@ -345,11 +345,17 @@ impl Plugin for UiScriptPlugin {
             .add_systems(Update, sweep::arm_leaving_world_on_self_create)
             // A queued `ReloadUI()` runs in `PreUpdate`, a frame after its drain (the reference's
             // deferral, `0x495590`) and before every `Update` seed or feed.
+            .init_resource::<login_options::LoginOptions>()
             .init_resource::<ReloadUiPending>()
             // Both are exclusive edges on the VM and must not interleave.
             .add_systems(
                 PreUpdate,
-                (run_pending_reload, lifecycle::run_pending_entry_load).chain(),
+                (
+                    login_options::drive,
+                    run_pending_reload,
+                    lifecycle::run_pending_entry_load,
+                )
+                    .chain(),
             )
             // The three UI phases in order: feeds after the net drain, the tick, then the paint.
             .configure_sets(
@@ -372,8 +378,11 @@ impl Plugin for UiScriptPlugin {
                 (
                     extract::tick_script,
                     input::feed_ui_input.run_if(
-                        in_state(crate::char_select::ClientState::InWorld).or(glue::glue_ui_up),
+                        in_state(crate::char_select::ClientState::InWorld)
+                            .or(glue::glue_ui_up)
+                            .or(login_options::active),
                     ),
+                    login_options::escape,
                     // Off the walk that just ran, for the pick and the arbiter after the pass.
                     crate::vplates::seed_plate_hover,
                 )
@@ -432,6 +441,7 @@ fn arbitrate_pointer_over_ui(
 
 /// The session lifecycle: the VM's birth, identity, death and reload.
 mod lifecycle;
+pub(crate) mod login_options;
 pub(crate) use lifecycle::{
     end_ui_session, ingame_ui_up, run_pending_reload, setup_script, strings_vm, AddOnIdentity,
     PendingEntryUiLoad, ReloadUiPending,

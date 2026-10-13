@@ -2,7 +2,9 @@
 # This fork's experimental P2P mode is selected by the presence of [p2p].
 [p2p]
 # Choose at least six independently random words privately. Share only with trusted players.
-# Exact spelling, case and spaces matter; this placeholder is deliberately rejected.
+# Any length, including empty, is accepted (maximum 1024 UTF-8 bytes).
+# Short/empty/public phrases provide little or no privacy; replace this public example.
+# Exact spelling, case and spaces matter.
 psk = "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE"
 network = "friends-world"
 listen = "0.0.0.0:7474"

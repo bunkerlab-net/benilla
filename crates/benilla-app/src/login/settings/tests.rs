@@ -1,51 +1,53 @@
 use super::*;
 #[test]
-fn pending_game_edits_are_cancelled_and_reopening_is_clean() {
+fn pending_connection_edits_are_cancelled_and_reopening_is_clean() {
     let cvars = Cvars::default();
-    let old = cvars.get("MasterVolume").unwrap().to_owned();
+    let old = "".to_owned();
     let mut settings = Settings::default();
-    settings.switch(Page::Audio, &cvars);
+    settings.refresh_fields(&cvars);
     let index = settings
         .fields
         .iter()
-        .position(|f| f.name == "MasterVolume")
+        .position(|f| f.name == "wow.data")
         .unwrap();
+    settings.fields[index].locked = false;
     settings.select(index);
     settings.edit.set_text("0.25");
     settings.keep_edit();
-    assert_eq!(settings.changes["MasterVolume"], "0.25");
-    assert_eq!(cvars.get("MasterVolume"), Some(old.as_str()));
+    assert_eq!(settings.changes["wow.data"], "0.25");
+    assert!(settings.config.is_none());
     settings = Settings::default();
-    settings.switch(Page::Audio, &cvars);
+    settings.refresh_fields(&cvars);
     assert_eq!(
         settings
             .fields
             .iter()
-            .find(|f| f.name == "MasterVolume")
+            .find(|f| f.name == "wow.data")
             .unwrap()
             .value,
         old
     );
 }
 #[test]
-fn switching_pages_retains_draft_and_secret_is_masked_again_on_selection() {
+fn refreshing_fields_retains_draft_and_secret_is_masked_again_on_selection() {
     let cvars = Cvars::default();
     let mut settings = Settings::default();
-    settings.switch(Page::Audio, &cvars);
+    settings.refresh_fields(&cvars);
     let index = settings
         .fields
         .iter()
-        .position(|f| f.name == "MasterVolume")
+        .position(|f| f.name == "wow.data")
         .unwrap();
+    settings.fields[index].locked = false;
     settings.select(index);
     settings.edit.set_text("0.4");
-    settings.switch(Page::Graphics, &cvars);
-    settings.switch(Page::Audio, &cvars);
+    settings.refresh_fields(&cvars);
+    settings.refresh_fields(&cvars);
     assert_eq!(
         settings
             .fields
             .iter()
-            .find(|f| f.name == "MasterVolume")
+            .find(|f| f.name == "wow.data")
             .unwrap()
             .value,
         "0.4"
@@ -74,11 +76,11 @@ fn invalid_cvar_draft_never_changes_registry() {
     }
 }
 #[test]
-fn all_registered_cvars_are_reachable() {
+fn every_startup_field_is_reachable() {
     let cvars = Cvars::default();
     let mut settings = Settings::default();
-    settings.switch(Page::All, &cvars);
-    assert_eq!(settings.fields.len(), cvars.rows().count());
+    settings.refresh_fields(&cvars);
+    assert_eq!(settings.fields.len(), STARTUP.len());
 }
 #[test]
 fn recovery_disables_network_plugin() {
@@ -116,7 +118,7 @@ fn headless_panel_reopen_and_close_leave_no_duplicate_or_secret_text() {
         {
             let mut settings = app.world_mut().resource_mut::<Settings>();
             settings.open = true;
-            settings.switch(Page::Startup, &cvars);
+            settings.refresh_fields(&cvars);
             settings.fields[1].value = "private sample passphrase".into();
             settings.select(1);
         }
@@ -189,4 +191,18 @@ fn interrupted_login_removes_settings_overlay() {
             .count(),
         0
     );
+}
+
+#[test]
+fn enabling_p2p_with_an_untouched_empty_passphrase_writes_an_explicit_empty_value() {
+    let path =
+        std::env::temp_dir().join(format!("benilla-empty-phrase-{}.toml", std::process::id()));
+    let mut settings = Settings {
+        config: Some(ConfigEditor::open(&path).unwrap()),
+        ..default()
+    };
+    settings.changes.insert("p2p.enabled".into(), "true".into());
+    let editor = settings.prepare_config().unwrap();
+    assert_eq!(editor.get("p2p", "psk").as_deref(), Some(""));
+    assert!(!path.exists(), "preparing the draft must not write a file");
 }

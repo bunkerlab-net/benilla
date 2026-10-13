@@ -12,15 +12,17 @@
 
 This fork adds an **experimental trusted-friends P2P exploration backend**. A
 `config.toml` beside the executable selects it with `[p2p]`, supplies a locally kept
-private strong passphrase (derived into a PSK at startup), and points `[wow].data` at your own read-only 1.12.1 install. See
+shared passphrase of any length (derived into a PSK at startup; strong random words recommended), and points `[wow].data` at your own read-only 1.12.1 install. See
 [configuration and security](docs/P2P-CONFIG.md). No realm process, login account,
 matchmaking service or elected game host runs in P2P mode.
 
-- [Login Settings](docs/P2P-SETTINGS.md): staged config and graphics/audio controls,
-  explicit diagnostics, masked passphrase editing, and offline invalid-config recovery
+- [Login Settings](docs/LOGIN-OPTIONS.md): the existing WoW-style Options window; a separate
+  [Connection setup](docs/P2P-SETTINGS.md) edits startup config and runs explicit diagnostics
+- [Saved characters](docs/P2P-CHARACTERS.md): local Classic character creation/selection,
+  persistent owner identity, appearance and position checkpoints; deliberate Enter World
 - Implemented: authenticated, encrypted TCP and optional iroh QUIC peer links; matching network,
-  protocol, exploration-contract version and ruleset fingerprints; separate temporary human-warrior
-  avatars in Northshire; peer movement and `/say`; join/disconnect cleanup
+  protocol, exploration-contract version and ruleset fingerprints; owner-authenticated saved
+  avatars at a shared Northshire meeting point; peer movement and `/say`; join/disconnect cleanup
 - Connectivity: explicit peer addresses on a LAN, reachable IPv6, or manually
   forwarded TCP ports by default. Opt-in `[p2p.internet]` uses private endpoint tickets,
   iroh NAT hole punching and encrypted relay fallback through explicitly configured
@@ -29,7 +31,7 @@ matchmaking service or elected game host runs in P2P mode.
   alone cannot discover peers; no public discovery or relay service is enabled by default.
   Real household NAT/CGNAT coverage has not been verified
 - Not implemented in P2P gameplay: combat/AI, spells, XP awards, drops/inventory,
-  quests, progression, character creation/customization, persistence, dynamic
+  quests, progression, durable shared-world simulation, dynamic
   simulation membership, authority transfer, dungeons, raids, economies or PvP
 - `[ruleset]` is validated and checked for equality when peers join. Its XP/drop
   settings do not create a missing gameplay system and do not currently award
@@ -46,13 +48,14 @@ matchmaking service or elected game host runs in P2P mode.
   Local confirmed ticks do not
   provide atomic distributed persistence or anti-cheat
 
-The PSK admits trusted group members. It does not prevent a member from cheating,
-impersonating a different member or sending false movement. Invalid authenticated
-messages end the local session; this prototype is not resilient to malicious members.
-The exploration-contract label is not a hash or attestation of installed WoW assets.
-Exploration launches create a new temporary identity; encounter mode uses explicit
-configured IDs and a fresh shared epoch. No character state is saved. The initial human-warrior
-appearance and spawn are fixed. Quit/restart to create or rejoin a session.
+The PSK admits group members; short or empty values are accepted but provide little or no
+private group access. Saved-character sessions additionally require a persistent owner-key
+signature bound to the encrypted connection. Character introductions and movement are bound
+to that authenticated owner. This does not prevent a member cheating about their own state,
+editing/restoring their own save, or causing denial of service. Invalid character frames are
+quarantined instead of being applied to another owner. The exploration-contract label is not
+an attestation of installed assets. Synthetic encounter mode remains a separate temporary-avatar
+fixture with an explicitly configured roster; it does not award persistent character rewards.
 
 Without a `[p2p]` table, the existing realm-client path remains available. The
 following feature list describes that path, with a compatible external 1.12.1
@@ -105,7 +108,9 @@ The format readers and the UI engine core are plain Rust with no Bevy in them, a
 renderer runs with no game attached. [`docs/MAP.md`](docs/MAP.md) maps every crate and subsystem,
 generated from the code.
 
-## Status
+## Upstream realm-client status
+
+The following describes the external-server client, not this fork's incomplete P2P simulation.
 
 Complete and fully playable. What is left:
 

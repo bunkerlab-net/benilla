@@ -64,24 +64,25 @@ fn unknown_fields_are_errors() {
     assert!(parse(&config("secret_typo = 1")).is_err());
 }
 #[test]
-fn invalid_passphrases_are_errors_without_echoing_values() {
-    for phrase in [
-        "".to_owned(),
-        "too short".to_owned(),
-        "some-passphrase".to_owned(),
-        SAMPLE_PASSPHRASE.to_owned(),
-        "REPLACE_WITH_64_HEX_CHARACTERS".to_owned(),
-        " ".repeat(16),
-        "x".repeat(64),
-        "a".repeat(1025),
-        "0123456789abcdef".repeat(4),
-        "é".repeat(513),
-    ] {
+fn oversized_passphrases_are_errors_without_echoing_values() {
+    for phrase in ["a".repeat(1025), "é".repeat(513)] {
         let error = parse(&config("").replace(TEST_PASSPHRASE, &phrase)).unwrap_err();
-        if !phrase.is_empty() && phrase.trim().len() > 1 {
-            assert!(!format!("{error} {error:?}").contains(&phrase));
-        }
+        assert!(!format!("{error} {error:?}").contains(&phrase));
     }
+}
+#[test]
+fn all_passphrase_lengths_and_contents_are_accepted_but_key_is_required() {
+    for phrase in [
+        "",
+        "x",
+        " ",
+        "too short",
+        "xxxxxxxxxxxxxxxx",
+        "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE",
+    ] {
+        assert!(parse(&config("").replace(TEST_PASSPHRASE, phrase)).is_ok());
+    }
+    assert!(parse("[p2p]").is_err());
 }
 #[test]
 fn case_whitespace_unicode_and_network_are_exact_key_inputs() {
@@ -107,22 +108,22 @@ fn case_whitespace_unicode_and_network_are_exact_key_inputs() {
     );
 }
 #[test]
-fn passphrase_limits_count_unicode_scalars_and_utf8_bytes() {
-    assert!(derive_psk("fifteen chars!!", "test-world").is_err());
+fn passphrase_resource_limit_counts_utf8_bytes() {
+    assert!(derive_psk("fifteen chars!!", "test-world").is_ok());
     assert!(derive_psk("sixteen chars!!!", "test-world").is_ok());
     assert!(derive_psk(&format!("a{}", "é".repeat(511)), "test-world").is_ok());
     assert!(derive_psk(&format!("ab{}", "é".repeat(511)), "test-world").is_ok());
     assert!(derive_psk(&format!("abc{}", "é".repeat(511)), "test-world").is_err());
 }
 #[test]
-fn legacy_hex_keys_are_never_silently_reinterpreted() {
-    let error = derive_psk(&"0123456789abcdef".repeat(4), "test-world").unwrap_err();
-    assert!(error.to_string().contains("legacy"));
-    assert!(error.to_string().contains("migrate"));
+fn hexadecimal_strings_are_passphrases_not_raw_keys() {
+    let key = derive_psk(&"0123456789abcdef".repeat(4), "test-world").unwrap();
+    let raw = std::array::from_fn(|i| [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef][i % 8]);
+    assert_ne!(key.0, raw);
 }
 #[test]
-fn sample_is_deliberately_unusable() {
-    assert!(parse(include_str!("../../../config.example.toml")).is_err());
+fn sample_parses_but_its_public_phrase_offers_no_privacy() {
+    assert!(parse(include_str!("../../../config.example.toml")).is_ok());
 }
 #[test]
 fn kdf_parameters_cannot_be_overridden_in_config() {
@@ -278,7 +279,8 @@ fn config_limits_match_peer_transport_contract() {
     assert!(parse(&config("timeout_ms=60000")).is_ok());
     assert!(parse(&config("timeout_ms=60001")).is_err());
     let key = "ff".repeat(32);
-    assert!(parse(&format!("[p2p]\npsk='{key}'")).is_err());
+    let config = parse(&format!("[p2p]\npsk='{key}'")).unwrap();
+    assert_ne!(config.p2p.unwrap().psk_bytes(), &[0xff; 32]);
 }
 
 #[test]

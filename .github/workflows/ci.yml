@@ -56,6 +56,8 @@ jobs:
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
+      - name: doc-links-gate-tests
+        run: python3 scripts/test-doc-links.py
       - name: doc-links
         run: scripts/doc-links.py
       - name: pass-span-lint

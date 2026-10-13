@@ -203,6 +203,7 @@ impl Cvars {
         self.row(name).map(|r| r.default.as_str())
     }
 
+    #[cfg(test)]
     pub(crate) fn is_session_owned(&self, name: &str) -> bool {
         self.session_owned.contains(&name.to_ascii_lowercase())
     }
@@ -830,6 +831,7 @@ fn save_config_when_quiet(mut cvars: ResMut<Cvars>) {
 
 impl Cvars {
     /// Login settings use the same registry and observers, but commit only after durable save.
+    #[cfg(test)]
     pub(crate) fn apply_settings(
         &mut self,
         changes: &BTreeMap<String, String>,

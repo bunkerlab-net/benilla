@@ -1,9 +1,16 @@
 # Login Settings
 
-The native login screen's **Settings** panel edits startup configuration and the
-client's registered graphics/audio controls. It stages changes until you choose
-Save; Cancel discards the draft. Startup networking, passphrase, ruleset and data
-path changes require a restart. Saving does not replace an active peer session.
+The login screen's **Settings** button opens the [existing WoW-style Options window](LOGIN-OPTIONS.md),
+with its normal categories and typed graphics/audio/interface controls. **Connection setup** is
+a separate editor for startup configuration and explicit network diagnostics, not a raw game-CVar
+settings replacement. Startup networking, passphrase, ruleset and data-path changes require a
+restart. Saving does not replace an active peer session.
+
+The startup RealmList shortcut is removed. Legacy realm addresses remain configurable through
+the normal `realmList` CVar in the client's local settings file. In P2P mode, the login display
+shows configured local IP addresses and port; a wildcard expands active local interfaces,
+including loopback and VPNs. These addresses do not prove external reachability, and no listener
+starts merely because they are displayed.
 
 The startup file is `config.toml` beside the executable. Existing comments and
 untouched fields are retained. Save validates the complete configuration, checks
@@ -18,7 +25,8 @@ first preserves the original in a private same-directory backup. Cancelling does
 not create a backup or change the file. Review every required field before saving
 and restarting; the blank draft does not retain the previous settings.
 
-Passphrases are masked by default. Reveal is deliberate. Endpoint tickets may
+Passphrases are masked by default. Reveal is deliberate. Any length, including empty, is
+accepted up to 1024 UTF-8 bytes; short or empty values carry a non-blocking security warning. Endpoint tickets may
 contain reachable addresses and relay information; reveal or copy them only when
 sharing with intended friends. A ticket does not contain the shared passphrase.
 

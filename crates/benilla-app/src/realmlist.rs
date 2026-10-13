@@ -92,6 +92,7 @@ impl Realmlist {
         &self.address
     }
 
+    #[cfg(test)]
     pub(crate) fn pinned_by_env(&self) -> bool {
         self.pinned_by_env
     }

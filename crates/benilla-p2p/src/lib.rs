@@ -1,14 +1,17 @@
 //! Fork-only peer transport: direct TCP, or explicitly configured iroh QUIC connectivity.
 //! Every peer can listen and dial; no central game authority is involved.
 //!
-//! A shared key grants group membership, not unique player identity. Members can impersonate
-//! each other. Internet mode uses private endpoint tickets, optional configured relays and
+//! Legacy `start`/`start_internet` grant group membership only: members can impersonate
+//! each other. Character backends must use `start_owned`/`start_internet_owned`, which also
+//! prove persistent Ed25519 owner identity, bound to each fresh Noise session and both peers'
+//! claims. Owned mode has a separate Noise prologue and never falls back to legacy mode. Internet mode uses private endpoint tickets, optional configured relays and
 //! opt-in router mapping. No secret-derived discovery identifier or public service is enabled.
 //! TCP remains the default. See `InternetConfig` for the separate internet-mode contract.
 //!
 //! Framing: four-byte big-endian length followed by a Noise message. The two-message
 //! handshake uses an application prologue. The first encrypted transport message is a
-//! bounded JSON Hello; subsequent messages begin with 0 (heartbeat) or 1 (application).
+//! bounded JSON Hello. Owned mode adds a public owner key and a transcript signature before
+//! admission. Subsequent messages begin with 0 (heartbeat) or 1 (application).
 //! Snow's ordered transport nonces reject replay/reordering; any framing, decryption,
 //! timeout, or protocol error closes the connection. Never resume a failed cipher state.
 //! Application-event overflow shuts down the network; callers must handle Disconnected.
@@ -25,7 +28,9 @@ use tokio::{
     time::{self, timeout},
 };
 use zeroize::Zeroizing;
+mod identity;
 mod internet;
+pub use identity::{owner_id_from_public_key, OwnerIdentity};
 pub use internet::InternetConfig;
 trait PeerStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
 impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> PeerStream for T {}
@@ -98,15 +103,30 @@ impl Default for TransportConfig {
 }
 #[derive(Clone, Debug)]
 pub enum Event {
+    /// On owned networks, `Hello.peer_id` is derived from the verified persistent owner key.
     PeerJoined(Hello),
     PeerLeft(PeerId),
-    Frame { peer_id: PeerId, payload: Vec<u8> },
-    Rejected { address: String, reason: String },
+    Frame {
+        peer_id: PeerId,
+        payload: Vec<u8>,
+    },
+    Rejected {
+        address: String,
+        reason: String,
+    },
 }
 #[derive(Clone, Debug)]
 pub enum Command {
     Broadcast(Vec<u8>),
-    Send { peer_id: PeerId, payload: Vec<u8> },
+    Send {
+        peer_id: PeerId,
+        payload: Vec<u8>,
+    },
+    /// Closes only the currently authenticated connection. Configured peers may reconnect;
+    /// applications that reject an owner must retain their own admission decision.
+    Disconnect {
+        peer_id: PeerId,
+    },
     Shutdown,
 }
 #[derive(Debug)]
@@ -154,7 +174,26 @@ pub struct Network {
     worker: Option<thread::JoinHandle<()>>,
 }
 impl Network {
+    /// Legacy group authentication only; `hello.peer_id` is not an authenticated owner.
     pub fn start(config: TransportConfig, psk: &[u8; 32], hello: Hello) -> Result<Self, Error> {
+        Self::start_mode(config, psk, hello, None)
+    }
+    /// Requires both peers to prove a persistent Ed25519 identity. No legacy fallback.
+    pub fn start_owned(
+        config: TransportConfig,
+        psk: &[u8; 32],
+        hello: Hello,
+        identity: OwnerIdentity,
+    ) -> Result<Self, Error> {
+        identity.validate_hello(&hello)?;
+        Self::start_mode(config, psk, hello, Some(identity))
+    }
+    fn start_mode(
+        config: TransportConfig,
+        psk: &[u8; 32],
+        hello: Hello,
+        identity: Option<OwnerIdentity>,
+    ) -> Result<Self, Error> {
         hello.validate()?;
         if config.max_peers == 0
             || config.max_peers > 64
@@ -182,7 +221,7 @@ impl Network {
         let worker = thread::Builder::new().name("benilla-p2p".into()).spawn(move || {
             runtime.block_on(async move {
                 if let Ok(listener) = TcpListener::from_std(listener) {
-                    tokio::select! { _ = run(internet::Backend::Tcp(listener),config,key,hello,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
+                    tokio::select! { _ = run(internet::Backend::Tcp(listener),config,key,hello,identity,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
                 }
             });
         })?;
@@ -250,15 +289,51 @@ async fn read_wire<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> Result<Ve
     reader.read_exact(&mut bytes).await?;
     Ok(bytes)
 }
+#[cfg(test)]
 async fn handshake<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
     stream: &mut S,
     key: &[u8; 32],
     local: &Hello,
     initiator: bool,
 ) -> Result<(snow::TransportState, Hello), Error> {
+    handshake_mode(stream, key, local, initiator, None).await
+}
+
+async fn handshake_mode<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    stream: &mut S,
+    key: &[u8; 32],
+    local: &Hello,
+    initiator: bool,
+    identity: Option<&OwnerIdentity>,
+) -> Result<(snow::TransportState, Hello), Error> {
+    let (mut transport, binding) =
+        noise_handshake(stream, key, initiator, identity.is_some()).await?;
+    if let Some(identity) = identity {
+        let remote =
+            identity::authenticate(stream, &mut transport, &binding, local, identity, initiator)
+                .await?;
+        return Ok((transport, remote));
+    }
+    let mut output = vec![0; MAX_WIRE];
+    let hello = serde_json::to_vec(local).map_err(|_| Error::Protocol("invalid local hello"))?;
+    let size = transport.write_message(&hello, &mut output)?;
+    write_wire(stream, &output[..size]).await?;
+    let size = transport.read_message(&read_wire(stream).await?, &mut output)?;
+    let remote: Hello = serde_json::from_slice(&output[..size])
+        .map_err(|_| Error::Protocol("invalid remote hello"))?;
+    local.compatible(&remote)?;
+    Ok((transport, remote))
+}
+
+async fn noise_handshake<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    stream: &mut S,
+    key: &[u8; 32],
+    initiator: bool,
+    owned: bool,
+) -> Result<(snow::TransportState, [u8; 32]), Error> {
     let builder = snow::Builder::new(NOISE.parse().map_err(|_| Error::Crypto)?)
         .psk(0, key)?
-        .prologue(PROLOGUE)?;
+        .prologue(if owned { identity::PROLOGUE } else { PROLOGUE })?;
     let mut noise = if initiator {
         builder.build_initiator()?
     } else {
@@ -274,15 +349,12 @@ async fn handshake<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
         let size = noise.write_message(&[], &mut output)?;
         write_wire(stream, &output[..size]).await?;
     }
-    let mut transport = noise.into_transport_mode()?;
-    let hello = serde_json::to_vec(local).map_err(|_| Error::Protocol("invalid local hello"))?;
-    let size = transport.write_message(&hello, &mut output)?;
-    write_wire(stream, &output[..size]).await?;
-    let size = transport.read_message(&read_wire(stream).await?, &mut output)?;
-    let remote: Hello = serde_json::from_slice(&output[..size])
-        .map_err(|_| Error::Protocol("invalid remote hello"))?;
-    local.compatible(&remote)?;
-    Ok((transport, remote))
+    // Capture only after both Noise messages: includes the fresh ephemeral keys and prologue.
+    let binding = noise
+        .get_handshake_hash()
+        .try_into()
+        .map_err(|_| Error::Crypto)?;
+    Ok((noise.into_transport_mode()?, binding))
 }
 
 struct LivePeer {
@@ -323,6 +395,7 @@ async fn run(
     config: TransportConfig,
     key: Zeroizing<[u8; 32]>,
     hello: Hello,
+    identity: Option<OwnerIdentity>,
     mut commands: async_mpsc::Receiver<Command>,
     events: mpsc::SyncSender<Event>,
     diagnostics: mpsc::SyncSender<Event>,
@@ -342,7 +415,7 @@ async fn run(
                 if let Some((candidate,address)) = accepted {
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
                         token += 1;
-                        launch_candidate(token,address,Some(candidate),&backend,key.clone(),hello.clone(),config.handshake_timeout,permit,updates.clone());
+                        launch_candidate(token,address,Some(candidate),&backend,key.clone(),hello.clone(),identity.clone(),config.handshake_timeout,permit,updates.clone());
                     }
                 }
             }
@@ -354,12 +427,20 @@ async fn run(
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
                         outbound_addresses.insert(address.clone());
                         token += 1;
-                        launch_candidate(token,address.clone(),None,&backend,key.clone(),hello.clone(),config.handshake_timeout,permit,updates.clone());
+                        launch_candidate(token,address.clone(),None,&backend,key.clone(),hello.clone(),identity.clone(),config.handshake_timeout,permit,updates.clone());
                     }
                 }
             }
             command = commands.recv() => match command {
                 Some(Command::Shutdown) | None => break,
+                Some(Command::Disconnect { peer_id }) => {
+                    if let Some(peer) = peers.remove(&peer_id) {
+                        peer.task.abort();
+                        // Removal is immediate: queued frames for this token are now ignored.
+                        // CloseGuard still frees outbound bookkeeping, without a second event.
+                        if events.try_send(Event::PeerLeft(peer_id)).is_err() { break; }
+                    }
+                }
                 Some(Command::Broadcast(payload)) => {
                     for peer in peers.values() { if peer.send.try_send(payload.clone()).is_err() { peer.task.abort(); } }
                 }
@@ -376,7 +457,7 @@ async fn run(
                 Some(Internal::Ready { token,address,outbound,stream,noise,hello: remote,permit }) => {
                     let id = remote.peer_id;
                     if outbound { known_outbound_ids.insert(address.clone(),id); }
-                    // Prefer the connection dialed by the lexicographically smaller ephemeral ID.
+                    // Prefer the connection dialed by the lexicographically smaller peer ID.
                     let preferred = outbound == (hello.peer_id < id);
                     if peers.get(&id).is_some_and(|old| old.preferred || !preferred) || (!peers.contains_key(&id) && peers.len() >= config.max_peers) {
                         if outbound { outbound_addresses.remove(&address); }
@@ -447,6 +528,7 @@ fn launch_candidate(
     backend: &internet::Backend,
     key: Zeroizing<[u8; 32]>,
     hello: Hello,
+    identity: Option<OwnerIdentity>,
     limit: Duration,
     permit: tokio::sync::OwnedSemaphorePermit,
     updates: async_mpsc::Sender<Internal>,
@@ -456,7 +538,8 @@ fn launch_candidate(
         let outbound = candidate.is_none();
         let result = timeout(limit, async {
             let mut stream = internet::connect(candidate, endpoint, &address).await?;
-            let (noise, remote) = handshake(&mut stream, &key, &hello, outbound).await?;
+            let (noise, remote) =
+                handshake_mode(&mut stream, &key, &hello, outbound, identity.as_ref()).await?;
             Ok::<_, Error>((stream, noise, remote))
         })
         .await

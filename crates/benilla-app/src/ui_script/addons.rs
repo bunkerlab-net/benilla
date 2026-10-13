@@ -878,6 +878,19 @@ impl benilla_ui::script::AddonLoad for Walk<'_> {
     }
 }
 
+/// Register only the player's stock LoadOnDemand modules for pre-login Options (combat text).
+/// User addons are not executed before a character session exists.
+pub(super) fn register_login_options_addons(script: &mut UiScript) {
+    let infos = chain_addons().iter().map(info_for).collect();
+    script.set_addon_chain_reader(Box::new(super::reference_ui::read));
+    script.register_addons(
+        infos,
+        None,
+        crate::local_state::addon_saved_account_dir(),
+        None,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     /// NTFS `$I30` order, not byte order: case folds away and `_` (0x5F) sorts after `Z` (0x5A).
@@ -2407,7 +2420,9 @@ mod tests {
         let _ = load_third_party(&mut script, None, &[], true);
 
         assert_eq!(
-            script.eval::<bool>("return IsAddOnLoaded('Base') == 1").ok(),
+            script
+                .eval::<bool>("return IsAddOnLoaded('Base') == 1")
+                .ok(),
             Some(true),
             "a startup-loaded addon reads as loaded, else a dependent answers DEP_NOT_DEMAND_LOADED"
         );

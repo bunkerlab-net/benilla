@@ -91,12 +91,32 @@ fn parse_ticket(ticket: &str) -> Result<EndpointAddr, Error> {
 }
 
 impl Network {
-    /// Starts the internet transport. TCP peers must be empty, so mode errors fail closed.
+    /// Legacy group authentication only. TCP peers must be empty, so mode errors fail closed.
     pub fn start_internet(
         config: TransportConfig,
         internet: InternetConfig,
         psk: &[u8; 32],
         hello: Hello,
+    ) -> Result<Self, Error> {
+        Self::start_internet_mode(config, internet, psk, hello, None)
+    }
+    /// Internet connectivity with persistent owner proofs; never accepts legacy peers.
+    pub fn start_internet_owned(
+        config: TransportConfig,
+        internet: InternetConfig,
+        psk: &[u8; 32],
+        hello: Hello,
+        identity: OwnerIdentity,
+    ) -> Result<Self, Error> {
+        identity.validate_hello(&hello)?;
+        Self::start_internet_mode(config, internet, psk, hello, Some(identity))
+    }
+    fn start_internet_mode(
+        config: TransportConfig,
+        internet: InternetConfig,
+        psk: &[u8; 32],
+        hello: Hello,
+        identity: Option<OwnerIdentity>,
     ) -> Result<Self, Error> {
         hello.validate()?;
         if !config.peers.is_empty()
@@ -157,7 +177,7 @@ impl Network {
         let worker = thread::Builder::new().name("benilla-internet".into()).spawn(move || {
             runtime.block_on(async move {
                 let backend = Backend::Internet { endpoint: endpoint.clone(), peers };
-                tokio::select! { _ = run(backend,config,key,hello,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
+                tokio::select! { _ = run(backend,config,key,hello,identity,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
                 // Best-effort bounded graceful close, including router mapping cleanup.
                 let _ = timeout(Duration::from_secs(2), endpoint.close()).await;
             });
@@ -396,6 +416,119 @@ mod tests {
         drop(a);
         assert!(matches!(next(&b), Event::PeerLeft(_)));
     }
+    fn owner(seed: u8) -> OwnerIdentity {
+        use ed25519_dalek::{Signer, SigningKey};
+        let key = SigningKey::from_bytes(&[seed; 32]);
+        OwnerIdentity::new(key.verifying_key().to_bytes(), move |challenge| {
+            let mut message = b"benilla-transport-identity-v1\0".to_vec();
+            message.extend_from_slice(challenge);
+            key.sign(&message).to_bytes()
+        })
+        .unwrap()
+    }
+    fn owned_hello(seed: u8) -> Hello {
+        let mut hello = hello(seed);
+        hello.peer_id = owner(seed).owner_id();
+        hello
+    }
+    #[test]
+    fn owned_quic_loopback_authenticates_persistent_owners_and_exchanges_frames() {
+        let a = Network::start_internet_owned(
+            config(),
+            InternetConfig::default(),
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        let b = Network::start_internet_owned(
+            config(),
+            InternetConfig {
+                peer_tickets: vec![ticket(&a)],
+                ..Default::default()
+            },
+            &key(),
+            owned_hello(2),
+            owner(2),
+        )
+        .unwrap();
+        assert!(matches!(next(&a), Event::PeerJoined(h) if h == owned_hello(2)));
+        assert!(matches!(next(&b), Event::PeerJoined(h) if h == owned_hello(1)));
+        b.try_send(Command::Broadcast(vec![9; MAX_PAYLOAD_SIZE]))
+            .unwrap();
+        assert!(matches!(next(&a), Event::Frame { peer_id, payload }
+            if peer_id == owner(2).owner_id() && payload == vec![9; MAX_PAYLOAD_SIZE]));
+        drop(b);
+        assert!(matches!(next(&a), Event::PeerLeft(id) if id == owner(2).owner_id()));
+    }
+    #[test]
+    fn disconnect_removes_only_the_targeted_quic_owner() {
+        let a = Network::start_internet_owned(
+            config(),
+            InternetConfig::default(),
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        let peer_config = InternetConfig {
+            peer_tickets: vec![ticket(&a)],
+            ..Default::default()
+        };
+        let b = Network::start_internet_owned(
+            config(),
+            peer_config.clone(),
+            &key(),
+            owned_hello(2),
+            owner(2),
+        )
+        .unwrap();
+        assert!(matches!(next(&a), Event::PeerJoined(h) if h == owned_hello(2)));
+        assert!(matches!(next(&b), Event::PeerJoined(h) if h == owned_hello(1)));
+        let c =
+            Network::start_internet_owned(config(), peer_config, &key(), owned_hello(3), owner(3))
+                .unwrap();
+        assert!(matches!(next(&a), Event::PeerJoined(h) if h == owned_hello(3)));
+        assert!(matches!(next(&c), Event::PeerJoined(h) if h == owned_hello(1)));
+        a.try_send(Command::Disconnect {
+            peer_id: owner(2).owner_id(),
+        })
+        .unwrap();
+        assert!(matches!(next(&a), Event::PeerLeft(id) if id == owner(2).owner_id()));
+        assert!(matches!(next(&b), Event::PeerLeft(id) if id == owner(1).owner_id()));
+        c.try_send(Command::Broadcast(b"unaffected QUIC owner".to_vec()))
+            .unwrap();
+        assert!(matches!(next(&a), Event::Frame { peer_id, payload }
+            if peer_id == owner(3).owner_id() && payload == b"unaffected QUIC owner"));
+        a.try_send(Command::Broadcast(b"continues running".to_vec()))
+            .unwrap();
+        assert!(matches!(next(&c), Event::Frame { peer_id, payload }
+            if peer_id == owner(1).owner_id() && payload == b"continues running"));
+        assert!(matches!(a.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    }
+    #[test]
+    fn owned_quic_rejects_legacy_group_only_peers() {
+        let a = Network::start_internet_owned(
+            config(),
+            InternetConfig::default(),
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        let b = Network::start_internet(
+            config(),
+            InternetConfig {
+                peer_tickets: vec![ticket(&a)],
+                ..Default::default()
+            },
+            &key(),
+            hello(2),
+        )
+        .unwrap();
+        assert!(matches!(next(&a), Event::Rejected { .. }));
+        assert!(matches!(next(&b), Event::Rejected { .. }));
+    }
     #[test]
     fn quic_wrong_psk_never_joins() {
         let a =
@@ -419,6 +552,13 @@ mod tests {
     // regression test, not proof that hole punching works across household NATs or CGNAT.
     #[tokio::test]
     async fn relay_only_stream_retains_end_to_end_psk_authentication() {
+        relay_only(false).await;
+    }
+    #[tokio::test]
+    async fn relay_only_stream_retains_end_to_end_owner_authentication() {
+        relay_only(true).await;
+    }
+    async fn relay_only(owned: bool) {
         timeout(Duration::from_secs(20), async {
             let (relays, _, _server) = iroh::test_utils::run_relay_server_with(false)
                 .await
@@ -457,10 +597,16 @@ mod tests {
                 )
                 .await
                 .unwrap();
-                let (mut noise, remote) = handshake(&mut stream, &key(), &hello(1), false)
-                    .await
-                    .unwrap();
-                assert_eq!(remote.peer_id, [2; 16]);
+                let identity = owned.then(|| owner(1));
+                let local = if owned { owned_hello(1) } else { hello(1) };
+                let (mut noise, remote) =
+                    handshake_mode(&mut stream, &key(), &local, false, identity.as_ref())
+                        .await
+                        .unwrap();
+                assert_eq!(
+                    remote.peer_id,
+                    if owned { owner(2).owner_id() } else { [2; 16] }
+                );
                 let ciphertext = read_wire(&mut stream).await.unwrap();
                 let mut clear = [0; 64];
                 let len = noise.read_message(&ciphertext, &mut clear).unwrap();
@@ -468,9 +614,12 @@ mod tests {
             };
             let send = async {
                 let mut stream = connect(None, Some(b.clone()), &address).await.unwrap();
-                let (mut noise, _) = handshake(&mut stream, &key(), &hello(2), true)
-                    .await
-                    .unwrap();
+                let identity = owned.then(|| owner(2));
+                let local = if owned { owned_hello(2) } else { hello(2) };
+                let (mut noise, _) =
+                    handshake_mode(&mut stream, &key(), &local, true, identity.as_ref())
+                        .await
+                        .unwrap();
                 let mut ciphertext = [0; 64];
                 let len = noise
                     .write_message(b"private relayed frame", &mut ciphertext)

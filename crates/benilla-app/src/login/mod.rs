@@ -119,17 +119,17 @@ impl Plugin for LoginPlugin {
                         tick_login_caret,
                         screen::refresh_boxes,
                         screen::refresh_checkbox,
+                        screen::refresh_options_visibility,
                         // The shared glue dialog stays inside this chain: ordering it from outside
                         // would order a shared painter against its own `SystemTypeSet`, which
                         // panics at schedule build, at boot, where no unit test sees it.
                         crate::glue::dialog::drive_glue_dialog
                             .run_if(crate::ui_script::glue::native_glue),
                         answer_dialog,
-                        // After the driver: it spawns the dialog's edit box, and a realmlist Okay
-                        // changes the address repainted here.
+                        // Paint dialog fields after their driver, alongside the read-only peer endpoint list.
                         (
                             crate::glue::dialog::refresh_dialog_box,
-                            screen::refresh_realmlist,
+                            screen::refresh_listen_addresses,
                         ),
                     )
                         .chain()
@@ -200,12 +200,17 @@ pub(super) struct Attempt<'w> {
     submit: Res<'w, LoginSubmit>,
     abandon: Res<'w, LoginAbandon>,
     realmlist: Res<'w, crate::realmlist::Realmlist>,
+    p2p: Option<Res<'w, crate::net::P2pSettings>>,
 }
 
 impl Attempt<'_> {
     /// Send one login attempt to the parked IO thread, stamped with the abandon generation. The
     /// realmlist is read at submit time, so an attempt keeps the server it started with.
     fn send(&mut self, user: &str, pass: &str, announced: bool) {
+        // P2P never sends realm credentials, including stock-glue and smoke requests.
+        if self.p2p.is_some() {
+            return;
+        }
         self.intent.creds = Some((user.to_string(), pass.to_string()));
         self.intent.in_flight = true;
         self.intent.announced = announced;
@@ -510,6 +515,7 @@ fn logon_refusal_text(strings: &GlueStrings, code: Option<u8>) -> &str {
 
 /// The policy tick and the net-message reactions; the screen's own submit is [`login_input`]'s.
 fn drive_policy(
+    options: Option<Res<crate::ui_script::login_options::LoginOptions>>,
     mut attempt: Attempt,
     realm_list_up: Res<crate::realm_select::Realms>,
     mut dialog: ResMut<GlueDialog>,
@@ -521,6 +527,9 @@ fn drive_policy(
     mut disconnects: MessageReader<DisconnectedMessage>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    if attempt.p2p.is_some() || options.as_ref().is_some_and(|o| o.active || o.requested) {
+        return;
+    }
     let now = time.elapsed_secs();
     // A driverless run exits non-zero ("login: FATAL") on a failure no resubmit can change, as
     // [`crate::run_mode::fatal_when_driverless`] decides; the smoke owns its own verdict.
@@ -836,6 +845,9 @@ fn login_input(
         ResMut<settings::Settings>,
         Res<crate::cvars::Cvars>,
         Option<Res<settings::ConfigRecovery>>,
+        Option<ResMut<crate::ui_script::login_options::LoginOptions>>,
+        Option<ResMut<crate::net::P2pStart>>,
+        Option<Res<crate::entities::CharCreate>>,
     ),
     presses: Query<(Entity, &LoginAction, Ref<Interaction>)>,
     clicks: Res<crate::glue::GlueClicks>,
@@ -856,10 +868,16 @@ fn login_input(
     // The reference's `RealmList` is a DIALOG-strata frame over this screen, so while it is up
     // everything here is inert, Escape included (it is the list's Cancel), through the frame
     // its own Escape closes it in.
-    let (mut settings, cvars, recovery) = settings_state;
-    if realms.owns_input() || settings.open {
+    let (mut settings, cvars, recovery, mut options, mut p2p_start, catalog) = settings_state;
+    if realms.owns_input()
+        || settings.open
+        || options.as_ref().is_some_and(|o| o.active || o.requested)
+    {
         keyboard.clear();
         return;
+    }
+    if let Some(error) = options.as_deref_mut().and_then(|o| o.error.take()) {
+        dialog.open_error(&error);
     }
     let empty = GlueStrings::default();
     let strings = strings.as_deref().unwrap_or(&empty);
@@ -891,28 +909,18 @@ fn login_input(
             LoginAction::Login => do_login = true,
             LoginAction::Quit => do_quit = true,
             LoginAction::Settings => {
-                settings.open(&cvars, recovery.as_deref());
+                if let Some(options) = options.as_deref_mut() {
+                    options.requested = true;
+                } else {
+                    dialog.open_error("Game settings are not available yet.");
+                }
                 keyboard.clear();
                 return;
             }
-            LoginAction::Realmlist => {
-                // `gsLoginNewAccount`, which the reference plays for this corner's other buttons
-                // (`AccountLogin_ManageAccount`, `AccountLogin_LaunchCommunitySite`).
-                sounds.write(GlueSound("gsLoginNewAccount"));
-                if attempt.realmlist.pinned_by_env() {
-                    // `$WOW_HOST` owns the address for the session; say so rather than open an
-                    // editor whose Okay would do nothing.
-                    dialog.open_error(&format!(
-                        "$WOW_HOST is set for this session, so the realmlist is fixed at {}.",
-                        attempt.realmlist.address(),
-                    ));
-                } else {
-                    dialog.open_realmlist(
-                        // The reference's registered help text for the `realmList` CVar.
-                        "Address of realm list server",
-                        attempt.realmlist.address(),
-                    );
-                }
+            LoginAction::ConnectionSetup => {
+                settings.open(&cvars, recovery.as_deref());
+                keyboard.clear();
+                return;
             }
             LoginAction::ToggleSave => {
                 form.save = !form.save;
@@ -951,6 +959,9 @@ fn login_input(
         }
         // The shared edit box first; what it leaves unclaimed is the screen's (Tab here, Enter
         // and Escape below).
+        if attempt.p2p.is_some() {
+            continue;
+        }
         if textinput::feed_key(
             form.focused(),
             ev,
@@ -987,6 +998,21 @@ fn login_input(
     if do_login && recovery.is_some() {
         settings.open(&cvars, recovery.as_deref());
         return;
+    }
+    if do_login && attempt.p2p.is_some() {
+        match p2p_start.as_deref_mut() {
+            Some(start) if start.can_start() => {
+                if let Err(error) = start.start(catalog.as_deref().map(|c| &c.0)) {
+                    dialog.open_error(&error);
+                }
+            }
+            Some(_) => {
+                dialog.open_error("P2P characters are already open or the session is closing.")
+            }
+            None => dialog
+                .open_error("P2P is unavailable. Check Connection setup and restart the client."),
+        }
+        do_login = false;
     }
     if do_login && !attempt.intent.in_flight {
         // `gsLogin` on every press: `AccountLogin_Login` plays it before `DefaultServerLogin`,
@@ -1205,6 +1231,54 @@ mod tests {
         app.world_mut().resource_mut::<LoginIntent>().env_read = true;
         // Returned, not dropped: a dropped receiver turns every submit into an `Err`.
         (app, rx)
+    }
+
+    #[test]
+    fn options_pause_pending_realm_credentials() {
+        for requested in [false, true] {
+            let (mut app, requests) = policy_app();
+            app.insert_resource(crate::ui_script::login_options::LoginOptions {
+                requested,
+                active: !requested,
+                ..default()
+            });
+            let mut intent = app.world_mut().resource_mut::<LoginIntent>();
+            intent.creds = Some(("player".into(), "secret".into()));
+            intent.retry_at = Some(0.0);
+            app.update();
+            assert!(requests.try_recv().is_err());
+            assert!(!app.world().resource::<LoginIntent>().in_flight);
+        }
+    }
+
+    #[test]
+    fn p2p_blocks_pending_and_explicit_realm_credentials() {
+        let config = benilla_config::AppConfig::parse(
+            "[p2p]\nenabled = true\npsk = 'private-test-passphrase-2026'\n",
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        let (mut app, requests) = policy_app();
+        app.insert_resource(crate::net::P2pSettings(config.p2p.unwrap(), config.ruleset))
+            .insert_resource(State::new(ClientState::Login))
+            .add_message::<GlueLogin>()
+            .add_systems(Update, answer_glue.after(drive_policy));
+        let mut intent = app.world_mut().resource_mut::<LoginIntent>();
+        intent.env_read = false;
+        intent.creds = Some(("player".into(), "secret".into()));
+        intent.retry_at = Some(0.0);
+        app.world_mut().write_message(GlueLogin::Submit {
+            account: "player".into(),
+            password: "secret".into(),
+        });
+        app.update();
+        assert!(requests.try_recv().is_err());
+        let intent = app.world().resource::<LoginIntent>();
+        assert!(!intent.in_flight);
+        assert!(
+            !intent.env_read,
+            "P2P never even reads automatic realm credentials"
+        );
     }
 
     /// Escape on the realm list over this screen closes the list and nothing else: the press is

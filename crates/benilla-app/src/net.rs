@@ -22,10 +22,11 @@ use benilla_world::schedule::WorldStage;
 mod apply;
 pub(crate) mod handlers;
 pub(crate) mod io;
+pub(crate) mod listen_addresses;
 mod motion;
 mod objects;
 mod p2p;
-pub(crate) use p2p::P2pEndpointTicket;
+pub(crate) use p2p::{P2pEndpointTicket, P2pStart};
 
 /// Fork-only backend settings, inserted before the networking plugin is built.
 #[derive(Resource, Clone)]
@@ -77,10 +78,18 @@ impl Plugin for NetPlugin {
             && !app
                 .world()
                 .contains_resource::<crate::login::settings::ConfigRecovery>();
+        crate::shutdown::on_app_exit(app, p2p::shutdown.into_configs());
+        app.add_systems(Update, p2p::refresh_local_zone.after(WorldStage::Present));
         app.init_resource::<P2pEndpointTicket>();
         let ticket = app.world().resource::<P2pEndpointTicket>().clone();
         let handles = match (connect, app.world().get_resource::<P2pSettings>()) {
-            (true, Some(settings)) => p2p::spawn(settings.clone(), ticket),
+            (true, Some(settings)) => {
+                // Fork deviation: configuration selects the backend, but only the login
+                // screen's explicit exploration/test action may open its transport.
+                let (handles, start) = p2p::prepare(settings.clone(), ticket);
+                app.insert_resource(start);
+                handles
+            }
             _ => io::spawn_net(connect),
         };
         if !connect {

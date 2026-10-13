@@ -92,23 +92,13 @@ fn content(
     art: &crate::glue::art::GlueArt,
     s: f32,
 ) {
-    label(ui, "Settings", s * 1.4);
-    ui.spawn(row(s)).with_children(|r| {
-        for (page, title) in [
-            (Page::Graphics, "Graphics"),
-            (Page::Audio, "Sound"),
-            (Page::All, "Advanced CVars"),
-            (Page::Startup, "Startup / P2P"),
-        ] {
-            button(r, Action::Page(page), title, s);
-        }
-    });
-    let help = if settings.page == Some(Page::Startup) {
-        "Startup: executable config.toml. Save requires restart. Passphrase is stored locally."
-    } else {
-        "Game settings: engine CVars. Click a row to edit. Session-controlled rows are read-only."
-    };
-    label(ui, help, s * 0.82);
+    label(ui, "Connection setup", s * 1.4);
+    label(
+        ui,
+        "Executable config.toml. Save requires restart. Passphrase is stored locally.",
+        s * 0.82,
+    );
+    label(ui, "Short or empty passphrases are allowed. Empty gives no privacy; short phrases are easy to guess.", s * 0.82);
     for (i, field) in settings
         .fields
         .iter()
@@ -118,7 +108,7 @@ fn content(
     {
         let value = if field.secret {
             if field.value.is_empty() {
-                "(not set)".into()
+                "(empty; no privacy)".into()
             } else {
                 "********".into()
             }
@@ -154,17 +144,10 @@ fn content(
     if let Some(i) = settings.selected {
         edit_field(ui, settings, i, art, s);
     }
-    if settings.page == Some(Page::Startup) {
-        startup_controls(ui, settings, s);
-    }
+    startup_controls(ui, settings, s);
     label(ui, &settings.status, s * 0.88);
     ui.spawn(row(s)).with_children(|r| {
-        let title = if settings.page == Some(Page::Startup) {
-            "Save startup settings"
-        } else {
-            "Save game settings"
-        };
-        button(r, Action::Save, title, s);
+        button(r, Action::Save, "Save startup settings", s);
         button(r, Action::Cancel, "Close / discard unsaved", s);
     });
 }
@@ -188,16 +171,32 @@ fn edit_field(
         ),
         s,
     );
-    let help=match settings.fields[i].name.as_str() {
-        "p2p.psk"=>"Use a private shared passphrase, at least 16 characters. Exact spaces/case matter.",
-        "p2p.internet.enabled"=>"true selects QUIC + explicit relays; false selects direct TCP. Clear p2p.peers for Internet mode.",
-        "p2p.internet.port_mapping"=>"false is the safe default. true explicitly permits router port mapping after restart.",
-        "p2p.encounter.roster"=>"TOML list: [{ id = \"32 hex chars\", address = \"IP:port\" }, ...]. Fixed roster must include every peer.",
-        "p2p.encounter.epoch"=>"64 nonzero hex characters, shared freshly for each encounter restart. Internet + encounter is unsupported.",
-        "p2p.internet.peer_tickets"=>"TOML list of quoted endpoint tickets, shared privately. Tickets expire when the remote restarts.",
-        "p2p.peers" | "p2p.internet.relay_urls"=>"TOML list of quoted addresses, for example [\"address\", \"address\"].",
-        "wow.data"=>"The Data folder in your own 1.12.1 install. Empty uses normal discovery; relative paths start beside the executable.",
-        _=>"Changes stay in this draft until Save. Boolean startup fields use true or false.",
+    let help = match settings.fields[i].name.as_str() {
+        "p2p.psk" => {
+            "Any length is allowed (max 1024 UTF-8 bytes). Random words are safer. Exact spaces/case matter."
+        }
+        "p2p.internet.enabled" => {
+            "true selects QUIC + explicit relays; false selects direct TCP. Clear p2p.peers for Internet mode."
+        }
+        "p2p.internet.port_mapping" => {
+            "false is the safe default. true explicitly permits router port mapping after restart."
+        }
+        "p2p.encounter.roster" => {
+            "TOML list: [{ id = \"32 hex chars\", address = \"IP:port\" }, ...]. Fixed roster must include every peer."
+        }
+        "p2p.encounter.epoch" => {
+            "64 nonzero hex characters, shared freshly for each encounter restart. Internet + encounter is unsupported."
+        }
+        "p2p.internet.peer_tickets" => {
+            "TOML list of quoted endpoint tickets, shared privately. Tickets expire when the remote restarts."
+        }
+        "p2p.peers" | "p2p.internet.relay_urls" => {
+            "TOML list of quoted addresses, for example [\"address\", \"address\"]."
+        }
+        "wow.data" => {
+            "The Data folder in your own 1.12.1 install. Empty uses normal discovery; relative paths start beside the executable."
+        }
+        _ => "Changes stay in this draft until Save. Boolean startup fields use true or false.",
     };
     label(ui, help, s * 0.78);
     ui.spawn(row(s)).with_children(|r| {
@@ -261,5 +260,9 @@ fn startup_controls(ui: &mut ChildSpawnerCommands, settings: &Settings, s: f32) 
             s * 0.78,
         );
     }
-    label(ui,"Tests run only when clicked. TCP success does not prove PSK, relay or Internet reachability.",s*0.78);
+    label(
+        ui,
+        "Tests run only when clicked. TCP success does not prove PSK, relay or Internet reachability.",
+        s * 0.78,
+    );
 }

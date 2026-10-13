@@ -1,4 +1,4 @@
-//! Fork-only login settings: actual engine CVars plus executable-adjacent startup config.
+//! Connection setup: executable-adjacent startup config and explicit diagnostics.
 //! Draft edits do nothing until Save; startup changes require restarting the process.
 mod diagnostics;
 #[cfg(test)]
@@ -15,13 +15,6 @@ use std::collections::BTreeMap;
 
 #[derive(Resource)]
 pub(crate) struct ConfigRecovery(pub String);
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Page {
-    Graphics,
-    Audio,
-    All,
-    Startup,
-}
 #[derive(Clone)]
 struct Field {
     name: String,
@@ -33,7 +26,6 @@ struct Field {
 pub(super) struct Settings {
     pub(super) open: bool,
     fields: Vec<Field>,
-    page: Option<Page>,
     offset: usize,
     selected: Option<usize>,
     pub(super) edit: EditBoxState,
@@ -47,7 +39,6 @@ pub(super) struct Settings {
 }
 #[derive(Component, Clone, Copy)]
 pub(super) enum Action {
-    Page(Page),
     Select(usize),
     Previous,
     Next,
@@ -105,14 +96,7 @@ impl Settings {
                 error.0
             );
         }
-        self.switch(
-            if recovery.is_some() {
-                Page::Startup
-            } else {
-                Page::Graphics
-            },
-            cvars,
-        );
+        self.refresh_fields(cvars);
     }
     fn keep_edit(&mut self) {
         if let Some(i) = self.selected {
@@ -123,59 +107,41 @@ impl Settings {
             }
         }
     }
-    fn switch(&mut self, page: Page, cvars: &Cvars) {
+    fn refresh_fields(&mut self, _cvars: &Cvars) {
         self.keep_edit();
         self.selected = None;
         self.edit = EditBoxState::default();
         self.offset = 0;
-        self.page = Some(page);
-        self.fields = if page == Page::Startup {
-            STARTUP
-                .iter()
-                .map(|(name, default, secret)| {
-                    let (section, key) = name.rsplit_once('.').unwrap();
-                    let value = self
-                        .changes
-                        .get(*name)
-                        .cloned()
-                        .or_else(|| {
-                            self.config.as_ref().and_then(|c| {
-                                if *name == "p2p.encounter.enabled" {
-                                    Some(c.has_section("p2p.encounter").to_string())
-                                } else if *name == "p2p.internet.enabled" {
-                                    Some(c.has_section("p2p.internet").to_string())
-                                } else if *name == "p2p.enabled" {
-                                    Some(c.has_section("p2p").to_string())
-                                } else {
-                                    c.get(section, key)
-                                }
-                            })
+        self.fields = STARTUP
+            .iter()
+            .map(|(name, default, secret)| {
+                let (section, key) = name.rsplit_once('.').unwrap();
+                let value = self
+                    .changes
+                    .get(*name)
+                    .cloned()
+                    .or_else(|| {
+                        self.config.as_ref().and_then(|c| {
+                            if *name == "p2p.encounter.enabled" {
+                                Some(c.has_section("p2p.encounter").to_string())
+                            } else if *name == "p2p.internet.enabled" {
+                                Some(c.has_section("p2p.internet").to_string())
+                            } else if *name == "p2p.enabled" {
+                                Some(c.has_section("p2p").to_string())
+                            } else {
+                                c.get(section, key)
+                            }
                         })
-                        .unwrap_or_else(|| (*default).into());
-                    Field {
-                        name: (*name).into(),
-                        value,
-                        secret: *secret,
-                        locked: self.config.is_none(),
-                    }
-                })
-                .collect()
-        } else {
-            cvars
-                .rows()
-                .filter(|r| matches_page(page, &r.name))
-                .map(|r| Field {
-                    name: r.name.clone(),
-                    value: self
-                        .changes
-                        .get(&r.name)
-                        .cloned()
-                        .unwrap_or_else(|| r.pending.as_ref().unwrap_or(&r.value).clone()),
-                    secret: false,
-                    locked: cvars.is_session_owned(&r.name),
-                })
-                .collect()
-        };
+                    })
+                    .unwrap_or_else(|| (*default).into());
+                Field {
+                    name: (*name).into(),
+                    value,
+                    secret: *secret,
+                    locked: self.config.is_none(),
+                }
+            })
+            .collect();
         self.refresh = true;
     }
     fn select(&mut self, index: usize) {
@@ -279,64 +245,21 @@ impl Settings {
             editor.remove_section("p2p");
         }
         if enabled && editor.get("p2p", "psk").is_none() {
-            return Err("Enter a P2P passphrase before enabling P2P".into());
+            editor.set_string("p2p", "psk", "");
         }
         Ok(editor)
     }
     fn save(&mut self, cvars: &mut Cvars) -> Result<(), String> {
         self.keep_edit();
-        if self.page == Some(Page::Startup) {
-            let mut editor = self.prepare_config()?;
-            editor.save().map_err(|e| e.to_string())?;
-            self.config = Some(editor);
-            self.changes.retain(|key, _| !key.contains('.'));
-            self.status = "Startup settings saved. Restart Benilla to use them; the current connection is unchanged.".into();
-        } else {
-            let game = self
-                .changes
-                .iter()
-                .filter(|(key, _)| !key.contains('.'))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            cvars.apply_settings(&game)?;
-            self.changes.retain(|key, _| key.contains('.'));
-            self.status =
-                "Game settings saved and applied through the engine settings registry.".into();
-        }
+        let mut editor = self.prepare_config()?;
+        editor.save().map_err(|e| e.to_string())?;
+        self.config = Some(editor);
+        self.changes.clear();
+        self.status = "Startup settings saved. Restart Benilla to use them; the current connection is unchanged.".into();
         self.selected = None;
         self.edit = EditBoxState::default();
-        self.switch(self.page.unwrap_or(Page::Graphics), cvars);
+        self.refresh_fields(cvars);
         Ok(())
-    }
-}
-fn matches_page(page: Page, name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    match page {
-        Page::Audio => {
-            lower.contains("sound") || lower.contains("volume") || lower.contains("music")
-        }
-        Page::Graphics => {
-            lower.starts_with("gx")
-                || [
-                    "farclip",
-                    "nearclip",
-                    "worlddetail",
-                    "frilldensity",
-                    "renderscale",
-                    "uiscale",
-                    "useuiscale",
-                    "gamma",
-                    "trilinear",
-                    "anisotropic",
-                    "basemip",
-                    "terrainmip",
-                    "shadowlevel",
-                    "ffxglow",
-                ]
-                .contains(&lower.as_str())
-        }
-        Page::All => true,
-        Page::Startup => false,
     }
 }
 pub(super) fn input(
@@ -371,7 +294,6 @@ pub(super) fn input(
                 keyboard.clear();
                 return;
             }
-            Action::Page(page) => settings.switch(page, &cvars),
             Action::Select(i) => settings.select(i),
             Action::Previous | Action::Next => {
                 settings.keep_edit();
@@ -430,7 +352,7 @@ pub(super) fn input(
                         settings.config = Some(editor);
                         settings.changes.clear();
                         settings.selected = None;
-                        settings.switch(Page::Startup, &cvars);
+                        settings.refresh_fields(&cvars);
                         settings.status="Blank repair discards previous settings from the new draft. Save backs up the old file as config.toml.invalid-*.bak. P2P is OFF until enabled; Close discards this draft.".into();
                     }
                     Err(error) => settings.status = error,

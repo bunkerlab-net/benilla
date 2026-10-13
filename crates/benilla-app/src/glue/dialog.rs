@@ -136,6 +136,7 @@ impl GlueDialog {
         self.set_text("");
     }
     /// Open the realmlist editor over `current`, the whole value selected to be typed over.
+    #[cfg(test)]
     pub(crate) fn open_realmlist(&mut self, prompt: &str, current: &str) {
         self.kind = Some(DialogKind::Realmlist);
         self.edit = crate::textinput::field(crate::realmlist::MAX_LETTERS, false);

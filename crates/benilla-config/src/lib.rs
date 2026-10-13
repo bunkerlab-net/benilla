@@ -23,9 +23,7 @@ pub const PASSPHRASE_KDF_VERSION: u32 = 1;
 const KDF_MEMORY_KIB: u32 = 65_536;
 const KDF_ITERATIONS: u32 = 3;
 const KDF_LANES: u32 = 4;
-const MIN_PASSPHRASE_CHARS: usize = 16;
 const MAX_PASSPHRASE_BYTES: usize = 1024;
-const SAMPLE_PASSPHRASE: &str = "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE";
 
 #[derive(Clone, Debug, Default)]
 pub struct AppConfig {
@@ -463,21 +461,11 @@ fn validate_p2p(raw: RawP2p) -> Result<P2pConfig, ConfigError> {
 }
 
 fn derive_psk(passphrase: &str, network: &str) -> Result<SecretPsk, ConfigError> {
-    if passphrase.len() > MAX_PASSPHRASE_BYTES || passphrase.chars().count() < MIN_PASSPHRASE_CHARS
-    {
-        return Err(invalid("p2p.psk must be a private passphrase of at least 16 Unicode characters and at most 1024 UTF-8 bytes"));
+    if passphrase.len() > MAX_PASSPHRASE_BYTES {
+        return Err(invalid("p2p.psk must be at most 1024 UTF-8 bytes"));
     }
-    if passphrase.len() == 64 && passphrase.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(invalid("p2p.psk looks like a legacy raw hexadecimal key; migrate this config to a private passphrase and update every peer"));
-    }
-    let first = passphrase.chars().next().expect("minimum length checked");
-    if passphrase.chars().all(|c| c == first)
-        || passphrase.chars().all(char::is_whitespace)
-        || passphrase == SAMPLE_PASSPHRASE
-        || passphrase == "REPLACE_WITH_64_HEX_CHARACTERS"
-    {
-        return Err(invalid("p2p.psk must not be an example, blank or repeated-character placeholder; choose a private randomly generated passphrase"));
-    }
+    // Deliberately accept every exact string, including empty, short, repeated and hexadecimal
+    // strings. Strength advice belongs in the UI/docs; the only bound is resource protection.
     // RFC 9106's second recommended Argon2id profile. These are protocol constants, not
     // peer-controlled or config-tunable values; no negotiation or legacy raw-hex fallback.
     let params = Params::new(KDF_MEMORY_KIB, KDF_ITERATIONS, KDF_LANES, Some(32))

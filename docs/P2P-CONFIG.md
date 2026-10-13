@@ -6,23 +6,37 @@ stock client's CVar settings in `benilla-config/config.toml`. The terminal's wor
 is never searched. Copy [the example](../config.example.toml) beside your binary and replace its
 PSK placeholder before starting. No file means the original realm client; an existing malformed
 or unreadable file stops startup before any network connection. Presence of `[p2p]` selects the
-experimental peer backend, never a fallback realm connection.
+experimental peer backend, never a fallback realm connection. The client stays at the login
+screen until you deliberately choose Start/Join. This opens local character selection and
+creation; **Enter World** starts the listener and peer connections for the selected saved
+character. Loading configuration or opening Settings does not dial peers/relays or request
+router mappings. The optional synthetic encounter test also requires an explicit start.
+
+Exploration provides saved characters, movement and chat. See [character profiles](P2P-CHARACTERS.md)
+for private identity storage, checkpointing and recovery limits. All races initially share the
+Northshire meeting spawn; canonical racial start zones, NPC population, combat, abilities,
+quests, XP and loot remain unfinished. One peer can enter alone without waiting for configured
+offline peers. Shared-world simulation and offline-world merging are not implemented.
 
 ## Peers and secrets
 
 `p2p.psk` is a shared private **passphrase**, not a raw hexadecimal key. Choose at least six
 independently random words using a trusted password manager, distribute it privately, and keep
 the config private (on Unix, use `chmod 600 config.toml`). Do not reuse an account password or
-copy a phrase from this documentation, tests, songs or quotations. A minimum length check does
-not establish strength; a long predictable sentence is still guessable. There is no default
-secret, and the example placeholder is deliberately rejected.
+copy a phrase from this documentation, tests, songs or quotations. A long predictable sentence
+is still guessable. There is no default secret: the key must be explicitly present. The public
+example phrase is accepted but offers no privacy and should be replaced.
 
-Passphrases must contain at least 16 Unicode scalar values and at most 1024 UTF-8 bytes. The
+Passphrases may have any length, including an explicitly empty string, up to the 1024 UTF-8
+byte resource-safety limit. Short or empty values are accepted but easily guessed; an empty
+value provides no private group access. Hexadecimal-looking strings are ordinary passphrases,
+never interpreted as raw keys. The
 exact decoded TOML string is used: case, leading/trailing spaces, punctuation and Unicode
 composition all matter. Nothing is trimmed, normalized or case-folded. All players must enter
 the identical passphrase and `network`. Do not send either the passphrase or its derived key in
 bug reports, screenshots, issue text or logs. Everyone holding it can authenticate as a group
-member; it is not individual identity, cheat prevention or a password-authenticated key exchange.
+member. Saved-character sessions separately prove their persistent owner key, but the group
+passphrase is not cheat prevention or a password-authenticated key exchange.
 Weak phrases remain vulnerable to guessing; Argon2id increases the cost, it does not create
 entropy.
 
@@ -46,9 +60,9 @@ phrase between groups. No secret, salt-derived identifier or derived key is adve
 discovery by this configuration code.
 
 **Migration:** peer protocol version **2** and Noise prologue `benilla-p2p-v2` establish an
-intentional break from the previous raw-key configuration. Every peer must update. An existing
-64-character hexadecimal `psk` is rejected with a migration error, never silently reinterpreted
-or used through a fallback. Replace it with your group's new private passphrase. Changing KDF
+intentional break from the previous raw-key configuration. Every peer must update. A
+64-character hexadecimal `psk` is accepted as literal passphrase text and derived with Argon2id;
+it is never used as a raw key or through a fallback, so old raw-key clients cannot join. Changing KDF
 version, salt encoding, parameters or passphrase changes the authentication key and requires a
 coordinated peer upgrade; rates and local data paths do not affect the key.
 
@@ -151,19 +165,20 @@ different `BENILLA_HOME` per process. Never point `BENILLA_HOME` into the WoW in
 
 1. Choose a new private passphrase of at least six independently random words and enter
    the identical phrase in both private files. Do not use an example or test fixture phrase,
-   and never send the real phrase or derived key in logs. Use protocol-version-2 builds on both.
+   and never send the real phrase or derived key in logs. Use matching owner-authenticated character builds on both; old temporary-avatar builds cannot join.
 2. For a same-computer test, A listens on `127.0.0.1:7474` and lists
    `peers = ["127.0.0.1:7475"]`; B listens on `127.0.0.1:7475` and lists
    `peers = ["127.0.0.1:7474"]`. Both use the same network name and ruleset.
-3. Start both. Each should enter the fixed Northshire exploration spawn as a temporary
-   human warrior and see the other avatar. The P2P startup banner names the listener.
-   No realm login or external realm process is needed.
+3. Start both, choose Start/Join, then create or select a local character and Enter World.
+   Each initially meets in Northshire and should see the other saved avatar. The login display
+   lists configured local endpoints; this is not a reachability test. No realm account is needed.
 4. Move, turn, jump, stop and use `/say` on each. Confirm the other sees the movement
    and message. Close one client; the other should remove its avatar. Restart the first;
-   it joins under a new temporary identity. Characters and movement are not saved.
+   select the same saved character and confirm its identity/appearance and last successful
+   position checkpoint are restored. Keep separate profile folders for independent players.
 5. Change one passphrase, network name or ruleset rate, restart that client, and confirm no
-   remote avatar is admitted. Separately verify a legacy 64-hex config fails with a migration
-   message, and a protocol-version-1 client cannot join version 2. Connection failures are
+   remote avatar is admitted. Separately verify a 64-hex string is derived as an ordinary
+   passphrase, and a protocol-version-1 client cannot join version 2. Connection failures are
    diagnostic events, never a fallback to a realm.
 6. For separate machines, replace loopback addresses with reachable peer addresses.
    Internet connectivity needs reachable IPv6 or manually configured TCP forwarding.

@@ -35,9 +35,8 @@ pub(crate) enum LoginAction {
     Login,
     Quit,
     Settings,
+    ConnectionSetup,
     ToggleSave,
-    /// Open the realmlist editor, from the button or the address readout under it.
-    Realmlist,
 }
 
 /// Root of the login screen; `with_art` and `s` (the glue scale) record what the tree was built
@@ -59,9 +58,9 @@ pub(super) struct CheckMark;
 /// The checkbox's hover highlight, driven by [`refresh_checkbox`].
 #[derive(Component)]
 pub(super) struct CheckHilight;
-/// The realmlist readout under the button, in the reference's `AccountLoginRealmName` slot.
+/// Read-only configured peer endpoints; never a claim of Internet reachability.
 #[derive(Component)]
-pub(super) struct RealmlistReadout;
+pub(super) struct ListenAddressReadout;
 
 /// Spawn the screen tree once its prerequisites exist (the initial state's `OnEnter` fires before
 /// the MPQ chain and booth slots do), and rebuild an artless early spawn when the art lands.
@@ -76,7 +75,7 @@ pub(super) fn materialize_screen(
     mut add_mats: ResMut<Assets<crate::glue::add_material::AddUiMaterial>>,
     strings: Option<Res<GlueStrings>>,
     form: Res<LoginForm>,
-    realmlist: Res<crate::realmlist::Realmlist>,
+    p2p: Option<Res<crate::net::P2pSettings>>,
     window: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
 ) {
@@ -96,7 +95,7 @@ pub(super) fn materialize_screen(
                     &art,
                     strings.as_deref(),
                     &form,
-                    &realmlist,
+                    p2p.as_deref(),
                     &window,
                 );
             }
@@ -110,7 +109,7 @@ pub(super) fn materialize_screen(
                     &art,
                     strings.as_deref(),
                     &form,
-                    &realmlist,
+                    p2p.as_deref(),
                     &window,
                 );
             }
@@ -125,7 +124,7 @@ fn spawn_screen(
     art: &GlueArt,
     strings: Option<&GlueStrings>,
     form: &LoginForm,
-    realmlist: &crate::realmlist::Realmlist,
+    p2p: Option<&crate::net::P2pSettings>,
     window: &Query<&Window, With<PrimaryWindow>>,
 ) {
     let font = wow_font(assets);
@@ -254,88 +253,102 @@ fn spawn_screen(
             s,
         );
 
-        // The account box (160×37 at BOTTOM (8,345)) and password box (160×37 at BOTTOM
-        // (8,270)): a 16·s left margin in a centred row makes the +8 x offset.
-        for (bottom, label, action, marker_account) in [
-            (
-                345.0,
-                strings.text("ACCOUNT_NAME", "Account Name"),
-                LoginAction::FocusAccount,
-                true,
-            ),
-            (
-                270.0,
-                strings.text("PASSWORD", "Account Password"),
-                LoginAction::FocusPassword,
-                false,
-            ),
-        ] {
-            // The label is a 256×64 centred rect anchored BOTTOM to the box's TOP at (0,−23), so
-            // it centres on the box at +8, the same left margin as the box row.
-            outlined_text(
-                ui,
-                Node {
-                    position_type: PositionType::Absolute,
-                    bottom: px(bottom + 37.0 - 23.0),
-                    left: Val::Px(0.0),
-                    right: Val::Px(0.0),
-                    height: px(64.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    margin: UiRect::left(px(16.0)),
-                    ..default()
-                },
-                (),
-                (),
-                GlueText {
-                    text: label,
-                    size: 15.0, // GlueFontNormal
-                    color: GOLD,
-                    wrap: false,
-                },
-                &font,
-                s,
-            );
-            ui.spawn((Node {
-                position_type: PositionType::Absolute,
-                bottom: px(bottom),
-                width: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },))
-                .with_children(|row| {
-                    row.spawn(Node {
+        if p2p.is_none() {
+            // The account box (160×37 at BOTTOM (8,345)) and password box (160×37 at BOTTOM
+            // (8,270)): a 16·s left margin in a centred row makes the +8 x offset.
+            for (bottom, label, action, marker_account) in [
+                (
+                    345.0,
+                    strings.text("ACCOUNT_NAME", "Account Name"),
+                    LoginAction::FocusAccount,
+                    true,
+                ),
+                (
+                    270.0,
+                    strings.text("PASSWORD", "Account Password"),
+                    LoginAction::FocusPassword,
+                    false,
+                ),
+            ] {
+                // The label is a 256×64 centred rect anchored BOTTOM to the box's TOP at (0,−23), so
+                // it centres on the box at +8, the same left margin as the box row.
+                outlined_text(
+                    ui,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        bottom: px(bottom + 37.0 - 23.0),
+                        left: Val::Px(0.0),
+                        right: Val::Px(0.0),
+                        height: px(64.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         margin: UiRect::left(px(16.0)),
                         ..default()
-                    })
-                    .with_children(|slot| {
-                        if marker_account {
-                            glue_edit_box(
-                                slot,
-                                art,
-                                &edit_font,
-                                (action, Button),
-                                AccountText,
-                                (160.0, 37.0),
-                                (BOX_BORDER, BOX_FILL),
-                                (15.0, 0.0, 0.0, 5.0), // AccountLogin.xml TextInsets
-                                s,
-                            );
-                        } else {
-                            glue_edit_box(
-                                slot,
-                                art,
-                                &edit_font,
-                                (action, Button),
-                                PasswordText,
-                                (160.0, 37.0),
-                                (BOX_BORDER, BOX_FILL),
-                                (15.0, 0.0, 0.0, 5.0), // AccountLogin.xml TextInsets
-                                s,
-                            );
-                        }
+                    },
+                    (),
+                    (),
+                    GlueText {
+                        text: label,
+                        size: 15.0, // GlueFontNormal
+                        color: GOLD,
+                        wrap: false,
+                    },
+                    &font,
+                    s,
+                );
+                ui.spawn((Node {
+                    position_type: PositionType::Absolute,
+                    bottom: px(bottom),
+                    width: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },))
+                    .with_children(|row| {
+                        row.spawn(Node {
+                            margin: UiRect::left(px(16.0)),
+                            ..default()
+                        })
+                        .with_children(|slot| {
+                            if marker_account {
+                                glue_edit_box(
+                                    slot,
+                                    art,
+                                    &edit_font,
+                                    (action, Button),
+                                    AccountText,
+                                    (160.0, 37.0),
+                                    (BOX_BORDER, BOX_FILL),
+                                    (15.0, 0.0, 0.0, 5.0), // AccountLogin.xml TextInsets
+                                    s,
+                                );
+                            } else {
+                                glue_edit_box(
+                                    slot,
+                                    art,
+                                    &edit_font,
+                                    (action, Button),
+                                    PasswordText,
+                                    (160.0, 37.0),
+                                    (BOX_BORDER, BOX_FILL),
+                                    (15.0, 0.0, 0.0, 5.0), // AccountLogin.xml TextInsets
+                                    s,
+                                );
+                            }
+                        });
                     });
-                });
+            }
+
+        } else {
+            let details = if p2p.is_some_and(|p| p.0.encounter.is_some()) {
+                "Synthetic encounter test\nA separate deterministic test, not world combat.\nFixed temporary human-warrior avatar.\nNo world NPC combat, quests, or saved progress."
+            } else {
+                "Peer-to-peer exploration\nCreate or select a character saved on this computer.\nFirst use creates a private local profile. Enter World connects peers.\nNo world NPC combat, quests, or progression yet."
+            };
+            outlined_text(ui, Node {
+                position_type: PositionType::Absolute,
+                top: px(310.0), left: Val::Percent(20.0), width: Val::Percent(60.0),
+                justify_content: JustifyContent::Center, ..default()
+            }, (), (), GlueText { text: details, size: 16.0, color: GOLD, wrap: true }, &font, s);
         }
 
         // Login (`GlueButtonTemplate` 170×45 at TOP (8,−519)).
@@ -357,8 +370,8 @@ fn spawn_screen(
                         art,
                         &font,
                         LoginAction::Login,
-                        strings.text("LOGIN", "Login"),
-                        170.0,
+                        p2p.map_or_else(|| strings.text("LOGIN", "Login"), p2p_start_label),
+                        if p2p.is_some() { 260.0 } else { 170.0 },
                         45.0,
                         GlueBtnKind::Normal,
                         s,
@@ -377,7 +390,7 @@ fn spawn_screen(
             glue_button(
                 c,
                 art,
-                &Handle::default(),
+                &font,
                 LoginAction::Settings,
                 "Settings",
                 150.0,
@@ -385,6 +398,14 @@ fn spawn_screen(
                 GlueBtnKind::Small,
                 s,
             );
+        });
+
+        ui.spawn(Node {
+            position_type: PositionType::Absolute,
+            right: px(5.0), bottom: px(200.0), ..default()
+        }).with_children(|c| {
+            glue_button(c, art, &font, LoginAction::ConnectionSetup,
+                "Connection setup", 170.0, 38.0, GlueBtnKind::Small, s);
         });
 
         // Quit (`GlueButtonSmallTemplate` 150×38 at BOTTOMRIGHT (−5,29)).
@@ -408,150 +429,106 @@ fn spawn_screen(
                 );
             });
 
-        // The realmlist control, not in the reference, takes the absent TOS button's slot:
-        // BOTTOM to `AccountLoginExitButton`'s TOP at (0,80), with the reference's
-        // `AccountLoginRealmName` (256 wide, right-justified) at TOPRIGHT to its BOTTOMRIGHT
-        // (−8,−10). Resolved: button bottom 67 + 80 = 147, right 5; readout top 631, right 13.
-        //
-        // The caption is a literal because the reference has no string for it; `CHANGE_REALM`
-        // is character select's realm picker, a different act.
-        ui.spawn((Node {
-            position_type: PositionType::Absolute,
-            right: px(5.0),
-            bottom: px(147.0),
-            ..default()
-        },))
-            .with_children(|c| {
-                let btn = glue_button(
-                    c,
-                    art,
-                    &font,
-                    LoginAction::Realmlist,
-                    "Realmlist",
-                    150.0,
-                    38.0,
-                    GlueBtnKind::Small,
-                    s,
-                );
-                // Disabled while `$WOW_HOST` owns the session; a click still explains why
-                // ([`super::login_input`]).
-                if realmlist.pinned_by_env() {
-                    c.commands()
-                        .entity(btn)
-                        .insert(crate::glue::widgets::GlueDisabled(true));
-                }
-            });
-        outlined_text(
-            ui,
-            Node {
-                position_type: PositionType::Absolute,
-                right: px(13.0),
-                top: px(631.0),
-                ..default()
-            },
-            (LoginAction::Realmlist, Button),
-            RealmlistReadout,
-            GlueText {
-                text: realmlist.address(),
-                size: 12.0, // GlueFontDisableSmall
-                color: DISABLED_GREY,
-                wrap: false,
-            },
-            &font,
-            s,
-        );
+        outlined_text(ui, Node {
+            position_type: PositionType::Absolute, right: px(13.0), bottom: px(139.0),
+            width: px(340.0), ..default()
+        }, (), ListenAddressReadout, GlueText {
+            text: "P2P disabled", size: 12.0, color: DISABLED_GREY, wrap: true,
+        }, &font, s);
 
-        // The Remember Account Name checkbox (20×20 at (17, top 653), resolved from its anchor
-        // under the absent Community button) and its label at LEFT+24.
-        ui.spawn((Node {
-            position_type: PositionType::Absolute,
-            left: px(17.0),
-            top: px(653.0),
-            height: px(20.0),
-            align_items: AlignItems::Center,
-            flex_direction: FlexDirection::Row,
-            ..default()
-        },))
-            .with_children(|row| {
-                let mut b = row.spawn((
-                    LoginAction::ToggleSave,
-                    Button,
-                    Node {
-                        width: px(20.0),
-                        height: px(20.0),
-                        ..default()
-                    },
-                ));
-                match &art.checkbox {
-                    Some(check) => {
-                        b.insert((
-                            ImageNode::new(check.up.clone()),
-                            ArtSwap {
-                                up: check.up.clone(),
-                                down: check.down.clone(),
-                            },
-                        ));
-                        b.with_children(|inner| {
-                            inner.spawn((
-                                CheckMark,
-                                if form.save {
-                                    Visibility::Inherited
-                                } else {
-                                    Visibility::Hidden
+        if p2p.is_none() {
+            // The Remember Account Name checkbox (20×20 at (17, top 653), resolved from its anchor
+            // under the absent Community button) and its label at LEFT+24.
+            ui.spawn((Node {
+                position_type: PositionType::Absolute,
+                left: px(17.0),
+                top: px(653.0),
+                height: px(20.0),
+                align_items: AlignItems::Center,
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },))
+                .with_children(|row| {
+                    let mut b = row.spawn((
+                        LoginAction::ToggleSave,
+                        Button,
+                        Node {
+                            width: px(20.0),
+                            height: px(20.0),
+                            ..default()
+                        },
+                    ));
+                    match &art.checkbox {
+                        Some(check) => {
+                            b.insert((
+                                ImageNode::new(check.up.clone()),
+                                ArtSwap {
+                                    up: check.up.clone(),
+                                    down: check.down.clone(),
                                 },
-                                ImageNode::new(check.checked.clone()),
-                                overlay(),
                             ));
-                            if let Some(hi) = &check.hi {
+                            b.with_children(|inner| {
                                 inner.spawn((
-                                    CheckHilight,
-                                    Hilight,
-                                    Visibility::Hidden,
-                                    bevy::ui_render::ui_material::MaterialNode(hi.clone()),
+                                    CheckMark,
+                                    if form.save {
+                                        Visibility::Inherited
+                                    } else {
+                                        Visibility::Hidden
+                                    },
+                                    ImageNode::new(check.checked.clone()),
                                     overlay(),
                                 ));
-                            }
-                        });
+                                if let Some(hi) = &check.hi {
+                                    inner.spawn((
+                                        CheckHilight,
+                                        Hilight,
+                                        Visibility::Hidden,
+                                        bevy::ui_render::ui_material::MaterialNode(hi.clone()),
+                                        overlay(),
+                                    ));
+                                }
+                            });
+                        }
+                        None => {
+                            b.insert(BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.15)));
+                            b.with_children(|inner| {
+                                inner.spawn((
+                                    CheckMark,
+                                    if form.save {
+                                        Visibility::Inherited
+                                    } else {
+                                        Visibility::Hidden
+                                    },
+                                    Text::new("x"),
+                                    TextFont {
+                                        font: font.clone(),
+                                        font_size: 14.0 * s,
+                                        ..default()
+                                    },
+                                    TextColor(GOLD),
+                                ));
+                            });
+                        }
                     }
-                    None => {
-                        b.insert(BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.15)));
-                        b.with_children(|inner| {
-                            inner.spawn((
-                                CheckMark,
-                                if form.save {
-                                    Visibility::Inherited
-                                } else {
-                                    Visibility::Hidden
-                                },
-                                Text::new("x"),
-                                TextFont {
-                                    font: font.clone(),
-                                    font_size: 14.0 * s,
-                                    ..default()
-                                },
-                                TextColor(GOLD),
-                            ));
-                        });
-                    }
-                }
-                row.spawn((
-                    Text::new(strings.text("SAVE_ACCOUNT_NAME", "Remember Account Name")),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 10.0 * s, // the authored FontHeight 10
-                        ..default()
-                    },
-                    TextColor(GOLD),
-                    TextShadow {
-                        offset: Vec2::new(s, s),
-                        color: Color::BLACK,
-                    },
-                    Node {
-                        margin: UiRect::left(px(4.0)), // LEFT+24 from the checkbox's left edge
-                        ..default()
-                    },
-                ));
-            });
+                    row.spawn((
+                        Text::new(strings.text("SAVE_ACCOUNT_NAME", "Remember Account Name")),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 10.0 * s, // the authored FontHeight 10
+                            ..default()
+                        },
+                        TextColor(GOLD),
+                        TextShadow {
+                            offset: Vec2::new(s, s),
+                            color: Color::BLACK,
+                        },
+                        Node {
+                            margin: UiRect::left(px(4.0)), // LEFT+24 from the checkbox's left edge
+                            ..default()
+                        },
+                    ));
+                });
+        }
     });
 }
 
@@ -594,16 +571,44 @@ pub(super) fn refresh_boxes(
     );
 }
 
-/// The realmlist readout, rewritten in place when the address changes
-/// (`AccountLoginRealmName:SetText`); `sync_outlines` carries it to the outline copies. It
-/// compares every frame, not on `Res::is_changed`, because a rebuilt tree can postdate the change.
-pub(super) fn refresh_realmlist(
-    realmlist: Res<crate::realmlist::Realmlist>,
-    mut texts: Query<&mut Text, With<RealmlistReadout>>,
+/// Cache read-only interface discovery by the configured bind. Never probe reachability here.
+pub(super) fn refresh_listen_addresses(
+    p2p: Option<Res<crate::net::P2pSettings>>,
+    ticket: Res<crate::net::P2pEndpointTicket>,
+    mut cached: Local<Option<(std::net::SocketAddr, String)>>,
+    mut texts: Query<&mut Text, With<ListenAddressReadout>>,
 ) {
-    for mut t in &mut texts {
-        if t.0 != realmlist.address() {
-            t.0 = realmlist.address().to_string();
+    let label = if let Some(settings) = p2p {
+        let listening = ticket.local_addr();
+        let listen = listening.unwrap_or(settings.0.listen);
+        if cached.as_ref().is_none_or(|(old, _)| *old != listen) {
+            let addresses = crate::net::listen_addresses::discover(listen);
+            let value = if addresses.is_empty() {
+                format!("{} (no active matching interface)", listen)
+            } else {
+                addresses
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            };
+            *cached = Some((listen, value));
+        }
+        format!(
+            "{}\n{}",
+            if listening.is_some() {
+                "Listening endpoints"
+            } else {
+                "Configured endpoints (not listening)"
+            },
+            cached.as_ref().map_or("", |(_, value)| value)
+        )
+    } else {
+        "P2P disabled".to_string()
+    };
+    for mut text in &mut texts {
+        if text.0 != label {
+            text.0.clone_from(&label);
         }
     }
 }
@@ -689,4 +694,28 @@ pub(super) fn debug_login_shot(
         .observe(save_to_disk(out.clone()));
     info!("login: shot instrument writing {out}");
     *done = true;
+}
+
+/// Native chrome yields completely to the stock game-options overlay.
+pub(super) fn refresh_options_visibility(
+    options: Option<Res<crate::ui_script::login_options::LoginOptions>>,
+    mut commands: Commands,
+    roots: Query<Entity, With<LoginUi>>,
+) {
+    let hidden = options.as_ref().is_some_and(|o| o.active || o.requested);
+    for entity in &roots {
+        commands.entity(entity).insert(if hidden {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
+    }
+}
+
+fn p2p_start_label(settings: &crate::net::P2pSettings) -> &'static str {
+    if settings.0.encounter.is_some() {
+        "Start encounter test"
+    } else {
+        "Create / select character"
+    }
 }

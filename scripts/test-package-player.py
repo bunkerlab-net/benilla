@@ -246,6 +246,13 @@ class PackagingTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     packager.prepare_source(Path(directory), SHA)
 
+    def test_private_profile_and_backup_never_enter_source_bundle(self):
+        for path in ["profile.json", "other/profile.previous.json", "p2p-profile/profile.lock", "p2p-profile/notes.txt"]:
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                packager.safe_path(path)
+        packager.safe_path("crates/benilla-profile/src/lib.rs")
+        packager.safe_path("crates/benilla-profile/README.md")
+
     def test_source_path_is_stable_and_outside_build_cache(self):
         root = Path("repo")
         source = packager.source_dir(root, SHA)

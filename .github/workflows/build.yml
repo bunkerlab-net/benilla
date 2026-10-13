@@ -1,9 +1,9 @@
-# Build master pushes and maintainer-requested artifacts.
+# Build master plus the temporary P2P feature branch, and maintainer-requested artifacts.
 name: Build player
 
 on:
   push:
-    branches: [master]
+    branches: [master, feat/psk-p2p-foundation]
   workflow_dispatch:
 
 permissions:
@@ -75,6 +75,8 @@ jobs:
           save-on-workflow-dispatch: true
       - name: Test packaging
         run: python3 scripts/test-package-player.py
+      - name: Test local profile storage on the native OS
+        run: mbx test --locked -p benilla-profile
       - name: Prepare matching source and locked dependencies
         run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
       - name: Build the player from the distributed source

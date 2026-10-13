@@ -1,56 +1,80 @@
 //! Fork-only direct-peer backend. Each member owns only its own avatar's pose; these are
 //! trusted-friends exploration sessions, not authoritative combat or a complete WoW realm.
-//! The transport proves group-key possession before any avatar, pose or chat is accepted.
+//! Saved-character sessions bind group admission to the profile owner's signing identity.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use benilla_p2p::{Command, Event, Hello, Network, PeerId, TransportConfig};
+use benilla_p2p::{Command, Event, Hello, Network, OwnerIdentity, PeerId, TransportConfig};
+use benilla_profile::{Character, ProfileStore};
 use benilla_protocol::{EntityKind, JumpInfo, MoveSpeeds, ObjectFields, SessionEnd, SessionEvent};
 use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
 mod encounter;
+mod profile;
+use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
-const CONTENT_VERSION: &str = "benilla-exploration-northshire-v1";
+const CONTENT_VERSION: &str = "benilla-saved-exploration-northshire-v2";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
 /// Public connection metadata, revealed only by deliberate UI action; never persisted or logged.
 #[derive(bevy::prelude::Resource, Clone, Default)]
-pub(crate) struct P2pEndpointTicket(Arc<Mutex<Option<String>>>);
+pub(crate) struct P2pEndpointTicket(Arc<Mutex<EndpointState>>);
+#[derive(Default)]
+struct EndpointState {
+    ticket: Option<String>,
+    listen: Option<std::net::SocketAddr>,
+}
 impl P2pEndpointTicket {
     pub(crate) fn get(&self) -> Option<String> {
-        self.0.lock().ok().and_then(|value| value.clone())
+        self.0.lock().ok().and_then(|value| value.ticket.clone())
     }
     fn set(&self, value: Option<String>) {
         if let Ok(mut current) = self.0.lock() {
-            *current = value;
+            current.ticket = value;
+        }
+    }
+    pub(crate) fn local_addr(&self) -> Option<std::net::SocketAddr> {
+        self.0.lock().ok().and_then(|state| state.listen)
+    }
+    fn set_listen(&self, listen: std::net::SocketAddr) {
+        if let Ok(mut state) = self.0.lock() {
+            state.listen = Some(listen);
+        }
+    }
+    fn clear(&self) {
+        if let Ok(mut state) = self.0.lock() {
+            *state = EndpointState::default();
         }
     }
 }
 struct ClearTicket(P2pEndpointTicket);
 impl Drop for ClearTicket {
     fn drop(&mut self) {
-        self.0.set(None);
+        self.0.clear();
     }
 }
 
-const HELP: &str = "P2P exploration: direct peers, movement and /say. No realm server. Combat, quests, XP, loot and character saves are not implemented yet. Restart to start a new session.";
+const HELP: &str = "P2P exploration: saved local characters, movement and /say. All races start at the Northshire meeting point. Position saves every 10 seconds and on logout. Combat, quests, XP, loot, spells and inventory progression are not implemented.";
+const AVATAR_VERSION: u16 = 1;
+const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// TOML keeps this small initial protocol inspectable, but never shares the config or its PSK.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 enum Frame {
     Avatar {
-        position: [f32; 3],
-        orientation: f32,
+        version: u16,
+        character: Character,
     },
     Move {
         position: [f32; 3],
@@ -86,10 +110,12 @@ impl Frame {
             .and_then(|text| toml::from_str(text).ok())
             .context("invalid P2P message")?;
         match &value {
-            Self::Avatar {
-                position,
-                orientation,
-            } => validate_pose(position, *orientation)?,
+            Self::Avatar { version, character } => {
+                if *version != AVATAR_VERSION {
+                    bail!("unsupported P2P character version");
+                }
+                character.validate()?;
+            }
             Self::Move {
                 position,
                 orientation,
@@ -185,6 +211,8 @@ fn avatar(id: PeerId, position: [f32; 3], orientation: f32) -> SessionEvent {
             (126, 2000),
             (131, 49),
             (132, 49),
+            // PLAYER_BYTES_2 byte 3: normal rest state, never invalid zero.
+            (194, 2 << 24),
             (716, 0),
             (717, 400),
         ])
@@ -211,49 +239,465 @@ fn emit(events: &Sender<SessionEvent>, event: SessionEvent) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("P2P application event queue unavailable"))
 }
 
-/// Same application channels as the realm backend; none of the realm network code is started.
-pub(super) fn spawn(settings: P2pSettings, ticket: P2pEndpointTicket) -> io::NetHandles {
+/// An inert local-character gate. Opening options cannot create a profile or a transport.
+#[derive(bevy::prelude::Resource)]
+pub(crate) struct P2pStart {
+    pending: Option<PendingStart>,
+    requests: Sender<StartRequest>,
+    ready: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    generation: Arc<AtomicU64>,
+    local_zone: Arc<AtomicU32>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+struct StartRequest {
+    root: Option<std::path::PathBuf>,
+    catalog: Option<AvatarCatalog>,
+    generation: u64,
+}
+struct PendingStart {
+    settings: P2pSettings,
+    ticket: P2pEndpointTicket,
+    events: Sender<SessionEvent>,
+    commands: Receiver<ClientCommand>,
+    park: Receiver<ParkRequest>,
+    login: Receiver<io::LoginRequest>,
+    requests: Receiver<StartRequest>,
+}
+impl P2pStart {
+    pub(crate) fn can_start(&self) -> bool {
+        self.ready.load(Ordering::SeqCst) && !self.stop.load(Ordering::SeqCst)
+    }
+    pub(crate) fn start(
+        &mut self,
+        catalog: Option<&benilla_formats::CharCreateCatalog>,
+    ) -> std::result::Result<(), String> {
+        let synthetic = self
+            .pending
+            .as_ref()
+            .is_some_and(|p| p.settings.0.encounter.is_some());
+        let request = if synthetic {
+            StartRequest {
+                root: None,
+                catalog: None,
+                generation: self.generation.load(Ordering::SeqCst),
+            }
+        } else {
+            let catalog = catalog.ok_or(
+                "Character data is unavailable. Check your game data in Connection setup.",
+            )?;
+            let root = crate::local_state::home()
+                .ok_or("No local profile directory is available.")?
+                .join("p2p-profile");
+            StartRequest {
+                root: Some(root),
+                catalog: Some(AvatarCatalog::from_client(catalog)),
+                generation: self.generation.load(Ordering::SeqCst),
+            }
+        };
+        self.start_request(request)
+    }
+    fn start_request(&mut self, request: StartRequest) -> std::result::Result<(), String> {
+        if self.stop.load(Ordering::SeqCst)
+            || self
+                .ready
+                .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
+            return Err("P2P characters are already open or the session is closing.".into());
+        }
+        if let Some(pending) = self.pending.take() {
+            let (ready, stop, zone) = (
+                self.ready.clone(),
+                self.stop.clone(),
+                self.local_zone.clone(),
+            );
+            self.worker = Some(
+                thread::Builder::new()
+                    .name("benilla-peer-world".into())
+                    .spawn(move || {
+                        let PendingStart {
+                            settings,
+                            ticket,
+                            events,
+                            commands,
+                            park,
+                            login,
+                            requests,
+                        } = pending;
+                        // Keep the realm UI channel alive, but never submit or forward its credentials.
+                        let _login = login;
+                        let _clear_ticket = ClearTicket(ticket.clone());
+                        while !stop.load(Ordering::SeqCst) {
+                            let request = match requests.recv_timeout(Duration::from_millis(20)) {
+                                Ok(request) => request,
+                                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                            };
+                            let result = if settings.0.encounter.is_some() {
+                                encounter::run(settings.clone(), &events, &commands, &stop)
+                            } else if let (Some(root), Some(catalog)) =
+                                (request.root, request.catalog)
+                            {
+                                profile::browse(
+                                    settings.clone(),
+                                    &root,
+                                    &catalog,
+                                    request.generation,
+                                    &events,
+                                    &commands,
+                                    &park,
+                                    &ticket,
+                                    &stop,
+                                    &zone,
+                                )
+                            } else {
+                                Err(anyhow::anyhow!("saved character setup is missing"))
+                            };
+                            ticket.clear();
+                            if let Err(error) = result {
+                                bevy::log::error!("p2p: {error:#}");
+                                let _ = events.try_send(SessionEvent::Disconnected {
+                                    reason: format!("P2P session ended: {error:#}"),
+                                    end: SessionEnd::Lost,
+                                });
+                            }
+                            if settings.0.encounter.is_some() {
+                                stop.store(true, Ordering::SeqCst);
+                            }
+                            ready.store(true, Ordering::SeqCst);
+                        }
+                    })
+                    .map_err(|error| {
+                        self.stop.store(true, Ordering::SeqCst);
+                        format!("Could not start P2P characters: {error}. Restart to retry.")
+                    })?,
+            );
+        }
+        self.requests
+            .send(request)
+            .map_err(|_| "P2P character service stopped. Restart to retry.".to_string())
+    }
+    fn shutdown(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(worker) = self.worker.take() {
+            // The backend checks this flag in its bounded receive loop and checkpoints before exit.
+            if worker.join().is_err() {
+                bevy::log::error!(
+                    "p2p: character worker stopped unexpectedly; verify the last saved position"
+                );
+            }
+        }
+    }
+}
+impl Drop for P2pStart {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+pub(super) fn shutdown(mut start: Option<bevy::prelude::ResMut<P2pStart>>) {
+    if let Some(start) = start.as_deref_mut() {
+        start.shutdown();
+    }
+}
+/// Zone metadata comes only from our own player's loaded terrain, never from a remote frame.
+pub(super) fn refresh_local_zone(
+    start: Option<bevy::prelude::Res<P2pStart>>,
+    area: Option<bevy::prelude::Res<benilla_world::terrain_stream::CurrentArea>>,
+    areas: Option<bevy::prelude::Res<crate::area::AreaTableRes>>,
+    player: bevy::prelude::Res<super::SelfGuid>,
+) {
+    if player.0.is_none() {
+        return;
+    }
+    let (Some(start), Some(area), Some(areas)) = (start, area, areas) else {
+        return;
+    };
+    let Some(leaf) = area.0 else {
+        return;
+    };
+    let Some(row) = areas.0.get(leaf) else {
+        return;
+    };
+    start.local_zone.store(
+        if row.zone_id == 0 { leaf } else { row.zone_id },
+        Ordering::SeqCst,
+    );
+}
+
+/// Channels only; profile IO is deliberate Start, and transport IO is deliberate Enter World.
+pub(super) fn prepare(
+    settings: P2pSettings,
+    ticket: P2pEndpointTicket,
+) -> (io::NetHandles, P2pStart) {
     let (events_tx, events) = crossbeam_channel::bounded(1024);
     let (commands, commands_rx) = crossbeam_channel::unbounded();
     let (park_tx, park_rx) = crossbeam_channel::unbounded::<ParkRequest>();
     let (login, login_rx) = crossbeam_channel::unbounded();
-    thread::Builder::new()
-        .name("benilla-peer-world".into())
-        .spawn(move || {
-            // Keep legacy UI senders valid, without ever submitting credentials to another peer.
-            let _ui_receivers = (park_rx, login_rx);
-            let _clear_ticket = ClearTicket(ticket.clone());
-            if let Err(error) = run(settings, &events_tx, &commands_rx, &ticket) {
-                bevy::log::error!("p2p: {error:#}");
-                let _ = events_tx.try_send(SessionEvent::Disconnected {
-                    reason: format!("P2P session ended: {error}"),
-                    end: SessionEnd::Lost,
-                });
-            }
-        })
-        .expect("spawn benilla-peer-world thread");
-    io::NetHandles {
+    let (requests, requests_rx) = crossbeam_channel::bounded(1);
+    let generation = Arc::new(AtomicU64::new(0));
+    let handles = io::NetHandles {
         events,
         commands,
         pick: ParkSender::park(park_tx.clone()),
         realm: ParkSender::park(park_tx),
         screen_asks_roster: Arc::new(AtomicBool::new(false)),
         login,
-        login_abandon: Arc::new(AtomicU64::new(0)),
+        login_abandon: generation.clone(),
         ping: Arc::new(Mutex::new(io::PingClock::default())),
-    }
+    };
+    let start = P2pStart {
+        pending: Some(PendingStart {
+            settings,
+            ticket,
+            events: events_tx,
+            commands: commands_rx,
+            park: park_rx,
+            login: login_rx,
+            requests: requests_rx,
+        }),
+        requests,
+        ready: Arc::new(AtomicBool::new(true)),
+        stop: Arc::new(AtomicBool::new(false)),
+        generation,
+        local_zone: Arc::new(AtomicU32::new(0)),
+        worker: None,
+    };
+    (handles, start)
 }
 
-fn run(
+/// A character's game identity is scoped to its authenticated owner, not an attacker-chosen ID.
+fn character_guid(character: &Character) -> u64 {
+    let mut hash = Sha256::new();
+    hash.update(b"benilla-character-guid-v1\0");
+    hash.update(character.owner_id);
+    hash.update(character.id);
+    let mut bytes = [0; 8];
+    bytes[..6].copy_from_slice(&hash.finalize()[..6]);
+    u64::from_le_bytes(bytes).max(1)
+}
+
+fn character_name(character: &Character) -> SessionEvent {
+    SessionEvent::PlayerName {
+        guid: character_guid(character),
+        name: character.name.clone(),
+        race: u32::from(character.race),
+        gender: u32::from(character.gender),
+        class: u32::from(character.class),
+    }
+}
+fn character_avatar(character: &Character, catalog: &AvatarCatalog) -> Result<SessionEvent> {
+    let (display, faction) = catalog.body(character)?;
+    let id = character_guid(character);
+    let power: u32 = match character.class {
+        1 => 1,
+        4 => 3,
+        _ => 0,
+    };
+    let appearance = character.appearance;
+    // Exploration baselines only, not a claimed implementation of racial/class starting stats.
+    let (current, maximum) = if power == 1 { (0, 1000) } else { (100, 100) };
+    let fields = ObjectFields::from_pairs(&[
+        (0, id as u32),
+        (1, (id >> 32) as u32),
+        (2, 25),
+        (4, 1.0f32.to_bits()),
+        (22, 100),
+        (28, 100),
+        (23 + power as u16, current),
+        (29 + power as u16, maximum),
+        (34, u32::from(character.level)),
+        (35, faction),
+        (
+            36,
+            u32::from(character.race)
+                | (u32::from(character.class) << 8)
+                | (u32::from(character.gender) << 16)
+                | (power << 24),
+        ),
+        (126, 2000),
+        (131, display),
+        (132, display),
+        (
+            193,
+            u32::from_le_bytes([
+                appearance.skin,
+                appearance.face,
+                appearance.hair_style,
+                appearance.hair_color,
+            ]),
+        ),
+        (194, u32::from(appearance.facial_hair) | (2 << 24)),
+        (716, 0),
+        (717, 400),
+    ])
+    .into_created(benilla_protocol::messages::ObjectType::Player);
+    Ok(SessionEvent::ObjectCreate {
+        guid: id,
+        kind: EntityKind::Player,
+        display_id: Some(display),
+        position: character.position.position,
+        orientation: character.position.orientation,
+        scale: 1.0,
+        speeds: Some(MoveSpeeds {
+            walk: 2.5,
+            run: 7.0,
+            run_back: 4.5,
+            swim: 4.722222,
+            swim_back: 2.5,
+            turn_rate: std::f32::consts::PI,
+        }),
+        mover: None,
+        transport_progress: None,
+        transport: None,
+        spline: None,
+        fields,
+    })
+}
+fn validate_peer_character(
+    peer: PeerId,
+    character: &Character,
+    own: &Character,
+    peers: &BTreeMap<PeerId, Option<Character>>,
+    catalog: &AvatarCatalog,
+) -> Result<()> {
+    character.validate()?;
+    if character.owner_id != peer {
+        bail!("peer character owner does not match authenticated identity");
+    }
+    if character.position.map_id != own.position.map_id {
+        bail!("peer character is on a different exploration map");
+    }
+    validate_character_guid(
+        character_guid(character),
+        character_guid(own),
+        peers.values().flatten().map(character_guid),
+    )?;
+    catalog.body(character)?;
+    Ok(())
+}
+
+fn validate_character_guid(
+    candidate: u64,
+    own: u64,
+    mut occupied: impl Iterator<Item = u64>,
+) -> Result<()> {
+    if candidate == own || occupied.any(|other| other == candidate) {
+        bail!("duplicate peer character identity");
+    }
+    Ok(())
+}
+
+fn apply_peer_frame(
+    events: &Sender<SessionEvent>,
+    peer_id: PeerId,
+    payload: &[u8],
+    peers: &mut BTreeMap<PeerId, Option<Character>>,
+    character: &Character,
+    catalog: &AvatarCatalog,
+) -> Result<()> {
+    let Some(joined) = peers.get(&peer_id) else {
+        return Ok(());
+    };
+    let frame = Frame::decode(payload)?;
+    match frame {
+        Frame::Avatar {
+            character: other, ..
+        } if joined.is_none() => {
+            validate_peer_character(peer_id, &other, character, peers, catalog)?;
+            emit(events, character_name(&other))?;
+            emit(events, character_avatar(&other, catalog)?)?;
+            peers.insert(peer_id, Some(other));
+        }
+        Frame::Move {
+            position,
+            orientation,
+            flags,
+            pitch,
+            fall_time,
+            jump,
+            heartbeat,
+            time,
+        } if joined.is_some() => {
+            emit(
+                events,
+                SessionEvent::UnitMove {
+                    guid: character_guid(joined.as_ref().expect("admitted character")),
+                    position,
+                    orientation,
+                    flags,
+                    pitch,
+                    time,
+                    fall_time,
+                    transport: None,
+                    jump: jump.map(|j| JumpInfo {
+                        zspeed: j[0],
+                        cos_angle: j[1],
+                        sin_angle: j[2],
+                        xy_speed: j[3],
+                    }),
+                    verb: if heartbeat {
+                        benilla_protocol::RelayVerb::Heartbeat
+                    } else {
+                        benilla_protocol::RelayVerb::Pose
+                    },
+                },
+            )?;
+        }
+        Frame::Say { text } if joined.is_some() => emit(
+            events,
+            chat(
+                character_guid(joined.as_ref().expect("admitted character")),
+                text,
+            ),
+        )?,
+        // A broadcast already queued at the connection edge may beat its avatar.
+        Frame::Move { .. } | Frame::Say { .. } if joined.is_none() => {}
+        _ => bail!("peer sent an invalid session transition"),
+    }
+    Ok(())
+}
+fn reject_peer(
+    network: &Network,
+    events: &Sender<SessionEvent>,
+    peers: &mut BTreeMap<PeerId, Option<Character>>,
+    peer: PeerId,
+) -> Result<()> {
+    // Remove first: already queued frames cannot mutate any local/remaining entity.
+    if let Some(Some(character)) = peers.remove(&peer) {
+        emit(
+            events,
+            SessionEvent::ObjectDestroyed(character_guid(&character)),
+        )?;
+    }
+    network
+        .try_send(Command::Disconnect { peer_id: peer })
+        .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
+    Ok(())
+}
+
+fn run_character(
     settings: P2pSettings,
     events: &Sender<SessionEvent>,
     commands: &Receiver<ClientCommand>,
     ticket: &P2pEndpointTicket,
+    store: &mut ProfileStore,
+    character: &mut Character,
+    catalog: &AvatarCatalog,
+    stop: &AtomicBool,
+    local_zone: &AtomicU32,
 ) -> Result<()> {
-    if settings.0.encounter.is_some() {
-        return encounter::run(settings, events, commands);
+    character.validate()?;
+    let signer = store.identity();
+    let identity = OwnerIdentity::new(signer.public_key(), move |challenge| {
+        signer.sign_transport_challenge(challenge)
+    })?;
+    let id = identity.owner_id();
+    if character.owner_id != id {
+        bail!("selected character does not belong to the local profile");
     }
-    let id = benilla_p2p::generate_peer_id()?;
+    local_zone.store(character.position.zone_id, Ordering::SeqCst);
     let hello = Hello {
         protocol_version: benilla_p2p::PROTOCOL_VERSION,
         network: settings.0.network.clone(),
@@ -268,26 +712,33 @@ fn run(
         max_peers: usize::from(settings.0.max_peers),
     };
     let network = match settings.0.internet.clone() {
-        Some(internet) => {
-            Network::start_internet(transport, internet, settings.0.psk_bytes(), hello)?
-        }
-        None => Network::start(transport, settings.0.psk_bytes(), hello)?,
+        Some(internet) => Network::start_internet_owned(
+            transport,
+            internet,
+            settings.0.psk_bytes(),
+            hello,
+            identity,
+        )?,
+        None => Network::start_owned(transport, settings.0.psk_bytes(), hello, identity)?,
     };
+    ticket.set_listen(network.local_addr());
     bevy::log::info!(
         "p2p: exploration session listening on {} as {}",
         network.local_addr(),
-        name(id)
+        character.name
     );
-    let mut position = SPAWN;
-    let mut orientation = 0.0;
-    let mut peers = BTreeMap::<PeerId, bool>::new();
+    let mut position = character.position.position;
+    let mut orientation = character.position.orientation;
+    let mut peers = BTreeMap::<PeerId, Option<Character>>::new();
+    let mut denied = std::collections::BTreeSet::new();
+    let mut last_checkpoint = Instant::now();
     let mut last_rejection_warning: Option<Instant> = None;
     let started = Instant::now();
     emit(
         events,
         SessionEvent::Connected {
-            self_guid: guid(id),
-            name: name(id),
+            self_guid: character_guid(character),
+            name: character.name.clone(),
             billing_time_rested: 0,
             tutorial_flags: None,
             addon_info: Some(Vec::new()),
@@ -296,13 +747,14 @@ fn run(
     emit(
         events,
         SessionEvent::Worldport {
-            map_id: 0,
+            map_id: character.position.map_id,
             position,
             orientation,
             needs_ack: false,
         },
     )?;
-    emit(events, avatar(id, position, orientation))?;
+    emit(events, character_name(character))?;
+    emit(events, character_avatar(character, catalog)?)?;
     emit(
         events,
         SessionEvent::TimeSpeed {
@@ -316,6 +768,29 @@ fn run(
     ticket.set(network.endpoint_ticket());
     let mut ticket_updated = Instant::now();
     loop {
+        character.position.zone_id = local_zone.load(Ordering::SeqCst);
+        if stop.load(Ordering::SeqCst) {
+            // The app has stopped producing input; consume already-queued local movement
+            // before the shutdown checkpoint without waiting on network work.
+            for command in commands.try_iter().take(256) {
+                if let ClientCommand::Move {
+                    pos,
+                    orientation,
+                    transport: None,
+                    ..
+                } = command
+                {
+                    validate_pose(&pos, orientation)?;
+                    character.position.position = pos;
+                    character.position.orientation = orientation;
+                }
+            }
+            return Ok(());
+        }
+        if last_checkpoint.elapsed() >= CHECKPOINT_INTERVAL {
+            store.save_position(character.id, character.position).context("could not save local position; session stopped, check local profile before rejoining")?;
+            last_checkpoint = Instant::now();
+        }
         if ticket_updated.elapsed() >= Duration::from_secs(1) {
             let current = network.endpoint_ticket();
             if ticket.get() != current {
@@ -332,81 +807,39 @@ fn run(
             match event {
                 Event::PeerJoined(hello) => {
                     let peer = hello.peer_id;
-                    if guid(peer) == guid(id)
-                        || peers.keys().any(|other| guid(*other) == guid(peer))
-                    {
-                        bail!("peer identity collision; restart the session");
+                    if peer == id || peers.contains_key(&peer) || denied.contains(&peer) {
+                        reject_peer(&network, events, &mut peers, peer)?;
+                        continue;
                     }
-                    peers.insert(peer, false);
+                    peers.insert(peer, None);
                     network
                         .try_send(Command::Send {
                             peer_id: peer,
                             payload: Frame::Avatar {
-                                position,
-                                orientation,
+                                version: AVATAR_VERSION,
+                                character: character.clone(),
                             }
                             .encode()?,
                         })
                         .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
                 }
                 Event::PeerLeft(peer) => {
-                    if peers.remove(&peer).is_some() {
-                        emit(events, SessionEvent::ObjectDestroyed(guid(peer)))?;
+                    if let Some(Some(other)) = peers.remove(&peer) {
+                        emit(
+                            events,
+                            SessionEvent::ObjectDestroyed(character_guid(&other)),
+                        )?;
                     }
                 }
                 Event::Frame { peer_id, payload } => {
-                    let Some(joined) = peers.get_mut(&peer_id) else {
-                        continue;
-                    };
-                    let frame = Frame::decode(&payload)?;
-                    match frame {
-                        Frame::Avatar {
-                            position,
-                            orientation,
-                        } if !*joined => {
-                            emit(events, player_name(peer_id))?;
-                            emit(events, avatar(peer_id, position, orientation))?;
-                            *joined = true;
+                    if apply_peer_frame(events, peer_id, &payload, &mut peers, character, catalog)
+                        .is_err()
+                    {
+                        // Bound quarantine memory; unknown owners beyond this cap are still disconnected.
+                        if denied.len() < 256 {
+                            denied.insert(peer_id);
                         }
-                        Frame::Move {
-                            position,
-                            orientation,
-                            flags,
-                            pitch,
-                            fall_time,
-                            jump,
-                            heartbeat,
-                            time,
-                        } if *joined => {
-                            emit(
-                                events,
-                                SessionEvent::UnitMove {
-                                    guid: guid(peer_id),
-                                    position,
-                                    orientation,
-                                    flags,
-                                    pitch,
-                                    time,
-                                    fall_time,
-                                    transport: None,
-                                    jump: jump.map(|j| JumpInfo {
-                                        zspeed: j[0],
-                                        cos_angle: j[1],
-                                        sin_angle: j[2],
-                                        xy_speed: j[3],
-                                    }),
-                                    verb: if heartbeat {
-                                        benilla_protocol::RelayVerb::Heartbeat
-                                    } else {
-                                        benilla_protocol::RelayVerb::Pose
-                                    },
-                                },
-                            )?;
-                        }
-                        Frame::Say { text } if *joined => emit(events, chat(guid(peer_id), text))?,
-                        // A broadcast already queued at the connection edge may beat its avatar.
-                        Frame::Move { .. } | Frame::Say { .. } if !*joined => {}
-                        _ => bail!("peer sent an invalid session transition"),
+                        reject_peer(&network, events, &mut peers, peer_id)?;
                     }
                 }
                 Event::Rejected { address, reason: _ } => {
@@ -436,8 +869,11 @@ fn run(
                         if transport.is_some() {
                             continue;
                         }
+                        validate_pose(&pos, facing)?;
                         position = pos;
                         orientation = facing;
+                        character.position.position = position;
+                        character.position.orientation = orientation;
                         Some(Frame::Move {
                             position,
                             orientation,
@@ -468,7 +904,7 @@ fn run(
                             )?;
                             continue;
                         }
-                        emit(events, chat(guid(id), text.clone()))?;
+                        emit(events, chat(character_guid(character), text.clone()))?;
                         Some(Frame::Say { text })
                     }
                     ClientCommand::Chat { .. } => {
@@ -482,10 +918,14 @@ fn run(
                         None
                     }
                     ClientCommand::NameQuery { guid: query } => {
-                        if query == guid(id) {
-                            emit(events, player_name(id))?;
-                        } else if let Some(peer) = peers.keys().find(|peer| guid(**peer) == query) {
-                            emit(events, player_name(*peer))?;
+                        if query == character_guid(character) {
+                            emit(events, character_name(character))?;
+                        } else if let Some(other) = peers
+                            .values()
+                            .flatten()
+                            .find(|other| character_guid(other) == query)
+                        {
+                            emit(events, character_name(other))?;
                         }
                         None
                     }
@@ -502,13 +942,6 @@ fn run(
                         None
                     }
                     ClientCommand::Logout | ClientCommand::ForceLogout => {
-                        emit(
-                            events,
-                            SessionEvent::Disconnected {
-                                reason: "P2P session closed. Restart to rejoin.".into(),
-                                end: SessionEnd::Lost,
-                            },
-                        )?;
                         return Ok(());
                     }
                     // The remaining realm-only verbs have no simulation backend in this slice.
@@ -527,209 +960,6 @@ fn run(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn invalid_pose_and_oversized_chat_fail_closed() {
-        assert!(validate_pose(&[f32::NAN, 0.0, 0.0], 0.0).is_err());
-        assert!(validate_pose(&[0.0; 3], f32::INFINITY).is_err());
-        let bad = Frame::Say {
-            text: "x".repeat(MAX_CHAT + 1),
-        }
-        .encode()
-        .unwrap();
-        assert!(Frame::decode(&bad).is_err());
-        assert!(Frame::decode(&vec![0; benilla_p2p::MAX_PAYLOAD_SIZE + 1]).is_err());
-    }
-
-    #[test]
-    fn chat_parse_errors_never_echo_private_text() {
-        let error = Frame::decode(b"secret personal text").unwrap_err();
-        assert!(!format!("{error:#}").contains("secret"));
-    }
-
-    #[test]
-    fn codec_roundtrips_pose_and_chat() {
-        let frame = Frame::Avatar {
-            position: SPAWN,
-            orientation: 1.5,
-        };
-        assert!(matches!(
-            Frame::decode(&frame.encode().unwrap()).unwrap(),
-            Frame::Avatar { .. }
-        ));
-        let frame = Frame::Say {
-            text: "hello".into(),
-        };
-        assert!(
-            matches!(Frame::decode(&frame.encode().unwrap()).unwrap(), Frame::Say { text } if text == "hello")
-        );
-    }
-
-    fn settings(listen: std::net::SocketAddr, peers: &[std::net::SocketAddr]) -> P2pSettings {
-        let peers = peers
-            .iter()
-            .map(|p| format!("\"{p}\""))
-            .collect::<Vec<_>>()
-            .join(",");
-        let text = format!("[p2p]\npsk = \"public app integration test phrase only\"\nlisten = \"{listen}\"\npeers = [{peers}]\n");
-        let config = benilla_config::AppConfig::parse(&text, std::path::Path::new("/tmp")).unwrap();
-        P2pSettings(config.p2p.unwrap(), config.ruleset)
-    }
-
-    fn next_matching(
-        handles: &io::NetHandles,
-        predicate: impl Fn(&SessionEvent) -> bool,
-    ) -> SessionEvent {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let event = handles
-                .events
-                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .expect("expected peer event before deadline");
-            if let SessionEvent::Disconnected { reason, .. } = &event {
-                panic!("unexpected disconnect: {reason}");
-            }
-            if predicate(&event) {
-                return event;
-            }
-        }
-    }
-
-    #[test]
-    fn two_real_peer_backends_enter_move_chat_and_remove_without_a_realm() {
-        // Hold the port until immediately before starting A. B only dials A: both are equal peers.
-        let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let endpoint = reservation.local_addr().unwrap();
-        drop(reservation);
-        let a = spawn(settings(endpoint, &[]), P2pEndpointTicket::default());
-        let a_id = match next_matching(&a, |ev| matches!(ev, SessionEvent::Connected { .. })) {
-            SessionEvent::Connected { self_guid, .. } => self_guid,
-            _ => unreachable!(),
-        };
-        let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let second_endpoint = reservation.local_addr().unwrap();
-        drop(reservation);
-        let b = spawn(
-            settings(second_endpoint, &[endpoint]),
-            P2pEndpointTicket::default(),
-        );
-        let b_id = match next_matching(&b, |ev| matches!(ev, SessionEvent::Connected { .. })) {
-            SessionEvent::Connected { self_guid, .. } => self_guid,
-            _ => unreachable!(),
-        };
-        assert_ne!(a_id, b_id);
-        next_matching(
-            &a,
-            |ev| matches!(ev, SessionEvent::ObjectCreate { guid, .. } if *guid == b_id),
-        );
-        next_matching(
-            &b,
-            |ev| matches!(ev, SessionEvent::ObjectCreate { guid, .. } if *guid == a_id),
-        );
-        let position = [SPAWN[0] + 2.0, SPAWN[1], SPAWN[2]];
-        a.commands
-            .send(ClientCommand::Move {
-                kind: super::super::MoveKind::Heartbeat,
-                flags: 0,
-                pos: position,
-                orientation: 0.5,
-                pitch: 0.0,
-                fall_time: 0,
-                jump: None,
-                transport: None,
-            })
-            .unwrap();
-        next_matching(
-            &b,
-            |ev| matches!(ev, SessionEvent::UnitMove { guid, position: actual, .. } if *guid == a_id && *actual == position),
-        );
-        a.commands
-            .send(ClientCommand::Chat {
-                kind: ChatKind::Say,
-                target: None,
-                text: "hello peer".into(),
-                language: None,
-            })
-            .unwrap();
-        next_matching(
-            &b,
-            |ev| matches!(ev, SessionEvent::Chat(message) if message.sender_guid == a_id && message.text == "hello peer"),
-        );
-        drop(a);
-        next_matching(
-            &b,
-            |ev| matches!(ev, SessionEvent::ObjectDestroyed(guid) if *guid == a_id),
-        );
-    }
-
-    #[test]
-    fn peer_avatar_materializes_through_the_actual_ecs_bridge() {
-        let mut app = crate::game_plugins::schedule_tests::headless_client();
-        let (tx, rx) = crossbeam_channel::unbounded();
-        app.insert_resource(super::super::NetEvents(rx));
-        let me = [1; 16];
-        let other = [2; 16];
-        tx.send(SessionEvent::Connected {
-            self_guid: guid(me),
-            name: name(me),
-            billing_time_rested: 0,
-            tutorial_flags: None,
-            addon_info: Some(Vec::new()),
-        })
-        .unwrap();
-        tx.send(avatar(me, SPAWN, 0.0)).unwrap();
-        tx.send(player_name(other)).unwrap();
-        tx.send(avatar(other, SPAWN, 0.0)).unwrap();
-        super::super::apply_net_updates(app.world_mut());
-        let index = app.world().resource::<super::super::GuidIndex>();
-        assert!(index.0.contains_key(&guid(me)));
-        assert!(index.0.contains_key(&guid(other)));
-        assert_ne!(index.0[&guid(me)], index.0[&guid(other)]);
-        assert_eq!(
-            app.world().resource::<super::super::SelfGuid>().0,
-            Some(guid(me))
-        );
-    }
-
-    #[test]
-    fn a_full_bridge_queue_fails_without_blocking_and_closed_queue_tears_down() {
-        let (tx, rx) = crossbeam_channel::bounded(1);
-        emit(&tx, avatar([1; 16], SPAWN, 0.0)).unwrap();
-        assert!(emit(&tx, avatar([2; 16], SPAWN, 0.0)).is_err());
-        drop(tx);
-        let mut app = crate::game_plugins::schedule_tests::headless_client();
-        app.insert_resource(settings("127.0.0.1:7474".parse().unwrap(), &[]));
-        app.world_mut()
-            .remove_resource::<super::super::NetOffline>();
-        app.insert_resource(super::super::NetEvents(rx));
-        app.world_mut()
-            .resource_mut::<super::super::NetStatus>()
-            .connected = true;
-        super::super::apply_net_updates(app.world_mut());
-        assert!(!app.world().resource::<super::super::NetStatus>().connected);
-        assert!(app
-            .world()
-            .resource::<super::super::GuidIndex>()
-            .0
-            .is_empty());
-    }
-
-    #[test]
-    fn identity_is_bound_to_authenticated_peer_and_player_guid_type() {
-        let id = [0x7f; 16];
-        assert_eq!(guid(id) >> 48, 0);
-        assert_ne!(guid([0; 16]), 0);
-        assert!(name(id).len() <= 12);
-        if let SessionEvent::ObjectCreate {
-            guid: value, kind, ..
-        } = avatar(id, SPAWN, 0.0)
-        {
-            assert_eq!(value, guid(id));
-            assert_eq!(kind, EntityKind::Player);
-        } else {
-            panic!("expected avatar")
-        }
-    }
-}
+mod ecs_tests;
+#[cfg(test)]
+mod tests;

@@ -30,6 +30,8 @@ def run_rustdoc() -> str:
         capture_output=True,
         text=True,
     )
+    if out.returncode != 0:
+        raise RuntimeError(f"cargo doc failed with exit code {out.returncode}:\n{out.stderr}{out.stdout}")
     return out.stderr + out.stdout
 
 
@@ -59,7 +61,11 @@ def main() -> int:
         print(__doc__.strip())
         return 0
     report = "--report" in sys.argv
-    text = run_rustdoc()
+    try:
+        text = run_rustdoc()
+    except (OSError, RuntimeError) as error:
+        print(f"doc-links FAILED: {error}", file=sys.stderr)
+        return 1
     found = re.findall(r"warning: unresolved link to `([^`]+)`\n\s*--> ([^\s:]+):(\d+)", text)
 
     names = declared_names()

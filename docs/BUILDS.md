@@ -1,9 +1,14 @@
 # Build and run a player artifact
 
 This fork's `Build player` workflow builds Linux amd64, Linux arm64, macOS arm64,
-and Windows amd64 binaries. It runs on pushes to `master` and through
-`workflow_dispatch`. Pull requests, other branch pushes, tags, and schedules do
-not start it. It does not publish releases.
+and Windows amd64 binaries. It runs on pushes to `master`, temporarily on pushes to
+`feat/psk-p2p-foundation`, and through `workflow_dispatch`. Pull requests, other
+branch pushes, tags, and schedules do not start it. Remove the explicit feature-branch
+entry after this development cycle. It does not publish releases.
+
+Each native Build job also runs the local profile-storage regression suite before packaging.
+This exercises save/reopen, corruption handling and file replacement on the actual target OS.
+Windows does not claim Unix permissions or portable directory-fsync guarantees.
 
 ## Start a build
 

@@ -724,6 +724,7 @@ dependencies = [
  "benilla-encounter",
  "benilla-formats",
  "benilla-p2p",
+ "benilla-profile",
  "benilla-protocol",
  "benilla-srp",
  "benilla-ui",
@@ -742,6 +743,7 @@ dependencies = [
  "kira",
  "libc",
  "mint",
+ "netdev 0.46.3",
  "num-bigint",
  "objc2 0.5.2",
  "objc2-app-kit 0.2.2",
@@ -754,6 +756,7 @@ dependencies = [
  "rtrb",
  "serde",
  "sha1 0.10.6",
+ "sha2 0.10.9",
  "smithay-clipboard",
  "symphonia",
  "toml 0.8.23",
@@ -858,12 +861,27 @@ dependencies = [
 name = "benilla-p2p"
 version = "0.2.0"
 dependencies = [
+ "ed25519-dalek",
  "getrandom 0.3.4",
  "iroh",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "snow",
  "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "benilla-profile"
+version = "0.2.0"
+dependencies = [
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "zeroize",
 ]
 
@@ -10722,6 +10740,7 @@ version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 dependencies = [
+ "serde",
  "zeroize_derive",
 ]
 

@@ -6,6 +6,7 @@ pub(super) fn run(
     settings: P2pSettings,
     events: &Sender<SessionEvent>,
     commands: &Receiver<ClientCommand>,
+    stop: &AtomicBool,
 ) -> Result<()> {
     let id = settings
         .0
@@ -49,6 +50,9 @@ pub(super) fn run(
         emit(events, chat(0, line))?;
     }
     loop {
+        if stop.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         for line in controller.poll() {
             emit(events, chat(0, line))?;
         }
@@ -108,10 +112,11 @@ roster = [{{id="01010101010101010101010101010101", address="{endpoint}"}}, {{id=
         );
         let config =
             benilla_config::AppConfig::parse(&config, std::path::Path::new("/tmp")).unwrap();
-        let handles = spawn(
+        let (handles, mut start) = prepare(
             P2pSettings(config.p2p.unwrap(), config.ruleset),
             P2pEndpointTicket::default(),
         );
+        start.start(None).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut connected = false;
         loop {
