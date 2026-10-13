@@ -65,10 +65,10 @@ jobs:
       - name: Set up Mr Boxington
         uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
         with:
-          version: "1.23.0"
+          version: latest
           backend: github
           github-cache-mode: target
-          cache-generation: player-ubuntu26-mbx123-v1
+          cache-generation: player-ubuntu26-v1
           save-on-workflow-dispatch: true
       - name: Test packaging
         run: python3 scripts/test-package-player.py

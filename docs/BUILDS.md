@@ -113,13 +113,15 @@ The existing CI workflow also uses Ubuntu 26.04.
 
 ## Build cache and action updates
 
-The workflow pins Mr Boxington 1.23.0 and its setup action to a commit. The setup
+The workflow installs the latest Mr Boxington release and pins its setup action
+to a commit. The setup
 step runs after Rust installation so the cache key uses the repository's compiler.
 It uses GitHub Actions cache in `target` mode, which keeps the build outputs at
 `target/<target>/release/` for the packaging script. Successful manual runs save
 cache entries for later builds. Cache keys separate operating systems,
 architectures, and Rust compiler versions. The cache generation is specific to
-this workflow and its Ubuntu 26.04 and mbx versions.
+this workflow and its Ubuntu 26.04 baseline. The binary version can change between
+runs; check the setup step's output for the version used.
 
 Run this workflow only on branches you trust. Cache storage counts against the
 repository's GitHub Actions limits. These cached artifacts are for testing.
@@ -131,8 +133,8 @@ explains the cache-poisoning risk.
 Dependabot checks GitHub Actions dependencies weekly and groups all version
 updates into one pull request. Security updates follow GitHub's separate security
 update behavior. This configuration starts after it reaches the default branch.
-Dependabot updates action references, not the separate mbx binary `version` input.
-Review that pinned binary version when updating the setup action.
+Dependabot updates action references. The mbx binary follows `version: latest`
+and does not need a Dependabot update.
 
 For workflow linting, run `actionlint -config-file .github/actionlint.yaml`.
 The configuration lists the new hosted labels that actionlint 1.7.12 does not yet
