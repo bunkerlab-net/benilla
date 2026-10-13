@@ -83,7 +83,7 @@ jobs:
         if: runner.os == 'Linux'
         run: python3 scripts/check-native-outfit-oracle.py
       - name: Test persistence and simulation on the native OS
-        run: mbx test --locked -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-dbc -p benilla-mpq
+        run: mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-dbc -p benilla-mpq
       - name: Prepare matching source and locked dependencies
         run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
       - name: Build the player from the distributed source

@@ -267,14 +267,37 @@ fn profile_bytes(h: &Harness) -> Vec<(String, Vec<u8>)> {
         .unwrap()
         .map(|f| {
             let f = f.unwrap();
-            (
-                f.file_name().to_string_lossy().into_owned(),
-                fs::read(f.path()).unwrap(),
-            )
+            let name = f.file_name();
+            // Windows byte-range locks reject reading the live lock through another
+            // handle. It is an empty coordination file, not persisted profile payload.
+            // Still include its name and verify its shape so disappearance is detected.
+            let bytes = if name == "profile.lock" {
+                let metadata = f.metadata().unwrap();
+                assert!(metadata.is_file());
+                assert_eq!(metadata.len(), 0);
+                Vec::new()
+            } else {
+                fs::read(f.path()).unwrap()
+            };
+            (name.to_string_lossy().into_owned(), bytes)
         })
         .collect::<Vec<_>>();
     files.sort();
     files
+}
+
+#[test]
+fn profile_snapshot_preserves_payload_and_live_lock_presence() {
+    let h = Harness::new();
+    let snapshot = profile_bytes(&h);
+    assert!(snapshot
+        .iter()
+        .any(|(name, bytes)| name == "profile.lock" && bytes.is_empty()));
+    let payload = fs::read(h.root.join("p2p-profile/profile.json")).unwrap();
+    assert!(snapshot
+        .iter()
+        .any(|(name, bytes)| name == "profile.json" && bytes == &payload));
+    assert_eq!(snapshot, profile_bytes(&h));
 }
 
 #[test]
