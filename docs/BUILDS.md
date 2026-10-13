@@ -64,14 +64,15 @@ WoW installation without changing it.
 ## Platform requirements
 
 - Linux artifacts use glibc and system audio/windowing libraries. They build on
-  Ubuntu 24.04 and target Ubuntu 24.04 or a compatible newer distribution, not
+  Ubuntu 26.04 and target Ubuntu 26.04 or a compatible newer distribution, not
   musl-based distributions. Install the runtime ALSA and udev libraries, a
   working graphical session, and a Vulkan-capable graphics driver. Use `ldd
   ./benilla` to check for missing libraries on your machine.
-- The macOS artifact is for Apple silicon. It builds on macOS 15 and has no
+- The macOS artifact is for Apple silicon. It builds on the `xcode-27` public-preview runner, which uses macOS 27, and has no
   signing or notarization step. It is a command-line executable, not an app
   bundle. Follow your organization's policy if macOS blocks it.
-- The Windows artifact is for x64 Windows and uses MSVC. It has no signing or
+- The Windows artifact is for x64 Windows and uses MSVC on the
+  `windows-2025-vs2026` runner. It has no signing or
   installer step. It may require Microsoft's Visual C++ x64 runtime. Keep the
   executable in a writable folder rather than `Program Files`.
 
@@ -82,10 +83,10 @@ an artifact as a release.
 ## Build details
 
 Each job uses a native runner, the Rust version in `rust-toolchain.toml`, and the
-checked-in `Cargo.lock`. The build command is:
+checked-in `Cargo.lock`. Mr Boxington wraps Cargo for the build command:
 
 ```sh
-cargo build --locked --release -p benilla --bin benilla --no-default-features --target <target>
+mbx build --locked --release -p benilla --bin benilla --no-default-features --target <target>
 ```
 
 The targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
@@ -103,3 +104,39 @@ licenses, and the vendored kira and Lua licenses. It does not copy a source tree
 asset directory, game installation, or local settings. Review dependency license
 obligations before wider redistribution. Packaging tests run with
 `python3 scripts/test-package-player.py` and require no game data or Rust compiler.
+
+The explicit runner labels are `ubuntu-26.04`, `ubuntu-26.04-arm`, `xcode-27`,
+and `windows-2025-vs2026`. These are standard hosted runners listed in
+[GitHub's runner images](https://github.com/actions/runner-images). `xcode-27` is
+in public preview and can change or lose availability without the guarantees of
+a stable image. No larger-runner label is used. Standard runner compute is free
+for this public repository; artifact and cache storage follow GitHub's limits.
+The existing CI workflow also uses Ubuntu 26.04.
+
+## Build cache and action updates
+
+The workflow pins Mr Boxington 1.23.0 and its setup action to a commit. The setup
+step runs after Rust installation so the cache key uses the repository's compiler.
+It uses GitHub Actions cache in `target` mode, which keeps the build outputs at
+`target/<target>/release/` for the packaging script. Successful manual runs save
+cache entries for later builds. Cache keys separate operating systems,
+architectures, and Rust compiler versions. The cache generation is specific to
+this workflow and its Ubuntu 26.04 and mbx versions.
+
+Run this workflow only on branches you trust. Cache storage counts against the
+repository's GitHub Actions limits. These cached artifacts are for testing.
+Before distributing a production release, use an uncached build or change the
+Mr Boxington action to `backend: local` and set `MBX_TARGET_VIEWS=0` so the
+packaging path stays unchanged. Mr Boxington's [release guidance](https://mr-boxington.jdx.dev/github-action#production-releases)
+explains the cache-poisoning risk.
+
+Dependabot checks GitHub Actions dependencies weekly and groups all version
+updates into one pull request. Security updates follow GitHub's separate security
+update behavior. This configuration starts after it reaches the default branch.
+Dependabot updates action references, not the separate mbx binary `version` input.
+Review that pinned binary version when updating the setup action.
+
+For workflow linting, run `actionlint -config-file .github/actionlint.yaml`.
+The configuration lists the new hosted labels that actionlint 1.7.12 does not yet
+recognize. GitHub's runner list, rather than this linter exception, establishes
+runner availability.

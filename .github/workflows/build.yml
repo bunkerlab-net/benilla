@@ -21,19 +21,19 @@ jobs:
       matrix:
         include:
           - platform: linux-amd64
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
           - platform: linux-arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
             target: aarch64-unknown-linux-gnu
             archive: tar.gz
           - platform: macos-arm64
-            runner: macos-15
+            runner: xcode-27
             target: aarch64-apple-darwin
             archive: tar.gz
           - platform: windows-amd64
-            runner: windows-2022
+            runner: windows-2025-vs2026
             target: x86_64-pc-windows-msvc
             archive: zip
     defaults:
@@ -62,10 +62,18 @@ jobs:
           rustup target add "$BUILD_TARGET"
           rustc -Vv
           test "$(rustc -Vv | sed -n 's/^host: //p' | tr -d '\r')" = "$BUILD_TARGET"
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: "1.23.0"
+          backend: github
+          github-cache-mode: target
+          cache-generation: player-ubuntu26-mbx123-v1
+          save-on-workflow-dispatch: true
       - name: Test packaging
         run: python3 scripts/test-package-player.py
       - name: Build the player
-        run: cargo build --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
+        run: mbx build --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
       - name: Package the player
         run: python3 scripts/package-player.py --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"
       - name: Upload the archive and checksum
