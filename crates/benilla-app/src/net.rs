@@ -79,7 +79,16 @@ impl Plugin for NetPlugin {
                 .world()
                 .contains_resource::<crate::login::settings::ConfigRecovery>();
         crate::shutdown::on_app_exit(app, p2p::shutdown.into_configs());
-        app.add_systems(Update, p2p::refresh_local_zone.after(WorldStage::Present));
+        app.add_systems(
+            Update,
+            // Publish the app's resolved zone only after its area feed and after login has
+            // started/restarted the service. Present alone orders neither producer.
+            p2p::refresh_local_zone
+                .after(WorldStage::Present)
+                .after(crate::area::feed_zone_events)
+                .after(crate::login::login_input)
+                .run_if(resource_exists::<P2pStart>),
+        );
         app.init_resource::<P2pEndpointTicket>();
         let ticket = app.world().resource::<P2pEndpointTicket>().clone();
         let handles = match (connect, app.world().get_resource::<P2pSettings>()) {

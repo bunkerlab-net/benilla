@@ -839,7 +839,7 @@ fn show_main_menu(mut preview: ResMut<GluePreview>) {
 /// The screen's input: typing, Tab, Enter submits, Esc quits (an open dialog takes it first),
 /// and clicks on the boxes, buttons and checkbox.
 #[allow(clippy::type_complexity)]
-fn login_input(
+pub(crate) fn login_input(
     realms: Res<crate::realm_select::Realms>,
     settings_state: (
         ResMut<settings::Settings>,
@@ -1254,7 +1254,7 @@ mod tests {
     #[test]
     fn p2p_blocks_pending_and_explicit_realm_credentials() {
         let config = benilla_config::AppConfig::parse(
-            "[p2p]\nenabled = true\npsk = 'private-test-passphrase-2026'\n",
+            "[p2p]\npsk = 'private-test-passphrase-2026'\n",
             std::path::Path::new("/tmp"),
         )
         .unwrap();

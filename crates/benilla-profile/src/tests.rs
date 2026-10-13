@@ -76,6 +76,34 @@ fn create_select_save_reopen_preserves_identity_and_characters() {
         SpawnPolicy::NorthshireMeetingV1
     );
 }
+#[cfg(windows)]
+#[test]
+fn windows_verbatim_drive_creation_reopens_through_standard_path() {
+    use std::path::{Component, PathBuf, Prefix};
+
+    // canonicalize returns extended-length syntax; retain it to exercise the prefix walk.
+    let (_temp, path) = directory();
+    let mut parts = path.components();
+    let Some(Component::Prefix(prefix)) = parts.next() else {
+        panic!("the Windows fixture must have a path prefix");
+    };
+    let Prefix::VerbatimDisk(drive) = prefix.kind() else {
+        panic!("the Windows fixture must use a local drive");
+    };
+    let mut standard = PathBuf::from(format!("{}:", char::from(drive)));
+    for part in parts {
+        standard.push(part.as_os_str());
+    }
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let key = profile.public_key();
+    let id = profile.create_character(input("Alice")).unwrap();
+    assert!(path.join("profile.previous.json").is_file());
+    assert!(matches!(ProfileStore::open(&standard), Err(Error::Locked)));
+    drop(profile);
+    let profile = ProfileStore::open(&standard).unwrap();
+    assert_eq!(profile.public_key(), key);
+    assert_eq!(profile.selected_character().unwrap().id, id);
+}
 #[test]
 fn signatures_bind_owner_domain_and_challenge() {
     let (_temp, path) = directory();
@@ -437,4 +465,14 @@ fn post_rename_failure_preserves_backup_and_requires_reopen() {
     let profile = ProfileStore::open(path).unwrap();
     assert_eq!(profile.characters().len(), 2);
     assert_eq!(profile.selected_character().unwrap().name, "Beryl");
+}
+
+#[test]
+fn closing_profile_unlocks_even_with_an_inherited_file_description() {
+    let (_temp, path) = directory();
+    let profile = ProfileStore::create(&path).unwrap();
+    let inherited = profile.storage.clone_lock();
+    drop(profile);
+    let _reopened = ProfileStore::open(&path).unwrap();
+    drop(inherited);
 }

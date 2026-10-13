@@ -912,6 +912,47 @@ pub(crate) mod schedule_tests {
         );
     }
 
+    /// P2P zone publication observes both the resolved app zone and the service
+    /// selected by this frame's login action; Present alone orders neither writer.
+    #[test]
+    fn p2p_zone_publication_follows_area_and_login() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !graph
+            .systems
+            .values()
+            .any(|s| s.name.contains("benilla_app::"))
+        {
+            return; // Player builds omit Bevy's debug type names.
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let publish = key("::net::p2p::refresh_local_zone");
+        for producer in ["::area::feed_zone_events", "::login::login_input"] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&publish),
+                "{producer} must precede P2P zone publication"
+            );
+        }
+    }
+
     /// The ratchet. Ids, not names, so it runs in the player build too; prints the class
     /// census beside the number it holds.
     #[test]

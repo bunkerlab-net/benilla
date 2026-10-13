@@ -88,6 +88,10 @@ ancestor checks are path based and are not race-resistant against an adversary a
 parent directories. Use a trusted, user-private local directory tree. No ACL is granted or
 changed by this crate; the application/user is responsible for private inherited ACLs.
 
+Path checks start at the complete drive or share root, including extended-length Windows
+paths returned by `canonicalize`, then inspect each descendant. Drive-relative paths such as
+`C:profile` are refused because they do not resolve against the process's current directory.
+
 Rust std has no portable directory fsync on Windows: sudden power loss may roll back the
 renamed directory entry even after successful return. A preserved previous-good snapshot
 supports explicit recovery. Antivirus/open-handle sharing can cause rename failure; current

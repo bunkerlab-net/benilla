@@ -44,6 +44,15 @@ use benilla_assets::{AssetSet, LockRecover, WorldAssets};
 #[derive(Resource)]
 pub(crate) struct AreaTableRes(pub(crate) AreaTableCatalog);
 
+/// Game-owned zone identity resolved by the same authority as the zone UI.
+/// Peer persistence consumes this value rather than reaching into engine area resources.
+#[derive(Resource, Default)]
+pub(crate) struct CurrentPlayerZone(pub(crate) Option<u32>);
+
+fn clear_player_zone(mut zone: ResMut<CurrentPlayerZone>) {
+    zone.0 = None;
+}
+
 fn load_area_table(mut commands: Commands, assets: Option<Res<WorldAssets>>) {
     let Some(assets) = assets else { return };
     let loaded = {
@@ -63,7 +72,7 @@ fn load_area_table(mut commands: Commands, assets: Option<Res<WorldAssets>>) {
 /// (`0x494970`) and the indoor dedup pair (`[0x868608]`, `[0x86860c]`). It lives per VM, so every
 /// login starts zeroed and its first resolve is a NEW_AREA.
 #[derive(Default)]
-struct ZoneCache {
+pub(crate) struct ZoneCache {
     /// `None` until the first resolve.
     zone_id: Option<u32>,
     zone_text: String,
@@ -101,7 +110,7 @@ fn elect_event(cache: &ZoneCache, next: &ZoneSignal) -> Option<&'static str> {
 
 /// Resolves the texts and PvP info, pushes the zone caches, then fires the elected zone event and,
 /// independently, `MINIMAP_ZONE_CHANGED`.
-fn feed_zone_events(
+pub(crate) fn feed_zone_events(
     script: Option<NonSendMut<UiScript>>,
     world: benilla_world::world_point::WorldPoint,
     areas: Option<Res<AreaTableRes>>,
@@ -109,11 +118,9 @@ fn feed_zone_events(
     self_store: Query<&ObjectStore, With<SelfPlayer>>,
     realm_pvp: Option<Res<RealmPvp>>,
     mut cache: Local<crate::ui_script::VmMemo<ZoneCache>>,
+    mut player_zone: Option<ResMut<CurrentPlayerZone>>,
 ) {
-    let (Some(mut script), Some(areas)) = (script, areas) else {
-        return;
-    };
-    let cache = cache.get(&script);
+    let Some(areas) = areas else { return };
     let Some(leaf) = world.area() else { return };
     let Some(leaf_row) = areas.0.get(leaf) else {
         // An unknown id keeps the last state, as the resolver does for areaId 0.
@@ -124,6 +131,11 @@ fn feed_zone_events(
     } else {
         leaf_row.zone_id
     };
+    if let Some(player_zone) = player_zone.as_deref_mut() {
+        player_zone.0 = Some(zone);
+    }
+    let Some(mut script) = script else { return };
+    let cache = cache.get(&script);
     let real_zone_text = areas.0.name(zone).unwrap_or_default().to_string();
     let indoor = world.area_interior().is_some();
 
@@ -309,6 +321,11 @@ pub(crate) struct AreaPlugin;
 impl Plugin for AreaPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RealmPvp>()
+            .init_resource::<CurrentPlayerZone>()
+            .add_systems(
+                OnExit(crate::char_select::ClientState::InWorld),
+                clear_player_zone,
+            )
             .add_systems(Startup, load_area_table.after(AssetSet::Open))
             .add_systems(
                 OnEnter(crate::char_select::ClientState::InWorld),
@@ -329,6 +346,33 @@ impl Plugin for AreaPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_zone_identity_publishes_without_a_vm_and_clears_on_exit() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        benilla_world::world_point::init_world_point_resources(&mut world);
+        let mut leaf = row(0, 0);
+        leaf.zone_id = 12;
+        world.insert_resource(AreaTableRes(AreaTableCatalog::from_rows(vec![
+            (34, leaf),
+            (12, row(0, 0)),
+        ])));
+        world.init_resource::<CurrentPlayerZone>();
+        world
+            .resource_mut::<benilla_world::terrain_stream::CurrentArea>()
+            .0 = Some(34);
+        world.run_system_once(feed_zone_events).unwrap();
+        assert_eq!(world.resource::<CurrentPlayerZone>().0, Some(12));
+        assert!(world.get_non_send_resource::<UiScript>().is_none());
+        world
+            .resource_mut::<benilla_world::terrain_stream::CurrentArea>()
+            .0 = Some(12);
+        world.run_system_once(feed_zone_events).unwrap();
+        assert_eq!(world.resource::<CurrentPlayerZone>().0, Some(12));
+        world.run_system_once(clear_player_zone).unwrap();
+        assert_eq!(world.resource::<CurrentPlayerZone>().0, None);
+    }
 
     fn sig(zone_id: u32, zone: &str, sub: &str, indoor: bool) -> ZoneSignal {
         ZoneSignal {

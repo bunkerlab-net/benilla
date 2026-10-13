@@ -86,6 +86,7 @@ pub(super) struct Storage {
     #[cfg(not(unix))]
     directory: PathBuf,
     lock: File,
+    locked: bool,
     #[cfg(test)]
     fault: Option<SaveFault>,
 }
@@ -95,11 +96,12 @@ impl Storage {
         let mut value = Self {
             lock: open_in(&directory, LOCK, Access::Lock)?,
             directory,
+            locked: false,
             #[cfg(test)]
             fault: None,
         };
         match value.lock.try_lock() {
-            Ok(()) => {}
+            Ok(()) => value.locked = true,
             Err(TryLockError::WouldBlock) => return Err(Error::Locked),
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
@@ -168,6 +170,10 @@ impl Storage {
         self.replace(CURRENT, bytes)
     }
     #[cfg(test)]
+    pub(super) fn clone_lock(&self) -> File {
+        self.lock.try_clone().unwrap()
+    }
+    #[cfg(test)]
     pub(super) fn inject_fault(&mut self, fault: SaveFault) {
         self.fault = Some(fault);
     }
@@ -210,6 +216,16 @@ impl Storage {
     }
 }
 
+impl Drop for Storage {
+    fn drop(&mut self) {
+        // A concurrent fork can briefly inherit this open-file description until exec,
+        // despite CLOEXEC. Explicit unlock permits immediate close/reopen in that window.
+        if self.locked {
+            let _ = self.lock.unlock();
+        }
+    }
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum SaveFault {
@@ -231,6 +247,12 @@ fn absolute_parts(path: &Path) -> Result<PathBuf, Error> {
     } else {
         std::env::current_dir()?.join(path)
     };
+    // A Windows drive-relative prefix (C:profile) replaces the base rather than joining it.
+    if !absolute.is_absolute() {
+        return Err(Error::Invalid(
+            "profile path must resolve to an absolute path",
+        ));
+    }
     if absolute
         .components()
         .any(|part| matches!(part, Component::ParentDir))
@@ -375,11 +397,26 @@ fn sync_directory(directory: &File) -> Result<(), Error> {
 }
 
 #[cfg(not(unix))]
-fn check_components(path: &Path) -> Result<(), Error> {
+fn check_component_paths(
+    path: &Path,
+    mut check: impl FnMut(&Path) -> Result<(), Error>,
+) -> Result<(), Error> {
     let mut current = PathBuf::new();
     for component in path.components() {
         current.push(component.as_os_str());
-        let metadata = fs::symlink_metadata(&current)?;
+        // A prefix is not a directory: wait for RootDir to complete C:\ or \\?\C:\.
+        // UNC prefixes likewise become a complete share root before any metadata query.
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
+        check(&current)?;
+    }
+    Ok(())
+}
+#[cfg(not(unix))]
+fn check_components(path: &Path) -> Result<(), Error> {
+    check_component_paths(path, |current| {
+        let metadata = fs::symlink_metadata(current)?;
         if metadata.file_type().is_symlink() {
             return Err(Error::Invalid("profile path contains a symlink"));
         }
@@ -391,8 +428,8 @@ fn check_components(path: &Path) -> Result<(), Error> {
                 return Err(Error::Invalid("profile path contains a reparse point"));
             }
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 #[cfg(not(unix))]
 fn open_directory(path: &Path, create: bool) -> Result<PathBuf, Error> {
@@ -472,6 +509,46 @@ fn sync_directory(_: &Path) -> Result<(), Error> {
     // Windows Rust std cannot portably fsync a directory. File data is flushed before the
     // rename; directory-entry durability through sudden power loss is not promised.
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod windows_path_tests {
+    use super::*;
+
+    #[test]
+    fn component_checks_start_at_complete_drive_or_share_roots() {
+        for root in [
+            r"C:\",
+            r"\\?\C:\",
+            r"\\server\share\",
+            r"\\?\UNC\server\share\",
+        ] {
+            let root = Path::new(root);
+            for path in [root.to_path_buf(), root.join(r"profiles\alice")] {
+                let mut checked = Vec::new();
+                check_component_paths(&path, |part| {
+                    assert!(part.is_absolute());
+                    checked.push(part.to_path_buf());
+                    Ok(())
+                })
+                .unwrap();
+                let expected = if path == root {
+                    vec![root.to_path_buf()]
+                } else {
+                    vec![root.to_path_buf(), root.join("profiles"), path]
+                };
+                assert_eq!(checked, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn drive_relative_profile_paths_are_rejected() {
+        assert!(matches!(
+            absolute_parts(Path::new(r"C:profile")),
+            Err(Error::Invalid(_))
+        ));
+    }
 }
 
 #[cfg(test)]

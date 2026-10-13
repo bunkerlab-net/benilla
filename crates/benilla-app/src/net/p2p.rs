@@ -401,29 +401,18 @@ pub(super) fn shutdown(mut start: Option<bevy::prelude::ResMut<P2pStart>>) {
         start.shutdown();
     }
 }
-/// Zone metadata comes only from our own player's loaded terrain, never from a remote frame.
+/// Zone metadata comes from the app's existing player-area authority, never a remote frame.
 pub(super) fn refresh_local_zone(
     start: Option<bevy::prelude::Res<P2pStart>>,
-    area: Option<bevy::prelude::Res<benilla_world::terrain_stream::CurrentArea>>,
-    areas: Option<bevy::prelude::Res<crate::area::AreaTableRes>>,
+    zone: Option<bevy::prelude::Res<crate::area::CurrentPlayerZone>>,
     player: bevy::prelude::Res<super::SelfGuid>,
 ) {
     if player.0.is_none() {
         return;
     }
-    let (Some(start), Some(area), Some(areas)) = (start, area, areas) else {
-        return;
-    };
-    let Some(leaf) = area.0 else {
-        return;
-    };
-    let Some(row) = areas.0.get(leaf) else {
-        return;
-    };
-    start.local_zone.store(
-        if row.zone_id == 0 { leaf } else { row.zone_id },
-        Ordering::SeqCst,
-    );
+    if let (Some(start), Some(zone)) = (start, zone.and_then(|zone| zone.0)) {
+        start.local_zone.store(zone, Ordering::SeqCst);
+    }
 }
 
 /// Channels only; profile IO is deliberate Start, and transport IO is deliberate Enter World.
