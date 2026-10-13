@@ -2,7 +2,8 @@
 name = "benilla-app"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+# Combined package links the GPL-covered synthetic simulation; original file grants remain.
+license = "GPL-3.0-or-later"
 description = "The Bevy app as a library: everything but the build-id stamp, which lives in the `benilla` launcher so a new commit does not rebuild this crate"
 
 [lints]
@@ -22,6 +23,7 @@ bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
 benilla-config = { path = "../benilla-config" }
+benilla-encounter = { path = "../benilla-encounter" }
 anyhow.workspace = true
 # The EditBox clipboard, on the main thread as NSPasteboard requires; bevy_egui's 3.x.
 arboard = "3"

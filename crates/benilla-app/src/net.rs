@@ -25,6 +25,7 @@ pub(crate) mod io;
 mod motion;
 mod objects;
 mod p2p;
+pub(crate) use p2p::P2pEndpointTicket;
 
 /// Fork-only backend settings, inserted before the networking plugin is built.
 #[derive(Resource, Clone)]
@@ -72,11 +73,17 @@ impl Plugin for NetPlugin {
         crate::query_cache::register::<crate::names::NameCache>(app);
         crate::query_cache::register::<crate::go_templates::GameObjectTemplates>(app);
         crate::query_cache::register::<crate::items::Items>(app);
-        let handles = match (self.connect, app.world().get_resource::<P2pSettings>()) {
-            (true, Some(settings)) => p2p::spawn(settings.clone()),
-            _ => io::spawn_net(self.connect),
+        let connect = self.connect
+            && !app
+                .world()
+                .contains_resource::<crate::login::settings::ConfigRecovery>();
+        app.init_resource::<P2pEndpointTicket>();
+        let ticket = app.world().resource::<P2pEndpointTicket>().clone();
+        let handles = match (connect, app.world().get_resource::<P2pSettings>()) {
+            (true, Some(settings)) => p2p::spawn(settings.clone(), ticket),
+            _ => io::spawn_net(connect),
         };
-        if !self.connect {
+        if !connect {
             app.insert_resource(NetOffline);
         }
         // In the net stage: the lighting resolve runs after it and reads this frame's clock.

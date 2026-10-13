@@ -12,6 +12,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 getrandom = "0.3"
 zeroize = "1"
+iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring", "portmapper"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+iroh = { version = "=1.3.0", default-features = false, features = ["test-utils"] }

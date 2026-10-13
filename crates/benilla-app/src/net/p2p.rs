@@ -16,10 +16,32 @@ use serde::{Deserialize, Serialize};
 
 use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
+mod encounter;
+
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
 const CONTENT_VERSION: &str = "benilla-exploration-northshire-v1";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
+/// Public connection metadata, revealed only by deliberate UI action; never persisted or logged.
+#[derive(bevy::prelude::Resource, Clone, Default)]
+pub(crate) struct P2pEndpointTicket(Arc<Mutex<Option<String>>>);
+impl P2pEndpointTicket {
+    pub(crate) fn get(&self) -> Option<String> {
+        self.0.lock().ok().and_then(|value| value.clone())
+    }
+    fn set(&self, value: Option<String>) {
+        if let Ok(mut current) = self.0.lock() {
+            *current = value;
+        }
+    }
+}
+struct ClearTicket(P2pEndpointTicket);
+impl Drop for ClearTicket {
+    fn drop(&mut self) {
+        self.0.set(None);
+    }
+}
+
 const HELP: &str = "P2P exploration: direct peers, movement and /say. No realm server. Combat, quests, XP, loot and character saves are not implemented yet. Restart to start a new session.";
 
 /// TOML keeps this small initial protocol inspectable, but never shares the config or its PSK.
@@ -190,7 +212,7 @@ fn emit(events: &Sender<SessionEvent>, event: SessionEvent) -> Result<()> {
 }
 
 /// Same application channels as the realm backend; none of the realm network code is started.
-pub(super) fn spawn(settings: P2pSettings) -> io::NetHandles {
+pub(super) fn spawn(settings: P2pSettings, ticket: P2pEndpointTicket) -> io::NetHandles {
     let (events_tx, events) = crossbeam_channel::bounded(1024);
     let (commands, commands_rx) = crossbeam_channel::unbounded();
     let (park_tx, park_rx) = crossbeam_channel::unbounded::<ParkRequest>();
@@ -200,7 +222,8 @@ pub(super) fn spawn(settings: P2pSettings) -> io::NetHandles {
         .spawn(move || {
             // Keep legacy UI senders valid, without ever submitting credentials to another peer.
             let _ui_receivers = (park_rx, login_rx);
-            if let Err(error) = run(settings, &events_tx, &commands_rx) {
+            let _clear_ticket = ClearTicket(ticket.clone());
+            if let Err(error) = run(settings, &events_tx, &commands_rx, &ticket) {
                 bevy::log::error!("p2p: {error:#}");
                 let _ = events_tx.try_send(SessionEvent::Disconnected {
                     reason: format!("P2P session ended: {error}"),
@@ -225,25 +248,31 @@ fn run(
     settings: P2pSettings,
     events: &Sender<SessionEvent>,
     commands: &Receiver<ClientCommand>,
+    ticket: &P2pEndpointTicket,
 ) -> Result<()> {
+    if settings.0.encounter.is_some() {
+        return encounter::run(settings, events, commands);
+    }
     let id = benilla_p2p::generate_peer_id()?;
     let hello = Hello {
-        protocol_version: 1,
+        protocol_version: benilla_p2p::PROTOCOL_VERSION,
         network: settings.0.network.clone(),
         peer_id: id,
         ruleset_hash: settings.1.fingerprint(),
         content_version: CONTENT_VERSION.into(),
     };
-    let network = Network::start(
-        TransportConfig {
-            listen: settings.0.listen,
-            peers: settings.0.peers.clone(),
-            handshake_timeout: Duration::from_millis(settings.0.timeout_ms),
-            max_peers: usize::from(settings.0.max_peers),
-        },
-        settings.0.psk_bytes(),
-        hello,
-    )?;
+    let transport = TransportConfig {
+        listen: settings.0.listen,
+        peers: settings.0.peers.clone(),
+        handshake_timeout: Duration::from_millis(settings.0.timeout_ms),
+        max_peers: usize::from(settings.0.max_peers),
+    };
+    let network = match settings.0.internet.clone() {
+        Some(internet) => {
+            Network::start_internet(transport, internet, settings.0.psk_bytes(), hello)?
+        }
+        None => Network::start(transport, settings.0.psk_bytes(), hello)?,
+    };
     bevy::log::info!(
         "p2p: exploration session listening on {} as {}",
         network.local_addr(),
@@ -284,7 +313,16 @@ fn run(
         },
     )?;
     emit(events, chat(0, HELP.into()))?;
+    ticket.set(network.endpoint_ticket());
+    let mut ticket_updated = Instant::now();
     loop {
+        if ticket_updated.elapsed() >= Duration::from_secs(1) {
+            let current = network.endpoint_ticket();
+            if ticket.get() != current {
+                ticket.set(current);
+            }
+            ticket_updated = Instant::now();
+        }
         for _ in 0..256 {
             let event = match network.try_recv() {
                 Ok(event) => event,
@@ -535,7 +573,7 @@ mod tests {
             .map(|p| format!("\"{p}\""))
             .collect::<Vec<_>>()
             .join(",");
-        let text = format!("[p2p]\npsk = \"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\"\nlisten = \"{listen}\"\npeers = [{peers}]\n");
+        let text = format!("[p2p]\npsk = \"public app integration test phrase only\"\nlisten = \"{listen}\"\npeers = [{peers}]\n");
         let config = benilla_config::AppConfig::parse(&text, std::path::Path::new("/tmp")).unwrap();
         P2pSettings(config.p2p.unwrap(), config.ruleset)
     }
@@ -565,7 +603,7 @@ mod tests {
         let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = reservation.local_addr().unwrap();
         drop(reservation);
-        let a = spawn(settings(endpoint, &[]));
+        let a = spawn(settings(endpoint, &[]), P2pEndpointTicket::default());
         let a_id = match next_matching(&a, |ev| matches!(ev, SessionEvent::Connected { .. })) {
             SessionEvent::Connected { self_guid, .. } => self_guid,
             _ => unreachable!(),
@@ -573,7 +611,10 @@ mod tests {
         let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let second_endpoint = reservation.local_addr().unwrap();
         drop(reservation);
-        let b = spawn(settings(second_endpoint, &[endpoint]));
+        let b = spawn(
+            settings(second_endpoint, &[endpoint]),
+            P2pEndpointTicket::default(),
+        );
         let b_id = match next_matching(&b, |ev| matches!(ev, SessionEvent::Connected { .. })) {
             SessionEvent::Connected { self_guid, .. } => self_guid,
             _ => unreachable!(),

@@ -1,10 +1,10 @@
-//! Fork-only direct TCP peer transport. Every peer can listen and dial; no game server,
-//! discovery service, identity service, or plaintext fallback is involved.
+//! Fork-only peer transport: direct TCP, or explicitly configured iroh QUIC connectivity.
+//! Every peer can listen and dial; no central game authority is involved.
 //!
-//! A random 256-bit shared key grants group membership, not a unique player identity.
-//! Group members can impersonate each other. This is not an anti-cheat boundary.
-//! Configure every desired direct link explicitly. There is no automatic peer discovery,
-//! routing, NAT traversal, or relay; share reachable addresses privately with the PSK.
+//! A shared key grants group membership, not unique player identity. Members can impersonate
+//! each other. Internet mode uses private endpoint tickets, optional configured relays and
+//! opt-in router mapping. No secret-derived discovery identifier or public service is enabled.
+//! TCP remains the default. See `InternetConfig` for the separate internet-mode contract.
 //!
 //! Framing: four-byte big-endian length followed by a Noise message. The two-message
 //! handshake uses an application prologue. The first encrypted transport message is a
@@ -25,13 +25,19 @@ use tokio::{
     time::{self, timeout},
 };
 use zeroize::Zeroizing;
+mod internet;
+pub use internet::InternetConfig;
+trait PeerStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> PeerStream for T {}
+type Stream = Box<dyn PeerStream>;
 
-pub const PROTOCOL_VERSION: u16 = 1;
+// Version 2 is the passphrase-derived-key boundary; no raw-key compatibility fallback.
+pub const PROTOCOL_VERSION: u16 = 2;
 pub const MAX_PAYLOAD_SIZE: usize = 16 * 1024;
 const MAX_WIRE: usize = MAX_PAYLOAD_SIZE + 64;
 const QUEUE: usize = 128;
 const NOISE: &str = "Noise_NNpsk0_25519_ChaChaPoly_SHA256";
-const PROLOGUE: &[u8] = b"benilla-p2p-v1";
+const PROLOGUE: &[u8] = b"benilla-p2p-v2";
 pub type PeerId = [u8; 16];
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -95,7 +101,7 @@ pub enum Event {
     PeerJoined(Hello),
     PeerLeft(PeerId),
     Frame { peer_id: PeerId, payload: Vec<u8> },
-    Rejected { address: SocketAddr, reason: String },
+    Rejected { address: String, reason: String },
 }
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -140,6 +146,7 @@ pub fn generate_peer_id() -> Result<PeerId, Error> {
 /// Owns one bounded background runtime. Dropping the handle closes all sockets.
 pub struct Network {
     address: SocketAddr,
+    endpoint: Option<iroh::Endpoint>,
     commands: async_mpsc::Sender<Command>,
     events: mpsc::Receiver<Event>,
     diagnostics: mpsc::Receiver<Event>,
@@ -158,9 +165,7 @@ impl Network {
             return Err(Error::Protocol("invalid transport limits"));
         }
         if psk.iter().all(|byte| *byte == psk[0]) {
-            return Err(Error::Protocol(
-                "PSK must be a randomly generated 32-byte key",
-            ));
+            return Err(Error::Protocol("PSK must not be a constant-byte key"));
         }
         let listener = std::net::TcpListener::bind(config.listen)?;
         listener.set_nonblocking(true)?;
@@ -177,12 +182,13 @@ impl Network {
         let worker = thread::Builder::new().name("benilla-p2p".into()).spawn(move || {
             runtime.block_on(async move {
                 if let Ok(listener) = TcpListener::from_std(listener) {
-                    tokio::select! { _ = run(listener,config,key,hello,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
+                    tokio::select! { _ = run(internet::Backend::Tcp(listener),config,key,hello,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
                 }
             });
         })?;
         Ok(Self {
             address,
+            endpoint: None,
             commands,
             events,
             diagnostics,
@@ -244,8 +250,8 @@ async fn read_wire<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> Result<Ve
     reader.read_exact(&mut bytes).await?;
     Ok(bytes)
 }
-async fn handshake(
-    stream: &mut TcpStream,
+async fn handshake<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    stream: &mut S,
     key: &[u8; 32],
     local: &Hello,
     initiator: bool,
@@ -288,22 +294,22 @@ struct LivePeer {
 enum Internal {
     Ready {
         token: u64,
-        address: SocketAddr,
+        address: String,
         outbound: bool,
-        stream: TcpStream,
+        stream: Stream,
         noise: Box<snow::TransportState>,
         hello: Hello,
         permit: tokio::sync::OwnedSemaphorePermit,
     },
     Failed {
-        address: SocketAddr,
+        address: String,
         outbound: bool,
         reason: String,
     },
     Closed {
         token: u64,
         id: PeerId,
-        address: SocketAddr,
+        address: String,
         outbound: bool,
     },
     Frame {
@@ -313,7 +319,7 @@ enum Internal {
     },
 }
 async fn run(
-    listener: TcpListener,
+    backend: internet::Backend,
     config: TransportConfig,
     key: Zeroizing<[u8; 32]>,
     hello: Hello,
@@ -325,29 +331,30 @@ async fn run(
     let permits = Arc::new(tokio::sync::Semaphore::new(config.max_peers * 2));
     let mut peers: HashMap<PeerId, LivePeer> = HashMap::new();
     let mut outbound_addresses = std::collections::HashSet::new();
-    let mut known_outbound_ids: HashMap<SocketAddr, PeerId> = HashMap::new();
+    let mut known_outbound_ids: HashMap<String, PeerId> = HashMap::new();
     let mut token = 0u64;
     let mut retry = time::interval(Duration::from_secs(2));
     retry.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+    let targets = backend.targets(&config);
     loop {
         tokio::select! {
-            accepted = listener.accept() => {
-                if let Ok((stream,address)) = accepted {
+            accepted = backend.accept() => {
+                if let Some((candidate,address)) = accepted {
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
                         token += 1;
-                        launch_candidate(token,address,Some(stream),key.clone(),hello.clone(),config.handshake_timeout,permit,updates.clone());
+                        launch_candidate(token,address,Some(candidate),&backend,key.clone(),hello.clone(),config.handshake_timeout,permit,updates.clone());
                     }
                 }
             }
             _ = retry.tick() => {
-                for &address in &config.peers {
-                    if outbound_addresses.contains(&address)
-                        || known_outbound_ids.get(&address).is_some_and(|id| peers.contains_key(id))
-                        || address == listener.local_addr().unwrap_or(config.listen) { continue; }
+                for address in &targets {
+                    if outbound_addresses.contains(address)
+                        || known_outbound_ids.get(address).is_some_and(|id| peers.contains_key(id))
+                        || backend.is_self(address) { continue; }
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
-                        outbound_addresses.insert(address);
+                        outbound_addresses.insert(address.clone());
                         token += 1;
-                        launch_candidate(token,address,None,key.clone(),hello.clone(),config.handshake_timeout,permit,updates.clone());
+                        launch_candidate(token,address.clone(),None,&backend,key.clone(),hello.clone(),config.handshake_timeout,permit,updates.clone());
                     }
                 }
             }
@@ -364,11 +371,11 @@ async fn run(
                 Some(Internal::Failed { address,outbound,reason }) => {
                     if outbound { outbound_addresses.remove(&address); }
                     // These unauthenticated diagnostics are deliberately lossy and isolated.
-                    let _ = diagnostics.try_send(Event::Rejected { address,reason });
+                    let _ = diagnostics.try_send(Event::Rejected { address: internet::diagnostic_address(&address),reason });
                 }
                 Some(Internal::Ready { token,address,outbound,stream,noise,hello: remote,permit }) => {
                     let id = remote.peer_id;
-                    if outbound { known_outbound_ids.insert(address,id); }
+                    if outbound { known_outbound_ids.insert(address.clone(),id); }
                     // Prefer the connection dialed by the lexicographically smaller ephemeral ID.
                     let preferred = outbound == (hello.peer_id < id);
                     if peers.get(&id).is_some_and(|old| old.preferred || !preferred) || (!peers.contains_key(&id) && peers.len() >= config.max_peers) {
@@ -415,7 +422,7 @@ struct CloseGuard {
     updates: async_mpsc::Sender<Internal>,
     token: u64,
     id: PeerId,
-    address: SocketAddr,
+    address: String,
     outbound: bool,
 }
 impl Drop for CloseGuard {
@@ -423,7 +430,7 @@ impl Drop for CloseGuard {
         let message = Internal::Closed {
             token: self.token,
             id: self.id,
-            address: self.address,
+            address: self.address.clone(),
             outbound: self.outbound,
         };
         let updates = self.updates.clone();
@@ -435,22 +442,20 @@ impl Drop for CloseGuard {
 #[allow(clippy::too_many_arguments)]
 fn launch_candidate(
     token: u64,
-    address: SocketAddr,
-    stream: Option<TcpStream>,
+    address: String,
+    candidate: Option<internet::Candidate>,
+    backend: &internet::Backend,
     key: Zeroizing<[u8; 32]>,
     hello: Hello,
     limit: Duration,
     permit: tokio::sync::OwnedSemaphorePermit,
     updates: async_mpsc::Sender<Internal>,
 ) {
+    let endpoint = backend.endpoint();
     tokio::spawn(async move {
-        let outbound = stream.is_none();
+        let outbound = candidate.is_none();
         let result = timeout(limit, async {
-            let mut stream = match stream {
-                Some(stream) => stream,
-                None => TcpStream::connect(address).await?,
-            };
-            stream.set_nodelay(true)?;
+            let mut stream = internet::connect(candidate, endpoint, &address).await?;
             let (noise, remote) = handshake(&mut stream, &key, &hello, outbound).await?;
             Ok::<_, Error>((stream, noise, remote))
         })
@@ -476,14 +481,14 @@ fn launch_candidate(
     });
 }
 async fn session(
-    stream: TcpStream,
+    stream: Stream,
     noise: snow::TransportState,
     id: PeerId,
     token: u64,
     mut outgoing: async_mpsc::Receiver<Vec<u8>>,
     updates: async_mpsc::Sender<Internal>,
 ) -> Result<(), Error> {
-    let (mut reader, mut writer) = stream.into_split();
+    let (mut reader, mut writer) = tokio::io::split(stream);
     let noise = Mutex::new(noise);
     let read = async {
         loop {
@@ -659,6 +664,26 @@ mod tests {
             a.into_transport_mode().unwrap(),
             b.into_transport_mode().unwrap(),
         )
+    }
+    #[test]
+    fn legacy_protocol_and_noise_prologue_are_rejected() {
+        let mut legacy = hello(2);
+        legacy.protocol_version = 1;
+        assert!(legacy.validate().is_err());
+        let key = key();
+        let build = |prologue| {
+            snow::Builder::new(NOISE.parse().unwrap())
+                .psk(0, &key)
+                .unwrap()
+                .prologue(prologue)
+                .unwrap()
+        };
+        let mut old = build(b"benilla-p2p-v1").build_initiator().unwrap();
+        let mut current = build(PROLOGUE).build_responder().unwrap();
+        let mut wire = [0; 128];
+        let mut clear = [0; 128];
+        let n = old.write_message(&[], &mut wire).unwrap();
+        assert!(current.read_message(&wire[..n], &mut clear).is_err());
     }
     #[test]
     fn replay_tampering_and_previous_session_ciphertext_rejected() {

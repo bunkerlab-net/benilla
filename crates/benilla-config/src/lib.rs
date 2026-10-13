@@ -1,6 +1,9 @@
 //! Fork-specific startup configuration, separate from the stock client's persisted CVars.
 //! Never display TOML parser errors directly: they can contain the source and hence the PSK.
 
+pub mod editor;
+
+use argon2::{Algorithm, Argon2, Block, Params, Version};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -10,10 +13,19 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
 };
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 pub const RULESET_VERSION: u32 = 1;
+/// This version fixes passphrase encoding, salt construction and Argon2id parameters together.
+/// Changing any of them requires a new version and a peer compatibility boundary.
+pub const PASSPHRASE_KDF_VERSION: u32 = 1;
+const KDF_MEMORY_KIB: u32 = 65_536;
+const KDF_ITERATIONS: u32 = 3;
+const KDF_LANES: u32 = 4;
+const MIN_PASSPHRASE_CHARS: usize = 16;
+const MAX_PASSPHRASE_BYTES: usize = 1024;
+const SAMPLE_PASSPHRASE: &str = "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE";
 
 #[derive(Clone, Debug, Default)]
 pub struct AppConfig {
@@ -46,6 +58,8 @@ impl Drop for SecretPsk {
 
 #[derive(Clone, Debug)]
 pub struct P2pConfig {
+    pub encounter: Option<EncounterConfig>,
+    pub internet: Option<benilla_p2p::InternetConfig>,
     pub network: String,
     pub listen: SocketAddr,
     pub peers: Vec<SocketAddr>,
@@ -54,7 +68,109 @@ pub struct P2pConfig {
     psk: SecretPsk,
 }
 
+/// Explicit opt-in synthetic encounter. IDs are public identifiers, never credentials.
+#[derive(Clone, Debug)]
+pub struct EncounterConfig {
+    pub local_id: [u8; 16],
+    pub epoch: [u8; 32],
+    /// Sorted by ID: its index plus one is the deterministic simulation player ID.
+    pub roster: Vec<EncounterMember>,
+    pub tick_limit: u64,
+}
+#[derive(Clone, Debug)]
+pub struct EncounterMember {
+    pub id: [u8; 16],
+    pub address: SocketAddr,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEncounter {
+    local_id: String,
+    epoch: String,
+    roster: Vec<RawEncounterMember>,
+    #[serde(default = "default_tick_limit")]
+    tick_limit: u64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEncounterMember {
+    id: String,
+    address: SocketAddr,
+}
+fn default_tick_limit() -> u64 {
+    1200
+}
+fn identifier<const N: usize>(s: &str) -> Result<[u8; N], ConfigError> {
+    if s.len() != N * 2 || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err(invalid(
+            "encounter IDs/epoch require exact-length hexadecimal values",
+        ));
+    }
+    let mut result = [0; N];
+    for (i, byte) in result.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap();
+    }
+    if result == [0; N] {
+        return Err(invalid("encounter IDs/epoch must be nonzero"));
+    }
+    Ok(result)
+}
+fn validate_encounter(
+    raw: RawEncounter,
+    listen: SocketAddr,
+    peers: &[SocketAddr],
+    max_peers: u16,
+) -> Result<EncounterConfig, ConfigError> {
+    if !peers.is_empty() {
+        return Err(invalid("encounter mode uses its roster; omit p2p.peers"));
+    }
+    if !(2..=16).contains(&raw.roster.len()) || usize::from(max_peers) < raw.roster.len() - 1 {
+        return Err(invalid(
+            "encounter requires 2..16 members and enough p2p.max_peers",
+        ));
+    }
+    if !(1..=100_000).contains(&raw.tick_limit) {
+        return Err(invalid("encounter.tick_limit must be 1..100000"));
+    }
+    let local_id = identifier(&raw.local_id)?;
+    let epoch = identifier(&raw.epoch)?;
+    let mut roster = Vec::<EncounterMember>::new();
+    for m in raw.roster {
+        let id = identifier(&m.id)?;
+        if m.address.port() == 0
+            || m.address.ip().is_unspecified()
+            || m.address.ip().is_multicast()
+            || roster.iter().any(|r| r.id == id || r.address == m.address)
+        {
+            return Err(invalid(
+                "encounter roster requires unique IDs and unique unicast nonzero-port addresses",
+            ));
+        }
+        roster.push(EncounterMember {
+            id,
+            address: m.address,
+        });
+    }
+    let local = roster
+        .iter()
+        .find(|m| m.id == local_id)
+        .ok_or_else(|| invalid("encounter local_id must be in roster"))?;
+    if local.address.port() != listen.port()
+        || (!listen.ip().is_unspecified() && local.address.ip() != listen.ip())
+    {
+        return Err(invalid("encounter local roster address must match p2p.listen (or its port for wildcard listen)"));
+    }
+    roster.sort_by_key(|m| m.id);
+    Ok(EncounterConfig {
+        local_id,
+        epoch,
+        roster,
+        tick_limit: raw.tick_limit,
+    })
+}
+
 impl P2pConfig {
+    /// The startup-derived Noise key. Reading or cloning config never reruns the KDF.
     pub fn psk_bytes(&self) -> &[u8; 32] {
         &self.psk.0
     }
@@ -113,10 +229,22 @@ struct RawConfig {
     ruleset: RawRuleset,
 }
 
+// No Debug/Serialize: the passphrase is only held while parsing and deriving the key.
+// RAII also erases it when a later field or validation step fails.
+struct Passphrase(Zeroizing<String>);
+impl<'de> Deserialize<'de> for Passphrase {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(|value| Self(Zeroizing::new(value)))
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawP2p {
-    psk: String,
+    encounter: Option<RawEncounter>,
+    #[serde(default)]
+    internet: Option<benilla_p2p::InternetConfig>,
+    psk: Passphrase,
     #[serde(default = "default_network")]
     network: String,
     #[serde(default = "default_listen")]
@@ -201,7 +329,7 @@ impl AppConfig {
             }
             Err(_) => return Err(invalid("cannot read config.toml beside the executable")),
         };
-        let mut input = String::new();
+        let mut input = Zeroizing::new(String::new());
         if file
             .take(MAX_CONFIG_BYTES + 1)
             .read_to_string(&mut input)
@@ -268,10 +396,10 @@ fn rate(value: f64, field: &str) -> Result<u32, ConfigError> {
     Ok(scaled.round() as u32)
 }
 
-fn validate_p2p(mut raw: RawP2p) -> Result<P2pConfig, ConfigError> {
-    let parsed_psk = parse_psk(&raw.psk);
-    raw.psk.zeroize();
-    let psk = parsed_psk?;
+fn validate_p2p(raw: RawP2p) -> Result<P2pConfig, ConfigError> {
+    if raw.internet.is_some() && raw.encounter.is_some() {
+        return Err(invalid("internet and synthetic encounter modes cannot be combined; encounter currently requires its fixed TCP roster"));
+    }
     if raw.network.is_empty()
         || raw.network.len() > 64
         || !raw
@@ -306,7 +434,25 @@ fn validate_p2p(mut raw: RawP2p) -> Result<P2pConfig, ConfigError> {
             return Err(invalid("p2p.peers must contain unique unicast addresses with nonzero ports, excluding p2p.listen"));
         }
     }
+    if let Some(internet) = &raw.internet {
+        if !raw.peers.is_empty() || internet.peer_tickets.len() > usize::from(raw.max_peers) {
+            return Err(invalid(
+                "internet mode requires empty p2p.peers and at most max_peers endpoint tickets",
+            ));
+        }
+        internet
+            .validate()
+            .map_err(|error| invalid(&error.to_string()))?;
+    }
+    // Only trusted local configuration selects this work, once, before networking starts.
+    // Validate every cheap field before allocating the fixed 64 MiB KDF workspace.
+    let psk = derive_psk(&raw.psk.0, &raw.network)?;
     Ok(P2pConfig {
+        encounter: raw
+            .encounter
+            .map(|encounter| validate_encounter(encounter, raw.listen, &raw.peers, raw.max_peers))
+            .transpose()?,
+        internet: raw.internet,
         network: raw.network,
         listen: raw.listen,
         peers: raw.peers,
@@ -316,28 +462,56 @@ fn validate_p2p(mut raw: RawP2p) -> Result<P2pConfig, ConfigError> {
     })
 }
 
-fn parse_psk(input: &str) -> Result<SecretPsk, ConfigError> {
-    if input.len() != 64 || !input.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return Err(invalid("p2p.psk must be exactly 64 hexadecimal characters (32 random bytes); replace the sample placeholder"));
+fn derive_psk(passphrase: &str, network: &str) -> Result<SecretPsk, ConfigError> {
+    if passphrase.len() > MAX_PASSPHRASE_BYTES || passphrase.chars().count() < MIN_PASSPHRASE_CHARS
+    {
+        return Err(invalid("p2p.psk must be a private passphrase of at least 16 Unicode characters and at most 1024 UTF-8 bytes"));
     }
-    let mut bytes = [0; 32];
-    for (byte, hex) in bytes.iter_mut().zip(input.as_bytes().as_chunks::<2>().0) {
-        let digit = |b: u8| {
-            if b.is_ascii_digit() {
-                b - b'0'
-            } else {
-                b.to_ascii_lowercase() - b'a' + 10
-            }
-        };
-        *byte = (digit(hex[0]) << 4) | digit(hex[1]);
+    if passphrase.len() == 64 && passphrase.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(invalid("p2p.psk looks like a legacy raw hexadecimal key; migrate this config to a private passphrase and update every peer"));
     }
-    if bytes.iter().all(|byte| *byte == bytes[0]) {
-        return Err(invalid(
-            "p2p.psk must not be a constant-byte placeholder key",
-        ));
+    let first = passphrase.chars().next().expect("minimum length checked");
+    if passphrase.chars().all(|c| c == first)
+        || passphrase.chars().all(char::is_whitespace)
+        || passphrase == SAMPLE_PASSPHRASE
+        || passphrase == "REPLACE_WITH_64_HEX_CHARACTERS"
+    {
+        return Err(invalid("p2p.psk must not be an example, blank or repeated-character placeholder; choose a private randomly generated passphrase"));
     }
-    Ok(SecretPsk(bytes))
+    // RFC 9106's second recommended Argon2id profile. These are protocol constants, not
+    // peer-controlled or config-tunable values; no negotiation or legacy raw-hex fallback.
+    let params = Params::new(KDF_MEMORY_KIB, KDF_ITERATIONS, KDF_LANES, Some(32))
+        .map_err(|_| invalid("invalid built-in passphrase KDF parameters"))?;
+    let mut memory = Zeroizing::new(Vec::<Block>::new());
+    memory
+        .try_reserve_exact(params.block_count())
+        .map_err(|_| invalid("cannot allocate 64 MiB for passphrase key derivation"))?;
+    memory.resize(params.block_count(), Block::default());
+    let mut output = SecretPsk([0; 32]);
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_into_with_memory(
+            passphrase.as_bytes(),
+            &passphrase_salt(network),
+            &mut output.0,
+            &mut *memory,
+        )
+        .map_err(|_| invalid("passphrase key derivation failed"))?;
+    Ok(output)
+}
+
+fn passphrase_salt(network: &str) -> [u8; 16] {
+    // A reproducible group salt (not a secret): domain || u32BE version || network UTF-8.
+    // No trimming, case folding, Unicode normalization or platform-dependent encoding.
+    let mut salt = Sha256::new();
+    salt.update(b"benilla-p2p-passphrase\0");
+    salt.update(PASSPHRASE_KDF_VERSION.to_be_bytes());
+    salt.update(network.as_bytes());
+    let digest = salt.finalize();
+    digest[..16].try_into().expect("SHA-256 contains 16 bytes")
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod encounter_tests;

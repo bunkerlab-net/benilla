@@ -1,9 +1,9 @@
 use super::*;
 
-// Deliberately public test-only key, never a shipped config/default.
-const TEST_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+// Deliberately public test-only phrase, never a shipped config/default.
+const TEST_PASSPHRASE: &str = "public test phrase only never use privately";
 fn config(extra: &str) -> String {
-    format!("[p2p]\npsk = '{TEST_KEY}'\nnetwork = 'test-world'\n{extra}")
+    format!("[p2p]\npsk = '{TEST_PASSPHRASE}'\nnetwork = 'test-world'\n{extra}")
 }
 fn fixture_directory() -> PathBuf {
     std::env::temp_dir().join("benilla-config-fixture")
@@ -22,23 +22,23 @@ fn absent_sections_preserve_legacy_defaults() {
 #[test]
 fn parses_and_redacts_secret_everywhere() {
     let config = parse(&config("")).unwrap();
-    assert_eq!(config.p2p.as_ref().unwrap().psk_bytes()[0], 1);
+    assert_ne!(config.p2p.as_ref().unwrap().psk_bytes(), &[0; 32]);
     assert!(format!("{config:?}").contains("<redacted>"));
-    assert!(!format!("{config:?}").contains(TEST_KEY));
+    assert!(!format!("{config:?}").contains(TEST_PASSPHRASE));
     for input in [
-        format!("[p2p]\npsk = '{TEST_KEY}'\nnetwork = 12"),
-        format!("[p2p]\npsk = '{TEST_KEY}' ???"),
-        format!("[p2p]\npsk = ['{TEST_KEY}']"),
-        format!("[p2p]\n{TEST_KEY} = true"),
+        format!("[p2p]\npsk = '{TEST_PASSPHRASE}'\nnetwork = 12"),
+        format!("[p2p]\npsk = '{TEST_PASSPHRASE}' ???"),
+        format!("[p2p]\npsk = ['{TEST_PASSPHRASE}']"),
+        format!("[p2p]\n{TEST_PASSPHRASE} = true"),
     ] {
         let error = parse(&input).unwrap_err();
-        assert!(!format!("{error} {error:?}").contains(TEST_KEY));
+        assert!(!format!("{error} {error:?}").contains(TEST_PASSPHRASE));
         assert!(error.to_string().contains("source withheld"));
     }
 }
 #[test]
 fn psk_alone_selects_default_network() {
-    let config = parse(&format!("[p2p]\npsk='{TEST_KEY}'")).unwrap();
+    let config = parse(&format!("[p2p]\npsk='{TEST_PASSPHRASE}'")).unwrap();
     assert_eq!(config.p2p.unwrap().network, "benilla");
 }
 #[cfg(unix)]
@@ -64,22 +64,77 @@ fn unknown_fields_are_errors() {
     assert!(parse(&config("secret_typo = 1")).is_err());
 }
 #[test]
-fn invalid_psks_are_errors_without_echoing_values() {
-    for key in [
-        "",
-        "REPLACE_WITH_64_HEX_CHARACTERS",
-        &"0".repeat(64),
-        &"x".repeat(64),
-        &"f".repeat(63),
-        &"f".repeat(65),
+fn invalid_passphrases_are_errors_without_echoing_values() {
+    for phrase in [
+        "".to_owned(),
+        "too short".to_owned(),
+        "some-passphrase".to_owned(),
+        SAMPLE_PASSPHRASE.to_owned(),
+        "REPLACE_WITH_64_HEX_CHARACTERS".to_owned(),
+        " ".repeat(16),
+        "x".repeat(64),
+        "a".repeat(1025),
+        "0123456789abcdef".repeat(4),
+        "é".repeat(513),
     ] {
-        assert!(parse(&config("").replace(TEST_KEY, key)).is_err());
+        let error = parse(&config("").replace(TEST_PASSPHRASE, &phrase)).unwrap_err();
+        if !phrase.is_empty() && phrase.trim().len() > 1 {
+            assert!(!format!("{error} {error:?}").contains(&phrase));
+        }
     }
-    let upper = parse(&config("").replace(TEST_KEY, &TEST_KEY.to_uppercase())).unwrap();
-    assert_eq!(
-        upper.p2p.unwrap().psk_bytes(),
-        parse(&config("")).unwrap().p2p.unwrap().psk_bytes()
+}
+#[test]
+fn case_whitespace_unicode_and_network_are_exact_key_inputs() {
+    let base = derive_psk(TEST_PASSPHRASE, "test-world").unwrap();
+    assert_eq!(base.0, derive_psk(TEST_PASSPHRASE, "test-world").unwrap().0);
+    for phrase in [
+        TEST_PASSPHRASE.to_uppercase(),
+        format!(" {TEST_PASSPHRASE}"),
+        format!("{TEST_PASSPHRASE} "),
+        format!("{TEST_PASSPHRASE}é"),
+    ] {
+        assert_ne!(base.0, derive_psk(&phrase, "test-world").unwrap().0);
+    }
+    assert_ne!(base.0, derive_psk(TEST_PASSPHRASE, "Test-world").unwrap().0);
+    // Visually equivalent composed/decomposed Unicode is intentionally not normalized.
+    assert_ne!(
+        derive_psk("public test phrase café", "test-world")
+            .unwrap()
+            .0,
+        derive_psk("public test phrase cafe\u{301}", "test-world")
+            .unwrap()
+            .0
     );
+}
+#[test]
+fn passphrase_limits_count_unicode_scalars_and_utf8_bytes() {
+    assert!(derive_psk("fifteen chars!!", "test-world").is_err());
+    assert!(derive_psk("sixteen chars!!!", "test-world").is_ok());
+    assert!(derive_psk(&format!("a{}", "é".repeat(511)), "test-world").is_ok());
+    assert!(derive_psk(&format!("ab{}", "é".repeat(511)), "test-world").is_ok());
+    assert!(derive_psk(&format!("abc{}", "é".repeat(511)), "test-world").is_err());
+}
+#[test]
+fn legacy_hex_keys_are_never_silently_reinterpreted() {
+    let error = derive_psk(&"0123456789abcdef".repeat(4), "test-world").unwrap_err();
+    assert!(error.to_string().contains("legacy"));
+    assert!(error.to_string().contains("migrate"));
+}
+#[test]
+fn sample_is_deliberately_unusable() {
+    assert!(parse(include_str!("../../../config.example.toml")).is_err());
+}
+#[test]
+fn kdf_parameters_cannot_be_overridden_in_config() {
+    for field in [
+        "kdf_version=2",
+        "memory_kib=1",
+        "iterations=1",
+        "parallelism=1",
+        "salt='custom'",
+    ] {
+        assert!(parse(&config(field)).is_err());
+    }
 }
 #[test]
 fn resolves_data_relative_to_executable_not_current_directory() {
@@ -224,4 +279,54 @@ fn config_limits_match_peer_transport_contract() {
     assert!(parse(&config("timeout_ms=60001")).is_err());
     let key = "ff".repeat(32);
     assert!(parse(&format!("[p2p]\npsk='{key}'")).is_err());
+}
+
+#[test]
+fn passphrase_kdf_matches_independent_reference_vector() {
+    // Public fixture, cross-checked with the upstream C Argon2 implementation via
+    // argon2-cffi's hash_secret_raw(..., time_cost=3, memory_cost=65536,
+    // parallelism=4, hash_len=32, type=Type.ID, version=19).
+    assert_eq!(PASSPHRASE_KDF_VERSION, 1);
+    assert_eq!(
+        passphrase_salt("test-world"),
+        [
+            0x07, 0x14, 0x1e, 0xac, 0xa2, 0x5e, 0x62, 0x13, 0x79, 0x98, 0x0c, 0x39, 0x44, 0xda,
+            0xe7, 0x46
+        ]
+    );
+    assert_eq!(
+        derive_psk(TEST_PASSPHRASE, "test-world").unwrap().0,
+        [
+            0x81, 0x70, 0x5a, 0x84, 0x98, 0xfd, 0x02, 0xbf, 0x37, 0x08, 0xab, 0x48, 0xc2, 0x06,
+            0x4f, 0xb9, 0x09, 0x82, 0xac, 0x15, 0xc3, 0x5c, 0xef, 0x43, 0xa6, 0xee, 0x28, 0xbe,
+            0x75, 0x6d, 0xd6, 0xbd
+        ]
+    );
+}
+
+#[test]
+fn internet_mode_is_opt_in_and_router_mapping_defaults_off() {
+    let normal = parse(&config("")).unwrap().p2p.unwrap();
+    assert!(normal.internet.is_none());
+    let internet = parse(&config("[p2p.internet]\n"))
+        .unwrap()
+        .p2p
+        .unwrap()
+        .internet
+        .unwrap();
+    assert!(!internet.port_mapping);
+    assert!(internet.relay_urls.is_empty());
+    assert!(internet.peer_tickets.is_empty());
+}
+
+#[test]
+fn internet_validation_rejects_mixed_modes_and_bad_infrastructure() {
+    for extra in [
+        "peers=['127.0.0.1:7475']\n[p2p.internet]",
+        "[p2p.internet]\nrelay_urls=['http://example.com']",
+        "[p2p.internet]\npeer_tickets=['not a ticket']",
+        "[p2p.internet]\nunknown_field=true",
+    ] {
+        assert!(parse(&config(extra)).is_err(), "accepted {extra}");
+    }
 }

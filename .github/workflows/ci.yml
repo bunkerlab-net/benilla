@@ -32,23 +32,45 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Track unavailable data checks
+        run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - name: System libraries
         run: sudo apt-get update -qq && sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev
       - name: Toolchain
         run: rustup toolchain install && rustc -V
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-ubuntu26-v1
+          # Same-repository PR writes stay in that PR's cache scope; forks never save.
+          save-on-pull-request: true
+          save-on-workflow-dispatch: true
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: mbx clippy --locked --workspace --all-targets -- -D warnings
       - name: test
-        run: cargo test --workspace
+        run: mbx test --locked --no-fail-fast --workspace
       - name: doc-links
         run: scripts/doc-links.py
       - name: pass-span-lint
         run: scripts/pass-span-lint.py
       - name: player-tests
-        run: cargo test -p benilla-formats -p benilla-app --no-default-features --lib
+        run: mbx test --locked --no-fail-fast -p benilla-formats -p benilla-app --no-default-features --lib
 
+      - name: packaging-tests
+        run: python3 scripts/test-package-player.py
+      - name: Report unavailable data checks
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s "$BENILLA_SKIP_LOG" ]]; then
+            echo "### Data-dependent test coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
+            sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          fi

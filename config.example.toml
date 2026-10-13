@@ -1,14 +1,23 @@
 # Copy beside the benilla executable as config.toml. Never commit or share the resulting file.
 # This fork's experimental P2P mode is selected by the presence of [p2p].
 [p2p]
-# Generate locally: openssl rand -hex 32. Share privately with trusted players only.
-psk = "REPLACE_WITH_64_HEX_CHARACTERS"
+# Choose at least six independently random words privately. Share only with trusted players.
+# Exact spelling, case and spaces matter; this placeholder is deliberately rejected.
+psk = "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE"
 network = "friends-world"
 listen = "0.0.0.0:7474"
 # Reachable peer IP:port endpoints; a PSK authenticates peers but does not discover them.
 peers = []
 max_peers = 16
 timeout_ms = 5000
+
+# Optional internet mode: uncomment the table, choose compatible relay URLs, and privately
+# exchange endpoint tickets. Empty relays means direct QUIC only. Keep p2p.peers empty.
+# No public service is selected for you. See docs/P2P-CONFIG.md before enabling router changes.
+# [p2p.internet]
+# relay_urls = []
+# peer_tickets = []
+# port_mapping = false
 
 [wow]
 # Relative to the executable's directory, not the terminal's current working directory.

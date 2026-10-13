@@ -19,7 +19,9 @@ steps. Creating the pull request does not produce downloadable binaries.
    **Artifacts** section. You must sign in to GitHub to download it.
 
 Artifacts expire after 14 days, subject to repository retention settings. Each
-artifact contains an archive and its SHA-256 checksum. Names include the platform
+artifact contains a player archive and its SHA-256 checksum. The player archive
+always includes `corresponding-source.tar.gz`, with the exact committed source,
+locked vendored dependencies, build scripts, and license/provenance notices. Names include the platform
 and full source commit. Extract the GitHub artifact ZIP first, then the archive
 inside it. Unix archives preserve the executable permission.
 
@@ -32,7 +34,9 @@ archive's name. These checks detect corruption, not publisher identity.
 ## Run the player
 
 You need your own legally obtained English WoW 1.12.1 installation, build 5875,
-and a compatible 1.12.1 server with Warden disabled. No game assets, MPQs,
+and, for realm mode, a compatible 1.12.1 server with Warden disabled.
+For experimental peer mode, follow the included `docs/P2P-CONFIG.md`; only the
+safe `config.example.toml` is shipped, never a populated peer key/configuration. No game assets, MPQs,
 FrameXML, credentials, or user settings are included in the archive. The binary
 embeds benilla's own UI files and shaders. You do not need the source checkout.
 
@@ -99,11 +103,71 @@ Linux installs a C compiler, pkg-config, ALSA headers, and udev headers. macOS
 uses the runner's Xcode tools and libclang; Windows uses its MSVC tools. The
 workflow does not enable Bevy dynamic linking or require a game installation.
 
-`scripts/package-player.py` includes only the executable, this guide, the project
-licenses, and the vendored kira and Lua licenses. It does not copy a source tree,
-asset directory, game installation, or local settings. Review dependency license
-obligations before wider redistribution. Packaging tests run with
-`python3 scripts/test-package-player.py` and require no game data or Rust compiler.
+## GPL-covered distribution and corresponding source
+
+The player links GPL-3.0-or-later `benilla-session` / `benilla-sim`. The combined
+player is GPL-covered; original client files retain MIT OR Apache-2.0 grants.
+Read `DISTRIBUTION-NOTICE.md`, `LICENSE-GPL-3.0`, and the simulation provenance.
+All existing upstream copyright/license notices remain intact.
+
+Each job first snapshots the selected full Git commit, runs `cargo vendor --locked
+--versioned-dirs`, and checks the locked graph resolves offline using the generated
+`vendor-config.toml`. It then builds from that snapshot, with those vendored
+sources, using `--offline --locked`. `SOURCE-MANIFEST.json` records the source
+commit and SHA-256 of every source/dependency file. `BUILD-INFO.txt` records the
+Rust, Cargo, and mbx versions. Packaging checks that the snapshot has not changed
+and includes its entire contents in `corresponding-source.tar.gz` inside the player
+archive. Source and binary therefore share the same download and expiration.
+Packaging refuses missing source, licenses, dependencies, changed source, symlinks,
+and known game-data/local-state paths. Only Git-tracked project files and Cargo's
+dependency sources enter the snapshot, never arbitrary checkout contents. This
+is not a general secret scanner: review tracked additions before building.
+
+To reproduce the build, extract `corresponding-source.tar.gz`, change into its
+`benilla-source-<commit>` folder, install the repository Rust toolchain and the
+platform prerequisites above, then run:
+
+```sh
+cargo build --config vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>
+```
+
+Cargo is the underlying builder; mbx is an optional cache wrapper. The archive
+contains the preferred source and build instructions, not prebuilt system toolchains
+or OS libraries. Obtain these normally. The embedded build stamp may differ without
+Git metadata, and host toolchains/caches can differ; bit-identical reproduction is
+not promised. No signing keys, proprietary assets, or external game installation
+are needed to compile. A game installation is needed for the normal game UI.
+
+For a local distribution, commit all intended changes first (tracked dirty files
+are refused), then run from the clean checkout:
+
+```sh
+commit=$(git rev-parse HEAD)
+python3 scripts/package-player.py --prepare-source --commit "$commit"
+export CARGO_TARGET_DIR="$PWD/target"
+(cd "target/player-source/$commit" && mbx build --config vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>)
+python3 scripts/package-player.py --platform <platform> --commit "$commit"
+```
+
+Preparation requires Git, Cargo, Rust and mbx and downloads the locked dependencies.
+It refuses to reuse an existing staging directory. After a failed preparation,
+review/remove only `target/player-source/<commit>` before retrying. Packaging tests
+use fake local fixtures: `python3 scripts/test-package-player.py` needs no game data,
+Rust compiler, dependency download, or paid runner.
+
+GPLv3 section 1 describes Corresponding Source including necessary build scripts
+and non-system dependencies; section 6 covers object-code distribution and source
+access. See the [GNU GPLv3 text](https://www.gnu.org/licenses/gpl-3.0.html) and
+[GNU licensing FAQ](https://www.gnu.org/licenses/gpl-faq.html). This workflow uses
+accompanying matching source, not a written-offer mechanism or a repository URL
+alone. Keep the complete archive when sharing it. If mirroring binary downloads,
+provide the matching source with equivalent access for as long as the binary is
+offered. If distributing the executable itself by peer-to-peer transfer, review
+section 6(e)'s public source/object-code availability and notice requirements;
+the game's peer networking does not itself distribute the executable. Separately
+review dependency-specific notices and any applicable installation-information
+requirements before distributing a User Product. This is an engineering delivery
+mechanism, not legal advice or clearance of third-party game rights.
 
 The explicit runner labels are `ubuntu-26.04`, `ubuntu-26.04-arm`, `macos-26`,
 and `windows-2025`. These are standard hosted runners listed in

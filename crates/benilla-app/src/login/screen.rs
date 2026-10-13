@@ -34,6 +34,7 @@ pub(crate) enum LoginAction {
     FocusPassword,
     Login,
     Quit,
+    Settings,
     ToggleSave,
     /// Open the realmlist editor, from the button or the address readout under it.
     Realmlist,
@@ -364,6 +365,27 @@ fn spawn_screen(
                     );
                 });
             });
+
+        // Fork-only settings remain available before any login request.
+        ui.spawn(Node {
+            position_type: PositionType::Absolute,
+            right: px(5.0),
+            bottom: px(90.0),
+            ..default()
+        })
+        .with_children(|c| {
+            glue_button(
+                c,
+                art,
+                &Handle::default(),
+                LoginAction::Settings,
+                "Settings",
+                150.0,
+                38.0,
+                GlueBtnKind::Small,
+                s,
+            );
+        });
 
         // Quit (`GlueButtonSmallTemplate` 150×38 at BOTTOMRIGHT (−5,29)).
         ui.spawn((Node {

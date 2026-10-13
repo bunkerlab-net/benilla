@@ -4,7 +4,7 @@
   <p>
     <a href="https://discord.gg/wJSJx467G4"><img src="https://img.shields.io/discord/1529280129518538922?style=for-the-badge&logo=discord&logoColor=white&label=discord&color=5865F2" alt="Discord"></a>
     <a href="https://www.youtube.com/playlist?list=PLdCnpZNKxyb8"><img src="https://img.shields.io/badge/devlog-youtube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube devlog"></a>
-    <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue?style=for-the-badge" alt="License"></a>
+    <a href="DISTRIBUTION-NOTICE.md"><img src="https://img.shields.io/badge/combined_player-GPL--3.0--or--later-blue?style=for-the-badge" alt="Combined player license"></a>
   </p>
 </div>
 
@@ -12,17 +12,22 @@
 
 This fork adds an **experimental trusted-friends P2P exploration backend**. A
 `config.toml` beside the executable selects it with `[p2p]`, supplies a locally kept
-random PSK, and points `[wow].data` at your own read-only 1.12.1 install. See
+private strong passphrase (derived into a PSK at startup), and points `[wow].data` at your own read-only 1.12.1 install. See
 [configuration and security](docs/P2P-CONFIG.md). No realm process, login account,
 matchmaking service or elected game host runs in P2P mode.
 
-- Implemented: authenticated, encrypted direct TCP peer links; matching network,
+- [Login Settings](docs/P2P-SETTINGS.md): staged config and graphics/audio controls,
+  explicit diagnostics, masked passphrase editing, and offline invalid-config recovery
+- Implemented: authenticated, encrypted TCP and optional iroh QUIC peer links; matching network,
   protocol, exploration-contract version and ruleset fingerprints; separate temporary human-warrior
   avatars in Northshire; peer movement and `/say`; join/disconnect cleanup
 - Connectivity: explicit peer addresses on a LAN, reachable IPv6, or manually
-  forwarded TCP ports. Each participant must be directly connected to every other
-  participant. The key is not an address or discovery service. There is no NAT hole
-  punching, relay, automatic LAN discovery or automatic router/firewall change
+  forwarded TCP ports by default. Opt-in `[p2p.internet]` uses private endpoint tickets,
+  iroh NAT hole punching and encrypted relay fallback through explicitly configured
+  relay URLs. Router mapping (UPnP/PCP/NAT-PMP) is off unless explicitly enabled.
+  Each participant still needs a logical link to every other participant. A passphrase
+  alone cannot discover peers; no public discovery or relay service is enabled by default.
+  Real household NAT/CGNAT coverage has not been verified
 - Not implemented in P2P gameplay: combat/AI, spells, XP awards, drops/inventory,
   quests, progression, character creation/customization, persistence, dynamic
   simulation membership, authority transfer, dungeons, raids, economies or PvP
@@ -33,17 +38,20 @@ matchmaking service or elected game host runs in P2P mode.
   with provenance and parity tests, plus an original headless fixed-roster
   encounter harness with deterministic combat fixtures, XP, guaranteed loot,
   snapshots and replay hashes. This is preparatory simulation code, not a full
-  server port, and the exploration executable does not yet link it
+  server port; an explicit [synthetic encounter mode](docs/P2P-ENCOUNTER.md) now
+  links it through local chat controls, separate from exploration
 - `benilla-session` adds a separate headless full-mesh adapter with agreed roster/epoch,
   matching input/state votes and fail-stop barriers. Its tests use synthetic encounter
-  fixtures; the exploration UI does not yet call it. Local confirmed ticks do not
+  fixtures; opt-in encounter mode uses a fresh session and fixed configured roster.
+  Local confirmed ticks do not
   provide atomic distributed persistence or anti-cheat
 
 The PSK admits trusted group members. It does not prevent a member from cheating,
 impersonating a different member or sending false movement. Invalid authenticated
 messages end the local session; this prototype is not resilient to malicious members.
 The exploration-contract label is not a hash or attestation of installed WoW assets.
-Every launch creates a new temporary identity; no character state is saved. The initial human-warrior
+Exploration launches create a new temporary identity; encounter mode uses explicit
+configured IDs and a fresh shared epoch. No character state is saved. The initial human-warrior
 appearance and spawn are fixed. Quit/restart to create or rejoin a session.
 
 Without a `[p2p]` table, the existing realm-client path remains available. The
@@ -53,9 +61,11 @@ server supplying gameplay simulation; it does **not** describe P2P completeness.
 ### Licensing
 
 The original client code remains MIT OR Apache-2.0 under its existing notices.
-`crates/benilla-sim` and `crates/benilla-session` are GPL-3.0-or-later. The
+`crates/benilla-sim`, `crates/benilla-session` and `crates/benilla-encounter` are GPL-3.0-or-later. The
+combined player now links these crates; its distribution is GPL-covered even when
+launched in exploration or realm mode. See [distribution requirements](DISTRIBUTION-NOTICE.md). The
 simulation crate retains CMaNGOS notices and source references in [its provenance](crates/benilla-sim/PROVENANCE.md). An executable
-that links either crate is a GPL-covered combined work; distribute its corresponding
+that links these crates is a GPL-covered combined work; distribute its corresponding
 source and the applicable GPL notices and license. The root permissive license
 files are not a license for the CMaNGOS-derived crate. No Blizzard assets or world
 database are bundled.

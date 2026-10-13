@@ -14,6 +14,7 @@
 
 pub(crate) mod queue;
 mod screen;
+pub(crate) mod settings;
 mod smoke;
 
 use std::sync::atomic::Ordering;
@@ -53,6 +54,7 @@ impl Plugin for LoginPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LoginIntent>()
             .init_resource::<LoginForm>()
+            .init_resource::<settings::Settings>()
             .add_message::<GlueLogin>()
             .add_message::<crate::ui_script::server_alert::LaunchUrl>()
             .add_message::<crate::ui_script::server_alert::LaunchAddonUrl>()
@@ -68,6 +70,7 @@ impl Plugin for LoginPlugin {
                 OnExit(ClientState::Login),
                 (
                     screen::exit_login,
+                    settings::close,
                     screen::clear_login_scene.run_if(crate::ui_script::glue::native_glue),
                 ),
             )
@@ -95,7 +98,9 @@ impl Plugin for LoginPlugin {
                             .after(benilla_world::schedule::WorldStage::Stream)
                             .run_if(crate::ui_script::glue::stock_glue),
                         answer_glue,
-                        drive_policy,
+                        drive_policy
+                            .run_if(not(resource_exists::<settings::ConfigRecovery>))
+                            .run_if(settings::closed),
                         to_select_on_roster,
                         drive_quit,
                     )
@@ -103,6 +108,9 @@ impl Plugin for LoginPlugin {
                     (
                         screen::materialize_screen,
                         login_input.run_if(crate::ui_script::glue::native_glue),
+                        settings::recover,
+                        settings::input,
+                        settings::render,
                         tick_login_caret,
                         screen::refresh_boxes,
                         screen::refresh_checkbox,
@@ -819,6 +827,11 @@ fn show_main_menu(mut preview: ResMut<GluePreview>) {
 #[allow(clippy::type_complexity)]
 fn login_input(
     realms: Res<crate::realm_select::Realms>,
+    settings_state: (
+        ResMut<settings::Settings>,
+        Res<crate::cvars::Cvars>,
+        Option<Res<settings::ConfigRecovery>>,
+    ),
     presses: Query<(Entity, &LoginAction, Ref<Interaction>)>,
     clicks: Res<crate::glue::GlueClicks>,
     mut keyboard: MessageReader<KeyboardInput>,
@@ -838,7 +851,9 @@ fn login_input(
     // The reference's `RealmList` is a DIALOG-strata frame over this screen, so while it is up
     // everything here is inert, Escape included (it is the list's Cancel), through the frame
     // its own Escape closes it in.
-    if realms.owns_input() {
+    let (mut settings, cvars, recovery) = settings_state;
+    if realms.owns_input() || settings.open {
+        keyboard.clear();
         return;
     }
     let empty = GlueStrings::default();
@@ -870,6 +885,11 @@ fn login_input(
             LoginAction::FocusAccount | LoginAction::FocusPassword => {} // focused on the press
             LoginAction::Login => do_login = true,
             LoginAction::Quit => do_quit = true,
+            LoginAction::Settings => {
+                settings.open(&cvars, recovery.as_deref());
+                keyboard.clear();
+                return;
+            }
             LoginAction::Realmlist => {
                 // `gsLoginNewAccount`, which the reference plays for this corner's other buttons
                 // (`AccountLogin_ManageAccount`, `AccountLogin_LaunchCommunitySite`).
@@ -959,6 +979,10 @@ fn login_input(
         do_quit = true;
     }
 
+    if do_login && recovery.is_some() {
+        settings.open(&cvars, recovery.as_deref());
+        return;
+    }
     if do_login && !attempt.intent.in_flight {
         // `gsLogin` on every press: `AccountLogin_Login` plays it before `DefaultServerLogin`,
         // so an empty-box refusal clicks too.
@@ -1193,6 +1217,7 @@ mod tests {
                 .init_resource::<crate::bindings::LayoutNames>()
                 .insert_non_send_resource(HostClipboard::default())
                 .init_resource::<LoginForm>()
+                .init_resource::<settings::Settings>()
                 .init_resource::<LoginIntent>()
                 .init_resource::<GlueDialog>()
                 .init_resource::<crate::realm_select::Realms>()
@@ -1298,6 +1323,7 @@ mod tests {
             .init_resource::<crate::bindings::LayoutNames>()
             .insert_non_send_resource(HostClipboard::default())
             .init_resource::<LoginForm>()
+            .init_resource::<settings::Settings>()
             .init_resource::<LoginIntent>()
             .init_resource::<GlueDialog>()
             .init_resource::<crate::realm_select::Realms>()
@@ -2105,6 +2131,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<Time>()
             .init_resource::<LoginForm>()
+            .init_resource::<settings::Settings>()
             .init_resource::<GlueDialog>()
             .add_systems(Update, tick_login_caret);
 

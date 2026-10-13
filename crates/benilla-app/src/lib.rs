@@ -245,11 +245,16 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
 
     // Fork config is loaded before asset discovery and before any network plugin/thread starts.
     // An unreadable or invalid config must never silently connect to the legacy realm.
+    let mut recovery = None;
     let config = match benilla_config::AppConfig::load() {
         Ok(config) => config,
         Err(error) => {
             eprintln!("benilla: {error}");
-            return AppExit::error();
+            if run_mode::unattended() {
+                return AppExit::error();
+            }
+            recovery = Some(login::settings::ConfigRecovery(error.to_string()));
+            benilla_config::AppConfig::default()
         }
     };
     if let Some(data) = config.wow.data {
@@ -283,6 +288,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     crash::install(build);
 
     let mut app = App::new();
+    if let Some(recovery) = recovery {
+        app.insert_resource(recovery);
+    }
     if let Some(p2p) = config.p2p {
         app.insert_resource(net::P2pSettings(p2p, config.ruleset));
     }

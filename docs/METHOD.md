@@ -3,11 +3,13 @@
 ## Fork scope and licensing
 
 This fork additionally carries a PSK-authenticated P2P backend and a separate
-`benilla-sim` simulation crate and `benilla-session` headless lockstep adapter.
+`benilla-sim` simulation crate, `benilla-session` lockstep adapter and an opt-in
+`benilla-encounter` chat controller for synthetic non-spatial test encounters.
 The P2P exploration backend has no realm server; its current limits are listed in
 the root README. The CMaNGOS-derived simulation crate and its session adapter are
 GPL-3.0-or-later, with provenance and upstream notices in the simulation crate.
-An executable linking either is GPL-covered; the permissive license statements below
+The combined player links these crates and is GPL-covered in every startup mode;
+the permissive license statements below
 apply only to the original client code. Do not import original game assets or
 unreviewed third-party world databases. The reference-client rules below continue
 to govern the existing realm-client path.
