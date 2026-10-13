@@ -1,0 +1,15 @@
+[package]
+name = "benilla-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Executable-adjacent configuration for the experimental peer-to-peer fork"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+sha2 = "0.10"
+zeroize = "1.8"

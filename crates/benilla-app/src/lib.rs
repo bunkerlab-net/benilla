@@ -243,6 +243,22 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
         return AppExit::Success;
     }
 
+    // Fork config is loaded before asset discovery and before any network plugin/thread starts.
+    // An unreadable or invalid config must never silently connect to the legacy realm.
+    let config = match benilla_config::AppConfig::load() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("benilla: {error}");
+            return AppExit::error();
+        }
+    };
+    if let Some(data) = config.wow.data {
+        if benilla_formats::set_configured_data(data).is_err() {
+            eprintln!("benilla: startup data configuration was already initialized");
+            return AppExit::error();
+        }
+    }
+
     // Every line that names the build says whether a crate on top extended it.
     let build = BuildId {
         extended: extend.is_some(),
@@ -267,6 +283,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     crash::install(build);
 
     let mut app = App::new();
+    if let Some(p2p) = config.p2p {
+        app.insert_resource(net::P2pSettings(p2p, config.ruleset));
+    }
     // The panel footer and the build banner read the stamp back.
     app.insert_resource(build);
     // Static-scene transform tracking pinned on: the default threshold re-decides every frame with

@@ -1,0 +1,21 @@
+# Copy beside the benilla executable as config.toml. Never commit or share the resulting file.
+# This fork's experimental P2P mode is selected by the presence of [p2p].
+[p2p]
+# Generate locally: openssl rand -hex 32. Share privately with trusted players only.
+psk = "REPLACE_WITH_64_HEX_CHARACTERS"
+network = "friends-world"
+listen = "0.0.0.0:7474"
+# Reachable peer IP:port endpoints; a PSK authenticates peers but does not discover them.
+peers = []
+max_peers = 16
+timeout_ms = 5000
+
+[wow]
+# Relative to the executable's directory, not the terminal's current working directory.
+data = "WoW/Data"
+
+[ruleset]
+# Positive rates, 0.001..1000, up to three decimal places; 1.0 is unchanged.
+xp_rate = 1.0
+# Scales drop chance (capped at 100%), not quantity. Only implemented simulation uses this.
+drop_rate = 1.0

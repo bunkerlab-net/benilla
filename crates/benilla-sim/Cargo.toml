@@ -1,0 +1,12 @@
+[package]
+name = "benilla-sim"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+description = "Deterministic, provenance-tracked CMaNGOS simulation primitives (partial port)"
+
+[lints]
+workspace = true
+
+[dependencies]
+sha2 = "0.10"

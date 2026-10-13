@@ -24,6 +24,11 @@ pub(crate) mod handlers;
 pub(crate) mod io;
 mod motion;
 mod objects;
+mod p2p;
+
+/// Fork-only backend settings, inserted before the networking plugin is built.
+#[derive(Resource, Clone)]
+pub(crate) struct P2pSettings(pub benilla_config::P2pConfig, pub benilla_config::Ruleset);
 pub(crate) use objects::tear_down;
 mod session;
 mod world;
@@ -67,7 +72,10 @@ impl Plugin for NetPlugin {
         crate::query_cache::register::<crate::names::NameCache>(app);
         crate::query_cache::register::<crate::go_templates::GameObjectTemplates>(app);
         crate::query_cache::register::<crate::items::Items>(app);
-        let handles = io::spawn_net(self.connect);
+        let handles = match (self.connect, app.world().get_resource::<P2pSettings>()) {
+            (true, Some(settings)) => p2p::spawn(settings.clone()),
+            _ => io::spawn_net(self.connect),
+        };
         if !self.connect {
             app.insert_resource(NetOffline);
         }

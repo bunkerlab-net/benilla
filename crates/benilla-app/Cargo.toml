@@ -21,6 +21,7 @@ trace_chrome = ["bevy/trace_chrome"]
 bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
+benilla-config = { path = "../benilla-config" }
 anyhow.workspace = true
 # The EditBox clipboard, on the main thread as NSPasteboard requires; bevy_egui's 3.x.
 arboard = "3"
@@ -45,6 +46,7 @@ crossbeam-channel = "0.5"
 benilla-assets = { path = "../benilla-assets", default-features = false }
 benilla-formats = { path = "../benilla-formats", default-features = false }
 benilla-protocol = { path = "../benilla-protocol" }
+benilla-p2p = { path = "../benilla-p2p" }
 benilla-world = { path = "../benilla-world", default-features = false }
 # The CVar diff persisted in `benilla-config/config.toml`.
 serde = { version = "1", features = ["derive"] }
