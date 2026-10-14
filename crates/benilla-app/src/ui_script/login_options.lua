@@ -12,13 +12,28 @@ scene:EnableMouse(false)
 
 -- UIParent stays hidden to prevent the HUD and its OnUpdates from running. Reparent only
 -- the existing Options window and its real shared dropdown, tooltip and dialog overlays.
-BenillaOptionsFrame:SetParent(root)
+-- SetParent inherits strata and level; restore parent-first because both setters can
+-- propagate into children. Keep the original Options and stock overlay draw ordering.
+local function reparent(frame)
+    local order = {}
+    local function remember(child)
+        table.insert(order, {child, child:GetFrameStrata(), child:GetFrameLevel()})
+        for _, descendant in ipairs({child:GetChildren()}) do remember(descendant) end
+    end
+    remember(frame)
+    frame:SetParent(root)
+    for _, saved in ipairs(order) do
+        saved[1]:SetFrameStrata(saved[2])
+        saved[1]:SetFrameLevel(saved[3])
+    end
+end
+reparent(BenillaOptionsFrame)
 BenillaOptionsFrame:ClearAllPoints()
 BenillaOptionsFrame:SetPoint("CENTER", root, "CENTER", 0, 0)
 for _, name in ipairs({"GameTooltip", "DropDownList1", "DropDownList2",
     "StaticPopup1", "StaticPopup2", "StaticPopup3", "StaticPopup4"}) do
     local frame = getglobal(name)
-    if frame then frame:SetParent(root) end
+    if frame then reparent(frame) end
 end
 
 -- These controls read/write a server-owned character record. There is no such record at

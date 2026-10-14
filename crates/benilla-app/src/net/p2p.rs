@@ -937,12 +937,12 @@ fn run_exploration_character(
                         reject_peer(&network, events, &mut peers, peer_id)?;
                     }
                 }
-                Event::Rejected { address, reason: _ } => {
+                Event::Rejected { address, reason } => {
                     // Unauthenticated traffic must not turn a reachable listener into a log flood.
                     if last_rejection_warning
                         .is_none_or(|last| last.elapsed() >= Duration::from_secs(10))
                     {
-                        bevy::log::warn!("p2p: peer at {address} was rejected; further warnings are rate-limited");
+                        bevy::log::warn!("p2p: peer at {address} was rejected: {reason}; further warnings are rate-limited");
                         last_rejection_warning = Some(Instant::now());
                     }
                 }

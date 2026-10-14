@@ -85,7 +85,13 @@ fn owned_peers_still_require_the_group_key_and_compatible_claims() {
         }
         let b = Network::start_owned(config(vec![a.local_addr()]), &peer_key, other, identity(2))
             .unwrap();
-        assert!(matches!(next(&a), Event::Rejected { .. }));
+        let expected = if incompatible == 0 {
+            "peer authentication failed"
+        } else {
+            "incompatible network, ruleset, or content"
+        };
+        assert!(matches!(next(&a), Event::Rejected { reason, .. } if reason == expected));
+        // A failed PSK handshake can close the socket before the dialer sees an auth error.
         assert!(matches!(next(&b), Event::Rejected { .. }));
     }
 }

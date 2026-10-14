@@ -1,4 +1,4 @@
-use benilla_ui::script::UiScript;
+use benilla_ui::script::{ExtractedQuad, UiScript};
 
 fn shell() -> UiScript {
     let mut script = UiScript::new().unwrap();
@@ -7,9 +7,27 @@ fn shell() -> UiScript {
         CreateFrame("Frame", "UIParent"):SetAllPoints()
         CreateFrame("Frame", "Hud", UIParent):SetAllPoints()
         CreateFrame("Frame", "BenillaOptionsFrame", UIParent):Hide()
+        BenillaOptionsFrame:SetFrameStrata("HIGH")
+        BenillaOptionsFrame:SetWidth(920)
+        BenillaOptionsFrame:SetHeight(724)
+        local child = CreateFrame("Frame", "OptionsChild", BenillaOptionsFrame)
+        child:SetFrameLevel(7)
+        local raised = CreateFrame("Frame", "OptionsRaisedChild", child)
+        raised:SetFrameStrata("DIALOG")
+        raised:SetFrameLevel(12)
+        local panel = BenillaOptionsFrame:CreateTexture(nil, "BACKGROUND")
+        panel:SetAllPoints()
+        panel:SetTexture(0.1, 0.1, 0.1, 1)
         for _, name in ipairs({"GameTooltip", "DropDownList1", "DropDownList2",
             "StaticPopup1", "StaticPopup2", "StaticPopup3", "StaticPopup4"}) do
-            CreateFrame("Frame", name, UIParent):Hide()
+            local overlay = CreateFrame("Frame", name, UIParent)
+            overlay:Hide()
+            overlay:SetFrameStrata(name == "GameTooltip" and "TOOLTIP" or "DIALOG")
+            overlay:SetFrameLevel(10)
+            overlay:SetAllPoints(BenillaOptionsFrame)
+            local fill = overlay:CreateTexture(nil, "BACKGROUND")
+            fill:SetAllPoints()
+            fill:SetTexture(1, 1, 1, 1)
         end
         function BenillaOptionsFrame_UpdateScale() end
         function BenillaOptionsRow_Set(row, value) row.saved = value end
@@ -105,6 +123,100 @@ fn login_shell_follows_scale_and_survives_repeated_close_and_show() {
         s.run("BenillaOptionsFrame:Show()").unwrap();
         assert!(s.frame_visible("BenillaOptionsFrame"));
         assert!(!s.frame_visible("Hud"));
+    }
+    assert!(s.errors().is_empty(), "{:?}", s.errors());
+}
+
+fn drawn_frame(script: &UiScript, name: &str) -> ExtractedQuad {
+    script
+        .extract()
+        .into_iter()
+        .find(|q| script.target_owner_name(q.target).as_deref() == Some(name) && q.rect.is_some())
+        .unwrap_or_else(|| panic!("{name} has no resolved draw entry"))
+}
+
+#[test]
+fn login_panel_draws_above_fullscreen_scene_on_first_open_and_reopen() {
+    let mut s = shell();
+    for _ in 0..3 {
+        s.tick(0.02);
+        s.resolve();
+        let panel = drawn_frame(&s, "BenillaOptionsFrame");
+        let scene = drawn_frame(&s, "BenillaLoginOptionsScene");
+        assert!(
+            panel.z > scene.z,
+            "visible Options panel must paint over the fullscreen scene: panel={} scene={}",
+            panel.z,
+            scene.z
+        );
+        assert_eq!(
+            s.eval::<String>("return BenillaOptionsFrame:GetFrameStrata()")
+                .unwrap(),
+            "HIGH"
+        );
+        s.run("BenillaOptionsFrame:Hide()").unwrap();
+        s.tick(0.02);
+        assert!(!s.frame_visible("BenillaOptionsFrame"));
+        s.run("BenillaOptionsFrame:Show()").unwrap();
+    }
+}
+
+#[test]
+fn login_shared_overlays_keep_their_strata_and_draw_above_options() {
+    let mut s = shell();
+    for name in [
+        "GameTooltip",
+        "DropDownList1",
+        "DropDownList2",
+        "StaticPopup1",
+        "StaticPopup4",
+    ] {
+        s.run(&format!("{name}:Show()")).unwrap();
+        s.resolve();
+        let panel = drawn_frame(&s, "BenillaOptionsFrame");
+        let overlay = drawn_frame(&s, name);
+        assert!(
+            overlay.z > panel.z,
+            "{name} must paint above the Options panel"
+        );
+        assert_eq!(
+            s.eval::<i64>(&format!("return {name}:GetFrameLevel()"))
+                .unwrap(),
+            10
+        );
+        assert_eq!(
+            s.eval::<String>(&format!("return {name}:GetFrameStrata()"))
+                .unwrap(),
+            if name == "GameTooltip" {
+                "TOOLTIP"
+            } else {
+                "DIALOG"
+            }
+        );
+        s.run(&format!("{name}:Hide()")).unwrap();
+    }
+}
+
+#[test]
+fn login_reparent_preserves_descendant_strata_and_levels() {
+    let s = shell();
+    for (name, strata, level) in [
+        ("BenillaOptionsFrame", "HIGH", 1),
+        ("OptionsChild", "HIGH", 7),
+        ("OptionsRaisedChild", "DIALOG", 12),
+    ] {
+        assert_eq!(
+            s.eval::<String>(&format!("return {name}:GetFrameStrata()"))
+                .unwrap(),
+            strata,
+            "{name}"
+        );
+        assert_eq!(
+            s.eval::<i64>(&format!("return {name}:GetFrameLevel()"))
+                .unwrap(),
+            level,
+            "{name}"
+        );
     }
     assert!(s.errors().is_empty(), "{:?}", s.errors());
 }

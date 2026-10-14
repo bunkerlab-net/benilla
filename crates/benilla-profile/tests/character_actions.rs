@@ -17,7 +17,9 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        Self(std::env::temp_dir().join(format!(
+        // macOS temp paths can traverse /var's symlink; storage rejects symlink ancestors.
+        let base = std::env::temp_dir().canonicalize().unwrap();
+        Self(base.join(format!(
             "benilla-delete-fixture-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)

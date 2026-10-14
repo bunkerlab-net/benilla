@@ -30,6 +30,7 @@ use tokio::{
 use zeroize::Zeroizing;
 mod identity;
 mod internet;
+mod rejection;
 pub use identity::{owner_id_from_public_key, OwnerIdentity};
 pub use internet::InternetConfig;
 trait PeerStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
@@ -112,6 +113,7 @@ pub enum Event {
     },
     Rejected {
         address: String,
+        /// Bounded, locally selected diagnostic; never remote text or cryptographic material.
         reason: String,
     },
 }
@@ -557,7 +559,7 @@ fn launch_candidate(
             Err(error) => Internal::Failed {
                 address,
                 outbound,
-                reason: error.to_string(),
+                reason: error.rejection_reason().into(),
             },
         };
         let _ = updates.send(message).await;
