@@ -315,9 +315,9 @@ fn resigned_death_clock_killer_and_detached_state_tamper_is_rejected() {
             _ => unreachable!(),
         }
         let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v14\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v16\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v14\0",
+            b"benilla-native-checkpoint-v16\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(

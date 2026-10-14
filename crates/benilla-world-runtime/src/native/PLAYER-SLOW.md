@@ -33,9 +33,10 @@ binds profile, world, target, caster generation/level and source digest. At this
 milestone only the `synthetic-native-tests` feature can schedule authored effects
 before or after the player aura update. That schedule is immutable profile data,
 with at most 64 effects per tick; it cannot be supplied as an owner command.
-Production admission remains uninhabited. NPC SpellStart, target selection, hit
-calculation, triggered SpellGo/visibility and event-owned cast cleanup remain
-missing. Rear/non-facing melee is still rejected. This is not playable rear daze.
+Production admission remains uninhabited. The [separate NPC host](../../NPC-SPELLS.md)
+handles bounded invisible instant SpellStart, target/hit checks and event-owned
+cleanup. Visible/projectile NPC spells and rear/non-facing melee remain outside
+this domain. This is not playable rear daze.
 
 ## Holder lifecycle and source order
 
@@ -95,10 +96,13 @@ A crash after saving reconstructs state, not historical notifications.
 
 ## Persistence and evidence limits
 
-Experimental native format 14 and the player-slow policy bind this state and the
+Experimental native format 16 and the player-slow policy bind this state and the
 numeric policy. Prior native formats are rejected without replacing/deleting
 current or previous files. Character/profile files and OriginalFixture World 2
 are unchanged. Runtime, client, store, geometry and the actual controller source
 are exercised by headless authored-fixture tests. Source-extracted numeric oracle
 checks do not certify raw content, game assets, live realm behavior, graphics,
 general auras, NPC triggered spells or multiplayer scheduling.
+
+The separate [NPC SpellStart host](../../NPC-SPELLS.md) reaches this private effect
+seam after source target/hit checks. Its authored triggers do not enable spell1604.

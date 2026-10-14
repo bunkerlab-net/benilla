@@ -982,3 +982,8 @@ mod spell_authority_tests;
 
 #[path = "player_slow_tests.rs"]
 mod player_slow_tests;
+
+#[path = "admin_tests.rs"]
+mod admin_tests;
+#[path = "npc_spell_tests.rs"]
+mod npc_spell_tests;

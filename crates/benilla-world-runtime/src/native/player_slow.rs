@@ -15,10 +15,11 @@ const FIRST_HOLDER_ID: u64 = 1 << 32;
 /// Validated source data, not permission to cast. Production has no application entry.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PlayerSlowGenesis {
-    catalog: PlayerSlowCatalog,
+    pub(super) catalog: PlayerSlowCatalog,
     host: PlayerSlowHostSource,
     // Construction and execution of this schedule exist only in the explicit fixture feature.
     pub(super) fixture_effects: Vec<FixtureEffect>,
+    pub(super) fixture_triggers: Vec<npc_spell::FixtureTrigger>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(super) struct FixtureEffect {
@@ -36,6 +37,7 @@ impl PlayerSlowGenesis {
             catalog: PlayerSlowCatalog::validate_sources(sources)?,
             host,
             fixture_effects: vec![],
+            fixture_triggers: vec![],
         })
     }
     pub fn spell_ids(&self) -> impl Iterator<Item = u32> + '_ {
@@ -43,6 +45,7 @@ impl PlayerSlowGenesis {
     }
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         self.catalog.validate()?;
+        self.validate_triggers(profile)?;
         self.host.validate(profile)?;
         if profile.source_motion.is_none() {
             return Err(NativeError::UnsupportedMechanic(
@@ -567,5 +570,74 @@ impl PlayerSlowState {
             speeds: snapshot.speeds,
             slot_levels: snapshot.slot_levels,
         })
+    }
+}
+
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+impl PlayerSlowState {
+    pub(super) fn validate_npc_spell_holders(
+        &self,
+        state: &State,
+        profile: &Profile,
+    ) -> Result<(), NativeError> {
+        let invalid = || NativeError::InvalidCheckpoint;
+        let genesis = profile.player_slow.as_ref().ok_or_else(invalid)?;
+        let mut applied: Vec<_> = state
+            .npcs
+            .values()
+            .flat_map(|n| n.events.spells())
+            .filter(|l| l.applied_holder.is_some())
+            .collect();
+        // Source-motion admission currently represents one NPC. The fixture's
+        // retained after-Unit starts are the final holder-producing phase.
+        applied.sort_by_key(|l| (l.caster.spawn, l.cast_id));
+        let first = self
+            .next_holder_id
+            .checked_sub(applied.len() as u64)
+            .ok_or_else(invalid)?;
+        if first < FIRST_HOLDER_ID {
+            return Err(invalid());
+        }
+        let mut last = BTreeMap::new();
+        for (ordinal, lifetime) in applied.into_iter().enumerate() {
+            if state.health == 0
+                || lifetime.applied_holder != Some(first + ordinal as u64)
+                || lifetime.started_at_ms != state.now_ms
+            {
+                return Err(invalid());
+            }
+            last.insert(lifetime.spell_id, lifetime);
+        }
+        for (&spell_id, lifetime) in &last {
+            let holder = self
+                .holders()
+                .find(|h| h.spell_id == spell_id)
+                .ok_or_else(invalid)?;
+            if Some(holder.id) != lifetime.applied_holder
+                || holder.caster != lifetime.caster
+                || holder.applied_at_ms != lifetime.started_at_ms
+                || !holder.created_after_player_update
+            {
+                return Err(invalid());
+            }
+        }
+        for holder in self.holders().filter(|h| h.applied_at_ms == state.now_ms) {
+            if last.contains_key(&holder.spell_id) {
+                continue;
+            }
+            let earlier_effect = genesis.fixture_effects.iter().any(|e| {
+                e.tick == state.tick && e.spell_id == holder.spell_id && e.caster == holder.caster
+            });
+            let earlier_trigger = genesis.fixture_triggers.iter().any(|t| {
+                t.tick == state.tick
+                    && !t.after_npc_update
+                    && t.spell_id == holder.spell_id
+                    && t.caster == holder.caster
+            });
+            if !earlier_effect && !earlier_trigger {
+                return Err(invalid());
+            }
+        }
+        Ok(())
     }
 }

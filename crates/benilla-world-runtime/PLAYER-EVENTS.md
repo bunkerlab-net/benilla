@@ -73,8 +73,8 @@ deadlines; the reviewed real death host preserves released flights.
 
 This remains the existing bounded non-triggered, non-item, non-channel player
 projectile model. It does not admit instant entry, multi-target offsets,
-reflection, arbitrary reference graphs, proc chains, NPC SpellEvents or general
+reflection, arbitrary reference graphs, proc chains or general
 server map ordering. Neither these tests nor the source decision oracle provide
 client-asset, live-realm or complete Classic gameplay evidence. The separate
-[NPC Unit queue](NPC-EVENTS.md) currently hosts AI notification only; it does not
-reuse this player-to-NPC spell adapter for NPC-to-player casts.
+[NPC Unit queue](NPC-EVENTS.md) owns [bounded triggered spells](NPC-SPELLS.md)
+without reusing this player-to-NPC adapter.

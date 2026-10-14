@@ -88,6 +88,30 @@ impl Receipt {
     }
 }
 
+/// Only the store's replay-verified durable world can construct this result.
+/// Envelope digest/generation and exact boundary accompany the original operation receipt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DurableAdminReceipt {
+    receipt: benilla_world_runtime::native::AdminReceipt,
+    generation: u64,
+    envelope_digest: Digest,
+    boundary: CheckpointIdentity,
+}
+impl DurableAdminReceipt {
+    pub fn receipt(&self) -> &benilla_world_runtime::native::AdminReceipt {
+        &self.receipt
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    pub fn envelope_digest(&self) -> Digest {
+        self.envelope_digest
+    }
+    pub fn boundary(&self) -> &CheckpointIdentity {
+        &self.boundary
+    }
+}
+
 pub struct Prepared {
     envelope: Envelope,
     bytes: Vec<u8>,
@@ -102,6 +126,7 @@ pub struct NativeStore {
     previous_digest: Option<Digest>,
     // Admitted and replay-verified base, always journal-cleared after durable publication.
     final_world: NativeWorld,
+    committed_boundary: CheckpointIdentity,
     blocked: bool,
 }
 impl NativeStore {
@@ -130,6 +155,7 @@ impl NativeStore {
                 digest,
                 previous_digest: None,
                 final_world,
+                committed_boundary: checkpoint.identity(),
                 blocked: false,
             },
             Receipt {
@@ -182,6 +208,7 @@ impl NativeStore {
                 digest: hash(&bytes),
                 previous_digest,
                 final_world: world.clone(),
+                committed_boundary: checkpoint.identity(),
                 blocked: false,
             },
             world,
@@ -192,6 +219,32 @@ impl NativeStore {
     }
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+    /// Reads the successfully published (or opened and replay-verified) boundary, never
+    /// the caller's potentially newer unsaved simulation state.
+    pub fn committed_admin_snapshot(
+        &self,
+        authenticated_owner: benilla_world_runtime::OwnerId,
+    ) -> Result<
+        benilla_world_runtime::native::AdminSnapshot,
+        benilla_world_runtime::native::AdminRejection,
+    > {
+        self.final_world.admin_snapshot(authenticated_owner)
+    }
+    pub fn committed_admin_receipt(
+        &self,
+        request: &benilla_world_runtime::native::AdminRequest,
+    ) -> Option<DurableAdminReceipt> {
+        let receipt = self.final_world.admin_receipt(&request.key)?;
+        if &receipt.request != request {
+            return None;
+        }
+        Some(DurableAdminReceipt {
+            receipt: receipt.clone(),
+            generation: self.generation,
+            envelope_digest: self.digest,
+            boundary: self.committed_boundary.clone(),
+        })
     }
     pub fn requires_reopen(&self) -> bool {
         self.blocked
@@ -266,6 +319,7 @@ impl NativeStore {
         self.generation = prepared.envelope.generation;
         self.final_world = prepared.final_world;
         self.final_world.checkpoint_committed(&checkpoint)?;
+        self.committed_boundary = checkpoint.identity();
         Ok(Receipt {
             generation: self.generation,
             digest,

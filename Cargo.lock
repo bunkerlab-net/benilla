@@ -1040,11 +1040,13 @@ dependencies = [
  "benilla-profile",
  "benilla-protocol",
  "benilla-sim",
+ "benilla-ui",
  "benilla-world-client",
  "benilla-world-data",
  "benilla-world-runtime",
  "benilla-world-store",
  "crossbeam-channel",
+ "rand 0.8.6",
  "serde_json",
  "sha2 0.10.9",
 ]

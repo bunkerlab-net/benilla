@@ -116,7 +116,7 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 14, `benilla-native-player-slow-v14`, with v14 profile/state/
+format 16, `benilla-native-admin-progression-v16`, with v16 profile/state/
 record/checkpoint/action hash domains. Published formats 10 and 11 reject without an
 implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace

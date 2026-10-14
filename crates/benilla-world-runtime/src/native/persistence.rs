@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v14\0", self)
+        crate::digest(b"benilla-native-record-v16\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +48,7 @@ struct NpcState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StateCheckpoint {
+    admin: AdminState,
     player_slow: Option<player_slow::PlayerSlowSnapshot>,
     player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
     player_events: player_events::PlayerEventsSnapshot,
@@ -148,10 +149,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v14\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v16\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v14\0",
+                    b"benilla-native-checkpoint-v16\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -163,6 +164,7 @@ impl Checkpoint {
 }
 pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> StateCheckpoint {
     StateCheckpoint {
+        admin: state.admin.clone(),
         player_slow: state.player_slow.as_ref().map(PlayerSlowState::snapshot),
         player_movement_flags: state.player_movement_flags,
         player_events: state.player_events.snapshot(),
@@ -255,7 +257,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v14\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v16\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -265,7 +267,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v14\0",
+            b"benilla-native-checkpoint-v16\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -288,10 +290,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v14\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v16\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v14\0",
+                    b"benilla-native-checkpoint-v16\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -481,7 +483,9 @@ impl NativeWorld {
             npcs.insert(
                 id,
                 Npc {
-                    events: NpcEvents::restore(n.events, s.world, n.id, &profile, &ai, s.tick)?,
+                    events: NpcEvents::restore(
+                        n.events, s.world, n.id, s.player, &profile, &ai, s.tick,
+                    )?,
                     source_motion,
                     regen_elapsed_ms: n.regen_elapsed_ms,
                     original_loot_recipient: n.original_loot_recipient,
@@ -649,6 +653,7 @@ impl NativeWorld {
             _ => return Err(NativeError::InvalidCheckpoint),
         };
         let state = State {
+            admin: s.admin,
             player_slow,
             player_movement_flags: s.player_movement_flags,
             player_events,
@@ -670,9 +675,11 @@ impl NativeWorld {
             rng_counter: s.rng_counter,
             combat,
         };
+        state.admin.validate(&profile, &state)?;
         state.player_events.validate(&state, &profile)?;
         if let Some(slow) = &state.player_slow {
             slow.validate(&state, &profile)?;
+            slow.validate_npc_spell_holders(&state, &profile)?;
         }
         let result = Self {
             profile_digest: profile.digest(),

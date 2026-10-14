@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Versioned integration of native-mechanic components. Production admission is closed.
 //! OriginalFixture `World` v2 remains distinct. This module is not a full Classic server.
+mod admin;
+pub use admin::*;
 mod combat;
 mod loot;
 pub use loot::*;
 mod engine;
 mod npc_events;
+mod npc_spell;
 pub use npc_events::{NpcEventHandle, NpcEvents, NPC_EVENT_POLICY};
+pub use npc_spell::*;
 mod player_slow;
 pub use player_slow::{
     PlayerSlowCasterSource, PlayerSlowCatalog, PlayerSlowEvent, PlayerSlowGenesis,
@@ -48,8 +52,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 14;
-pub const NATIVE_POLICY: &str = "benilla-native-player-slow-v14";
+pub const NATIVE_FORMAT_VERSION: u32 = 16;
+pub const NATIVE_POLICY: &str = "benilla-native-admin-progression-v16";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -146,6 +150,9 @@ impl NativeWorld {
         seed: u64,
     ) -> Result<Self, NativeError> {
         profile.validate()?;
+        if profile.admin.as_ref().is_some_and(|p| p.world != world) {
+            return Err(NativeError::InvalidProfile);
+        }
         if world == [0; 16] || player.owner == [0; 16] || player.character == [0; 16] {
             return Err(NativeError::InvalidProfile);
         }
@@ -189,6 +196,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let state = State {
+            admin: AdminState::default(),
             player_slow: profile.player_slow.as_ref().map(|_| PlayerSlowState::new()),
             player_movement_flags: profile
                 .source_motion
@@ -237,7 +245,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v14\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v16\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -398,3 +406,9 @@ impl From<benilla_sim::player_slow::SlowError> for NativeError {
         Self::PlayerSlow(error)
     }
 }
+
+#[cfg(test)]
+mod npc_spell_tests;
+
+#[cfg(test)]
+mod admin_tests;

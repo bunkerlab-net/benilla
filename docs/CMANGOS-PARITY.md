@@ -184,16 +184,17 @@ is meaningful without a bounded content/mechanics inventory.
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 14, without changing the
+  service uses experimental native checkpoint format 15, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,
   generation-guarded handles and transactional replay/save/reopen. See the
-  [NPC event contract](../crates/benilla-world-runtime/NPC-EVENTS.md). Triggered
-  NPC-to-player casting and rear-melee admission remain unimplemented. The
-  [bounded slow-holder milestone](../crates/benilla-world-runtime/src/native/PLAYER-SLOW.md)
-  implements source-bound holder lifecycle, speed aggregation and durable
-  projection/ACKs through fixture-only effects; it does not complete rear daze.
+  [NPC event contract](../crates/benilla-world-runtime/NPC-EVENTS.md). A separate
+  [bounded invisible instant NPC SpellStart host](../crates/benilla-world-runtime/NPC-SPELLS.md)
+  preserves ordered target/hit checks and Unit-owned failed/finished cleanup.
+  Authored triggers reach the source-bound [slow holders](../crates/benilla-world-runtime/src/native/PLAYER-SLOW.md),
+  speed aggregation and durable projection/ACKs. Raw spell1604 and rear-melee
+  admission remain closed; these fixtures do not complete rear daze.
 - **Dependencies:** derived stats, weapon skill and school, attack timers,
   deterministic random draws, armor/resistance, block/absorb, auras/procs,
   reach/facing/LOS, threat, loot credit, quests, corpses and resurrection.

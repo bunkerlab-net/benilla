@@ -774,6 +774,7 @@ impl NativeProjection {
                     events.extend(self.quest_progression_event(w, event, &mut quest_frame, &mut loot_frame)?);
                 },
                 n::Event::Loot(event) => events.extend(self.loot_event(w, event, &mut loot_frame)?),
+                n::Event::NpcSpell(_) => {}, // Internal Unit lifetime, not a client cast bar.
                 n::Event::PlayerSlow(event) => events.extend(slow_frame.project(event, self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::RootMovement) => events.push(root_order(self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::SendDurabilityDamageDeath) => events.push(SessionEvent::DurabilityDamageDeath),

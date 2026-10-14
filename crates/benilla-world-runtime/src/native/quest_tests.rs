@@ -348,11 +348,11 @@ fn applied_aura_keeps_source_rank_and_level_through_xp_rebase_and_restore() {
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(forged["state"].clone()).unwrap();
     forged["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v14\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v16\0", &state)).unwrap();
     let tip: crate::Digest = serde_json::from_value(forged["history_tip"].clone()).unwrap();
     let digest: crate::Digest = serde_json::from_value(forged["digest"].clone()).unwrap();
     forged["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v14\0",
+        b"benilla-native-checkpoint-v16\0",
         &(&state, digest, tip),
     ))
     .unwrap();

@@ -336,6 +336,8 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
     for (version, policy) in [
         (12, "benilla-native-current-pose-facing-v12"),
         (13, "benilla-native-npc-events-v13"),
+        (14, "benilla-native-player-slow-v14"),
+        (15, "benilla-native-npc-triggered-v15"),
     ] {
         for incompatible in ["world.checkpoint", "world.previous"] {
             let t = Temp::new();
@@ -393,3 +395,6 @@ fn native_npc_queue_pending_notify_is_durable_and_replays_exactly() {
     assert_eq!(restored.state_digest(), world.state_digest());
     assert!(restored.state().npcs[&2].events.notify_handle().is_none());
 }
+
+#[path = "admin_tests.rs"]
+mod admin_tests;

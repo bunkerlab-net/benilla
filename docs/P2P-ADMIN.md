@@ -36,9 +36,23 @@ spendable honor currency. Future time/weather commands must use a shared world
 policy and current-location validation; changing daylight must not rewind
 simulation timers. Automatic time/weather reset is represented explicitly.
 
+## Implemented native progression path
+
+The [native admin backend](../crates/benilla-world-runtime/src/native/ADMIN.md)
+now implements one-level increments and the XP toggle through the actual UI
+adapter, controller, simulation and durable store. Its authored component tests
+cover explicit world/owner permission, exact retries, save failures and reopening.
+The production exploration session does not install this backend. A valid admitted
+native world is still required before these buttons can be enabled.
+
+The level action uses the supplied, checked progression data and reports its
+supported bound separately from the configured Classic maximum. XP lock preserves
+existing XP and suppresses all currently admitted XP award paths while retaining
+other quest, kill and loot effects. Other Admin operations remain unimplemented.
+
 ## Verification
 
 Engine-only tests cover typed requests, malformed catalogs, stale contexts,
 pending/duplicate handling, receipts and menu lifecycle. These tests do not prove
 asset-backed rendering, actual grants or a playable populated world. Native
-gameplay admission and the durable admin backend remain separate prerequisites.
+gameplay admission remains a separate prerequisite for live admin operations.

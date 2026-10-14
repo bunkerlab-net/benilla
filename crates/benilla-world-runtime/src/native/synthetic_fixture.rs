@@ -52,6 +52,7 @@ pub fn profile() -> Profile {
         damage_pushback: true,
     };
     Profile {
+        admin: None,
         player_slow: None,
         source_motion: None,
         interactions: None,
@@ -170,7 +171,7 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
-            Query::SourceSpell(_) => {
+            Query::NpcSpell(_) | Query::SourceSpell(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "source spell spatial fixture",
                 ))

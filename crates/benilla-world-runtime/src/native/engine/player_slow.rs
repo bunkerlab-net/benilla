@@ -15,10 +15,13 @@ impl<A: Authority> Frame<'_, A> {
         self.player_auras_updated = true;
         Ok(())
     }
-    // The future NPC SpellStart/EffectApplyAura host must call this after source hit/target
-    // validation. Only authored fixture scheduling reaches it in the current milestone.
+    // Called only after NPC SpellStart hit/target validation or explicit effect fixtures.
     #[cfg(any(test, feature = "synthetic-native-tests"))]
-    fn apply_player_slow(&mut self, caster: NpcId, spell_id: u32) -> Result<(), NativeError> {
+    pub(super) fn apply_player_slow(
+        &mut self,
+        caster: NpcId,
+        spell_id: u32,
+    ) -> Result<(), NativeError> {
         let npc = self
             .state
             .npcs

@@ -31,9 +31,9 @@ Derived from CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
 
 The [source queue port](../benilla-sim/EVENT-PROCESSOR.md) preserves stable
 same-deadline insertion ordering, add/exec times, full-diff callbacks and Abort
-semantics. Its pinned C++ oracle remains the queue differential reference. No
-NPC SpellEvent callback is admitted in this increment, so a mixed NPC notify/
-spell runtime ordering test is not represented as completed gameplay coverage.
+semantics. Its pinned C++ oracle remains the queue differential reference.
+The [bounded instant NPC SpellEvent host](NPC-SPELLS.md) now shares this queue;
+mixed event ordering tests remain authored component coverage.
 The new host and tests are GPL-3.0-or-later translations/integration of the
 GPL-2.0-or-later source; [the existing provenance](../benilla-sim/PROVENANCE.md)
 and CMaNGOS notices apply.
@@ -46,8 +46,8 @@ snapshot exposes its actual clock, detached executing event and pending peers to
 authority bindings. The NPC handle remains set throughout the visitor, so any
 ordinary rescheduling from synchronous sight/chase callbacks remains a no-op.
 This bounded visitor does not support forced replacement or arbitrary queue
-mutation during its own callback; those paths fail closed. A future NPC spell
-host must mutate this same transaction rather than introduce a second queue.
+mutation during its own callback; those paths fail closed. Bounded triggered
+starts run outside dispatch; nested starts inside a visitor remain unsupported.
 
 External event handles bind world, spawn, generation and event ID. Respawn keeps
 the source processor while changing the external generation, so prior-generation
@@ -56,7 +56,7 @@ alone does not clear `CanAggro` or abort the queue. A dead creature's due visito
 can set `CanAggro=false`; ordinary corpse removal preserves whichever value the
 source had until respawn resets it.
 
-Checkpoint format 14 (`benilla-native-player-slow-v14`) binds source policy,
+Checkpoint format 16 (`benilla-native-admin-progression-v16`) binds source policy,
 owner, queue, pending notify, aggro state and count of DEAD updates skipped by
 the processor. The exact queue clock equals `(tick - skipped_updates) * diff`;
 the AI's actual corpse-removal timestamp independently bounds the current DEAD
@@ -76,16 +76,10 @@ discarding the Unit. Checkpoint suspension does not run teardown.
 
 ## Deliberate remaining boundary
 
-This is reusable native infrastructure, not completed rear melee or daze. Pinned
-`Spell.cpp:2997–3100` enqueues every SpellStart on the true caster's Unit queue
-at clock +1 before checks; failed/finished spell objects remain event-owned even
-when an effective-instant triggered cast executes synchronously. OLD_TRIGGERED
-does not by itself mean instant, unavoidable hit or no duration.
-
-The player projectile adapter cannot be reused as an NPC-to-player spell host.
-The [player slow holder milestone](src/native/PLAYER-SLOW.md) provides bounded
-source-bound effects, expiry and movement publication through an explicit fixture-only
-entry. No guessed spell1604 rows or NPC cast callback is added. Rear-melee/daze
-admission remains closed until that actual path exists. These authored tests do
-not establish raw-content admission, client assets, live-realm behavior, complete
-Classic combat, multi-player simulation or general server map scheduling.
+The [bounded NPC triggered spell host](NPC-SPELLS.md) now owns instant
+NPC-to-player slow SpellStart objects and their failed/finished cleanup events.
+It requires complete source-bound checks and additional current-host closure.
+The player projectile adapter is not reused. Actual spell1604/rear-trigger
+admission remains closed pending its raw source dependencies and all reachable
+lifecycle behavior. Authored tests are not raw-content, client-asset, live-realm,
+complete Classic combat or multiplayer gameplay evidence.

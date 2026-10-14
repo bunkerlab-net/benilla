@@ -211,17 +211,32 @@ impl QuestProgressionState {
             expected: (victim, g.kill.rules, context),
             rest: self.rest,
         };
-        let tx = kill::award(
-            &g.levels,
-            &self.player,
-            self.rest,
-            &host,
-            g.kill.rules,
-            victim,
-            context,
-        )?;
+        let tx = if self.xp_enabled {
+            kill::award(
+                &g.levels,
+                &self.player,
+                self.rest,
+                &host,
+                g.kill.rules,
+                victim,
+                context,
+            )?
+        } else {
+            // Fork XP lock suppresses the entire XP transaction, including rest consumption
+            // and XP logs. Kill/tap validation and source quest credit still execute.
+            victim.validate()?;
+            g.kill.rules.validate()?;
+            context.validate(victim, self.rest)?;
+            kill::Transaction {
+                state: self.player.clone(),
+                rest: self.rest,
+                host,
+                events: vec![],
+            }
+        };
         let abilities = g.resolve_abilities(&tx.host.progression.training, tx.state.view())?;
         let mut next = Self {
+            xp_enabled: self.xp_enabled,
             reputation: self.reputation.clone(),
             inventory: self.inventory.clone(),
             inventory_receipts: self.inventory_receipts.clone(),

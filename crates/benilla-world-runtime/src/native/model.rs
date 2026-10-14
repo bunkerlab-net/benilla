@@ -81,6 +81,7 @@ pub struct NpcProfile {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Profile {
+    pub admin: Option<AdminPolicy>,
     pub player_slow: Option<PlayerSlowGenesis>,
     pub source_motion: Option<MotionGenesis>,
     pub interactions: Option<InteractionCatalog>,
@@ -99,9 +100,11 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v14\0",
+            b"benilla-native-profile-v16\0",
             &(
                 NATIVE_POLICY,
+                NPC_SPELL_POLICY,
+                ADMIN_POLICY,
                 benilla_sim::player_slow::PLAYER_SLOW_POLICY,
                 RNG_POLICY,
                 spell::SPELL_EXECUTION_POLICY_ID,
@@ -139,6 +142,12 @@ impl Profile {
             .collect()
     }
     pub fn validate(&self) -> Result<(), NativeError> {
+        if let Some(policy) = &self.admin {
+            policy.validate()?;
+            if self.quest_progression.is_none() {
+                return Err(NativeError::InvalidProfile);
+            }
+        }
         if let Some(g) = &self.player_slow {
             g.validate(self)?;
         }
@@ -279,6 +288,7 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub admin: AdminState,
     pub player_slow: Option<PlayerSlowState>,
     pub player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
     pub player_events: PlayerEvents,
@@ -303,6 +313,7 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    Admin(AdminRequest),
     MovementPose {
         destination: ai::Point,
         orientation: Orientation,
@@ -381,6 +392,7 @@ pub struct OwnedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Rejection {
+    Admin(AdminRejection),
     Loot {
         corpse: NpcId,
         reason: u8,
@@ -405,6 +417,12 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    NpcSpell(NpcSpellEvent),
+    AdminCommitted(AdminReceipt),
+    AdminRejected {
+        request: AdminRequest,
+        reason: AdminRejection,
+    },
     PlayerSlow(PlayerSlowEvent),
     NpcMotion {
         id: NpcId,
@@ -472,6 +490,7 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    NpcSpell(NpcSpellQuery),
     SourceSpell(SourceSpellQuery),
     SourceMotion(MotionQuery),
     LootInteraction {
@@ -585,6 +604,7 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    NpcSpell(NpcSpellFacts),
     SourceSpell(SourceSpellFacts),
     SourceMotion(MotionFacts),
     LootInteraction {

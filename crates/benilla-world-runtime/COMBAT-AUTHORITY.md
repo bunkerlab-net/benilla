@@ -92,8 +92,8 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 14 and
-`benilla-native-player-slow-v14`, with separate v14 profile, state,
+This profile/receipt contract uses native format 16 and
+`benilla-native-admin-progression-v16`, with separate v15 profile, state,
 record, checkpoint and melee-action/chain hash domains. Published native formats 9, 10 and 11
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source

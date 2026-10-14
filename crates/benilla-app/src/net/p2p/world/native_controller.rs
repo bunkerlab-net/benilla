@@ -13,8 +13,11 @@ use benilla_world_store::native::NativeStore;
 const _: () = assert!(MAX_ACTIONS <= n::MAX_INPUTS_PER_TICK);
 // At most one projected tick is retained. The runtime bounds records and catalog text;
 // this additional event-count cap prevents an expanding projection from growing the outbox.
+#[path = "native_controller/admin.rs"]
+mod admin;
 const MAX_PENDING_EVENTS: usize = 65_536;
 struct PendingEvents {
+    admin_rejections: Vec<(n::AdminRequest, n::AdminRejection)>,
     tick: u64,
     events: Vec<SessionEvent>,
     saved: Option<SavedBoundary>,
@@ -185,6 +188,7 @@ impl MovementOrders {
 }
 
 pub(crate) struct NativeController {
+    admin_bridge: Option<admin::ControllerBridge>,
     world: n::NativeWorld,
     projection: NativeProjection,
     store: NativeStore,
@@ -287,6 +291,7 @@ impl NativeController {
         let saved_tick = world.state().tick;
         let published_pose = PublishedPose::of(&world);
         Ok(Self {
+            admin_bridge: None,
             world,
             projection,
             store,
@@ -555,6 +560,18 @@ impl NativeController {
         // Immediately retire the committed input. A projection/checkpoint failure must never
         // rerun a committed cast, loot/reward, RNG draw or sequence on explicit retry.
         let pending = self.pending.take().expect("committed staged tick");
+        let admin_rejections = self
+            .world
+            .last_tick()
+            .into_iter()
+            .flat_map(|r| &r.events)
+            .filter_map(|event| match event {
+                n::Event::AdminRejected { request, reason } => {
+                    Some((request.clone(), reason.clone()))
+                }
+                _ => None,
+            })
+            .collect();
         let mut staged_orders =
             NativeMovementOrders::from_session_next_counter(self.orders.counter.next_counter());
         let projected = self
@@ -600,6 +617,7 @@ impl NativeController {
             // Persist every enabled tick, accepting one synchronous checkpoint per tick.
             // Project first: the store receipt clears last_tick and its event journal.
             self.outbox = Some(PendingEvents {
+                admin_rejections,
                 tick: self.world.state().tick,
                 events: projected,
                 saved: None,
@@ -643,6 +661,7 @@ impl NativeController {
             .is_some_and(|batch| batch.saved.is_some())
         {
             let mut batch = self.outbox.take().expect("durable pending events");
+            self.publish_admin_rejections(&batch.admin_rejections);
             self.resync_slow_timers(&mut batch.events);
             self.published(&batch.events);
             events.extend(batch.events);
@@ -1008,6 +1027,7 @@ impl Driven for NativeController {
         })
     }
     fn pump(&mut self, elapsed: Duration) -> Pump {
+        self.admit_admin_mailbox();
         let mut out = Pump::default();
         if !self.closed && !self.closing && self.pause.is_none() {
             match self.debt.checked_add(elapsed) {
@@ -1025,6 +1045,7 @@ impl Driven for NativeController {
                 self.publish_pending(&mut out.events);
                 out.pending_ticks = self.debt.as_nanos() / self.tick_duration().as_nanos();
                 out.pause = self.pause.clone();
+                self.refresh_admin_mailbox();
                 return out;
             }
             while self.pause.is_none()
@@ -1084,6 +1105,7 @@ impl Driven for NativeController {
         }
         out.pending_ticks = self.debt.as_nanos() / self.tick_duration().as_nanos();
         out.pause = self.pause.clone();
+        self.refresh_admin_mailbox();
         out
     }
     fn retry_checkpoint(&mut self) -> Result<SavedBoundary, Error> {
@@ -1130,6 +1152,7 @@ impl Driven for NativeController {
         self.actions.clear();
         self.pending = None;
         self.closed = true;
+        self.refresh_admin_mailbox();
         Ok((saved, cancelled, events))
     }
 }

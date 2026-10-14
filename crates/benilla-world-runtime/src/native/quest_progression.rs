@@ -429,6 +429,15 @@ impl QuestProgressionGenesis {
         }
         self.kill.validate(profile, self.loot.is_some())
     }
+    pub(in crate::native) fn admin_supported_maximum(&self) -> u32 {
+        self.levels
+            .supplied_levels()
+            .max()
+            .unwrap_or(1)
+            .min(self.levels.rules().max_player_level)
+            .min(pg::MAX_SUPPORTED_LEVEL)
+            .min(CLASSIC_LEVEL_CEILING)
+    }
     pub(in crate::native) fn maximum_player_level(&self) -> u32 {
         self.levels.rules().max_player_level
     }
@@ -696,6 +705,7 @@ pub enum QuestProgressionEvent {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestProgressionState {
+    pub xp_enabled: bool,
     pub reputation: Option<NativeReputationState>,
     pub inventory: Option<inv::State>,
     pub inventory_receipts: BTreeMap<u64, ItemReceipt>,
@@ -717,6 +727,7 @@ pub struct QuestProgressionState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::native) struct QuestProgressionSnapshot {
+    xp_enabled: bool,
     reputation: Option<NativeReputationState>,
     inventory: Option<inv::State>,
     inventory_receipts: BTreeMap<u64, ItemReceipt>,
@@ -764,6 +775,7 @@ impl pg::Host for ProgressionHost {
 }
 #[derive(Clone)]
 struct QuestHost<'a> {
+    xp_enabled: bool,
     reputation: Option<NativeReputationState>,
     reputation_calls: VecDeque<(reputation::Marker, Vec<QuestProgressionEvent>)>,
     inventory: Option<inv::State>,
@@ -801,7 +813,11 @@ impl q::Host for QuestHost<'_> {
         }
     }
     fn reward_context(&self) -> arithmetic::RewardContext {
-        self.genesis.reward_context(self.player.view().level)
+        let mut context = self.genesis.reward_context(self.player.view().level);
+        if !self.xp_enabled {
+            context.xp_rate = arithmetic::Binary32Rate::ZERO;
+        }
+        context
     }
     fn money(&self) -> u32 {
         self.money
@@ -848,6 +864,7 @@ impl q::Host for QuestHost<'_> {
     }
     fn apply(&mut self, effect: &q::HostEffect) -> Result<(), q::Error> {
         let events = match effect {
+            q::HostEffect::GiveXp(_) if !self.xp_enabled => vec![],
             q::HostEffect::GiveXp(xp) => {
                 let tx = pg::give_xp(&self.genesis.levels, &self.player, &self.progression, *xp)
                     .map_err(|_| q::Error::Host("source progression transaction"))?;
@@ -909,6 +926,7 @@ impl QuestProgressionState {
         now_ms: u64,
     ) -> Result<Self, NativeError> {
         Ok(Self {
+            xp_enabled: true,
             reputation: reputation::initialize(g)?,
             inventory: g.loot.as_ref().map(|l| l.initial_inventory.clone()),
             inventory_receipts: g.loot.as_ref().map_or_else(BTreeMap::new, |l| {
@@ -932,6 +950,7 @@ impl QuestProgressionState {
     }
     pub(in crate::native) fn snapshot(&self) -> QuestProgressionSnapshot {
         QuestProgressionSnapshot {
+            xp_enabled: self.xp_enabled,
             reputation: self.reputation.clone(),
             inventory: self.inventory.clone(),
             inventory_receipts: self.inventory_receipts.clone(),
@@ -979,6 +998,7 @@ impl QuestProgressionState {
             return Err(NativeError::InvalidCheckpoint);
         }
         let out = Self {
+            xp_enabled: s.xp_enabled,
             reputation: s.reputation,
             inventory: s.inventory,
             inventory_receipts: s.inventory_receipts,
@@ -1082,6 +1102,39 @@ impl QuestProgressionState {
         self.played_clock_seconds = seconds;
         Ok(())
     }
+    pub(in crate::native) fn admin_give_level(
+        &self,
+        g: &QuestProgressionGenesis,
+        combat: &PlayerCombatState,
+        level: u32,
+    ) -> Result<(Self, Vec<QuestProgressionEvent>), NativeError> {
+        let training = init::LiveTraining::restore_authoritative(
+            &g.training,
+            &self.training,
+            self.player.view(),
+        )?;
+        let host = ProgressionHost {
+            training,
+            derived: self.derived.clone(),
+            derived_calls: self.derived_calls.clone(),
+            inputs: g.derived_inputs(combat),
+            audit: self.player.view().audit,
+        };
+        let tx = pg::give_level(&g.levels, &self.player, &host, level)?;
+        let mut next = self.clone();
+        next.player = tx.state;
+        next.abilities = g.resolve_abilities(&tx.host.training, next.player.view())?;
+        next.training = tx.host.training.snapshot();
+        next.derived = tx.host.derived;
+        next.derived_calls = tx.host.derived_calls;
+        Ok((
+            next,
+            tx.events
+                .into_iter()
+                .map(|e| QuestProgressionEvent::Progression(Box::new(e)))
+                .collect(),
+        ))
+    }
     pub(in crate::native) fn reduce(
         &self,
         g: &QuestProgressionGenesis,
@@ -1094,6 +1147,7 @@ impl QuestProgressionState {
             self.player.view(),
         )?;
         let host = QuestHost {
+            xp_enabled: self.xp_enabled,
             reputation: self.reputation.clone(),
             reputation_calls: VecDeque::new(),
             inventory: self.inventory.clone(),

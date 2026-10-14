@@ -413,8 +413,32 @@ impl<A: Authority> Frame<'_, A> {
         let mut queue = std::mem::take(&mut npc.events.queue);
         let mut transaction = queue.begin_update(self.profile.tick_ms)?;
         while let Some(due) = transaction.pop_due()? {
-            if due.kind != EventKind::AiNotify || npc.events.notify != Some(due.event_id) {
-                // No NPC SpellEvent is admitted without an actual NPC spell host.
+            if let EventKind::SpellUpdate { cast_id } = due.kind {
+                let lifetime = npc
+                    .events
+                    .spells
+                    .remove(&cast_id)
+                    .ok_or(NativeError::InvalidState)?;
+                if lifetime.event_id != due.event_id
+                    || lifetime.caster != npc.id
+                    || lifetime.terminal.is_none()
+                {
+                    return Err(NativeError::InvalidState);
+                }
+                // Instant nonchanneled triggered spells have no current-slot reference.
+                // Both failed and successful SpellStart objects are already finished.
+                if due.callback == CallbackKind::Execute {
+                    transaction.finish_execute(true)?;
+                } else {
+                    transaction.finish_abort(true)?;
+                }
+                self.events.push(Event::NpcSpell(NpcSpellEvent::Destroyed {
+                    lifetime,
+                    aborted: due.callback == CallbackKind::Abort,
+                }));
+                continue;
+            }
+            if npc.events.notify != Some(due.event_id) {
                 return Err(NativeError::InvalidState);
             }
             let callback = transaction.callback_snapshot()?;

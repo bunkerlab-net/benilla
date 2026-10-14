@@ -8,6 +8,8 @@ description = "Source-level app solo-world controller harness without Bevy linki
 [lints]
 workspace = true
 [dev-dependencies]
+benilla-ui = { path = "../benilla-ui" }
+rand = "0.8"
 benilla-sim = { path = "../benilla-sim" }
 benilla-config = { path = "../benilla-config" }
 benilla-profile = { path = "../benilla-profile" }
