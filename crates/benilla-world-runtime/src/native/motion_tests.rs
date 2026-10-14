@@ -457,9 +457,21 @@ fn source_set_in_front_precedes_native_melee_and_does_not_relocate() {
     struct Combined {
         spatial: fixture::SyntheticMotionAuthority,
         melee: f::KernelAuthority,
+        bearing: ai::Real,
     }
     impl Authority for Combined {
         fn resolve(&mut self, r: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+            if let Query::SourceMotion(MotionQuery::Spatial(query @ m::Query::Bearing(_))) =
+                &r.query
+            {
+                return Ok(AuthorityReply {
+                    request: r.clone(),
+                    facts: Facts::SourceMotion(MotionFacts::Spatial(Box::new(m::Reply {
+                        request: query.clone(),
+                        fact: m::Fact::Bearing(self.bearing),
+                    }))),
+                });
+            }
             if matches!(r.query, Query::NativeMelee { .. }) {
                 self.melee.resolve(r)
             } else {
@@ -467,47 +479,62 @@ fn source_set_in_front_precedes_native_melee_and_does_not_relocate() {
             }
         }
     }
-    let mut p = f::initialized_profile();
-    p.npcs[0].ai.spawn = f::point(2.0);
-    p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
-    let mut g = fixture::genesis(&p);
-    g.creature_initial_aggro_delay_ms = 0;
-    p.source_motion = Some(g);
-    let mut w = NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap();
-    let mut a = Combined {
-        spatial: Default::default(),
-        melee: Default::default(),
-    };
-    w.step(1, None, &mut a).unwrap();
-    let record = w.last_tick().unwrap();
-    let face = record
-        .replies
-        .iter()
-        .position(|r| {
-            matches!(
-                r.request.query,
-                Query::SourceMotion(MotionQuery::Spatial(m::Query::Bearing(_)))
-            )
-        })
-        .unwrap();
-    let melee = record
-        .replies
-        .iter()
-        .position(|r| {
-            matches!(
-                r.request.query,
-                Query::NativeMelee {
-                    npc_orientation: Some(_),
-                    ..
-                }
-            )
-        })
-        .unwrap();
-    assert!(face < melee);
-    let source = &w.state().npcs[&2].source_motion.as_ref().unwrap().motion;
-    assert_eq!(source.last_move_ms(), 0);
-    assert_eq!(source.pose().position, f::point(2.0));
-    assert_eq!(source.pose().orientation, f::real(std::f32::consts::PI));
+    // This test verifies callback order and exact propagation of a supplied spatial
+    // fact. Host atan2 is deliberately outside the deterministic runtime contract.
+    // Exercise both adjacent values observed on native CI without an epsilon.
+    for bearing_bits in [0x4049_0fda, 0x4049_0fdb] {
+        let bearing = ai::Real::from_bits(bearing_bits).unwrap();
+        let mut p = f::initialized_profile();
+        p.npcs[0].ai.spawn = f::point(2.0);
+        p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
+        let mut g = fixture::genesis(&p);
+        g.creature_initial_aggro_delay_ms = 0;
+        p.source_motion = Some(g);
+        let mut w = NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap();
+        let mut a = Combined {
+            spatial: Default::default(),
+            melee: Default::default(),
+            bearing,
+        };
+        w.step(1, None, &mut a).unwrap();
+        let record = w.last_tick().unwrap();
+        let face = record
+            .replies
+            .iter()
+            .position(|r| {
+                matches!(
+                    r.request.query,
+                    Query::SourceMotion(MotionQuery::Spatial(m::Query::Bearing(_)))
+                )
+            })
+            .unwrap();
+        let melee = record
+            .replies
+            .iter()
+            .position(|r| {
+                matches!(
+                    r.request.query,
+                    Query::NativeMelee {
+                        npc_orientation: Some(_),
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert!(face < melee);
+        let source = &w.state().npcs[&2].source_motion.as_ref().unwrap().motion;
+        assert_eq!(source.last_move_ms(), 0);
+        assert_eq!(source.pose().position, f::point(2.0));
+        assert_eq!(source.pose().orientation, bearing);
+        let Query::NativeMelee {
+            npc_orientation: Some(orientation),
+            ..
+        } = record.replies[melee].request.query
+        else {
+            panic!("missing ordered melee orientation")
+        };
+        assert_eq!(orientation.bits(), bearing.bits());
+    }
 }
 
 fn altered_checkpoint(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Value)) -> Checkpoint {
