@@ -39,7 +39,9 @@ pub(crate) mod window;
 use collider::{finish_colliders, impassable_wall_data, terrain_collider_data};
 use furnish::furnish_tile_cells;
 use merge::{flush_static_merge, StaticMerge};
-pub use native_coverage::{CoverageError, CoverageProof, NativeTerrainCoverage};
+pub use native_coverage::{
+    CoverageError, CoverageProof, NativeStaticMapIndex, NativeTerrainCoverage,
+};
 use spawn::prop_light::WmoDoodadInst;
 use spawn::spawn_loaded_placements;
 use weld::{flush_hull_welds, HullWelds};

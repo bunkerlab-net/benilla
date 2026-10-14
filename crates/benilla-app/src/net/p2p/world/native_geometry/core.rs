@@ -33,17 +33,33 @@ impl Body {
     }
 }
 
-/// Closed compiler/controller proof that this content/map has no other collision
+/// Trusted source-resolved player body and maximum speed for this bounded movement state.
+/// Sprint/mount/swim/flight, movement auras, transports, jump/fall and server movement modes
+/// require separate policy support; accepting a peer-supplied speed cannot construct this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PlayerMotion {
+    pub body: Body,
+    pub speed: ai::Real,
+}
+impl PlayerMotion {
+    fn validate(self) -> bool {
+        self.body.validate()
+            && (0.0..=MAX_SEGMENT).contains(&self.speed.as_f32())
+            && self.speed.as_f32() > 0.0
+    }
+}
+
+/// Closed compiler/controller proof that this content/map has no non-map collision
 /// participants: game-object/door/transport spawns, runtime creation and scripted colliders
 /// are excluded, and the controller cannot create them while this token is installed.
 /// There is deliberately no production constructor until that complete input audit exists.
 /// Empty ADT references, empty entity queries and a digest alone cannot construct this token.
 #[derive(Clone)]
-pub(crate) struct TerrainOnlyParticipants {
+pub(crate) struct NonRenderParticipants {
     content: Digest,
     map: u32,
 }
-impl TerrainOnlyParticipants {
+impl NonRenderParticipants {
     #[cfg(test)]
     fn authored_fixture(content: Digest, map: u32) -> Self {
         Self { content, map }
@@ -64,7 +80,8 @@ pub(crate) struct Session {
     pub geometry: Digest,
     pub map: u32,
     pub bodies: BTreeMap<u64, Body>,
-    pub participants: Option<TerrainOnlyParticipants>,
+    pub player: Option<PlayerMotion>,
+    pub participants: Option<NonRenderParticipants>,
 }
 impl Session {
     fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
@@ -78,8 +95,25 @@ impl Session {
         {
             return Err(Failure::Binding);
         }
-        let Query::Movement(m) = &request.query else {
-            return Err(Failure::UnsupportedQuery);
+        let m = match &request.query {
+            Query::Movement(m) => m,
+            Query::PlayerMovement {
+                accepted_path,
+                elapsed_ms,
+                ..
+            } => {
+                if accepted_path.len() >= benilla_world_runtime::native::MAX_INPUTS_PER_TICK
+                    || *elapsed_ms == 0
+                    || *elapsed_ms > 1000
+                {
+                    return Err(Failure::Invalid);
+                }
+                if b.npc.is_some() {
+                    return Err(Failure::Binding);
+                }
+                return self.player.map(|p| p.body).ok_or(Failure::UnresolvedBody);
+            }
+            _ => return Err(Failure::UnsupportedQuery),
         };
         if m.map_id != self.map
             || m.content_revision.0 != self.content
@@ -109,7 +143,8 @@ impl Session {
             .iter()
             .all(|d| *d != [0; 32])
             && self.world != [0; 16]
-            && !self.bodies.is_empty()
+            && (!self.bodies.is_empty() || self.player.is_some())
+            && self.player.is_none_or(PlayerMotion::validate)
             && self.bodies.len() <= 64
             && self.bodies.iter().all(|(id, b)| *id != 0 && b.validate())
     }
@@ -132,7 +167,7 @@ impl Failure {
     fn native(self) -> NativeError {
         match self {
             Self::UnprovenParticipants => NativeError::AuthorityUnavailable(
-                "non-terrain collision participants have not been excluded",
+                "non-render collision participants have not been excluded",
             ),
             Self::Binding => NativeError::AuthorityBinding,
             Self::Invalid => NativeError::InvalidInput,
@@ -166,7 +201,7 @@ struct Work {
 struct Reply {
     ticket: u64,
     request: AuthorityRequest,
-    result: Result<MovementOutcome, Failure>,
+    result: Result<Facts, Failure>,
 }
 
 /// Owned exclusively by the off-thread native driver. The main-thread service never waits.
@@ -221,14 +256,11 @@ impl Authority for LocalAuthority {
         if reply.ticket != self.ticket || reply.request != *request {
             return Err(NativeError::AuthorityBinding);
         }
-        let outcome = reply.result.map_err(Failure::native)?;
-        let Query::Movement(m) = &request.query else {
-            return Err(NativeError::AuthorityBinding);
-        };
-        validate_outcome(m, &outcome).map_err(Failure::native)?;
+        let facts = reply.result.map_err(Failure::native)?;
+        validate_facts(&self.session, request, &facts).map_err(Failure::native)?;
         Ok(AuthorityReply {
             request: request.clone(),
-            facts: Facts::Movement(outcome),
+            facts,
         })
     }
 }
@@ -247,10 +279,23 @@ fn receive_reply_until(rx: &Receiver<Reply>, deadline: Instant) -> Result<Reply,
 impl Mailbox {
     /// The count includes expired/rejected jobs, so cancellation cannot bypass the frame bound.
     /// A caller provides a fresh read-only geometry view for each service invocation.
+    #[cfg(test)]
     pub(super) fn serve(
         &self,
         limit: usize,
         mut geometry: impl FnMut(&MovementRequest, Body) -> Result<MovementOutcome, Failure>,
+    ) -> usize {
+        self.serve_queries(limit, |_, request, body| {
+            let Query::Movement(m) = &request.query else {
+                return Err(Failure::UnsupportedQuery);
+            };
+            geometry(m, body).map(Facts::Movement)
+        })
+    }
+    pub(super) fn serve_queries(
+        &self,
+        limit: usize,
+        mut geometry: impl FnMut(&Session, &AuthorityRequest, Body) -> Result<Facts, Failure>,
     ) -> usize {
         let deadline = Instant::now() + Duration::from_millis(2);
         let mut count = 0;
@@ -264,17 +309,13 @@ impl Mailbox {
                 continue;
             }
             let result = self.session.body(&work.request).and_then(|body| {
-                let Query::Movement(m) = &work.request.query else {
-                    return Err(Failure::UnsupportedQuery);
-                };
-                let outcome = geometry(m, body)?;
-                validate_outcome(m, &outcome)?;
-                Ok(outcome)
+                let facts = geometry(&self.session, &work.request, body)?;
+                validate_facts(&self.session, &work.request, &facts)?;
+                Ok(facts)
             });
             if Instant::now() >= work.deadline {
                 continue;
             }
-            // Receiver cancellation is ordinary; never block the renderer on a stalled driver.
             let _ = work.reply.try_send(Reply {
                 ticket: work.ticket,
                 request: work.request,
@@ -283,6 +324,146 @@ impl Mailbox {
         }
         count
     }
+}
+
+fn validate_facts(
+    session: &Session,
+    request: &AuthorityRequest,
+    facts: &Facts,
+) -> Result<(), Failure> {
+    match (&request.query, facts) {
+        (Query::Movement(m), Facts::Movement(outcome)) => validate_outcome(m, outcome),
+        (Query::PlayerMovement { .. }, Facts::PlayerMovement { accepted }) => {
+            let player = session.player.ok_or(Failure::UnresolvedBody)?;
+            let within_budget = player_path(&request.query, player)?.is_some();
+            if *accepted && !within_budget {
+                Err(Failure::Binding)
+            } else {
+                Ok(())
+            }
+        }
+        _ => Err(Failure::Binding),
+    }
+}
+
+/// Each accepted packet extends the same immutable path; even returning to the origin spends
+/// distance. This is a local conservative policy, not CMaNGOS client anti-cheat parity.
+/// Every segment length is rounded upward to binary32, then added in binary64 with an upward
+/// guard when addition is inexact. Budget arithmetic starts from the source-resolved f32 speed.
+fn player_path(query: &Query, player: PlayerMotion) -> Result<Option<Vec<[f32; 3]>>, Failure> {
+    let Query::PlayerMovement {
+        frame_origin,
+        accepted_path,
+        destination,
+        elapsed_ms,
+    } = query
+    else {
+        return Err(Failure::UnsupportedQuery);
+    };
+    if !player.validate()
+        || *elapsed_ms == 0
+        || *elapsed_ms > 1000
+        || accepted_path.len() >= benilla_world_runtime::native::MAX_INPUTS_PER_TICK
+    {
+        return Err(Failure::Invalid);
+    }
+    let points: Vec<_> = std::iter::once(*frame_origin)
+        .chain(accepted_path.iter().copied())
+        .chain(std::iter::once(*destination))
+        .map(point)
+        .collect();
+    if points
+        .iter()
+        .flatten()
+        .any(|v| !v.is_finite() || v.abs() > 32760.0)
+    {
+        return Err(Failure::Invalid);
+    }
+    let numerator = f64::from(player.speed.as_f32()) * f64::from(*elapsed_ms);
+    let nearest_budget = numerator / 1000.0;
+    // Fused residual retains the sign of division error; multiplying the quotient back
+    // normally can round away an upward error (e.g. .001 * 1000 == 1).
+    let budget = if (-nearest_budget).mul_add(1000.0, numerator) < 0.0 {
+        f64::from_bits(nearest_budget.to_bits() - 1)
+    } else {
+        nearest_budget
+    };
+    if budget > f64::from(MAX_SEGMENT) {
+        return Err(Failure::UnsupportedNavigation);
+    }
+    let mut distance = 0.0_f64;
+    for pair in points.windows(2) {
+        if pair[0][2] != pair[1][2] {
+            return Err(Failure::UnsupportedGround);
+        }
+        let dx = f64::from(pair[1][0]) - f64::from(pair[0][0]);
+        let dy = f64::from(pair[1][1]) - f64::from(pair[0][1]);
+        // Non-axis-aligned segments use outward-rounded binary64 operations before
+        // conversion; this can reject a borderline diagonal, never grant extra distance.
+        let up = |v: f64| {
+            if v == 0.0 {
+                v
+            } else {
+                f64::from_bits(v.to_bits() + 1)
+            }
+        };
+        let abs_difference = |a: f32, b: f32, difference: f64| {
+            let a = f64::from(a);
+            let b = -f64::from(b);
+            let v = difference - a;
+            let error = (a - (difference - v)) + (b - v);
+            if error.signum() == difference.signum() && error != 0.0 {
+                up(difference.abs())
+            } else {
+                difference.abs()
+            }
+        };
+        let dx = abs_difference(pair[1][0], pair[0][0], dx);
+        let dy = abs_difference(pair[1][1], pair[0][1], dy);
+        let upper64 = if dx == 0.0 {
+            dy
+        } else if dy == 0.0 {
+            dx
+        } else {
+            up(up(up(dx * dx) + up(dy * dy)).sqrt())
+        };
+        let mut upper = upper64 as f32;
+        if f64::from(upper) < upper64 {
+            upper = f32::from_bits(upper.to_bits() + 1);
+        }
+        let next = distance + f64::from(upper);
+        // Error-free TwoSum detects a rounded-down accumulation; never let a very small
+        // movement disappear beside a large one. Zero movement does not spend an ULP.
+        let v = next - distance;
+        let error = (distance - (next - v)) + (f64::from(upper) - v);
+        distance = if error > 0.0 {
+            f64::from_bits(next.to_bits() + 1)
+        } else {
+            next
+        };
+        if distance > budget {
+            return Ok(None);
+        }
+    }
+    Ok(Some(points))
+}
+
+pub(super) fn solve_player(
+    query: &Query,
+    player: PlayerMotion,
+    geometry: &mut impl Corridor,
+) -> Result<Facts, Failure> {
+    let Some(points) = player_path(query, player)? else {
+        return Ok(Facts::PlayerMovement { accepted: false });
+    };
+    for pair in points.windows(2) {
+        match geometry.certify(pair[0], pair[1], player.body) {
+            Ok(()) => {}
+            Err(Failure::Obstacle) => return Ok(Facts::PlayerMovement { accepted: false }),
+            Err(failure) => return Err(failure),
+        }
+    }
+    Ok(Facts::PlayerMovement { accepted: true })
 }
 
 fn validate_outcome(request: &MovementRequest, outcome: &MovementOutcome) -> Result<(), Failure> {
@@ -436,16 +617,24 @@ pub(super) fn geometry_revision(
     map: u32,
     wdt: [u8; 32],
     tiles: &[((i32, i32), [u8; 32]); 9],
+    models: &[(u32, [u8; 32])],
+    inventory: [u8; 32],
 ) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
-    hash.update(b"benilla-local-dry-planar-adt-corridor-v2\0");
+    hash.update(b"benilla-local-dry-flat-cell-static-los-corridor-v6\0");
     hash.update(map.to_le_bytes());
     hash.update(wdt);
+    hash.update(inventory);
     for ((x, y), digest) in tiles {
         hash.update(x.to_le_bytes());
         hash.update(y.to_le_bytes());
         hash.update(digest);
+    }
+    hash.update((models.len() as u64).to_le_bytes());
+    for (uid, source) in models {
+        hash.update(uid.to_le_bytes());
+        hash.update(source);
     }
     hash.finalize().into()
 }

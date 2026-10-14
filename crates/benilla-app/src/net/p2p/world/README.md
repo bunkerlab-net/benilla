@@ -6,6 +6,13 @@ existing exploration. A failed gameplay request never selects exploration, realm
 login, another world, or new-world creation. The current character browser passes
 `None`; there is no supported native compiler request producer yet.
 
+The shared driver accepts both the authored controller and a distinct
+[native controller](native_controller/README.md). The latter binds the selected
+owner/character to `NativeWorld`, `NativeProjection` and `NativeStore`, with
+source-ordered bounded input batches and save-before-publication behavior. Its
+production constructor requires the uninhabited native capability; private
+component tests do not make native Classic entry available.
+
 `Request::new` captures exact content, rules and an immutable `ClientCatalog`;
 it cannot supply an arbitrary controller. Entry checks the already-open profile's
 owner, persisted selected character, explicit WorldId, native mechanics profile,
@@ -19,7 +26,7 @@ private lower-level constructor with authored fixture bindings.
 
 ## Ownership and durability
 
-The controller owns one `World`, `Projection` and exclusively locked `WorldStore`.
+The authored controller owns one `World`, `Projection` and exclusively locked `WorldStore`.
 The app resolves its root through `local_state::home`; the fixed leaf is
 `p2p-worlds/<32-hex-character-world-id>`. The full restored roster must contain
 exactly the selected profile owner/character. Profile appearance/name still drive

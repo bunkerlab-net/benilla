@@ -47,7 +47,11 @@ fn session() -> Session {
         geometry: [4; 32],
         map: 0,
         bodies: BTreeMap::from([(3, body())]),
-        participants: Some(TerrainOnlyParticipants::authored_fixture([3; 32], 0)),
+        player: Some(PlayerMotion {
+            body: body(),
+            speed: ai::Real::new(7.0).unwrap(),
+        }),
+        participants: Some(NonRenderParticipants::authored_fixture([3; 32], 0)),
     }
 }
 struct Proof(Result<(), Failure>);
@@ -223,10 +227,9 @@ fn forged_service_outcome_fails_before_delivery() {
 fn unsupported_queries_are_never_delegated_or_guessed() {
     let (mut worker, service) = mailbox(session()).unwrap();
     let mut r = request();
-    r.query = Query::PlayerMovement {
-        origin: movement().origin,
-        destination: movement().goal,
-        elapsed_ms: 50,
+    r.query = Query::Melee {
+        player_health: 100,
+        npc_health: 100,
     };
     assert!(matches!(
         worker.resolve(&r),
@@ -258,16 +261,22 @@ fn known_obstacle_is_a_bound_blocked_outcome() {
 fn geometry_identity_binds_actual_tile_bytes_map_and_coordinates() {
     let tiles = std::array::from_fn(|i| (((i % 3) as i32, (i / 3) as i32), [i as u8; 32]));
     let wdt = [7; 32];
-    let digest = geometry_revision(0, wdt, &tiles);
-    assert_ne!(digest, geometry_revision(1, wdt, &tiles));
-    assert_ne!(digest, geometry_revision(0, [8; 32], &tiles));
+    let digest = geometry_revision(0, wdt, &tiles, &[], [9; 32]);
+    assert_ne!(digest, geometry_revision(1, wdt, &tiles, &[], [9; 32]));
+    assert_ne!(digest, geometry_revision(0, [8; 32], &tiles, &[], [9; 32]));
     for i in 0..9 {
         let mut replacement = tiles;
         replacement[i].1[0] ^= 1;
-        assert_ne!(digest, geometry_revision(0, wdt, &replacement));
+        assert_ne!(
+            digest,
+            geometry_revision(0, wdt, &replacement, &[], [9; 32])
+        );
         replacement = tiles;
         replacement[i].0 .0 += 1;
-        assert_ne!(digest, geometry_revision(0, wdt, &replacement));
+        assert_ne!(
+            digest,
+            geometry_revision(0, wdt, &replacement, &[], [9; 32])
+        );
     }
 }
 
@@ -281,10 +290,10 @@ fn render_absence_does_not_certify_world_collision_participants() {
     ));
     assert_eq!(s.body(&request()), Err(Failure::UnprovenParticipants));
     s = session();
-    s.participants = Some(TerrainOnlyParticipants::authored_fixture([9; 32], 0));
+    s.participants = Some(NonRenderParticipants::authored_fixture([9; 32], 0));
     assert!(matches!(mailbox(s), Err(Failure::UnprovenParticipants)));
     s = session();
-    s.participants = Some(TerrainOnlyParticipants::authored_fixture([3; 32], 1));
+    s.participants = Some(NonRenderParticipants::authored_fixture([3; 32], 1));
     assert!(matches!(mailbox(s), Err(Failure::UnprovenParticipants)));
 }
 
@@ -306,7 +315,7 @@ fn buffered_reply_cannot_extend_the_absolute_request_deadline() {
     tx.try_send(Reply {
         ticket: 1,
         request: request(),
-        result: solve(&movement(), body(), &mut Proof(Ok(()))),
+        result: solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement),
     })
     .unwrap();
     // Deterministic past deadline: no sleep or scheduler timing makes the test pass.
@@ -325,7 +334,7 @@ fn forged_reply_ticket_or_npc_generation_is_rejected() {
         let mut reply = Reply {
             ticket: work.ticket,
             request: work.request.clone(),
-            result: solve(&movement(), body(), &mut Proof(Ok(()))),
+            result: solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement),
         };
         if alter_generation {
             reply.request.binding.npc.as_mut().unwrap().generation += 1;
@@ -335,4 +344,211 @@ fn forged_reply_ticket_or_npc_generation_is_rejected() {
         work.reply.try_send(reply).unwrap();
         assert_eq!(handle.join().unwrap(), Err(NativeError::AuthorityBinding));
     }
+}
+
+fn player_query(path: &[[f32; 3]], destination: [f32; 3]) -> Query {
+    Query::PlayerMovement {
+        frame_origin: ai::Point::new(0.0, 0.0, 5.0).unwrap(),
+        accepted_path: path
+            .iter()
+            .map(|p| ai::Point::new(p[0], p[1], p[2]).unwrap())
+            .collect(),
+        destination: ai::Point::new(destination[0], destination[1], destination[2]).unwrap(),
+        elapsed_ms: 50,
+    }
+}
+#[test]
+fn player_path_uses_one_cumulative_budget_including_return_trips() {
+    let player = session().player.unwrap();
+    assert_eq!(
+        solve_player(
+            &player_query(&[], [0.25, 0.0, 5.0]),
+            player,
+            &mut Proof(Ok(()))
+        ),
+        Ok(Facts::PlayerMovement { accepted: true })
+    );
+    // Each 0.25 hop fits 7yd/s x 50ms, but the 0.5 round trip does not.
+    assert_eq!(
+        solve_player(
+            &player_query(&[[0.25, 0.0, 5.0]], [0.0, 0.0, 5.0]),
+            player,
+            &mut Proof(Ok(()))
+        ),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
+    // Net displacement 0.125 is irrelevant: path spends 0.375.
+    assert_eq!(
+        solve_player(
+            &player_query(&[[0.25, 0.0, 5.0]], [0.125, 0.0, 5.0]),
+            player,
+            &mut Proof(Ok(()))
+        ),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
+    assert_eq!(
+        solve_player(
+            &player_query(&[[0.125, 0.0, 5.0]], [0.25, 0.0, 5.0]),
+            player,
+            &mut Proof(Ok(()))
+        ),
+        Ok(Facts::PlayerMovement { accepted: true })
+    );
+}
+#[test]
+fn player_path_certifies_every_segment_and_distinguishes_unknown_from_obstacle() {
+    struct Trace(Vec<([f32; 3], [f32; 3])>);
+    impl Corridor for Trace {
+        fn certify(&mut self, a: [f32; 3], b: [f32; 3], _: Body) -> Result<(), Failure> {
+            self.0.push((a, b));
+            Ok(())
+        }
+    }
+    let player = session().player.unwrap();
+    let q = player_query(&[[0.1, 0.0, 5.0]], [0.1, 0.1, 5.0]);
+    let mut trace = Trace(Vec::new());
+    solve_player(&q, player, &mut trace).unwrap();
+    assert_eq!(
+        trace.0,
+        [
+            ([0.0, 0.0, 5.0], [0.1, 0.0, 5.0]),
+            ([0.1, 0.0, 5.0], [0.1, 0.1, 5.0])
+        ]
+    );
+    assert_eq!(
+        solve_player(&q, player, &mut Proof(Err(Failure::MissingGeometry))),
+        Err(Failure::MissingGeometry)
+    );
+    assert_eq!(
+        solve_player(&q, player, &mut Proof(Err(Failure::Obstacle))),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
+    // Even a stationary request has to certify its body volume.
+    let mut trace = Trace(Vec::new());
+    solve_player(&player_query(&[], [0.0, 0.0, 5.0]), player, &mut trace).unwrap();
+    assert_eq!(trace.0.len(), 1);
+}
+#[test]
+fn player_path_mailbox_rejects_forged_acceptance_and_unresolved_body() {
+    let mut s = session();
+    let mut r = request();
+    r.binding.npc = None;
+    r.query = player_query(&[[0.25, 0.0, 5.0]], [0.0, 0.0, 5.0]);
+    assert_eq!(
+        validate_facts(&s, &r, &Facts::PlayerMovement { accepted: true }),
+        Err(Failure::Binding)
+    );
+    r.binding.npc = Some(NpcId {
+        spawn: 3,
+        generation: 0,
+    });
+    assert_eq!(s.body(&r), Err(Failure::Binding));
+    r.binding.npc = None;
+    s.player = None;
+    assert_eq!(s.body(&r), Err(Failure::UnresolvedBody));
+}
+#[test]
+fn player_queries_use_bounded_mailbox_and_echo_exact_path() {
+    let (mut worker, service) = mailbox(session()).unwrap();
+    let mut r = request();
+    r.binding.npc = None;
+    r.query = player_query(&[[0.1, 0.0, 5.0]], [0.2, 0.0, 5.0]);
+    let expected = r.clone();
+    let handle = std::thread::spawn(move || worker.resolve(&r));
+    while service.rx.is_empty() {
+        std::thread::yield_now();
+    }
+    assert_eq!(
+        service.serve_queries(1, |s, r, _| solve_player(
+            &r.query,
+            s.player.unwrap(),
+            &mut Proof(Ok(()))
+        )),
+        1
+    );
+    let reply = handle.join().unwrap().unwrap();
+    assert_eq!(reply.request, expected);
+    assert_eq!(reply.facts, Facts::PlayerMovement { accepted: true });
+}
+#[test]
+fn player_path_caps_count_time_height_and_diagonal_distance() {
+    let player = session().player.unwrap();
+    let mut q = player_query(&vec![[0.0, 0.0, 5.0]; 64], [0.0, 0.0, 5.0]);
+    assert_eq!(
+        solve_player(&q, player, &mut Proof(Ok(()))),
+        Err(Failure::Invalid)
+    );
+    q = player_query(&[], [0.0, 0.0, 6.0]);
+    assert_eq!(
+        solve_player(&q, player, &mut Proof(Ok(()))),
+        Err(Failure::UnsupportedGround)
+    );
+    q = player_query(&[], [0.25, 0.25, 5.0]);
+    assert_eq!(
+        solve_player(&q, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
+    if let Query::PlayerMovement { elapsed_ms, .. } = &mut q {
+        *elapsed_ms = 0;
+    }
+    assert_eq!(
+        solve_player(&q, player, &mut Proof(Ok(()))),
+        Err(Failure::Invalid)
+    );
+}
+#[test]
+fn geometry_revision_binds_loaded_m2_sources_and_membership() {
+    let tiles = [((1, 1), [2; 32]); 9];
+    let base = geometry_revision(0, [1; 32], &tiles, &[(42, [3; 32])], [9; 32]);
+    assert_ne!(
+        base,
+        geometry_revision(0, [1; 32], &tiles, &[(42, [4; 32])], [9; 32])
+    );
+    assert_ne!(
+        base,
+        geometry_revision(0, [1; 32], &tiles, &[(43, [3; 32])], [9; 32])
+    );
+    assert_ne!(base, geometry_revision(0, [1; 32], &tiles, &[], [9; 32]));
+    assert_ne!(
+        base,
+        geometry_revision(0, [1; 32], &tiles, &[(42, [3; 32])], [8; 32])
+    );
+}
+
+#[test]
+fn player_budget_never_rounds_up_fractional_millisecond_allowance() {
+    let player = PlayerMotion {
+        body: body(),
+        speed: ai::Real::new(1.0).unwrap(),
+    };
+    let a = f32::from_bits(0x3a03126e);
+    let b = 3.445_893_2e-11_f32;
+    let c = 3.035_766e-18_f32;
+    let mut q = player_query(
+        &[
+            [a, 0.0, 5.0],
+            [0.0, 0.0, 5.0],
+            [b, 0.0, 5.0],
+            [0.0, 0.0, 5.0],
+            [c, 0.0, 5.0],
+        ],
+        [0.0, 0.0, 5.0],
+    );
+    if let Query::PlayerMovement { elapsed_ms, .. } = &mut q {
+        *elapsed_ms = 1;
+    }
+    assert_eq!(
+        solve_player(&q, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
+}
+
+#[test]
+fn oversized_player_path_is_rejected_before_transport_enqueue() {
+    let (mut worker, service) = mailbox(session()).unwrap();
+    let mut r = request();
+    r.binding.npc = None;
+    r.query = player_query(&vec![[0.0, 0.0, 5.0]; 64], [0.0, 0.0, 5.0]);
+    assert_eq!(worker.resolve(&r), Err(NativeError::InvalidInput));
+    assert!(service.rx.is_empty());
 }

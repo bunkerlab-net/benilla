@@ -1,0 +1,874 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Authored placeholders only. These tests compile the exact app controller and command enum;
+//! they neither mint a production capability nor claim game-asset/collision coverage.
+use super::*;
+use crate::net::MoveKind;
+use benilla_world_runtime::native::synthetic_fixture as fixture;
+use std::{
+    fs,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+};
+
+struct Catalog;
+impl ClientCatalog for Catalog {
+    fn build(&self) -> u32 {
+        5875
+    }
+    fn manifest_digest(&self) -> runtime::Digest {
+        [9; 32]
+    }
+    fn contains_map(&self, id: u32) -> bool {
+        id == 7
+    }
+    fn contains_creature_display(&self, id: u32) -> bool {
+        id == 60001
+    }
+    fn contains_item_display(&self, _: u32) -> bool {
+        false
+    }
+    fn contains_spell(&self, id: u32) -> bool {
+        matches!(id, 60001 | 60002)
+    }
+    fn player_power_type(&self, _: PlayerId) -> Option<u8> {
+        Some(0)
+    }
+    fn item_metadata(&self, _: u32) -> Option<benilla_protocol::messages::ItemInfo> {
+        None
+    }
+    fn quest_metadata(&self, _: u32) -> Option<benilla_world_client::QuestMetadata> {
+        None
+    }
+    fn quest_greeting(&self, _: u32) -> Option<String> {
+        None
+    }
+}
+static NEXT: AtomicU64 = AtomicU64::new(0);
+struct Harness {
+    root: PathBuf,
+    profile: ProfileStore,
+    character: Character,
+}
+impl Harness {
+    fn new() -> Self {
+        let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "benilla-native-controller-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        let mut profile = ProfileStore::create(root.join("p2p-profile")).unwrap();
+        let id = profile
+            .create_character(benilla_profile::NewCharacter {
+                name: "Alice".into(),
+                race: 1,
+                class: 8,
+                gender: 0,
+                appearance: Default::default(),
+            })
+            .unwrap();
+        let character = profile.character(id).unwrap().clone();
+        Self {
+            root,
+            profile,
+            character,
+        }
+    }
+    fn path(&self) -> PathBuf {
+        world_path(&self.root, [8; 16]).unwrap()
+    }
+    fn enter(
+        &self,
+        entry: Entry,
+        data: n::Profile,
+        authority: impl n::Authority + Send + 'static,
+    ) -> Result<NativeController, Error> {
+        NativeController::enter_component_test(
+            &self.root,
+            &self.profile,
+            &self.character,
+            entry,
+            data,
+            &Catalog,
+            authority,
+        )
+    }
+    fn start(&self, data: n::Profile) -> NativeController {
+        self.enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7,
+            },
+            data,
+            fixture::KernelAuthority::default(),
+        )
+        .unwrap()
+    }
+    fn reopen(&self, data: n::Profile) -> NativeController {
+        self.enter(
+            Entry::Open { world: [8; 16] },
+            data,
+            fixture::KernelAuthority::default(),
+        )
+        .unwrap()
+    }
+}
+impl Drop for Harness {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+fn stationary() -> n::Profile {
+    let mut data = fixture::profile();
+    data.npcs.clear();
+    data
+}
+fn move_to(pos: [f32; 3]) -> ClientCommand {
+    ClientCommand::Move {
+        kind: MoveKind::Heartbeat,
+        flags: 0,
+        pos,
+        orientation: 0.75,
+        pitch: 0.0,
+        fall_time: 0,
+        jump: None,
+        transport: None,
+    }
+}
+fn cast(c: &NativeController) -> ClientCommand {
+    ClientCommand::CastSpell {
+        spell_id: 60001,
+        target: Some(c.projection.npc_guid(c.world.state().npcs[&2].id).unwrap()),
+    }
+}
+fn pump_to(c: &mut NativeController, tick: u64) -> Vec<SessionEvent> {
+    let mut events = vec![];
+    while c.tick() < tick {
+        let output = c.pump(c.tick_duration());
+        assert!(output.pause.is_none(), "{:?}", output.pause);
+        events.extend(output.events);
+    }
+    events
+}
+#[test]
+fn selected_identity_native_clock_and_saves_never_touch_profile() {
+    let h = Harness::new();
+    let before = fs::read(h.root.join("p2p-profile/profile.json")).unwrap();
+    let mut c = h.start(stationary());
+    let driven: &dyn Driven = &c;
+    assert_eq!(driven.map_id(), 7);
+    assert_eq!(driven.facing(), h.character.position.orientation);
+    assert_eq!(
+        driven.initial_player_fields().unwrap().unit_health(),
+        Some(90)
+    );
+    assert_eq!(
+        c.selected_player(),
+        Selection::from_profile(&h.profile, &h.character)
+            .unwrap()
+            .player
+    );
+    assert_eq!(c.pump(Duration::from_millis(99)).ticks, 0);
+    for _ in 0..1000 {
+        c.receive(ClientCommand::SetSelection { guid: 0 }).unwrap();
+    }
+    assert_eq!(c.tick(), 0);
+    let output = c.pump(Duration::from_secs(3));
+    assert_eq!(output.ticks, 30);
+    let output = c.pump(Duration::from_secs(100));
+    assert_eq!(output.ticks, MAX_TICKS_PER_PUMP);
+    assert!(output.pending_ticks > 900);
+    while c.debt >= c.tick_duration() {
+        assert!(c.pump(Duration::ZERO).pause.is_none());
+    }
+    assert!(c.store.generation() > 1);
+    let digest = c.world.state_digest();
+    let tick = c.tick();
+    c.shutdown().unwrap();
+    drop(c);
+    let c = h.reopen(stationary());
+    assert_eq!(c.tick(), tick);
+    assert_eq!(c.world.state_digest(), digest);
+    assert_eq!(
+        fs::read(h.root.join("p2p-profile/profile.json")).unwrap(),
+        before
+    );
+}
+#[test]
+fn journal_warning_saves_before_hard_limit_with_one_ms_ticks() {
+    let h = Harness::new();
+    let mut data = stationary();
+    data.tick_ms = 1;
+    let mut c = h.start(data);
+    for _ in 0..(n::MAX_RECORDS * 3 / MAX_TICKS_PER_PUMP) {
+        let out = c.pump(Duration::from_millis(MAX_TICKS_PER_PUMP as u64));
+        assert!(out.pause.is_none());
+        assert!(c.world.records().len() < n::MAX_RECORDS);
+    }
+    assert!(c.tick() > n::MAX_RECORDS as u64 * 2);
+    assert!(c.store.generation() > 3);
+}
+#[test]
+fn movement_preserves_binary32_and_native_cast_interruption() {
+    let h = Harness::new();
+    let mut c = h.start(fixture::profile());
+    c.receive(cast(&c)).unwrap();
+    c.pump(c.tick_duration());
+    let x = f32::from_bits(0x3dcccccd);
+    c.receive(move_to([x, 0.0, 0.0])).unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    assert_eq!(c.position_xyz()[0].to_bits(), x.to_bits());
+    assert!(out.events.iter().any(|e| matches!(e, SessionEvent::UnitMove { guid, position, .. } if *guid == c.player_guid() && position[0].to_bits() == x.to_bits())));
+    assert!(c.world.last_tick().unwrap().events.iter().any(|e| matches!(
+        e,
+        n::Event::Spell {
+            event: benilla_sim::classic_spell::SpellEvent::Failed(_),
+            ..
+        }
+    )));
+}
+struct ToggleAuthority {
+    unavailable: Arc<AtomicBool>,
+    observed: Arc<Mutex<Vec<n::AuthorityRequest>>>,
+    inner: fixture::KernelAuthority,
+}
+impl n::Authority for ToggleAuthority {
+    fn resolve(
+        &mut self,
+        request: &n::AuthorityRequest,
+    ) -> Result<n::AuthorityReply, n::NativeError> {
+        self.observed.lock().unwrap().push(request.clone());
+        if self.unavailable.load(Ordering::SeqCst) {
+            Err(n::NativeError::AuthorityUnavailable(
+                "authored unavailable geometry",
+            ))
+        } else {
+            self.inner.resolve(request)
+        }
+    }
+}
+#[test]
+fn unavailable_authority_retains_exact_input_tick_and_explicit_retry() {
+    let h = Harness::new();
+    let unavailable = Arc::new(AtomicBool::new(true));
+    let observed = Arc::new(Mutex::new(vec![]));
+    let mut c = h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7,
+            },
+            stationary(),
+            ToggleAuthority {
+                unavailable: unavailable.clone(),
+                observed: observed.clone(),
+                inner: Default::default(),
+            },
+        )
+        .unwrap();
+    c.receive(move_to([0.25, 0.0, 0.0])).unwrap();
+    let digest = c.world.state_digest();
+    let out = c.pump(c.tick_duration());
+    assert_eq!(out.ticks, 0);
+    assert_eq!(c.world.state_digest(), digest);
+    assert!(matches!(
+        c.pause().map(|p| &p.kind),
+        Some(PauseKind::Authority)
+    ));
+    let inputs = c.pending.as_ref().unwrap().inputs.clone();
+    c.pump(Duration::from_secs(60));
+    assert_eq!(c.debt, c.tick_duration());
+    assert!(matches!(
+        c.receive(move_to([1.0, 0.0, 0.0])),
+        Err(Error::Paused)
+    ));
+    assert!(matches!(c.retry_checkpoint(), Err(Error::Paused)));
+    unavailable.store(false, Ordering::SeqCst);
+    c.retry_tick().unwrap();
+    let out = c.pump(Duration::ZERO);
+    assert_eq!(out.ticks, 1);
+    assert!(out.pause.is_none());
+    assert_eq!(
+        c.world.last_tick().unwrap().inputs,
+        inputs.into_iter().map(|i| i.input).collect::<Vec<_>>()
+    );
+    let observed = observed.lock().unwrap();
+    assert_eq!(observed[0], observed[1]);
+    assert!(c.pending.is_none());
+    assert_eq!(c.world.state().next_sequence, 1);
+}
+#[test]
+fn checkpoint_failure_pauses_and_retry_does_not_reapply_input() {
+    let h = Harness::new();
+    let mut c = h.start(stationary());
+    pump_to(&mut c, 99);
+    c.receive(move_to([0.125, 0.0, 0.0])).unwrap();
+    fs::write(
+        h.path().join(".world-checkpoint.pending"),
+        b"authored fault",
+    )
+    .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert_eq!(out.ticks, 1);
+    assert!(c.pending.is_none());
+    let digest = c.world.state_digest();
+    assert!(!c.world.records().is_empty());
+    assert!(matches!(
+        c.pause().map(|p| &p.kind),
+        Some(PauseKind::Checkpoint {
+            requires_reopen: false
+        })
+    ));
+    c.pump(Duration::from_secs(500));
+    assert_eq!(c.tick(), 100);
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    c.retry_checkpoint().unwrap();
+    assert_eq!(c.world.state_digest(), digest);
+    assert!(c.world.records().is_empty());
+    assert_eq!(c.pump(Duration::ZERO).ticks, 0);
+    assert_eq!(c.world.state().next_sequence, 1);
+}
+#[test]
+fn projection_failure_retains_committed_world_without_replaying_action() {
+    let h = Harness::new();
+    let mut c = h.start(stationary());
+    c.receive(move_to([0.125, 0.0, 0.0])).unwrap();
+    // Advancing independently is intentionally malformed controller state: its exact
+    // projection must refuse this gap, never pretend the committed world rolled back.
+    c.world
+        .step(1, None, &mut fixture::KernelAuthority::default())
+        .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert_eq!(out.ticks, 1);
+    assert_eq!(c.tick(), 2);
+    assert!(matches!(
+        c.pause().map(|p| &p.kind),
+        Some(PauseKind::Projection)
+    ));
+    assert!(c.pending.is_none());
+    assert_eq!(c.world.state().next_sequence, 1);
+    assert!(matches!(c.retry_tick(), Err(Error::Paused)));
+    c.shutdown().unwrap();
+    drop(c);
+    let c = h.reopen(stationary());
+    assert_eq!(c.tick(), 2);
+    assert_eq!(c.world.state().next_sequence, 1);
+}
+fn death_profile() -> n::Profile {
+    let mut p = fixture::initialized_profile();
+    let c = p.npcs[0].combat.as_mut().unwrap();
+    c.minimum_damage = fixture::float(10000.0);
+    c.maximum_damage = fixture::float(10000.0);
+    p.configure_player_death(
+        benilla_sim::player_death::DeathConfig {
+            map_instanceable: false,
+            pve_reclaim_delay_enabled: true,
+        },
+        benilla_sim::player_death::DeathSupport::checked(
+            &benilla_sim::player_death::REQUIRED_ABSENCES.map(|d| (d, Some(false))),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    p
+}
+fn root_ack(c: &NativeController, counter: u32, flags: u32) -> ClientCommand {
+    ClientCommand::MoveModeAck {
+        guid: c.player_guid(),
+        counter,
+        mode: MoveMode::Root,
+        apply: true,
+        flags,
+        pos: [13.0, 0.0, 0.0],
+        orientation: 1.0,
+    }
+}
+#[test]
+fn death_root_uses_session_counter_real_ack_and_restart_emits_fresh_root() {
+    let h = Harness::new();
+    let data = death_profile();
+    let mut c = h.start(data.clone());
+    // Same real namespace may have prior forced orders; never derive the root from tick.
+    c.orders.counter = NativeMovementOrders::from_session_next_counter(41);
+    c.receive(cast(&c)).unwrap();
+    let mut events = vec![];
+    while c.orders.pending.is_none() && c.tick() < 200 {
+        events.extend(c.pump(c.tick_duration()).events);
+        assert!(c.pause.is_none());
+    }
+    let root = c.orders.pending.unwrap();
+    assert_eq!(root.counter, 41);
+    assert_ne!(c.tick(), 41);
+    assert!(events.iter().any(|e| matches!(
+        e,
+        SessionEvent::MoveMode {
+            counter: 41,
+            mode: MoveMode::Root,
+            apply: true,
+            ..
+        }
+    )));
+    let before = c.world.state_digest();
+    assert!(matches!(
+        c.receive(root_ack(&c, 40, move_flags::ROOT)),
+        Err(Error::InvalidMovementAck)
+    ));
+    assert!(matches!(
+        c.receive(root_ack(&c, 41, move_flags::ROOT | move_flags::FORWARD)),
+        Err(Error::InvalidMovementAck)
+    ));
+    c.receive(root_ack(
+        &c,
+        41,
+        move_flags::ROOT | move_flags::TURN_LEFT | move_flags::WALK_MODE,
+    ))
+    .unwrap();
+    c.receive(root_ack(&c, 41, move_flags::ROOT)).unwrap();
+    assert!(c.orders.pending.is_none());
+    assert_eq!(c.world.state_digest(), before);
+    let received = c.receive(move_to([20.0, 0.0, 0.0])).unwrap();
+    assert!(c.actions.is_empty());
+    assert!(received.events.iter().any(
+        |e| matches!(e, SessionEvent::UnitMove { flags, .. } if *flags & move_flags::ROOT != 0)
+    ));
+    c.shutdown().unwrap();
+    drop(c);
+    let mut c = h.reopen(data);
+    assert_eq!(c.orders.pending.unwrap().counter, 0);
+    assert!(matches!(
+        c.receive(root_ack(&c, 41, move_flags::ROOT)),
+        Err(Error::InvalidMovementAck)
+    ));
+    let initial = c.initial_events().unwrap();
+    assert!(initial.iter().any(|e| matches!(
+        e,
+        SessionEvent::MoveMode {
+            counter: 0,
+            mode: MoveMode::Root,
+            apply: true,
+            ..
+        }
+    )));
+    assert!(matches!(c.initial_events(), Err(Error::Closed)));
+}
+#[test]
+fn owner_catalog_and_open_failures_do_not_create_or_replace_worlds() {
+    let h = Harness::new();
+    let foreign = Harness::new();
+    assert!(matches!(
+        NativeController::enter_component_test(
+            &h.root,
+            &h.profile,
+            &foreign.character,
+            Entry::Create {
+                world: [8; 16],
+                seed: 7
+            },
+            stationary(),
+            &Catalog,
+            fixture::KernelAuthority::default()
+        ),
+        Err(Error::WrongOwner)
+    ));
+    assert!(!h.root.join("p2p-worlds").exists());
+    assert!(h
+        .enter(
+            Entry::Open { world: [8; 16] },
+            stationary(),
+            fixture::KernelAuthority::default()
+        )
+        .is_err());
+    assert!(!h.root.join("p2p-worlds").exists());
+    let mut bad = stationary();
+    bad.map_id = 9;
+    assert!(h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7
+            },
+            bad,
+            fixture::KernelAuthority::default()
+        )
+        .is_err());
+    assert!(!h.root.join("p2p-worlds").exists());
+    let mut c = h.start(stationary());
+    c.shutdown().unwrap();
+    drop(c);
+    let checkpoint = fs::read(h.path().join("world.checkpoint")).unwrap();
+    assert!(h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7
+            },
+            stationary(),
+            fixture::KernelAuthority::default()
+        )
+        .is_err());
+    assert_eq!(
+        fs::read(h.path().join("world.checkpoint")).unwrap(),
+        checkpoint
+    );
+}
+#[test]
+fn actual_shared_driver_emits_initial_native_state_and_saves_logout() {
+    let h = Harness::new();
+    let mut c = h.start(stationary());
+    let (et, er) = crossbeam_channel::bounded(1000);
+    let (ct, cr) = crossbeam_channel::bounded(10);
+    let (_rt, rr) = crossbeam_channel::bounded(1);
+    ct.send(move_to([0.1, 0.0, 0.0])).unwrap();
+    ct.send(ClientCommand::Logout).unwrap();
+    let exit = run(&mut c, &et, &cr, &rr, &AtomicBool::new(false)).unwrap();
+    assert_eq!(exit.saved.tick, 0);
+    assert_eq!(exit.cancelled_inputs, 1);
+    assert!(c.closed());
+    assert!(er
+        .try_iter()
+        .any(|e| matches!(e, SessionEvent::SpellBook { .. })));
+}
+
+#[test]
+fn native_logout_failure_retains_lock_until_explicit_checkpoint_retry() {
+    let h = Harness::new();
+    let mut c = h.start(stationary());
+    pump_to(&mut c, 3);
+    let digest = c.world.state_digest();
+    fs::write(h.path().join(".world-checkpoint.pending"), b"repair needed").unwrap();
+    let (et, er) = crossbeam_channel::bounded(1000);
+    let (ct, cr) = crossbeam_channel::bounded(10);
+    let (rt, rr) = crossbeam_channel::bounded(1);
+    ct.send(ClientCommand::Logout).unwrap();
+    let worker = std::thread::spawn(move || run(&mut c, &et, &cr, &rr, &AtomicBool::new(false)));
+    loop {
+        if matches!(er.recv_timeout(Duration::from_secs(5)).unwrap(), SessionEvent::Notification { text } if text.contains("Logout could not save"))
+        {
+            break;
+        }
+    }
+    assert!(!worker.is_finished());
+    assert!(matches!(
+        h.enter(
+            Entry::Open { world: [8; 16] },
+            stationary(),
+            fixture::KernelAuthority::default()
+        ),
+        Err(Error::NativeStore(
+            benilla_world_store::native::Error::Store(benilla_world_store::Error::Locked)
+        ))
+    ));
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    rt.send(Control::RetryCheckpoint).unwrap();
+    let exit = worker.join().unwrap().unwrap();
+    assert_eq!(exit.saved.tick, 3);
+    assert_eq!(h.reopen(stationary()).world.state_digest(), digest);
+}
+#[test]
+fn native_input_capacity_unsupported_forms_and_exact_owner_are_bounded() {
+    let h = Harness::new();
+    let mut c = h.start(fixture::profile());
+    for _ in 0..MAX_ACTIONS {
+        c.receive(cast(&c)).unwrap();
+    }
+    assert!(matches!(c.receive(cast(&c)), Err(Error::Backpressure)));
+    assert_eq!(c.tick(), 0);
+    let mut movement = move_to([0.1, 0.0, 0.0]);
+    if let ClientCommand::Move { flags, .. } = &mut movement {
+        *flags = move_flags::ON_TRANSPORT;
+    }
+    assert!(matches!(c.receive(movement), Err(Error::InvalidMovement)));
+    assert!(matches!(
+        c.receive(ClientCommand::CastSpell {
+            spell_id: 60001,
+            target: Some(c.player_guid())
+        }),
+        Err(Error::Client(_))
+    ));
+    assert!(matches!(
+        c.receive(ClientCommand::AttackSwing {
+            guid: c.player_guid()
+        }),
+        Err(Error::UnsupportedCommand)
+    ));
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    let input = &c.world.last_tick().unwrap().inputs[0];
+    assert_eq!(input.player, c.selected.player);
+    assert_eq!(input.sequence, 0);
+    assert_eq!(input.tick, 1);
+    let (saved, cancelled, _) = c.shutdown().unwrap();
+    assert_eq!(saved.tick, 1);
+    assert_eq!(cancelled, 0);
+    assert_eq!(c.world.state().next_sequence, MAX_ACTIONS as u64);
+}
+
+#[test]
+fn cancel_cast_checks_requested_spell_and_captured_preparing_instance() {
+    let h = Harness::new();
+    let mut c = h.start(fixture::profile());
+    c.receive(cast(&c)).unwrap();
+    c.pump(c.tick_duration());
+    c.receive(ClientCommand::CancelCast { spell_id: 60002 })
+        .unwrap();
+    assert!(c.actions.is_empty());
+    c.receive(ClientCommand::CancelCast { spell_id: 60001 })
+        .unwrap();
+    let old = c.actions.pop_front().unwrap();
+    c.pump(c.tick_duration());
+    c.pump(c.tick_duration());
+    assert!(c.world.state().casts.values().all(|cast| !matches!(
+        cast.execution.state(),
+        benilla_sim::classic_spell::CastState::Casting { .. }
+    )));
+    c.receive(cast(&c)).unwrap();
+    c.pump(c.tick_duration());
+    assert!(c.world.state().casts.values().any(|cast| matches!(
+        cast.execution.state(),
+        benilla_sim::classic_spell::CastState::Casting { .. }
+    )));
+    c.actions.push_front(old);
+    let sequence = c.world.state().next_sequence;
+    c.pump(c.tick_duration());
+    assert_eq!(c.world.state().next_sequence, sequence + 1);
+    assert!(c.world.state().casts.values().any(|cast| matches!(
+        cast.execution.state(),
+        benilla_sim::classic_spell::CastState::Casting { .. }
+    )));
+    c.receive(ClientCommand::CancelCast { spell_id: 0 })
+        .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    assert!(c
+        .world
+        .last_tick()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            n::Event::Spell {
+                event: benilla_sim::classic_spell::SpellEvent::Failed(
+                    benilla_sim::classic_spell::CastFailure::Interrupted
+                ),
+                ..
+            }
+        )));
+}
+
+#[test]
+fn actual_native_driver_explicit_tick_retry_uses_retained_input() {
+    let h = Harness::new();
+    let unavailable = Arc::new(AtomicBool::new(true));
+    let observed = Arc::new(Mutex::new(vec![]));
+    let mut c = h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7,
+            },
+            stationary(),
+            ToggleAuthority {
+                unavailable: unavailable.clone(),
+                observed: observed.clone(),
+                inner: Default::default(),
+            },
+        )
+        .unwrap();
+    c.receive(move_to([0.25, 0.0, 0.0])).unwrap();
+    assert!(c.pump(c.tick_duration()).pause.is_some());
+    let (et, er) = crossbeam_channel::bounded(1000);
+    let (ct, cr) = crossbeam_channel::bounded(10);
+    let (rt, rr) = crossbeam_channel::bounded(1);
+    let worker = std::thread::spawn(move || run(&mut c, &et, &cr, &rr, &AtomicBool::new(false)));
+    loop {
+        if matches!(er.recv_timeout(Duration::from_secs(5)).unwrap(), SessionEvent::Notification { text } if text.contains("World paused"))
+        {
+            break;
+        }
+    }
+    unavailable.store(false, Ordering::SeqCst);
+    rt.send(Control::RetryTick).unwrap();
+    loop {
+        if matches!(
+            er.recv_timeout(Duration::from_secs(5)).unwrap(),
+            SessionEvent::UnitMove {
+                position: [0.25, 0.0, 0.0],
+                ..
+            }
+        ) {
+            break;
+        }
+    }
+    ct.send(ClientCommand::Logout).unwrap();
+    let exit = worker.join().unwrap().unwrap();
+    assert!(exit.saved.tick >= 1);
+    let c = h.reopen(stationary());
+    assert_eq!(c.world.state().next_sequence, 1);
+    assert_eq!(c.position_xyz(), [0.25, 0.0, 0.0]);
+    let observed = observed.lock().unwrap();
+    assert_eq!(observed[0], observed[1]);
+}
+
+#[test]
+fn cancel_before_first_pump_preserves_cast_then_cancels_its_instance() {
+    let h = Harness::new();
+    let mut c = h.start(fixture::profile());
+    c.receive(cast(&c)).unwrap();
+    c.receive(ClientCommand::CancelCast { spell_id: 60001 })
+        .unwrap();
+    let first = c.pump(c.tick_duration());
+    assert!(first.pause.is_none());
+    assert!(first.events.iter().any(|e| matches!(
+        e,
+        SessionEvent::SpellStart {
+            spell_id: 60001,
+            ..
+        }
+    )));
+    assert!(
+        c.world.last_tick().unwrap().events.iter().any(|e| matches!(
+            e,
+            n::Event::Spell {
+                event: benilla_sim::classic_spell::SpellEvent::Failed(
+                    benilla_sim::classic_spell::CastFailure::Interrupted
+                ),
+                ..
+            }
+        )),
+        "the client's pre-SpellStart cancellation was dropped"
+    );
+    assert!(c.world.state().casts.is_empty());
+    assert_eq!(c.world.state().resources.caster.global_ready_at(9), None);
+    assert_eq!(c.world.state().resources.caster.mana, 90);
+    assert_eq!(c.world.state().next_sequence, 2);
+}
+
+#[test]
+fn short_cast_cancelled_before_first_pump_must_not_launch() {
+    let h = Harness::new();
+    let mut data = fixture::profile();
+    let n::AbilityAdmission::Available(spec) = &mut data.abilities[0].admission else {
+        unreachable!()
+    };
+    spec.cast_ms = 50;
+    let mut c = h.start(data);
+    c.receive(cast(&c)).unwrap();
+    c.receive(ClientCommand::CancelCast { spell_id: 60001 })
+        .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    assert!(
+        !out.events.iter().any(|e| matches!(
+            e,
+            SessionEvent::SpellGo {
+                spell_id: 60001,
+                ..
+            }
+        )),
+        "cast and cancel were both received before the update, but the short cast launched"
+    );
+    assert!(c.world.last_tick().unwrap().events.iter().any(|e| matches!(
+        e,
+        n::Event::Spell {
+            event: benilla_sim::classic_spell::SpellEvent::Failed(
+                benilla_sim::classic_spell::CastFailure::Interrupted
+            ),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn batched_cast_results_and_cancellations_project_in_input_order() {
+    let h = Harness::new();
+    let mut c = h.start(fixture::profile());
+    c.receive(cast(&c)).unwrap();
+    c.receive(cast(&c)).unwrap(); // Refused by the still-active first cast.
+    c.receive(ClientCommand::CancelCast { spell_id: 60001 })
+        .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    let results = out
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            SessionEvent::CastResult { success, .. } => Some(*success),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(results, vec![true, false]);
+    assert!(matches!(
+        c.world.state().casts[&1].execution.state(),
+        benilla_sim::classic_spell::CastState::Casting { .. }
+    ));
+    assert_eq!(c.world.state().next_sequence, 3);
+    assert!(!out
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::SpellFailedOther { .. })));
+    // A separate cancellation now captures the actual current instance, then recast/cancel
+    // in this same batch must refer to the new request rather than the old instance.
+    c.receive(ClientCommand::CancelCast { spell_id: 0 })
+        .unwrap();
+    c.receive(cast(&c)).unwrap();
+    c.receive(ClientCommand::CancelCast { spell_id: 60001 })
+        .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none());
+    let order = out
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            SessionEvent::SpellFailedOther { .. } => Some("cancel"),
+            SessionEvent::CastResult { success: true, .. } => Some("accepted"),
+            SessionEvent::SpellStart { .. } => Some("start"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(order, vec!["cancel", "accepted", "start", "cancel"]);
+    assert!(c.world.state().casts.is_empty());
+}
+
+#[test]
+fn full_batch_checkpoint_retry_and_reopen_never_repeat_any_input() {
+    let h = Harness::new();
+    let mut c = h.start(stationary());
+    pump_to(&mut c, 99);
+    c.receive(move_to([0.125, 0.0, 0.0])).unwrap();
+    c.receive(move_to([0.25, 0.0, 0.0])).unwrap();
+    fs::write(h.path().join(".world-checkpoint.pending"), b"fault").unwrap();
+    let out = c.pump(c.tick_duration());
+    assert_eq!(out.ticks, 1);
+    assert!(matches!(
+        out.pause.unwrap().kind,
+        PauseKind::Checkpoint {
+            requires_reopen: false
+        }
+    ));
+    assert!(c.pending.is_none());
+    assert_eq!(c.world.state().next_sequence, 2);
+    assert_eq!(c.world.last_tick().unwrap().inputs.len(), 2);
+    assert_eq!(
+        out.events
+            .iter()
+            .filter(|e| matches!(e, SessionEvent::ObjectMove { .. }))
+            .count(),
+        2
+    );
+    let state = c.world.state_digest();
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    c.retry_checkpoint().unwrap();
+    let out = c.pump(Duration::ZERO);
+    assert_eq!(out.ticks, 0);
+    assert!(out.events.is_empty());
+    assert_eq!(c.world.state_digest(), state);
+    c.shutdown().unwrap();
+    drop(c);
+    let c = h.reopen(stationary());
+    assert_eq!(c.world.state_digest(), state);
+    assert_eq!(c.world.state().next_sequence, 2);
+}

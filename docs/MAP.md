@@ -122,7 +122,7 @@
 - **benilla-formats** (lib.rs): anim_data area_poi area_sound area_table area_trigger auction_house bank_bag_slot_prices camera_shakes cfg_categories cfg_configs chain characters chat_channels chr_classes cinematics creature_families creature_sound creature_types creatures dbc death_thud durability elevators emit_timing emote_text emotes environmental_damage exhaustion factions footsteps game_tips gameobjects garble gm_ticket_category ground_effects install item_random_properties item_sounds item_visuals itembagfamily itemclass items itemsets itemsubclass languages light liquid loading_screen lock lock_type macro_icons maps material minimap_translate models npc_greeting packages page_text_material particles pet_stats quest_headers quest_info race_creature_type race_pvp_team race_sound ribbons server_messages sheathe skill_lines sound_entries sound_provider sound_water spell_focus spell_mechanic spell_visual spells stable_slot_prices stationery talents taxi taxi_nodes taxi_path terrain text_filter_lists tga transport_period transports unit_blood value_track vocal_ui_sounds wdl weapon_impact weapon_swing wmo_area world_map_area world_map_continent world_map_overlay world_state_ui wow_ini zone_map
 - **benilla-m2** (lib.rs): error model skin tests track
 - **benilla-mpq** (lib.rs): crypto
-- **benilla-native-geometry-tests** (lib.rs): core planar
+- **benilla-native-geometry-tests** (lib.rs): core planar products static_mesh
 - **benilla-p2p** (lib.rs): identity internet
 - **benilla-profile** (lib.rs): storage tests
 - **benilla-protocol** (lib.rs): auth events guid messages wire world

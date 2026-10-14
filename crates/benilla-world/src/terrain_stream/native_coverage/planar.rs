@@ -18,7 +18,7 @@ pub enum CoverageError {
     ColliderUnavailable,
     MalformedTerrain,
     UnsupportedTerrain,
-    OutsideSupportedChunk,
+    OutsideSupportedTile,
 }
 
 impl std::fmt::Display for CoverageError {
@@ -29,8 +29,8 @@ impl std::fmt::Display for CoverageError {
 
 impl std::error::Error for CoverageError {}
 
-/// The swept disc lies inside this rectangle. Expand in f64 to avoid f32 rounding shrinking
-/// the corridor at a chunk boundary; no geometric tolerance opens gaps.
+/// The swept disc lies inside this rectangle. Expand outward in f64, including when a tiny
+/// binary32 radius is lost next to a large coordinate; no geometric tolerance opens gaps.
 #[derive(Clone, Copy)]
 struct Rectangle {
     min: [f64; 2],
@@ -44,14 +44,36 @@ impl Rectangle {
         }
         let radius = f64::from(radius);
         Ok(Self {
-            min: std::array::from_fn(|axis| f64::from(from[axis].min(to[axis])) - radius),
-            max: std::array::from_fn(|axis| f64::from(from[axis].max(to[axis])) + radius),
+            min: std::array::from_fn(|axis| {
+                let value = f64::from(from[axis].min(to[axis])) - radius;
+                if radius == 0.0 {
+                    value
+                } else {
+                    value.next_down()
+                }
+            }),
+            max: std::array::from_fn(|axis| {
+                let value = f64::from(from[axis].max(to[axis])) + radius;
+                if radius == 0.0 {
+                    value
+                } else {
+                    value.next_up()
+                }
+            }),
         })
     }
 
     fn strictly_inside(self, min: [f32; 2], max: [f32; 2]) -> bool {
         (0..2).all(|axis| {
             self.min[axis] > f64::from(min[axis]) && self.max[axis] < f64::from(max[axis])
+        })
+    }
+
+    /// Closed overlap deliberately includes a cell touched only on an edge or corner. In
+    /// particular both authors of a chunk seam must supply the same supported height.
+    fn intersects(self, min: [f32; 2], max: [f32; 2]) -> bool {
+        (0..2).all(|axis| {
+            self.min[axis] <= f64::from(max[axis]) && self.max[axis] >= f64::from(min[axis])
         })
     }
 }
@@ -66,9 +88,11 @@ fn lattice(index: u32) -> f32 {
 /// Validate the entire tile, not only the promising chunk: every triangle must remain inside
 /// its distinct canonical footprint. Missing or duplicate chunks never imply complete terrain.
 ///
-/// Rectangular cells have identical shared outer vertices and a strictly interior fan center.
-/// Their four canonical triangles therefore partition every cell without gaps. The selected
-/// chunk's complete 8×8 cells cover the whole rectangle continuously, including between samples.
+/// Every canonical cell whose closed footprint intersects the rectangle must have four
+/// triangles at exactly the feet height. Their canonical XY outer edges and interior fan
+/// centers partition the rectangle continuously. This admits chunk seams and flat patches
+/// within otherwise nonplanar chunks, but never slopes, height steps or endpoint sampling.
+/// Unrelated holes/heights cannot enter the rectangle because their XY footprints are proved.
 pub(super) fn prove_planar_tile(
     chunks: &[ChunkMesh],
     tile: (u32, u32),
@@ -81,7 +105,6 @@ pub(super) fn prove_planar_tile(
         return Err(CoverageError::MalformedTerrain);
     }
     let mut seen = [false; 256];
-    let mut candidate = None;
     for chunk in chunks {
         if chunk.index_x >= 16 || chunk.index_y >= 16 {
             return Err(CoverageError::MalformedTerrain);
@@ -91,19 +114,42 @@ pub(super) fn prove_planar_tile(
             return Err(CoverageError::MalformedTerrain);
         }
         validate_chunk(chunk, tile)?;
+    }
+    let min = [lattice((tile.1 + 1) * 128), lattice((tile.0 + 1) * 128)];
+    let max = [lattice(tile.1 * 128), lattice(tile.0 * 128)];
+    if !rectangle.strictly_inside(min, max) {
+        return Err(CoverageError::OutsideSupportedTile);
+    }
+    if from[2] != to[2] {
+        return Err(CoverageError::UnsupportedTerrain);
+    }
+    for chunk in chunks {
         let max = [chunk.positions[0][0], chunk.positions[0][1]];
         let min = [chunk.positions[144][0], chunk.positions[144][1]];
-        if rectangle.strictly_inside(min, max) {
-            candidate = Some(chunk);
+        if !rectangle.intersects(min, max) {
+            continue;
         }
-    }
-    let chunk = candidate.ok_or(CoverageError::OutsideSupportedChunk)?;
-    if chunk.holes != 0 || chunk.impassable || !chunk.liquids.is_empty() {
-        return Err(CoverageError::UnsupportedTerrain);
-    }
-    let height = chunk.positions[0][2];
-    if from[2] != height || to[2] != height || chunk.positions.iter().any(|p| p[2] != height) {
-        return Err(CoverageError::UnsupportedTerrain);
+        if chunk.impassable || !chunk.liquids.is_empty() {
+            return Err(CoverageError::UnsupportedTerrain);
+        }
+        for row in 0..8usize {
+            for col in 0..8usize {
+                let tl = row * 17 + col;
+                let (tr, bl, br, center) = (tl + 1, tl + 17, tl + 18, row * 17 + 9 + col);
+                let nw = chunk.positions[tl];
+                let se = chunk.positions[br];
+                if !rectangle.intersects([se[0], se[1]], [nw[0], nw[1]]) {
+                    continue;
+                }
+                if chunk.holes & (1 << ((row >> 1) * 4 + (col >> 1))) != 0
+                    || [tl, tr, bl, br, center]
+                        .into_iter()
+                        .any(|i| chunk.positions[i][2] != from[2])
+                {
+                    return Err(CoverageError::UnsupportedTerrain);
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -163,9 +209,13 @@ mod tests {
     const TO: [f32; 3] = [-20.0, -20.0, 7.0];
 
     fn chunk(ix: u32, iy: u32) -> ChunkMesh {
+        chunk_at(TILE, ix, iy)
+    }
+
+    fn chunk_at(tile: (u32, u32), ix: u32, iy: u32) -> ChunkMesh {
         let mut positions = vec![[0.0; 3]; 145];
-        let row_base = TILE.1 * 128 + iy * 8;
-        let col_base = TILE.0 * 128 + ix * 8;
+        let row_base = tile.1 * 128 + iy * 8;
+        let col_base = tile.0 * 128 + ix * 8;
         for row in 0..9usize {
             for col in 0..9usize {
                 positions[row * 17 + col] = [
@@ -220,6 +270,26 @@ mod tests {
             .collect()
     }
 
+    fn hole(chunk: &mut ChunkMesh, bit: u32) {
+        chunk.holes |= 1 << bit;
+        chunk.indices.clear();
+        for row in 0..8usize {
+            for col in 0..8usize {
+                if chunk.holes & (1 << ((row >> 1) * 4 + (col >> 1))) != 0 {
+                    continue;
+                }
+                let tl = row * 17 + col;
+                let (tr, bl, br, center) = (tl + 1, tl + 17, tl + 18, row * 17 + 9 + col);
+                chunk.indices.extend(
+                    [
+                        center, tl, bl, center, bl, br, center, br, tr, center, tr, tl,
+                    ]
+                    .map(|i| i as u32),
+                );
+            }
+        }
+    }
+
     fn prove(chunks: &[ChunkMesh]) -> Result<(), CoverageError> {
         prove_planar_tile(chunks, TILE, FROM, TO, 0.5)
     }
@@ -234,9 +304,12 @@ mod tests {
 
     #[test]
     fn bowed_or_sloping_ground_is_not_promoted_from_endpoint_samples() {
-        let mut chunks = tile();
-        chunks[0].positions[9][2] += 0.000_001;
-        assert_eq!(prove(&chunks), Err(CoverageError::UnsupportedTerrain));
+        for delta in [-0.000_001, 0.000_001] {
+            let mut chunks = tile();
+            // The endpoints lie elsewhere; this interior fan hill/dip crosses their corridor.
+            chunks[0].positions[3 * 17 + 9 + 3][2] += delta;
+            assert_eq!(prove(&chunks), Err(CoverageError::UnsupportedTerrain));
+        }
     }
 
     #[test]
@@ -250,17 +323,17 @@ mod tests {
     }
 
     #[test]
-    fn whole_chunk_boundary_and_radius_are_strict() {
+    fn whole_tile_boundary_and_radius_are_strict() {
         let chunks = tile();
         for (from, to, radius) in [
             ([-0.5, -10.0, 7.0], TO, 0.5),
-            (FROM, [-34.0, -20.0, 7.0], 0.5),
+            (FROM, [-534.0, -20.0, 7.0], 0.5),
             (FROM, TO, 14.0),
             ([0.0, -10.0, 7.0], TO, 0.0),
         ] {
             assert_eq!(
                 prove_planar_tile(&chunks, TILE, from, to, radius),
-                Err(CoverageError::OutsideSupportedChunk)
+                Err(CoverageError::OutsideSupportedTile)
             );
         }
     }
@@ -268,14 +341,181 @@ mod tests {
     #[test]
     fn holes_fail_even_when_a_point_height_helper_could_reconstruct_the_fan() {
         let mut chunks = tile();
-        chunks[0].holes = 1;
-        chunks[0].indices = (0..8usize)
-            .flat_map(|row| {
-                (0..8usize)
-                    .filter_map(move |col| (!(row < 2 && col < 2)).then_some((row * 8 + col) * 12))
-            })
-            .flat_map(|start| chunks[0].indices[start..start + 12].iter().copied())
-            .collect();
+        hole(&mut chunks[0], 5);
+        assert_eq!(prove(&chunks), Err(CoverageError::UnsupportedTerrain));
+    }
+
+    #[test]
+    fn unrelated_nonplanar_cells_and_holes_do_not_erase_a_flat_corridor() {
+        let mut chunks = tile();
+        chunks[0].positions[9][2] += 100.0;
+        hole(&mut chunks[0], 15);
+        assert_eq!(prove(&chunks), Ok(()));
+    }
+
+    #[test]
+    fn both_chunk_axes_and_four_way_corner_have_continuous_flat_support() {
+        let chunks = tile();
+        for (from, to) in [
+            ([-32.0, -10.0, 7.0], [-35.0, -10.0, 7.0]),
+            ([-10.0, -32.0, 7.0], [-10.0, -35.0, 7.0]),
+            ([-32.0, -32.0, 7.0], [-35.0, -35.0, 7.0]),
+        ] {
+            assert_eq!(prove_planar_tile(&chunks, TILE, from, to, 0.5), Ok(()));
+            assert_eq!(prove_planar_tile(&chunks, TILE, to, from, 0.5), Ok(()));
+        }
+    }
+
+    #[test]
+    fn map_edge_tiles_preserve_displaced_f32_seams_and_coordinate_orientation() {
+        for tile in [(1, 62), (62, 1)] {
+            let mut chunks: Vec<_> = (0..16)
+                .flat_map(|y| (0..16).map(move |x| chunk_at(tile, x, y)))
+                .collect();
+            let x = lattice(tile.1 * 128 + 8);
+            let y = lattice(tile.0 * 128 + 8);
+            let from = [x + 0.75, y + 0.75, 7.0];
+            let to = [x - 0.75, y - 0.75, 7.0];
+            assert_eq!(prove_planar_tile(&chunks, tile, from, to, 0.25), Ok(()));
+            assert_eq!(prove_planar_tile(&chunks, tile, to, from, 0.25), Ok(()));
+            let corner = [x, y, 7.0];
+            assert_eq!(
+                prove_planar_tile(&chunks, tile, corner, corner, 0.0),
+                Ok(())
+            );
+            let edge = [lattice(tile.1 * 128) - 0.25, y, 7.0];
+            assert_eq!(
+                prove_planar_tile(&chunks, tile, edge, edge, 0.25),
+                Err(CoverageError::OutsideSupportedTile)
+            );
+            chunks[17].positions[0][2] = 8.0;
+            assert_eq!(
+                prove_planar_tile(&chunks, tile, from, to, 0.25),
+                Err(CoverageError::UnsupportedTerrain)
+            );
+        }
+    }
+
+    #[test]
+    fn seam_height_mismatch_hole_and_impassable_neighbor_remain_unknown() {
+        let from = [-32.0, -10.0, 7.0];
+        let to = [-35.0, -10.0, 7.0];
+        for mutation in 0..3 {
+            let mut chunks = tile();
+            match mutation {
+                0 => chunks[16].positions[2][2] += 0.000_001,
+                1 => hole(&mut chunks[16], 1),
+                _ => chunks[16].impassable = true,
+            }
+            assert_eq!(
+                prove_planar_tile(&chunks, TILE, from, to, 0.5),
+                Err(CoverageError::UnsupportedTerrain)
+            );
+        }
+    }
+
+    #[test]
+    fn zero_radius_stationary_seam_checks_both_closed_sides() {
+        let at = [lattice(TILE.1 * 128 + 8), -10.0, 7.0];
+        assert_eq!(prove_planar_tile(&tile(), TILE, at, at, 0.0), Ok(()));
+        for side in [0, 16] {
+            let mut chunks = tile();
+            // A fan in each incident cell is independently required, not merely a seam ray.
+            let row = if side == 0 { 7 } else { 0 };
+            chunks[side].positions[row * 17 + 9 + 2][2] += 1.0;
+            assert_eq!(
+                prove_planar_tile(&chunks, TILE, at, at, 0.0),
+                Err(CoverageError::UnsupportedTerrain)
+            );
+        }
+    }
+
+    #[test]
+    fn four_way_corner_requires_all_four_duplicate_vertex_heights() {
+        let seam = lattice(TILE.1 * 128 + 8);
+        let at = [seam, seam, 7.0];
+        assert_eq!(prove_planar_tile(&tile(), TILE, at, at, 0.0), Ok(()));
+        for (slot, vertex) in [(0, 144), (1, 136), (16, 8), (17, 0)] {
+            let mut chunks = tile();
+            chunks[slot].positions[vertex][2] = 8.0;
+            assert_eq!(
+                prove_planar_tile(&chunks, TILE, at, at, 0.0),
+                Err(CoverageError::UnsupportedTerrain)
+            );
+        }
+    }
+
+    #[test]
+    fn hole_between_supported_endpoints_is_not_skipped() {
+        let mut chunks = tile();
+        hole(&mut chunks[0], 9);
+        let (from, to) = ([-10.0, -10.0, 7.0], [-30.0, -10.0, 7.0]);
+        for at in [from, to] {
+            assert_eq!(prove_planar_tile(&chunks, TILE, at, at, 0.5), Ok(()));
+        }
+        assert_eq!(
+            prove_planar_tile(&chunks, TILE, from, to, 0.5),
+            Err(CoverageError::UnsupportedTerrain)
+        );
+    }
+
+    #[test]
+    fn tiny_nonzero_radius_expands_even_when_binary64_addition_loses_it() {
+        let at = [-10.0, -10.0, 7.0];
+        let rectangle = Rectangle::new(at, at, f32::from_bits(1)).unwrap();
+        assert!(rectangle.min[0] < -10.0 && rectangle.max[0] > -10.0);
+        let zero = Rectangle::new(at, at, 0.0).unwrap();
+        assert_eq!(zero.min, [-10.0; 2]);
+        assert_eq!(zero.max, [-10.0; 2]);
+    }
+
+    #[test]
+    fn exhaustive_authored_corner_oracle_visits_exactly_four_incident_cells() {
+        // [-35.5,-31.5]^2 intersects exactly global cells {7,8}×{7,8} in this tile.
+        // Independently perturb every fan in its four chunks; only those four may reject.
+        let mut chunks = tile();
+        for (slot, row_base, col_base) in [(0, 0, 0), (1, 0, 8), (16, 8, 0), (17, 8, 8)] {
+            for row in 0..8usize {
+                for col in 0..8usize {
+                    let center = row * 17 + 9 + col;
+                    chunks[slot].positions[center][2] = 8.0;
+                    let touched =
+                        [7, 8].contains(&(row_base + row)) && [7, 8].contains(&(col_base + col));
+                    assert_eq!(
+                        prove_planar_tile(
+                            &chunks,
+                            TILE,
+                            [-32.0, -32.0, 7.0],
+                            [-35.0, -35.0, 7.0],
+                            0.5,
+                        ),
+                        if touched {
+                            Err(CoverageError::UnsupportedTerrain)
+                        } else {
+                            Ok(())
+                        },
+                        "chunk {slot}, cell {row},{col}"
+                    );
+                    chunks[slot].positions[center][2] = 7.0;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn radius_side_and_rectangle_interior_are_checked_between_endpoints() {
+        // The center line stays in column 2; the body radius reaches column 3.
+        let mut chunks = tile();
+        chunks[0].positions[3 * 17 + 9 + 3][2] = 8.0;
+        let (from, to) = ([-10.0, -12.0, 7.0], [-20.0, -12.0, 7.0]);
+        assert_eq!(prove_planar_tile(&chunks, TILE, from, to, 0.0), Ok(()));
+        assert_eq!(
+            prove_planar_tile(&chunks, TILE, from, to, 1.0),
+            Err(CoverageError::UnsupportedTerrain)
+        );
+        // A bounding rectangle is conservative: off-diagonal cells still have to be flat.
+        chunks[0].positions[3 * 17 + 9 + 3][2] = 7.0;
+        chunks[0].positions[2 * 17 + 9 + 4][2] = 8.0;
         assert_eq!(prove(&chunks), Err(CoverageError::UnsupportedTerrain));
     }
 
@@ -378,7 +618,7 @@ mod tests {
         let chunks = tile();
         assert_eq!(
             prove_planar_tile(&chunks, TILE, FROM, TO, f32::MAX),
-            Err(CoverageError::OutsideSupportedChunk)
+            Err(CoverageError::OutsideSupportedTile)
         );
     }
 }

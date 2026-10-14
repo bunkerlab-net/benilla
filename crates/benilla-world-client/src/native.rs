@@ -156,7 +156,20 @@ impl NativeProjection {
     }
     pub fn cancel_cast(&self, w: &n::NativeWorld) -> Result<n::OwnedInput, Error> {
         self.check(w)?;
-        Ok(self.input(w, n::Command::CancelCast))
+        let target = w
+            .state()
+            .casts
+            .values()
+            .find(|cast| matches!(cast.execution.state(), spell::CastState::Casting { .. }))
+            .map(|cast| cast.id)
+            .unwrap_or(0);
+        Ok(self.input(
+            w,
+            n::Command::CancelCast {
+                spell_id: 0,
+                target: n::CancelCastTarget::Instance(target),
+            },
+        ))
     }
     /// Destination still goes through the runtime's bound trusted navigation callback.
     pub fn move_to(
@@ -532,20 +545,6 @@ impl NativeProjection {
         }
         events.extend(self.equipment_events(w, false)?);
         events.push(self.player_values(w));
-        if let Some(input) = &record.input {
-            if let n::Command::Cast { ability, .. } = input.command {
-                let rejected = record
-                    .events
-                    .iter()
-                    .any(|e| matches!(e, n::Event::Rejected(_)));
-                events.push(SessionEvent::CastResult {
-                    spell_id: ability,
-                    success: !rejected,
-                    reason: None,
-                    arg: None,
-                });
-            }
-        }
         // AttackStop(false) already cleared melee-attacking state during death cleanup.
         // The visible target may remain until ordinary evade, which must not emit a
         // second stop in this frame or the next one.
@@ -564,6 +563,18 @@ impl NativeProjection {
                     .ok_or(Error::UnknownTarget)
             };
             match event {
+                n::Event::InputResult { sequence, accepted } => {
+                    let input = record.inputs.iter().find(|input| input.sequence == *sequence)
+                        .ok_or(Error::StaleProjection)?;
+                    if let n::Command::Cast { ability, .. } = input.command {
+                        events.push(SessionEvent::CastResult {
+                            spell_id: ability,
+                            success: *accepted,
+                            reason: None,
+                            arg: None,
+                        });
+                    }
+                }
                 n::Event::Death(benilla_sim::player_death::DeathAction::RootMovement) => events.push(root_order(self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::SendDurabilityDamageDeath) => events.push(SessionEvent::DurabilityDamageDeath),
                 n::Event::Death(benilla_sim::player_death::DeathAction::ReleaseUnavailable { .. }) => events.push(SessionEvent::Notification { text: "Spirit release is unavailable: corpse, ghost and graveyard traversal are not implemented".into() }),

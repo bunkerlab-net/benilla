@@ -340,6 +340,7 @@ pub(super) struct CombatSnapshot {
     death_killer: Option<crate::NpcId>,
 }
 impl PlayerCombatState {
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn new(g: &CombatGenesis, origin: u64) -> Result<Self, NativeError> {
         Ok(Self {
             stats: g.stats.clone(),
@@ -389,6 +390,7 @@ impl PlayerCombatState {
             death_killer: self.death_killer,
         }
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn restore(
         g: &CombatGenesis,
         s: CombatSnapshot,

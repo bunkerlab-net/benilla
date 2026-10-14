@@ -681,7 +681,7 @@ fn run_gameplay_character(
     store: &ProfileStore,
     character: &Character,
     catalog: &AvatarCatalog,
-    controller: &mut world::Controller,
+    controller: &mut dyn world::Driven,
     stop: &AtomicBool,
 ) -> Result<world::Exit> {
     let _selection = world::Selection::from_profile(store, character)?;
@@ -694,8 +694,8 @@ fn run_gameplay_character(
         bail!("selected world character does not match the open profile");
     }
     let mut display = character.clone();
-    display.position.map_id = controller.position().map;
-    display.position.position = controller.position().xyz.map(|v| v as f32 / 1000.0);
+    display.position.map_id = controller.map_id();
+    display.position.position = controller.position_xyz();
     display.position.orientation = controller.facing();
     // Validate local appearance before the first Connected event; use the saved identity,
     // then let authoritative projection provide progression, inventory and quest fields.
@@ -757,7 +757,7 @@ fn run_character(
                 store,
                 character,
                 catalog,
-                &mut controller,
+                controller.as_mut(),
                 stop,
             )?;
             bevy::log::info!("p2p: solo world saved at tick {}, generation {} ({:?}); {} pending intentions cancelled",

@@ -273,6 +273,8 @@ pub struct WmoInstance {
 /// One ADT tile: its chunk meshes, placed doodads and buildings.
 #[derive(Debug, Clone)]
 pub struct TileMesh {
+    /// Complete dry raw ADT records with fully resolved M2/WMO placement references.
+    pub native_static_coverage_safe: bool,
     /// SHA-256 of the exact source ADT bytes, not its filtered render representation.
     pub native_source_digest: [u8; 32],
     /// Strict native coverage witness before rendering drops unresolved placements/liquids.
@@ -297,6 +299,10 @@ pub(crate) fn snap_to_lattice(coord: f32) -> f32 {
     let idx = ((map_center - f64::from(coord)) / unit).round();
     (map_center - idx * unit) as f32
 }
+
+mod native_inventory;
+mod native_static;
+pub use native_inventory::{NativeM2MapInventory, NativeWmoMapModel};
 
 /// Rendering intentionally tolerates missing records. Native coverage cannot: inspect raw
 /// chunk framing and liquid offsets before any parser/filter can omit a placement or pool.
@@ -605,6 +611,8 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         .collect();
 
     Ok(TileMesh {
+        native_static_coverage_safe: native_static::complete(adt_bytes)
+            && root.mcnk_chunks.len() == 256,
         native_source_digest,
         native_coverage_safe,
         chunks,
@@ -941,13 +949,13 @@ mod tests {
 #[cfg(test)]
 mod native_coverage_tests {
     use super::*;
-    fn chunk(magic: &[u8; 4], data: &[u8]) -> Vec<u8> {
+    pub(super) fn chunk(magic: &[u8; 4], data: &[u8]) -> Vec<u8> {
         let mut b = magic.to_vec();
         b.extend_from_slice(&(data.len() as u32).to_le_bytes());
         b.extend_from_slice(data);
         b
     }
-    fn source() -> Vec<u8> {
+    pub(super) fn source() -> Vec<u8> {
         let mut b = vec![];
         for row in 0..16u32 {
             for col in 0..16u32 {
@@ -998,7 +1006,7 @@ mod native_coverage_tests {
         assert!(!native_raw_coverage_safe(&b));
     }
 
-    fn append_first_chunk(bytes: &mut Vec<u8>, record: &[u8]) -> u32 {
+    pub(super) fn append_first_chunk(bytes: &mut Vec<u8>, record: &[u8]) -> u32 {
         let size = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
         let end = 8 + size as usize;
         bytes.splice(end..end, record.iter().copied());

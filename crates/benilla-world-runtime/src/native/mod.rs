@@ -14,10 +14,13 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 3;
-pub const NATIVE_POLICY: &str = "benilla-native-integration-source-death-order-v3";
+pub const NATIVE_FORMAT_VERSION: u32 = 4;
+pub const NATIVE_POLICY: &str = "benilla-native-ordered-input-batch-v4";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
+/// Flat, source-ordered local inputs admitted before one simulation update.
+pub const MAX_INPUTS_PER_TICK: usize = 64;
+pub const MAX_INPUT_BYTES: usize = 64 * 1024;
 pub const MAX_AURAS: usize = 16;
 pub const MAX_RECORDS: usize = 2048;
 pub const MAX_RNG_WORDS_PER_TICK: u64 = 1_000_000;
@@ -39,6 +42,8 @@ pub enum NativeError {
     InvalidCheckpoint,
     Incompatible,
     TooLarge,
+    /// The current tick was not committed; checkpoint existing records before retrying it.
+    JournalFull,
     Limit,
     AuthorityBinding,
     AuthorityUnavailable(&'static str),
@@ -153,13 +158,18 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v3\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v4\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
     }
     pub fn last_tick(&self) -> Option<&TickRecord> {
         self.journal.last()
+    }
+    /// Warn before either hard journal bound. A single large next frame may still require
+    /// an explicit JournalFull checkpoint/retry; no simulation error is reclassified.
+    pub fn checkpoint_due(&self) -> bool {
+        self.journal.len() >= MAX_RECORDS / 2 || self.journal_bytes >= MAX_BYTES / 2
     }
     pub fn records(&self) -> &[TickRecord] {
         &self.journal
@@ -196,5 +206,7 @@ impl From<benilla_sim::player_death::DeathError> for NativeError {
     }
 }
 
+#[cfg(test)]
+mod batch_tests;
 #[cfg(test)]
 mod death_tests;

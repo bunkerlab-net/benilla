@@ -125,6 +125,8 @@ windows-sys = { version = "0.59", features = [
 
 # The login cycle's fake realmd runs the server half of SRP6 (`net::io::cycle_tests`).
 [dev-dependencies]
+# Private native controller component tests never grant a production capability.
+benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }
 # Source-level solo-world fixtures exercise the actual app test module as well as its harness.
 serde_json = "1"
 benilla-srp = { path = "../benilla-srp" }

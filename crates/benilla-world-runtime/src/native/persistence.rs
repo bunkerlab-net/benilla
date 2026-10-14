@@ -7,7 +7,7 @@ pub struct TickRecord {
     pub version: u32,
     pub profile: crate::Digest,
     pub tick: u64,
-    pub input: Option<Input>,
+    pub inputs: Vec<Input>,
     pub before: crate::Digest,
     pub after: crate::Digest,
     pub previous_record: crate::Digest,
@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v3\0", self)
+        crate::digest(b"benilla-native-record-v4\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,10 +135,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v3\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v4\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v3\0",
+                    b"benilla-native-checkpoint-v4\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -223,7 +223,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v3\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v4\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -233,7 +233,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v3\0",
+            b"benilla-native-checkpoint-v4\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -256,10 +256,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v3\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v4\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v3\0",
+                    b"benilla-native-checkpoint-v4\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -284,7 +284,7 @@ impl NativeWorld {
                     .and_then(|t| t.checked_add(profile.clock_origin_ms))
                     .ok_or(NativeError::InvalidCheckpoint)?
             || s.rng_counter > s.tick.saturating_mul(MAX_RNG_WORDS_PER_TICK)
-            || s.next_sequence > s.tick
+            || s.next_sequence > s.tick.saturating_mul(MAX_INPUTS_PER_TICK as u64)
             || s.health
                 > s.combat
                     .as_ref()
@@ -539,11 +539,16 @@ impl NativeWorld {
                 replies: &expected.replies,
                 index: 0,
             };
-            let input = expected.input.clone().map(|i| OwnedInput {
-                authenticated_owner: i.player.owner,
-                input: i,
-            });
-            let actual = next.step(expected.tick, input, &mut authority)?;
+            let inputs = expected
+                .inputs
+                .iter()
+                .cloned()
+                .map(|i| OwnedInput {
+                    authenticated_owner: i.player.owner,
+                    input: i,
+                })
+                .collect();
+            let actual = next.step_batch(expected.tick, inputs, &mut authority)?;
             if actual != expected || authority.index != expected.replies.len() {
                 return Err(NativeError::ReplayMismatch);
             }

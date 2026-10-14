@@ -93,7 +93,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v3\0",
+            b"benilla-native-profile-v4\0",
             &(
                 NATIVE_POLICY,
                 RNG_POLICY,
@@ -188,7 +188,7 @@ impl Profile {
                 AbilityAdmission::Unavailable { reason }
                     if reason.is_empty() || reason.len() > 512 =>
                 {
-                    return Err(NativeError::InvalidProfile)
+                    return Err(NativeError::InvalidProfile);
                 }
                 _ => {}
             }
@@ -285,9 +285,25 @@ pub struct State {
 #[serde(deny_unknown_fields)]
 pub enum Command {
     ReleaseSpirit,
-    Cast { ability: u32, target: NpcId },
-    CancelCast,
-    Move { destination: ai::Point },
+    Cast {
+        ability: u32,
+        target: NpcId,
+    },
+    CancelCast {
+        spell_id: u32,
+        target: CancelCastTarget,
+    },
+    Move {
+        destination: ai::Point,
+    },
+}
+/// An exact preparing instance, or the cast created by an earlier input in this frame.
+/// PriorInput never falls back to whichever cast happens to be active after a rejection.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum CancelCastTarget {
+    Instance(u64),
+    PriorInput(u64),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -325,6 +341,10 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    InputResult {
+        sequence: u64,
+        accepted: bool,
+    },
     Death(benilla_sim::player_death::DeathAction),
     Combat(CombatEvent),
     Rejected(Rejection),
@@ -391,7 +411,11 @@ pub enum Query {
     },
     Movement(ai::movement::MovementRequest),
     PlayerMovement {
-        origin: ai::Point,
+        /// One immutable origin and elapsed budget for the entire frame, never per packet.
+        frame_origin: ai::Point,
+        /// Previously accepted endpoints in arrival order, excluding frame_origin.
+        /// Validate every segment plus destination against the single elapsed budget.
+        accepted_path: Vec<ai::Point>,
         destination: ai::Point,
         elapsed_ms: u32,
     },
@@ -460,6 +484,8 @@ pub struct AuthorityReply {
 }
 /// Trusted local/replicated simulation adapter, never peer result-frame input. Methods must
 /// be read-only proposals: the runtime commits the full frame atomically after all checks.
+/// PlayerMovement must validate frame_origin -> accepted_path -> destination against one
+/// elapsed_ms budget and all segment/geometry rules. Repeated requests do not renew time.
 pub trait Authority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError>;
 }

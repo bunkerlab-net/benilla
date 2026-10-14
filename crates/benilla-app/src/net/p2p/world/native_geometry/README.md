@@ -1,131 +1,162 @@
 # Local native geometry boundary
 
-This is a bounded, opt-in **client-local** geometry provider, not CMaNGOS VMap/MMap
-parity and not deterministic replicated world geometry. Production native entry is
-still closed. The registered service is inert without an explicitly installed local
-session; the character browser and exploration path do not install one.
+This is a bounded, opt-in **client-local** provider. It is not CMaNGOS VMap/MMap
+parity, replicated deterministic geometry, or proof of playable native integration.
+Production session admission remains closed. The registered service is inert until
+an audited session is installed; character selection and exploration do not install it.
 
-## Non-render collision participants
+## Independent participant and source admission
 
-A session additionally requires a private-field `TerrainOnlyParticipants` proof bound
-to its exact content digest and map. The compiler must audit a complete source manifest
-of game-object/door/transport/dynamic collision spawns and every scripted/runtime
-creation path; the controller must forbid introducing any such participants while
-that session is active. Empty ADT references or empty rendered entities cannot prove
-this absence. The current content schema does not expose that complete audit, so
-**the token has no production constructor**. Only authored component tests construct
-an explicit fixture token. Missing or mismatched content/map proof rejects session
-admission and every request. This is a concrete production blocker, separate from
-the functioning positive static-terrain solver.
+A session requires a private-field `NonRenderParticipants` proof bound to its exact
+content digest and map. A compiler must audit all game-object/door/transport/dynamic
+spawns and scripted/runtime creation paths, and the controller must prevent introducing
+unsupported participants while the proof is installed. ADT/M2/WMO completeness cannot
+prove that absence. The content schema still lacks the required complete audit, so this
+proof has no production constructor. Authored tests construct a fixture only.
 
-## Positive domain
+Static-map admission now has a real read-only producer:
+`benilla_formats::NativeM2MapInventory::load(chain, directory)` scans every raw WDT-listed
+ADT, referenced WMO root/group, and M2 dependency through the user's patch chain. `NativeStaticMapIndex::from_inventory`
+builds bounded spatial buckets from exact transformed source hulls. Run both off-thread
+before admission. Install the resulting source snapshot explicitly; never run a whole
+map scan in a geometry query or silently install one for exploration. A missing tile,
+model/group/doodad, malformed reference, conflicting placement ID or unsupported source aborts the scan.
 
-The real app adapter can certify a straight movement interval only when:
+Dry static WMO placements have an immutable closure over raw root tables, every declared
+numbered group, and every MODD M2 dependency, including inactive sets. The raw WMO profile
+is version 17 with complete framed tables and geometry, valid MODS/MODR references, finite
+transforms, and no liquid source or whole-group liquid override. Missing groups, failed
+props, truncated arrays and renderer-recovered omissions cannot produce a certificate.
+Unowned MODD records, overlapping selected sets, nonzero MODF flags/unused scale, nonzero
+MODD flags, and global-WMO maps remain rejected. This removes the blanket rejection of
+maps merely containing a building; real starter-map coverage is not established.
 
-- CurrentMap, Map.dbc directory, streamer and loaded WDT agree; raw WDT framing,
-  required records and terrain-only flags are proven before filtered global-WMO state
-- The target ADT and all eight guard neighbors are loaded and furnished, with live
-  static terrain colliders, no pending collider, no model or WMO references
-- Raw source ADT records certify exactly 256 bounded 145-height chunks and no liquid,
-  placement or dangling placement-reference records, before renderer filters can omit
-  malformed/unresolved entries; unsupported MH2O liquid storage is rejected
-- All target-tile chunks have canonical, finite 145-vertex center-fan topology and
-  distinct canonical footprints; the supporting chunk is flat, dry, passable and
-  hole-free, and the whole radius-expanded XY rectangle lies strictly inside it
-- Both feet heights equal the supporting vertices exactly; slopes, steps, holes,
-  drops and chunk seams have no tolerance-based fallback
-- The supporting collider's current transformed triangle data matches the checked
-  asset, and no other collider's AABB intersects the swept body volume
-- A body-box sweep and elevated two-sided LOS ray find no obstruction after the
-  complete positive source/ground proof
+The inventory is a fixed source snapshot. Native entry must bind an immutable asset
+source epoch, invalidate the session/index on source replacement, and reverify any
+newly loaded assets against it. Digests alone do not keep a mutable installation fixed.
+That entry/lifecycle contract is not bypassed here.
 
-The topology proof covers every point in the swept rectangle, not just endpoint or
-interval samples. The source SHA-256s of the exact WDT and nine ADT byte streams, their map
-and tile coordinates and the local policy tag determine the geometry revision.
-Every processing attempt reloads those handles, proves current geometry and compares
-the computed revision to the request. An unload, map change, source replacement or
-collider replacement cannot reuse a caller-supplied revision as proof.
+## Positive geometry domain
 
-Typical real starter terrain has trees/buildings, water, slopes and chunk crossings.
-It therefore normally remains unsupported by this first domain. A positive synthetic
-ADT fixture demonstrates the mechanism; it does not demonstrate native gameplay.
-No game assets are embedded. The next extension needs successful M2/WMO collision
-provenance, source-correct masks, multi-chunk continuous surfaces and liquid coverage.
-The mailbox/MovementRequest interface is independent of those geometry providers.
+Each certified segment requires all of the following:
 
-## Ownership, limits and ordering
+- Current map, Map.dbc directory, streamer and strict raw terrain-only WDT agree
+- The supporting ADT and eight guard neighbors are loaded/furnished with live terrain
+  colliders, exact raw source hashes, and complete dry M2/WMO placement records
+- Strict raw MDDF/MMID/MMDX, MODF/MWID/MWMO and mixed MCRF records resolve every placement before tolerant
+  rendering can filter it; duplicates, dangling IDs, invalid names/transforms and
+  unknown flags reject. Local liquid sources remain unsupported
+- Each loaded M2 has a separate private-field collision certificate over its exact
+  bytes. A genuinely empty hull is distinct from a missing model, parser failure,
+  truncated arrays, partial triangles, invalid indices or nonfinite data
+- Each WMO root/group closure reproduces both renderer walking and camera triangle streams.
+  Selected MODD indices, M2 witnesses and composed transforms are checked individually;
+  a prop marked spawned after a failed asset load still fails coverage
+- Placement transforms, normalized asset paths and live hull data match the sources
+  exactly. Welds retain namespaced ADT/WMO/prop membership in append order; walking,
+  camera and individual MODD members cannot substitute for one another. Every required
+  colliding member appears exactly once, and every live scaled vertex/index is checked.
+  Pending/disabled/missing/replaced/bare colliders cannot serve as proof
+- The full-map source inventory agrees with the current raw guard. Every exterior
+  source hull whose XY bound could cross the swept corridor must appear in the actual
+  loaded guard proof. A large unloaded model outside the 3×3 guard never becomes empty
+- All target-tile chunks have canonical finite center-fan topology and distinct
+  footprints. The outward-rounded radius-expanded XY rectangle lies strictly within
+  one tile. Every cell with closed overlap must be dry, passable, hole-free and flat
+  at the exact common feet height. Both authors of a chunk seam are checked, including
+  edge/corner contact and stationary zero-radius queries. Nonflat cells and holes
+  outside that rectangle cannot intrude through their proved XY footprints. Slopes,
+  tile crossings, steps, drops and height tolerances remain unsupported
+- Every intersecting physics collider is the supporting terrain or one of the proven
+  static hulls. Exact client walking/camera layers are checked; unknown additional colliders reject
+- Because triangle meshes are hollow, an endpoint body whose AABB intersects an
+  individual source hull AABB is conservatively blocked. This may reject usable space
+  near irregular hulls, but does not bless a body enclosed by a hollow mesh. Two-sided
+  hull sweeps, body checks and elevated LOS then detect surface obstacles
 
-`LocalAuthority` belongs on the native driver thread. Its synchronous `resolve`
-uses a bounded 16-job queue, a one-result channel and a 500ms deadline; it never runs
-on the renderer thread. The main-thread `NonSend` service uses only nonblocking
-receives/sends. Expired work is discarded and counted. At most eight jobs are
-processed per rendered `FrameCount`, even across multiple fixed ticks, with a 2ms
-soft service budget checked between jobs. One job is bounded to nine tile metadata
-checks, one complete 256-chunk proof/collider comparison and fixed collision queries.
-It can exceed the soft budget; no exact frame-time performance is claimed.
+The raw WDT, nine ADTs, full-map inventory digest, sorted loaded placement/model
+identities, map/tile coordinates and versioned local policy determine the geometry
+revision. The flat-cell/seam and conservative LOS policy domain is version 6, independent
+of native request contract v4 and any snapshot schema version. Source, transform or
+collider replacement cannot reuse an old revision as proof.
+The local masks are deliberately conservative. Body sweeps use the client walking filter;
+elevated LOS uses the union of walking and camera faces so camera-only DETAIL faces cannot
+disappear between clear endpoints. These are not server VMap/MOD_M2/ignoreM2 or near-point parity.
 
-The system runs in `FixedPostUpdate` after `PhysicsSystems::Last` and `TransformSystems::Propagate`, following the
-actual default Avian schedule: collider tree updates, simulation and writeback
-finish before the query. `Update` terrain streaming runs later; newly attached or
-removed terrain is examined in the next fixed-step snapshot. An ordering regression
-is included for the app CI; full Bevy compile/runtime checks require that CI.
+## Player path and request transport
 
-The full original AuthorityRequest and a monotonic mailbox ticket are echoed and
-checked, including world, tick, profile, policy, NPC generation, movement IDs, map,
-content and geometry revisions. Both service and driver run the existing simulation
-movement validator on a result. Only already-source-resolved `Query::Movement` is
-supported; NPC/spell/melee/player authority facts return explicit unavailable errors.
-The solver uses local FPU geometry and rejects anything the software-binary32
-simulation budget validator cannot certify. Known obstacles produce bound Blocked
-outcomes; missing/unsupported geometry is never an unreachable-path success.
+`PlayerMotion` carries a trusted source-resolved body and maximum speed for this
+bounded movement state. It does not infer speed from a packet, combat reach or a
+renderer avatar. Mount/swim/flight, jump/fall, movement auras and transports require
+separate support and remain outside this policy.
 
-A timeout/channel failure commits nothing because NativeWorld stages the complete
-frame. The future controller must retain the exact tick/input for an explicit retry
-or pause, and drop/replace the service on logout. It must not acknowledge or checkpoint
-an uncommitted tick. No queue result is accepted from a peer or serialized as an
-unverified geometry assertion. Session profile/content/body fields require a trusted
-compiler; their digests alone are not asset authenticity or source-mechanics proof.
+`Query::PlayerMovement` is served against the v4 contract: immutable `frame_origin`,
+previously accepted endpoints in arrival order, the candidate destination and one
+`elapsed_ms` for the whole frame. Every hop spends distance, including backtracking
+and returning to the origin. Request count does not renew time. Every segment,
+including a stationary one, receives fresh coverage/body checks. Known obstacles or
+an exceeded budget return `accepted: false`; unknown geometry fails unavailable.
 
-## Pinned source and remaining inputs
+Local distance bounds are rounded outward, cumulative addition cannot lose tiny hops,
+and the budget division is corrected downward when its fused residual shows upward
+rounding. The driver independently rechecks the same budget on accepted replies.
+This is a conservative local movement policy, not CMaNGOS client anti-cheat parity.
 
-Reviewed CMaNGOS Classic commit
-[8ec338a1704e7dcb1c0213eb7ed58f9231ade40f](https://github.com/cmangos/mangos-classic/tree/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f).
-The local copies were checked against the existing simulation provenance SHA-256s:
-Object.cpp `41090452…`, Unit.cpp `03b67a4b…`, TargetedMovementGenerator.cpp
-`eaa569e5…`, HomeMovementGenerator.cpp `d225dd76…`, PathFinder.cpp `0fc26842…`.
+The off-thread `LocalAuthority` uses a bounded 16-job queue and a 500ms absolute
+request deadline. The main-thread NonSend service never blocks; at most eight jobs
+run per rendered frame, with a 2ms soft limit checked between jobs. Each player job
+contains at most 64 segments. Structural limits are checked before request cloning
+or enqueueing. One corridor caps loaded hull members at 4,096 and aggregate hull
+vertices/triangles at 262,144 before transformed allocation. The full-map loader caps
+unique model geometry and aggregate placement-transform work; spatial bucket storage
+is capped separately. These are work/memory limits, not a measured frame-time claim.
 
-- `WorldObject::IsWithinLOSInMap` / `IsWithinLOS` raise source and destination by
-  each object's collision height, then call map LOS. Benilla body/camera face masks
-  are client masks, not proven server VMap masks. In this placement-free flat subset
-  only the positive-height terrain segment applies; broader LOS remains unsupported
-- `Unit::GetCollisionHeight` uses object scale × CreatureModelData.CollisionHeight,
-  with the source zero-height fallback. Combat reach or bounding radius is not that
-  height. The current native profile lacks this source-resolved field
-- `GetNearPointAt` uses source target distance/angle, coordinate normalization,
-  allowed-height adjustment, position-collision configuration and alternate-angle
-  LOS selection. Chase dynamic target distance uses reaches, offsets and source
-  factors. This adapter never replaces it with a player-center goal
-- Chase dispatch's optional straight path requires distance <200, height difference
-  <5, source LOS and dry endpoints before source path normalization. Missing mmaps
-  can produce a source shortcut; that is not permission for unchecked client geometry
-- Source wounded slowdown below 30% health (unless excluded) and spline state are
-  not in MovementRequest. The runtime/compiler must provide or reject those states
-  before this adapter can establish native speed semantics
+Queries run after Avian's default FixedPostUpdate physics/tree update and transform
+propagation. Each full request and monotonically increasing ticket are echoed and
+checked. NPC generation, movement IDs, map/content/geometry bindings are retained.
+NPC, spell, melee and near-point fact queries remain unavailable. Timeout or failure
+commits nothing; the controller must retain the exact tick/input for retry or pause.
 
-Missing compiler/runtime inputs are therefore source collision height/width/scale,
-source near-point target distance/angle/configuration and target collision height,
-current wounded-speed eligibility/multiplier, and an audited geometry snapshot
-revision. No NativeCapability or production-enable bypass is created here.
+## Private generated-product prerequisite
+
+`products::InventoriedProducts` reads a bounded exact declared terrain/VMap/MMap file set
+from private staging into immutable owned bytes. It validates canonical identities,
+versions/ABI declarations, lengths, hashes, framing and direct VMap model-name edges.
+Its pinned dry `GridMap` point-height reader has 6,272 source-oracle vectors. Caller
+provenance declarations, opaque VMap/Detour internals and expected tile coverage do not
+become audited proofs. No native core is loaded and no geometry query consumes this set.
+[The exact boundary, source and oracle](products/PROVENANCE.md) describe the remaining
+native loading step. Terrain interpolation does not enable slopes or production entry.
+
+## Next local extraction and navigation step
+
+[The private exporter/consumer contract](LOCAL-EXTRACTION.md) specifies the pinned
+CMaNGOS toolchain, real extractor command names/options, raw-member and output inventory,
+patch-chain agreement, VMap/MMap/Detour ABI/configuration, non-render participant audit,
+source-epoch lifecycle and fail-closed path consumption. It uses only the user's local
+read-only Data and private output; no game assets or generated maps enter the repository.
+
+Full navigation remains distinct: collision height/scale, source near-point target
+selection, wounded speed/spline state, liquids, dynamic state and server masks must be
+ported or supplied before their capability can be admitted. `PathFinder::calculate`
+returning true or a successful generator exit is insufficient evidence.
 
 ## Verification
 
-`cargo test -p benilla-native-geometry-tests` includes the actual app mailbox/solver
-source and actual pure terrain proof source without Bevy. Tests cover positive planar
-movement, exact arrival, software budget validation, unknown/obstructed geometry,
-request/result binding, backpressure, expiry/disconnect and per-render-frame budgets.
-`cargo test -p benilla-formats --lib native_coverage` exercises complete authored raw ADTs,
-actual parsing, raw source identity and filtered-placement/liquid failures.
-`cargo test -p benilla-wdt --lib` covers complete raw map records, incomplete or
-filtered global-WMO declarations, malformed framing and WDT source replacement.
-The app ordering test and live loaded-tile resource path still require full app CI;
-no user-local install or native play session has been tested here.
+`benilla-native-geometry-tests` includes the actual app mailbox/player/NPC solver and
+actual pure terrain/static-mesh/exterior-index proofs without Bevy. It covers cumulative
+path overspend, reversal, all-segment checks, rounding, exact binding, queue lifecycle,
+corrupt/incomplete hulls, large exterior intruders and displaced f32 tile boundaries.
+`benilla-formats` authored fixtures cover strict raw ADT/M2/WMO parsing, mixed placement references, complete root/group/doodad
+closure, explicit empty versus failed hulls, missing/changed dependencies and complete-map
+source inventory. No original game assets are embedded.
+
+The cell proof exercises both seam axes and four-way corners, mismatched seam heights,
+hidden interior hills/dips, radius-only contacts, untouched holes, and an exhaustive
+256-fan perturbation oracle around a four-chunk corner. Authored ADT bytes feed the
+actual player solver across a chunk seam. These are whole-area checks, not point-height
+sampling; genuine sloped movement is still rejected.
+
+Full Bevy type/runtime checks, real installed Data, Windows behavior and live native play
+remain separate validation gates. Headless parser/collider fixtures do not establish a
+working native starter scene.

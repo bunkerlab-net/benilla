@@ -127,6 +127,16 @@ impl WorldCollision<'_, '_> {
         ))
     }
 
+    /// Conservative native static LOS: retain walking faces and include camera-only DETAIL
+    /// faces. This local union is deliberately stricter than either client audience alone.
+    pub fn conservative_los_filter() -> SpatialQueryFilter {
+        SpatialQueryFilter::from_mask(LayerMask(
+            CollisionLayer::Default.to_bits()
+                | CollisionLayer::Walk.to_bits()
+                | CollisionLayer::Camera.to_bits(),
+        ))
+    }
+
     /// What the camera collides with: the default layer and the WMO camera/LOS colliders, so it
     /// hits DETAIL faces the body passes and passes NOCAMCOLLIDE faces the body stands on. The
     /// solid world only: the waterline rides [`waterline_ray`](Self::waterline_ray).
@@ -297,6 +307,87 @@ impl WorldCollision<'_, '_> {
     /// Every front-facing triangle in a box around `at`: the step probe's face gather.
     pub fn faces_near_body(&self, at: Vec3, half: Vec3, limit: usize) -> Vec<one_sided::FaceProbe> {
         one_sided::faces_near(&self.ms, at, half, &Self::body_filter(), limit)
+    }
+}
+
+#[cfg(test)]
+mod native_los_mask {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::*;
+
+    fn world_with_wall(layers: CollisionLayers) -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::transform::TransformPlugin,
+            bevy::asset::AssetPlugin::default(),
+            bevy::scene::ScenePlugin,
+            PhysicsPlugins::new(bevy::app::PostUpdate),
+        ));
+        app.init_asset::<Mesh>();
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::trimesh(
+                vec![
+                    Vec3::new(0.0, 1.0, -1.0),
+                    Vec3::new(0.0, 3.0, -1.0),
+                    Vec3::new(0.0, 3.0, 1.0),
+                    Vec3::new(0.0, 1.0, 1.0),
+                ],
+                vec![[0u32, 1, 2], [0, 2, 3]],
+            ),
+            layers,
+            Transform::default(),
+        ));
+        app.finish();
+        app.cleanup();
+        app.update();
+        app.update();
+        app
+    }
+
+    fn ray_distance(app: &mut App, filter: SpatialQueryFilter) -> Option<f32> {
+        app.world_mut()
+            .run_system_once(move |spatial: SpatialQuery| {
+                spatial
+                    .cast_ray(Vec3::new(-2.0, 2.0, 0.0), Dir3::X, 4.0, true, &filter)
+                    .map(|hit| hit.distance)
+            })
+            .expect("LOS system runs")
+    }
+
+    #[test]
+    fn native_los_catches_camera_only_faces_between_clear_endpoints() {
+        // A WMO DETAIL face is excluded from the walk bake and retained in the camera bake.
+        // Both radius-0.5 endpoint bodies (x=-2 and x=2) miss this wall's x=0 source AABB,
+        // so endpoint containment checks cannot substitute for the elevated segment ray.
+        let mut app = world_with_wall(camera_layers());
+        assert_eq!(ray_distance(&mut app, WorldCollision::body_filter()), None);
+        assert_eq!(
+            ray_distance(&mut app, WorldCollision::conservative_los_filter()),
+            Some(2.0)
+        );
+    }
+
+    #[test]
+    fn native_los_keeps_default_and_walk_faces_without_adding_liquids() {
+        for layers in [CollisionLayers::DEFAULT, walk_layers()] {
+            assert_eq!(
+                ray_distance(
+                    &mut world_with_wall(layers),
+                    WorldCollision::conservative_los_filter()
+                ),
+                Some(2.0)
+            );
+        }
+        assert_eq!(
+            ray_distance(
+                &mut world_with_wall(liquid_layers()),
+                WorldCollision::conservative_los_filter()
+            ),
+            None
+        );
     }
 }
 

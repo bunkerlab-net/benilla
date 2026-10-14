@@ -15,28 +15,72 @@ impl NativeWorld {
         input: Option<OwnedInput>,
         authority: &mut impl Authority,
     ) -> Result<&TickRecord, NativeError> {
+        self.step_batch(tick, input.into_iter().collect(), authority)
+    }
+    /// All inputs validate and commit atomically. Authority callbacks are read-only proposals.
+    /// Empty batches advance one update without consuming an input sequence.
+    pub fn step_batch(
+        &mut self,
+        tick: u64,
+        inputs: Vec<OwnedInput>,
+        authority: &mut impl Authority,
+    ) -> Result<&TickRecord, NativeError> {
         if tick != self.state.tick.checked_add(1).ok_or(NativeError::Limit)?
             || tick > crate::MAX_TICK
         {
             return Err(NativeError::InvalidInput);
         }
         if self.journal.len() >= MAX_RECORDS {
-            return Err(NativeError::Limit);
+            return Err(NativeError::JournalFull);
         }
-        let input = input
-            .map(|owned| {
-                let i = owned.input;
-                if owned.authenticated_owner != self.state.player.owner
-                    || i.player != self.state.player
-                    || i.world != self.state.world
-                    || i.tick != tick
-                    || i.sequence != self.state.next_sequence
-                {
+        if inputs.len() > MAX_INPUTS_PER_TICK {
+            return Err(NativeError::TooLarge);
+        }
+        let mut sequence = self.state.next_sequence;
+        let mut cast_inputs = BTreeMap::new();
+        for owned in &inputs {
+            let i = &owned.input;
+            if owned.authenticated_owner != self.state.player.owner
+                || i.player != self.state.player
+                || i.world != self.state.world
+                || i.tick != tick
+                || i.sequence != sequence
+            {
+                return Err(NativeError::InvalidInput);
+            }
+            if let Command::CancelCast {
+                target: CancelCastTarget::PriorInput(prior),
+                ..
+            } = &i.command
+            {
+                if !cast_inputs.contains_key(prior) {
                     return Err(NativeError::InvalidInput);
                 }
-                Ok(i)
-            })
-            .transpose()?;
+            }
+            if let Command::CancelCast {
+                target: CancelCastTarget::Instance(id),
+                ..
+            } = &i.command
+            {
+                // A session-captured instance cannot name a future cast. New casts in this
+                // frame must use their preceding input reference, including rejected prepares.
+                if *id >= self.state.next_cast_id {
+                    return Err(NativeError::InvalidInput);
+                }
+            }
+            if matches!(i.command, Command::Cast { .. }) {
+                cast_inputs.insert(sequence, ());
+            }
+            sequence = sequence.checked_add(1).ok_or(NativeError::Limit)?;
+        }
+        let inputs: Vec<_> = inputs.into_iter().map(|owned| owned.input).collect();
+        if serde_json::to_vec(&inputs)
+            .map_err(|_| NativeError::InvalidInput)?
+            .len()
+            > MAX_INPUT_BYTES
+        {
+            return Err(NativeError::TooLarge);
+        }
         let before = self.state_digest();
         let mut next = self.state.clone();
         next.tick = tick;
@@ -54,9 +98,28 @@ impl NativeWorld {
             draws: vec![],
             receipts: BTreeMap::new(),
             moved: false,
+            cast_inputs: BTreeMap::new(),
+            movement_origin: self.state.position,
+            movement_path: Vec::new(),
         };
-        if let Some(i) = &input {
+        for i in &inputs {
+            let event_start = frame.events.len();
+            let next_cast = frame.state.next_cast_id;
             frame.command(&i.command)?;
+            if matches!(i.command, Command::Cast { .. }) {
+                let created = (frame.state.next_cast_id != next_cast).then_some(next_cast);
+                frame.cast_inputs.insert(i.sequence, created);
+            }
+            let accepted = !frame.events[event_start..]
+                .iter()
+                .any(|e| matches!(e, Event::Rejected(_)));
+            frame.events.insert(
+                event_start,
+                Event::InputResult {
+                    sequence: i.sequence,
+                    accepted,
+                },
+            );
             frame.state.next_sequence = frame
                 .state
                 .next_sequence
@@ -82,12 +145,12 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v3\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v4\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
             tick,
-            input,
+            inputs,
             before,
             after,
             previous_record: self.journal_tip,
@@ -98,13 +161,7 @@ impl NativeWorld {
         let size = serde_json::to_vec(&record)
             .map_err(|_| NativeError::InvalidState)?
             .len();
-        let bytes = self
-            .journal_bytes
-            .checked_add(size + usize::from(!self.journal.is_empty()))
-            .ok_or(NativeError::TooLarge)?;
-        if bytes > MAX_BYTES {
-            return Err(NativeError::TooLarge);
-        }
+        let bytes = journal_size(size, self.journal_bytes, !self.journal.is_empty())?;
         let tip = record.digest();
         self.make_checkpoint(&next, tip)?;
         self.state = next;
@@ -114,6 +171,23 @@ impl NativeWorld {
         Ok(self.journal.last().unwrap())
     }
 }
+fn journal_size(record: usize, journal: usize, nonempty: bool) -> Result<usize, NativeError> {
+    if record.checked_add(2).ok_or(NativeError::TooLarge)? > MAX_BYTES {
+        return Err(NativeError::TooLarge);
+    }
+    let bytes = journal
+        .checked_add(record + usize::from(nonempty))
+        .ok_or(NativeError::TooLarge)?;
+    if bytes > MAX_BYTES {
+        return Err(if nonempty {
+            NativeError::JournalFull
+        } else {
+            NativeError::TooLarge
+        });
+    }
+    Ok(bytes)
+}
+
 struct Frame<'a, A> {
     profile: &'a Profile,
     profile_digest: crate::Digest,
@@ -124,6 +198,9 @@ struct Frame<'a, A> {
     draws: Vec<Draw>,
     receipts: BTreeMap<u64, Vec<ai::Receipt>>,
     moved: bool,
+    cast_inputs: BTreeMap<u64, Option<u64>>,
+    movement_origin: ai::Point,
+    movement_path: Vec<ai::Point>,
 }
 impl<A: Authority> Frame<'_, A> {
     fn ask(&mut self, npc: Option<NpcId>, query: Query) -> Result<Facts, NativeError> {
@@ -337,13 +414,19 @@ impl<A: Authority> Frame<'_, A> {
                     failed.map(Rejection::CastFailed)
                 }
             }
-            Command::CancelCast => {
-                let current = self
-                    .state
-                    .casts
-                    .iter()
-                    .find(|(_, c)| matches!(c.execution.state(), spell::CastState::Casting { .. }))
-                    .map(|(id, _)| *id);
+            Command::CancelCast { spell_id, target } => {
+                let id = match target {
+                    CancelCastTarget::Instance(id) => Some(*id),
+                    CancelCastTarget::PriorInput(sequence) => {
+                        self.cast_inputs.get(sequence).copied().flatten()
+                    }
+                };
+                let current = id.filter(|id| {
+                    self.state.casts.get(id).is_some_and(|c| {
+                        (*spell_id == 0 || c.ability == *spell_id)
+                            && matches!(c.execution.state(), spell::CastState::Casting { .. })
+                    })
+                });
                 if let Some(id) = current {
                     let mut c = self.state.casts.remove(&id).unwrap();
                     let events = c.execution.cancel(
@@ -351,10 +434,8 @@ impl<A: Authority> Frame<'_, A> {
                         spell::CastFailure::Interrupted,
                     );
                     self.spell_events(id, c.ability, c.target, events)?;
-                    None
-                } else {
-                    Some(Rejection::NoCast)
                 }
+                None
             }
             Command::Move { destination } => {
                 destination.distance_squared(*destination)?;
@@ -364,7 +445,8 @@ impl<A: Authority> Frame<'_, A> {
                     let Facts::PlayerMovement { accepted } = self.ask(
                         None,
                         Query::PlayerMovement {
-                            origin: self.state.position,
+                            frame_origin: self.movement_origin,
+                            accepted_path: self.movement_path.clone(),
                             destination: *destination,
                             elapsed_ms: self.profile.tick_ms,
                         },
@@ -373,7 +455,8 @@ impl<A: Authority> Frame<'_, A> {
                         return Err(NativeError::AuthorityBinding);
                     };
                     if accepted {
-                        self.moved = *destination != self.state.position;
+                        self.moved |= *destination != self.state.position;
+                        self.movement_path.push(*destination);
                         self.state.position = *destination;
                         self.events.push(Event::PlayerMoved(*destination));
                         None
@@ -900,7 +983,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v3\0",
+            b"benilla-native-melee-action-v4\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1136,7 +1219,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v3\0",
+            b"benilla-native-melee-chain-v4\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events
@@ -1233,5 +1316,26 @@ impl ai::CombatAuthority for ObservationAdapter {
         self.0
             .take()
             .ok_or(ai::AiError::Invalid("duplicate observation"))
+    }
+}
+
+#[cfg(test)]
+mod journal_tests {
+    use super::*;
+    #[test]
+    fn single_frame_size_failure_is_never_reclassified_as_journal_capacity() {
+        assert_eq!(
+            journal_size(MAX_BYTES - 1, 2, false),
+            Err(NativeError::TooLarge)
+        );
+        assert_eq!(
+            journal_size(MAX_BYTES - 1, 1000, true),
+            Err(NativeError::TooLarge)
+        );
+        assert_eq!(
+            journal_size(100, MAX_BYTES - 50, true),
+            Err(NativeError::JournalFull)
+        );
+        assert_eq!(journal_size(MAX_BYTES - 2, 2, false), Ok(MAX_BYTES));
     }
 }

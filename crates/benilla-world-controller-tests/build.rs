@@ -2,8 +2,8 @@ use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 // Extract real input variant declarations, including all their fields. This is not a manually
 // re-created command enum: changing a used app variant breaks this harness at the same seam.
-fn enum_body(source: &str, name: &str) -> String {
-    let tail = &source[source.find(&format!("enum {name} {{")).expect("app enum")..];
+fn block_body(source: &str, declaration: &str) -> String {
+    let tail = &source[source.find(declaration).expect("app declaration")..];
     let start = tail.find('{').unwrap() + 1;
     let mut depth = 1;
     for (i, ch) in tail[start..].char_indices() {
@@ -19,8 +19,19 @@ fn enum_body(source: &str, name: &str) -> String {
     }
     panic!("unterminated enum")
 }
+fn enum_body(source: &str, name: &str) -> String {
+    block_body(source, &format!("enum {name} {{"))
+}
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let flags = root.join("crates/benilla-app/src/creature_anim/select.rs");
+    println!("cargo:rerun-if-changed={}", flags.display());
+    let flags = fs::read_to_string(flags).unwrap();
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR").unwrap()).join("move_flags.rs"),
+        block_body(&flags, "mod move_flags {"),
+    )
+    .unwrap();
     let app = root.join("crates/benilla-app/src/net.rs");
     println!("cargo:rerun-if-changed={}", app.display());
     let source = fs::read_to_string(app).unwrap();
@@ -32,6 +43,8 @@ fn main() {
         .join("\n");
     let wanted: BTreeSet<_> = [
         "Move",
+        "MoveModeAck",
+        "CancelCast",
         "CastSpell",
         "AttackSwing",
         "AttackStop",

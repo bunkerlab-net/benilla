@@ -6,15 +6,17 @@
     reason = "native production session admission remains closed"
 )]
 mod core;
+mod products;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
 use self::core::{Corridor, Mailbox};
-use avian3d::prelude::{Collider, ColliderAabb, PhysicsSystems, SpatialQuery};
+use avian3d::prelude::{Collider, ColliderAabb, PhysicsSystems, ShapeCastConfig, SpatialQuery};
 use benilla_assets::coords::wow_to_bevy;
 use benilla_world::{
     collision::WorldCollision,
     schedule::WorldLive,
     terrain_stream::{CoverageError, NativeTerrainCoverage},
 };
+use benilla_world_runtime::native::{Facts, Query};
 use bevy::{diagnostic::FrameCount, prelude::*, transform::TransformSystems};
 
 /// Installed as a NonSend resource only by future audited native entry. Replacing/dropping
@@ -73,19 +75,29 @@ fn process(
     if allowance == 0 {
         return;
     }
-    let used = service.mailbox.serve(allowance, |request, body| {
-        if !live.0 {
-            return Err(Failure::MissingGeometry);
-        }
-        let mut corridor = LocalCorridor {
-            terrain: &terrain,
-            collision: &collision,
-            spatial: &spatial,
-            map: request.map_id,
-            revision: request.geometry_revision.0,
-        };
-        core::solve(request, body, &mut corridor)
-    });
+    let used = service
+        .mailbox
+        .serve_queries(allowance, |session, request, body| {
+            if !live.0 {
+                return Err(Failure::MissingGeometry);
+            }
+            let mut corridor = LocalCorridor {
+                terrain: &terrain,
+                collision: &collision,
+                spatial: &spatial,
+                map: session.map,
+                revision: session.geometry,
+            };
+            match &request.query {
+                Query::Movement(m) => core::solve(m, body, &mut corridor).map(Facts::Movement),
+                Query::PlayerMovement { .. } => core::solve_player(
+                    &request.query,
+                    session.player.ok_or(Failure::UnresolvedBody)?,
+                    &mut corridor,
+                ),
+                _ => Err(Failure::UnsupportedQuery),
+            }
+        });
     service.budget.spend(used);
 }
 
@@ -104,30 +116,35 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
             .terrain
             .prove(self.map, from, to, body.radius.as_f32())
             .map_err(coverage_failure)?;
-        if core::geometry_revision(proof.map, proof.wdt_source_digest, &proof.tiles)
-            != self.revision
+        if core::geometry_revision(
+            proof.map,
+            proof.wdt_source_digest,
+            &proof.tiles,
+            &proof.models,
+            proof.inventory_digest,
+        ) != self.revision
         {
             return Err(Failure::Binding);
         }
         let feet = wow_to_bevy(from);
         let movement = wow_to_bevy(to) - feet;
         let height = body.height.as_f32();
-        // Additional colliders have no source/provenance support in this initial subset.
-        // A stationary overlap also rejects: a zero-length body cast must not bless it.
+        // Every intersecting collider must be the supporting terrain or an exact source-bound
+        // hull. Uncatalogued dynamic/unsupported geometry is never interpreted as clear space.
         let end = wow_to_bevy(to);
         let radius3 = Vec3::new(body.radius.as_f32(), 0.0, body.radius.as_f32());
         let bounds = ColliderAabb {
             min: feet.min(end) - radius3,
             max: feet.max(end) + radius3 + Vec3::Y * height,
         };
-        let (mut found_root, mut only_terrain) = (false, true);
+        let (mut found_root, mut only_proven) = (false, true);
         self.spatial
             .aabb_intersections_with_aabb_callback(bounds, |id| {
                 found_root |= id == proof.terrain_root;
-                only_terrain &= id == proof.terrain_root;
-                only_terrain
+                only_proven &= id == proof.terrain_root || proof.static_roots.contains(&id);
+                only_proven
             });
-        if !only_terrain {
+        if !only_proven {
             return Err(Failure::UnsupportedNavigation);
         }
         if !found_root {
@@ -136,6 +153,56 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
         let radius = body.radius.as_f32();
         // Strict enclosing box, not a claim that native creatures use the client mover's shape.
         let shape = Collider::cuboid(radius * 2.0, height, radius * 2.0);
+        // Supporting flat terrain is already proved continuously. Exclude only that root
+        // from two-sided static hull checks so floor contact is not mistaken for an obstacle.
+        // Trimeshes are hollow: conservatively reject an endpoint body whose AABB intersects
+        // any individual source hull AABB, rather than declaring an enclosed body unblocked.
+        for endpoint in [feet, end] {
+            let min = endpoint - radius3;
+            let max = endpoint + radius3 + Vec3::Y * height;
+            if proof
+                .static_bounds
+                .iter()
+                .any(|(a, b)| min.cmple(*b).all() && max.cmpge(*a).all())
+            {
+                return Err(Failure::Obstacle);
+            }
+        }
+        let hull_filter =
+            WorldCollision::body_filter().with_excluded_entities([proof.terrain_root]);
+        let center = feet + Vec3::Y * (height * 0.5);
+        for at in [center, end + Vec3::Y * (height * 0.5)] {
+            let mut intersects = false;
+            self.spatial.shape_intersections_callback(
+                &shape,
+                at,
+                Quat::IDENTITY,
+                &hull_filter,
+                |_| {
+                    intersects = true;
+                    false
+                },
+            );
+            if intersects {
+                return Err(Failure::Obstacle);
+            }
+        }
+        if let Ok(direction) = Dir3::new(movement) {
+            if self
+                .spatial
+                .cast_shape(
+                    &shape,
+                    center,
+                    Quat::IDENTITY,
+                    direction,
+                    &ShapeCastConfig::from_max_distance(movement.length()),
+                    &hull_filter,
+                )
+                .is_some()
+            {
+                return Err(Failure::Obstacle);
+            }
+        }
         if self
             .collision
             .cast_body(&shape, feet + Vec3::Y * (height * 0.5), movement, 0.0)
@@ -145,8 +212,8 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
         }
         if let Ok(dir) = Dir3::new(movement) {
             // Pinned WorldObject::IsWithinLOS raises origin/target by collision height. The
-            // flat placement-free subset makes M2/WMO source mask differences inapplicable.
-            // This body-layer two-sided ray remains a local restriction, not server LOS parity.
+            // local static domain unions walking and camera faces, including camera-only
+            // WMO DETAIL faces. This is not server MOD_M2/ignoreM2 or WMO face-mask parity.
             if self
                 .spatial
                 .cast_ray(
@@ -154,7 +221,7 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
                     dir,
                     movement.length(),
                     true,
-                    &WorldCollision::body_filter(),
+                    &WorldCollision::conservative_los_filter(),
                 )
                 .is_some()
             {
@@ -172,7 +239,7 @@ fn coverage_failure(error: CoverageError) -> Failure {
         CoverageError::UnsupportedMap
         | CoverageError::UnsupportedSource
         | CoverageError::UnsupportedPlacements => Failure::UnsupportedNavigation,
-        CoverageError::UnsupportedTerrain | CoverageError::OutsideSupportedChunk => {
+        CoverageError::UnsupportedTerrain | CoverageError::OutsideSupportedTile => {
             Failure::UnsupportedGround
         }
         CoverageError::UnloadedMap

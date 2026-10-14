@@ -10,7 +10,7 @@ type Prepare = Box<
             &ProfileStore,
             &Character,
             benilla_config::Ruleset,
-        ) -> Result<Controller, Error>
+        ) -> Result<Box<dyn Driven>, Error>
         + Send,
 >;
 pub(crate) struct Request {
@@ -33,8 +33,12 @@ impl Request {
     ) -> (Self, Sender<Control>) {
         let (sender, controls) = crossbeam_channel::bounded(1);
         let prepare = Box::new(
-            move |root: &Path, profile: &ProfileStore, character: &Character, rates| {
-                Controller::enter(
+            move |root: &Path,
+                  profile: &ProfileStore,
+                  character: &Character,
+                  rates|
+                  -> Result<Box<dyn Driven>, Error> {
+                Ok(Box::new(Controller::enter(
                     root,
                     profile,
                     character,
@@ -42,9 +46,24 @@ impl Request {
                     data,
                     apply_rates(rules, rates)?,
                     &catalog,
-                )
+                )?))
             },
         );
+        (Self { prepare, controls }, sender)
+    }
+    /// No production caller can construct NativeCapability. Preparation reports and
+    /// synthetic worlds cannot enter this route, even with synthetic test features enabled.
+    #[expect(dead_code, reason = "Native compiler admission remains uninhabited")]
+    pub(crate) fn native(
+        entry: Entry,
+        capability: runtime::native::NativeCapability,
+    ) -> (Self, Sender<Control>) {
+        let (sender, controls) = crossbeam_channel::bounded(1);
+        let prepare: Prepare = Box::new(move |root, profile, character, _rates| {
+            Ok(Box::new(native_controller::NativeController::enter(
+                root, profile, character, entry, capability,
+            )?))
+        });
         (Self { prepare, controls }, sender)
     }
     pub(crate) fn enter(
@@ -53,7 +72,7 @@ impl Request {
         profile: &ProfileStore,
         character: &Character,
         rates: benilla_config::Ruleset,
-    ) -> Result<(Controller, Receiver<Control>), Error> {
+    ) -> Result<(Box<dyn Driven>, Receiver<Control>), Error> {
         Ok((
             (self.prepare)(root, profile, character, rates)?,
             self.controls,

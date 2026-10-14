@@ -4,6 +4,11 @@ mod core;
 #[allow(dead_code)] // Engine-only CoverageError variants are public in the world crate.
 #[path = "../../benilla-world/src/terrain_stream/native_coverage/planar.rs"]
 mod planar;
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/products/mod.rs"]
+mod products;
+
+#[path = "../../benilla-world/src/terrain_stream/native_coverage/static_mesh.rs"]
+mod static_mesh;
 
 #[test]
 fn parsed_authored_adt_drives_actual_movement_solver() {
@@ -68,9 +73,38 @@ fn parsed_authored_adt_drives_actual_movement_solver() {
         core::solve(&request, body, &mut terrain).unwrap().result,
         MovementResult::Progress { arrived: false, .. }
     ));
+    // Unrelated nonplanar terrain in this same chunk cannot enter the proved footprint.
     terrain.0.chunks[0].positions[9][2] += 0.01;
+    assert!(matches!(
+        core::solve(&request, body, &mut terrain).unwrap().result,
+        MovementResult::Progress { .. }
+    ));
+    terrain.0.chunks[0].positions[2 * 17 + 9 + 2][2] += 0.01;
     assert_eq!(
         core::solve(&request, body, &mut terrain),
+        Err(core::Failure::MissingGeometry)
+    );
+
+    // The real parsed source and actual player solver cross an internal chunk seam.
+    let origin = ai::Point::new(-32.0, -10.0, 5.0).unwrap();
+    let destination = ai::Point::new(-35.0, -10.0, 5.0).unwrap();
+    let query = benilla_world_runtime::native::Query::PlayerMovement {
+        frame_origin: origin,
+        accepted_path: vec![],
+        destination,
+        elapsed_ms: 500,
+    };
+    let player = core::PlayerMotion {
+        body,
+        speed: ai::Real::new(7.0).unwrap(),
+    };
+    assert_eq!(
+        core::solve_player(&query, player, &mut terrain),
+        Ok(benilla_world_runtime::native::Facts::PlayerMovement { accepted: true })
+    );
+    terrain.0.chunks[16].positions[2][2] += 0.01;
+    assert_eq!(
+        core::solve_player(&query, player, &mut terrain),
         Err(core::Failure::MissingGeometry)
     );
 }

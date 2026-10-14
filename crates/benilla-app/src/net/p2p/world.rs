@@ -22,7 +22,9 @@ mod commands;
 mod driver;
 #[path = "world/entry.rs"]
 mod entry;
-pub(super) use driver::{run, Control, Exit};
+#[path = "world/native_controller.rs"]
+mod native_controller;
+pub(super) use driver::{run, Control, Driven, Exit};
 pub(super) use entry::{dispatch, Request};
 
 const CHECKPOINT_PERIOD: Duration = Duration::from_secs(10);
@@ -47,6 +49,9 @@ pub(crate) enum Error {
     Profile(benilla_profile::Error),
     Client(benilla_world_client::Error),
     Runtime(runtime::Error),
+    NativeRuntime(runtime::native::NativeError),
+    NativeStore(benilla_world_store::native::Error),
+    InvalidMovementAck,
     Store(benilla_world_store::Error),
     Io(std::io::Error),
 }
@@ -56,6 +61,8 @@ impl fmt::Display for Error {
             Self::Profile(e) => e.fmt(f),
             Self::Client(e) => e.fmt(f),
             Self::Runtime(e) => e.fmt(f),
+            Self::NativeRuntime(e) => e.fmt(f),
+            Self::NativeStore(e) => e.fmt(f),
             Self::Store(e) => e.fmt(f),
             Self::Io(e) => e.fmt(f),
             Self::NativeMechanicsUnavailable => f.write_str(
@@ -87,6 +94,8 @@ macro_rules! convert_error {
 convert_error!(benilla_profile::Error, Profile);
 convert_error!(benilla_world_client::Error, Client);
 convert_error!(runtime::Error, Runtime);
+convert_error!(runtime::native::NativeError, NativeRuntime);
+convert_error!(benilla_world_store::native::Error, NativeStore);
 convert_error!(benilla_world_store::Error, Store);
 convert_error!(std::io::Error, Io);
 
@@ -163,6 +172,7 @@ pub(crate) struct SavedBoundary {
 pub(crate) enum PauseKind {
     Checkpoint { requires_reopen: bool },
     Simulation,
+    Authority,
     Projection,
     Clock,
 }
