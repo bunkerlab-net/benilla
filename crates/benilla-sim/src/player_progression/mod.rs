@@ -3,6 +3,7 @@
 // Source GPL-2.0-or-later; this bounded translation GPL-3.0-or-later.
 //! Transactional GiveXP/GiveLevel for explicit solo mage rows, levels 1–9.
 //! See PLAYER-PROGRESSION.md. The audited host is mandatory, not a no-op adapter.
+pub mod derived;
 pub mod kill_xp;
 mod numeric;
 mod skills;
@@ -323,6 +324,10 @@ impl Catalog {
     }
     pub fn rules(&self) -> Rules {
         self.rules
+    }
+    /// Actual supplied rows, in level order; no gap-fill or extrapolation.
+    pub fn supplied_levels(&self) -> impl Iterator<Item = u32> + '_ {
+        self.levels.keys().copied()
     }
     fn level(&self, level: u32) -> Result<LevelRows> {
         if level > self.rules.max_player_level {

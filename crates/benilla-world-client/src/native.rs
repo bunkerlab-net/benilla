@@ -6,6 +6,8 @@ use benilla_protocol::{messages as p, EntityKind, ObjectFields, SessionEvent};
 use benilla_sim::{classic_spell as spell, creature_ai as ai};
 use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "native_quests.rs"]
+mod quests;
 
 /// Exclusive local session order-counter state. The controller must share it with all
 /// forced movement/speed orders; it is not a world tick or a peer-supplied result.
@@ -38,6 +40,7 @@ pub struct NativeProjection {
     previous: n::State,
     previous_digest: Digest,
     npcs: BTreeMap<NpcId, u64>,
+    quest_metadata: quests::Metadata,
 }
 fn point(p: ai::Point) -> [f32; 3] {
     [p.x.as_f32(), p.y.as_f32(), p.z.as_f32()]
@@ -80,7 +83,7 @@ impl NativeProjection {
                 return Err(Error::UnboundCreatureDisplay(npc.entry));
             }
         }
-        for a in &w.profile().abilities {
+        for a in w.abilities() {
             if !catalog.contains_spell(a.id) {
                 return Err(Error::UnboundSpell(a.id));
             }
@@ -93,6 +96,7 @@ impl NativeProjection {
             previous: w.state().clone(),
             previous_digest: w.state_digest(),
             npcs: BTreeMap::new(),
+            quest_metadata: quests::Metadata::load(w, catalog)?,
         };
         out.npcs = out.guids(w)?;
         Ok(out)
@@ -144,6 +148,14 @@ impl NativeProjection {
             UiRequest::CastAtNpc { ability, target } => n::Command::Cast {
                 ability,
                 target: target.id,
+            },
+            UiRequest::AcceptQuest { quest, giver } => n::Command::AcceptQuest {
+                quest,
+                giver: giver.id,
+            },
+            UiRequest::TurnInQuest { quest, giver } => n::Command::TurnInQuest {
+                quest,
+                giver: giver.id,
             },
             _ => return Err(Error::UnsupportedCommand),
         };
@@ -198,7 +210,7 @@ impl NativeProjection {
             (28, w.player_limits().0),
             (23, w.state().resources.caster.mana),
             (29, w.player_limits().1),
-            (34, u32::from(w.profile().player.level)),
+            (34, u32::from(w.player_level())),
         ];
         if let Some(c) = &w.state().combat {
             pairs.extend([
@@ -212,7 +224,12 @@ impl NativeProjection {
             for (i, value) in c.stats.resistances.iter().enumerate() {
                 pairs.push((155 + i as u16, *value as u32));
             }
-            for (slot, skill) in c.skills.values().enumerate() {
+            for (slot, skill) in c
+                .skills
+                .values()
+                .enumerate()
+                .filter(|_| w.state().quest_progression.is_none())
+            {
                 let base = 718 + 3 * slot as u16;
                 pairs.extend([
                     (base, u32::from(skill.id) | (u32::from(skill.step) << 16)),
@@ -248,6 +265,7 @@ impl NativeProjection {
                 ]);
             }
         }
+        pairs.extend(quests::player_pairs(w, &self.quest_metadata));
         SessionEvent::ObjectValues {
             guid: self.player_guid,
             fields: ObjectFields::from_pairs(&pairs),
@@ -328,6 +346,16 @@ impl NativeProjection {
             (131, profile.display_id),
             (132, profile.display_id),
         ];
+        if let Some(flags) = w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .and_then(|g| g.npc_flags(profile.entry))
+        {
+            // Creature::SetDeathState clears NPC flags on death and restores
+            // the template on revival.
+            pairs.push((147, if npc.health == 0 { 0 } else { flags }));
+        }
         // All 16 harmful slots are materialized so expired/replaced auras clear in stock UI.
         let auras = npc.auras.iter().collect::<Vec<_>>();
         let mut flags = [0u32; 2];
@@ -337,7 +365,8 @@ impl NativeProjection {
             let id = if let Some((id, target)) = auras.get(offset) {
                 let aura = target.aura().ok_or(Error::Unrepresentable)?;
                 flags[offset / 8] |= (1u32 << aura.effect_slot) << ((offset % 8) * 4);
-                levels[offset / 4] |= u32::from(w.profile().player.level) << ((offset % 4) * 8);
+                let binding = npc.aura_bindings.get(id).ok_or(Error::Unrepresentable)?;
+                levels[offset / 4] |= u32::from(binding.level) << ((offset % 4) * 8);
                 **id
             } else {
                 0
@@ -432,7 +461,7 @@ impl NativeProjection {
             events.push(root_order(self.player_guid, orders)?);
         }
         events.push(SessionEvent::SpellBook {
-            spell_ids: w.profile().abilities.iter().map(|a| a.id).collect(),
+            spell_ids: quests::spell_ids(w),
             cooldowns: vec![],
         });
         for c in w.state().casts.values() {
@@ -452,8 +481,7 @@ impl NativeProjection {
     }
     fn cooldowns(&self, w: &n::NativeWorld) -> Vec<SessionEvent> {
         let cooldowns = w
-            .profile()
-            .abilities
+            .abilities()
             .iter()
             .filter_map(|a| {
                 w.state()
@@ -544,7 +572,7 @@ impl NativeProjection {
             }
         }
         events.extend(self.equipment_events(w, false)?);
-        events.push(self.player_values(w));
+        let mut quest_frame = quests::Frame::new(&self.previous);
         // AttackStop(false) already cleared melee-attacking state during death cleanup.
         // The visible target may remain until ordinary evade, which must not emit a
         // second stop in this frame or the next one.
@@ -555,7 +583,19 @@ impl NativeProjection {
             .filter(|npc| npc.ai.victim_detached_at_ms().is_some())
             .map(|npc| npc.id)
             .collect::<BTreeSet<_>>();
+        let mut accepted_quest_pending_close = false;
         for event in &record.events {
+            // HandleQuestgiverAcceptQuest closes gossip after AddQuest and
+            // CompleteQuest callbacks, before the next input or world update.
+            if accepted_quest_pending_close
+                && !matches!(
+                    event,
+                    n::Event::QuestProgression(n::QuestProgressionEvent::Quest { .. })
+                )
+            {
+                events.push(SessionEvent::GossipComplete);
+                accepted_quest_pending_close = false;
+            }
             let target_guid = |id: &NpcId| {
                 next.get(id)
                     .or_else(|| self.npcs.get(id))
@@ -566,6 +606,7 @@ impl NativeProjection {
                 n::Event::InputResult { sequence, accepted } => {
                     let input = record.inputs.iter().find(|input| input.sequence == *sequence)
                         .ok_or(Error::StaleProjection)?;
+                    accepted_quest_pending_close = *accepted && matches!(input.command, n::Command::AcceptQuest { .. });
                     if let n::Command::Cast { ability, .. } = input.command {
                         events.push(SessionEvent::CastResult {
                             spell_id: ability,
@@ -575,6 +616,7 @@ impl NativeProjection {
                         });
                     }
                 }
+                n::Event::QuestProgression(event) => events.extend(self.quest_progression_event(w, event, &mut quest_frame)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::RootMovement) => events.push(root_order(self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::SendDurabilityDamageDeath) => events.push(SessionEvent::DurabilityDamageDeath),
                 n::Event::Death(benilla_sim::player_death::DeathAction::ReleaseUnavailable { .. }) => events.push(SessionEvent::Notification { text: "Spirit release is unavailable: corpse, ghost and graveyard traversal are not implemented".into() }),
@@ -599,11 +641,7 @@ impl NativeProjection {
                     event,
                 } => {
                     let guid = target_guid(target).ok();
-                    let school = w
-                        .profile()
-                        .ability(*ability)
-                        .ok_or(Error::UnboundSpell(*ability))?
-                        .school;
+                    let school = w.ability_school(*ability).ok_or(Error::UnboundSpell(*ability))?;
                     match event {
                         spell::SpellEvent::Started { cast_ms } => {
                             events.push(SessionEvent::SpellStart {
@@ -746,6 +784,11 @@ impl NativeProjection {
                 _ => {}
             }
         }
+        if accepted_quest_pending_close {
+            events.push(SessionEvent::GossipComplete);
+        }
+        quest_frame.finish(w)?;
+        events.push(self.player_values(w));
         self.previous = w.state().clone();
         self.previous_digest = record.after;
         self.npcs = next;

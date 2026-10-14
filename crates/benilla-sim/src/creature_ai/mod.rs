@@ -12,7 +12,8 @@ pub mod movement;
 mod numeric;
 use movement::{BlockReason, MovementPurpose, MovementResult, Revision, ValidatedMovement};
 pub use numeric::{
-    attack_distance, combat_reach, distance_2d, in_melee_range, pulls_aggro, Point, Real,
+    attack_distance, combat_reach, distance_2d, in_melee_range, pulls_aggro,
+    within_interaction_distance, Point, Real,
 };
 
 pub const CREATURE_AI_POLICY_ID: &str = "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-v2";

@@ -68,9 +68,43 @@ pub trait ClientCatalog {
     fn contains_spell(&self, id: u32) -> bool;
     /// Selected profile class/presentation binding: v1 runtime exposes mana only.
     fn player_power_type(&self, player: PlayerId) -> Option<u8>;
+    /// Exact existing PLAYER_BYTES_2, including appearance and purchased-bank bytes.
+    /// Native progression replaces only its high rest-state byte.
+    fn player_bytes_2(&self, _player: PlayerId) -> Option<u32> {
+        None
+    }
     fn item_metadata(&self, entry: u32) -> Option<protocol::ItemInfo>;
     fn quest_metadata(&self, entry: u32) -> Option<QuestMetadata>;
     fn quest_greeting(&self, creature_entry: u32) -> Option<String>;
+    /// Actual resolved questgiver greeting row or NPC gossip fallback, including
+    /// localized text and emotes. None means unknown, never an empty source row.
+    fn native_quest_greeting(&self, _creature_entry: u32) -> Option<NativeQuestGreeting> {
+        None
+    }
+    /// Actual raw quest emote columns. The native packet subset currently requires
+    /// absent details/offer emotes and zero request delay; unknown rows reject.
+    fn native_quest_presentation(&self, _quest: u32) -> Option<NativeQuestPresentation> {
+        None
+    }
+}
+/// Caller-owned source presentation capture, bound by the client manifest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeQuestGreeting {
+    /// True only for an actual questgiver_greeting row; false uses the fully
+    /// resolved NPC gossip fallback (including a proven absent fallback row).
+    pub has_greeting_row: bool,
+    pub text: String,
+    pub emote_delay: u32,
+    pub emote: u32,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeQuestPresentation {
+    pub details_emotes: [(u32, u32); 4],
+    pub offer_emotes: [(u32, u32); 4],
+    pub complete_emote: u32,
+    pub complete_emote_delay: u32,
+    pub incomplete_emote: u32,
+    pub incomplete_emote_delay: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -3,7 +3,9 @@
 //! they neither mint a production capability nor claim game-asset/collision coverage.
 use super::*;
 use crate::net::MoveKind;
-use benilla_world_runtime::native::synthetic_fixture as fixture;
+use benilla_world_runtime::native::{
+    synthetic_fixture as fixture, synthetic_quest_fixture as quests,
+};
 use std::{
     fs,
     sync::{
@@ -35,14 +37,80 @@ impl ClientCatalog for Catalog {
     fn player_power_type(&self, _: PlayerId) -> Option<u8> {
         Some(0)
     }
+    fn player_bytes_2(&self, _: PlayerId) -> Option<u32> {
+        Some(0x00abcdef)
+    }
     fn item_metadata(&self, _: u32) -> Option<benilla_protocol::messages::ItemInfo> {
         None
     }
-    fn quest_metadata(&self, _: u32) -> Option<benilla_world_client::QuestMetadata> {
-        None
+    fn quest_metadata(&self, id: u32) -> Option<benilla_world_client::QuestMetadata> {
+        if id != 70001 {
+            return None;
+        }
+        use benilla_protocol::messages::{QuestObjective, QuestTemplate};
+        Some(benilla_world_client::QuestMetadata {
+            template: QuestTemplate {
+                quest_id: id,
+                method: 2,
+                level: 1,
+                zone_or_sort: 0,
+                quest_type: 0,
+                rep_objective_faction: 0,
+                rep_objective_value: 0,
+                next_quest_in_chain: 0,
+                money: 7,
+                money_max_level: 60,
+                reward_spell: 0,
+                src_item_id: 0,
+                flags: 0,
+                rewards: [(0, 0); 4],
+                choices: [(0, 0); 6],
+                point_map_id: 7,
+                point_x: 0.0,
+                point_y: 0.0,
+                point_opt: 0,
+                title: "Authored quest".into(),
+                objectives_text: "Authored objective".into(),
+                details: "Authored details".into(),
+                end_text: "Authored end".into(),
+                objectives: std::array::from_fn(|i| QuestObjective {
+                    creature_or_go: if i == 0 { 60001 } else { 0 },
+                    required_count: u32::from(i == 0),
+                    item_id: 0,
+                    item_count: 0,
+                    text: String::new(),
+                }),
+            },
+            request_text: "Authored request".into(),
+            offer_text: "Authored offer".into(),
+        })
     }
-    fn quest_greeting(&self, _: u32) -> Option<String> {
-        None
+    fn quest_greeting(&self, entry: u32) -> Option<String> {
+        (entry == 60003).then(|| "Authored greeting".into())
+    }
+    fn native_quest_greeting(
+        &self,
+        entry: u32,
+    ) -> Option<benilla_world_client::NativeQuestGreeting> {
+        (entry == 60003).then(|| benilla_world_client::NativeQuestGreeting {
+            has_greeting_row: true,
+            text: "Authored greeting".into(),
+            emote_delay: 0,
+            emote: 0,
+        })
+    }
+    fn native_quest_presentation(
+        &self,
+        quest: u32,
+    ) -> Option<benilla_world_client::NativeQuestPresentation> {
+        (quest == 70001).then_some(benilla_world_client::NativeQuestPresentation {
+            details_emotes: [(0, 0); 4],
+            offer_emotes: [(0, 0); 4],
+            complete_emote: 0,
+            complete_emote_delay: 0,
+            incomplete_emote: 0,
+            incomplete_emote_delay: 0,
+        })
     }
 }
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -872,3 +940,6 @@ fn full_batch_checkpoint_retry_and_reopen_never_repeat_any_input() {
     assert_eq!(c.world.state_digest(), state);
     assert_eq!(c.world.state().next_sequence, 2);
 }
+
+#[path = "quest_tests.rs"]
+mod quest_tests;

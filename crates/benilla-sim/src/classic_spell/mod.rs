@@ -653,9 +653,33 @@ impl MageProjectileCast {
         immune: bool,
         aura_rolls: [Option<i32>; 3],
     ) -> Result<Vec<SpellEvent>, SpellError> {
+        self.impact_at_rank(
+            self.spec.spell_rank,
+            now_ms,
+            target,
+            allowed,
+            immune,
+            aura_rolls,
+        )
+    }
+    /// Source HandleEffect evaluates periodic base values at impact, while the
+    /// already-launched direct payload is immutable. No other spec field changes.
+    pub fn impact_at_rank(
+        &mut self,
+        impact_rank: u16,
+        now_ms: u64,
+        target: &mut DamageTarget,
+        allowed: bool,
+        immune: bool,
+        aura_rolls: [Option<i32>; 3],
+    ) -> Result<Vec<SpellEvent>, SpellError> {
         let mut next = self.clone();
+        let prepared_rank = next.spec.spell_rank;
+        next.spec.spell_rank = impact_rank;
+        next.spec.validate()?;
         let mut next_target = target.clone();
         let events = next.impact_inner(now_ms, &mut next_target, allowed, immune, aura_rolls)?;
+        next.spec.spell_rank = prepared_rank;
         *self = next;
         *target = next_target;
         Ok(events)

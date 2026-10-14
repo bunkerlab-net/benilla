@@ -7,6 +7,8 @@ pub mod equipment;
 pub use combat::*;
 mod model;
 mod persistence;
+mod quest_progression;
+pub use quest_progression::*;
 mod rng;
 use benilla_sim::{classic_spell as spell, creature_ai as ai, mage_resource as mana};
 pub use model::*;
@@ -14,8 +16,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 4;
-pub const NATIVE_POLICY: &str = "benilla-native-ordered-input-batch-v4";
+pub const NATIVE_FORMAT_VERSION: u32 = 5;
+pub const NATIVE_POLICY: &str = "benilla-native-quest-progression-reconstruction-v5";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -36,6 +38,8 @@ pub enum NativeCapability {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeError {
+    Quest(benilla_sim::quest_lifecycle::Error),
+    Progression(benilla_sim::player_progression::Error),
     InvalidProfile,
     InvalidInput,
     InvalidState,
@@ -111,6 +115,7 @@ impl NativeWorld {
                     health: p.max_health,
                     ai: ai::SoloCreatureAi::new(p.ai.clone())?,
                     auras: BTreeMap::new(),
+                    aura_bindings: BTreeMap::new(),
                 },
             );
         }
@@ -136,6 +141,11 @@ impl NativeWorld {
             casts: BTreeMap::new(),
             next_cast_id: 1,
             rng_counter: 0,
+            quest_progression: profile
+                .quest_progression
+                .as_ref()
+                .map(|g| QuestProgressionState::new(g, profile.clock_origin_ms))
+                .transpose()?,
             combat: profile
                 .combat
                 .as_ref()
@@ -158,7 +168,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v4\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v5\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -210,3 +220,36 @@ impl From<benilla_sim::player_death::DeathError> for NativeError {
 mod batch_tests;
 #[cfg(test)]
 mod death_tests;
+
+impl From<benilla_sim::quest_lifecycle::Error> for NativeError {
+    fn from(e: benilla_sim::quest_lifecycle::Error) -> Self {
+        Self::Quest(e)
+    }
+}
+impl From<benilla_sim::player_progression::Error> for NativeError {
+    fn from(e: benilla_sim::player_progression::Error) -> Self {
+        Self::Progression(e)
+    }
+}
+impl NativeWorld {
+    pub fn player_level(&self) -> u8 {
+        self.state.level(&self.profile)
+    }
+    pub fn abilities(&self) -> &[Ability] {
+        self.state.abilities(&self.profile)
+    }
+    pub fn ability(&self, id: u32) -> Option<&Ability> {
+        self.state.ability(&self.profile, id)
+    }
+    pub fn ability_school(&self, id: u32) -> Option<u8> {
+        self.profile
+            .quest_progression
+            .as_ref()
+            .and_then(|g| g.school(id))
+            .or_else(|| self.profile.ability(id).map(|a| a.school))
+    }
+}
+#[cfg(test)]
+mod quest_tests;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_quest_fixture;

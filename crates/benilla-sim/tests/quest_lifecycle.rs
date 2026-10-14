@@ -811,3 +811,74 @@ fn restore_rejects_absent_item_credit_and_unearned_creature_history() {
         Err(Error::Invalid("completed_objectives"))
     );
 }
+
+#[test]
+fn callback_view_eligibility_preserves_source_gates_without_mutation() {
+    let c = catalog(vec![row(1, 0, 0)]);
+    let state = State::new(&c);
+    let host = Ledger::new();
+    let original = state.snapshot();
+    assert_eq!(
+        can_take_view(&c, &state.view(), host.identity(), 1),
+        can_take(&c, &state, &host, 1)
+    );
+    let tx = reduce(
+        &c,
+        &state,
+        &host,
+        0,
+        Command::Accept {
+            quest: 1,
+            giver: 900,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        can_take_view(&c, &tx.state.view(), host.identity(), 1),
+        Err(Error::Rejected(Gate::AlreadyTaken))
+    );
+    assert_eq!(state.snapshot(), original);
+    for level in [0, 1, 60, 61] {
+        let mut h = host.clone();
+        h.level = level;
+        assert_eq!(
+            can_take_view(&c, &state.view(), h.identity(), 1),
+            can_take(&c, &state, &h, 1)
+        );
+    }
+    for event in tx.events {
+        let encoded = serde_json::to_vec(&event).unwrap();
+        assert_eq!(serde_json::from_slice::<Event>(&encoded).unwrap(), event);
+    }
+}
+
+#[test]
+fn source_visible_start_omits_take_status_and_level_gates() {
+    let mut r = row(1, 0, 0);
+    r.eligibility.minimum_level = 5;
+    let c = catalog(vec![r]);
+    let state = State::new(&c);
+    let mut host = Ledger::new();
+    assert_eq!(
+        can_take_view(&c, &state.view(), host.identity(), 1),
+        Err(Error::Rejected(Gate::Level))
+    );
+    assert!(can_see_start_view(&c, &state.view(), host.identity(), 1).is_ok());
+    host.level = 5;
+    let tx = reduce(
+        &c,
+        &state,
+        &host,
+        0,
+        Command::Accept {
+            quest: 1,
+            giver: 900,
+        },
+    )
+    .unwrap();
+    assert!(can_see_start_view(&c, &tx.state.view(), host.identity(), 1).is_ok());
+    assert_eq!(
+        can_take_view(&c, &tx.state.view(), host.identity(), 1),
+        Err(Error::Rejected(Gate::AlreadyTaken))
+    );
+}

@@ -289,24 +289,33 @@ impl Catalog {
     pub fn row(&self, id: u32) -> Result<&QuestRow, Error> {
         self.rows.get(&id).ok_or(Error::Invalid("unknown_quest"))
     }
+    pub fn ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.rows.keys().copied()
+    }
+    pub fn relations(&self) -> &QuestRelations {
+        &self.relations
+    }
     pub fn hash(&self) -> [u8; 32] {
         self.hash
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Status {
     Incomplete,
     Complete,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Progress {
     pub status: Status,
     pub rewarded: bool,
     pub items: [u32; OBJECTIVES],
     pub creatures: [u32; OBJECTIVES],
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Snapshot {
     pub policy: String,
     pub catalog_hash: [u8; 32],
@@ -316,7 +325,8 @@ pub struct Snapshot {
 }
 /// Immutable callback-time view. May represent a transient in-transaction state;
 /// deliberately not a restorable checkpoint.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QuestView {
     pub log: [Option<u32>; LOG_SIZE],
     pub records: BTreeMap<u32, Progress>,

@@ -26,6 +26,8 @@ pub struct EquipmentItemModifiers {
 #[serde(deny_unknown_fields)]
 pub struct StatRecipeSnapshot {
     pub version: u32,
+    /// Actual create-row level; restore requires an authoritative recipe at this level.
+    pub level: u32,
     pub modifiers: ModifierSnapshot,
     pub items: Vec<EquipmentItemModifiers>,
     pub broken_slots: Vec<u8>,
@@ -34,7 +36,8 @@ pub struct StatRecipeSnapshot {
 pub struct StatRecipe {
     snapshot: StatRecipeSnapshot,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EquipmentRecompute {
     pub effective_attributes: Attributes,
     pub resistances: [i32; 7],
@@ -44,8 +47,11 @@ pub struct EquipmentRecompute {
     pub disabled_weapon_slots: BTreeSet<u8>,
     /// Resource state after each nonzero item stat, armor, or resistance modifier.
     pub modifier_steps: Vec<Resources>,
+    /// Nonzero item attribute callbacks, in ItemStat order. Each tuple contains
+    /// the source Stats index and effective attributes immediately after it.
+    pub attribute_steps: Vec<(u8, Attributes)>,
 }
-fn rates(stats: &Stats) -> Result<(ManaRegen, SpellFloat)> {
+fn rates(level: u32, stats: &Stats) -> Result<(ManaRegen, SpellFloat)> {
     let regen = crate::mage_resource::update_mana_regen(
         stats.effective.0[4] as u32,
         ManaRegenModifiers {
@@ -57,7 +63,7 @@ fn rates(stats: &Stats) -> Result<(ManaRegen, SpellFloat)> {
     )
     .map_err(|_| InitError::Numeric("equipment mage regen"))?;
     let crit = crate::mage_resource::mage_spell_crit(
-        1,
+        level,
         stats.effective.0[3] as u32,
         SpellCritModifiers {
             all_schools: 0,
@@ -94,7 +100,8 @@ impl StatRecipe {
         }
         Ok(Self {
             snapshot: StatRecipeSnapshot {
-                version: 1,
+                version: 2,
+                level: 1,
                 modifiers: stats.snapshot(),
                 items: modifiers,
                 broken_slots: vec![],
@@ -104,12 +111,38 @@ impl StatRecipe {
     pub fn snapshot(&self) -> StatRecipeSnapshot {
         self.snapshot.clone()
     }
+    /// Replace create values from the caller's validated progression catalog.
+    /// This does not authorize those rows: callers must bind them to the profile
+    /// before use. Static modifiers and broken slots remain unchanged. Current
+    /// health/mana are never stored in this recipe and must be supplied separately.
+    pub fn rebase(
+        &self,
+        level: u32,
+        create: Attributes,
+        create_health: u32,
+        create_mana: u32,
+    ) -> Result<Self> {
+        if !(1..=crate::player_progression::MAX_SUPPORTED_LEVEL).contains(&level) {
+            return Err(InitError::Invalid("equipment recipe level"));
+        }
+        let mut next = self.clone();
+        next.snapshot.level = level;
+        next.snapshot.modifiers.create = create;
+        next.snapshot.modifiers.create_health = create_health;
+        next.snapshot.modifiers.create_mana = create_mana;
+        let stats = Stats::restore(&next.snapshot.modifiers)?;
+        rates(level, &stats)?;
+        Ok(next)
+    }
     /// Restore only if all immutable and mutable cells agree with replaying the
     /// supplied broken flags against this profile's authoritative fresh recipe.
     /// This never supplies authority for new content, item types or modifiers.
     pub fn restore(fresh: &Self, snapshot: &StatRecipeSnapshot) -> Result<Self> {
         if !fresh.snapshot.broken_slots.is_empty()
-            || snapshot.version != 1
+            || snapshot.version != 2
+            || fresh.snapshot.version != 2
+            || snapshot.level != fresh.snapshot.level
+            || !(1..=crate::player_progression::MAX_SUPPORTED_LEVEL).contains(&snapshot.level)
             || snapshot.items != fresh.snapshot.items
             || snapshot.broken_slots.windows(2).any(|x| x[0] >= x[1])
         {
@@ -132,7 +165,7 @@ impl StatRecipe {
         let mut stats = Stats::restore(&self.snapshot.modifiers)?;
         self.validate_resources(&stats, live)?;
         stats.resources = live;
-        self.result(stats, vec![])
+        self.result(stats, vec![], vec![])
     }
     fn validate_resources(&self, stats: &Stats, live: Resources) -> Result<()> {
         if live.max_health != stats.resources.max_health
@@ -144,8 +177,13 @@ impl StatRecipe {
         }
         Ok(())
     }
-    fn result(&self, stats: Stats, modifier_steps: Vec<Resources>) -> Result<EquipmentRecompute> {
-        let (mana_regeneration, spell_crit_percent) = rates(&stats)?;
+    fn result(
+        &self,
+        stats: Stats,
+        modifier_steps: Vec<Resources>,
+        attribute_steps: Vec<(u8, Attributes)>,
+    ) -> Result<EquipmentRecompute> {
+        let (mana_regeneration, spell_crit_percent) = rates(self.snapshot.level, &stats)?;
         let disabled_weapon_slots = self
             .snapshot
             .items
@@ -161,6 +199,7 @@ impl StatRecipe {
             spell_crit_percent,
             disabled_weapon_slots,
             modifier_steps,
+            attribute_steps,
         })
     }
     /// Apply/remove only this worn item's admitted modifiers, in source order.
@@ -192,6 +231,7 @@ impl StatRecipe {
         stats.resources = live;
         let sign = if broken { -1 } else { 1 };
         let mut steps = vec![];
+        let mut attribute_steps = vec![];
         for stat in item.stats {
             if stat.value == 0 {
                 continue;
@@ -212,6 +252,17 @@ impl StatRecipe {
             }
             stats.update()?;
             steps.push(stats.resources);
+            let index = match stat.kind {
+                3 => Some(1),
+                4 => Some(0),
+                5 => Some(3),
+                6 => Some(4),
+                7 => Some(2),
+                _ => None,
+            };
+            if let Some(index) = index {
+                attribute_steps.push((index, stats.effective));
+            }
         }
         if item.armor != 0 {
             stats.resistance(0, 0, (item.armor as i32) * sign)?;
@@ -233,7 +284,7 @@ impl StatRecipe {
         } else {
             next.snapshot.broken_slots.retain(|v| *v != slot);
         }
-        let result = next.result(stats, steps)?;
+        let result = next.result(stats, steps, attribute_steps)?;
         *self = next;
         Ok(result)
     }

@@ -11,6 +11,14 @@ use benilla_world_runtime::native as n;
 use benilla_world_store::native::Identity;
 use benilla_world_store::native::NativeStore;
 const _: () = assert!(MAX_ACTIONS <= n::MAX_INPUTS_PER_TICK);
+// At most one projected tick is retained. The runtime bounds records and catalog text;
+// this additional event-count cap prevents an expanding projection from growing the outbox.
+const MAX_PENDING_EVENTS: usize = 65_536;
+struct PendingEvents {
+    tick: u64,
+    events: Vec<SessionEvent>,
+    saved: Option<SavedBoundary>,
+}
 
 struct LocalAuthority(Box<dyn n::Authority + Send>);
 impl n::Authority for LocalAuthority {
@@ -104,6 +112,7 @@ pub(crate) struct NativeController {
     actions: VecDeque<Intent>,
     next_ticket: u64,
     pending: Option<PendingTick>,
+    outbox: Option<PendingEvents>,
     debt: Duration,
     saved_tick: u64,
     pause: Option<Pause>,
@@ -196,6 +205,7 @@ impl NativeController {
             actions: VecDeque::new(),
             next_ticket: 0,
             pending: None,
+            outbox: None,
             debt: Duration::ZERO,
             saved_tick,
             pause: None,
@@ -207,8 +217,18 @@ impl NativeController {
         if self.closed || self.closing {
             return Err(Error::Closed);
         }
-        if self.pause.is_some() {
+        if self.pause.is_some() || self.outbox.is_some() {
             return Err(Error::Paused);
+        }
+        Ok(())
+    }
+    fn preview_quest(&mut self, giver: NpcHandle, quest: u32, reward: bool) -> Result<(), Error> {
+        if self
+            .world
+            .preview_quest_interaction(giver.id, quest, reward, &mut self.authority)?
+            .is_some()
+        {
+            return Err(benilla_world_client::Error::UnavailableQuest.into());
         }
         Ok(())
     }
@@ -302,7 +322,11 @@ impl NativeController {
         }
         Ok(PendingTick { inputs, moving })
     }
-    fn advance_one(&mut self, events: &mut Vec<SessionEvent>) -> Result<(), Error> {
+    fn advance_one(&mut self, out: &mut Pump) -> Result<(), Error> {
+        // A committed but unpublished tick cannot be overtaken by another simulation step.
+        if self.outbox.is_some() {
+            return Err(Error::Paused);
+        }
         if self.pending.is_none() {
             self.pending = Some(self.next_tick()?);
         }
@@ -314,24 +338,57 @@ impl NativeController {
         let pending = self.pending.take().expect("committed staged tick");
         let projected = self
             .projection
-            .advance_with_movement_orders(&self.world, &mut self.orders.counter);
-        match projected {
-            Ok(projected) => {
-                self.orders.emitted(&projected);
-                events.extend(projected);
-            }
+            .advance_with_movement_orders(&self.world, &mut self.orders.counter)
+            .and_then(|mut projected| {
+                if pending.moving {
+                    projected.push(self.correction());
+                }
+                if projected.len() > MAX_PENDING_EVENTS {
+                    return Err(benilla_world_client::Error::Unrepresentable);
+                }
+                Ok(projected)
+            });
+        let projected = match projected {
+            Ok(projected) => projected,
             Err(error) => {
+                // No partial projection is published. Shutdown can save this committed world;
+                // recovery needs a fresh projection on reopen, never a replay of its inputs.
                 self.pause = Some(Pause {
                     kind: PauseKind::Projection,
                     message: error.to_string(),
                 });
                 return Err(error.into());
             }
-        }
-        if pending.moving {
-            events.push(self.correction());
+        };
+        if self.world.profile().quest_progression.is_some() {
+            // Progression also mutates without an event (played time, resource/skill sync).
+            // Persist every enabled tick, accepting one synchronous checkpoint per tick.
+            // Project first: the store receipt clears last_tick and its event journal.
+            self.outbox = Some(PendingEvents {
+                tick: self.world.state().tick,
+                events: projected,
+                saved: None,
+            });
+            out.saved = Some(self.checkpoint()?);
+            self.publish_pending(&mut out.events);
+        } else {
+            self.orders.emitted(&projected);
+            out.events.extend(projected);
         }
         Ok(())
+    }
+    fn publish_pending(&mut self, events: &mut Vec<SessionEvent>) {
+        // This is one delivery to the local caller, not an acknowledged network outbox.
+        // A crash after persistence is recovered through initial state, not notification replay.
+        if self
+            .outbox
+            .as_ref()
+            .is_some_and(|batch| batch.saved.is_some())
+        {
+            let batch = self.outbox.take().expect("durable pending events");
+            self.orders.emitted(&batch.events);
+            events.extend(batch.events);
+        }
     }
     fn save_due(&self) -> bool {
         u128::from(self.world.state().tick - self.saved_tick)
@@ -343,11 +400,19 @@ impl NativeController {
         match self.store.checkpoint(&mut self.world) {
             Ok(receipt) => {
                 self.saved_tick = self.world.state().tick;
-                Ok(SavedBoundary {
+                let saved = SavedBoundary {
                     tick: self.saved_tick,
                     generation: receipt.generation(),
                     durability: receipt.durability(),
-                })
+                };
+                if let Some(batch) = &mut self.outbox {
+                    assert_eq!(
+                        batch.tick, saved.tick,
+                        "unpublished tick cannot be overtaken"
+                    );
+                    batch.saved = Some(saved.clone());
+                }
+                Ok(saved)
             }
             Err(error) => {
                 self.pause = Some(Pause {
@@ -427,6 +492,20 @@ impl Driven for NativeController {
             });
         }
         self.ensure_input()?;
+        // Callback-time quest presentation cannot overtake queued owner input or
+        // a retained failed tick. Re-run the request after committing that boundary.
+        if matches!(
+            &command,
+            ClientCommand::QuestQuery { .. }
+                | ClientCommand::QuestgiverStatusQuery { .. }
+                | ClientCommand::QuestgiverHello { .. }
+                | ClientCommand::QuestgiverQuery { .. }
+                | ClientCommand::QuestgiverComplete { .. }
+                | ClientCommand::QuestgiverRequestReward { .. }
+        ) && (!self.actions.is_empty() || self.pending.is_some())
+        {
+            return Err(Error::Backpressure);
+        }
         let mut events = Vec::new();
         match command {
             ClientCommand::Move {
@@ -500,6 +579,61 @@ impl Driven for NativeController {
                     self.queue_cancel(spell_id, target)?;
                 }
             }
+            ClientCommand::QuestgiverAccept { npc, quest } => {
+                let giver = self.projection.capture_npc(npc)?;
+                let input = self
+                    .projection
+                    .local(&self.world, UiRequest::AcceptQuest { quest, giver })?;
+                self.queue(input.input.command)?;
+            }
+            ClientCommand::QuestgiverChooseReward {
+                npc,
+                quest,
+                choice: 0,
+            } => {
+                let giver = self.projection.capture_npc(npc)?;
+                let input = self
+                    .projection
+                    .local(&self.world, UiRequest::TurnInQuest { quest, giver })?;
+                self.queue(input.input.command)?;
+            }
+            ClientCommand::QuestQuery { quest } => {
+                events.push(self.projection.quest_template(&self.world, quest)?);
+            }
+            ClientCommand::QuestgiverStatusQuery { npc } => {
+                let giver = self.projection.capture_npc(npc)?;
+                if self
+                    .world
+                    .preview_quest_status(giver.id, &mut self.authority)?
+                {
+                    events.push(self.projection.quest_status(&self.world, giver)?);
+                } else {
+                    events.push(SessionEvent::QuestGiverStatus {
+                        npc,
+                        status: benilla_protocol::messages::dialog_status::NONE,
+                    });
+                }
+            }
+            ClientCommand::QuestgiverHello { npc } => {
+                let giver = self.projection.capture_npc(npc)?;
+                self.preview_quest(giver, 0, false)?;
+                events.extend(self.projection.quest_greeting_events(&self.world, giver)?);
+            }
+            ClientCommand::QuestgiverQuery { npc, quest } => {
+                let giver = self.projection.capture_npc(npc)?;
+                self.preview_quest(giver, quest, false)?;
+                events.push(self.projection.quest_detail(&self.world, quest, giver)?);
+            }
+            ClientCommand::QuestgiverComplete { npc, quest } => {
+                let giver = self.projection.capture_npc(npc)?;
+                self.preview_quest(giver, quest, true)?;
+                events.push(self.projection.quest_progress(&self.world, quest, giver)?);
+            }
+            ClientCommand::QuestgiverRequestReward { npc, quest } => {
+                let giver = self.projection.capture_npc(npc)?;
+                self.preview_quest(giver, quest, true)?;
+                events.push(self.projection.quest_offer(&self.world, quest, giver)?);
+            }
             ClientCommand::RepopRequest => self.queue(n::Command::ReleaseSpirit)?,
             ClientCommand::SetActiveMover { guid } if guid == self.player_guid() => {}
             ClientCommand::WorldportAck | ClientCommand::SetSelection { .. } => {}
@@ -522,6 +656,14 @@ impl Driven for NativeController {
                     })
                 }
             }
+            // A successful explicit retry returns only its receipt. Flush the retained batch
+            // on this pump, even with zero elapsed time, before admitting another tick/input.
+            if self.pause.is_none() && self.outbox.is_some() {
+                self.publish_pending(&mut out.events);
+                out.pending_ticks = self.debt.as_nanos() / self.tick_duration().as_nanos();
+                out.pause = self.pause.clone();
+                return out;
+            }
             while self.pause.is_none()
                 && out.ticks < MAX_TICKS_PER_PUMP
                 && self.debt >= self.tick_duration()
@@ -533,7 +675,7 @@ impl Driven for NativeController {
                     }
                 }
                 let before = self.world.state().tick;
-                let mut result = self.advance_one(&mut out.events);
+                let mut result = self.advance_one(&mut out);
                 // Only the runtime's dedicated, atomic journal-capacity refusal permits this
                 // save/retry. A single-frame size or mechanics Limit never takes this path.
                 if matches!(
@@ -543,7 +685,7 @@ impl Driven for NativeController {
                     match self.checkpoint() {
                         Ok(saved) => {
                             out.saved = Some(saved);
-                            result = self.advance_one(&mut out.events);
+                            result = self.advance_one(&mut out);
                         }
                         Err(_) => break,
                     }
@@ -614,11 +756,16 @@ impl Driven for NativeController {
         }
         self.closing = true;
         let cancelled = self.actions.len() + self.pending.as_ref().map_or(0, |p| p.inputs.len());
-        let saved = self.checkpoint()?;
+        let saved = match self.outbox.as_ref().and_then(|batch| batch.saved.clone()) {
+            Some(saved) => saved,
+            None => self.checkpoint()?,
+        };
+        let mut events = vec![];
+        self.publish_pending(&mut events);
         self.actions.clear();
         self.pending = None;
         self.closed = true;
-        Ok((saved, cancelled, vec![]))
+        Ok((saved, cancelled, events))
     }
 }
 #[cfg(test)]

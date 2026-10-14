@@ -291,3 +291,20 @@ impl<'de> serde::Deserialize<'de> for Real {
             .map_err(serde::de::Error::custom)
     }
 }
+
+/// Player::GetNPCIfCanInteractWith -> WorldObject::_IsWithinDist, ordinary 3D path.
+/// Source INTERACTION_DISTANCE is 5; the reach sum rounds before adding it.
+pub fn within_interaction_distance(
+    player: Point,
+    npc: Point,
+    player_reach: Real,
+    npc_reach: Real,
+) -> Result<bool, AiError> {
+    player_reach.nonnegative("player reach")?;
+    npc_reach.nonnegative("npc reach")?;
+    let size = player_reach.add(npc_reach)?;
+    let maximum = Real::constant(0x40a00000).add(size)?;
+    Ok(player
+        .square_distance(npc, true)?
+        .less(maximum.mul(maximum)?))
+}

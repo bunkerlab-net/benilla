@@ -29,7 +29,8 @@ impl From<quest::QuestError> for Error {
         Self::Arithmetic(value)
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Gate {
     AlreadyTaken,
     Class,
@@ -70,13 +71,15 @@ pub trait Host: Clone {
     /// callbacks; this reducer performs those at their exact source positions.
     fn apply(&mut self, effect: &HostEffect) -> Result<(), Error>;
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum HostEffect {
     DestroyCarriedStack { item: u32, count: u32 },
     GiveXp(u32),
     ModifyMoney(i32),
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Event {
     LogSet {
         slot: usize,
@@ -184,18 +187,67 @@ fn money_required(q: &QuestRow, host: &impl Host) -> Result<u32, Error> {
 }
 pub fn can_take(catalog: &Catalog, state: &State, host: &impl Host, id: u32) -> Result<(), Error> {
     check_catalog(catalog, state)?;
+    can_take_identity(catalog, state, host.identity(), id, true, true)
+}
+/// Read-only source eligibility against a captured callback-time quest view.
+/// No host mutation, reward, interaction admission, or item assumptions occur.
+pub fn can_take_view(
+    catalog: &Catalog,
+    view: &QuestView,
+    identity: QuestPlayerIdentity,
+    id: u32,
+) -> Result<(), Error> {
+    let state = State {
+        snapshot: Snapshot {
+            policy: POLICY_ID.into(),
+            catalog_hash: catalog.hash(),
+            next_sequence: 0,
+            log: view.log,
+            records: view.records.clone(),
+        },
+    };
+    can_take_identity(catalog, &state, identity, id, true, true)
+}
+/// Source CanSeeStartQuest's non-level eligibility gates. The caller supplies
+/// the explicit high-level hide rule separately; status and log capacity are
+/// intentionally not CanTakeQuest gates on this source path.
+pub fn can_see_start_view(
+    catalog: &Catalog,
+    view: &QuestView,
+    identity: QuestPlayerIdentity,
+    id: u32,
+) -> Result<(), Error> {
+    let state = State {
+        snapshot: Snapshot {
+            policy: POLICY_ID.into(),
+            catalog_hash: catalog.hash(),
+            next_sequence: 0,
+            log: view.log,
+            records: view.records.clone(),
+        },
+    };
+    can_take_identity(catalog, &state, identity, id, false, false)
+}
+fn can_take_identity(
+    catalog: &Catalog,
+    state: &State,
+    identity: QuestPlayerIdentity,
+    id: u32,
+    status_gate: bool,
+    level_gate: bool,
+) -> Result<(), Error> {
     let q = catalog.row(id)?;
     // The omitted gates are proven inert at Catalog admission, not assumed true.
-    if state.progress(id).is_some() {
+    if status_gate && state.progress(id).is_some() {
         return Err(Error::Rejected(Gate::AlreadyTaken));
     }
-    let gates = quest::eligibility_gates(q.eligibility, host.identity())?;
+    let gates = quest::eligibility_gates(q.eligibility, identity)?;
     for (ok, gate) in [
         (gates.class, Gate::Class),
         (gates.race, Gate::Race),
         (gates.level, Gate::Level),
     ] {
-        if !ok {
+        if !ok && (gate != Gate::Level || level_gate) {
             return Err(Error::Rejected(gate));
         }
     }

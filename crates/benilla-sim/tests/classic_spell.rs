@@ -590,3 +590,41 @@ fn extra_launch_dice_on_a_refused_cast_and_mutated_resource_domains_reject() {
         .is_err());
     assert!(target.update_aura(3000, 1000, false).is_err());
 }
+
+#[test]
+fn current_impact_rank_changes_periodic_value_but_not_committed_direct_payload() {
+    let mut recipe = spec();
+    if let MageEffect::SchoolDamage(v) = &mut recipe.effects[0] {
+        v.points_per_level = float(10f32.to_bits());
+    }
+    if let MageEffect::PeriodicDamage { value: v, .. } = &mut recipe.effects[1] {
+        v.points_per_level = float(10f32.to_bits());
+    }
+    let mut resources = CasterResources::new(100).unwrap();
+    let (mut cast, _) =
+        MageProjectileCast::prepare(recipe, 1, 2, 0, &mut resources, checks()).unwrap();
+    cast.update(1500, 1500, &mut resources, checks(), Some(launch()))
+        .unwrap();
+    let mut old = cast.clone();
+    let mut a = DamageTarget::new(2, 1000).unwrap();
+    let mut b = a.clone();
+    let first = old.impact(2000, &mut a, true, false, [None; 3]).unwrap();
+    let second = cast
+        .impact_at_rank(10, 2000, &mut b, true, false, [None; 3])
+        .unwrap();
+    let direct = |events: &Vec<SpellEvent>| {
+        events.iter().find_map(|e| match e {
+            SpellEvent::DirectDamage { amount, .. } => Some(*amount),
+            _ => None,
+        })
+    };
+    assert_eq!(direct(&first), direct(&second));
+    assert_eq!(b.aura().unwrap().amount, a.aura().unwrap().amount + 10);
+    let before = cast.clone();
+    let target_before = b.clone();
+    assert!(cast
+        .impact_at_rank(0, 2000, &mut b, true, false, [None; 3])
+        .is_err());
+    assert_eq!(cast, before);
+    assert_eq!(b, target_before);
+}

@@ -8,6 +8,7 @@ mod equipment;
 mod items;
 mod skills;
 mod stats;
+mod training;
 use crate::mage_resource::{CurrentSkill, CurrentSkills};
 pub use equipment::{EquipmentItemModifiers, EquipmentRecompute, StatRecipe, StatRecipeSnapshot};
 pub use items::{
@@ -19,6 +20,7 @@ pub use skills::{
 };
 pub use stats::{Attributes, ModifierSnapshot, Resources};
 use std::collections::{BTreeMap, BTreeSet};
+pub use training::{LiveTraining, TrainingCallSnapshot, TrainingSnapshot, LIVE_TRAINING_POLICY_ID};
 pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v2";
 pub type Result<T> = std::result::Result<T, InitError>;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,7 +84,8 @@ pub struct SpellRow {
     /// True if any script/condition/custom proc/affect hook can change initial casting.
     pub external_initial_hooks: bool,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum AbilityAvailability {
     Available,
     Unavailable(String),
@@ -98,7 +101,8 @@ pub struct InitialAura {
     pub misc_value: i32,
     pub amount: i32,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KnownAbility {
     pub spell_id: u32,
     pub active: bool,
@@ -252,6 +256,9 @@ struct Init<'a> {
     skills: BTreeMap<u16, InitializedSkill>,
     known: BTreeMap<u32, KnownAbility>,
     trace: Vec<InitEvent>,
+    /// Post-order addSpell successes, projected only by the in-world caller.
+    /// Creation/login keep their insertion trace and send no learned packets.
+    learned_spells: Vec<u32>,
     skill_auras: Vec<(u16, i16, bool)>,
     applied_auras: BTreeSet<(u32, i32)>,
     initial_auras: Vec<InitialAura>,
@@ -312,6 +319,7 @@ pub fn initialize_mage(input: &StarterInput) -> Result<InitializedMage> {
         skills: BTreeMap::new(),
         known: BTreeMap::new(),
         trace: vec![InitEvent::InitStatsForLevel],
+        learned_spells: vec![],
         skill_auras: vec![],
         applied_auras: BTreeSet::new(),
         initial_auras: vec![],
@@ -464,6 +472,11 @@ impl Init<'_> {
             if !link.auto_learned {
                 self.learn(link.spell_id, link.active)?;
             }
+        }
+        // Player::learnSpell sends SMSG_LEARNED_SPELL only after addSpell
+        // returns true. Inactive addSpell calls still notify active descendants.
+        if active {
+            self.learned_spells.push(id);
         }
         Ok(())
     }

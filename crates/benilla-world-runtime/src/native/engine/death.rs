@@ -173,15 +173,13 @@ impl<A: Authority> Frame<'_, A> {
         let changes = equipment.apply_npc_death_loss::<NativeError, _>(|_, _, changes| {
             for transition in &changes.stat_transitions {
                 let equipment::EquipmentStatTransition::Broken { slot, .. } = *transition;
-                let result = c.apply_item_break(
-                    slot,
-                    init::Resources {
-                        health: self.state.health,
-                        max_health: c.stats.max_health,
-                        mana: self.state.resources.caster.mana,
-                        max_mana: c.stats.max_mana,
-                    },
-                )?;
+                let live = init::Resources {
+                    health: self.state.health,
+                    max_health: c.stats.max_health,
+                    mana: self.state.resources.caster.mana,
+                    max_mana: c.stats.max_mana,
+                };
+                let result = self.progression_item_break(&mut c, slot, live)?;
                 self.state.health = result.resources.health;
                 self.state.resources.caster.mana = result.resources.mana;
                 self.state.resources = mana::MageManaState::from_state(
@@ -243,6 +241,7 @@ impl<A: Authority> Frame<'_, A> {
                     });
                 }
                 npc.auras.clear();
+                npc.aura_bindings.clear();
             }
             // Only receipt-bearing NPCs require event-time relationship predicates.
             let target = if receipts
@@ -263,7 +262,7 @@ impl<A: Authority> Frame<'_, A> {
                 Some(ai::Target {
                     id: SOLO_UNIT,
                     position: self.state.position,
-                    level: self.profile.player.level,
+                    level: self.state.level(self.profile),
                     combat_reach: self.profile.player.combat_reach,
                     bounding_radius: self.profile.player.bounding_radius,
                     moving_and_running: self.moved,

@@ -1473,3 +1473,67 @@ fn passive_duration_index_zero_is_permanent_without_inventing_a_duration() {
         );
     }
 }
+
+#[test]
+fn level_rebased_recipe_break_restore_uses_current_create_rows_and_crit() {
+    let mut input = input();
+    let mut it = item(900_000_097);
+    it.max_durability = 7;
+    it.stats[0] = ItemStat { kind: 5, value: 6 };
+    it.stats[1] = ItemStat { kind: 7, value: 4 };
+    input.items = vec![it];
+    input.item_grants = Rows::Complete(vec![ItemGrant {
+        source: GrantSource::Outfit,
+        source_order: 0,
+        item: 900_000_097,
+        count: 1,
+    }]);
+    let initial = initialize_mage(&input).unwrap();
+    let create = Attributes([24, 31, 37, 49, 51]);
+    let fresh = initial.stat_recipe.rebase(7, create, 89, 123).unwrap();
+    assert_eq!(fresh.snapshot().version, 2);
+    assert_eq!(fresh.snapshot().level, 7);
+    let m = fresh.snapshot().modifiers;
+    let numeric =
+        benilla_sim::player_progression::NumericState::from_modifiers(7, &m, 0, [0; 5]).unwrap();
+    let live = Resources {
+        health: numeric.max_health,
+        max_health: numeric.max_health,
+        mana: 17,
+        max_mana: numeric.max_powers[0],
+    };
+    let mut broken = fresh.clone();
+    let result = broken.set_item_broken(4, true, live).unwrap();
+    let expected = benilla_sim::mage_resource::mage_spell_crit(
+        7,
+        49,
+        benilla_sim::mage_resource::SpellCritModifiers {
+            all_schools: 0,
+            school: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(result.spell_crit_percent, expected);
+    assert_eq!(result.resources.mana, 17);
+    assert_eq!(result.resources.max_mana, 123 + 20 + (49 - 20) * 15);
+    assert_eq!(
+        StatRecipe::restore(&fresh, &broken.snapshot()).unwrap(),
+        broken
+    );
+    assert!(StatRecipe::restore(&initial.stat_recipe, &broken.snapshot()).is_err());
+    let mut tampered = broken.snapshot();
+    tampered.level = 1;
+    assert!(StatRecipe::restore(&fresh, &tampered).is_err());
+    tampered = broken.snapshot();
+    tampered.modifiers.create_mana += 1;
+    assert!(StatRecipe::restore(&fresh, &tampered).is_err());
+    let mut earlier_broken = initial.stat_recipe.clone();
+    earlier_broken
+        .set_item_broken(4, true, initial.resources)
+        .unwrap();
+    assert_eq!(earlier_broken.rebase(7, create, 89, 123).unwrap(), broken);
+    let repaired = broken.set_item_broken(4, false, result.resources).unwrap();
+    assert_eq!(repaired.resources.mana, 17);
+    assert_eq!(broken, fresh);
+    assert!(fresh.rebase(10, create, 89, 123).is_err());
+}

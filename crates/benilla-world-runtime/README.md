@@ -1,5 +1,9 @@
 # Solo world runtime
 
+The separate source-bound native reconstruction is documented in
+[NATIVE-QUEST-PROGRESSION.md](NATIVE-QUEST-PROGRESSION.md). Its capability remains closed;
+the original fixture described below is a different runtime.
+
 A pure-Rust, GPL-3.0-or-later, solo-first runtime for the original world-data
 fixture. One selected owner/character starts and ticks immediately, without peer
 configuration or quorum. No game install, realm, Bevy, browser, network, private

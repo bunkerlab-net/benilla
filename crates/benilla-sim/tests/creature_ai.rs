@@ -789,3 +789,23 @@ fn source_long_distance_home_branch_is_explicitly_unsupported_at_strict_boundary
         }
     }
 }
+
+#[test]
+fn interaction_distance_uses_source_strict_three_dimensional_reach_sum() {
+    assert!(!within_interaction_distance(point(0.), point(8.), real(1.5), real(1.5)).unwrap());
+    assert!(within_interaction_distance(
+        point(0.),
+        point(f32::from_bits(8f32.to_bits() - 1)),
+        real(1.5),
+        real(1.5)
+    )
+    .unwrap());
+    assert!(!within_interaction_distance(
+        point(0.),
+        Point::new(0., 0., 8.).unwrap(),
+        real(1.5),
+        real(1.5)
+    )
+    .unwrap());
+    assert!(within_interaction_distance(point(0.), point(0.), real(-1.), real(1.5)).is_err());
+}

@@ -95,10 +95,12 @@ kill-credit aliases, item/spell requirements and reward semantics. Select a ques
 whose actual path fits the first implemented domain; do not alter its objective
 count or rewards merely to fit the fixture.
 
-Kill XP currently reuses only the licensed `XP::BaseGain` primitive, with documented
-rational/ties-to-even deviation. Native total gain needs the remaining eligibility,
-creature modifier, rate and attribution paths before a full `Gain` claim. Native
-quest XP cannot use the fixture's constant reward or original level table.
+The bounded native integration now uses the exact source-derived Gain/GiveXP and
+quest/player progression reducers with real transactional training/stat hosts.
+See [the reconstruction contract](../benilla-world-runtime/NATIVE-QUEST-PROGRESSION.md)
+for actual admission, presentation and durability boundaries. The original fixture
+constant reward and approximate XP helper are not used by that native path.
+Actual private rows, inventory/loot hosts and graphical validation remain required.
 
 ## 5. Interface and evidence before lifting gates
 

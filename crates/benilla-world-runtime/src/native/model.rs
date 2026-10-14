@@ -79,6 +79,7 @@ pub struct NpcProfile {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Profile {
+    pub quest_progression: Option<QuestProgressionGenesis>,
     pub combat: Option<CombatGenesis>,
     pub content_digest: Digest,
     pub authority_policy: Digest,
@@ -93,7 +94,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v4\0",
+            b"benilla-native-profile-v5\0",
             &(
                 NATIVE_POLICY,
                 RNG_POLICY,
@@ -174,24 +175,7 @@ impl Profile {
             vec![],
         )?;
         for a in &self.abilities {
-            if a.id == 0 || a.id > u16::MAX.into() || a.school > 6 {
-                return Err(NativeError::InvalidProfile);
-            }
-            match &a.admission {
-                AbilityAdmission::Available(s) => {
-                    s.validate()?;
-                    if s.spell_id != a.id || s.cast_ms == 0 {
-                        return Err(NativeError::InvalidProfile);
-                    }
-                    if s.effects.iter().any(|e|matches!(e,spell::MageEffect::PeriodicDamage{amplitude_ms,..} if *amplitude_ms<self.tick_ms)) {return Err(NativeError::InvalidProfile);}
-                }
-                AbilityAdmission::Unavailable { reason }
-                    if reason.is_empty() || reason.len() > 512 =>
-                {
-                    return Err(NativeError::InvalidProfile);
-                }
-                _ => {}
-            }
+            a.validate(self.tick_ms)?;
         }
         if let Some(g) = &self.combat {
             if p.level != 1
@@ -206,6 +190,9 @@ impl Profile {
             {
                 return Err(NativeError::InvalidProfile);
             }
+        }
+        if let Some(g) = &self.quest_progression {
+            g.validate(self)?;
         }
         for n in &self.npcs {
             if n.ai.creature_id <= SOLO_UNIT
@@ -250,6 +237,7 @@ impl Profile {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cast {
+    pub binding: ExecutionBinding,
     pub id: u64,
     pub ability: u32,
     pub target: NpcId,
@@ -258,6 +246,7 @@ pub struct Cast {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Npc {
+    pub aura_bindings: BTreeMap<u32, ExecutionBinding>,
     pub id: NpcId,
     pub health: u32,
     pub ai: ai::SoloCreatureAi,
@@ -265,6 +254,7 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub quest_progression: Option<QuestProgressionState>,
     pub domain: Domain,
     pub world: WorldId,
     pub player: PlayerId,
@@ -284,6 +274,14 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    AcceptQuest {
+        quest: u32,
+        giver: NpcId,
+    },
+    TurnInQuest {
+        quest: u32,
+        giver: NpcId,
+    },
     ReleaseSpirit,
     Cast {
         ability: u32,
@@ -323,6 +321,8 @@ pub struct OwnedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Rejection {
+    Quest(benilla_sim::quest_lifecycle::Gate),
+    QuestInteraction,
     UnknownAbility,
     UnavailableAbility {
         ability: u32,
@@ -341,6 +341,7 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    QuestProgression(QuestProgressionEvent),
     InputResult {
         sequence: u64,
         accepted: bool,
@@ -390,6 +391,25 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    QuestInteraction {
+        quest: u32,
+        reward: bool,
+        player_position: ai::Point,
+        npc_position: ai::Point,
+        player_health: u32,
+        npc_health: u32,
+        npc_entry: u32,
+        npc_flags: u32,
+        unit_flags: u32,
+    },
+    QuestStatus {
+        player_position: ai::Point,
+        npc_position: ai::Point,
+        npc_entry: u32,
+        npc_flags: u32,
+        unit_flags: u32,
+        player_ghost: bool,
+    },
     NativeMelee {
         action: u64,
         state_binding: Digest,
@@ -469,11 +489,18 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    QuestInteraction(QuestInteractionFacts),
+    QuestStatus {
+        player_reaction: u8,
+        npc_reaction: u8,
+    },
     NativeMelee(MeleeFacts),
     Spell(SpellFacts),
     Npc(NpcFacts),
     Movement(ai::movement::MovementOutcome),
-    PlayerMovement { accepted: bool },
+    PlayerMovement {
+        accepted: bool,
+    },
     Melee(MeleeOutcome),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -488,4 +515,60 @@ pub struct AuthorityReply {
 /// elapsed_ms budget and all segment/geometry rules. Repeated requests do not renew time.
 pub trait Authority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuestInteractionFacts {
+    pub player_in_world: bool,
+    pub player_taxi_flying: bool,
+    pub player_cannot_react_or_lost_control: bool,
+    pub player_charmed: bool,
+    pub npc_charmed: bool,
+    pub npc_pet_in_combat: bool,
+    pub npc_invisible_to_alive: bool,
+    pub player_reaction: u8,
+    pub npc_reaction: u8,
+    pub line_of_sight: bool,
+}
+impl State {
+    pub(in crate::native) fn level(&self, profile: &Profile) -> u8 {
+        self.quest_progression
+            .as_ref()
+            .map_or(profile.player.level, |s| s.player.view().level as u8)
+    }
+    pub(in crate::native) fn abilities<'a>(&'a self, profile: &'a Profile) -> &'a [Ability] {
+        self.quest_progression
+            .as_ref()
+            .map_or(&profile.abilities, |s| &s.abilities)
+    }
+    pub(in crate::native) fn ability<'a>(
+        &'a self,
+        profile: &'a Profile,
+        id: u32,
+    ) -> Option<&'a Ability> {
+        self.abilities(profile).iter().find(|a| a.id == id)
+    }
+}
+
+impl Ability {
+    pub(in crate::native) fn validate(&self, tick_ms: u32) -> Result<(), NativeError> {
+        if self.id == 0 || self.id > u16::MAX.into() || self.school > 6 {
+            return Err(NativeError::InvalidProfile);
+        }
+        match &self.admission {
+            AbilityAdmission::Available(s) => {
+                s.validate()?;
+                if s.spell_id != self.id || s.cast_ms == 0 {
+                    return Err(NativeError::InvalidProfile);
+                }
+                if s.effects.iter().any(|e|matches!(e,spell::MageEffect::PeriodicDamage{amplitude_ms,..} if *amplitude_ms<tick_ms)) {return Err(NativeError::InvalidProfile);}
+            }
+            AbilityAdmission::Unavailable { reason } if reason.is_empty() || reason.len() > 512 => {
+                return Err(NativeError::InvalidProfile);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }

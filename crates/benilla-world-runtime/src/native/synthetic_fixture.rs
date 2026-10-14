@@ -52,6 +52,7 @@ pub fn profile() -> Profile {
         damage_pushback: true,
     };
     Profile {
+        quest_progression: None,
         combat: None,
         content_digest: [3; 32],
         authority_policy: [4; 32],
@@ -155,6 +156,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::QuestInteraction { .. } | Query::QuestStatus { .. } => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "synthetic quest facts not supplied",
+                ))
+            }
             Query::NativeMelee { .. } => {
                 return Err(NativeError::AuthorityUnavailable(
                     "initialized melee geometry/callback facts",
@@ -247,9 +253,8 @@ impl Authority for SyntheticAuthority {
 }
 
 /// Source-row-shaped but deliberately invented metadata. No Classic DB rows or admission.
-pub fn initialized_profile() -> Profile {
+pub fn initialized_starter_input() -> benilla_sim::starter_init::StarterInput {
     use benilla_sim::starter_init as i;
-    let mut p = profile();
     let mut rows = Vec::new();
     for id in [60001, 60002] {
         let mut words = [0; 173];
@@ -303,7 +308,7 @@ pub fn initialized_profile() -> Profile {
     };
     item.stats[0] = i::ItemStat { kind: 5, value: 3 };
     item.stats[1] = i::ItemStat { kind: 6, value: 2 };
-    let input = i::StarterInput {
+    i::StarterInput {
         race: 1,
         class: 8,
         gender: 0,
@@ -369,7 +374,11 @@ pub fn initialized_profile() -> Profile {
         }]),
         items: vec![item],
         item_creation_hooks: false,
-    };
+    }
+}
+pub fn initialized_profile() -> Profile {
+    let input = initialized_starter_input();
+    let mut p = profile();
     p.npcs[0].ai.spawn = point(3.0);
     p.npcs[0].ai.mainhand_interval_ms = 100;
     p.npcs[0].max_health = 3000;

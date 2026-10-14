@@ -56,6 +56,7 @@ fn main() {
         "LootRelease",
         "ItemQuery",
         "QuestQuery",
+        "NpcTextQuery",
         "QuestgiverStatusQuery",
         "QuestgiverHello",
         "QuestgiverQuery",

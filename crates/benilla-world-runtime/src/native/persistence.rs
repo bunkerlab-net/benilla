@@ -17,12 +17,13 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v4\0", self)
+        crate::digest(b"benilla-native-record-v5\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CastState {
+    binding: ExecutionBinding,
     id: u64,
     ability: u32,
     target: crate::NpcId,
@@ -32,6 +33,7 @@ struct CastState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NpcState {
+    aura_bindings: BTreeMap<u32, ExecutionBinding>,
     id: crate::NpcId,
     health: u32,
     ai: ai::AiCheckpoint,
@@ -40,6 +42,7 @@ struct NpcState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StateCheckpoint {
+    quest_progression: Option<quest_progression::QuestProgressionSnapshot>,
     version: u32,
     policy: String,
     rng_policy: String,
@@ -135,10 +138,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v4\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v5\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v4\0",
+                    b"benilla-native-checkpoint-v5\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -151,6 +154,10 @@ impl Checkpoint {
 impl NativeWorld {
     pub(super) fn snapshot_of(&self, state: &State) -> StateCheckpoint {
         StateCheckpoint {
+            quest_progression: state
+                .quest_progression
+                .as_ref()
+                .map(QuestProgressionState::snapshot),
             version: NATIVE_FORMAT_VERSION,
             policy: NATIVE_POLICY.into(),
             rng_policy: RNG_POLICY.into(),
@@ -174,6 +181,7 @@ impl NativeWorld {
                     (
                         id,
                         NpcState {
+                            aura_bindings: n.aura_bindings.clone(),
                             id: n.id,
                             health: n.health,
                             ai: n.ai.checkpoint(),
@@ -197,6 +205,7 @@ impl NativeWorld {
                     (
                         id,
                         CastState {
+                            binding: c.binding.clone(),
                             id: c.id,
                             ability: c.ability,
                             target: c.target,
@@ -223,7 +232,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v4\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v5\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -233,7 +242,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v4\0",
+            b"benilla-native-checkpoint-v5\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -256,10 +265,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v4\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v5\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v4\0",
+                    b"benilla-native-checkpoint-v5\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -298,8 +307,27 @@ impl NativeWorld {
             return Err(NativeError::InvalidCheckpoint);
         }
         s.position.distance_squared(s.position)?;
-        let caster = spell::CasterResources::restore(s.resources, s.now_ms, &profile.specs())?;
-        let combat = match (&profile.combat, s.combat) {
+        let (abilities, combat_genesis) = match (
+            &profile.quest_progression,
+            &s.quest_progression,
+            &profile.combat,
+        ) {
+            (Some(g), Some(q), Some(c)) => {
+                let (a, c) = g.restore_inputs(q, c)?;
+                (a, Some(c))
+            }
+            (None, None, c) => (profile.abilities.clone(), c.clone()),
+            _ => return Err(NativeError::InvalidCheckpoint),
+        };
+        let specs = abilities
+            .iter()
+            .filter_map(|a| match &a.admission {
+                AbilityAdmission::Available(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let caster = spell::CasterResources::restore(s.resources, s.now_ms, &specs)?;
+        let combat = match (&combat_genesis, s.combat) {
             (Some(g), Some(c)) => Some(PlayerCombatState::restore(
                 g,
                 c,
@@ -311,6 +339,18 @@ impl NativeWorld {
                 profile.tick_ms,
             )?),
             (None, None) => None,
+            _ => return Err(NativeError::InvalidCheckpoint),
+        };
+        let quest_progression = match (&profile.quest_progression, s.quest_progression, &combat) {
+            (Some(g), Some(q), Some(c)) => Some(QuestProgressionState::restore(
+                g,
+                q,
+                c,
+                s.health,
+                caster.mana,
+                s.now_ms,
+            )?),
+            (None, None, _) => None,
             _ => return Err(NativeError::InvalidCheckpoint),
         };
         let resources = mana::MageManaState::from_state(
@@ -351,6 +391,7 @@ impl NativeWorld {
                 || n.id.generation > s.tick
                 || n.health > p.max_health
                 || n.auras.len() > MAX_AURAS
+                || n.auras.keys().ne(n.aura_bindings.keys())
             {
                 return Err(NativeError::InvalidCheckpoint);
             }
@@ -361,13 +402,15 @@ impl NativeWorld {
             }
             let mut auras = BTreeMap::new();
             for (ability, a) in n.auras {
-                let Some(Ability {
-                    admission: AbilityAdmission::Available(spec),
-                    ..
-                }) = profile.ability(ability)
-                else {
+                let binding = n
+                    .aura_bindings
+                    .get(&ability)
+                    .ok_or(NativeError::InvalidCheckpoint)?;
+                binding.validate(&profile, quest_progression.as_ref(), s.now_ms)?;
+                if binding.ability.id != ability {
                     return Err(NativeError::InvalidCheckpoint);
-                };
+                }
+                let spec = binding.spec()?;
                 let target = spell::DamageTarget::restore(a, spec, SOLO_UNIT, s.now_ms)?;
                 if target.id != id
                     || target.health != n.health
@@ -384,7 +427,8 @@ impl NativeWorld {
                     .now_ms
                     .checked_sub(aura.applied_ms())
                     .ok_or(NativeError::InvalidCheckpoint)?;
-                if aura.applied_ms() < profile.clock_origin_ms
+                if binding.captured_ms != aura.applied_ms()
+                    || aura.applied_ms() < profile.clock_origin_ms
                     || !(aura.applied_ms() - profile.clock_origin_ms)
                         .is_multiple_of(u64::from(profile.tick_ms))
                     || aura.timer_ms <= 0
@@ -401,6 +445,7 @@ impl NativeWorld {
                     health: n.health,
                     ai,
                     auras,
+                    aura_bindings: n.aura_bindings,
                 },
             );
         }
@@ -433,13 +478,12 @@ impl NativeWorld {
         }
         let mut casts = BTreeMap::new();
         for (id, c) in s.casts {
-            let Some(Ability {
-                admission: AbilityAdmission::Available(spec),
-                ..
-            }) = profile.ability(c.ability)
-            else {
+            c.binding
+                .validate(&profile, quest_progression.as_ref(), s.now_ms)?;
+            if c.binding.ability.id != c.ability {
                 return Err(NativeError::InvalidCheckpoint);
-            };
+            }
+            let spec = c.binding.spec()?;
             if id == 0
                 || id != c.id
                 || id >= s.next_cast_id
@@ -452,6 +496,14 @@ impl NativeWorld {
             c.origin.distance_squared(c.origin)?;
             let execution =
                 spell::MageProjectileCast::restore(c.execution, spec.clone(), s.now_ms)?;
+            if matches!(execution.state(), spell::CastState::Casting { .. })
+                && abilities.iter().find(|a| a.id == c.ability) != Some(&c.binding.ability)
+            {
+                return Err(NativeError::InvalidCheckpoint);
+            }
+            if c.binding.captured_ms != execution.created_ms() {
+                return Err(NativeError::InvalidCheckpoint);
+            }
             execution.validate_fixed_step(profile.clock_origin_ms, profile.tick_ms)?;
             execution.validate_resources(&resources.caster)?;
             if execution.created_ms() < profile.clock_origin_ms
@@ -465,6 +517,7 @@ impl NativeWorld {
             casts.insert(
                 id,
                 Cast {
+                    binding: c.binding,
                     id,
                     ability: c.ability,
                     target: c.target,
@@ -485,7 +538,33 @@ impl NativeWorld {
         {
             return Err(NativeError::InvalidCheckpoint);
         }
+        if let Some(q) = &quest_progression {
+            let mut deaths = 0u64;
+            for (&spawn, &generation) in &q.credited_generations {
+                let npc = npcs.get(&spawn).ok_or(NativeError::InvalidCheckpoint)?;
+                if generation > npc.id.generation
+                    || (npc.health > 0 && generation == npc.id.generation)
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                deaths = deaths
+                    .checked_add(generation.checked_add(1).ok_or(NativeError::Limit)?)
+                    .ok_or(NativeError::Limit)?;
+            }
+            if deaths.checked_add(1) != Some(q.next_death_event)
+                || npcs.values().any(|n| {
+                    n.health == 0
+                        && q.credited_generations.get(&n.id.spawn) != Some(&n.id.generation)
+                })
+                || q.played_time_total != ((s.now_ms - profile.clock_origin_ms) / 1000) as u32
+                || q.quests.next_sequence()
+                    > s.next_sequence.saturating_add(deaths.saturating_mul(3))
+            {
+                return Err(NativeError::InvalidCheckpoint);
+            }
+        }
         let state = State {
+            quest_progression,
             domain: s.domain,
             world: s.world,
             player: s.player,

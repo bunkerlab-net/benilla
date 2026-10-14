@@ -264,7 +264,7 @@ impl Init<'_> {
         rows.sort_by_key(|r| r.row_id);
         Ok(rows)
     }
-    fn skill_trained_spells(&mut self, id: u16, value: u16) -> Result<()> {
+    pub(super) fn skill_trained_spells(&mut self, id: u16, value: u16) -> Result<()> {
         let race = 1u32 << (self.input.race - 1);
         let class = 1u32 << (self.input.class - 1);
         let training_step = self.skills[&id].step;
@@ -632,6 +632,7 @@ pub fn first_entry(
         skills: normalized,
         known: Default::default(),
         trace: vec![InitEvent::LoadSavedSkills],
+        learned_spells: vec![],
         skill_auras: vec![],
         applied_auras: Default::default(),
         initial_auras: vec![],

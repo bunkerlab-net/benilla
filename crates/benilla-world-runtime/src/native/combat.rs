@@ -46,7 +46,7 @@ pub struct CharacterStats {
     pub disabled_weapon_slots: Vec<u8>,
 }
 impl CharacterStats {
-    fn from_result(x: &init::EquipmentRecompute) -> Self {
+    pub(in crate::native) fn from_result(x: &init::EquipmentRecompute) -> Self {
         Self {
             attributes: x.effective_attributes.0,
             resistances: x.resistances,
@@ -70,10 +70,10 @@ fn serialize_recipe<S: serde::Serializer>(r: &init::StatRecipe, s: S) -> Result<
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(super) struct InitialWeapon {
-    slot: u8,
-    skill: u16,
-    delay_ms: u32,
-    damage: Vec<(u32, u32, u32)>,
+    pub(in crate::native) slot: u8,
+    pub(in crate::native) skill: u16,
+    pub(in crate::native) delay_ms: u32,
+    pub(in crate::native) damage: Vec<(u32, u32, u32)>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct InitialAuraMetadata {
