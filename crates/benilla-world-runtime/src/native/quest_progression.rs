@@ -323,6 +323,7 @@ impl QuestProgressionGenesis {
         );
         Ok(out)
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn restore_inputs(
         &self,
         s: &QuestProgressionSnapshot,
@@ -730,6 +731,7 @@ impl q::Host for QuestHost<'_> {
     }
 }
 impl QuestProgressionState {
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn new(
         g: &QuestProgressionGenesis,
         now_ms: u64,
@@ -768,6 +770,7 @@ impl QuestProgressionState {
             played_time_total: self.played_time_total,
         }
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn restore(
         g: &QuestProgressionGenesis,
         s: QuestProgressionSnapshot,

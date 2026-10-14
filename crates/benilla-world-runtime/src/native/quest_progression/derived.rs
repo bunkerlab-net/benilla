@@ -175,6 +175,7 @@ fn resources(view: &pg::Snapshot) -> init::Resources {
 }
 
 /// Full validation is appropriate only at a completed-operation boundary.
+#[cfg(any(test, feature = "synthetic-native-tests"))]
 fn boundary(
     g: &QuestProgressionGenesis,
     view: &pg::Snapshot,
@@ -323,6 +324,7 @@ impl QuestProgressionState {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn validate_derived(
         &self,
         g: &QuestProgressionGenesis,
@@ -356,6 +358,7 @@ impl QuestProgressionState {
 /// prefix. Historical bindings provide their actual captured recipe, never a
 /// fabricated equipment state. The owner separately binds this prefix to its
 /// current journal and validates current physical equipment durability.
+#[cfg(any(test, feature = "synthetic-native-tests"))]
 pub(super) fn validate_history(
     g: &QuestProgressionGenesis,
     player: &pg::Snapshot,

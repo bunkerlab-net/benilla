@@ -65,6 +65,7 @@ impl ExecutionBinding {
             _ => Err(NativeError::InvalidState),
         }
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn validate(
         &self,
         profile: &Profile,
