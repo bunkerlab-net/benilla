@@ -3,19 +3,20 @@
 `benilla_sim::player_progression` ports non-kill `Player::GiveXP`, bounded
 `GiveLevel`, and `UpdateSkillsForLevel` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. Its rules identity is
-`cmangos-8ec338a1-solo-mage-progression-softfloat-v1`.
+`cmangos-8ec338a1-solo-mage-progression-unspent-talents-softfloat-v2`.
 
-This is a real staged numeric/state reducer, with required audited callbacks for
-unported dependencies. It is **not** a completed native quest XP host, compiler,
-world-runtime adapter, persistence system, complete player-stat implementation,
-or evidence that a real starter quest or full Classic world is playable. There
-is no production no-op `Host`. No game rows, assets, or database are bundled.
+This module supplies a staged numeric/state reducer and required audited callbacks.
+The bounded native ordinary-quest integration already composes real live training,
+derived stats, recipe rebasing, client projection and durable publication. Neither
+layer is a complete player-stat implementation or evidence of a playable real
+starting zone. Production native admission remains closed. There is no production
+no-op `Host`; no game rows, assets or database are bundled.
 
 ## Inputs and admission
 
 `Catalog::new` takes a native race ID, mage class ID, explicit session rules,
 selected actual `player_levelstats` and `player_classlevelstats` rows, resolved
-XP thresholds, and complete queried skill dependencies. It admits levels 1–9
+XP thresholds, and complete queried skill dependencies. It admits levels 1–60
 and rejects transitions beyond the supplied rows. It never repeats a level-one
 row, synthesizes a threshold, fills an SQL gap, or extrapolates player stats.
 The native compiler must establish the real race/class creation relationship;
@@ -25,13 +26,14 @@ are positive uint16 values. Each table's keys must be unique and agree.
 Zero strength is rejected because the source loader treats it as a missing-row
 sentinel, failing level one or copying the preceding row at later levels.
 
-`Rules::from_classic_config(max_player_level, always_max_skill_for_level)` uses
+`Rules::from_classic_config(max_player_level, always_max_skill_for_level, talent_rate_bits)` uses
 World.cpp's configuration bound 1–100 and the pinned World.h global skill-cap
 formula. `Catalog` rejects a separately supplied global skill maximum that does
 not match this derivation. The rules must identify the actual session authority.
 A new P2P world may explicitly select versioned Classic defaults (60 and false);
 those are authored P2P rules, not a captured configuration from an old server.
-This module does not silently select either default.
+This module does not silently select defaults. The resolved `Rate.Talent` binary32
+bits and talent policy are part of the catalog identity.
 
 The XP table contract is the resolved `ObjectMgr::GetXPForLevel` result:
 
@@ -61,7 +63,8 @@ a stored assertion is not independent proof of absence.
 ## State and transaction API
 
 `State::restore(catalog, snapshot)` checks the policy and canonical catalog hash,
-selected create values and next XP, session level, zero pre-ten talent counts,
+selected create values and next XP, session level, source-derived free talents
+and zero used talents,
 resource values/maxima, software-derived stats, and skill identity/positions.
 `NumericState::from_modifiers` adapts the existing public starter
 `ModifierSnapshot` without changing the initializer or its equipment recipe.
@@ -112,8 +115,10 @@ For each level, the reducer preserves this order:
    power deltas (mana followed by four zeros), then five create-stat deltas
 2. Set next XP, reset level-played time, set level, and update skills
 3. Replace each create attribute, then create health and mana
-4. Invoke `InitTalentForLevel`; with level below ten and zero used talents this
-   branch does not change the zero free-talent count
+4. Execute `InitTalentForLevel` / `UpdateFreeTalentPoints`. Below ten, the
+   source no-op preserves reachable zero. At ten or above, binary32
+   `(level - 9) * Rate.Talent` is truncated to uint32, then zero used points are
+   subtracted. At rate one, levels ten and sixty expose one and 51 free points
 5. Execute the supported numeric portions and required hooks of `UpdateAllStats`
 6. Fill health only if alive, fill mana and energy, retain/clamp rage, and update
    the session's level. Pet synchronization is absent only under admission
@@ -150,12 +155,26 @@ transaction. Supporting those inputs requires a future mutable modifier/recipe
 adapter and source comparisons across successive level changes; silently keeping
 or rounding the old cell would change later armor values.
 
+`Rate.Talent` zero is allowed by the upstream nonnegative configuration rule.
+The fork rejects negative, nonfinite and subnormal nonzero rates and any supplied
+level whose binary32 product cannot safely convert to uint32. There is no guessed
+rate clamp. Talents remain explicitly unspent; allocation, resets and post-ten
+level decreases are unsupported. Full all-class powers, forms, pets and talent
+trees require separate closure. Numeric level 60 does not imply every melee
+branch is admitted. The separate [defense-gain kernel](NPC-MELEE.md) now covers
+logarithmic catch-up for actual levels 1..60 and pure skill maxima 1..300 using
+versioned source-derived constants and software arithmetic. With automatic skill
+maximization disabled, authored native tests verify late catch-up gains and exact
+checkpoint replay. Other unsupported combat dependencies still reject atomically.
+
 ## Required host implementation
 
-The host is an explicit unresolved integration dependency, not a certification
-marker. `preflight` must verify its real native dependencies and the transaction
-constraints. `apply(event, view)` must execute or record the required operation
-against the clone, rejecting unsupported effects.
+The numeric module requires a real host. The native ordinary-quest
+`ProgressionHost` now composes `LiveTraining`, `DerivedStats` and mandatory
+callback-history replay. `preflight` rechecks dependencies and transaction
+constraints; `apply(event, view)` executes supported callbacks against the clone
+and rejects unsupported effects. This is internal consistency, not captured-data
+provenance or production capability.
 
 For every changed existing skill, this reducer writes value/max, preserves step
 and bonuses, marks a non-NEW status CHANGED, and invokes these callbacks:
@@ -170,9 +189,12 @@ source in-world `learnSpell` versus out-of-world `addSpell`; removals; ranks,
 dependents, effects, and recursive skill/spell consequences. It must reject any
 closure that would change this reducer's fixed modifier cells, add/remove/reorder
 skills, or produce other unsupported effects. There is no assumption that an
-already-known spell or an empty supplied list makes that closure inert. A future
-host may admit bounded real learning consequences in its own state only after
-implementing and proving this closure.
+already-known spell or an empty supplied list makes that closure inert.
+`LiveTraining` now admits bounded actual initializer learning and rejects fixed
+skill, modifier, passive, proficiency and other unsupported spellbook changes.
+Native genesis probes every supplied consecutive level with the actual host. It
+also rejects unproved defense-value-sensitive threshold learning, which could
+otherwise appear only after combat between level callbacks.
 
 The original mSkillStatus is an unordered map. `Snapshot.skills` preserves the
 host-established traversal order; this reducer never silently sorts it. A P2P
@@ -185,9 +207,10 @@ spell-damage and hit updates. They must not merely acknowledge a name. The
 numeric mage-crit and mana-regeneration outputs supplied here do not implement
 all seven spell-school or every player-field projection. The host and owner must
 also propagate the new create rows into the equipment/durability recipe before
-subsequent recomputation. The existing level-one `StatRecipe` has no rebasing
-adapter in this change; retaining it unchanged after a level-up would be wrong.
-No runtime/app/initializer code or native capability gate is changed here.
+subsequent recomputation. Native `commit_quest_progression` already rebases `StatRecipe` from validated new
+create rows and updates combat, skills, resources and ability bindings before
+field/event projection and durable publication. Historical preparation and aura
+bindings retain their original context. Production capability remains closed.
 
 ## Evidence and provenance
 
@@ -207,27 +230,32 @@ Object.cpp, ObjectMgr.cpp, World.cpp, and World.h before extracting unchanged
 bodies or checking the source configuration declarations.
 Important source entry points are:
 
-- Player.cpp: GiveXP 2668, GiveLevel 2707, GetSkillInfo 5327, SetSkill 5365/5408,
-  UpdateSkillsForLevel 5595
+- Player.cpp: GiveXP 2668, GiveLevel 2707, UpdateFreeTalentPoints 2771,
+  InitTalentForLevel 2803, CalculateTalentsPoints 19284, GetSkillInfo 5327,
+  SetSkill 5365/5408, UpdateSkillsForLevel 5595
 - ObjectMgr.cpp: XP loading 3663, selected level getters 3946/3959,
   GetXPForLevel 7235
 - World.h: GetConfigMaxSkillValue 449; World.cpp: MaxPlayerLevel bounds 548,
-  AlwaysMaxSkillForLevel default 653; DBCEnums.h: MAX_LEVEL 100
+  AlwaysMaxSkillForLevel default 653, Rate.Talent 456 and setConfigPos 2420;
+  DBCEnums.h: MAX_LEVEL 100
 - Unit.cpp: modifier getters/totals 9049–9103, resource setters 9224–9326,
   player create powers 9374
 - StatSystem.cpp: UpdateAllStats 83, armor 122, stamina/intellect bonuses 144–171,
   maximum health/powers 174–202
 
-The committed fixture has 881 original synthetic cases: 878 valid numeric/state/trace
-comparisons within the extracted bodies and three explicitly rejected raw rage inputs.
+The committed fixture has 2,429 authored cases: 2,426 valid numeric/state/trace
+comparisons and three explicitly rejected raw rage inputs.
 These include zero/dead/cap
-XP, uint32 overflow, cap-surplus retention, up to eight sequential levels,
+XP, uint32 overflow, cap-surplus retention, all transitions through sixty, 1→60 and multilevel grants across ten/cap,
 negative HP/mana packet deltas, skill flags/statuses and explicit maximize,
 static modifier rounding/clamping, and exact ordered field/hook traces. Invalid
 raw rage-above-maximum rows are asserted to fail snapshot admission rather than
 presented as valid character parity. No real game rows or source assets are used.
 
-The C++ harness extracts GiveXP/GiveLevel, both SetSkill overloads,
+Talent cases include zero (both signs), minimum normal, fractional, one, greater
+than one, adjacent-to-one and near-uint32-boundary rates under both skill policies.
+The C++ harness extracts GiveXP/GiveLevel, InitTalentForLevel,
+UpdateFreeTalentPoints, CalculateTalentsPoints, both SetSkill overloads,
 UpdateSkillsForLevel, source skill range/info classifiers, stat numeric bodies,
 Object/Unit setters, GetCreatePowers, GetXPForLevel, and the configuration skill
 getter. Unsupported dependent systems are explicit traced adapters. Matching a

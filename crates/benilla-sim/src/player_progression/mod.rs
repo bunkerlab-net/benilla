@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, Project contributors.
 // Source GPL-2.0-or-later; this bounded translation GPL-3.0-or-later.
-//! Transactional GiveXP/GiveLevel for explicit solo mage rows, levels 1–9.
+//! Transactional GiveXP/GiveLevel for explicit solo mage rows, levels 1–60 with unspent talents.
 //! See PLAYER-PROGRESSION.md. The audited host is mandatory, not a no-op adapter.
 pub mod derived;
 pub mod kill_xp;
 mod numeric;
 mod skills;
+mod talents;
 
 use crate::starter_init::{Attributes, ModifierSnapshot, Rows, SkillLineRow, SkillRaceClassRow};
 pub use numeric::NumericState;
@@ -14,8 +15,8 @@ use sha2::{Digest, Sha256};
 pub use skills::{SkillDependency, SkillState, SkillStatus};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const POLICY_ID: &str = "cmangos-8ec338a1-solo-mage-progression-softfloat-v1";
-pub const MAX_SUPPORTED_LEVEL: u32 = 9;
+pub const POLICY_ID: &str = "cmangos-8ec338a1-solo-mage-progression-unspent-talents-softfloat-v2";
+pub const MAX_SUPPORTED_LEVEL: u32 = 60;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +42,8 @@ pub struct Rules {
     pub max_player_level: u32,
     pub always_max_skill_for_level: bool,
     pub global_skill_max: u16,
+    /// Actual resolved World Rate.Talent binary32 bits, including valid zero.
+    pub talent_rate_bits: u32,
 }
 impl Rules {
     /// Source World::GetConfigMaxSkillValue and World.cpp's MaxPlayerLevel bound.
@@ -48,10 +51,12 @@ impl Rules {
     pub fn from_classic_config(
         max_player_level: u32,
         always_max_skill_for_level: bool,
+        talent_rate_bits: u32,
     ) -> Result<Self> {
         if !(1..=100).contains(&max_player_level) {
             return Err(Error::Invalid("MaxPlayerLevel"));
         }
+        talents::validate_rate(talent_rate_bits)?;
         let cap = max_player_level;
         let global_skill_max = if cap > 60 {
             300 + ((cap - 60) * 75) / 10
@@ -62,7 +67,13 @@ impl Rules {
             max_player_level,
             always_max_skill_for_level,
             global_skill_max: global_skill_max as u16,
+            talent_rate_bits,
         })
+    }
+    /// Source CalculateTalentsPoints with used talent count proven zero.
+    /// Numeric rejection is transactional, never a saturating C++ cast guess.
+    pub fn unspent_talent_points(self, level: u32) -> Result<u32> {
+        talents::points(level, self.talent_rate_bits)
     }
 }
 /// Selected actual `player_levelstats` row; no gap-fill or extrapolation.
@@ -173,7 +184,11 @@ impl Catalog {
             return Err(Error::Unsupported("solo mage identity"));
         }
         if rules
-            != Rules::from_classic_config(rules.max_player_level, rules.always_max_skill_for_level)?
+            != Rules::from_classic_config(
+                rules.max_player_level,
+                rules.always_max_skill_for_level,
+                rules.talent_rate_bits,
+            )?
         {
             return Err(Error::Invalid("progression rules"));
         }
@@ -207,6 +222,7 @@ impl Catalog {
             }
         }
         for r in level_stats {
+            rules.unspent_talent_points(r.level)?;
             if r.race != race
                 || r.class != class
                 || !(1..=MAX_SUPPORTED_LEVEL).contains(&r.level)
@@ -271,10 +287,12 @@ impl Catalog {
     fn hash(&self) -> [u8; 32] {
         let mut h = Sha256::new();
         h.update(POLICY_ID.as_bytes());
+        h.update(talents::POLICY_ID.as_bytes());
         h.update([self.race, self.class]);
         h.update(self.rules.max_player_level.to_le_bytes());
         h.update([u8::from(self.rules.always_max_skill_for_level)]);
         h.update(self.rules.global_skill_max.to_le_bytes());
+        h.update(self.rules.talent_rate_bits.to_le_bytes());
         h.update((self.levels.len() as u32).to_le_bytes());
         for (level, row) in &self.levels {
             h.update(level.to_le_bytes());
@@ -334,7 +352,7 @@ impl Catalog {
             return Err(Error::Unsupported("level above configured row-loader cap"));
         }
         if !(1..=MAX_SUPPORTED_LEVEL).contains(&level) {
-            return Err(Error::Unsupported("mage levels outside 1–9"));
+            return Err(Error::Unsupported("mage levels outside 1–60"));
         }
         self.levels.get(&level).copied().ok_or(Error::Missing {
             table: "level progression rows",
@@ -382,7 +400,7 @@ impl State {
             || snapshot.modifiers.create_health != row.health
             || snapshot.modifiers.create_mana != row.mana
             || snapshot.used_talent_points != 0
-            || snapshot.free_talent_points != 0
+            || snapshot.free_talent_points != catalog.rules.unspent_talent_points(snapshot.level)?
         {
             return Err(Error::Invalid("progression checkpoint identity/base rows"));
         }
@@ -526,6 +544,9 @@ impl<H: Host> Staged<'_, H> {
         if level == self.state.0.level {
             return Ok(());
         }
+        if level < self.state.0.level && self.state.0.level >= 10 {
+            return Err(Error::Unsupported("decreasing post-ten mage progression"));
+        }
         let row = self.catalog.level(level)?;
         let old = &self.state.0.modifiers;
         // GetCreateStat is float; a negative float-to-u32 packet conversion is undefined C++.
@@ -564,7 +585,11 @@ impl<H: Host> Staged<'_, H> {
         self.emit(Event::CreateHealth(row.health))?;
         self.state.0.modifiers.create_mana = row.mana;
         self.emit(Event::CreateMana(row.mana))?;
-        // Below ten, usedTalentCount==0 makes UpdateFreeTalentPoints inert.
+        // Source UpdateFreeTalentPoints is a no-op below ten when no talents
+        // are used. Monotonic progression makes the reachable free count zero.
+        if level >= 10 {
+            self.state.0.free_talent_points = self.catalog.rules.unspent_talent_points(level)?;
+        }
         self.emit(Event::InitTalentForLevel)?;
         self.update_all_stats()?;
         if self.state.0.alive {
@@ -618,7 +643,7 @@ pub fn give_xp<H: Host>(
         events: s.events,
     })
 }
-/// Direct GiveLevel keeps XP unchanged, allows lowering a supported level and
+/// Direct GiveLevel keeps XP unchanged. Post-ten lowering/reset is excluded;
 /// source does not itself impose the GiveXP cap, but this bounded row-loader
 /// contract rejects levels above that cap. Equal level is a source no-op.
 /// Lower create attributes are rejected: the source packet would cast a negative

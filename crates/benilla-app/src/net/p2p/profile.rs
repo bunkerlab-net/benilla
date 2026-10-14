@@ -254,7 +254,10 @@ pub(super) fn browse(
                         .any(|c| c.name.eq_ignore_ascii_case(&input.name))
                     {
                         benilla_protocol::messages::CHAR_CREATE_NAME_IN_USE
-                    } else if store.characters().len() >= benilla_profile::MAX_CHARACTERS {
+                    } else if store.characters().len() >= benilla_profile::MAX_CHARACTERS
+                        || store.characters().len() + store.archived_characters().len()
+                            >= benilla_profile::MAX_RETAINED_CHARACTERS
+                    {
                         benilla_protocol::messages::CHAR_CREATE_SERVER_LIMIT
                     } else {
                         store
@@ -317,14 +320,13 @@ pub(super) fn browse(
                     roster(&store, events, RosterCause::Park, generation)?;
                 }
                 super::super::CharRequest::Abandon => return Ok(()),
-                // Deliberately unsupported until recoverable deletion/rename semantics are defined.
-                super::super::CharRequest::Delete(_) => emit(
-                    events,
-                    SessionEvent::CharActionResult {
-                        action: CharAction::Delete,
-                        code: 0x3a,
-                    },
+                super::super::CharRequest::Delete(wanted) => character_actions::delete(
+                    &mut store,
+                    wanted,
+                    |event| emit(events, event),
+                    |saved| roster(saved, events, RosterCause::Changed, generation),
                 )?,
+                // Rename remains unsupported; deletion never changes names or identities.
                 super::super::CharRequest::Rename { .. } => emit(
                     events,
                     SessionEvent::CharRenamed {

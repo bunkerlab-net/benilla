@@ -26,10 +26,15 @@ pub fn item(entry: u32) -> inv::Item {
         area: 0,
         map: 0,
         lock_id: 0,
+        script_id: 0,
         spells: [inv::Spell {
             id: 0,
             trigger: 0,
             charges: 0,
+            ppm_rate_bits: 0,
+            cooldown: 0,
+            category: 0,
+            category_cooldown: 0,
         }; 5],
     }
 }
@@ -61,6 +66,10 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
             id: old.spells[index].id,
             trigger: old.spells[index].trigger,
             charges: 0,
+            ppm_rate_bits: 0,
+            cooldown: 0,
+            category: 0,
+            category_cooldown: 0,
         });
         items.push(row);
     }
@@ -168,4 +177,45 @@ impl Authority for LootAuthority {
         }
         self.base.resolve(r)
     }
+}
+
+/// Original grant-only rows for source-shaped component tests. No production admission.
+pub fn item_grant_setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
+    let (p, input, mut q) = setup();
+    let loot = q.loot.as_mut().unwrap();
+    let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+    items
+        .iter_mut()
+        .find(|i| i.entry == 70001)
+        .unwrap()
+        .maximum_count = 7;
+    let mut bag = item(70003);
+    bag.class = 1;
+    bag.inventory_type = 18;
+    bag.container_slots = 16;
+    bag.stackable = 1;
+    bag.bonding = 1;
+    bag.spells[0] = inv::Spell {
+        id: 80001,
+        trigger: 0,
+        charges: -5,
+        ppm_rate_bits: 1.25f32.to_bits(),
+        cooldown: 10,
+        category: 4,
+        category_cooldown: 20,
+    };
+    let mut charged = item(70004);
+    charged.spells = bag.spells;
+    charged.start_quest = 70002;
+    charged.item_set = 80002;
+    let mut random = item(70005);
+    random.random_property = 80003;
+    items.extend([bag, charged, random]);
+    loot.inventory = inventory_catalog(items);
+    (p, input, q)
+}
+pub fn item_grant_profile() -> Profile {
+    let (mut p, input, q) = item_grant_setup();
+    p.initialize_quest_progression(&input, q).unwrap();
+    p
 }

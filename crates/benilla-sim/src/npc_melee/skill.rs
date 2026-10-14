@@ -2,6 +2,7 @@
 // Player::UpdateCombatSkills/UpdateDefense/UpdateSkill, pinned 8ec338a1.
 use super::{
     numeric::{checked, output},
+    skill_log::DEFENSE_GAP_LOG_BITS,
     MeleeError,
 };
 use crate::classic_spell::SpellFloat;
@@ -58,8 +59,10 @@ pub struct DefenseSkill {
     pub maximum: u16,
     pub gain: u16,
 }
-/// Minimal exact starter branch: room<7. Source gap>=7 calls std::log, whose
-/// architecture-independent port is deliberately not approximated here.
+/// Source defense curve for levels 1..60. Catch-up (room>=7) admits pure
+/// maxima 1..300, using canonical v1 log bits and software binary64 arithmetic.
+/// The existing quadratic branch retains its full uint16 maximum domain.
+/// See NPC-MELEE.md for the explicit native-libm canonicalization boundary.
 /// None means no source random draw; Some still consumes a draw when gain=0.
 pub fn defense_gain_chance(
     level: u8,
@@ -72,17 +75,30 @@ pub fn defense_gain_chance(
         return Ok(None);
     }
     let room = u32::from(skill.maximum - skill.value);
-    if room >= 7 {
-        return Err(MeleeError::Unsupported(
-            "logarithmic defense skill catch-up",
-        ));
-    }
-    let numerator = checked(Double::from_u128_r(u128::from(room * room), R))?;
     let maximum = checked(Double::from_u128_r(u128::from(skill.maximum), R))?;
-    let denominator = checked(Double::from_bits(0x401c000000000000).mul_r(maximum, R))?; //7.0
-    let base = checked(numerator.div_r(denominator, R))?
-        .max(Double::ZERO)
-        .min(Double::from_bits(0x3ff0000000000000));
+    let one = Double::from_bits(0x3ff0000000000000);
+    let seven = Double::from_bits(0x401c000000000000);
+    let base = if room >= 7 {
+        if skill.maximum > 300 {
+            return Err(MeleeError::Unsupported(
+                "defense skill catch-up maximum above Classic 300",
+            ));
+        }
+        let level = checked(Double::from_u128_r(u128::from(level), R))?;
+        let level_factor = checked(Double::from_bits(0x4028000000000000).div_r(level, R))?; //12.0
+        let level_factor = checked(one.add_r(level_factor, R))?;
+        let growth = checked(Double::from_bits(0x3fcc28f5c28f5c29).mul_r(level_factor, R))?; //0.22
+        let log = Double::from_bits(u128::from(DEFENSE_GAP_LOG_BITS[(room - 7) as usize]));
+        let catch_up = checked(growth.mul_r(log, R))?;
+        let seam = checked(seven.div_r(maximum, R))?;
+        checked(seam.add_r(catch_up, R))?
+    } else {
+        let numerator = checked(Double::from_u128_r(u128::from(room * room), R))?;
+        let denominator = checked(seven.mul_r(maximum, R))?;
+        checked(numerator.div_r(denominator, R))?
+    }
+    .max(Double::ZERO)
+    .min(one);
     let final_chance = checked(base.mul_r(Double::from_bits(0x4059000000000000), R))?;
     let narrowed: Single = checked(final_chance.convert_r(R, &mut false))?;
     Ok(Some(output(narrowed)?))

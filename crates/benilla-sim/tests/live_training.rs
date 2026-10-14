@@ -781,3 +781,69 @@ fn skill_step_false_return_with_active_child_stays_transactionally_unsupported()
     });
     assert!(LiveTraining::restore_authoritative(&fresh, &tampered, &view).is_err());
 }
+
+#[test]
+fn real_training_closure_and_item_recipe_rebase_through_sixty() {
+    let mut input = input();
+    input.skill_abilities = Rows::Complete(vec![mapping(1, 95, TRAINED, 300, 1)]);
+    let mage = initialize_mage(&input).unwrap();
+    let fresh = LiveTraining::from_initializer(&input, &mage).unwrap();
+    let mut live = fresh.clone();
+    let mut previous = view(&input, &mage);
+    let mut recipe = mage.stat_recipe.clone();
+    for level in 2..=60 {
+        let mut callback_view = previous.clone();
+        callback_view.level = level;
+        callback_view.skills[0].value = (level * 5) as u16;
+        callback_view.skills[0].maximum = (level * 5) as u16;
+        callback_view.skills[0].status = p::SkillStatus::Changed;
+        live.apply(&callback(&callback_view), &callback_view)
+            .unwrap();
+        assert_eq!(live.abilities().contains_key(&TRAINED), level == 60);
+        assert_eq!(
+            live.snapshot()
+                .calls
+                .last()
+                .unwrap()
+                .view
+                .free_talent_points,
+            (level - 1).saturating_sub(9)
+        );
+        let create = Attributes(input.create_attributes.0.map(|v| v + level as i32 - 1));
+        recipe = recipe
+            .rebase(level, create, 41 + level, 59 + level)
+            .unwrap();
+        let m = recipe.snapshot().modifiers;
+        callback_view.modifiers = m.clone();
+        callback_view.numeric =
+            p::NumericState::from_modifiers(level, &m, 1, [1, 0, 0, 100, 0]).unwrap();
+        callback_view.session_level = level;
+        callback_view.free_talent_points = level.saturating_sub(9);
+        previous = callback_view;
+    }
+    let saved = serde_json::from_slice(&serde_json::to_vec(&live.snapshot()).unwrap()).unwrap();
+    assert_eq!(
+        LiveTraining::restore_authoritative(&fresh, &saved, &previous)
+            .unwrap()
+            .snapshot(),
+        live.snapshot()
+    );
+    assert_eq!(live.snapshot().calls.len(), 59);
+    assert_eq!(recipe.snapshot().level, 60);
+    let rebased = mage
+        .stat_recipe
+        .rebase(
+            60,
+            previous.modifiers.create,
+            previous.modifiers.create_health,
+            previous.modifiers.create_mana,
+        )
+        .unwrap();
+    assert_eq!(
+        StatRecipe::restore(&rebased, &recipe.snapshot()).unwrap(),
+        recipe
+    );
+    let mut missing = input.clone();
+    missing.spells.retain(|r| r.id != TRAINED);
+    assert!(LiveTraining::from_initializer(&missing, &mage).is_err());
+}

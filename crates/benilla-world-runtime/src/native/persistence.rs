@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v16\0", self)
+        crate::digest(b"benilla-native-record-v18\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +120,41 @@ pub fn decode_records(bytes: &[u8]) -> Result<Vec<TickRecord>, NativeError> {
     }
     Ok(records)
 }
+/// Bound aggregate replay before any source callback runs, including callers
+/// passing a typed/deserialized checkpoint directly to restore.
+const MAX_HISTORY_REPLAY_CALLS: u64 = 65_536;
+impl StateCheckpoint {
+    fn validate_history_budget(&self) -> Result<(), NativeError> {
+        // Owner loading replays training in restore_inputs, state restore,
+        // derived replay, and the final synchronize consistency check.
+        let mut total = self
+            .quest_progression
+            .as_ref()
+            .map_or(Some(0), |q| {
+                (q.training.calls.len() as u64)
+                    .checked_mul(4)
+                    .and_then(|n| n.checked_add(q.derived_calls.len() as u64))
+            })
+            .ok_or(NativeError::TooLarge)?;
+        for binding in self
+            .casts
+            .values()
+            .flat_map(|c| std::iter::once(&c.binding).chain(c.release_binding.as_ref()))
+            .chain(self.npcs.values().flat_map(|n| n.aura_bindings.values()))
+        {
+            total = total
+                .checked_add(binding.replay_work())
+                .ok_or(NativeError::TooLarge)?;
+            if total > MAX_HISTORY_REPLAY_CALLS {
+                return Err(NativeError::TooLarge);
+            }
+        }
+        if total > MAX_HISTORY_REPLAY_CALLS {
+            return Err(NativeError::TooLarge);
+        }
+        Ok(())
+    }
+}
 impl Checkpoint {
     pub fn identity(&self) -> CheckpointIdentity {
         CheckpointIdentity {
@@ -133,7 +168,26 @@ impl Checkpoint {
         }
     }
 
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn validate_encoded_budget(&self) -> Result<(), NativeError> {
+        struct Counter(usize);
+        impl std::io::Write for Counter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0 = self
+                    .0
+                    .checked_add(bytes.len())
+                    .filter(|n| *n <= MAX_BYTES)
+                    .ok_or_else(|| std::io::Error::other("native checkpoint byte budget"))?;
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        serde_json::to_writer(&mut Counter(0), self).map_err(|_| NativeError::TooLarge)
+    }
     pub fn encode(&self) -> Result<Vec<u8>, NativeError> {
+        self.state.validate_history_budget()?;
         let bytes = serde_json::to_vec(self).map_err(|_| NativeError::InvalidCheckpoint)?;
         if bytes.len() > MAX_BYTES {
             return Err(NativeError::TooLarge);
@@ -149,10 +203,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v16\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v18\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v16\0",
+                    b"benilla-native-checkpoint-v18\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -257,7 +311,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v16\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v18\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -267,7 +321,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v16\0",
+            b"benilla-native-checkpoint-v18\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -289,11 +343,16 @@ impl NativeWorld {
         checkpoint: Checkpoint,
     ) -> Result<Self, NativeError> {
         profile.validate()?;
+        // Typed callers may bypass decode. Bound work and encoded size before
+        // hashing or replay, without materializing another full JSON buffer.
+        checkpoint.state.validate_history_budget()?;
+        checkpoint.validate_encoded_budget()?;
+        let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v16\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v18\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v16\0",
+                    b"benilla-native-checkpoint-v18\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -303,7 +362,7 @@ impl NativeWorld {
         if s.version != NATIVE_FORMAT_VERSION
             || s.policy != NATIVE_POLICY
             || s.rng_policy != RNG_POLICY
-            || s.profile != profile.digest()
+            || s.profile != profile_digest
             || s.domain != Domain::SyntheticComponentTest
         {
             return Err(NativeError::Incompatible);
@@ -441,7 +500,12 @@ impl NativeWorld {
                     .aura_bindings
                     .get(&ability)
                     .ok_or(NativeError::InvalidCheckpoint)?;
-                binding.validate(&profile, quest_progression.as_ref(), s.now_ms)?;
+                binding.validate(
+                    &profile,
+                    quest_progression.as_ref(),
+                    s.now_ms,
+                    (profile_digest, s.domain, s.world, s.player),
+                )?;
                 if binding.ability.id != ability {
                     return Err(NativeError::InvalidCheckpoint);
                 }
@@ -528,8 +592,12 @@ impl NativeWorld {
         let player_events = PlayerEvents::restore(s.player_events)?;
         let mut casts = BTreeMap::new();
         for (id, c) in s.casts {
-            c.binding
-                .validate(&profile, quest_progression.as_ref(), s.now_ms)?;
+            c.binding.validate(
+                &profile,
+                quest_progression.as_ref(),
+                s.now_ms,
+                (profile_digest, s.domain, s.world, s.player),
+            )?;
             if c.binding.ability.id != c.ability {
                 return Err(NativeError::InvalidCheckpoint);
             }
@@ -548,7 +616,12 @@ impl NativeWorld {
                 .release_binding
                 .as_ref()
                 .map(|released| {
-                    released.validate(&profile, quest_progression.as_ref(), s.now_ms)?;
+                    released.validate(
+                        &profile,
+                        quest_progression.as_ref(),
+                        s.now_ms,
+                        (profile_digest, s.domain, s.world, s.player),
+                    )?;
                     released.release_context(&c.binding)
                 })
                 .transpose()?;
@@ -682,7 +755,7 @@ impl NativeWorld {
             slow.validate_npc_spell_holders(&state, &profile)?;
         }
         let result = Self {
-            profile_digest: profile.digest(),
+            profile_digest,
             profile,
             state,
             journal: vec![],
@@ -767,4 +840,68 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
         (a, b) = (b, a % b);
     }
     a
+}
+
+#[cfg(test)]
+mod history_budget_tests {
+    use super::*;
+    use crate::native::synthetic_quest_fixture as f;
+
+    #[test]
+    fn aggregate_prefix_work_rejects_encode_and_typed_restore_before_replay() {
+        let mut world = f::world();
+        let command = f::command(
+            &world,
+            Command::Cast {
+                ability: 60001,
+                target: world.state.npcs[&2].id,
+            },
+        );
+        world
+            .step(1, Some(command), &mut f::QuestAuthority::default())
+            .unwrap();
+        let mut cp = world.checkpoint().unwrap();
+        assert_eq!(world.state.casts[&1].binding.replay_work(), 64);
+        let mut cast = serde_json::to_value(&cp.state.casts[&1]).unwrap();
+        for kind in ["training_prefix", "derived_prefix"] {
+            cast["binding"]["progression"][kind]["count"] = serde_json::json!(4096);
+        }
+        let cast: CastState = serde_json::from_value(cast).unwrap();
+        cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
+        cp.digest = crate::digest(b"benilla-native-state-v18\0", &cp.state);
+        cp.checksum = crate::digest(
+            b"benilla-native-checkpoint-v18\0",
+            &(&cp.state, cp.digest, cp.history_tip),
+        );
+        assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);
+        // Direct serde decoding bypasses Checkpoint::decode. Typed restore must
+        // still check aggregate work before attempting any invalid prefix.
+        let bytes = serde_json::to_vec(&cp).unwrap();
+        let typed: Checkpoint = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            NativeWorld::restore_synthetic_component_test(world.profile.clone(), typed).err(),
+            Some(NativeError::TooLarge)
+        );
+        assert_eq!(
+            Checkpoint::decode(&bytes).err(),
+            Some(NativeError::TooLarge)
+        );
+    }
+    #[test]
+    fn typed_restore_cannot_bypass_the_unchanged_eight_mib_envelope() {
+        let world = f::world();
+        let cp = world.checkpoint().unwrap();
+        cp.validate_encoded_budget().unwrap();
+        let mut oversized = cp;
+        oversized.state.policy = "x".repeat(MAX_BYTES);
+        assert_eq!(
+            oversized.validate_encoded_budget(),
+            Err(NativeError::TooLarge)
+        );
+        assert_eq!(oversized.encode().unwrap_err(), NativeError::TooLarge);
+        assert_eq!(
+            NativeWorld::restore_synthetic_component_test(world.profile.clone(), oversized).err(),
+            Some(NativeError::TooLarge)
+        );
+    }
 }

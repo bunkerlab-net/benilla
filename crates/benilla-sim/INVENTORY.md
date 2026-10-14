@@ -4,7 +4,8 @@
 `CanStoreNewItem(NULL_BAG, NULL_SLOT)` and `StoreNewItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-ordinary-backpack-v2`.
+`cmangos-8ec338a1-carried-items-v3`.
+The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
 
@@ -48,15 +49,52 @@ zero means unlimited. Instance IDs are checked u64 continuation identities, not
 wire GUIDs. Zero and duplicate IDs, IDs at/after the next allocator value, or
 allocation overflow reject. Removing an item never reuses its identity.
 
-Every catalog explicitly attests absence of creation/loot scripts, equipped bags,
-bank/keyring items, trade/temporary loot and additional item mutations. Unknown
-or present evidence rejects. Bags/quivers, keyring families, random properties,
-item-started quests, duration, item sets, area/map/lock restrictions, nonzero item
-spells/triggers/charges, extra flags and unsupported flags reject. Only the
-single-owner-inert MULTI_DROP flag is accepted. Catalog admission does not permit
-item use, equipment changes, selling, trading or arbitrary grants. Carried
-instances have exactly their creation metadata because other mutations are
-excluded. Actual native-source admission remains the caller's separate burden.
+The catalog preserves structurally valid loader-resolved rows even when a particular
+operation is unavailable. A row's presence is not a grant, equip or use capability.
+`ordinary_loot_ready` retains the original restrictive loot/reward closure.
+`grant_ready` separately admits carried creation of ordinary items and real empty
+Bag objects, including retained five-slot spell records (IDs, triggers, charges,
+PPM-rate bits, cooldowns and categories), item sets and StartQuest. None of those metadata fields
+executes an equip/use effect merely because an item is stored. Equip and use
+readiness remain explicit failures; they are not inferred from grant success.
+
+Storage requires evidence that creation/loot scripts, equipped bags, bank/keyring
+items, trade/temporary loot and additional mutations are absent. Unknown or present
+evidence blocks the operation without hiding the catalog row. Nonzero ScriptId,
+random properties, duration, area/map lifecycle restrictions and unreviewed flags
+remain explicit grant blockers. BagFamily is the Classic enum, not a bitmask;
+keys (9) require the missing keyring route. Other families reach the backpack in
+this no-equipped-bag domain. No input field is zeroed to pass a gate.
+
+## Positive admin grants and empty containers
+
+`State::grant_item` implements the positive branch of
+`ChatHandler::HandleAddItemCommand` from pinned `Chat/Level3.cpp`. It recomputes
+trusted destinations and subtracts the source no-space count. The durable result
+records requested, granted and ungranted counts, the original storage result,
+ordered destinations, allocator boundaries and complete before/after instances.
+A zero grant retains its complete pre-state capacity witness but has no creation,
+callback, allocation or notification. Unique limits
+include immutable equipment; there is no negative deletion, overflow mail or
+unique bypass. Ordinary `store_new` still rejects the entire non-OK plan.
+
+Original allocation precedes `ItemAddedQuestCheck`; its count is the actual
+partial award and it sees pre-store inventory. Creation hooks, duration hooks
+and enchantment hooks run in the source oracle; the supported Rust domain proves
+their dependent routes absent. A newly placed destination gets its source binding;
+merges preserve metadata and source IDs. After all storage, self-target `.additem`
+unbinds every destination, including an old merged stack. Other-target source
+semantics preserve binding. The current native admin host only admits its selected
+self character; other-player routing is not implemented by this component slice.
+
+`NewItemOrBag` dispatches only on InventoryType 18. Bag::Create accepts at most 36
+slots and initializes empty container slots, ownership and durability, but unlike
+Item::Create does not initialize template spell charges or duration. The
+`EmptyBag { slots }` instance kind is an explicit all-empty container invariant;
+serialization cannot smuggle contents into it. Its protocol object is a Container,
+with the exact capacity and 36 zero slot GUIDs. A carried empty bag occupies one
+backpack position and does not add usable slots. Equipping bags and storing their
+contents are the next distinct implementation, not an implication of this grant.
 
 `State::validate` checks current values but cannot authenticate immutable genesis
 or prove a legal history. The runtime must compare equipment to its genesis and
@@ -78,7 +116,7 @@ Run:
     python3 crates/benilla-sim/tools/generate_inventory_fixture.py UPSTREAM --check
 
 UPSTREAM is the pinned repository root. The generator verifies complete-file
-SHA-256 identities before extracting unchanged `InventoryResult`, `ItemPosCount`,
+SHA-256 identities before extracting unchanged `_Spell`, `InventoryResult`, `ItemPosCount`,
 `isContainedIn`, `CanBeMergedPartlyWith`, `_CanTakeMoreSimilarItems`,
 `_CanStoreItem_InInventorySlots`, `_CanStoreItem_InBag`, complete `_CanStoreItem`,
 `Item::Create`, `CreateItem`, `CloneItem`, `StoreNewItem`, `StoreItem`, and
@@ -87,7 +125,13 @@ Unsupported specific-slot, equipped-bag and other routes abort rather than retur
 invented answers. The adapter supplies only the declared no-script/no-modifier
 object, allocator and inventory context.
 
-The fixtures contain 1,577 planning and 515 creation outcomes from synthetic rows.
+The fixtures contain 1,577 planning and 515 ordinary creation outcomes, plus
+1,024 positive admin grants and 216 direct Item/Bag creation outcomes from synthetic
+rows. The original two fixture files remain byte-identical after adding grants.
+The admin fixture compares complete input/output state, partial/zero counts,
+self/other binding, clone identities, quest callback position and bag initialization.
+The generator also requires random-property, script, duration and keyring routes
+to abort when their unsupported dependency is deliberately introduced.
 They cover partial capacity/unique refusals, immutable equipment, shared reserved
 positions, uint8 stack boundaries, original/clone IDs, full merges, last returned
 instance, pre-store callback count and allocator, bonding and durability. Rust

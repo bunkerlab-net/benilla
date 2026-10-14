@@ -18,3 +18,8 @@ libc = "0.2"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Compile the actual app action bridge without linking Bevy.
+anyhow.workspace = true
+benilla-protocol = { path = "../benilla-protocol" }

@@ -72,6 +72,15 @@ fn derived_audit() -> DerivedAudit {
     }
 }
 pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
+    setup_with_levels(3, 60, true, 0x3f800000)
+}
+/// Explicit authored test rows only; never a fallback for actual Classic data.
+pub fn setup_with_levels(
+    supplied: u32,
+    cap: u32,
+    maximize: bool,
+    talent_rate_bits: u32,
+) -> (Profile, init::StarterInput, QuestProgressionInput) {
     let mut input = initialized_starter_input();
     for row in &mut input.spells {
         row.words[1] = if row.id == 60001 { 2 } else { 4 };
@@ -93,8 +102,8 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
     let levels = pg::Catalog::new(
         1,
         8,
-        pg::Rules::from_classic_config(60, true).unwrap(),
-        (1..=3)
+        pg::Rules::from_classic_config(cap, maximize, talent_rate_bits).unwrap(),
+        (1..=supplied)
             .map(|level| pg::LevelStatsRow {
                 race: 1,
                 class: 8,
@@ -102,7 +111,7 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
                 attributes: init::Attributes([17, 23, 29, 31, 37].map(|v| v + level as i32 - 1)),
             })
             .collect(),
-        (1..=3)
+        (1..=supplied)
             .map(|level| pg::ClassLevelStatsRow {
                 class: 8,
                 level,
@@ -110,10 +119,10 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
                 base_mana: 59 + (level - 1) * 6,
             })
             .collect(),
-        (1..=3)
+        (1..=supplied)
             .map(|level| pg::XpRow {
                 level,
-                xp_for_next_level: level * 40,
+                xp_for_next_level: if level == cap { 0 } else { level * 40 },
             })
             .collect(),
         input
@@ -199,7 +208,7 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
         progression_audit: progression_audit(),
         derived_audit: derived_audit(),
         skills,
-        initial_next_level_xp: 40,
+        initial_next_level_xp: if cap == 1 { 0 } else { 40 },
         start_player_money: 11,
         quest_xp_rate: arithmetic::Binary32Rate::ONE,
         money_rate: arithmetic::Binary32Rate::ONE,

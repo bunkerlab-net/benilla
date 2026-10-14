@@ -348,11 +348,11 @@ fn applied_aura_keeps_source_rank_and_level_through_xp_rebase_and_restore() {
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(forged["state"].clone()).unwrap();
     forged["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v16\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v18\0", &state)).unwrap();
     let tip: crate::Digest = serde_json::from_value(forged["history_tip"].clone()).unwrap();
     let digest: crate::Digest = serde_json::from_value(forged["digest"].clone()).unwrap();
     forged["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v16\0",
+        b"benilla-native-checkpoint-v18\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -598,6 +598,12 @@ fn historical_binding_rejects_future_skill_cap_even_below_current_cap() {
         &w.profile,
         w.state.quest_progression.as_ref(),
         w.state.now_ms,
+        (
+            w.profile.digest(),
+            w.state.domain,
+            w.state.world,
+            w.state.player,
+        ),
     )
     .unwrap();
     let mut forged = serde_json::to_value(old).unwrap();
@@ -613,7 +619,13 @@ fn historical_binding_rejects_future_skill_cap_even_below_current_cap() {
         forged.validate(
             &w.profile,
             w.state.quest_progression.as_ref(),
-            w.state.now_ms
+            w.state.now_ms,
+            (
+                w.profile.digest(),
+                w.state.domain,
+                w.state.world,
+                w.state.player
+            ),
         ),
         Err(NativeError::InvalidCheckpoint)
     );
@@ -775,6 +787,12 @@ fn phase_witness_tampering_and_valid_but_wrong_release_clock_reject() {
             &w.profile,
             w.state.quest_progression.as_ref(),
             w.state.now_ms,
+            (
+                w.profile.digest(),
+                w.state.domain,
+                w.state.world,
+                w.state.player,
+            ),
         )
         .unwrap();
     released.release_context(&cast.binding).unwrap();

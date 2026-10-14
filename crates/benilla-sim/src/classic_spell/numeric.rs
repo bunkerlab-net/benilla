@@ -247,15 +247,20 @@ pub fn combat_chance(percent: SpellFloat) -> Result<u16, SpellError> {
 }
 /// CalculateSpellMissChance/CalculateSpellResistChance for an ordinary NPC with
 /// zero school resistance and no modifiers, mechanic/dispel resistance or binary
-/// behavior. Levels <=20 make source level-resistance contribution zero because
-/// its skill denominator has a 100-point floor. The resolved target base miss
+/// behavior. The source level-resistance term is zero exactly when target level
+/// is no higher than max(caster level,20), due to its 100-point skill floor.
+/// Higher-level targets above that floor require unported partial/full resistance.
+/// The resolved target base miss
 /// percentage remains mandatory; this helper never invents it from the spell ID.
 pub fn zero_resistance_npc_miss(
     caster_level: u8,
     target_level: u8,
     base_miss: SpellFloat,
 ) -> Result<u16, SpellError> {
-    if !(1..=20).contains(&caster_level) || !(1..=20).contains(&target_level) {
+    if !(1..=60).contains(&caster_level)
+        || !(1..=63).contains(&target_level)
+        || target_level > caster_level.max(20)
+    {
         return Err(SpellError::Domain("zero-resistance level domain"));
     }
     let mut chance = base_miss.value();

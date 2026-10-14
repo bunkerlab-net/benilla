@@ -84,6 +84,10 @@ jobs:
       - name: Verify native outfit source oracle on Linux
         if: runner.os == 'Linux'
         run: python3 scripts/check-native-outfit-oracle.py
+      - name: Verify native defense skill source oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
+          python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
       - name: Test persistence and simulation on the native OS
         run: mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-dbc -p benilla-mpq
       - name: Prepare matching source and locked dependencies

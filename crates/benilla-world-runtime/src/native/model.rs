@@ -100,7 +100,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v16\0",
+            b"benilla-native-profile-v18\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -432,6 +432,8 @@ pub enum Event {
         movement_flags: benilla_sim::creature_motion::GroundMovementFlags,
     },
     Loot(LootEvent),
+    InventoryStored(Box<benilla_sim::inventory::Stored>),
+    ItemAcquired(ItemAcquisition),
     QuestProgression(QuestProgressionEvent),
     InputResult {
         sequence: u64,

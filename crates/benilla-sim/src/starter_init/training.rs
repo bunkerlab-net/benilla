@@ -39,6 +39,25 @@ pub struct TrainingSnapshot {
     pub abilities: Vec<KnownAbility>,
     pub calls: Vec<TrainingCallSnapshot>,
 }
+/// Borrowed checkpoint view. Historical execution witnesses can replay a
+/// proven prefix of their owner's journal without copying that journal.
+#[derive(Clone, Copy)]
+pub struct TrainingView<'a> {
+    pub version: u32,
+    pub identity: [u8; 32],
+    pub abilities: &'a [KnownAbility],
+    pub calls: &'a [TrainingCallSnapshot],
+}
+impl TrainingSnapshot {
+    pub fn as_view(&self) -> TrainingView<'_> {
+        TrainingView {
+            version: self.version,
+            identity: self.identity,
+            abilities: &self.abilities,
+            calls: &self.calls,
+        }
+    }
+}
 /// Deep-cloned state for the native progression Host; no shared mutable state or
 /// I/O. This component handles learning only; the Host must also execute all
 /// numeric/stat hooks and validate authoritative progression/equipment inputs.
@@ -94,6 +113,14 @@ impl LiveTraining {
         snapshot: &TrainingSnapshot,
         final_view: &Snapshot,
     ) -> Result<Self> {
+        Self::restore_view(fresh, snapshot.as_view(), final_view)
+    }
+    /// Equivalent replay against borrowed, caller-authenticated history slices.
+    pub fn restore_view(
+        fresh: &Self,
+        snapshot: TrainingView<'_>,
+        final_view: &Snapshot,
+    ) -> Result<Self> {
         if !fresh.calls.is_empty()
             || snapshot.version != 2
             || snapshot.identity != fresh.identity
@@ -110,7 +137,7 @@ impl LiveTraining {
         }
         let mut restored = fresh.clone();
         restored.preflight(final_view)?;
-        for call in &snapshot.calls {
+        for call in snapshot.calls {
             if call.view.catalog_identity != final_view.catalog_identity
                 || call.view.level > final_view.level
             {
@@ -126,10 +153,16 @@ impl LiveTraining {
             )?;
         }
         restored.preflight(final_view)?;
-        if restored.snapshot() != *snapshot {
+        if !restored.matches_snapshot(snapshot) {
             return Err(InitError::Invalid("live training replay mismatch"));
         }
         Ok(restored)
+    }
+    pub fn matches_snapshot(&self, snapshot: TrainingView<'_>) -> bool {
+        snapshot.version == 2
+            && snapshot.identity == self.identity
+            && self.known.values().eq(snapshot.abilities.iter())
+            && self.calls == snapshot.calls
     }
     /// Call alongside the Host's catalog and modifier-provenance checks. During
     /// GiveLevel, create rows/numeric fields legitimately still describe the old

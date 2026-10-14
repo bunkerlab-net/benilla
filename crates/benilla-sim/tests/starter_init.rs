@@ -1535,5 +1535,6 @@ fn level_rebased_recipe_break_restore_uses_current_create_rows_and_crit() {
     let repaired = broken.set_item_broken(4, false, result.resources).unwrap();
     assert_eq!(repaired.resources.mana, 17);
     assert_eq!(broken, fresh);
-    assert!(fresh.rebase(10, create, 89, 123).is_err());
+    assert!(fresh.rebase(60, create, 89, 123).is_ok());
+    assert!(fresh.rebase(61, create, 89, 123).is_err());
 }

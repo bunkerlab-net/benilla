@@ -11,7 +11,7 @@ UpdateSkillsForLevel, GetSkillInfo, both SetSkill overloads, GetSkillRangeType,
 profession classifiers, Unit resource setters/getters, and stat numeric bodies.
 The adapter records unsupported dependent-system callbacks, rather than pretending
 that their bodies are ported. There are no auras, pets, groups or items. Profiles 0/1 have neutral
-stat modifiers; profiles 2/3/4 apply the explicit constant modifiers below. XP is non-kill XP (victim=null, groupRate=1); levels are 1 through 9.
+stat modifiers; profiles 2/3/4 apply the explicit constant modifiers below. XP is non-kill XP (victim=null, groupRate=1); levels are 1 through 60 (declining-resource profile1 remains below10).
 
 Synthetic rows for level L: next XP=100+37*L below the configured level cap,
 and zero at the cap through the unchanged ObjectMgr::GetXPForLevel getter. The
@@ -135,6 +135,9 @@ def main():
     assert re.search(r'#define\s+DEFAULT_MAX_LEVEL\s+60\b', sources['DBCEnums.h'])
     assert 'setConfigMinMax(CONFIG_UINT32_MAX_PLAYER_LEVEL, "MaxPlayerLevel", DEFAULT_MAX_LEVEL, 1, MAX_LEVEL);' in sources['World.cpp']
     assert 'setConfig(CONFIG_BOOL_ALWAYS_MAX_SKILL_FOR_LEVEL, "AlwaysMaxSkillForLevel", false);' in sources['World.cpp']
+    assert 'setConfigPos(CONFIG_FLOAT_RATE_TALENT, "Rate.Talent", 1.0f);' in sources['World.cpp']
+    positive_config = body(sources['World.cpp'], 'void World::setConfigPos(eConfigFloatValues')
+    assert 'if (getConfig(index) < 0.0f)' in positive_config
     replacements = {
         'GLOBAL_SKILL_CAP': body(sources['World.h'], 'uint16 GetConfigMaxSkillValue() const'),
         'GET_XP_FOR_LEVEL': body(sources['ObjectMgr.cpp'], 'uint32 ObjectMgr::GetXPForLevel('),
@@ -150,6 +153,9 @@ def main():
         'UPDATE_SKILLS': body(p, 'void Player::UpdateSkillsForLevel('),
         'GIVE_XP': body(p, 'void Player::GiveXP('),
         'GIVE_LEVEL': body(p, 'void Player::GiveLevel('),
+        'INIT_TALENT': body(p, 'void Player::InitTalentForLevel('),
+        'UPDATE_TALENT': body(p, 'void Player::UpdateFreeTalentPoints('),
+        'CALCULATE_TALENT': body(p, 'uint32 Player::CalculateTalentsPoints('),
         'MODIFIER_VALUE': body(u, 'float Unit::GetModifierValue('),
         'TOTAL_STAT': body(u, 'float Unit::GetTotalStatValue('),
         'TOTAL_RESIST': body(u, 'float Unit::GetTotalResistanceValue('),

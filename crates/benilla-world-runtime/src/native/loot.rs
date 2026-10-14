@@ -123,7 +123,7 @@ impl NativeLootGenesis {
                 let l::ItemLookup::Present(item) = lookup else {
                     return Err(NativeError::InvalidProfile);
                 };
-                let i = rows.inventory.item(item.entry)?;
+                let i = rows.inventory.ordinary_loot_ready(item.entry)?;
                 if (
                     i.quality,
                     i.display_id,
@@ -274,12 +274,19 @@ pub enum LootEvent {
     MoneyRemoved {
         corpse: crate::NpcId,
     },
-    Stored(Box<inv::Stored>),
+
     StorageFailed {
         corpse: crate::NpcId,
         item: u32,
         result: inv::InventoryResult,
     },
+}
+/// SendNewItem's source call semantics, independent of corpse-window events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum ItemAcquisition {
+    CorpseLoot,
+    AdminSelf,
 }
 /// One recomputable bounded witness for a currently live stack. The previous
 /// digest commits history; reason commits its latest operation; digest binds the
@@ -474,7 +481,7 @@ impl NativeWorld {
                 (None, Some(_), Some(row))
                     if npc.ai.phase() == ai::Phase::Corpse && !row.no_loot =>
                 {
-                    return Err(NativeError::InvalidCheckpoint)
+                    return Err(NativeError::InvalidCheckpoint);
                 }
                 (None, _, _) => {}
                 _ => return Err(NativeError::InvalidCheckpoint),

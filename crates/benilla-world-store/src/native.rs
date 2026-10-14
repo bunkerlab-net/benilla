@@ -433,3 +433,6 @@ fn checksum(bytes: &[u8]) -> Digest {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod level_sixty_tests;

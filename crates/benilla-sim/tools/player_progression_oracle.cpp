@@ -36,6 +36,8 @@ constexpr uint32 TYPEID_PLAYER = 4, TYPEID_UNIT = 3, HUNTER_PET = 1;
 constexpr uint32 POWER_RAGE_DEFAULT = 1000, POWER_FOCUS_DEFAULT = 100, POWER_ENERGY_DEFAULT = 100, POWER_HAPPINESS_DEFAULT = 1000000;
 constexpr uint32 PLAYER_XP = 100, PLAYER_NEXT_LEVEL_XP = 101, UNIT_FIELD_HEALTH = 1000, UNIT_FIELD_MAXHEALTH = 1001, UNIT_FIELD_POWER1 = 1100, UNIT_FIELD_MAXPOWER1 = 1200, UNIT_FIELD_STAT0 = 1300;
 constexpr uint32 CONFIG_UINT32_MAX_PLAYER_LEVEL = 0, CONFIG_BOOL_ALWAYS_MAX_SKILL_FOR_LEVEL = 1, PLAYED_TIME_LEVEL = 0, SMSG_LEVELUP_INFO = 1;
+enum FloatConfig { CONFIG_FLOAT_RATE_TALENT };
+constexpr uint32 SEC_ADMINISTRATOR = 3;
 constexpr uint32 BASE_ATTACK = 0, OFF_ATTACK = 1, RANGED_ATTACK = 2, SPELL_AURA_MOD_RESISTANCE_OF_STAT_PERCENT = 0, SPELL_AURA_MOD_SKILL = 1, SPELL_AURA_MOD_SKILL_TALENT = 2, SPELL_SCHOOL_MASK_NORMAL = 1;
 constexpr uint32 GROUP_UPDATE_FLAG_CUR_HP = 0, GROUP_UPDATE_FLAG_PET_CUR_HP = 1, GROUP_UPDATE_FLAG_MAX_HP = 2, GROUP_UPDATE_FLAG_PET_MAX_HP = 3, GROUP_UPDATE_FLAG_CUR_POWER = 4, GROUP_UPDATE_FLAG_PET_CUR_POWER = 5, GROUP_UPDATE_FLAG_MAX_POWER = 6, GROUP_UPDATE_FLAG_PET_MAX_POWER = 7;
 uint32 PLAYER_SKILL_INDEX(uint32 i) { return 2000 + i * 3; }
@@ -53,6 +55,8 @@ struct SkillStore { std::map<uint32, SkillLineEntry> rows; const SkillLineEntry*
 struct SpellMgr { std::multimap<uint32, const SkillRaceClassInfoEntry*> rows; auto GetSkillRaceClassInfoMapBounds(uint32 id) const { return rows.equal_range(id); } } sSpellMgr;
 struct World {
     uint32 cap = 9, maximize = 0;
+    float talent_rate = 1.f;
+    float getConfig(FloatConfig) const { return talent_rate; }
     uint32 getConfig(uint32 key) const { assert(key < 2); return key ? maximize : cap; }
 // PINNED_GLOBAL_SKILL_CAP
 } sWorld;
@@ -62,11 +66,11 @@ struct ObjectMgr {
     uint32 profile = 0;
     std::vector<uint32> mPlayerXPperLevel;
     void GetPlayerLevelInfo(uint32 race, uint32 cls, uint32 level, PlayerLevelInfo* info) const {
-        assert(race == 1 && cls == 8 && level >= 1 && level <= 9);
+        assert(race == 1 && cls == 8 && level >= 1 && level <= 60);
         for (uint32 i = 0; i < MAX_STATS; ++i) info->stats[i] = uint8(12 + 2 * level + 3 * i);
     }
     void GetPlayerClassLevelInfo(uint32 cls, uint32 level, PlayerClassLevelInfo* info) const {
-        assert(cls == 8 && level >= 1 && level <= 9);
+        assert(cls == 8 && level >= 1 && level <= 60);
         info->basehealth = uint16(profile == 1 ? 200 - 7 * level : 40 + 7 * level);
         info->basemana = uint16(profile == 1 ? 300 - 11 * level : 55 + 11 * level);
     }
@@ -75,6 +79,7 @@ struct ObjectMgr {
 struct WorldPacket { uint32 opcode; std::vector<uint32> words; WorldPacket(uint32 op, uint32) : opcode(op) {} WorldPacket& operator<<(uint32 v) { words.push_back(v); return *this; } };
 struct Session {
     uint32 level = 1;
+    uint32 GetSecurity() const { return 0; }
     std::vector<std::vector<uint32>> packets;
     void SendPacket(const WorldPacket& packet) { assert(packet.opcode == SMSG_LEVELUP_INFO && packet.words.size() == 12); packets.push_back(packet.words); emit("level_packet"); }
     void SetCurrentPlayerLevel(uint32 v) { level = v; emit("session_level"); }
@@ -137,7 +142,7 @@ struct Creature : Unit { bool IsPet() const { assert(false); return false; } };
 struct Pet : Creature { uint32 getPetType() const { assert(false); return 0; } void UpdateDamagePhysical(uint32) { assert(false); } void SynchronizeLevelWithOwner() { assert(false); } };
 struct Player : Unit {
     bool alive = true;
-    uint32 free_talents = 0;
+    uint32 free_talents = 0, m_usedTalentCount = 0;
     LoggedPlayed m_Played_time[1];
     SkillStatusMap mSkillStatus;
     Session session;
@@ -164,7 +169,11 @@ struct Player : Unit {
     const std::vector<Aura*>& GetAurasByType(uint32) const { static std::vector<Aura*> empty; return empty; }
     void UpdateSkillTrainedSpells(uint16, uint16) { emit("skill_trained"); }
     void UpdateDefenseBonusesMod() { emit("defense"); }
-    void InitTalentForLevel() { assert(level < 10 && free_talents == 0); emit("talents"); }
+    void SetFreeTalentPoints(uint32 v) { free_talents = v; emit("talents"); }
+    void resetTalents(bool) { assert(false); }
+    uint32 CalculateTalentsPoints() const;
+    void UpdateFreeTalentPoints(bool resetIfNeed = true);
+    void InitTalentForLevel();
     void UpdateAttackPowerAndDamage(bool ranged = false) { emit(ranged ? "attack_ranged" : "attack_melee"); }
     void UpdateAllCritPercentages() { emit("crit"); }
     void UpdateAllSpellCritChances() { emit("spell_crit"); }
@@ -190,6 +199,9 @@ struct Player : Unit {
 // PINNED_UPDATE_SKILLS
 // PINNED_GIVE_XP
 // PINNED_GIVE_LEVEL
+// PINNED_INIT_TALENT
+// PINNED_UPDATE_TALENT
+// PINNED_CALCULATE_TALENT
 // PINNED_MODIFIER_VALUE
 // PINNED_TOTAL_STAT
 // PINNED_TOTAL_RESIST
@@ -210,6 +222,7 @@ struct Player : Unit {
 struct Case {
     char kind = 'X'; uint32 level = 1, cap = 9, xp = 0, amount = 0;
     bool alive = true; uint32 profile = 0, maximize = 0;
+    uint32 talent_rate_bits = 0x3f800000;
     uint32 skill_case = 0, health = 17, mana = 19, rage = 271, energy = 17;
 };
 uint16 init_skill(Player& p, uint32 which, SkillRaceClassInfoEntry& info) {
@@ -264,7 +277,8 @@ void apply_profile_modifiers(Unit& unit, uint32 profile) {
     }
 }
 void run(const Case& c) {
-    assert(c.level >= 1 && c.level <= 9 && c.cap >= 1 && c.cap <= 100 && c.profile < 5 && c.level <= c.cap);
+    assert(c.level >= 1 && c.level <= 60 && c.cap >= 1 && c.cap <= 100 && c.profile < 5 && c.level <= c.cap);
+    std::memcpy(&sWorld.talent_rate, &c.talent_rate_bits, sizeof(float));
     sWorld.cap = c.cap; sWorld.maximize = c.maximize; sObjectMgr.profile = c.profile;
     sObjectMgr.mPlayerXPperLevel.assign(c.cap, 0);
     for (uint32 level = 1; level < c.cap; ++level) sObjectMgr.mPlayerXPperLevel[level] = 100 + 37 * level;
@@ -273,6 +287,7 @@ void run(const Case& c) {
     sObjectMgr.GetPlayerLevelInfo(1, 8, c.level, &info); sObjectMgr.GetPlayerClassLevelInfo(8, c.level, &class_info);
     for (uint32 i = 0; i < MAX_STATS; ++i) p.create_stats[i] = info.stats[i];
     p.create_health = class_info.basehealth; p.create_mana = class_info.basemana;
+    p.InitTalentForLevel();
     p.UpdateAllStats();
     p.fields[UNIT_FIELD_HEALTH] = c.health; p.fields[UNIT_FIELD_POWER1 + POWER_MANA] = c.mana;
     p.fields[UNIT_FIELD_POWER1 + POWER_RAGE] = c.rage; p.fields[UNIT_FIELD_POWER1 + POWER_ENERGY] = c.energy;
@@ -300,7 +315,7 @@ void run(const Case& c) {
     std::cout << '\t';
     if (events.empty()) std::cout << '-';
     for (size_t i = 0; i < events.size(); ++i) { if (i) std::cout << ','; std::cout << events[i]; }
-    std::cout << '\n';
+    std::cout << '\t' << c.talent_rate_bits << '\n';
 }
 void verify_armor_round_trip() {
     // Unchanged UpdateArmor has a persistent binary32 add/sub side effect.
@@ -330,7 +345,7 @@ int main() {
     assert(std::fesetround(FE_TONEAREST) == 0);
     verify_armor_round_trip();
     std::cout << "# Synthetic CMaNGOS source-extracted player progression; no game rows; upstream 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f\n"
-              << "# kind\tstart_level\tcap\told_xp\tamount_or_target\talive\tprofile\tmaximize\tglobal_skill_cap\tskill_case\thealth_in\tmana_in\trage_in\tenergy_in\tout_level\tout_xp\tout_next_xp\tout_create_health\tout_create_mana\tout_base_stats_csv\tout_stats_csv\thealth\tmax_health\tmana\tmax_mana\trage\tmax_rage\tenergy\tmax_energy\tarmor\tskill_value\tskill_max\tskill_step\tskill_status\tout_played_time\tout_session_level\tout_free_talents\tout_xp_log\tpacket_rows\ttrace\n";
+              << "# kind\tstart_level\tcap\told_xp\tamount_or_target\talive\tprofile\tmaximize\tglobal_skill_cap\tskill_case\thealth_in\tmana_in\trage_in\tenergy_in\tout_level\tout_xp\tout_next_xp\tout_create_health\tout_create_mana\tout_base_stats_csv\tout_stats_csv\thealth\tmax_health\tmana\tmax_mana\trage\tmax_rage\tenergy\tmax_energy\tarmor\tskill_value\tskill_max\tskill_step\tskill_status\tout_played_time\tout_session_level\tout_free_talents\tout_xp_log\tpacket_rows\ttrace\ttalent_rate_bits\n";
     for (uint32 profile : {0u, 1u}) for (uint32 level = 1; level <= 9; ++level) {
         uint32 next = 100 + 37 * level, remaining = 0;
         for (uint32 at = level; at < 9; ++at) remaining += 100 + 37 * at;
@@ -367,6 +382,22 @@ int main() {
     }
     for (uint32 cap : {60u, 61u, 100u}) for (char kind : {'L', 'X', 'S'}) {
         Case c; c.kind = kind; c.cap = cap; c.amount = kind == 'L' ? 2 : 1; run(c);
+    }
+    // Every Classic level, both source skill policies, and exact captured rate bits.
+    for (uint32 rate : {0u, 0x80000000u, 0x00800000u, 0x3eaaaaabu, 0x3f000000u,
+                        0x3f7fffffu, 0x3f800000u, 0x3f800001u, 0x3fc00000u,
+                        0x40200000u, 0x49742400u, 0x4ca0a0a0u}) for (uint32 maximize : {0u, 1u}) {
+        for (uint32 level = 1; level < 60; ++level) {
+            Case c; c.kind = 'L'; c.level = level; c.cap = 60; c.amount = level + 1;
+            c.maximize = maximize; c.skill_case = 10; c.talent_rate_bits = rate; run(c);
+        }
+        for (uint32 level : {1u, 9u, 10u, 59u, 60u}) {
+            Case c; c.level = level; c.cap = 60; c.amount = 100000; c.xp = 17;
+            c.maximize = maximize; c.skill_case = 10; c.talent_rate_bits = rate; run(c);
+        }
+    }
+    for (uint32 cap : {10u, 11u, 60u}) for (uint32 profile : {0u, 2u, 3u, 4u}) {
+        Case c; c.cap = cap; c.profile = profile; c.amount = 100000; run(c);
     }
     for (uint32 rage : {0u, 999u, 1000u, 1501u}) for (uint32 energy : {0u, 17u, 100u}) {
         Case c; c.kind = 'L'; c.amount = 2; c.rage = rage; c.energy = energy; run(c);

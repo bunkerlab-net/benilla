@@ -310,8 +310,7 @@ impl<A: Authority> Frame<'_, A> {
         self.commit_quest_progression(next)?;
         self.events
             .extend(callbacks.into_iter().map(Event::QuestProgression));
-        self.events
-            .push(Event::Loot(LootEvent::Stored(Box::new(stored))));
+        self.events.push(Event::InventoryStored(Box::new(stored)));
         let corpse = self
             .state
             .npcs
@@ -324,6 +323,8 @@ impl<A: Authority> Frame<'_, A> {
         let empty = corpse.empty();
         self.events
             .push(Event::Loot(LootEvent::ItemRemoved { corpse: id, slot }));
+        self.events
+            .push(Event::ItemAcquired(ItemAcquisition::CorpseLoot));
         if empty {
             self.clear_loot_target(id, true);
         }

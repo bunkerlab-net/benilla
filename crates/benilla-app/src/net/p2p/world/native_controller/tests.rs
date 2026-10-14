@@ -987,3 +987,6 @@ mod player_slow_tests;
 mod admin_tests;
 #[path = "npc_spell_tests.rs"]
 mod npc_spell_tests;
+
+#[path = "level_sixty_tests.rs"]
+mod level_sixty_tests;

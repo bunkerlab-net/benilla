@@ -74,6 +74,11 @@ pub trait ClientCatalog {
         None
     }
     fn item_metadata(&self, entry: u32) -> Option<protocol::ItemInfo>;
+    /// Exact sSpellTemplate query evidence for item metadata. None is unknown, never absent.
+    /// This is distinct from client renderability or admission to cast/use the spell.
+    fn native_item_spell_query(&self, _spell: u32) -> Option<NativeItemSpellQuery> {
+        None
+    }
     fn quest_metadata(&self, entry: u32) -> Option<QuestMetadata>;
     fn quest_greeting(&self, creature_entry: u32) -> Option<String>;
     /// Actual resolved questgiver greeting row or NPC gossip fallback, including
@@ -86,6 +91,16 @@ pub trait ClientCatalog {
     fn native_quest_presentation(&self, _quest: u32) -> Option<NativeQuestPresentation> {
         None
     }
+}
+/// Source item-query lookup after the selected server spell table is resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeItemSpellQuery {
+    Missing,
+    Present {
+        recovery_time: u32,
+        category: u32,
+        category_recovery_time: u32,
+    },
 }
 /// Caller-owned source presentation capture, bound by the client manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]

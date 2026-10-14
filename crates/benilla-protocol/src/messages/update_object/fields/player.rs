@@ -13,6 +13,11 @@ impl ObjectFields {
     pub fn item_owner(&self) -> Option<u64> {
         self.get_guid(6)
     }
+    /// `ITEM_FIELD_CONTAINED` (field 8): owner for a carried backpack object,
+    /// or the containing bag for an item within an equipped container.
+    pub fn item_contained(&self) -> Option<u64> {
+        self.get_guid(8)
+    }
     /// `OBJECT_FIELD_TYPE & TYPEMASK_ITEM`: an item, a bag included.
     pub fn is_item(&self) -> bool {
         self.get_u32(FIELD_OBJECT_TYPE).unwrap_or(0) & 0x2 != 0

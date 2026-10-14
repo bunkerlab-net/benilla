@@ -13,6 +13,7 @@ use pg::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod bindings;
+mod capacity;
 mod derived;
 mod kills;
 mod reputation;
@@ -175,6 +176,21 @@ impl QuestProgressionGenesis {
                 ))?;
                 l.inventory.item(item)?;
             }
+            // Search visibility and admin creation do not widen ordinary reward readiness.
+            for item in row
+                .excluded
+                .reward_choice_item
+                .into_iter()
+                .chain(row.excluded.reward_item)
+                .filter(|i| *i != 0)
+            {
+                loot.as_ref()
+                    .ok_or(NativeError::UnsupportedMechanic(
+                        "quest rewards require inventory host",
+                    ))?
+                    .inventory
+                    .ordinary_loot_ready(item)?;
+            }
             if row.required_item.iter().any(|item| {
                 loot.as_ref()
                     .is_some_and(|l| l.initial_inventory.equipped.contains_key(item))
@@ -322,6 +338,7 @@ impl QuestProgressionGenesis {
             out.skill_bounds.insert(level, probe.view().skills.clone());
             host = tx.host;
         }
+        capacity::validate(&out, &host, probe.view())?;
         out.identity = crate::digest(
             b"benilla-native-quest-progression-genesis-v4\0",
             &(
@@ -736,10 +753,10 @@ pub(in crate::native) struct QuestProgressionSnapshot {
     genesis: crate::Digest,
     quests: q::Snapshot,
     player: pg::Snapshot,
-    training: init::TrainingSnapshot,
+    pub(in crate::native) training: init::TrainingSnapshot,
     derived: DerivedStats,
     #[serde(deserialize_with = "derived::deserialize_calls")]
-    derived_calls: Vec<DerivedCall>,
+    pub(in crate::native) derived_calls: Vec<DerivedCall>,
     abilities: Vec<Ability>,
     money: u32,
     rest: kill::RestState,
@@ -1223,3 +1240,9 @@ impl QuestProgressionState {
         Ok((next, events))
     }
 }
+
+#[cfg(test)]
+mod level_sixty_tests;
+
+#[cfg(test)]
+mod level_sixty_capacity_tests;

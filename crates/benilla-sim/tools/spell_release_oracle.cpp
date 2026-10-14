@@ -110,13 +110,13 @@ struct Spell {
 // PINNED_TAKE_POWER
 int main() {
     assert(std::fesetround(FE_TONEAREST) == 0);
-    for (uint32 prepared_rank : {5U,10U,15U})
-    for (uint32 release_rank : {5U,10U,20U})
+    for (uint32 prepared_rank : {5U,10U,15U,295U,300U,315U})
+    for (uint32 release_rank : {5U,10U,20U,295U,300U,315U})
     for (uint32 create_mana : {100U,250U})
-    for (uint32 available_mana : {0U,10U,30U,100U}) {
+    for (uint32 available_mana : {0U,10U,30U,100U,1000U}) {
         SpellEntry entry;
         Unit unit;
-        unit.rank=prepared_rank;
+        unit.rank=prepared_rank; unit.mana=10000;
         Spell spell{&entry,&unit,&unit};
         assert(spell.CheckPower(true) == SPELL_CAST_OK);
         uint32 prepared_cost=spell.m_powerCost;

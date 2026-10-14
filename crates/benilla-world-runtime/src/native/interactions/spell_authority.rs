@@ -346,7 +346,7 @@ impl SpellAuthorityCatalog {
         self.session
             .session_scripts
             .empty("spell session script source closure")?;
-        if !(1..=20).contains(&profile.player.level) {
+        if !(1..=60).contains(&profile.player.level) {
             return Err(NativeError::UnsupportedMechanic(
                 "spell zero-resistance level domain",
             ));
@@ -387,7 +387,7 @@ impl SpellAuthorityCatalog {
                 || n.combat.as_ref().is_none_or(|c| c.creature_is_critter)
                 || raw.rank != 0
                 || raw.subtype != 0
-                || !(1..=20).contains(&n.ai.level)
+                || !(1..=63).contains(&n.ai.level)
                 || !(1..=12).contains(&raw.creature_type)
                 || raw.creature_type == 8
                 || raw.spell_list_id != 0
@@ -710,7 +710,13 @@ impl<'a> CurrentSpell<'a> {
             .ok_or(NativeError::AuthorityUnavailable(
                 "raw spell source closure",
             ))?;
-        if !(1..=20).contains(&state.level(profile)) || !(1..=20).contains(&p.ai.level) {
+        if spell::zero_resistance_npc_miss(
+            state.level(profile),
+            p.ai.level,
+            spell::SpellFloat::from_bits(0x4080_0000)?,
+        )
+        .is_err()
+        {
             return Err(NativeError::UnsupportedMechanic(
                 "spell zero-resistance level domain",
             ));
@@ -838,7 +844,7 @@ pub(in crate::native) fn validate_historical_binding(
         .ok_or(NativeError::InvalidCheckpoint)?;
     raw.matches_spec(binding.ability.school, binding.spec()?)?;
     raw.matches_cost(binding.spec()?, binding.historical_create_mana(profile)?)?;
-    if !(1..=20).contains(&binding.level) {
+    if !(1..=60).contains(&binding.level) {
         return Err(NativeError::InvalidCheckpoint);
     }
     Ok(())

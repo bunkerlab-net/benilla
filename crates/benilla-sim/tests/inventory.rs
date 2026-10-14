@@ -33,10 +33,15 @@ fn item(entry: u32, stackable: i32, maximum_count: i32) -> Item {
         area: 0,
         map: 0,
         lock_id: 0,
+        script_id: 0,
         spells: [Spell {
             id: 0,
             trigger: 0,
             charges: 0,
+            ppm_rate_bits: 0,
+            cooldown: 0,
+            category: 0,
+            category_cooldown: 0,
         }; 5],
     }
 }
@@ -56,6 +61,10 @@ fn instance(slot: u8, item: u32, count: u32) -> Instance {
         charges: [0; 5],
         durability: 0,
         maximum_durability: 0,
+        kind: InstanceKind::Item,
+        duration: 0,
+        random_property_id: 0,
+        enchantments: [0; 3],
     }
 }
 fn recipe(case: u32) -> (Catalog, State, u32) {
@@ -136,6 +145,10 @@ fn stored_slots(text: &str) -> BTreeMap<u8, Instance> {
                     bound: v[4] == 1,
                     durability: v[5] as u32,
                     maximum_durability: v[6] as u32,
+                    kind: InstanceKind::Item,
+                    duration: 0,
+                    random_property_id: 0,
+                    enchantments: [0; 3],
                     charges: std::array::from_fn(|index| v[7 + index] as i32),
                 },
             )
@@ -459,7 +472,9 @@ fn unsupported_template_dependencies_and_incomplete_audits_reject() {
                 3 => audit.trade_or_temporary_item_loot = evidence,
                 _ => audit.additional_item_mutations = evidence,
             }
-            assert!(Catalog::new(vec![item(70001, 5, 0)], audit).is_err());
+            let catalog = Catalog::new(vec![item(70001, 5, 0)], audit).unwrap();
+            assert!(catalog.ordinary_loot_ready(70001).is_err());
+            assert!(catalog.grant_ready(70001).is_err());
         }
     }
     for field in 0..19 {
@@ -485,7 +500,15 @@ fn unsupported_template_dependencies_and_incomplete_audits_reject() {
             17 => row.spells[0].trigger = 1,
             _ => row.maximum_count = -1,
         }
-        assert!(Catalog::new(vec![row], audit()).is_err(), "field {field}");
+        let catalog = Catalog::new(vec![row], audit());
+        if field == 18 {
+            assert!(catalog.is_err());
+        } else {
+            assert!(
+                catalog.unwrap().ordinary_loot_ready(70001).is_err(),
+                "field {field}"
+            );
+        }
     }
     let mut row = item(70001, 5, 0);
     row.flags = 0x800;
@@ -563,3 +586,6 @@ fn catalog_hash_is_canonical_across_row_order_and_serialized_roundtrip() {
             .hash()
     );
 }
+
+#[path = "inventory/grants.rs"]
+mod grants;

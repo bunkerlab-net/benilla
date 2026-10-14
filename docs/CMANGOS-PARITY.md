@@ -120,14 +120,25 @@ is meaningful without a bounded content/mechanics inventory.
   bounded level-one mage creation, deferred stat modifiers, first-login skill/spell
   replay and equipped-item effects. It preserves created current resources rather
   than refilling to recomputed maxima. Unsupported passive/rank/hook semantics fail
-  explicitly; this does not implement all races/classes or level-up progression.
+  explicitly. The separate progression host now admits supplied consecutive
+  mage rows through 60 with explicitly unspent talents, captured binary32
+  Rate.Talent, real training/stat callbacks and recipe rebasing. Full all-class
+  powers and talent spending remain separate work. Defense catch-up now uses
+  a versioned source-derived log table and software binary64 arithmetic for
+  levels 1..60 and pure skill maxima 1..300, with exhaustive final-f32/RNG checks.
+  Authored native tests verify undertrained level-60 gains and exact checkpoint
+  replay; native row admission and other combat dependencies remain separate.
 - **Bounded component ports:** the separate
   [player progression reducer](../crates/benilla-sim/PLAYER-PROGRESSION.md) and
   [solo kill-XP reducer](../crates/benilla-sim/KILL-XP.md) preserve source level,
   binary32 gain, rested arithmetic and event ordering in their declared domains.
   Kill awards require proven owner-generated death/tap state and explicit
-  no-effect honor/reputation and fresh-online clock contracts. Their headless
-  oracles do not establish playable native integration or full Classic parity.
+  no-effect honor/reputation and fresh-online clock contracts. Native ordinary
+  quests, kill XP and gated admin +1 already compose these reducers, project
+  talent field 1102 and persist their source callback histories. Native17 binds
+  historical casts/auras to owner-specific journal prefixes within unchanged
+  count/byte bounds. Authored headless fixtures do not establish real-data
+  playability or full Classic parity.
 - **Dependencies:** player creation/level tables; class/race DBC information;
   item/aura modifiers; skills, talents, spell learning, faction/reputation;
   death/rested state; kill attribution; local rates with explicit semantics.
@@ -243,9 +254,14 @@ is meaningful without a bounded content/mechanics inventory.
   `SaveToDB`, `SetEnchantment`][item]; [`Player::CanEquipItem`, `StoreNewItem`,
   `EquipItem`][player]; [`LootStore::LoadLootTable`, `LootStoreItem::Roll`,
   `Loot::FillLoot`, `LootTemplate::Process`][loot].
-- **Current fork:** plain stackable-item data and synthetic guaranteed encounter
-  tokens exist. No native bag/equipment/stat/loot-roll implementation is established.
-  Encounter configuration requires drop rate 1 because it has no random drops.
+- **Current fork:** source-shaped ordinary backpack/corpse loot and a separate
+  positive `CmangosAddItemV1` admin policy have synthetic differential and durable
+  component coverage. Admin grants allow exact partial capacity/unique results,
+  self-unbinding, retained spell/set/quest metadata and real empty carried Bags.
+  Random properties, scripts and timers remain explicit blockers. Empty carried
+  bags do not establish usable equipped containers, item use or equipment/stat
+  application. The complete native catalog and production admission are not yet
+  established; no item grants are enabled in the live application.
 - **Dependencies:** item templates, equipment slots, ownership/binding, capacity,
   durability/enchantments, random properties, item spells, recursive loot
   references, conditions, quest needs, group rights and persistent transactions.

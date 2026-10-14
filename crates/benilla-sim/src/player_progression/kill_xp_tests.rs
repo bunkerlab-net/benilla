@@ -63,7 +63,7 @@ fn catalog(cap: u32) -> Catalog {
     Catalog::new(
         1,
         8,
-        pg::Rules::from_classic_config(cap, false).unwrap(),
+        pg::Rules::from_classic_config(cap, false, 0x3f800000).unwrap(),
         (1..=cap)
             .map(|level| pg::LevelStatsRow {
                 race: 1,

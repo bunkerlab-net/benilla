@@ -15,12 +15,17 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt, path::Path, sync::Arc};
 use zeroize::Zeroizing;
+pub mod recovery;
 mod storage;
+pub mod world_setup;
 
 pub type CharacterId = [u8; 16];
 pub type OwnerId = [u8; 16];
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 pub const MAX_CHARACTERS: usize = 10;
+/// Shared active + archive budget. Transfers never need an eviction or irreversible purge.
+pub const MAX_RETAINED_CHARACTERS: usize = 32;
+pub const MAX_ARCHIVED_CHARACTERS: usize = MAX_RETAINED_CHARACTERS;
 pub const MAX_FILE_BYTES: u64 = 64 * 1024;
 pub const OWNER_ID_DOMAIN: &[u8] = b"benilla-owner-id-v1\0";
 pub const TRANSPORT_IDENTITY_DOMAIN: &[u8] = b"benilla-transport-identity-v1\0";
@@ -276,10 +281,13 @@ struct State {
     revision: u64,
     selected: Option<CharacterId>,
     characters: Vec<Character>,
+    archived: Vec<Character>,
 }
 impl State {
     fn validate(&self, owner: OwnerId) -> Result<(), Error> {
-        if self.characters.len() > MAX_CHARACTERS {
+        if self.characters.len() > MAX_CHARACTERS
+            || self.characters.len() + self.archived.len() > MAX_RETAINED_CHARACTERS
+        {
             return Err(Error::Corrupt);
         }
         let mut ids = HashSet::new();
@@ -295,6 +303,13 @@ impl State {
         }
         if self.selected.is_some_and(|id| !ids.contains(&id)) {
             return Err(Error::Corrupt);
+        }
+        // Archived names may be reused by active characters, but IDs are unique forever.
+        for character in &self.archived {
+            character.validate().map_err(|_| Error::Corrupt)?;
+            if character.owner_id != owner || !ids.insert(character.id) {
+                return Err(Error::Corrupt);
+            }
         }
         Ok(())
     }
@@ -325,6 +340,7 @@ impl ProfileStore {
             revision: 0,
             selected: None,
             characters: Vec::new(),
+            archived: Vec::new(),
         };
         let bytes = storage::encode(&identity, &state)?;
         storage.write(&bytes, None)?;
@@ -361,6 +377,10 @@ impl ProfileStore {
     pub fn characters(&self) -> &[Character] {
         &self.state.characters
     }
+    /// Recoverable records excluded from the active roster and world entry.
+    pub fn archived_characters(&self) -> &[Character] {
+        &self.state.archived
+    }
     pub fn selected_character(&self) -> Option<&Character> {
         self.state
             .selected
@@ -375,6 +395,9 @@ impl ProfileStore {
         if self.state.characters.len() >= MAX_CHARACTERS {
             return Err(Error::Invalid("profile has reached its character limit"));
         }
+        if self.state.characters.len() + self.state.archived.len() >= MAX_RETAINED_CHARACTERS {
+            return Err(Error::Invalid("profile has reached its retained-character limit; restore an archived character instead"));
+        }
         if self.state.characters.iter().any(|c| c.name == name) {
             return Err(Error::Invalid(
                 "character name already exists in this profile",
@@ -384,7 +407,14 @@ impl ProfileStore {
             let mut id = [0; 16];
             getrandom::fill(&mut id)
                 .map_err(|_| Error::Invalid("secure random source unavailable"))?;
-            if id != [0; 16] && !self.state.characters.iter().any(|c| c.id == id) {
+            if id != [0; 16]
+                && !self
+                    .state
+                    .characters
+                    .iter()
+                    .chain(&self.state.archived)
+                    .any(|c| c.id == id)
+            {
                 break id;
             }
         };
@@ -406,6 +436,68 @@ impl ProfileStore {
         next.selected = Some(id);
         self.commit(next)?;
         Ok(id)
+    }
+    /// Explicitly confirmed local removal only: retain the full record and every world save.
+    /// The caller must bind its UI target to this owner and ID, never a mutable roster index.
+    pub fn archive_character(&mut self, owner: OwnerId, id: CharacterId) -> Result<(), Error> {
+        if owner != self.owner_id() {
+            return Err(Error::Invalid(
+                "character owner does not match this profile",
+            ));
+        }
+        let index = self
+            .state
+            .characters
+            .iter()
+            .position(|c| c.id == id)
+            .ok_or(Error::Invalid(
+                "character does not belong to the active roster",
+            ))?;
+        if self.state.archived.len() >= MAX_ARCHIVED_CHARACTERS {
+            return Err(Error::Invalid(
+                "character archive is full; restore an archived character first",
+            ));
+        }
+        let mut next = self.state.clone();
+        next.archived.push(next.characters.remove(index));
+        if next.selected == Some(id) {
+            next.selected = None;
+        }
+        self.commit(next)
+    }
+    /// Restore the original identity and position without replacing any active character.
+    /// Restoration does not select a different character or modify referenced world saves.
+    pub fn restore_character(&mut self, owner: OwnerId, id: CharacterId) -> Result<(), Error> {
+        if owner != self.owner_id() {
+            return Err(Error::Invalid(
+                "character owner does not match this profile",
+            ));
+        }
+        let index = self
+            .state
+            .archived
+            .iter()
+            .position(|c| c.id == id)
+            .ok_or(Error::Invalid("character is not in this profile's archive"))?;
+        if self.state.characters.len() >= MAX_CHARACTERS {
+            return Err(Error::Invalid(
+                "active roster is full; no character was replaced",
+            ));
+        }
+        let archived = &self.state.archived[index];
+        if self
+            .state
+            .characters
+            .iter()
+            .any(|c| c.name.eq_ignore_ascii_case(&archived.name))
+        {
+            return Err(Error::Invalid(
+                "an active character has this name; no character was replaced",
+            ));
+        }
+        let mut next = self.state.clone();
+        next.characters.push(next.archived.remove(index));
+        self.commit(next)
     }
     pub fn select_character(&mut self, id: CharacterId) -> Result<(), Error> {
         if self.character(id).is_none() {

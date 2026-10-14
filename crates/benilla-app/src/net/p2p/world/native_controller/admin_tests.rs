@@ -465,3 +465,20 @@ fn dropping_controller_retires_new_admission_without_inventing_pending_outcomes(
     ));
     assert_eq!(c.world.player_level(), 1);
 }
+
+#[test]
+fn admin_catalog_snapshot_reuses_rc_until_the_committed_view_changes() {
+    let h = Harness::new();
+    let mut c = enter(&h, false);
+    let b = c.admin_backend();
+    let before = b.snapshot();
+    assert!(std::rc::Rc::ptr_eq(&before.items, &b.snapshot().items));
+    let request = request(&b, 1, ui::AdminOperation::GainOneLevel);
+    b.submit(request).unwrap();
+    let output = c.pump(c.tick_duration());
+    assert!(output.pause.is_none(), "{:?}", output.pause);
+    let after = b.snapshot();
+    assert_ne!(before.revision, after.revision);
+    assert!(!std::rc::Rc::ptr_eq(&before.items, &after.items));
+    assert!(std::rc::Rc::ptr_eq(&after.items, &b.snapshot().items));
+}

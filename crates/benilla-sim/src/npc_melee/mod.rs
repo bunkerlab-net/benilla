@@ -7,6 +7,7 @@
 //! No host floating-point arithmetic or hidden/random-default resolved stats.
 mod numeric;
 mod skill;
+mod skill_log;
 use crate::classic::software_armor_reduced_damage;
 use crate::classic_spell::SpellFloat;
 pub use numeric::{
@@ -15,7 +16,7 @@ pub use numeric::{
 };
 pub use skill::{defense_gain_chance, resolve_defense_gain, DefenseSkill, PercentRoll};
 
-pub const NPC_MELEE_POLICY_ID: &str = "cmangos-8ec338a1-npc-mage-melee-softfloat-v1";
+pub const NPC_MELEE_POLICY_ID: &str = "cmangos-8ec338a1-npc-mage-melee-softfloat-v2";
 /// Unit.h REACTIVE_TIMER_START, used by the mage dodge callback.
 pub const DEFENSE_REACTIVE_DURATION_MS: u32 = 4_000;
 const MAX_AMOUNT: u32 = 1_000_000;

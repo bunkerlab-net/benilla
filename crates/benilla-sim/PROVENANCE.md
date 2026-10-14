@@ -365,6 +365,11 @@ from the same pinned CMaNGOS revision. Their exact source boundaries, numeric
 policies, synthetic differential probes and unsupported branches are recorded in
 [NPC-MELEE.md](NPC-MELEE.md) and [CREATURE-INIT.md](CREATURE-INIT.md).
 No creature templates, spawn rows or native world data are distributed.
+The defense catch-up branch uses a versioned 294-entry source-derived binary64
+log table plus software arithmetic. Its explicit platform-math canonicalization,
+exhaustive final-f32/strict-RNG verification, exact source excerpts and remaining
+host obligations are documented in [NPC-MELEE.md](NPC-MELEE.md). The canonical
+log table is not a claim of universal native-libm identity.
 
 ## Player death lifecycle
 
@@ -462,6 +467,34 @@ unchanged bodies/declarations into `tools/inventory_oracle.cpp`, then executes
 1,577 planning and 515 creation/callback/metadata cases under UBSan. The source
 oracle uses authored deterministic object adapters and inputs, not a second Rust
 translation. No complete server or native-world capability is asserted.
+
+## Positive admin item grants and carried empty Bags
+
+`src/inventory/grants.rs` translates the positive part of
+`ChatHandler::HandleAddItemCommand`, carried `Bag::Create` initialization and exact
+self-target destination unbinding at the same pinned revision. The existing
+CMaNGOS contributors' copyright, GPL-2.0-or-later grant and disclaimer apply;
+the Rust translation and authored adapter are GPL-3.0-or-later.
+
+Additional complete-file SHA-256 pins in `generate_inventory_fixture.py`:
+
+- `src/game/Entities/Bag.cpp`:
+  `d25b146210b4d13e880be6972cdc574fd72e91eeab5580870f4ee583fcaf6e24`
+- `src/game/Entities/Bag.h`:
+  `936351212bfa52621d36eb3d1f38e494fc0b4ea3a3e7740fb344c3fb252a6c15`
+- `src/game/Chat/Level3.cpp`:
+  `2dc12faad03e5b027c4e41566aa7b88f4109c75a8111e14bcecee35633d09bf6`
+- `src/game/AI/ScriptDevAI/ScriptDevAIMgr.cpp`:
+  `ad6a4113dc1f31aa7059a1167b1409ffd1cfc8c8ebf2b2f73907b8598deb3592`
+
+The oracle extracts unchanged positive-handler code, BagFamily/InventoryType/
+EnchantmentSlot enums, NewItemOrBag, Bag::Create, CanStoreNewItem,
+GenerateItemRandomPropertyId, AddEnchantmentDurations, AddItemDurations and
+OnItemLoot in addition to the existing creation/storage methods. Author-created
+fixtures cover 1,024 grants and 216 direct creation boundaries under warnings as
+errors and UBSan. Unsupported script, random-property, duration and keyring
+routes abort. Bag dispatch is inventory type, not item class, and slots above 36
+fail in source creation. The Rust gate checks such a row before starting a grant.
 
 ## Ordinary corpse loot, timer callbacks and quest item rewards (reconstruction)
 

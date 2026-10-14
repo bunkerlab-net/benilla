@@ -7,6 +7,9 @@ use std::collections::BTreeSet;
 pub const ADMIN_POLICY: &str = "benilla-explicit-world-admin-v1";
 pub const CLASSIC_LEVEL_CEILING: u32 = 60;
 pub const MAX_ADMIN_RECEIPTS: usize = 1024;
+/// Keep historical item witnesses from consuming the checkpoint's entire state budget.
+pub const MAX_ADMIN_RECEIPT_BYTES: usize = 1024 * 1024;
+pub const MAX_ADMIN_SINGLE_RECEIPT_BYTES: usize = 32 * 1024;
 pub const MAX_ADMIN_ALLOWLIST: usize = 64;
 /// A correlation/idempotency value, never a credential or proof of authentication.
 pub type AdminRequestKey = [u8; 16];
@@ -41,6 +44,7 @@ impl AdminPolicy {
 pub enum AdminOperation {
     GainOneLevel,
     SetXpGain { enabled: bool },
+    GrantItem { item: u32, count: u32 },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,10 +66,14 @@ pub enum AdminRejection {
     RequestConflict,
     ReceiptCapacity,
     ProgressionUnavailable,
+    InventoryUnavailable,
+    InvalidItemGrant,
+    UnsupportedItemGrant,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum AdminEffect {
+    ItemGrant(Box<benilla_sim::inventory::GrantReceipt>),
     Level {
         before: u32,
         after: u32,
@@ -93,6 +101,11 @@ impl AdminReceipt {
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdminItemReadiness {
+    pub item: u32,
+    pub grant: Result<(), String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdminSnapshot {
     pub world: crate::WorldId,
     pub player: crate::PlayerId,
@@ -104,14 +117,36 @@ pub struct AdminSnapshot {
     pub supported_maximum: u32,
     pub classic_ceiling: u32,
     pub receipts_remaining: usize,
+    pub items: Vec<AdminItemReadiness>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdminState {
     // Never evicted: replaying an old ID can never become a new grant.
     receipts: Vec<AdminReceipt>,
+    /// Revalidated on restore, maintained on insertion; snapshots do not serialize the ledger.
+    receipt_bytes: u32,
+}
+impl Default for AdminState {
+    fn default() -> Self {
+        Self {
+            receipts: Vec::new(),
+            receipt_bytes: 2,
+        }
+    }
 }
 impl AdminState {
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn serialized_bytes(&self) -> Result<usize, NativeError> {
+        serde_json::to_vec(&self.receipts)
+            .map(|v| v.len())
+            .map_err(|_| NativeError::InvalidState)
+    }
+    fn has_capacity(&self) -> bool {
+        self.receipts.len() < MAX_ADMIN_RECEIPTS
+            && (self.receipt_bytes as usize).saturating_add(MAX_ADMIN_SINGLE_RECEIPT_BYTES + 1)
+                <= MAX_ADMIN_RECEIPT_BYTES
+    }
     pub fn receipt(&self, key: &AdminRequestKey) -> Option<&AdminReceipt> {
         self.receipts
             .binary_search_by_key(key, |r| r.request.key)
@@ -124,7 +159,19 @@ impl AdminState {
             .binary_search_by_key(&receipt.request.key, |r| r.request.key)
         {
             Ok(_) => unreachable!("admin receipt identity preflighted"),
-            Err(i) => self.receipts.insert(i, receipt),
+            Err(i) => {
+                let size = serde_json::to_vec(&receipt)
+                    .expect("fixed admin receipt schema serializes")
+                    .len();
+                self.receipt_bytes = self
+                    .receipt_bytes
+                    .checked_add(
+                        u32::try_from(size + usize::from(!self.receipts.is_empty()))
+                            .expect("bounded serialized receipt"),
+                    )
+                    .expect("bounded admin receipt ledger");
+                self.receipts.insert(i, receipt);
+            }
         }
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
@@ -134,6 +181,8 @@ impl AdminState {
         state: &State,
     ) -> Result<(), NativeError> {
         if self.receipts.len() > MAX_ADMIN_RECEIPTS
+            || self.receipt_bytes as usize != self.serialized_bytes()?
+            || self.receipt_bytes as usize > MAX_ADMIN_RECEIPT_BYTES
             || self
                 .receipts
                 .windows(2)
@@ -185,6 +234,13 @@ impl AdminState {
             {
                 return Err(NativeError::InvalidCheckpoint);
             }
+            if serde_json::to_vec(receipt)
+                .map_err(|_| NativeError::InvalidCheckpoint)?
+                .len()
+                > MAX_ADMIN_SINGLE_RECEIPT_BYTES
+            {
+                return Err(NativeError::InvalidCheckpoint);
+            }
             previous_tick = receipt.tick;
             match (&request.operation, &receipt.effect) {
                 (
@@ -214,6 +270,30 @@ impl AdminState {
                     && *level <= q.player.view().level =>
                 {
                     expected_xp_enabled = *enabled;
+                }
+                (AdminOperation::GrantItem { item, count }, AdminEffect::ItemGrant(grant))
+                    if grant.item == *item
+                        && grant.requested == *count
+                        && grant.target == benilla_sim::inventory::GrantTarget::SelfPlayer =>
+                {
+                    let catalog = &g
+                        .loot
+                        .as_ref()
+                        .ok_or(NativeError::InvalidCheckpoint)?
+                        .inventory;
+                    let inventory = q.inventory.as_ref().ok_or(NativeError::InvalidCheckpoint)?;
+                    grant.validate(catalog, &inventory.equipped)?;
+                    if grant
+                        .stored
+                        .as_ref()
+                        .is_some_and(|s| s.after_next_item > inventory.next_item)
+                        || grant
+                            .zero_before
+                            .as_ref()
+                            .is_some_and(|s| s.next_item > inventory.next_item)
+                    {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
                 }
                 _ => return Err(NativeError::InvalidCheckpoint),
             }
@@ -266,7 +346,24 @@ impl NativeWorld {
             configured_maximum: g.maximum_player_level(),
             supported_maximum: g.admin_supported_maximum(),
             classic_ceiling: CLASSIC_LEVEL_CEILING,
-            receipts_remaining: MAX_ADMIN_RECEIPTS - self.state.admin.receipts.len(),
+            receipts_remaining: if self.state.admin.has_capacity() {
+                MAX_ADMIN_RECEIPTS - self.state.admin.receipts.len()
+            } else {
+                0
+            },
+            items: g.loot.as_ref().map_or_else(Vec::new, |g| {
+                g.inventory
+                    .items()
+                    .map(|item| AdminItemReadiness {
+                        item: item.entry,
+                        grant: g
+                            .inventory
+                            .grant_ready(item.entry)
+                            .map(|_| ())
+                            .map_err(|e| e.to_string()),
+                    })
+                    .collect()
+            }),
         })
     }
     /// Admission of new requests. An exact committed retry is queried separately, before
@@ -314,8 +411,120 @@ pub(super) fn admin_request_gate(
     if profile.quest_progression.is_none() || state.quest_progression.is_none() {
         return Err(AdminRejection::ProgressionUnavailable);
     }
-    if state.admin.receipts.len() >= MAX_ADMIN_RECEIPTS {
+    if let AdminOperation::GrantItem { item, count } = request.operation {
+        if count == 0 || count > benilla_sim::inventory::MAX_AWARD_COUNT {
+            return Err(AdminRejection::InvalidItemGrant);
+        }
+        let catalog = &profile
+            .quest_progression
+            .as_ref()
+            .and_then(|g| g.loot.as_ref())
+            .ok_or(AdminRejection::InventoryUnavailable)?
+            .inventory;
+        if state
+            .quest_progression
+            .as_ref()
+            .and_then(|q| q.inventory.as_ref())
+            .is_none()
+        {
+            return Err(AdminRejection::InventoryUnavailable);
+        }
+        catalog
+            .item(item)
+            .map_err(|_| AdminRejection::InvalidItemGrant)?;
+        catalog
+            .grant_ready(item)
+            .map_err(|_| AdminRejection::UnsupportedItemGrant)?;
+    }
+    if !state.admin.has_capacity() {
         return Err(AdminRejection::ReceiptCapacity);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod byte_budget_tests {
+    use super::*;
+    use benilla_sim::inventory as inv;
+    #[test]
+    fn maximum_width_item_witness_fits_reserved_headroom_and_capacity_closes_before_checkpoint_limit(
+    ) {
+        let mut item = crate::native::synthetic_loot_fixture::item(u32::MAX);
+        item.stackable = 255;
+        item.maximum_durability = u32::MAX;
+        for s in &mut item.spells {
+            s.charges = i32::MIN;
+            s.id = u32::MAX;
+            s.cooldown = i32::MIN;
+            s.category = u32::MAX;
+            s.category_cooldown = i32::MIN;
+        }
+        for bag in [false, true] {
+            if bag {
+                item.inventory_type = 18;
+                item.container_slots = 36;
+            }
+            let catalog =
+                crate::native::synthetic_loot_fixture::inventory_catalog(vec![item.clone()]);
+            let mut inventory =
+                inv::State::new(BTreeMap::from([(u32::MAX, 19)]), u64::MAX - 100).unwrap();
+            inventory
+                .grant_item(
+                    &catalog,
+                    u32::MAX,
+                    4079,
+                    inv::GrantTarget::SelfPlayer,
+                    |_, _, _| Ok(()),
+                )
+                .unwrap();
+            let grant = inventory
+                .grant_item(
+                    &catalog,
+                    u32::MAX,
+                    10000,
+                    inv::GrantTarget::SelfPlayer,
+                    |_, _, _| Ok(()),
+                )
+                .unwrap();
+            let receipt = AdminReceipt {
+                request: AdminRequest {
+                    key: [255; 16],
+                    world: [255; 16],
+                    player: crate::PlayerId {
+                        owner: [255; 16],
+                        character: [255; 16],
+                    },
+                    policy_revision: u64::MAX,
+                    operation: AdminOperation::GrantItem {
+                        item: u32::MAX,
+                        count: 10000,
+                    },
+                },
+                tick: u64::MAX,
+                sequence: u64::MAX,
+                effect: AdminEffect::ItemGrant(Box::new(grant)),
+            };
+            let size = serde_json::to_vec(&receipt).unwrap().len();
+            assert!(size < MAX_ADMIN_SINGLE_RECEIPT_BYTES, "{size}");
+            let mut state = AdminState::default();
+            let mut n = 0u64;
+            while state.has_capacity() {
+                let mut receipt = receipt.clone();
+                receipt.request.key[..8].copy_from_slice(&n.to_be_bytes());
+                state.insert(receipt);
+                n += 1;
+                assert!(state.serialized_bytes().unwrap() <= MAX_ADMIN_RECEIPT_BYTES);
+            }
+            assert!(n < MAX_ADMIN_RECEIPTS as u64);
+            assert!(
+                state.serialized_bytes().unwrap() + MAX_ADMIN_SINGLE_RECEIPT_BYTES + 1
+                    > MAX_ADMIN_RECEIPT_BYTES
+            );
+            assert!(state.serialized_bytes().unwrap() < crate::native::MAX_BYTES / 4);
+            assert_eq!(
+                state.receipt_bytes as usize,
+                state.serialized_bytes().unwrap()
+            );
+        }
+    }
 }

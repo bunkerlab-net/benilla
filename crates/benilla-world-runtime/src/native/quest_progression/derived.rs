@@ -110,7 +110,7 @@ impl QuestProgressionGenesis {
         self.inputs_for_recipe(&combat.recipe.snapshot())
     }
 
-    fn inputs_for_recipe(&self, recipe: &init::StatRecipeSnapshot) -> DerivedInputs {
+    pub(super) fn inputs_for_recipe(&self, recipe: &init::StatRecipeSnapshot) -> DerivedInputs {
         recipe_inputs(
             &self.initial_combat,
             self.initial_derived_inputs.audit.clone(),
@@ -333,10 +333,10 @@ impl QuestProgressionState {
         if self.genesis != g.identity {
             return Err(NativeError::InvalidCheckpoint);
         }
-        let boundaries = validate_history(
+        let (boundaries, _) = validate_history(
             g,
             self.player.view(),
-            &self.training,
+            self.training.as_view(),
             &self.derived,
             &self.derived_calls,
             &combat.recipe,
@@ -362,11 +362,11 @@ impl QuestProgressionState {
 pub(super) fn validate_history(
     g: &QuestProgressionGenesis,
     player: &pg::Snapshot,
-    expected_training: &init::TrainingSnapshot,
+    expected_training: init::TrainingView<'_>,
     expected_derived: &DerivedStats,
     calls: &[DerivedCall],
     expected_recipe: &init::StatRecipe,
-) -> Result<BTreeMap<usize, u32>, NativeError> {
+) -> Result<(BTreeMap<usize, u32>, init::LiveTraining), NativeError> {
     if calls.len() > MAX_DERIVED_CALLS {
         return Err(NativeError::InvalidCheckpoint);
     }
@@ -478,11 +478,11 @@ pub(super) fn validate_history(
     boundary(g, player, source.view(), &recipe)?;
     if *expected_derived != derived
         || *expected_recipe != recipe
-        || *expected_training != training.snapshot()
+        || !training.matches_snapshot(expected_training)
     {
         return Err(NativeError::InvalidCheckpoint);
     }
-    Ok(boundaries)
+    Ok((boundaries, training))
 }
 
 #[cfg(test)]

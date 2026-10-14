@@ -151,6 +151,11 @@ fn software_numbers_match_independent_pinned_cpp_blocks() {
                     state => panic!("{line}: {state:?}"),
                 }
             }
+            "R" => assert_eq!(
+                zero_resistance_npc_miss(v[0] as u8, v[1] as u8, float(0x40800000)).is_ok(),
+                v[2] == 0,
+                "{line}"
+            ),
             "M" => assert_eq!(
                 zero_resistance_npc_miss(v[0] as u8, v[1] as u8, float(v[2] as u32)).unwrap(),
                 v[3] as u16,
@@ -191,7 +196,7 @@ fn software_numbers_match_independent_pinned_cpp_blocks() {
         }
         seen += 1;
     }
-    assert_eq!(seen, 8723);
+    assert_eq!(seen, 21743);
 }
 #[test]
 fn prepare_cast_travel_and_periodic_are_real_state_transitions() {

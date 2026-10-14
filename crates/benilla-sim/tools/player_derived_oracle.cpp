@@ -146,7 +146,7 @@ void output(Player& p,uint32 mode,uint32 stage) {
 int main() {
     assert(std::fesetround(FE_TONEAREST)==0);
     std::cout<<"# source-extracted ancillary hook and item-break fixtures; synthetic rows only\n";
-    for(uint32 level=1;level<=9;++level) for(uint32 mode=0;mode<=8;++mode) {
+    for(uint32 level=1;level<=60;++level) for(uint32 mode=0;mode<=8;++mode) {
         Player p; p.level=level;
         const int stats[5]={17,23,29,31,37};
         for(uint32 i=0;i<5;++i) p.create[i]=float(stats[i]+level*(i==3?2:1));

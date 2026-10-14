@@ -1,5 +1,7 @@
 #![cfg(test)]
 pub(crate) mod native_geometry;
+#[path = "../../benilla-app/src/net/p2p/world_setup.rs"]
+mod world_setup;
 mod net {
     pub(crate) mod p2p {
         pub(crate) use crate::native_geometry;

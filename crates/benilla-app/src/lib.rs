@@ -81,6 +81,7 @@ mod portrait;
 mod preflight;
 #[cfg(feature = "dev")]
 mod probe_shield;
+mod profile_recovery;
 mod query_cache;
 mod quest_markers;
 mod raid_marks;
@@ -228,6 +229,9 @@ type Extension<'a> = Box<dyn FnOnce(&mut App) + 'a>;
 
 /// The one body behind [`run`] and [`run_with`], not generic, so a launcher compiles none of it.
 fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
+    if let Some(result) = profile_recovery::run(build) {
+        return result;
+    }
     // `WOW_HOVER_LOG_REPORT=<csv>` and `WOW_CAPTURE=list` print and exit before any setup.
     if let Ok(path) = std::env::var("WOW_HOVER_LOG_REPORT") {
         dev::report_recorded_hover_log(&path);

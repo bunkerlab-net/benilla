@@ -1,6 +1,7 @@
 //! Connection setup: executable-adjacent startup config and explicit diagnostics.
 //! Draft edits do nothing until Save; startup changes require restarting the process.
 mod diagnostics;
+mod layout;
 #[cfg(test)]
 mod tests;
 mod view;

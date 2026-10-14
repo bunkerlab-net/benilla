@@ -2,7 +2,7 @@ use super::*;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-struct TempDir(std::path::PathBuf);
+pub(crate) struct TempDir(std::path::PathBuf);
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
@@ -10,7 +10,7 @@ impl Drop for TempDir {
 }
 static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-fn input(name: &str) -> NewCharacter {
+pub(crate) fn input(name: &str) -> NewCharacter {
     NewCharacter {
         name: name.into(),
         race: 1,
@@ -19,7 +19,7 @@ fn input(name: &str) -> NewCharacter {
         appearance: Appearance::default(),
     }
 }
-fn directory() -> (TempDir, std::path::PathBuf) {
+pub(crate) fn directory() -> (TempDir, std::path::PathBuf) {
     let base = std::env::temp_dir().canonicalize().unwrap();
     let path = base.join(format!(
         "benilla-profile-fixture-{}-{}",
@@ -475,4 +475,385 @@ fn closing_profile_unlocks_even_with_an_inherited_file_description() {
     drop(profile);
     let _reopened = ProfileStore::open(&path).unwrap();
     drop(inherited);
+}
+
+#[test]
+fn archive_and_restore_after_restart_preserve_identity_other_characters_and_world_bytes() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let first = profile.create_character(input("Alice")).unwrap();
+    let second = profile.create_character(input("Beryl")).unwrap();
+    let key = profile.public_key();
+    let owner = profile.owner_id();
+    let mut position = profile.character(first).unwrap().position;
+    position.position[0] += 50.0;
+    profile.save_position(first, position).unwrap();
+    let original = profile.character(first).unwrap().clone();
+    let other = profile.character(second).unwrap().clone();
+    // A synthetic native-world checkpoint keyed by the original character. No save is parsed,
+    // renamed or removed by this profile-only operation, even if it is adjacent to the profile.
+    let world = path.parent().unwrap().join("world-saves");
+    fs::create_dir(&world).unwrap();
+    fs::write(
+        world.join("synthetic-world.json"),
+        b"synthetic native-world checkpoint",
+    )
+    .unwrap();
+    profile.archive_character(owner, first).unwrap();
+    assert_eq!(profile.characters(), std::slice::from_ref(&other));
+    assert_eq!(profile.selected_character(), Some(&other));
+    assert_eq!(
+        profile.archived_characters(),
+        std::slice::from_ref(&original)
+    );
+    assert!(profile.select_character(first).is_err());
+    assert!(profile.save_position(first, position).is_err());
+    drop(profile);
+    let mut profile = ProfileStore::open(&path).unwrap();
+    assert_eq!(profile.public_key(), key);
+    assert_eq!(profile.owner_id(), owner);
+    assert_eq!(profile.character(first), None);
+    profile.restore_character(owner, first).unwrap();
+    assert_eq!(profile.selected_character(), Some(&other));
+    drop(profile);
+    let mut profile = ProfileStore::open(&path).unwrap();
+    assert_eq!(profile.character(first), Some(&original));
+    assert_eq!(profile.character(second), Some(&other));
+    assert!(profile.archived_characters().is_empty());
+    profile.select_character(first).unwrap();
+    profile.archive_character(owner, first).unwrap();
+    assert!(profile.selected_character().is_none());
+    drop(profile);
+    let profile = ProfileStore::open(&path).unwrap();
+    assert!(profile.selected_character().is_none());
+    assert_eq!(
+        fs::read(world.join("synthetic-world.json")).unwrap(),
+        b"synthetic native-world checkpoint"
+    );
+    let challenge = [45; 32];
+    assert!(verify_transport_challenge(
+        &key,
+        &challenge,
+        &profile.identity().sign_transport_challenge(&challenge)
+    ));
+}
+
+#[test]
+fn wrong_owner_stale_duplicate_and_conflicting_restore_never_mutate() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let id = profile.create_character(input("Alice")).unwrap();
+    let owner = profile.owner_id();
+    let mut foreign = owner;
+    foreign[0] ^= 1;
+    let before = fs::read(path.join("profile.json")).unwrap();
+    assert!(profile.archive_character(foreign, id).is_err());
+    assert!(profile.archive_character(owner, [0; 16]).is_err());
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), before);
+    profile.archive_character(owner, id).unwrap();
+    let before = fs::read(path.join("profile.json")).unwrap();
+    assert!(profile.archive_character(owner, id).is_err());
+    assert!(profile.restore_character(foreign, id).is_err());
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), before);
+    let new = profile.create_character(input("ALICE")).unwrap();
+    let before = fs::read(path.join("profile.json")).unwrap();
+    assert!(profile.restore_character(owner, id).is_err());
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), before);
+    assert_eq!(profile.characters()[0].id, new);
+    assert_eq!(profile.archived_characters()[0].id, id);
+    profile.archive_character(owner, new).unwrap();
+    profile.restore_character(owner, id).unwrap();
+    assert!(profile.restore_character(owner, id).is_err());
+    assert_eq!(profile.characters()[0].id, id);
+    assert_eq!(profile.archived_characters()[0].id, new);
+}
+
+#[test]
+fn archive_and_active_limits_never_evict_records() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let owner = profile.owner_id();
+    for index in 0..MAX_RETAINED_CHARACTERS {
+        let name = format!(
+            "A{}{}",
+            char::from(b'a' + (index / 26) as u8),
+            char::from(b'a' + (index % 26) as u8)
+        );
+        let id = profile.create_character(input(&name)).unwrap();
+        profile.archive_character(owner, id).unwrap();
+    }
+    let archive = profile.archived_characters().to_vec();
+    let before = fs::read(path.join("profile.json")).unwrap();
+    assert!(profile.create_character(input("Beryl")).is_err());
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), before);
+    assert_eq!(profile.archived_characters(), archive);
+    // Full retention still permits restore then archive; no capacity deadlock or eviction.
+    profile.restore_character(owner, archive[0].id).unwrap();
+    profile.archive_character(owner, archive[0].id).unwrap();
+    assert_eq!(profile.archived_characters().len(), MAX_ARCHIVED_CHARACTERS);
+    for character in archive.iter().take(MAX_CHARACTERS) {
+        profile.restore_character(owner, character.id).unwrap();
+    }
+    let before = fs::read(path.join("profile.json")).unwrap();
+    assert!(profile
+        .restore_character(owner, archive[MAX_CHARACTERS].id)
+        .is_err());
+    assert!(profile.create_character(input("Beryl")).is_err());
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), before);
+    assert_eq!(
+        profile.characters().len() + profile.archived_characters().len(),
+        MAX_RETAINED_CHARACTERS
+    );
+    profile.archive_character(owner, archive[0].id).unwrap();
+    profile
+        .restore_character(owner, archive[MAX_CHARACTERS].id)
+        .unwrap();
+}
+
+#[test]
+fn archive_and_restore_precommit_failures_preserve_current_and_memory() {
+    for restoring in [false, true] {
+        for fault in [
+            storage::SaveFault::BeforeSync,
+            storage::SaveFault::BeforeRename,
+        ] {
+            let (_temp, path) = directory();
+            let mut profile = ProfileStore::create(&path).unwrap();
+            let id = profile.create_character(input("Alice")).unwrap();
+            let owner = profile.owner_id();
+            if restoring {
+                profile.archive_character(owner, id).unwrap();
+            }
+            let before = fs::read(path.join("profile.json")).unwrap();
+            let active = profile.characters().to_vec();
+            let archived = profile.archived_characters().to_vec();
+            let selected = profile.selected_character().cloned();
+            profile.storage.inject_fault(fault);
+            let result = if restoring {
+                profile.restore_character(owner, id)
+            } else {
+                profile.archive_character(owner, id)
+            };
+            assert!(matches!(result, Err(Error::Io(_))));
+            assert_eq!(profile.characters(), active);
+            assert_eq!(profile.archived_characters(), archived);
+            assert_eq!(profile.selected_character(), selected.as_ref());
+            assert_eq!(fs::read(path.join("profile.json")).unwrap(), before);
+            drop(profile);
+            let profile = ProfileStore::open(&path).unwrap();
+            assert_eq!(profile.characters(), active);
+            assert_eq!(profile.archived_characters(), archived);
+        }
+    }
+}
+
+#[test]
+fn archive_and_restore_uncertain_commit_require_reopen_and_never_duplicate() {
+    for restoring in [false, true] {
+        let (_temp, path) = directory();
+        let mut profile = ProfileStore::create(&path).unwrap();
+        let id = profile.create_character(input("Alice")).unwrap();
+        let owner = profile.owner_id();
+        if restoring {
+            profile.archive_character(owner, id).unwrap();
+        }
+        let before = fs::read(path.join("profile.json")).unwrap();
+        profile
+            .storage
+            .inject_fault(storage::SaveFault::AfterRename);
+        let result = if restoring {
+            profile.restore_character(owner, id)
+        } else {
+            profile.archive_character(owner, id)
+        };
+        assert!(matches!(result, Err(Error::CommitUncertain)));
+        assert_eq!(profile.character(id).is_some(), !restoring);
+        assert_eq!(
+            fs::read(path.join("profile.previous.json")).unwrap(),
+            before
+        );
+        assert!(matches!(
+            profile.create_character(input("Beryl")),
+            Err(Error::CommitUncertain)
+        ));
+        drop(profile);
+        let mut profile = ProfileStore::open(&path).unwrap();
+        assert_eq!(profile.character(id).is_some(), restoring);
+        assert_eq!(
+            profile.characters().len() + profile.archived_characters().len(),
+            1
+        );
+        let repeat = if restoring {
+            profile.restore_character(owner, id)
+        } else {
+            profile.archive_character(owner, id)
+        };
+        assert!(repeat.is_err());
+    }
+}
+
+// Independent frozen v1 layout: adding fields to current State cannot change these bytes or
+// the original checksum's field order. Only generated synthetic fixture secrets are used.
+fn version_one_bytes(profile: &ProfileStore) -> Vec<u8> {
+    #[derive(Serialize)]
+    struct OldState<'a> {
+        revision: u64,
+        selected: Option<CharacterId>,
+        characters: &'a [Character],
+    }
+    #[derive(Serialize)]
+    struct OldPayload<'a> {
+        secret: [u8; 32],
+        public_key: [u8; 32],
+        owner_id: OwnerId,
+        state: OldState<'a>,
+    }
+    #[derive(Serialize)]
+    struct OldEnvelope<'a> {
+        format_version: u32,
+        payload: OldPayload<'a>,
+        checksum: [u8; 32],
+    }
+    let payload = OldPayload {
+        secret: profile.identity.key.to_bytes(),
+        public_key: profile.public_key(),
+        owner_id: profile.owner_id(),
+        state: OldState {
+            revision: profile.state.revision,
+            selected: profile.state.selected,
+            characters: profile.characters(),
+        },
+    };
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let mut hash = Sha256::new();
+    hash.update(b"benilla-profile-v1\0");
+    hash.update(bytes);
+    serde_json::to_vec(&OldEnvelope {
+        format_version: 1,
+        payload,
+        checksum: hash.finalize().into(),
+    })
+    .unwrap()
+}
+
+#[test]
+fn version_one_checksum_verified_before_lossless_read_only_open_and_explicit_mutation() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let one = profile.create_character(input("Alice")).unwrap();
+    let two = profile.create_character(input("Beryl")).unwrap();
+    let records = profile.characters().to_vec();
+    let owner = profile.owner_id();
+    let key = profile.public_key();
+    let old = version_one_bytes(&profile);
+    drop(profile);
+    fs::write(path.join("profile.json"), &old).unwrap();
+    let mut profile = ProfileStore::open(&path).unwrap();
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), old);
+    assert_eq!(profile.characters(), records);
+    assert!(profile.archived_characters().is_empty());
+    assert_eq!(profile.selected_character().unwrap().id, two);
+    assert_eq!(profile.public_key(), key);
+    profile.archive_character(owner, one).unwrap();
+    assert_eq!(fs::read(path.join("profile.previous.json")).unwrap(), old);
+    drop(profile);
+    let profile = ProfileStore::open(&path).unwrap();
+    assert_eq!(profile.character(two), Some(&records[1]));
+    assert_eq!(
+        profile.archived_characters(),
+        std::slice::from_ref(&records[0])
+    );
+    assert_eq!(profile.public_key(), key);
+    drop(profile);
+    let mut corrupted: serde_json::Value = serde_json::from_slice(&old).unwrap();
+    corrupted["payload"]["state"]["characters"][0]["name"] = "Tampered".into();
+    let corrupted = serde_json::to_vec(&corrupted).unwrap();
+    fs::write(path.join("profile.json"), &corrupted).unwrap();
+    assert!(matches!(ProfileStore::open(&path), Err(Error::Corrupt)));
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), corrupted);
+    let mut unexpected: serde_json::Value = serde_json::from_slice(&old).unwrap();
+    unexpected["payload"]["state"]["archived"] = serde_json::json!([]);
+    let unexpected = serde_json::to_vec(&unexpected).unwrap();
+    fs::write(path.join("profile.json"), &unexpected).unwrap();
+    assert!(matches!(ProfileStore::open(&path), Err(Error::Corrupt)));
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), unexpected);
+}
+
+#[test]
+fn failed_version_one_migration_keeps_original_bytes_and_uncertain_migration_can_reopen() {
+    for fault in [
+        storage::SaveFault::BeforeSync,
+        storage::SaveFault::BeforeRename,
+        storage::SaveFault::AfterRename,
+    ] {
+        let (_temp, path) = directory();
+        let mut profile = ProfileStore::create(&path).unwrap();
+        let id = profile.create_character(input("Alice")).unwrap();
+        let owner = profile.owner_id();
+        let key = profile.public_key();
+        let old = version_one_bytes(&profile);
+        drop(profile);
+        fs::write(path.join("profile.json"), &old).unwrap();
+        let mut profile = ProfileStore::open(&path).unwrap();
+        profile.storage.inject_fault(fault);
+        assert!(profile.archive_character(owner, id).is_err());
+        assert_eq!(fs::read(path.join("profile.previous.json")).unwrap(), old);
+        if fault != storage::SaveFault::AfterRename {
+            assert_eq!(fs::read(path.join("profile.json")).unwrap(), old);
+        }
+        assert!(profile.character(id).is_some());
+        drop(profile);
+        let profile = ProfileStore::open(&path).unwrap();
+        assert_eq!(profile.public_key(), key);
+        assert_eq!(
+            profile.character(id).is_some(),
+            fault != storage::SaveFault::AfterRename
+        );
+        assert_eq!(
+            profile.characters().len() + profile.archived_characters().len(),
+            1
+        );
+    }
+}
+
+#[test]
+fn archive_validation_covers_owner_id_name_and_selected_character() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let first = profile.create_character(input("Alice")).unwrap();
+    profile.create_character(input("Beryl")).unwrap();
+    profile
+        .archive_character(profile.owner_id(), first)
+        .unwrap();
+    let owner = profile.owner_id();
+    for mutation in [
+        "owner",
+        "duplicate",
+        "duplicate_archive",
+        "name",
+        "position",
+        "selection",
+        "bound",
+    ] {
+        let mut state = profile.state.clone();
+        match mutation {
+            "owner" => state.archived[0].owner_id[0] ^= 1,
+            "duplicate" => state.archived[0].id = state.characters[0].id,
+            "duplicate_archive" => state.archived.push(state.archived[0].clone()),
+            "position" => state.archived[0].position.map_id = 999,
+            "name" => state.archived[0].name = "../../invalid".into(),
+            "selection" => state.selected = Some(first),
+            "bound" => {
+                state.archived = vec![state.archived[0].clone(); MAX_ARCHIVED_CHARACTERS + 1]
+            }
+            _ => unreachable!(),
+        }
+        assert!(state.validate(owner).is_err(), "{mutation}");
+        // Even a recomputed checksum must not make a malformed archive readable.
+        let bytes = storage::encode(&profile.identity, &state).unwrap();
+        assert!(
+            matches!(storage::decode(&bytes), Err(Error::Corrupt)),
+            "{mutation}"
+        );
+    }
 }

@@ -20,7 +20,9 @@ pub use skills::{
 };
 pub use stats::{Attributes, ModifierSnapshot, Resources};
 use std::collections::{BTreeMap, BTreeSet};
-pub use training::{LiveTraining, TrainingCallSnapshot, TrainingSnapshot, LIVE_TRAINING_POLICY_ID};
+pub use training::{
+    LiveTraining, TrainingCallSnapshot, TrainingSnapshot, TrainingView, LIVE_TRAINING_POLICY_ID,
+};
 pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v2";
 pub type Result<T> = std::result::Result<T, InitError>;
 #[derive(Clone, Debug, PartialEq, Eq)]

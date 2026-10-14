@@ -124,7 +124,7 @@ fn direct_level_keeps_existing_xp_runs_hooks_and_honestly_caps_at_supplied_rows(
         ),
         (3, 60, 60)
     );
-    assert_eq!(pg::MAX_SUPPORTED_LEVEL, 9);
+    assert_eq!(pg::MAX_SUPPORTED_LEVEL, 60);
     let receipt = w.admin_receipt(&r.key).unwrap().clone();
     let calls = progression(&w).derived_calls.clone();
     apply(&mut w, r.clone());
@@ -292,11 +292,11 @@ fn altered_receipt_policy_and_unreceipted_xp_lock_fail_restore() {
         }
         let state: super::persistence::StateCheckpoint =
             serde_json::from_value(forged["state"].clone()).unwrap();
-        let digest = crate::digest(b"benilla-native-state-v16\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v18\0", &state);
         forged["digest"] = serde_json::to_value(digest).unwrap();
         let tip: crate::Digest = serde_json::from_value(forged["history_tip"].clone()).unwrap();
         forged["checksum"] = serde_json::to_value(crate::digest(
-            b"benilla-native-checkpoint-v16\0",
+            b"benilla-native-checkpoint-v18\0",
             &(state, digest, tip),
         ))
         .unwrap();

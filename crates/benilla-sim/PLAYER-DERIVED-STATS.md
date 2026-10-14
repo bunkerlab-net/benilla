@@ -19,7 +19,7 @@ Such learning and its replay fail atomically until those effects are supported.
 
 ## Domain and actual inputs
 
-Only static, solo, unshapeshifted mages at levels 1–9 are admitted. The caller
+Only static, solo, unshapeshifted mages at levels 1–60 are admitted. The caller
 supplies callback-time effective attributes, level, and complete skill fields
 (including status and permanent/temporary bonuses) through `Snapshot`. It also
 supplies the actual equipped weapon rows through `DerivedInputs`. The weapon
@@ -119,7 +119,7 @@ fixed identity/capabilities, field storage, and flat modifier dispatch are
 explicit adapters. Resource and armor results are outside this oracle's output
 and have separate existing recipe tests.
 
-The 243 vectors cover levels 1–9 and nine item cases, each before a break, after
+The 1,620 vectors cover levels 1–60 and nine item cases, each before a break, after
 source item callbacks with durability committed last, and after a subsequent
 full refresh. Cases include a plain weapon, each primary attribute, armor-only
 agility, repeated agility/intellect entries, and an authored zero-delay weapon.

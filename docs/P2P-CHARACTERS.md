@@ -14,12 +14,40 @@ screens. It does not require a realm account or an online peer to play alone.
 5. Logout saves position and returns to the roster. Back returns to login, where the roster
    can be reopened. Normal application exit also checkpoints before the worker stops.
 
-Names are 2–12 ASCII letters, normalized to title case, unique within the local profile.
-There are at most ten characters per profile. This first slice refuses deletion and rename.
+Names are 2–12 ASCII letters, normalized to title case, unique within the active local roster.
+There are at most ten active characters and 32 retained records total, including the archive.
+Deletion is recoverable; rename remains unsupported.
 Appearance must be valid both for the profile's Classic bounds and the actual client DBCs.
 The world body display and faction are resolved locally from those DBCs, never trusted from
 peer-supplied display IDs. The saved name, race, gender, class and appearance are used for
 both local and remote player objects.
+
+## Delete and restore
+
+Select a character, choose Delete, and type the displayed confirmation word. The exact
+character shown in the dialog moves into a local archive after saving; Cancel or Escape
+leaves it alone. Other characters, the profile identity/signing key and all native-world
+saves are preserved. The character disappears from the active roster and stays archived
+after restarting. Removing the selected character clears its saved selection.
+
+To restore, close the player and open a terminal beside the shipped executable:
+
+```sh
+./benilla characters list-archived
+./benilla characters restore <32-hex-character-id> --confirm
+```
+
+On Windows use `benilla.exe` in Command Prompt or `.\benilla.exe` in PowerShell. Copy the
+exact archived ID from the list. These commands are built into the player; no Cargo, game
+assets or network connection is needed. They use the same profile directory and `BENILLA_HOME`
+as normal startup. `benilla characters --help` prints usage without opening a profile.
+
+Restore refuses to overwrite an active character with the same name or exceed ten active
+characters. Archive the conflicting active character (or another to free a slot), then retry.
+At 32 retained records, new creation is refused; archive/restore transfers remain available.
+Nothing is automatically evicted and no irreversible purge command is provided. Opening a
+missing or damaged profile never creates a replacement. A failed/uncertain save requires
+closing and reopening before trying again; the list then reflects the validated disk state.
 
 ## Storage and privacy
 

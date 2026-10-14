@@ -367,10 +367,8 @@ fn exact_defense_gain_branch_and_strict_real_roll() {
     assert!(resolve_defense_gain(1, capped, Some(PercentRoll::from_bits(0).unwrap())).is_err());
     let mut logarithmic = skill;
     logarithmic.maximum = 10;
-    assert!(matches!(
-        defense_gain_chance(2, logarithmic),
-        Err(MeleeError::Unsupported(_))
-    ));
+    assert!(defense_gain_chance(2, logarithmic).unwrap().is_some());
+    assert!(resolve_defense_gain(2, logarithmic, None).is_err());
     let mut disabled = skill;
     disabled.gain = 0;
     assert!(resolve_defense_gain(1, disabled, None).is_err());

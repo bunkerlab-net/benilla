@@ -20,9 +20,11 @@ rows and spell 900001 in tests are original synthetic probes.
 - No spell/aura/gear/script modifiers, combo points, spell power, rank overrides,
   aura-stack modifiers, immunity/reflection charges, absorption, death prevention,
   PvP/duel/pet/GM behavior, proc callbacks, triggered spells, leech or threat mods
-- No school resistance or penetration, with caster and NPC levels 1 through 20
-  and ordinary level-times-five skills. The upstream resistance calculation's
-  100-skill floor makes the additional NPC level-resistance term zero here
+- No school resistance or penetration, with caster levels 1–60, ordinary NPC
+  levels 1–63, and level-times-five skills. Target level must be at most
+  `max(caster level, 20)`: the exact source resistance condition then makes the
+  additional NPC level-resistance term zero. Higher-than-caster NPCs above 20,
+  world-boss level overrides and partial-resistance table paths remain excluded
 - Unit cast speed, zero session latency, no GCD or cooldown modifiers;
   ordinary cooldown categories without `CooldownIsGlobal`
 - Caller has already resolved cast time, cost, spell rank, duration, checks,
@@ -156,7 +158,7 @@ reassociation or fast-math authority is used.
 - `SpellFloat`: signed normal binary32 or signed zero, absolute value at most
   1,000,000. Reject subnormals, NaN and infinities
 - General numeric helpers accept spell rank 1..315; the runtime component accepts
-  1..100. `GetSpellRank / 5` is not replaced by an assumed character level
+  1..315. `GetSpellRank / 5` is not replaced by an assumed character level
 - Effect input/result magnitudes and health/mana: at most 1,000,000. Time values:
   at most 3,600,000 ms. Timestamps are checked u64 simulation milliseconds
 - `CalculateSpellEffectValue`: preserve float operation order, level clamps and
@@ -230,7 +232,7 @@ fixed-damage synthetic encounter and does not relabel it as Classic gameplay.
 `tools/generate_spell_fixture.py` SHA-256 checks pinned source and compiles exact
 function bodies or explicitly named contiguous branch blocks in the original
 C++ adapter, using nearest-even FP, no fast math/contraction, and undefined/
-float-cast-overflow sanitizers. It emits 8,723 original numeric/timer records:
+float-cast-overflow sanitizers. It emits 21,743 original numeric/timer/resistance records:
 effect scaling, travel/sqrt boundaries, mana cost, cast time, magic miss levels,
 crit rounding/chance boundaries, cast timer/dead target branches and periodic
 timer debt. No source download or game data is required during Cargo tests.
@@ -250,10 +252,10 @@ adapter does not execute full `Prepare`, `Spell::cast`, `CheckCast`, target
 selection or launch/impact machinery. Those orchestration boundaries require
 the source audit above and host regression tests.
 
-The release oracle emits 72 original rows: prepare ranks 5/10/15, release ranks
-5/10/20, release create mana 100/250 and available mana 0/10/30/100, with impact
-rank 25. Eight unchanged-rank rows isolate the percentage-cost floor changing
-from 1 to 2. `tests/classic_spell_release.rs` matches every row and exercises
+The release oracle emits 360 authored rows: prepare ranks 5/10/15/295/300/315,
+release ranks 5/10/20/295/300/315, release create mana 100/250 and available mana
+0/10/30/100/1000, with impact rank 25. Unchanged-rank rows isolate percentage-cost
+floor changes. `tests/classic_spell_release.rs` matches every row and exercises
 immutable metadata, prepared timer/pushback/GCD, changed-context replay,
 independent witness validation, zero/positive mana marker changes, early/flight
 rebinding refusal, bad dice and no-RNG failed release. The fixture is newly
@@ -261,7 +263,7 @@ regenerated evidence, not byte-for-byte recovery of a historical fixture.
 
 ## Timed creature evade and periodic accounting
 
-The periodic execution policy v3 retains explicit amount/effective/absorb/resist
+The periodic execution policy v4 retains explicit amount/effective/absorb/resist
 in periodic events. `DamageTarget::update_aura_with_evade` distinguishes ordinary
 school immunity from the source DealDamageMods evade branch: timed/home evade
 adds current damage to prior absorb, applies the existing signed-resist order,

@@ -977,3 +977,254 @@ fn queued_item_last_and_explicit_release_reduce_lifetime_then_exhausted_reopen_h
     assert!(c.receive(ClientCommand::LootMoney).is_err());
     assert_eq!(inventory(&c).item_count(70001).unwrap(), 7);
 }
+
+struct GrantCatalog;
+impl ClientCatalog for GrantCatalog {
+    fn build(&self) -> u32 {
+        LootCatalog.build()
+    }
+    fn manifest_digest(&self) -> runtime::Digest {
+        LootCatalog.manifest_digest()
+    }
+    fn contains_map(&self, id: u32) -> bool {
+        LootCatalog.contains_map(id)
+    }
+    fn contains_creature_display(&self, id: u32) -> bool {
+        LootCatalog.contains_creature_display(id)
+    }
+    fn contains_item_display(&self, id: u32) -> bool {
+        LootCatalog.contains_item_display(id)
+    }
+    fn contains_spell(&self, id: u32) -> bool {
+        LootCatalog.contains_spell(id)
+    }
+    fn player_power_type(&self, p: PlayerId) -> Option<u8> {
+        LootCatalog.player_power_type(p)
+    }
+    fn player_bytes_2(&self, p: PlayerId) -> Option<u32> {
+        LootCatalog.player_bytes_2(p)
+    }
+    fn native_item_spell_query(
+        &self,
+        spell: u32,
+    ) -> Option<benilla_world_client::NativeItemSpellQuery> {
+        (spell == 80001).then_some(benilla_world_client::NativeItemSpellQuery::Present {
+            recovery_time: 9000,
+            category: 90,
+            category_recovery_time: 9100,
+        })
+    }
+    fn item_metadata(&self, entry: u32) -> Option<benilla_protocol::messages::ItemInfo> {
+        let (_, _, q) = loot::item_grant_setup();
+        let catalog = &q.loot.as_ref()?.inventory;
+        let row = catalog.item(entry).ok()?;
+        let mut info = LootCatalog.item_metadata(if entry == 900001 { 900001 } else { 70001 })?;
+        info.name = format!("Authored grant {entry}");
+        info.class = row.class;
+        info.inventory_type = row.inventory_type;
+        info.container_slots = row.container_slots;
+        info.stackable = row.stackable as u32;
+        info.max_count = row.maximum_count as u32;
+        info.bonding = row.bonding;
+        info.start_quest = row.start_quest;
+        info.item_set = row.item_set;
+        info.random_property = row.random_property;
+        info.spell_charges_0 = row.spells[0].charges;
+        info.spells = row
+            .spells
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.id != 0)
+            .map(|(index, s)| benilla_protocol::messages::ItemSpellEntry {
+                index: index as u8,
+                spell_id: s.id,
+                trigger: s.trigger,
+                charges: s.charges,
+                cooldown_ms: s.cooldown,
+                category: s.category,
+                category_cooldown_ms: s.category_cooldown,
+            })
+            .collect();
+        info.use_spell = info.spells.iter().find(|s| s.trigger == 0).map(|s| {
+            benilla_protocol::messages::ItemUseSpell {
+                spell_id: s.spell_id,
+                cooldown_ms: s.cooldown_ms,
+                category: s.category,
+                category_cooldown_ms: s.category_cooldown_ms,
+            }
+        });
+        Some(info)
+    }
+    fn quest_metadata(&self, id: u32) -> Option<benilla_world_client::QuestMetadata> {
+        LootCatalog.quest_metadata(id)
+    }
+    fn quest_greeting(&self, id: u32) -> Option<String> {
+        LootCatalog.quest_greeting(id)
+    }
+    fn native_quest_greeting(&self, id: u32) -> Option<benilla_world_client::NativeQuestGreeting> {
+        LootCatalog.native_quest_greeting(id)
+    }
+    fn native_quest_presentation(
+        &self,
+        id: u32,
+    ) -> Option<benilla_world_client::NativeQuestPresentation> {
+        LootCatalog.native_quest_presentation(id)
+    }
+}
+fn enter_grants(h: &Harness, open: bool) -> NativeController {
+    let mut p = loot::item_grant_profile();
+    p.admin = Some(n::AdminPolicy {
+        world: [8; 16],
+        world_owner: Selection::from_profile(&h.profile, &h.character)
+            .unwrap()
+            .player
+            .owner,
+        allowlist: Default::default(),
+        revision: 7,
+    });
+    NativeController::enter_component_test(
+        &h.root,
+        &h.profile,
+        &h.character,
+        if open {
+            Entry::Open { world: [8; 16] }
+        } else {
+            Entry::Create {
+                world: [8; 16],
+                seed: 7,
+            }
+        },
+        p,
+        &GrantCatalog,
+        loot::LootAuthority::default(),
+    )
+    .unwrap()
+}
+fn item_request(
+    b: &impl benilla_ui::script::admin::AdminBackend,
+    key: u64,
+    item: u32,
+    count: u32,
+) -> benilla_ui::script::admin::AdminRequest {
+    use benilla_ui::script::admin as ui;
+    let s = b.snapshot();
+    ui::AdminRequest {
+        id: ui::AdminRequestId {
+            context: s.context.unwrap(),
+            sequence: key,
+        },
+        catalog_revision: s.revision,
+        operation: ui::AdminOperation::GrantItem {
+            item_id: item,
+            count,
+        },
+    }
+}
+#[test]
+fn admin_item_ui_backend_preserves_search_visibility_and_saves_before_bag_publication() {
+    use benilla_ui::script::admin::{self as ui, AdminBackend};
+    let h = Harness::new();
+    let mut c = enter_grants(&h, false);
+    c.initial_events().unwrap();
+    let b = c.admin_backend();
+    let s = b.snapshot();
+    assert_eq!(s.items.len(), 5);
+    assert!(s
+        .items
+        .iter()
+        .any(|i| i.id == 70005 && i.label.contains("grant unavailable")));
+    assert!(matches!(
+        s.availability[ui::AdminAction::Item as usize],
+        ui::AdminAvailability::Available
+    ));
+    let bad = item_request(&b, 1, 70005, 1);
+    assert!(b.submit(bad).is_err());
+    let r = item_request(&b, 2, 70003, 20);
+    b.submit(r.clone()).unwrap();
+    b.submit(r.clone()).unwrap();
+    inject(&h);
+    let out = c.pump(c.tick_duration());
+    paused(&out);
+    assert!(b.poll(&r.id).is_none());
+    assert_eq!(inventory(&c).slots.len(), 16);
+    let count = inventory(&c).next_item;
+    let digest = c.world.state_digest();
+    repair(&h);
+    c.retry_checkpoint().unwrap();
+    assert!(b.poll(&r.id).is_none());
+    let out = c.pump(Duration::ZERO);
+    assert!(out.pause.is_none());
+    assert_eq!(
+        out.events
+            .iter()
+            .filter(|e| matches!(
+                e,
+                SessionEvent::ItemCreate {
+                    container: true,
+                    ..
+                }
+            ))
+            .count(),
+        16
+    );
+    assert_eq!(
+        out.events
+            .iter()
+            .filter(|e| matches!(e,SessionEvent::ItemPushResult(p) if p.created&&p.count==16))
+            .count(),
+        1
+    );
+    assert!(!out
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::LootRemoved { .. })));
+    let result = b.poll(&r.id).unwrap();
+    assert!(
+        matches!(&result.outcome,ui::AdminOutcome::Committed {receipt} if receipt.contains("granted 16 of 20; 4 ungranted"))
+    );
+    b.submit(r.clone()).unwrap();
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    assert_eq!(inventory(&c).next_item, count);
+    assert_eq!(c.world.state_digest(), digest);
+    assert_eq!(b.poll(&r.id), Some(result.clone()));
+    drop(c);
+    let reopened = enter_grants(&h, true);
+    reopened.reconcile_admin_backend(&b).unwrap();
+    assert_eq!(b.poll(&r.id), Some(result));
+    assert_eq!(inventory(&reopened).slots.len(), 16);
+}
+#[test]
+fn admin_partial_unique_and_merged_stack_push_report_actual_award_only() {
+    use benilla_ui::script::admin::AdminBackend;
+    let h = Harness::new();
+    let mut c = enter_grants(&h, false);
+    let b = c.admin_backend();
+    let r = item_request(&b, 1, 70001, 3);
+    b.submit(r).unwrap();
+    step(&mut c);
+    let r = item_request(&b, 2, 70001, 20);
+    b.submit(r.clone()).unwrap();
+    let out = step(&mut c);
+    let pushes: Vec<_> = out
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            SessionEvent::ItemPushResult(p) => Some(p),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pushes.len(), 1);
+    assert_eq!(pushes[0].count, 4);
+    assert!(pushes[0].created);
+    assert_eq!(pushes[0].item_slot, u32::MAX);
+    assert_eq!(inventory(&c).item_count(70001).unwrap(), 7);
+    assert!(b.poll(&r.id).is_some());
+    let r = item_request(&b, 3, 70001, 1);
+    b.submit(r.clone()).unwrap();
+    let out = step(&mut c);
+    assert!(!out
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ItemPushResult(_))));
+    assert!(b.poll(&r.id).is_some());
+}

@@ -14,14 +14,16 @@ use benilla_profile::{Character, ProfileStore};
 use benilla_protocol::{EntityKind, JumpInfo, MoveSpeeds, ObjectFields, SessionEnd, SessionEvent};
 use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
+mod character_actions;
 mod encounter;
 #[path = "p2p/world/native_geometry/mod.rs"]
 mod native_geometry;
+use character_actions::character_guid;
 mod profile;
+mod world_setup;
 // Native entry is deliberately closed until a supported compiler/runtime profile exists.
 mod world;
 pub(super) use native_geometry::plugin as native_geometry_plugin;
@@ -31,15 +33,22 @@ use profile::AvatarCatalog;
 const CONTENT_VERSION: &str = "benilla-saved-exploration-northshire-v2";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
-/// Public connection metadata, revealed only by deliberate UI action; never persisted or logged.
+/// Public connection metadata plus the local setup mailbox; no signing keys or PSKs.
+/// Connection metadata is revealed only by deliberate UI action, never persisted or logged.
 #[derive(bevy::prelude::Resource, Clone, Default)]
-pub(crate) struct P2pEndpointTicket(Arc<Mutex<EndpointState>>);
+pub(crate) struct P2pEndpointTicket(
+    Arc<Mutex<EndpointState>>,
+    benilla_ui::script::world_setup::WorldSetupMailbox,
+);
 #[derive(Default)]
 struct EndpointState {
     ticket: Option<String>,
     listen: Option<std::net::SocketAddr>,
 }
 impl P2pEndpointTicket {
+    pub(crate) fn world_setup(&self) -> benilla_ui::script::world_setup::WorldSetupMailbox {
+        self.1.clone()
+    }
     pub(crate) fn get(&self) -> Option<String> {
         self.0.lock().ok().and_then(|value| value.ticket.clone())
     }
@@ -461,17 +470,6 @@ pub(super) fn prepare(
     (handles, start)
 }
 
-/// A character's game identity is scoped to its authenticated owner, not an attacker-chosen ID.
-fn character_guid(character: &Character) -> u64 {
-    let mut hash = Sha256::new();
-    hash.update(b"benilla-character-guid-v1\0");
-    hash.update(character.owner_id);
-    hash.update(character.id);
-    let mut bytes = [0; 8];
-    bytes[..6].copy_from_slice(&hash.finalize()[..6]);
-    u64::from_le_bytes(bytes).max(1)
-}
-
 fn character_name(character: &Character) -> SessionEvent {
     SessionEvent::PlayerName {
         guid: character_guid(character),
@@ -816,6 +814,7 @@ fn run_exploration_character(
         )?,
         None => Network::start_owned(transport, settings.0.psk_bytes(), hello, identity)?,
     };
+    let mut setup = world_setup::Service::open(store, ticket.world_setup());
     ticket.set_listen(network.local_addr());
     bevy::log::info!(
         "p2p: exploration session listening on {} as {}",
@@ -882,6 +881,7 @@ fn run_exploration_character(
             }
             return Ok(());
         }
+        setup.poll(store);
         if last_checkpoint.elapsed() >= CHECKPOINT_INTERVAL {
             store.save_position(character.id, character.position).context("could not save local position; session stopped, check local profile before rejoining")?;
             last_checkpoint = Instant::now();

@@ -3,7 +3,7 @@
 """Extract unchanged pinned CMaNGOS ancillary/item callback methods and compare bits.
 
 Usage: generate_player_derived_fixture.py UPSTREAM_DIR [--check]
-Synthetic mage levels1-9; no database/DBC/installation data. The harness resolves
+Synthetic mage levels1-60; no database/DBC/installation data. The harness resolves
 empty aura lists, no shape/disarm/parry/block/dual-wield/ammo/enchantments. Native
 weapon damage is 4.25-7.75 with2750ms delay (mode7:zero authored delay). Skills
 including both bonuses: defense4, equipped4, unarmed2. Modes0-8 break a plain

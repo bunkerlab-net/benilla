@@ -103,7 +103,10 @@ fn all_source_release_rows_match_including_create_mana_only_thresholds() {
             unchanged_rank_cost_changes += 1;
             assert_eq!(current.mana_cost, prepared.mana_cost + 1, "{row}");
         }
-        let (mut cast, mut resources) = prepare(prepared.clone());
+        let mut resources = CasterResources::new(10000).unwrap();
+        let (mut cast, _) =
+            MageProjectileCast::prepare(prepared.clone(), 1, 2, 0, &mut resources, checks())
+                .unwrap();
         resources.mana = v[3] as u32;
         cast.update(
             u64::from(prepared.cast_ms - 1),
@@ -182,8 +185,8 @@ fn all_source_release_rows_match_including_create_mana_only_thresholds() {
         }
         count += 1;
     }
-    assert_eq!(count, 72);
-    assert_eq!(unchanged_rank_cost_changes, 8);
+    assert_eq!(count, 360);
+    assert_eq!(unchanged_rank_cost_changes, 25);
 }
 
 #[test]

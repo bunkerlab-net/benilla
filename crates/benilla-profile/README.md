@@ -24,7 +24,8 @@ serialized secrets and complete secret-containing file buffers use `Zeroizing`.
   both parties' claims, and protocol context. This API alone does not establish a connection.
 - `create_character` validates before writing, creates a random 128-bit nonzero ID and selects
   it. Names are 2–12 ASCII letters, normalized to initial-capital lowercase and unique within
-  the profile. There is no network-wide name registry, offensive-name filter, or rename/delete.
+  the active roster. There is no network-wide name registry, offensive-name filter, or rename.
+  Local deletion archives the full record for explicit restoration (see below).
 - `select_character` and `save_position` accept only IDs already owned by the local profile.
   Call position checkpoints only from local-player state, never from peer messages.
 - `characters`, `character`, and `selected_character` expose immutable public state. Canonical
@@ -51,7 +52,7 @@ The dedicated directory contains `profile.json`, `profile.previous.json` after t
 mutation, and a persistent `profile.lock`. **Both JSON files contain an unencrypted signing
 secret. Never log, transmit, publish, or attach them.** They have a strict schema, version,
 checksum over deterministic payload encoding, and a maximum size of 64 KiB. Unknown fields,
-unsupported versions, invalid characters/owner/selection, duplicate names/IDs, malformed JSON,
+unsupported versions, invalid characters/owner/selection, duplicate active names or retained IDs, malformed JSON,
 and checksum failure are errors. `open` fails closed even if a good backup exists.
 
 Each mutation validates a candidate, compares current file bytes with the loaded snapshot,
@@ -109,3 +110,85 @@ not promise anti-cheat, unique humans, globally unique names, or authoritative p
 or profile. `cargo clippy -p benilla-profile --all-targets -- -D warnings` and
 `cargo fmt --all -- --check` cover the platform compiled by the caller. Unix and Windows seams
 need their own CI/runtime coverage; Linux tests do not prove Windows crash behavior.
+
+## Recoverable character removal
+
+The P2P character screen's existing typed `DELETE` confirmation removes exactly that
+owner-bound character from the active roster. This fork deliberately archives the full
+character record rather than erasing it. The signing identity, other characters, and all
+referenced native-world saves remain untouched. The selected character is cleared only when
+that character is removed; restoring does not change the current selection. A changed roster
+and `CHAR_DELETE_SUCCESS` are sent only after the atomic durable commit succeeds. Cancellation,
+stale targets and repeated requests never remove a different character.
+
+There are at most 10 active characters and 32 retained records total (active plus archived).
+At the retained limit, creation is refused without evicting anything; archive/restore transfers
+still work. There is no irreversible purge command. Archived names can be reused, but restoring
+into an active name conflict or a full active roster is refused without replacing anyone.
+Archive the conflicting active character, or another active character to free a roster slot,
+then restore the desired original ID.
+
+The distributed player includes these recovery commands; no Rust/Cargo installation is needed:
+
+```sh
+benilla characters list-archived
+benilla characters restore <32-hex-character-id> --confirm
+benilla characters --help
+```
+
+Close the running player first: recovery uses the same exclusive profile lock. Run the shipped
+`benilla` executable (or `benilla.exe` on Windows) from a terminal. The commands use the normal
+`benilla-config/p2p-profile` directory beside the player; `BENILLA_HOME` overrides the state
+folder as in ordinary startup. Only an existing profile can be opened. Help and invalid arguments
+do not open or create an identity. The list shows only names and IDs, never the signing key.
+Recovery runs before Bevy, game-asset discovery or any network session, including in player builds.
+
+Profile format v2 adds an archive and a version-specific checksum domain. Existing v1 profiles
+remain readable: their original strict schema and checksum are verified before lossless
+in-memory conversion. Opening alone never rewrites the file. The next explicit mutation writes
+v2 and preserves the byte-exact original v1 file as `profile.previous.json`. A failed pre-rename
+write retains original current bytes; an uncertain post-rename write requires reopening before
+further actions. Older binaries cannot open v2; never downgrade by copying over current state,
+which could discard characters retained by newer versions.
+## Saved local-world declarations
+
+The in-game P2P exploration interface exposes **ESC → Admin → Local World Setup**.
+Saving a new setup declares the current profile as owner of a newly generated public world ID,
+with an explicit immutable list of up to 64 other admin owner IDs. It also selects that setup.
+Existing saved setups can be selected explicitly. These actions do not start a native world,
+change exploration characters, grant inventory/spells/levels, or establish authority over a
+foreign world. The production native capability remains unavailable. Changing admins requires
+saving a distinct new world; there is no live-policy editing operation.
+
+`world_setups` reads the separate `local-worlds.json` sidecar. Merely opening a profile or this
+screen never creates a declaration. `apply_world_setup` accepts bounded create/select requests
+under the profile's existing exclusive lock. Its replay key is a public random session nonce
+plus a monotonic request sequence; it is not an authentication credential. An exact duplicate
+returns its original world ID, a conflicting duplicate is rejected, and a stale expected
+revision cannot change the saved selection. At most 16 worlds and 256 never-evicted setup
+receipts are retained, within a 256 KiB file bound. Reaching a bound preserves existing records.
+
+Declarations use Ed25519 with `benilla-local-world-declaration-v1\0`, followed by compact,
+field-ordered serde JSON of `(format_version, label, public_key, policy)`. Policy contains world
+ID, owner ID derived from that same public key, sorted unique other-admin IDs, and immutable
+revision 1. The complete saved state uses a distinct `benilla-local-world-setups-v1\0` domain
+and is signed independently, binding selection and replay history. No generic signing API or
+secret accessor is exposed. `WorldDeclaration::verify` checks the owner binding and signature;
+its `digest` binds the complete signed declaration for a future validated genesis/profile.
+Such a future entry path must bind that exact digest, not trust a display name or a claim that
+an existing world belongs to the signer. A valid declaration alone never admits gameplay.
+
+The sidecar shares the profile's audited filesystem primitives: bounded private regular files,
+last-valid `local-worlds.previous.json`, same-directory temporary writes, flush/fsync/rename,
+file-content conflict checks, and an uncertain-commit latch requiring reopen. It does not change
+or re-encode the existing profile schema, checksum, signing key, character roster or position.
+Missing-current/previous-present, corrupt, foreign-profile, unsupported, or unsafe-path setup
+files are preserved and rejected. Setup failure does not silently replace a profile or switch
+worlds. The UI reports queued/pending until the profile worker confirms durable save, and keeps
+ambiguous results latched across UI reloads. After reopening, inspect saved worlds before
+retrying an uncertain creation.
+
+All platform durability and local-owner limitations above apply equally to the sidecar.
+Signatures detect unauthorized changes by someone without the key; the operating-system owner
+can still copy keys and roll back complete saved directories. This is not global world-name
+ownership, anti-cheat, a remote permission service, or distributed admin consensus.

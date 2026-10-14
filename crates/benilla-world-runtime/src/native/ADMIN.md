@@ -1,9 +1,10 @@
-# Explicit native-world admin progression
+# Explicit native-world admin operations
 
-This fork-only interface implements two user-requested operations: one level at a
-time, capped by the admitted data, and an XP-gain toggle that preserves current XP.
+This fork-only interface implements data-bounded one-level grants, an XP-gain
+toggle that preserves current XP, and positive carried-item grants.
 It is not a CMaNGOS chat command, a realm-admin login, a PSK permission, or a new
-simulation authority. Native format 16 binds the policy, receipts and XP flag.
+simulation authority. Native format 18 binds the policy, receipts, XP flag and
+carried-item metadata, including real empty container instances.
 `NativeCapability` remains uninhabited. The exact app/UI/store route is exercised
 only with authored component fixtures; no production host is installed.
 
@@ -35,7 +36,8 @@ the operation records a successful no-op with equal before/after levels.
 Pinned CMaNGOS `Player.cpp:2668–2778` supplies `GiveXP` and `GiveLevel`; its direct
 `GiveLevel` explicitly leaves XP to the caller. The requested +1 operation uses
 that primitive with an explicit cap, rather than invoking the broader administrator
-chat command. The runtime's progression kernel currently admits only levels 1–9.
+chat command. The progression kernel admits supplied levels 1–60 with unspent
+talent points and the bounded, fixed-equipment closure.
 The usable bound is the minimum of the consecutive, checked supplied rows, the
 captured configured cap, that kernel bound, and the Classic ceiling of 60. These
 values are separate in the backend snapshot. The authored fixture supplies levels
@@ -44,7 +46,8 @@ extrapolated or substituted and no source/dependency audit is relaxed. Ordinary 
 still uses the captured configured cap; an award requiring an unsupplied next level
 atomically refuses and pauses the existing controller. The admin button does not
 silently rewrite that cap or automatically disable XP. Full playable level 60
-requires the missing data/kernel closure.
+still requires complete data and lifecycle admission; a component level bound
+is not a production-content claim.
 
 `SetXpGain` changes only the durable XP flag; it does not erase or convert existing
 XP. This user-requested fork behavior is not a claim about a stock Classic toggle.
@@ -66,6 +69,33 @@ this work does not claim rested or group gameplay admission. Exploration, PvP,
 other player classes and other XP sources are not admitted native award paths. Any
 future award path must respect this persisted gate before it can be enabled.
 
+## Positive carried-item grants
+
+`GrantItem` uses the named `CmangosAddItemV1` policy from pinned
+`Chat/Level3.cpp:1602–1689`. The trusted host computes destinations and records
+requested, granted and ungranted counts plus the original storage result. Partial
+capacity and unique-limit awards succeed for the available amount; a zero award
+retains a recomputable pre-state witness without allocation or quest credit.
+Creation reserves the original item ID before `ItemAddedQuestCheck`, then stores
+source-ordered destinations and unbinds every destination for the selected self
+target, including previously bound merged stacks. Ordinary loot/reward storage
+continues to require a fully successful plan. No deletion or overflow route exists.
+
+Catalog visibility is independent of grant/equip/use readiness. Five complete
+spell records retain raw charges, cooldown/category values and binary32 PPM bits;
+sets, StartQuest and ScriptId remain intact. Grant does not execute equip/use
+spells or autoaccept item quests. Random-property generation, timers, scripts and
+other unclosed lifecycle dependencies explicitly block grants for those rows.
+The source oracle executes creation and storage hooks and verifies their absence
+in the admitted domain. See [inventory source coverage](../../../benilla-sim/INVENTORY.md).
+
+InventoryType 18 creates an actual empty Bag with capacity at most 36, owner and
+contained fields, and zero contents. Bag creation differs from Item creation:
+its charges remain zero even when raw template charges are nonzero. Carried bags
+occupy one of the sixteen backpack positions; they cannot yet be equipped or filled.
+An independent acquisition event publishes the source item-push result without
+requiring a corpse or a loot-window removal event.
+
 ## Idempotency, replay and capacity
 
 An admin request contains a nonzero 128-bit idempotency key, exact world/player,
@@ -76,7 +106,12 @@ returns that receipt without running hooks again. Reusing the key with different
 content is rejected. New requests with missing permission, stale policy, wrong
 selection or no progression closure are rejected before effects.
 
-The receipt collection is canonical, bounded at 1024 and never evicted. Capacity
+The receipt collection is canonical, bounded at 1024 and 1 MiB, and never evicted.
+Every new operation reserves 32 KiB plus a separator and enforces its actual
+serialized receipt size before insertion. A cached byte count is maintained on
+insertion and fully recomputed on restore; altered cache values reject. This
+budget composes with the separate 4 MiB progression-history admission limit and
+the unchanged final 8 MiB checkpoint bound. Capacity
 exhaustion is an explicit admin rejection; ordinary ticks and exact old retries
 continue. Restore validates sorted unique IDs, request/selected-world/policy
 bindings, tick/sequence bounds, effect shape, level bounds and the ordered XP-toggle
@@ -93,8 +128,7 @@ selected owner/character and admitted profile. UI correlation sequences derive
 stable per-incarnation operation IDs. A fresh UI VM gets a fresh context while old
 requests remain in the bounded ledger; unresolved prior-context requests block new
 operations until reconciled. A separate FIFO preserves arrival order. The UI thread does no filesystem work; full/busy/stale/unsupported requests
-are rejected independently of the simulation. All other admin operations remain
-unavailable.
+are rejected independently of the simulation. Other admin operations remain unavailable.
 
 The controller appends admitted requests to its ordinary atomic tick queue.
 Progression ticks save before publication. On a failed save, the computed state,

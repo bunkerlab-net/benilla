@@ -123,7 +123,12 @@ fn skill(case: u32, level: u32) -> (SkillState, SkillDependency) {
     )
 }
 fn catalog(profile: u32, cap: u32, maximize: bool, _global: u16, case: u32) -> Catalog {
-    let rows: Vec<_> = (1..=9.min(cap))
+    catalog_with_rate(profile, cap, maximize, case, 0x3f800000)
+}
+fn catalog_with_rate(profile: u32, cap: u32, maximize: bool, case: u32, rate: u32) -> Catalog {
+    // Declining-resource profile1 is an old below-ten signed-delta probe only.
+    let bound = if profile == 1 { 9 } else { MAX_SUPPORTED_LEVEL };
+    let rows: Vec<_> = (1..=bound.min(cap))
         .map(|l| {
             let mut r = rows(l, profile);
             if l >= cap {
@@ -135,7 +140,7 @@ fn catalog(profile: u32, cap: u32, maximize: bool, _global: u16, case: u32) -> C
     Catalog::new(
         1,
         8,
-        Rules::from_classic_config(cap, maximize).unwrap(),
+        Rules::from_classic_config(cap, maximize, rate).unwrap(),
         rows.iter().map(|r| r.0).collect(),
         rows.iter().map(|r| r.1).collect(),
         rows.iter().map(|r| r.2).collect(),
@@ -204,7 +209,7 @@ fn snapshot(cat: &Catalog, level: u32, profile: u32, case: u32, alive: bool, xp:
         },
         played_time_level: 77,
         session_level: level,
-        free_talent_points: 0,
+        free_talent_points: cat.rules().unspent_talent_points(level).unwrap(),
         used_talent_points: 0,
         modifiers,
         numeric,
@@ -280,12 +285,12 @@ fn extracted_cpp_source_progression() {
         );
         assert_eq!(
             global,
-            Rules::from_classic_config(cap, maximize)
+            Rules::from_classic_config(cap, maximize, 0x3f800000)
                 .unwrap()
                 .global_skill_max,
             "{line}"
         );
-        let cat = catalog(profile, cap, maximize, global, case);
+        let cat = catalog_with_rate(profile, cap, maximize, case, n(40));
         let mut initial = snapshot(&cat, level, profile, case, alive, old_xp);
         initial.numeric.health = n(10);
         initial.numeric.powers[0] = n(11);
@@ -386,6 +391,7 @@ fn extracted_cpp_source_progression() {
         assert_eq!(
             tx.events
                 .iter()
+                .filter(|e| e.event != Event::InitTalentForLevel || e.view.level >= 10)
                 .map(|e| trace(&e.event))
                 .collect::<Vec<_>>()
                 .join(","),
@@ -395,7 +401,7 @@ fn extracted_cpp_source_progression() {
         State::restore(&cat, tx.state.snapshot()).unwrap();
         count += 1;
     }
-    assert_eq!(count, 881);
+    assert_eq!(count, 2429);
     assert_eq!(invalid_rage, 3);
 }
 #[test]
@@ -490,13 +496,13 @@ fn callback_views_and_every_host_failure_are_transactional() {
     );
 }
 #[test]
-fn missing_levels_or_unsupported_tenth_level_roll_back_everything() {
-    let cat = catalog(0, 60, true, 300, 0);
+fn missing_levels_or_unsupported_sixty_first_level_roll_back_everything() {
+    let cat = catalog(0, 100, true, 600, 0);
     let start = state(&cat, 1, 0, 0, true, 0);
     let host = ProbeHost::default();
     assert_eq!(
         give_xp(&cat, &start, &host, 100_000),
-        Err(Error::Unsupported("mage levels outside 1–9"))
+        Err(Error::Unsupported("mage levels outside 1–60"))
     );
     let (a, b, c) = rows(1, 0);
     let partial = Catalog::new(
@@ -618,7 +624,7 @@ fn armor_round_trip_rejection_rolls_back_multilevel_progression() {
     let cat = Catalog::new(
         1,
         8,
-        Rules::from_classic_config(60, false).unwrap(),
+        Rules::from_classic_config(60, false, 0x3f800000).unwrap(),
         all.iter().map(|r| r.0).collect(),
         all.iter().map(|r| r.1).collect(),
         all.iter().map(|r| r.2).collect(),
@@ -732,24 +738,24 @@ fn skills_preserve_bonus_step_status_and_first_matching_info() {
 
 #[test]
 fn source_config_and_row_widths_are_not_inferred_defaults() {
-    assert!(Rules::from_classic_config(0, false).is_err());
-    assert!(Rules::from_classic_config(101, false).is_err());
+    assert!(Rules::from_classic_config(0, false, 0x3f800000).is_err());
+    assert!(Rules::from_classic_config(101, false, 0x3f800000).is_err());
     for (cap, skillmax) in [(1, 5), (60, 300), (61, 307), (100, 600)] {
         assert_eq!(
-            Rules::from_classic_config(cap, false)
+            Rules::from_classic_config(cap, false, 0x3f800000)
                 .unwrap()
                 .global_skill_max,
             skillmax
         );
     }
     let (a, b, c) = rows(1, 0);
-    let mut wrong = Rules::from_classic_config(60, false).unwrap();
+    let mut wrong = Rules::from_classic_config(60, false, 0x3f800000).unwrap();
     wrong.global_skill_max = 5;
     assert_eq!(
         Catalog::new(1, 8, wrong, vec![a], vec![b], vec![c], vec![]),
         Err(Error::Invalid("progression rules"))
     );
-    let rules = Rules::from_classic_config(60, false).unwrap();
+    let rules = Rules::from_classic_config(60, false, 0x3f800000).unwrap();
     for level in [1, 2, 9] {
         let (mut absent, class, xp) = rows(level, 0);
         absent.attributes.0[0] = 0;
@@ -765,7 +771,7 @@ fn source_config_and_row_widths_are_not_inferred_defaults() {
     let mut wide = b;
     wide.base_mana = 65536;
     assert!(Catalog::new(1, 8, rules, vec![a], vec![wide], vec![c], vec![]).is_err());
-    let cap = Rules::from_classic_config(1, false).unwrap();
+    let cap = Rules::from_classic_config(1, false, 0x3f800000).unwrap();
     assert!(Catalog::new(1, 8, cap, vec![a], vec![b], vec![c], vec![]).is_err());
     let zero = XpRow {
         level: 1,
@@ -774,4 +780,120 @@ fn source_config_and_row_widths_are_not_inferred_defaults() {
     assert!(Catalog::new(1, 8, cap, vec![a], vec![b], vec![zero], vec![]).is_ok());
     let (a, b, c) = rows(2, 0);
     assert!(Catalog::new(1, 8, cap, vec![a], vec![b], vec![c], vec![]).is_err());
+}
+
+#[test]
+fn unspent_talents_bind_exact_resolved_rate_and_reject_tampering() {
+    for (bits, level10, level60) in [
+        (0, 0, 0),
+        (0x80000000, 0, 0),
+        (0x3f000000, 0, 25),
+        (0x3f800000, 1, 51),
+        (0x3fc00000, 1, 76),
+        (0x40000000, 2, 102),
+    ] {
+        let cat = catalog_with_rate(0, 60, true, 10, bits);
+        assert_eq!(cat.rules().talent_rate_bits, bits);
+        for (level, points) in [(1, 0), (9, 0), (10, level10), (60, level60)] {
+            let mut view = snapshot(&cat, level, 0, 10, true, 17);
+            assert_eq!(view.free_talent_points, points);
+            State::restore(&cat, view.clone()).unwrap();
+            view.free_talent_points = points.wrapping_add(1);
+            assert!(State::restore(&cat, view).is_err());
+        }
+        let original = state(&cat, 9, 0, 10, true, 17);
+        let host = ProbeHost::default();
+        let tx = give_xp(&cat, &original, &host, 100_000).unwrap();
+        assert_eq!(tx.state.view().level, 60);
+        assert_eq!(tx.state.view().free_talent_points, level60);
+        let points_at_ten = tx
+            .events
+            .iter()
+            .find(|e| e.event == Event::InitTalentForLevel && e.view.level == 10)
+            .unwrap();
+        assert_eq!(points_at_ten.view.free_talent_points, level10);
+        assert_eq!(points_at_ten.view.xp, 17);
+        for event in tx
+            .events
+            .iter()
+            .filter(|e| matches!(e.event, Event::Level(_)))
+        {
+            assert_eq!(
+                event.view.xp, 17,
+                "source retains old XP until all levels finish"
+            );
+        }
+        let again = give_xp(&cat, &tx.state, &tx.host, u32::MAX).unwrap();
+        assert_eq!(again.state, tx.state);
+        assert!(again.events.is_empty());
+        let encoded = serde_json::to_vec(&tx.state.snapshot()).unwrap();
+        let saved = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(State::restore(&cat, saved).unwrap(), tx.state);
+        assert_eq!(
+            give_level(&cat, &tx.state, &tx.host, 9),
+            Err(Error::Unsupported("decreasing post-ten mage progression"))
+        );
+        let mut used = tx.state.snapshot();
+        used.used_talent_points = 1;
+        assert!(State::restore(&cat, used).is_err());
+    }
+    let one = catalog_with_rate(0, 60, false, 0, 0x3f800000);
+    for bits in [0, 0x80000000, 0x3f800001] {
+        let other = catalog_with_rate(0, 60, false, 0, bits);
+        assert_ne!(one.identity(), other.identity());
+        assert!(State::restore(&other, state(&one, 1, 0, 0, true, 0).snapshot()).is_err());
+    }
+    // Hashes retain the captured sign of zero although source results agree.
+    assert_ne!(
+        catalog_with_rate(0, 60, false, 0, 0).identity(),
+        catalog_with_rate(0, 60, false, 0, 0x80000000).identity()
+    );
+    for bits in [
+        1, 0x80000001, 0xbf800000, 0x7f800000, 0xff800000, 0x7fc00000,
+    ] {
+        assert!(
+            Rules::from_classic_config(60, false, bits).is_err(),
+            "{bits:x}"
+        );
+    }
+    let largest = Rules::from_classic_config(60, false, 0x4ca0a0a0).unwrap();
+    assert_eq!(largest.unspent_talent_points(60).unwrap(), 4_294_967_040);
+    let rounded_outside = Rules::from_classic_config(60, false, 0x4ca0a0a1).unwrap();
+    assert!(rounded_outside.unspent_talent_points(60).is_err());
+    let (a, b, mut x) = rows(60, 0);
+    x.xp_for_next_level = 0;
+    assert!(Catalog::new(1, 8, rounded_outside, vec![a], vec![b], vec![x], vec![]).is_err());
+    let huge = Rules::from_classic_config(60, false, f32::MAX.to_bits()).unwrap();
+    assert!(huge.unspent_talent_points(10).is_err());
+    assert!(huge.unspent_talent_points(60).is_err());
+    for level in [0, 61] {
+        assert!(one.rules().unspent_talent_points(level).is_err());
+    }
+}
+
+#[test]
+fn rollback_after_every_cross_ten_talent_callback_and_at_sixty() {
+    for (start_level, grant) in [(9, 1200), (59, 100_000)] {
+        let cat = catalog_with_rate(0, 60, true, 10, 0x3f800000);
+        let original = state(&cat, start_level, 0, 10, true, 17);
+        let tx = give_xp(&cat, &original, &ProbeHost::default(), grant).unwrap();
+        assert!(tx.state.view().free_talent_points > original.view().free_talent_points);
+        for fail in 0..tx.events.len() {
+            let host = ProbeHost {
+                fail_at: Some(fail),
+                ..ProbeHost::default()
+            };
+            let before = host.clone();
+            assert_eq!(
+                give_xp(&cat, &original, &host, grant),
+                Err(Error::Host("injected after mutation"))
+            );
+            assert_eq!(host, before);
+            assert_eq!(original.view().level, start_level);
+            assert_eq!(
+                original.view().free_talent_points,
+                start_level.saturating_sub(9)
+            );
+        }
+    }
 }

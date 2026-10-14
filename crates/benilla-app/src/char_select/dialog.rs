@@ -11,14 +11,16 @@ use bevy::prelude::*;
 use crate::glue::art::{tc_rect, GlueArt, GOLD};
 use crate::glue::backdrop::{backdrop_border, tiled_bg_node};
 use crate::glue::widgets::{
-    caret_bar, glue_button, outlined_text, overlay, paint_glue_field, GlueBtnKind, GlueDisabled,
-    GlueFieldPart, GlueText,
+    caret_bar, glue_button, outlined_text, outlined_text_centered, overlay, paint_glue_field,
+    GlueBtnKind, GlueDisabled, GlueFieldPart, GlueText,
 };
 use crate::glue_strings::GlueStrings;
 use crate::net::{CharPick, CharRequest};
 use crate::sound::GlueSound;
 
 use super::wow_font;
+#[path = "delete_intent.rs"]
+mod delete_intent;
 
 /// The delete dialog's state.
 #[derive(Resource, Default)]
@@ -50,7 +52,7 @@ impl DeleteDialog {
     /// The typed text matches `DELETE_CONFIRM_STRING`, case-insensitive (the reference's
     /// `strupper`).
     fn armed(&self, confirm: &str) -> bool {
-        self.typed.text.eq_ignore_ascii_case(confirm)
+        delete_intent::armed(&self.typed.text, confirm)
     }
 }
 
@@ -99,7 +101,7 @@ pub(super) fn drive_delete_dialog(
         (&Window, Option<&bevy::window::RawHandleWrapper>),
         With<bevy::window::PrimaryWindow>,
     >,
-    time: Res<Time>,
+    (time, p2p): (Res<Time>, Option<Res<crate::net::P2pSettings>>),
 ) {
     let empty = GlueStrings::default();
     let strings = strings.as_deref().unwrap_or(&empty);
@@ -127,6 +129,7 @@ pub(super) fn drive_delete_dialog(
             &assets,
             strings,
             &dialog,
+            p2p.is_some(),
             s,
         ));
         dialog.spawned_s = s;
@@ -175,16 +178,28 @@ pub(super) fn drive_delete_dialog(
     if keys.just_pressed(KeyCode::Escape) {
         do_cancel = true;
     }
-    if do_delete {
-        if let Some((guid, name, _, _)) = &dialog.target {
+    match delete_intent::decide(&mut dialog.target, armed, do_delete, do_cancel) {
+        delete_intent::Decision::Confirmed((guid, name, _, _)) => {
             info!("char select: deleting {name}");
-            let _ = pick.0.send(CharRequest::Delete(*guid));
+            let _ = pick.0.send(CharRequest::Delete(guid));
+            sounds.write(GlueSound("gsTitleOptionOK"));
+            dialog.close();
         }
-        sounds.write(GlueSound("gsTitleOptionOK"));
-        dialog.close();
-    } else if do_cancel {
-        sounds.write(GlueSound("gsTitleOptionExit"));
-        dialog.close();
+        delete_intent::Decision::Cancelled => {
+            sounds.write(GlueSound("gsTitleOptionExit"));
+            dialog.close();
+        }
+        delete_intent::Decision::Pending => {}
+    }
+}
+
+fn recovery_help_text() -> GlueText<'static> {
+    GlueText {
+        text:
+            "Local deletion keeps a recoverable archive.\nRestore help: benilla characters --help",
+        size: 12.0,
+        color: GOLD,
+        wrap: true,
     }
 }
 
@@ -197,6 +212,7 @@ fn spawn_dialog(
     assets: &AssetServer,
     strings: &GlueStrings,
     dialog: &DeleteDialog,
+    recoverable: bool,
     s: f32,
 ) -> Entity {
     let px = |v: f32| Val::Px(v * s);
@@ -414,6 +430,24 @@ fn spawn_dialog(
                                 });
                         });
                     });
+                if recoverable {
+                    // Fork-only deviation: local removal is recoverable from the player CLI.
+                    outlined_text_centered(
+                        b,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            top: px(151.0),
+                            width: Val::Percent(100.0),
+                            justify_content: JustifyContent::Center,
+                            ..default()
+                        },
+                        (),
+                        (),
+                        recovery_help_text(),
+                        &font,
+                        s,
+                    );
+                }
                 // The `GlueDialogButtonTemplate` pair, 200×40 at bottom 16: Okay's right edge at
                 // center -6, Cancel's left edge at center +7.
                 b.spawn((Node {
@@ -452,4 +486,25 @@ fn spawn_dialog(
             });
         })
         .id()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_help_keeps_both_lines_through_the_glue_text_decoder() {
+        let spec = recovery_help_text();
+        let decoded: String = crate::glue::widgets::markup_spans(spec.text, spec.color, spec.wrap)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+        assert_eq!(
+            decoded.lines().collect::<Vec<_>>(),
+            [
+                "Local deletion keeps a recoverable archive.",
+                "Restore help: benilla characters --help",
+            ]
+        );
+    }
 }

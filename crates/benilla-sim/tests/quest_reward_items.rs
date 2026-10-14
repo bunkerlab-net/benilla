@@ -101,10 +101,15 @@ fn item(entry: u32, stackable: i32, maximum_count: i32) -> Item {
         area: 0,
         map: 0,
         lock_id: 0,
+        script_id: 0,
         spells: [Spell {
             id: 0,
             trigger: 0,
             charges: 0,
+            ppm_rate_bits: 0,
+            cooldown: 0,
+            category: 0,
+            category_cooldown: 0,
         }; 5],
     }
 }
@@ -314,6 +319,10 @@ fn seed(state: &mut inventory::State, slot: u8, item: u32) {
             charges: [0; 5],
             durability: 0,
             maximum_durability: 0,
+            kind: inventory::InstanceKind::Item,
+            duration: 0,
+            random_property_id: 0,
+            enchantments: [0; 3],
         },
     );
 }
@@ -334,6 +343,10 @@ fn stored_slots(text: &str) -> BTreeMap<u8, inventory::Instance> {
                     bound: n[4] != 0,
                     durability: n[5] as u32,
                     maximum_durability: n[6] as u32,
+                    kind: inventory::InstanceKind::Item,
+                    duration: 0,
+                    random_property_id: 0,
+                    enchantments: [0; 3],
                     charges: std::array::from_fn(|i| n[7 + i] as i32),
                 },
             )

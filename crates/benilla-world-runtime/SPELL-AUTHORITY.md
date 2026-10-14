@@ -13,8 +13,13 @@ active effects must use explicit enemy target A=6/B=0, chain count at most one,
 and zero radius/mechanic/trigger/modifier fields. Instant entry rejects explicitly.
 The raw rank-chain row for ID 133, when present, must describe its first rank;
 `GetSpellRank` remains the current source skill value and is not clamped to one.
-Current player and ordinary NPC levels must be 1–20. Levels above this boundary
-reject, rather than silently extrapolating a zero-resistance result.
+Current player levels 1–60 and ordinary NPC levels 1–63 are admitted only when the
+target level is at most `max(caster level, 20)`. The unchanged extracted
+`CalculateEffectiveMagicResistancePercent` body proves zero additional NPC
+level resistance exactly in this domain. Higher-than-caster NPCs above 20,
+world-boss target-level overrides and partial-resistance paths remain excluded.
+Historical source-authority preparation/release/aura witnesses use the same
+level-60 ceiling, including after reload.
 
 ## Raw closure and ownership
 
@@ -116,7 +121,7 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 16, `benilla-native-admin-progression-v16`, with v16 profile/state/
+format 18, `benilla-native-item-grants-v18`, with v18 profile/state/
 record/checkpoint/action hash domains. Published formats 10 and 11 reject without an
 implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace

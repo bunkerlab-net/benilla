@@ -14,7 +14,7 @@ pub use numeric::{
 };
 use std::collections::BTreeMap;
 
-pub const SPELL_EXECUTION_POLICY_ID: &str = "cmangos-8ec338a1-mage-projectile-periodic-binary32-v3";
+pub const SPELL_EXECUTION_POLICY_ID: &str = "cmangos-8ec338a1-mage-projectile-periodic-binary32-v4";
 const MAX_AMOUNT: u32 = 1_000_000;
 const MAX_TIME: u32 = 3_600_000;
 
@@ -74,7 +74,7 @@ impl MageProjectileSpec {
     pub fn validate(&self) -> Result<(), SpellError> {
         if self.spell_id == 0
             || self.spell_rank == 0
-            || self.spell_rank > 100
+            || self.spell_rank > 315
             || self.mana_cost > MAX_AMOUNT
             || [
                 self.cast_ms,

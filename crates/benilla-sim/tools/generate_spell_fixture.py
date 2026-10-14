@@ -59,13 +59,13 @@ def main():
     cast = body(source["SpellMgr.cpp"], "uint32 GetSpellCastTime(")
     cast = cast[cast.index("    int32 castTime ="):cast.index("    // Hunter Ranged spells")]
     harness = pathlib.Path(__file__).with_name("spell_oracle.cpp").read_text()
-    for marker, block in {"EFFECT": effect, "TRAVEL": travel, "CRIT": crit, "CHANCE": chance, "AURA": aura, "TIMER": time_body, "COST": cost + cost_end, "CAST": cast, "MISS": body(source["Unit.cpp"], "float Unit::CalculateSpellMissChance(")}.items():
+    for marker, block in {"EFFECT": effect, "TRAVEL": travel, "CRIT": crit, "CHANCE": chance, "AURA": aura, "TIMER": time_body, "COST": cost + cost_end, "CAST": cast, "MISS": body(source["Unit.cpp"], "float Unit::CalculateSpellMissChance("), "MAGIC_RESIST": body(source["Unit.cpp"], "float Unit::CalculateEffectiveMagicResistancePercent(")}.items():
         harness = harness.replace("// PINNED_" + marker, block)
     output = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/spell_cmangos.tsv"
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
         (root / "oracle.cpp").write_text(harness)
-        subprocess.run(["g++", "-std=c++17", "-O0", "-Wall", "-Wextra", "-Werror", "-fno-fast-math", "-ffp-contract=off", "-frounding-math", "-fsanitize=undefined,float-cast-overflow", str(root / "oracle.cpp"), "-o", str(root / "oracle")], check=True)
+        subprocess.run(["g++", "-std=c++17", "-O0", "-Wall", "-Wextra", "-Werror", "-fno-fast-math", "-ffp-contract=off", "-frounding-math", "-fsanitize=undefined,float-cast-overflow", "-fno-sanitize-recover=all", str(root / "oracle.cpp"), "-o", str(root / "oracle")], check=True)
         data = subprocess.check_output([str(root / "oracle")])
         output.write_bytes(data)
         print(len(data.splitlines()), hashlib.sha256(data).hexdigest())

@@ -14,11 +14,112 @@ pub struct ExecutionBinding {
 #[serde(deny_unknown_fields)]
 struct ProgressionBinding {
     player: pg::Snapshot,
-    training: init::TrainingSnapshot,
+    owner: HistoryOwner,
+    training: TrainingBinding,
+    training_prefix: HistoryPrefix,
     recipe: init::StatRecipeSnapshot,
     derived: DerivedStats,
-    #[serde(deserialize_with = "derived::deserialize_calls")]
-    derived_calls: Vec<DerivedCall>,
+    derived_prefix: HistoryPrefix,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrainingBinding {
+    version: u32,
+    identity: crate::Digest,
+    abilities: Vec<init::KnownAbility>,
+}
+impl TrainingBinding {
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn view<'a>(&'a self, calls: &'a [init::TrainingCallSnapshot]) -> init::TrainingView<'a> {
+        init::TrainingView {
+            version: self.version,
+            identity: self.identity,
+            abilities: &self.abilities,
+            calls,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HistoryOwner {
+    profile: crate::Digest,
+    genesis: crate::Digest,
+    domain: Domain,
+    world: crate::WorldId,
+    player: crate::PlayerId,
+}
+/// Prefixes refer to the durable owner journals, not the clearable tick outbox.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HistoryPrefix {
+    count: u32,
+    digest: crate::Digest,
+}
+impl HistoryPrefix {
+    fn capture<T: Serialize>(
+        owner: HistoryOwner,
+        kind: &str,
+        calls: &[T],
+    ) -> Result<Self, NativeError> {
+        use sha2::{Digest, Sha256};
+        struct Writer(Sha256);
+        impl std::io::Write for Writer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let count = u32::try_from(calls.len()).map_err(|_| NativeError::TooLarge)?;
+        let mut writer = Writer(Sha256::new());
+        writer
+            .0
+            .update(b"benilla-native-execution-history-prefix-v1\0");
+        serde_json::to_writer(
+            &mut writer,
+            &(
+                owner,
+                QUEST_PROGRESSION_POLICY,
+                pg::POLICY_ID,
+                init::LIVE_TRAINING_POLICY_ID,
+                pg::derived::POLICY_ID,
+                kind,
+                count,
+                calls,
+            ),
+        )
+        .map_err(|_| NativeError::InvalidState)?;
+        Ok(Self {
+            count,
+            digest: writer.0.finalize().into(),
+        })
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn resolve<'a, T: Serialize>(
+        &self,
+        owner: HistoryOwner,
+        kind: &str,
+        calls: &'a [T],
+    ) -> Result<&'a [T], NativeError> {
+        if self.count > 4096 {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        let prefix = calls
+            .get(..self.count as usize)
+            .ok_or(NativeError::InvalidCheckpoint)?;
+        if *self != Self::capture(owner, kind, prefix)? {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        Ok(prefix)
+    }
+    // Both prefixes must each validate against the same current owner history
+    // before this ordering comparison establishes source ancestry.
+    fn follows(&self, previous: &Self) -> bool {
+        self.count > previous.count
+            || (self.count == previous.count && self.digest == previous.digest)
+    }
 }
 impl ExecutionBinding {
     pub(in crate::native) fn capture(
@@ -42,13 +143,32 @@ impl ExecutionBinding {
             _ => return Err(NativeError::InvalidState),
         };
         let progression = match (&state.quest_progression, &state.combat) {
-            (Some(q), Some(c)) => Some(ProgressionBinding {
-                player: q.player.view().clone(),
-                training: q.training.clone(),
-                recipe: c.recipe.snapshot(),
-                derived: q.derived.clone(),
-                derived_calls: q.derived_calls.clone(),
-            }),
+            (Some(q), Some(c)) => {
+                let g = profile
+                    .quest_progression
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?;
+                let owner = HistoryOwner {
+                    profile: profile.digest(),
+                    genesis: g.identity,
+                    domain: state.domain,
+                    world: state.world,
+                    player: state.player,
+                };
+                Some(ProgressionBinding {
+                    player: q.player.view().clone(),
+                    owner,
+                    training: TrainingBinding {
+                        version: q.training.version,
+                        identity: q.training.identity,
+                        abilities: q.training.abilities.clone(),
+                    },
+                    training_prefix: HistoryPrefix::capture(owner, "training", &q.training.calls)?,
+                    recipe: c.recipe.snapshot(),
+                    derived: q.derived.clone(),
+                    derived_prefix: HistoryPrefix::capture(owner, "derived", &q.derived_calls)?,
+                })
+            }
             (None, _) if profile.quest_progression.is_none() => None,
             _ => return Err(NativeError::InvalidState),
         };
@@ -57,6 +177,13 @@ impl ExecutionBinding {
             level: state.level(profile),
             captured_ms: state.now_ms,
             progression,
+        })
+    }
+    /// Work upper bound for restoring this witness. Counts include both source
+    /// training and derived history; the checkpoint enforces an aggregate cap.
+    pub(in crate::native) fn replay_work(&self) -> u64 {
+        self.progression.as_ref().map_or(1, |p| {
+            64 + u64::from(p.training_prefix.count) + u64::from(p.derived_prefix.count)
         })
     }
     pub(in crate::native) fn spec(&self) -> Result<&spell::MageProjectileSpec, NativeError> {
@@ -80,8 +207,9 @@ impl ExecutionBinding {
         }
         match (&prepared.progression, &self.progression) {
             (Some(a), Some(b)) => {
-                if !b.training.calls.starts_with(&a.training.calls)
-                    || !b.derived_calls.starts_with(&a.derived_calls)
+                if a.owner != b.owner
+                    || !b.training_prefix.follows(&a.training_prefix)
+                    || !b.derived_prefix.follows(&a.derived_prefix)
                     || a.player.skills.len() != b.player.skills.len()
                     || a.player
                         .skills
@@ -171,6 +299,7 @@ impl ExecutionBinding {
         profile: &Profile,
         current: Option<&QuestProgressionState>,
         now: u64,
+        identity: (crate::Digest, Domain, crate::WorldId, crate::PlayerId),
     ) -> Result<(), NativeError> {
         if self.captured_ms < profile.clock_origin_ms
             || self.captured_ms > now
@@ -184,6 +313,24 @@ impl ExecutionBinding {
                 if profile.ability(self.ability.id) == Some(&self.ability)
                     && self.level == profile.player.level => {}
             (Some(g), Some(current), Some(binding)) => {
+                let owner = HistoryOwner {
+                    profile: identity.0,
+                    genesis: g.identity,
+                    domain: identity.1,
+                    world: identity.2,
+                    player: identity.3,
+                };
+                if binding.owner != owner {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                let training_calls =
+                    binding
+                        .training_prefix
+                        .resolve(owner, "training", &current.training.calls)?;
+                let derived_calls =
+                    binding
+                        .derived_prefix
+                        .resolve(owner, "derived", &current.derived_calls)?;
                 let prior = pg::State::restore(&g.levels, binding.player.clone())?;
                 let p = prior.view();
                 g.validate_live_skills(p)?;
@@ -191,8 +338,6 @@ impl ExecutionBinding {
                 if p.level != u32::from(self.level)
                     || p.level > c.level
                     || p.skills.len() != c.skills.len()
-                    || !current.training.calls.starts_with(&binding.training.calls)
-                    || !current.derived_calls.starts_with(&binding.derived_calls)
                     || p.skills.iter().zip(&c.skills).any(|(a, b)| {
                         a.id != b.id
                             || a.position != b.position
@@ -215,16 +360,14 @@ impl ExecutionBinding {
                 if recipe.snapshot().modifiers != p.modifiers {
                     return Err(NativeError::InvalidCheckpoint);
                 }
-                derived::validate_history(
+                let (_, training) = derived::validate_history(
                     g,
                     p,
-                    &binding.training,
+                    binding.training.view(training_calls),
                     &binding.derived,
-                    &binding.derived_calls,
+                    derived_calls,
                     &recipe,
                 )?;
-                let training =
-                    init::LiveTraining::restore_authoritative(&g.training, &binding.training, p)?;
                 if g.resolve_execution_ability(&training, p, self.ability.id)? != self.ability {
                     return Err(NativeError::InvalidCheckpoint);
                 }
@@ -254,18 +397,32 @@ mod tests {
                 &world.profile,
                 world.state.quest_progression.as_ref(),
                 world.state.now_ms,
+                (
+                    world.profile.digest(),
+                    world.state.domain,
+                    world.state.world,
+                    world.state.player,
+                ),
             )
             .unwrap();
         let g = world.profile.quest_progression.as_ref().unwrap();
         let prior = binding.progression.as_mut().unwrap();
         // This training prefix is internally replayable, and the altered skill
         // remains between initial and current bounds. It is not GiveLevel history.
-        prior.training = g.training.snapshot();
-        prior.derived_calls.clear();
+        let initial = g.training.snapshot();
+        prior.training = TrainingBinding {
+            version: initial.version,
+            identity: initial.identity,
+            abilities: initial.abilities.clone(),
+        };
+        let owner = prior.owner;
+        prior.training_prefix = HistoryPrefix::capture(owner, "training", &initial.calls).unwrap();
+        prior.derived_prefix =
+            HistoryPrefix::capture(owner, "derived", &[] as &[DerivedCall]).unwrap();
         let skill = prior.player.skills.iter_mut().find(|s| s.id == 8).unwrap();
         skill.value = 7;
         let training =
-            init::LiveTraining::restore_authoritative(&g.training, &prior.training, &prior.player)
+            init::LiveTraining::restore_view(&g.training, prior.training.view(&[]), &prior.player)
                 .unwrap();
         binding.ability = g
             .resolve_execution_ability(&training, &prior.player, 60001)
@@ -274,7 +431,13 @@ mod tests {
             .validate(
                 &world.profile,
                 world.state.quest_progression.as_ref(),
-                world.state.now_ms
+                world.state.now_ms,
+                (
+                    world.profile.digest(),
+                    world.state.domain,
+                    world.state.world,
+                    world.state.player
+                ),
             )
             .is_err());
     }
@@ -315,11 +478,8 @@ mod tests {
         let new = prepared.progression.as_ref().unwrap();
         assert_eq!(old.training, new.training);
         assert_eq!(old.player.skills, new.player.skills);
-        assert_eq!(new.derived_calls.len(), old.derived_calls.len() + 1);
-        assert!(matches!(
-            new.derived_calls.last(),
-            Some(DerivedCall::ItemBreak { .. })
-        ));
+        assert_eq!(new.derived_prefix.count, old.derived_prefix.count + 1);
+        assert_ne!(new.derived_prefix.digest, old.derived_prefix.digest);
         prepared.release_context(&before).unwrap();
 
         world.state.now_ms += u64::from(world.profile.tick_ms);
@@ -331,6 +491,12 @@ mod tests {
                     &world.profile,
                     world.state.quest_progression.as_ref(),
                     world.state.now_ms,
+                    (
+                        world.profile.digest(),
+                        world.state.domain,
+                        world.state.world,
+                        world.state.player,
+                    ),
                 )
                 .unwrap();
         }
@@ -353,5 +519,118 @@ mod tests {
         let mut current_release = prepared.clone();
         current_release.captured_ms = world.state.now_ms;
         current_release.release_context(&prepared).unwrap();
+    }
+    #[test]
+    fn prefix_binds_exact_history_kind_policy_world_and_character() {
+        let world = fixture::world();
+        let binding = ExecutionBinding::capture(&world.profile, &world.state, 60001).unwrap();
+        let owner = binding.progression.unwrap().owner;
+        let calls = [10u32, 20, 30];
+        let prefix = HistoryPrefix::capture(owner, "derived", &calls[..2]).unwrap();
+        assert_eq!(
+            prefix.resolve(owner, "derived", &calls).unwrap(),
+            &calls[..2]
+        );
+        // A different tail is irrelevant to this prefix; the owner itself must
+        // separately prove that tail by full replay.
+        assert!(prefix.resolve(owner, "derived", &[10u32, 20, 99]).is_ok());
+        assert!(prefix.resolve(owner, "derived", &[10u32, 99, 30]).is_err());
+        assert!(prefix.resolve(owner, "derived", &[10u32]).is_err());
+        assert!(prefix.resolve(owner, "training", &calls).is_err());
+        let divergent = HistoryPrefix::capture(owner, "derived", &[10u32, 99]).unwrap();
+        assert_eq!(divergent.count, prefix.count);
+        assert!(!divergent.follows(&prefix));
+        for part in 0..5 {
+            let mut other = owner;
+            match part {
+                0 => other.profile[0] ^= 1,
+                1 => other.genesis[0] ^= 1,
+                2 => other.world[0] ^= 1,
+                3 => other.player.owner[0] ^= 1,
+                _ => other.player.character[0] ^= 1,
+            }
+            assert!(prefix.resolve(other, "derived", &calls).is_err());
+        }
+        let mut bad = prefix.clone();
+        bad.count = 4097;
+        assert!(bad.resolve(owner, "derived", &vec![10u32; 4097]).is_err());
+        bad = prefix;
+        bad.digest[0] ^= 1;
+        assert!(bad.resolve(owner, "derived", &calls).is_err());
+    }
+
+    #[test]
+    fn actual_nonempty_prefix_survives_valid_tail_but_not_divergence_or_transplant() {
+        let mut world = fixture::world();
+        let mut a = fixture::QuestAuthority::default();
+        fixture::accept(&mut world, &mut a);
+        fixture::kill_target(&mut world, &mut a);
+        let binding = ExecutionBinding::capture(&world.profile, &world.state, 60001).unwrap();
+        assert_eq!(binding.level, 2);
+        assert!(binding.progression.as_ref().unwrap().derived_prefix.count > 0);
+        let command = fixture::command(
+            &world,
+            Command::TurnInQuest {
+                quest: 70001,
+                giver: world.state.npcs[&3].id,
+            },
+        );
+        world
+            .step(world.state.tick + 1, Some(command), &mut a)
+            .unwrap();
+        assert_eq!(world.player_level(), 3);
+        let identity = (
+            world.profile.digest(),
+            world.state.domain,
+            world.state.world,
+            world.state.player,
+        );
+        let check = |b: &ExecutionBinding, current: &QuestProgressionState, id| {
+            b.validate(&world.profile, Some(current), world.state.now_ms, id)
+        };
+        let current = world.state.quest_progression.as_ref().unwrap();
+        check(&binding, current, identity).unwrap();
+        let mut other = identity;
+        other.2[0] ^= 1;
+        assert!(check(&binding, current, other).is_err());
+        other = identity;
+        other.3.character[0] ^= 1;
+        assert!(check(&binding, current, other).is_err());
+        let mut diverged = current.clone();
+        let DerivedCall::Level { level, .. } = &mut diverged.derived_calls[0] else {
+            unreachable!()
+        };
+        *level += 1;
+        assert!(check(&binding, &diverged, identity).is_err());
+        let mut tail = current.clone();
+        let last = tail.derived_calls.len() - 1;
+        let DerivedCall::Hook { view, .. } = &mut tail.derived_calls[last] else {
+            unreachable!()
+        };
+        view.free_talent_points = 99;
+        check(&binding, &tail, identity).unwrap();
+        assert!(tail
+            .validate_derived(
+                world.profile.quest_progression.as_ref().unwrap(),
+                world.state.combat.as_ref().unwrap()
+            )
+            .is_err());
+        let mut truncated = current.clone();
+        truncated
+            .derived_calls
+            .truncate(binding.progression.as_ref().unwrap().derived_prefix.count as usize - 1);
+        assert!(check(&binding, &truncated, identity).is_err());
+        let cp = world.checkpoint().unwrap();
+        let mut reopened =
+            NativeWorld::restore_synthetic_component_test(world.profile.clone(), cp.clone())
+                .unwrap();
+        reopened.checkpoint_committed(&cp).unwrap();
+        assert!(reopened.records().is_empty());
+        check(
+            &binding,
+            reopened.state.quest_progression.as_ref().unwrap(),
+            identity,
+        )
+        .unwrap();
     }
 }

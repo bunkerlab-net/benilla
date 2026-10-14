@@ -46,9 +46,7 @@ impl Metadata {
                     || info.area != item.area
                     || info.map != item.map
                     || info.lock_id != item.lock_id
-                    || info.spell_charges_0 != item.spells[0].charges
-                    || !info.spells.is_empty()
-                    || info.use_spell.is_some()
+                    || !spell_metadata_matches(item, &info, catalog)
                     || !valid_text(&info.name)
                     || info.name.is_empty()
                     || !valid_text(&info.description)
@@ -78,6 +76,63 @@ impl Metadata {
     pub(super) fn item(&self, item: u32) -> Option<&p::ItemInfo> {
         self.items.get(&item)
     }
+}
+fn spell_metadata_matches(
+    item: &inv::Item,
+    info: &p::ItemInfo,
+    catalog: &impl ClientCatalog,
+) -> bool {
+    let mut spells = Vec::new();
+    for (index, s) in item.spells.iter().enumerate() {
+        if s.id == 0 {
+            continue;
+        }
+        let Some(lookup) = catalog.native_item_spell_query(s.id) else {
+            return false;
+        };
+        let crate::NativeItemSpellQuery::Present {
+            recovery_time,
+            category,
+            category_recovery_time,
+        } = lookup
+        else {
+            continue;
+        };
+        // ItemHandler.cpp uses all three DB values if either cooldown is nonnegative.
+        let (cooldown_ms, category, category_cooldown_ms) =
+            if s.cooldown >= 0 || s.category_cooldown >= 0 {
+                (s.cooldown, s.category, s.category_cooldown)
+            } else {
+                (
+                    recovery_time as i32,
+                    category,
+                    category_recovery_time as i32,
+                )
+            };
+        spells.push(p::ItemSpellEntry {
+            index: index as u8,
+            spell_id: s.id,
+            trigger: s.trigger,
+            charges: s.charges,
+            cooldown_ms,
+            category,
+            category_cooldown_ms,
+        });
+    }
+    let first_charges = spells
+        .iter()
+        .find(|s| s.index == 0)
+        .map_or(0, |s| s.charges);
+    let use_spell = spells
+        .iter()
+        .find(|s| s.trigger == 0)
+        .map(|s| p::ItemUseSpell {
+            spell_id: s.spell_id,
+            cooldown_ms: s.cooldown_ms,
+            category: s.category,
+            category_cooldown_ms: s.category_cooldown_ms,
+        });
+    info.spells == spells && info.use_spell == use_spell && info.spell_charges_0 == first_charges
 }
 fn validate_starter(item: &init::ItemRow, info: &p::ItemInfo) -> Result<(), Error> {
     let stats = item
@@ -155,17 +210,28 @@ pub(super) fn player_pairs(w: &n::NativeWorld) -> Vec<(u16, u32)> {
         .collect()
 }
 fn fields(item: &inv::Instance) -> ObjectFields {
-    ObjectFields::from_pairs(&[
+    let mut fields = ObjectFields::from_pairs(&[
         (14, item.count),
+        (15, item.duration),
         (16, item.charges[0] as u32),
         (17, item.charges[1] as u32),
         (18, item.charges[2] as u32),
         (19, item.charges[3] as u32),
         (20, item.charges[4] as u32),
         (21, u32::from(item.bound)),
+        (28, item.enchantments[0]),
+        (31, item.enchantments[1]),
+        (34, item.enchantments[2]),
+        (44, item.random_property_id as u32),
         (46, item.durability),
         (47, item.maximum_durability),
-    ])
+    ]);
+    if let inv::InstanceKind::EmptyBag { slots } = item.kind {
+        let mut pairs = vec![(48, slots)];
+        pairs.extend((50..122).map(|field| (field, 0)));
+        fields.merge(ObjectFields::from_pairs(&pairs));
+    }
+    fields
 }
 pub(super) struct Frame {
     slots: BTreeMap<u8, inv::Instance>,
@@ -209,7 +275,7 @@ impl Frame {
                 fields.merge(ObjectFields::from_pairs(&[
                     (0, guid as u32),
                     (1, (guid >> 32) as u32),
-                    (2, 3),
+                    (2, if item.kind.is_container() { 7 } else { 3 }),
                     (3, item.item),
                     (4, 1.0f32.to_bits()),
                     (6, projection.player_guid as u32),
@@ -219,8 +285,12 @@ impl Frame {
                 ]));
                 events.push(SessionEvent::ItemCreate {
                     guid,
-                    container: false,
-                    fields: fields.into_created(p::ObjectType::Item),
+                    container: item.kind.is_container(),
+                    fields: fields.into_created(if item.kind.is_container() {
+                        p::ObjectType::Container
+                    } else {
+                        p::ObjectType::Item
+                    }),
                 });
             }
         }
@@ -293,7 +363,7 @@ impl Frame {
             },
             item_entry: stored.item,
             suffix_factor: 0,
-            random_property_id: 0,
+            random_property_id: stored.last.random_property_id as u32,
             count: stored.count,
         }));
         Ok(events)
@@ -375,11 +445,57 @@ impl NativeProjection {
         .filter(|event| !matches!(event, SessionEvent::ObjectValues { guid, .. } if *guid == self.player_guid))
         .collect()
     }
+    /// Metadata labels are from the validated selected catalog, never invented entry names.
+    pub fn admin_item_label(&self, entry: u32) -> Option<String> {
+        self.loot_metadata
+            .item(entry)
+            .map(|i| crate::plain_ui_text(&i.name))
+    }
+    pub(super) fn inventory_stored(
+        &self,
+        w: &n::NativeWorld,
+        stored: &inv::Stored,
+        frame: &mut Frame,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        if frame.slots != stored.before_slots || frame.pending_push.is_some() {
+            return Err(Error::StaleProjection);
+        }
+        let out = frame.project(self, w, &stored.after_slots);
+        frame.pending_push = Some(p::ItemPushResult {
+            player_guid: self.player_guid,
+            from_npc: false,
+            created: false,
+            show_in_chat: true,
+            bag_slot: 255,
+            item_slot: if stored.last_count == stored.count {
+                u32::from(stored.last_slot)
+            } else {
+                u32::MAX
+            },
+            item_entry: stored.item,
+            suffix_factor: 0,
+            random_property_id: stored.last.random_property_id as u32,
+            count: stored.count,
+        });
+        Ok(out)
+    }
+    pub(super) fn item_acquired(
+        &self,
+        source: n::ItemAcquisition,
+        frame: &mut Frame,
+    ) -> Result<SessionEvent, Error> {
+        let mut push = frame.pending_push.take().ok_or(Error::StaleProjection)?;
+        match source {
+            n::ItemAcquisition::CorpseLoot => {}
+            n::ItemAcquisition::AdminSelf => push.created = true,
+        }
+        Ok(SessionEvent::ItemPushResult(push))
+    }
     pub(super) fn loot_event(
         &self,
         w: &n::NativeWorld,
         event: &n::LootEvent,
-        frame: &mut Frame,
+        _frame: &mut Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
         let mut out = vec![];
         match event {
@@ -416,38 +532,8 @@ impl NativeProjection {
             } => {}
             n::LootEvent::ItemRemoved { slot, .. } => {
                 out.push(SessionEvent::LootRemoved { slot: *slot });
-                out.push(SessionEvent::ItemPushResult(
-                    frame.pending_push.take().ok_or(Error::StaleProjection)?,
-                ));
             }
             n::LootEvent::MoneyRemoved { .. } => out.push(SessionEvent::LootClearMoney),
-            n::LootEvent::Stored(stored) => {
-                if frame.slots != stored.before_slots {
-                    return Err(Error::StaleProjection);
-                }
-                out.extend(frame.project(self, w, &stored.after_slots));
-                // Player::SendNewItem compares the last returned stack's count with this grant.
-                // A newly created split stack still uses the sentinel when those counts differ.
-                if frame.pending_push.is_some() {
-                    return Err(Error::StaleProjection);
-                }
-                frame.pending_push = Some(p::ItemPushResult {
-                    player_guid: self.player_guid,
-                    from_npc: false,
-                    created: false,
-                    show_in_chat: true,
-                    bag_slot: 255,
-                    item_slot: if stored.last_count == stored.count {
-                        u32::from(stored.last_slot)
-                    } else {
-                        u32::MAX
-                    },
-                    item_entry: stored.item,
-                    suffix_factor: 0,
-                    random_property_id: 0,
-                    count: stored.count,
-                });
-            }
             n::LootEvent::StorageFailed { item, result, .. } => {
                 out.push(SessionEvent::InventoryFailure {
                     reason: result.protocol(),

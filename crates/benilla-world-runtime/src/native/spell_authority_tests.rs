@@ -268,8 +268,12 @@ fn unknown_modified_immune_high_level_or_wrong_damage_class_sources_never_select
 }
 
 fn progression_profile() -> Profile {
+    progression_profile_levels(3)
+}
+fn progression_profile_levels(levels: u32) -> Profile {
     use benilla_sim::quest_lifecycle as q;
-    let (mut p, mut initial, mut data) = synthetic_quest_fixture::setup();
+    let (mut p, mut initial, mut data) =
+        synthetic_quest_fixture::setup_with_levels(levels, 60, true, 0x3f800000);
     fixture::rekey(&mut p, &mut initial);
     p.npcs.truncate(1);
     p.npcs[0].max_health = 3000;
@@ -600,17 +604,17 @@ fn source_contract_rejects_published_format_ten_and_source_profile_substitution(
     p.initialize_spell_authority(&initial_input, source)
         .unwrap();
     assert!(NativeWorld::restore_synthetic_component_test(p, initial).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 16);
+    assert_eq!(NATIVE_FORMAT_VERSION, 18);
 }
 
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v16\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v18\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v16\0",
+        b"benilla-native-checkpoint-v18\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -771,4 +775,62 @@ fn initial_cast_interrupt_aura_flags_and_raw_cost_mismatch_never_select() {
     initial.spells[0].words[32] += 1;
     p.initialize_player(&initial, f::float(100.0), 1).unwrap();
     assert!(p.initialize_spell_authority(&initial, source).is_err());
+}
+
+#[test]
+fn source_authority_level_sixty_cast_release_and_aura_reload() {
+    let mut p = progression_profile_levels(60);
+    p.admin = Some(AdminPolicy {
+        world: [8; 16],
+        world_owner: f::player().owner,
+        allowlist: Default::default(),
+        revision: 7,
+    });
+    let mut w = world(p);
+    let mut a = fixture::spatial_only();
+    while w.player_level() < 60 {
+        let mut key = [0; 16];
+        key[0] = w.player_level();
+        let request = AdminRequest {
+            key,
+            world: w.state.world,
+            player: w.state.player,
+            policy_revision: 7,
+            operation: AdminOperation::GainOneLevel,
+        };
+        let input = synthetic_quest_fixture::command(&w, Command::Admin(request));
+        w.step(w.state.tick + 1, Some(input), &mut a).unwrap();
+        let checkpoint = w.checkpoint().unwrap();
+        w.checkpoint_committed(&checkpoint).unwrap();
+    }
+    cast(&mut w, &mut a);
+    assert_eq!(w.state.casts[&1].binding.level, 60);
+    let reopen = |w: &NativeWorld| {
+        NativeWorld::restore_synthetic_component_test(
+            w.profile.clone(),
+            Checkpoint::decode(&w.checkpoint().unwrap().encode().unwrap()).unwrap(),
+        )
+        .unwrap()
+    };
+    w = reopen(&w);
+    let mut saw_release = false;
+    let mut saw_aura = false;
+    for _ in 0..40 {
+        step(&mut w, &mut a);
+        if w.state.casts.values().any(|c| c.release_binding.is_some()) {
+            saw_release = true;
+            w = reopen(&w);
+        }
+        if !w.state.npcs[&2].aura_bindings.is_empty() {
+            assert!(w.state.npcs[&2]
+                .aura_bindings
+                .values()
+                .all(|b| b.level == 60));
+            saw_aura = true;
+            w = reopen(&w);
+            break;
+        }
+    }
+    assert!(saw_release && saw_aura);
+    assert_eq!(reopen(&w).state_digest(), w.state_digest());
 }

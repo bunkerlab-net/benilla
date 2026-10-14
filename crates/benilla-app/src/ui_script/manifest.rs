@@ -276,6 +276,9 @@ fn load_layer(script: &UiScript) -> Vec<String> {
     if let Err(error) = script.install_admin_interface() {
         return vec![format!("admin interface: {error}")];
     }
+    if let Err(error) = script.install_world_setup_interface() {
+        return vec![format!("world setup interface: {error}")];
+    }
     let layer = Addon::layer();
     layer.load_files(script, &layer.toc.files)
 }

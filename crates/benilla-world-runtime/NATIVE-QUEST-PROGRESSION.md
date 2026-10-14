@@ -13,14 +13,14 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is reconstruction v8, quest genesis policy v3, and live training journal v2.
+is native17, quest genesis policy v4, and live training journal v2.
 Older policies are rejected rather than silently migrated.
 
 Required caller inputs include actual level/XP/class rows, source skill order and
-slots, initial XP threshold and money, explicit XP/money/kill rates, resolved NPC
+slots, initial XP threshold and money, explicit XP/money/kill rates and resolved binary32 talent-rate bits, resolved NPC
 flags, complete quest relations and dependency audits, actual raw spell/cast-time
 recipes, and source-derived stat/equipment dependencies. No approximate XP module
-or fabricated future stats are used. The admitted mage level domain is 1–9, with
+or fabricated future stats are used. The admitted mage level domain is 1–60 with explicitly unspent talents, with
 actual consecutive supplied rows required for every transition. Genesis probes
 all supplied level transitions through the same real hosts used at runtime.
 
@@ -43,8 +43,9 @@ XP, sequence, RNG, resource, quest or equipment changes.
 
 ## Source callbacks and commands
 
-Only owner inputs `AcceptQuest` and `TurnInQuest` are exposed; no input can grant
-XP, mark a quest complete, submit kill credit or choose arbitrary rewards. Their
+Ordinary quest inputs are `AcceptQuest` and `TurnInQuest`. The separately gated
+admin policy exposes durable +1 level and XP-enable operations; it does not award
+arbitrary XP, mark completion, submit kill credit or choose rewards. Quest input
 NPC handle includes spawn generation. Runtime interaction checks bind current
 alive state, NPC flags, combat/charm/reaction facts and exact strict 3D source
 interaction distance. The source path does not require LOS, so none is invented.
@@ -90,11 +91,48 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 16 explicitly rejects prior schemas; cast checkpoints use version 2,
+Native format 18 explicitly rejects prior schemas; cast checkpoints use version 2,
 while common resource/aura checkpoints remain version 1. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight
 reopen checks; this is not proof of graphical or real-asset playability.
+
+## History references and capacity
+
+Native17 replaces each execution witness's duplicated callback journals with
+count/digest references into the durable owner's histories. The streaming digest
+binds exact profile, genesis, policy, domain, world, owner and character identity,
+kind and actual prefix. Restoration checks bounds/digests and replays the actual
+prefix against captured player/recipe/training/derived snapshots. Equal-length
+divergent histories and cross-world/character transplants are invalid. A later
+valid tail does not invalidate an older prefix. Clearing the tick journal after a
+store commit does not clear these owner histories. Hash/replay consistency is not
+proof that arbitrary supplied rows were captured from an actual installation.
+
+Genesis probes actual consecutive levels and conservatively reserves complete
+progression history, all possible remaining defense increments and one-way item
+breaks. Each journal remains capped at 4,096 callbacks; the ability cap remains 64.
+The widened-integer JSON bound reserves at most half of the unchanged 8 MiB envelope
+for progression history. Runtime combined-size admission still applies atomically.
+Defense-sensitive learning branches absent from the level-only probe are rejected.
+Before replay, encode and typed restore enforce 65,536 aggregate work units: four
+owner training replays, owner derived calls, and 64 plus training/derived prefix
+lengths per execution witness. Typed restore also streams the serialized size before
+hashing/replay, so bypassing `decode` cannot bypass the byte bound. This is a logical
+work bound, not a latency guarantee.
+Large NPC/aura populations and long histories can exhaust the envelope or replay
+budget; later history compaction is still required for broader long-lived worlds.
+
+The authored loaded level-60 regression supplies 64 known abilities, retains 16
+level-59 cast-applied auras and 16 concurrent traveling casts, and includes 299
+real defense-change callbacks trained between consecutive levels plus one item
+break. Its checkpoint is 3,090,142 bytes with 118 training calls, 1,008 derived
+calls and 58,280 aggregate work units. Two optimized-test runs restored it in
+1.083496 and 1.223802 seconds; this is measured evidence for that composition, not a platform
+latency guarantee or a claim that every allowed NPC/aura population fits. Setup
+acknowledges checkpoints regularly, retaining progression history while clearing
+the tick journal. The seventeenth cast fails atomically; old bindings survive
+store boundaries and exact reload.
 
 ## Client contract and persistence
 
@@ -132,6 +170,13 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Explicit remaining native content blockers
 
+- Level-60 numeric progression is not complete melee support. The separate
+  [defense kernel](../benilla-sim/NPC-MELEE.md) admits source logarithmic catch-up
+  for actual levels 1..60 and pure skill maxima 1..300, with versioned canonical
+  log bits and software arithmetic. An authored level-60 test leaves defense at 1,
+  executes real melee skill draws/gains, and checks exact replay across checkpoint
+  reopen. This does not widen content or combat-host guards. The existing loaded
+  capacity fixture retains its 299-callback history from training between levels.
 - Ordinary backpack items, corpse loot/money, required-item destruction and fixed/
   choice item rewards now use the source transaction host described in
   [LOOT-INVENTORY.md](LOOT-INVENTORY.md). Conditional/reference/quest-only loot,
@@ -143,26 +188,30 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Fresh reconstruction verification
 
-On the preceding quest-only reconstruction baseline `b7cd8f5`, the combined
-five-package test run passed 462 test
-executions, including source-oracle fixture assertions and compile-fail capability
-checks. This includes 206 simulator tests/doctests, 46 client tests, 57 controller
-source-harness tests, 112 runtime tests plus its capability doctest, and 39 store
-tests plus the separately invoked lock child probe. The probe remains intentionally
-marked ignored in its parent test process. Strict all-target Clippy passes for all
-five packages, as did focused formatting and diff checks. The later loot/item-reward
-slice has its own fresh verification manifest; these baseline counts are not
-inherited as proof of that changed tree.
+The native17 reconstruction passed 3,343 test executions in the combined six-package
+run: 328 simulator tests/doctests, 2,348 UI tests, 80 client/adapter tests, 223
+controller source-harness tests, 317 runtime tests plus two capability/numeric-policy
+doctests, and 44 store tests plus its separately invoked lock child probe. Two
+parent-process tests remain intentionally ignored (the child lock probe and the
+existing opt-in UI dispatch benchmark). Both default-library and all-target strict Clippy
+pass, as do workspace formatting and diff checks. These are fresh checks on this
+bounded reconstruction; they do not claim a full Bevy application build or live
+Classic content admission.
 
-Pinned C++ source extraction/regeneration freshly reproduces 243 derived-stat,
-881 player-progression, 29,995 kill-XP and 4,472 quest-lifecycle vectors exactly.
-These are bounded synthetic source comparisons; their numerical/trace scope and
+For native17, pinned C++ extraction/regeneration freshly reproduces 1,620
+derived-stat vectors, 2,429 player-progression cases (including three rejected
+rage-domain probes), 21,743 spell numeric/timer/resistance records and 360 release
+records exactly. Existing kill-XP and quest-lifecycle fixtures are retained.
+These are bounded authored source comparisons; their numerical/trace scope and
 unsupported oracle adapters remain documented in the respective simulator files.
 They do not certify real exported content or substitute for graphical playtests.
 
 ```
 cargo test -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
-  -p benilla-world-controller-tests -p benilla-world-store
+  -p benilla-world-controller-tests -p benilla-world-store -p benilla-ui \
+  --no-fail-fast -- --nocapture
+cargo clippy -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
+  -p benilla-world-store --lib -- -D warnings
 cargo clippy -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
   -p benilla-world-controller-tests -p benilla-world-store --all-targets -- -D warnings
 ```

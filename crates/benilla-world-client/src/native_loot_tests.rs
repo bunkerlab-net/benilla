@@ -7,6 +7,7 @@ struct Catalog {
     quest: quests::tests::Catalog,
     items: BTreeMap<u32, p::ItemInfo>,
     display: bool,
+    spell_queries: BTreeMap<u32, crate::NativeItemSpellQuery>,
 }
 fn metadata(item: &inv::Item) -> p::ItemInfo {
     p::ItemInfo {
@@ -43,9 +44,32 @@ fn metadata(item: &inv::Item) -> p::ItemInfo {
         delay_ms: 0,
         ammo_type: 0,
         ranged_mod_range: 0.0,
-        spells: vec![],
+        spells: item
+            .spells
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.id != 0)
+            .map(|(index, s)| p::ItemSpellEntry {
+                index: index as u8,
+                spell_id: s.id,
+                trigger: s.trigger,
+                charges: s.charges,
+                cooldown_ms: s.cooldown,
+                category: s.category,
+                category_cooldown_ms: s.category_cooldown,
+            })
+            .collect(),
         spell_charges_0: item.spells[0].charges,
-        use_spell: None,
+        use_spell: item
+            .spells
+            .iter()
+            .find(|s| s.id != 0 && s.trigger == 0)
+            .map(|s| p::ItemUseSpell {
+                spell_id: s.id,
+                cooldown_ms: s.cooldown,
+                category: s.category,
+                category_cooldown_ms: s.category_cooldown,
+            }),
         bonding: item.bonding,
         description: "Authored item description | only".into(),
         page_text: 0,
@@ -120,6 +144,22 @@ impl Catalog {
             quest: quests::tests::Catalog::new(w),
             items,
             display: true,
+            spell_queries: genesis
+                .inventory
+                .items()
+                .flat_map(|i| i.spells)
+                .filter(|s| s.id != 0)
+                .map(|s| {
+                    (
+                        s.id,
+                        crate::NativeItemSpellQuery::Present {
+                            recovery_time: 9000,
+                            category: 90,
+                            category_recovery_time: 9100,
+                        },
+                    )
+                })
+                .collect(),
         }
     }
 }
@@ -147,6 +187,9 @@ impl ClientCatalog for Catalog {
     }
     fn player_bytes_2(&self, id: PlayerId) -> Option<u32> {
         self.quest.player_bytes_2(id)
+    }
+    fn native_item_spell_query(&self, spell: u32) -> Option<crate::NativeItemSpellQuery> {
+        self.spell_queries.get(&spell).copied()
     }
     fn item_metadata(&self, id: u32) -> Option<p::ItemInfo> {
         self.items.get(&id).cloned()
@@ -838,5 +881,256 @@ fn item_last_exhaustion_sends_one_release_but_already_looted_slot_only_unregiste
     assert_eq!(
         player_fields(&exhausted, p.player_guid()).unit_flags() & 0x400,
         0
+    );
+}
+
+fn grant_world() -> n::NativeWorld {
+    let mut p = fixture::item_grant_profile();
+    p.admin = Some(n::AdminPolicy {
+        world: [1; 16],
+        world_owner: n::synthetic_fixture::player().owner,
+        allowlist: Default::default(),
+        revision: 1,
+    });
+    n::NativeWorld::synthetic_component_test(p, [1; 16], n::synthetic_fixture::player(), 42)
+        .unwrap()
+}
+fn grant(
+    w: &mut n::NativeWorld,
+    p: &mut NativeProjection,
+    key: u8,
+    item: u32,
+    count: u32,
+) -> Vec<SessionEvent> {
+    let r = n::AdminRequest {
+        key: [key; 16],
+        world: w.state().world,
+        player: w.state().player,
+        policy_revision: 1,
+        operation: n::AdminOperation::GrantItem { item, count },
+    };
+    let input = n::synthetic_quest_fixture::command(w, n::Command::Admin(r));
+    w.step(
+        w.state().tick + 1,
+        Some(input),
+        &mut fixture::LootAuthority::default(),
+    )
+    .unwrap();
+    p.advance(w).unwrap()
+}
+#[test]
+fn admin_empty_container_creation_and_acquisition_are_independent_of_corpse_removal() {
+    let mut w = grant_world();
+    let mut p = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    p.initial_events(&w).unwrap();
+    let events = grant(&mut w, &mut p, 1, 70003, 2);
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        SessionEvent::LootRemoved { .. } | SessionEvent::LootResponse { .. }
+    )));
+    let containers: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            SessionEvent::ItemCreate {
+                guid,
+                container,
+                fields,
+            } => Some((*guid, *container, fields)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(containers.len(), 2);
+    for (_, container, fields) in &containers {
+        assert!(*container);
+        assert_eq!(fields.container_num_slots(), Some(16));
+        for slot in 0..36 {
+            assert_eq!(fields.container_slot(slot), Some(0));
+        }
+        assert_eq!(fields.item_stack_count(), Some(1));
+        assert_eq!(fields.item_random_properties_id(), 0);
+        assert_eq!(fields.item_spell_charges(0), Some(0));
+        assert_eq!(fields.item_flags(), Some(0));
+        assert_eq!(fields.item_owner(), Some(p.player_guid));
+        assert_eq!(fields.item_contained(), Some(p.player_guid));
+    }
+    let pushes: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            SessionEvent::ItemPushResult(p) => Some(p),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pushes.len(), 1);
+    assert_eq!(pushes[0].count, 2);
+    assert!(pushes[0].created);
+    assert!(!pushes[0].from_npc);
+    assert!(pushes[0].show_in_chat);
+    assert_eq!(pushes[0].item_slot, u32::MAX);
+    let duplicate = grant(&mut w, &mut p, 1, 70003, 2);
+    assert!(!duplicate.iter().any(|e| matches!(
+        e,
+        SessionEvent::ItemPushResult(_) | SessionEvent::ItemCreate { .. }
+    )));
+    let restored = n::NativeWorld::restore_synthetic_component_test(
+        w.profile().clone(),
+        w.checkpoint().unwrap(),
+    )
+    .unwrap();
+    let projection =
+        NativeProjection::new(&restored, restored.state().player, &Catalog::new(&restored))
+            .unwrap();
+    let restored_events = projection.initial_events(&restored).unwrap();
+    assert_eq!(
+        restored_events
+            .iter()
+            .filter(|e| matches!(
+                e,
+                SessionEvent::ItemCreate {
+                    container: true,
+                    ..
+                }
+            ))
+            .count(),
+        2
+    );
+    assert!(!restored_events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ItemPushResult(_))));
+}
+#[test]
+fn grant_metadata_retains_full_spell_records_and_start_quest_without_using_them() {
+    let mut w = grant_world();
+    let catalog = Catalog::new(&w);
+    let mut p = NativeProjection::new(&w, w.state().player, &catalog).unwrap();
+    let events = grant(&mut w, &mut p, 1, 70004, 2);
+    assert!(events.iter().any(|e|matches!(e,SessionEvent::ItemCreate {container:false,fields,..} if fields.item_spell_charges(0)==Some(-5))));
+    let SessionEvent::ItemTemplate {
+        info: Some(info), ..
+    } = p.item_query(&w, 70004).unwrap()
+    else {
+        panic!("item metadata")
+    };
+    assert_eq!(info.spells[0].charges, -5);
+    assert_eq!(info.spells[0].cooldown_ms, 10);
+    assert_eq!(info.spells[0].category, 4);
+    assert_eq!(info.spells[0].category_cooldown_ms, 20);
+    assert_eq!(info.start_quest, 70002);
+    assert_eq!(info.item_set, 80002);
+    let mut bad = Catalog::new(&w);
+    bad.items.get_mut(&70004).unwrap().spells[0].category_cooldown_ms += 1;
+    assert!(NativeProjection::new(&w, w.state().player, &bad).is_err());
+}
+
+fn grant_spell_world(spell: inv::Spell) -> n::NativeWorld {
+    let (mut profile, input, mut q) = fixture::item_grant_setup();
+    let loot = q.loot.as_mut().unwrap();
+    let mut items: Vec<_> = loot.inventory.items().cloned().collect();
+    items.iter_mut().find(|i| i.entry == 70004).unwrap().spells[0] = spell;
+    loot.inventory = fixture::inventory_catalog(items);
+    profile.initialize_quest_progression(&input, q).unwrap();
+    profile.admin = Some(n::AdminPolicy {
+        world: [1; 16],
+        world_owner: n::synthetic_fixture::player().owner,
+        allowlist: Default::default(),
+        revision: 1,
+    });
+    n::NativeWorld::synthetic_component_test(profile, [1; 16], n::synthetic_fixture::player(), 42)
+        .unwrap()
+}
+#[test]
+fn source_item_query_resolves_both_negative_cooldowns_but_keeps_mixed_sign_override() {
+    for (raw_cooldown, raw_category_cooldown, expected) in [
+        (-1, -1, (9000, 90, 9100)),
+        (-1, 20, (-1, 4, 20)),
+        (10, -1, (10, 4, -1)),
+    ] {
+        let w = grant_spell_world(inv::Spell {
+            id: 80001,
+            trigger: 0,
+            charges: -5,
+            ppm_rate_bits: 0,
+            cooldown: raw_cooldown,
+            category: 4,
+            category_cooldown: raw_category_cooldown,
+        });
+        let mut catalog = Catalog::new(&w);
+        let info = catalog.items.get_mut(&70004).unwrap();
+        let spell = &mut info.spells[0];
+        spell.cooldown_ms = expected.0;
+        spell.category = expected.1;
+        spell.category_cooldown_ms = expected.2;
+        let spell = info.use_spell.as_mut().unwrap();
+        spell.cooldown_ms = expected.0;
+        spell.category = expected.1;
+        spell.category_cooldown_ms = expected.2;
+        let p = NativeProjection::new(&w, w.state().player, &catalog).unwrap();
+        let SessionEvent::ItemTemplate {
+            info: Some(info), ..
+        } = p.item_query(&w, 70004).unwrap()
+        else {
+            panic!("metadata")
+        };
+        assert_eq!(
+            (
+                info.spells[0].cooldown_ms,
+                info.spells[0].category,
+                info.spells[0].category_cooldown_ms
+            ),
+            expected
+        );
+        catalog.spell_queries.remove(&80001);
+        assert!(NativeProjection::new(&w, w.state().player, &catalog).is_err());
+    }
+}
+#[test]
+fn missing_query_spell_zeroes_wire_block_without_zeroing_created_charges() {
+    for id in [0, 80001] {
+        let mut w = grant_spell_world(inv::Spell {
+            id,
+            trigger: 0,
+            charges: -5,
+            ppm_rate_bits: 0,
+            cooldown: -1,
+            category: 4,
+            category_cooldown: -1,
+        });
+        let mut catalog = Catalog::new(&w);
+        catalog
+            .spell_queries
+            .insert(id, crate::NativeItemSpellQuery::Missing);
+        // The shared Bag row also names 80001: its query block is empty too.
+        for entry in if id == 0 {
+            vec![70004]
+        } else {
+            vec![70003, 70004]
+        } {
+            let info = catalog.items.get_mut(&entry).unwrap();
+            info.spells.clear();
+            info.use_spell = None;
+            info.spell_charges_0 = 0;
+        }
+        let mut p = NativeProjection::new(&w, w.state().player, &catalog).unwrap();
+        let events = grant(&mut w, &mut p, 1, 70004, 1);
+        assert!(events.iter().any(|e|matches!(e,SessionEvent::ItemCreate {fields,..} if fields.item_spell_charges(0)==Some(-5))));
+        let SessionEvent::ItemTemplate {
+            info: Some(info), ..
+        } = p.item_query(&w, 70004).unwrap()
+        else {
+            panic!("metadata")
+        };
+        assert_eq!(info.spell_charges_0, 0);
+        assert!(info.spells.is_empty());
+        assert!(info.use_spell.is_none());
+    }
+}
+#[test]
+fn admin_catalog_label_escapes_imported_pipe_markup() {
+    let w = grant_world();
+    let mut catalog = Catalog::new(&w);
+    catalog.items.get_mut(&70004).unwrap().name = "Item |cff00ff00color|r".into();
+    let p = NativeProjection::new(&w, w.state().player, &catalog).unwrap();
+    assert_eq!(
+        p.admin_item_label(70004),
+        Some("Item ||cff00ff00color||r".into())
     );
 }

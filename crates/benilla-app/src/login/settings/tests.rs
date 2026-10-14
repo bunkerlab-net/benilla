@@ -107,6 +107,7 @@ fn headless_panel_reopen_and_close_leave_no_duplicate_or_secret_text() {
         .init_resource::<Settings>()
         .init_resource::<super::super::LoginForm>()
         .init_resource::<crate::glue::art::GlueArt>()
+        .add_message::<bevy::input::mouse::MouseWheel>()
         .add_systems(
             Update,
             (render, super::super::screen::refresh_boxes).chain(),

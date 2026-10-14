@@ -8,7 +8,9 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-backpack-v2";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v3";
+mod grants;
+pub use grants::*;
 pub const BACKPACK_START: u8 = 23;
 pub const BACKPACK_END: u8 = 39;
 pub const FIRST_SLOT: u8 = BACKPACK_START;
@@ -51,6 +53,11 @@ pub struct Spell {
     pub id: u32,
     pub trigger: u32,
     pub charges: i32,
+    /// Exact binary32 SpellPPMRate; carried creation does not execute procs.
+    pub ppm_rate_bits: u32,
+    pub cooldown: i32,
+    pub category: u32,
+    pub category_cooldown: i32,
 }
 /// Loader-resolved item_template fields and exact dependency absence. No defaults.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,9 +84,11 @@ pub struct Item {
     pub map: u32,
     pub lock_id: u32,
     pub spells: [Spell; 5],
+    pub script_id: u32,
 }
 
-/// A resolved, admitted template catalog. There are no inferred row defaults.
+/// A resolved, searchable template catalog. Presence is not grant/equip/use readiness.
+/// There are no inferred row defaults; each operation checks its dependency closure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
@@ -99,17 +108,6 @@ impl Catalog {
         Ok(catalog)
     }
     pub fn validate(&self) -> Result<(), Error> {
-        for evidence in [
-            self.audit.item_creation_and_loot_scripts,
-            self.audit.equipped_bags,
-            self.audit.bank_and_keyring_items,
-            self.audit.trade_or_temporary_item_loot,
-            self.audit.additional_item_mutations,
-        ] {
-            if evidence != Evidence::Absent {
-                return Err(Error::Unsupported("inventory_dependency_not_absent"));
-            }
-        }
         for (&entry, item) in &self.rows {
             if entry == 0
                 || entry != item.entry
@@ -122,26 +120,6 @@ impl Catalog {
                 || item.bonding > 4
             {
                 return Err(Error::Invalid("item_template"));
-            }
-            if matches!(item.class, 1 | 11)
-                || matches!(item.inventory_type, 18 | 27)
-                || item.bag_family != 0
-                || item.container_slots != 0
-                || item.random_property != 0
-                || item.start_quest != 0
-                || item.duration != 0
-                || item.item_set != 0
-                || item.area != 0
-                || item.map != 0
-                || item.lock_id != 0
-                || item.extra_flags != 0
-                || item.flags & !0x0000_0800 != 0
-                || item
-                    .spells
-                    .iter()
-                    .any(|spell| spell.id != 0 || spell.trigger != 0 || spell.charges != 0)
-            {
-                return Err(Error::Unsupported("item_template_dependency"));
             }
         }
         Ok(())
@@ -193,7 +171,12 @@ impl Catalog {
                 digest.update(spell.id.to_le_bytes());
                 digest.update(spell.trigger.to_le_bytes());
                 digest.update(spell.charges.to_le_bytes());
+                digest.update(spell.ppm_rate_bits.to_le_bytes());
+                digest.update(spell.cooldown.to_le_bytes());
+                digest.update(spell.category.to_le_bytes());
+                digest.update(spell.category_cooldown.to_le_bytes());
             }
+            digest.update(item.script_id.to_le_bytes());
         }
         for evidence in [
             self.audit.item_creation_and_loot_scripts,
@@ -222,6 +205,10 @@ pub struct Instance {
     pub charges: [i32; 5],
     pub durability: u32,
     pub maximum_durability: u32,
+    pub kind: InstanceKind,
+    pub duration: u32,
+    pub random_property_id: i32,
+    pub enchantments: [u32; 3],
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -258,6 +245,8 @@ pub struct Stored {
     pub item: u32,
     /// Full awarded count, not the count of the source's returned last stack.
     pub count: u32,
+    pub before_next_item: u64,
+    pub after_next_item: u64,
     pub before_slots: BTreeMap<u8, Instance>,
     pub after_slots: BTreeMap<u8, Instance>,
     pub destinations: Vec<Destination>,
@@ -309,15 +298,19 @@ impl State {
         }
         let mut ids = BTreeSet::new();
         for (&slot, instance) in &self.slots {
-            let item = catalog.item(instance.item)?;
+            let item = catalog.grant_ready(instance.item)?;
             if !(BACKPACK_START..BACKPACK_END).contains(&slot)
                 || instance.id == 0
                 || instance.id >= self.next_item
                 || !ids.insert(instance.id)
                 || instance.count == 0
                 || instance.count > item.stackable as u32
-                || instance.bound != matches!(item.bonding, 1 | 4)
-                || instance.charges != item.spells.map(|spell| spell.charges)
+                || (instance.bound && !matches!(item.bonding, 1 | 4))
+                || instance.kind != InstanceKind::created(item)
+                || instance.charges != grants::creation_charges(item)
+                || instance.duration != 0
+                || instance.random_property_id != 0
+                || instance.enchantments != [0; 3]
                 || instance.maximum_durability != item.maximum_durability
                 || instance.durability != item.maximum_durability
             {
@@ -352,6 +345,18 @@ impl State {
         self.can_store_with_destinations(catalog, item, count, &mut Vec::new())
     }
     pub fn can_store_with_destinations(
+        &self,
+        catalog: &Catalog,
+        item: u32,
+        count: u32,
+        destinations: &mut Vec<Destination>,
+    ) -> Result<Plan, Error> {
+        if catalog.rows.contains_key(&item) {
+            catalog.ordinary_loot_ready(item)?;
+        }
+        self.can_store_plan(catalog, item, count, destinations)
+    }
+    fn can_store_plan(
         &self,
         catalog: &Catalog,
         item: u32,
@@ -450,6 +455,16 @@ impl State {
         if plan.result != InventoryResult::Ok {
             return Err(Error::Rejected(plan));
         }
+        self.store_plan(catalog, item, count, plan, before_store)
+    }
+    fn store_plan(
+        &mut self,
+        catalog: &Catalog,
+        item: u32,
+        count: u32,
+        plan: Plan,
+        before_store: impl FnOnce(&State, u32, u32) -> Result<(), Error>,
+    ) -> Result<Stored, Error> {
         let proto = catalog.item(item)?;
         let clone_count = plan
             .destinations
@@ -480,9 +495,13 @@ impl State {
                         item,
                         count: destination.count,
                         bound: matches!(proto.bonding, 1 | 4),
-                        charges: proto.spells.map(|spell| spell.charges),
+                        charges: grants::creation_charges(proto),
                         durability: proto.maximum_durability,
                         maximum_durability: proto.maximum_durability,
+                        kind: InstanceKind::created(proto),
+                        duration: 0,
+                        random_property_id: 0,
+                        enchantments: [0; 3],
                     },
                 );
             }
@@ -497,6 +516,8 @@ impl State {
         let stored = Stored {
             item,
             count,
+            before_next_item: self.next_item,
+            after_next_item: next.next_item,
             before_slots: self.slots.clone(),
             after_slots: next.slots.clone(),
             destinations: plan.destinations,

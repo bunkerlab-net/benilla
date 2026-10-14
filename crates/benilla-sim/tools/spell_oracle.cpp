@@ -14,6 +14,8 @@ using uint32 = uint32_t;
 using uint64 = uint64_t;
 using SpellSchoolMask = uint32;
 using SpellDmgClass = uint32;
+using SpellSchools = uint32;
+constexpr uint32 SPELL_SCHOOL_MASK_NORMAL=1, SPELL_SCHOOL_MASK_HOLY=2, TYPEID_UNIT=3;
 constexpr uint32 SPELL_ATTR_EX3_ALWAYS_HIT=1,SPELL_ATTR_EX3_NORMAL_RANGED_ATTACK=2,SPELL_DAMAGE_CLASS_MELEE=2,SPELL_DAMAGE_CLASS_RANGED=3,UNIT_FIELD_FLAGS=1,UNIT_FLAG_PLAYER_CONTROLLED=2,SPELL_AURA_MOD_ATTACKER_SPELL_HIT_CHANCE=1;
 using Powers = uint32;
 using uint16 = uint16_t;
@@ -39,6 +41,11 @@ struct Unit {
     float CalculateEffectiveMissChance(const Unit*,uint32,const SpellEntry*) const { assert(false);return 0; }
     float GetHitChance(const SpellEntry*,SpellSchoolMask) const { return 0; }
     float GetTotalAuraModifierByMiscMask(uint32,SpellSchoolMask) const { return 0; }
+    uint16 GetSkillMaxForLevel(const Unit* = nullptr) const { return uint16(level * 5); }
+    uint32 GetTypeId() const { return TYPEID_UNIT; }
+    int32 GetResistance(SpellSchools) const { return 0; }
+    int32 GetResistancePenetration(SpellSchools) const { return 0; }
+    float CalculateEffectiveMagicResistancePercent(const Unit*, SpellSchoolMask, bool) const;
     float CalculateSpellMissChance(const Unit*,SpellSchoolMask,const SpellEntry*) const;
     uint32 GetCreateMana() const { return create_mana; }
     uint32 GetCreateHealth() const { return 100; }
@@ -70,6 +77,7 @@ uint64 travel(float dist, float speed) {
 // PINNED_CRIT
 // PINNED_CHANCE
 // PINNED_MISS
+// PINNED_MAGIC_RESIST
 struct Aura {
     bool m_isPeriodic = true;
     int32 m_periodicTimer = 1000;
@@ -116,7 +124,7 @@ uint32 casttime(int32 base,int32 perlevel,int32 minimum,int32 rank,uint32 basele
 int main() {
     std::fesetround(FE_TONEAREST);
     Unit unit;
-    for (uint32 rank : {1,4,5,9,10,15,100,105,315}) {
+    for (uint32 rank : {1,4,5,9,10,15,100,105,295,300,315}) {
         unit.rank = rank;
         for (int32 base : {-50,0,1,18,999990}) for (int32 dice : {0,1,6,-3})
         for (uint32 coefficient : {0U, 0x3dcccccdU,0x3f000000U,0xbf000000U})
@@ -166,17 +174,20 @@ int main() {
         timer.update(diff);
         std::cout << "S " << remaining << ' ' << diff << ' ' << alive << ' ' << timer.m_timer << ' ' << timer.cancelled << ' ' << timer.casted << '\n';
     }
-    for (uint32 flat : {0U,10U,1000U}) for (uint32 per : {0U,1U,10U}) for (uint32 pct : {0U,1U,10U,100U}) for (uint32 rank : {5U,10U,100U}) {
+    for (uint32 flat : {0U,10U,1000U}) for (uint32 per : {0U,1U,10U}) for (uint32 pct : {0U,1U,10U,100U}) for (uint32 rank : {5U,10U,100U,295U,300U,315U}) {
         SpellEntry s; s.manaCost=flat; s.manaCostPerlevel=per; s.ManaCostPercentage=pct; s.baseLevel=2;
         unit.rank=rank; unit.create_mana=123;
         std::cout << "P " << flat << ' ' << per << ' ' << pct << ' ' << rank << ' ' << cost(&s,&unit) << '\n';
     }
-    for (int32 base : {-100,0,1000,3000}) for (int32 per : {-100,0,100}) for (int32 minimum : {0,500}) for (int32 rank : {5,10,100})
+    for (int32 base : {-100,0,1000,3000}) for (int32 per : {-100,0,100}) for (int32 minimum : {0,500}) for (int32 rank : {5,10,100,295,300,315})
         std::cout << "B " << base << ' ' << per << ' ' << minimum << ' ' << rank << ' ' << casttime(base,per,minimum,rank,1) << '\n';
     Unit target;
-    for (uint32 casterlevel=1;casterlevel<=20;++casterlevel) for (uint32 targetlevel=1;targetlevel<=20;++targetlevel)
+    for (uint32 casterlevel=1;casterlevel<=60;++casterlevel) for (uint32 targetlevel=1;targetlevel<=63;++targetlevel)
     for (uint32 base : {0U,0x3ba3d709U,0x3ba3d70aU,0x40800000U,0x42c80000U}) {
         unit.level=casterlevel; target.level=targetlevel; target.miss=number(base);
+        const auto resistance=target.CalculateEffectiveMagicResistancePercent(&unit,4,false);
+        if (base == 0) std::cout << "R " << casterlevel << ' ' << targetlevel << ' ' << bits(resistance) << '\n';
+        if (resistance != 0.f) continue;
         std::cout << "M " << casterlevel << ' ' << targetlevel << ' ' << base << ' ' << chance_u(unit.CalculateSpellMissChance(&target,4,&p)) << '\n';
     }
     Aura aura;

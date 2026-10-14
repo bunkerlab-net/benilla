@@ -74,7 +74,7 @@ fn snapshot(level: u32) -> Snapshot {
         next_level_xp: 100,
         played_time_level: 0,
         session_level: level,
-        free_talent_points: 0,
+        free_talent_points: level.saturating_sub(9),
         used_talent_points: 0,
         numeric: NumericState::from_modifiers(level, &modifiers, 1, [1, 0, 0, 0, 0]).unwrap(),
         modifiers,
@@ -100,7 +100,7 @@ fn assert_bits(actual: SpellFloat, expected: f32) {
 }
 #[test]
 fn every_hook_produces_source_fields_at_all_supported_levels() {
-    for level in 1..=9 {
+    for level in 1..=MAX_SUPPORTED_LEVEL {
         let s = snapshot(level);
         let out = DerivedStats::from_snapshot(&s, &input()).unwrap();
         let a = s.numeric.attributes.0.map(|x| x as f32);
@@ -520,7 +520,7 @@ fn extracted_source_ancillary_fields_and_item_callback_order() {
         assert_eq!(fixture_cells(&out), expected, "{line}");
         count += 1;
     }
-    assert_eq!(count, 243);
+    assert_eq!(count, 1620);
 }
 #[test]
 fn break_witness_must_be_replayed_and_does_not_silently_refresh_caches() {

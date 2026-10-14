@@ -184,14 +184,39 @@ source death-durability path (10% for NPC kills outside BG in this pin).
 claimed complete by this module. Callback fields identify conditional source
 work; the caller still evaluates source combat eligibility and item/cast state.
 
-## Starter defense growth and random semantics
+## Classic defense growth and random semantics
 
 `DefenseSkill` holds pure live current/max defense and an explicitly supplied
 uint16-admitted defense gain configuration. `defense_gain_chance` returns None
 for capped/absent skill (no source draw). For a positive gap below 7 it ports
 `room*room / (7.0 * pure_max)` in software binary64, source clamp and *100, then
-narrows to binary32. Gap >=7 is **Unsupported**, because the source then uses
-`std::log`; no approximate logarithm or guessed skill cap is substituted.
+narrows to binary32. This quadratic branch retains its existing uint16 maximum
+range. For gap >=7 the bounded catch-up port admits pure maxima 1..300, current
+0..maximum-1, and actual levels 1..60. The maximum is an explicit pure skill
+input, not inferred from level; this does not admit any new native runtime rows.
+Catch-up above maximum 300 remains **Unsupported**. Level 0 or >60 remains invalid;
+absent/capped skill still returns before the catch-up maximum check.
+
+The catch-up expression is `(7.0 / maximum) + (0.22 * (1.0 + 12.0 / level)) *
+log((room + 5.0) / 12.0)`, with source operation order, clamp, binary64 *100 and
+one final binary32 narrowing. `src/npc_melee/skill_log.rs` contains canonical v1
+binary64 results for the 294 possible log inputs, generated from the pinned
+source expression on x86_64 Linux, glibc 2.41, GCC 14.2, nearest-even, no fast
+math/FMA. Runtime arithmetic is entirely `rustc_apfloat`; no host log or other
+host floating operation participates. This finite 2,352-byte table avoids adding
+a general-purpose logarithm implementation and its much larger proof domain.
+The table's LE-u64 SHA-256 is
+`88a6d0c0b95514fb14dbc7fd369d857f701f6cd13161d73e0853d13823ff426e`.
+
+This is an explicit platform-math canonicalization, **not a claim that every
+platform's std::log returns identical binary64 bits**. Native log differences
+are reported separately; final binary32 or strict-roll differences fail exact
+verification without a tolerance. The versioned table must not be silently
+regenerated from another platform. The simulation policy is
+`cmangos-8ec338a1-npc-mage-melee-softfloat-v2`, so the consuming runtime's existing
+numeric-profile fingerprint distinguishes this newly supported branch. Existing
+fingerprint inputs stay in place; older native profiles/checkpoints fail closed
+on this policy mismatch rather than silently adopting different arithmetic.
 
 `resolve_defense_gain` requires precisely the optional source draw. Gain=0 still
 consumes the probability draw before UpdateDefense returns; pure current=0 still
@@ -252,4 +277,42 @@ Compile-fail tests prohibit resolution tampering and reuse after consumption.
 Channel/auto-repeat admission is rejected independently of the casting predicate;
 source spell-slot inspection is required on each surviving positive hit.
 The actual external callback implementations, graphical combat, full native
-compilation and large-gap skill growth are outside these tests and this module.
+compilation and weapon-skill/intellect growth are outside these tests and this module.
+
+### Exhaustive defense catch-up oracle
+
+From the repository root, run:
+
+```sh
+python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+cargo test --locked -p benilla-sim --test defense_skill
+```
+
+The Python command uses hash-locked unchanged `UpdateCombatSkills`,
+`UpdateDefense`, `UpdateSkill` and `roll_chance_f` excerpts under
+`tools/defense_skill_source/`, preserving upstream notices. An optional complete
+pinned checkout argument verifies full-file SHA-256 and byte-identical excerpt
+extraction as well. It needs no game assets or database. It detects native
+GCC/Clang on Unix and imports an installed MSVC VC-tool environment via
+`vswhere`/`vcvars64` on Windows; `--cxx` can select an explicit compiler. Missing
+compiler, changed source, altered canonical table or any output divergence fails.
+Unix builds use fail-fast UB/float-cast sanitizers; MSVC uses strict floating
+semantics, with no sanitizer-equivalence claim. Windows stdout is explicitly
+binary and source/fixture CRLF is normalized to LF only.
+
+The source harness directly compares every final chance against canonical-table
+arithmetic over all 2,709,000 `(level, maximum, current)` combinations, then calls
+the unchanged strict source comparator at the immediately preceding, equal and
+immediately following binary64 probability. Boundary values outside [0,100) are
+marked invalid instead of reaching the RNG. Per-level SHA-256 fixtures preserve
+every final-f32 bit pattern and all three boundary outcomes without committing
+millions of data rows. The Rust test independently evaluates the whole domain
+and matches these exact digests. Another 2,451 explicit source fixtures check
+room 6/7/8, clamp-to-100, absent/zero/capped/over-cap values, gain 0/1/65535,
+wide quadratic maxima, exact chance equality and neighboring draws. Missing or
+extra semantic draws fail even at 100% chance or zero gain.
+
+The native oracle has been run on x86_64 Linux/glibc 2.41/GCC 14.2. The command is
+prepared for native Linux ARM64, macOS ARM64 and Windows x64 validation, but local
+Linux evidence does not establish those platforms' results. No tests in this
+section establish complete combat callbacks or playable Classic/P2P parity.

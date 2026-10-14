@@ -34,8 +34,8 @@ jobs:
           persist-credentials: false
       - name: Track unavailable data checks
         run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
-      - name: Free disk space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Report available disk space
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
       - name: System libraries
         run: sudo apt-get update -qq && sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev
       - name: Toolchain
@@ -73,6 +73,10 @@ jobs:
         run: python3 scripts/test-initial-hooks.py
       - name: native-outfit-source-oracle
         run: python3 scripts/check-native-outfit-oracle.py
+      - name: defense-skill-source-oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
+          python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
       - name: packaging-tests
         run: python3 scripts/test-package-player.py
       - name: Report unavailable data checks

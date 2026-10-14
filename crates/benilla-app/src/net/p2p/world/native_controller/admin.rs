@@ -20,6 +20,7 @@ const MAX_MAILBOX_REQUESTS: usize = n::MAX_ADMIN_RECEIPTS;
 struct View {
     snapshot: Result<n::AdminSnapshot, n::AdminRejection>,
     unavailable: Option<String>,
+    items: Vec<ui::AdminCatalogEntry>,
 }
 struct Request {
     ui: ui::AdminRequest,
@@ -47,7 +48,12 @@ impl ControllerBridge {
         check();
     }
 }
+struct CachedCatalog {
+    revision: u64,
+    entries: std::rc::Rc<[ui::AdminCatalogEntry]>,
+}
 pub(crate) struct Backend {
+    catalog: RefCell<Option<CachedCatalog>>,
     accepted: RefCell<BTreeMap<u64, ui::AdminRequest>>,
     shared: Arc<Mutex<Shared>>,
     context: ui::AdminContext,
@@ -69,7 +75,14 @@ fn committed(
         id,
         outcome: ui::AdminOutcome::Committed {
             receipt: format!(
-                "native-admin:{:02x?}:store-{}:{:02x?}",
+                "{}native-admin:{:02x?}:store-{}:{:02x?}",
+                match &receipt.receipt().effect {
+                    n::AdminEffect::ItemGrant(g) => format!(
+                        "Item {}: granted {} of {}; {} ungranted ({:?}). ",
+                        g.item, g.granted, g.requested, g.ungranted, g.storage_result
+                    ),
+                    _ => String::new(),
+                },
                 receipt.receipt().digest(),
                 receipt.generation(),
                 receipt.envelope_digest()
@@ -108,6 +121,27 @@ impl ui::AdminBackend for Backend {
             maximum: snapshot.supported_maximum as u8,
         });
         view.xp_enabled = Some(snapshot.xp_enabled);
+        // Preserve Rc identity for unchanged views: the UI's cached search must not
+        // clone and compare the full item catalog on each quarter-second refresh.
+        let mut catalog = self.catalog.borrow_mut();
+        if catalog
+            .as_ref()
+            .is_none_or(|cached| cached.revision != shared.revision)
+        {
+            *catalog = Some(CachedCatalog {
+                revision: shared.revision,
+                entries: shared.view.items.clone().into(),
+            });
+        }
+        view.items = catalog
+            .as_ref()
+            .expect("catalog initialized")
+            .entries
+            .clone();
+        if !snapshot.items.is_empty() {
+            view.status
+                .push_str(". Carried grants only; bag equipment and item use are unavailable.");
+        }
         let unavailable = (shared.context != self.context).then(|| "This UI attachment has ended; only prior results may be queried.".to_owned())
             .or_else(|| shared.requests.values().any(|r| r.ui.id.context != shared.context && r.result.is_none()).then(|| "A prior UI request is still pending; reconcile it before submitting another operation.".to_owned()))
             .or_else(|| shared.view.unavailable.clone()).or_else(|| {
@@ -121,7 +155,10 @@ impl ui::AdminBackend for Backend {
             ui::AdminAvailability::Unavailable,
         );
         view.availability[ui::AdminAction::Level as usize] = availability.clone();
-        view.availability[ui::AdminAction::Xp as usize] = availability;
+        view.availability[ui::AdminAction::Xp as usize] = availability.clone();
+        if !snapshot.items.is_empty() {
+            view.availability[ui::AdminAction::Item as usize] = availability;
+        }
         if snapshot.level >= snapshot.supported_maximum {
             view.availability[ui::AdminAction::Level as usize] = ui::AdminAvailability::Unavailable(
                 "Already at this world's supported maximum level.".into(),
@@ -188,6 +225,21 @@ impl ui::AdminBackend for Backend {
             return Err("Admin queue is full; request was not admitted.".into());
         }
         let operation = match request.operation {
+            ui::AdminOperation::GrantItem { item_id, count } => {
+                if count == 0 || count > ui::MAX_ITEM_GRANT {
+                    return Err("Invalid item grant count.".into());
+                }
+                let item = snapshot
+                    .items
+                    .iter()
+                    .find(|i| i.item == item_id)
+                    .ok_or("Item is absent from the selected catalog.")?;
+                item.grant.clone()?;
+                n::AdminOperation::GrantItem {
+                    item: item_id,
+                    count,
+                }
+            }
             ui::AdminOperation::GainOneLevel => n::AdminOperation::GainOneLevel,
             ui::AdminOperation::SetXpGain { enabled } => n::AdminOperation::SetXpGain { enabled },
             _ => return Err("This operation has no admitted native backend.".into()),
@@ -236,10 +288,28 @@ impl ui::AdminBackend for Backend {
 }
 impl NativeController {
     fn admin_view(&self) -> View {
+        let snapshot = self
+            .store
+            .committed_admin_snapshot(self.selected.player.owner);
+        let items = snapshot.as_ref().map_or_else(
+            |_| Vec::new(),
+            |s| {
+                s.items
+                    .iter()
+                    .filter_map(|i| {
+                        let name = self.projection.admin_item_label(i.item)?;
+                        let label = match &i.grant {
+                            Ok(()) => name,
+                            Err(reason) => format!("{name} (grant unavailable: {reason})"),
+                        };
+                        Some(ui::AdminCatalogEntry { id: i.item, label })
+                    })
+                    .collect()
+            },
+        );
         View {
-            snapshot: self
-                .store
-                .committed_admin_snapshot(self.selected.player.owner),
+            items,
+            snapshot,
             unavailable: if self.closed || self.closing {
                 Some("The world session has closed.".into())
             } else if self.pause.is_some() || self.outbox.is_some() {
@@ -277,6 +347,7 @@ impl NativeController {
             shared.namespace = namespace;
             shared.revision = shared.revision.saturating_add(1);
             return Backend {
+                catalog: RefCell::new(None),
                 accepted: RefCell::new(BTreeMap::new()),
                 shared: existing.0.clone(),
                 context,
@@ -295,6 +366,7 @@ impl NativeController {
         }));
         self.admin_bridge = Some(ControllerBridge(shared.clone()));
         Backend {
+            catalog: RefCell::new(None),
             accepted: RefCell::new(BTreeMap::new()),
             shared,
             context,
@@ -336,7 +408,10 @@ impl NativeController {
         for request in shared.requests.values_mut().filter(|r| r.result.is_none()) {
             request.result = Some(match self.store.committed_admin_receipt(&request.native) {
                 Some(receipt) => committed(request.ui.id.clone(), receipt),
-                None => rejected(request.ui.id.clone(), "The reopened durable world contains no commit for this request; it was not resubmitted."),
+                None => rejected(
+                    request.ui.id.clone(),
+                    "The reopened durable world contains no commit for this request; it was not resubmitted.",
+                ),
             });
         }
         Ok(())

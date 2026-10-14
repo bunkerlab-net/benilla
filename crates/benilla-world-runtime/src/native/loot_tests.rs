@@ -279,7 +279,7 @@ fn item_callbacks_precede_store_and_requirement_destruction_precedes_rewards() {
         .unwrap();
     let stored = events
         .iter()
-        .position(|e| matches!(e, Event::Loot(LootEvent::Stored(_))))
+        .position(|e| matches!(e, Event::InventoryStored(_)))
         .unwrap();
     assert!(credit < stored);
     step(
@@ -468,9 +468,9 @@ fn current_item_receipts_reject_resigned_same_id_count_entry_and_slot_mutations(
             }
         }
         let mut forged: Checkpoint = serde_json::from_value(forged).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v16\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v18\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v16\0",
+            b"benilla-native-checkpoint-v18\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(

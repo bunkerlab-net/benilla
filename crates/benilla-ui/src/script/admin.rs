@@ -9,8 +9,12 @@ use mlua::{Lua, Table};
 
 use super::UiScript;
 
+mod catalog;
+
 #[cfg(test)]
 mod tests;
+
+use catalog::{CatalogSearch, MAX_CATALOG_ENTRIES, MAX_LABEL_BYTES, PAGE_SIZE};
 
 // Conservative per-request UI ceilings, not claims about Classic account/ruleset maxima.
 // The authoritative backend may impose tighter source-validated limits.
@@ -159,6 +163,9 @@ impl AdminSnapshot {
     }
 
     fn reason(&self, action: AdminAction) -> Option<&str> {
+        if self.catalog(action).len() > MAX_CATALOG_ENTRIES {
+            return Some("Catalog exceeds the supported browse limit. Ask the world host to supply a bounded catalog.");
+        }
         if self.context.as_ref().is_none_or(|c| c.0.is_empty()) {
             return Some("This session has no verified world admin authority.");
         }
@@ -201,10 +208,9 @@ impl AdminSnapshot {
             }
             if self.weather_automatic_id.is_none_or(|id| {
                 let mut matches = self.weather.iter().filter(|entry| entry.id == id);
-                matches
-                    .next()
-                    .is_none_or(|entry| entry.label.trim().is_empty())
-                    || matches.next().is_some()
+                matches.next().is_none_or(|entry| {
+                    entry.label.len() > MAX_LABEL_BYTES || entry.label.trim().is_empty()
+                }) || matches.next().is_some()
             }) {
                 return Some("A validated Automatic weather option is unavailable.");
             }
@@ -321,6 +327,9 @@ struct AdminUi {
     sequence: u64,
     message: String,
     message_context: Option<AdminContext>,
+    generation: u64,
+    catalogs: [Option<CatalogSearch>; 11],
+    reasons: [Option<String>; 11],
 }
 
 impl AdminUi {
@@ -366,12 +375,30 @@ impl AdminUi {
                 }
             }
         }
-        let changed = self.shown.as_ref() != Some(&snapshot);
+        let changed = self
+            .shown
+            .as_ref()
+            .is_none_or(|shown| !same_snapshot(shown, &snapshot));
+        if changed {
+            self.generation = self
+                .generation
+                .checked_add(1)
+                .expect("admin view generation exhausted");
+            self.catalogs = std::array::from_fn(|_| None);
+            self.reasons =
+                AdminAction::ALL.map(|action| snapshot.reason(action).map(str::to_owned));
+        }
         self.shown = Some(snapshot.clone());
         (snapshot, changed)
     }
 
-    fn submit(&mut self, action: &str, selection: &str, amount: &str) -> Result<(), String> {
+    fn submit(
+        &mut self,
+        action: &str,
+        selection: &str,
+        amount: &str,
+        generation: Option<&str>,
+    ) -> Result<(), String> {
         if self.pending.is_some() {
             return Err("An admin request is pending. Wait for its authoritative result.".into());
         }
@@ -380,7 +407,9 @@ impl AdminUi {
             .shown
             .as_ref()
             .ok_or("Reopen Admin to refresh this session.")?;
-        if shown != &snapshot {
+        if !same_snapshot(shown, &snapshot)
+            || generation.is_some_and(|value| value != self.generation.to_string())
+        {
             return Err("Admin context or catalog changed. Refresh and select again.".into());
         }
         let action = AdminAction::parse(action).ok_or("Unsupported admin operation.")?;
@@ -414,6 +443,37 @@ impl AdminUi {
     }
 }
 
+// Reject oversized/malformed replacement catalogs without unbounded content comparisons.
+// A stable Rc is immutable and needs no scan; changed content is checked even if the host
+// forgot to advance its revision. The host remains responsible for bounded snapshot creation.
+fn same_snapshot(a: &AdminSnapshot, b: &AdminSnapshot) -> bool {
+    let same_catalog = |a: &Rc<[AdminCatalogEntry]>, b: &Rc<[AdminCatalogEntry]>| {
+        Rc::ptr_eq(a, b)
+            || (a.len() == b.len()
+                && a.len() <= MAX_CATALOG_ENTRIES
+                && a.iter().zip(b.iter()).all(|(a, b)| {
+                    a.id == b.id
+                        && a.label.len() <= MAX_LABEL_BYTES
+                        && b.label.len() <= MAX_LABEL_BYTES
+                        && a.label == b.label
+                }))
+    };
+    a.context == b.context
+        && a.revision == b.revision
+        && a.identity == b.identity
+        && a.status == b.status
+        && a.availability == b.availability
+        && a.level == b.level
+        && a.xp_enabled == b.xp_enabled
+        && a.location == b.location
+        && a.weather_automatic_id == b.weather_automatic_id
+        && same_catalog(&a.items, &b.items)
+        && same_catalog(&a.mounts, &b.mounts)
+        && same_catalog(&a.cities, &b.cities)
+        && same_catalog(&a.factions, &b.factions)
+        && same_catalog(&a.weather, &b.weather)
+}
+
 fn number(text: &str, min: u32, max: u32) -> Result<u32, String> {
     if text.is_empty() || text.len() > 10 || !text.bytes().all(|b| b.is_ascii_digit()) {
         return Err(format!("Enter a whole number from {min} to {max}."));
@@ -440,7 +500,10 @@ fn validate_operation(
         let first = matches
             .next()
             .ok_or("Choose an entry from this world's supported catalog.")?;
-        if matches.next().is_some() || first.label.trim().is_empty() {
+        if matches.next().is_some()
+            || first.label.len() > MAX_LABEL_BYTES
+            || first.label.trim().is_empty()
+        {
             return Err("The supported catalog entry is invalid or ambiguous.".into());
         }
         Ok(id)
@@ -526,12 +589,13 @@ impl UiScript {
                 let mut ui = lua
                     .app_data_mut::<AdminUi>()
                     .expect("admin interface installed");
-                let (snapshot, changed) = ui.refresh();
+                let (snapshot, _) = ui.refresh();
                 let view = lua.create_table()?;
                 view.set("identity", snapshot.identity.as_str())?;
                 view.set("status", snapshot.status.as_str())?;
                 view.set("message", ui.message.as_str())?;
                 view.set("pending", ui.pending.is_some())?;
+                view.set("generation", ui.generation.to_string())?;
                 view.set("xp_enabled", snapshot.xp_enabled)?;
                 if let Some(level) = &snapshot.level {
                     view.set("current_level", level.current)?;
@@ -539,31 +603,100 @@ impl UiScript {
                 }
                 for action in AdminAction::ALL {
                     let row = lua.create_table()?;
-                    let reason = snapshot.reason(action);
+                    let reason = ui.reasons[action as usize].as_deref();
                     row.set("enabled", reason.is_none() && ui.pending.is_none())?;
                     row.set("reason", reason.unwrap_or(""))?;
-                    let cache_key = format!("benilla_admin_catalog_{}", action.key());
-                    let entries = if changed {
-                        let entries = catalog_table(lua, snapshot.catalog(action))?;
-                        lua.set_named_registry_value(&cache_key, entries.clone())?;
-                        entries
-                    } else {
-                        lua.named_registry_value::<Table>(&cache_key)?
-                    };
-                    row.set("entries", entries)?;
+                    // Compatibility preview only. The menu uses the bounded search binding;
+                    // never copy the complete item catalog into Lua on a periodic refresh.
+                    row.set(
+                        "entries",
+                        catalog_table(
+                            lua,
+                            snapshot
+                                .catalog(action)
+                                .iter()
+                                .take(PAGE_SIZE)
+                                .filter(|entry| entry.label.len() <= MAX_LABEL_BYTES),
+                        )?,
+                    )?;
+                    row.set("catalog_count", snapshot.catalog(action).len())?;
                     view.set(action.key(), row)?;
                 }
                 Ok(view)
             })?,
         )?;
         self.lua.globals().set(
-            "BenillaAdminSubmit",
+            "BenillaAdminSearch",
             self.lua.create_function(
-                |lua, (action, selection, amount): (String, String, String)| {
+                |lua, (action, query, requested): (String, mlua::String, i64)| {
                     let mut ui = lua
                         .app_data_mut::<AdminUi>()
                         .expect("admin interface installed");
-                    let result = ui.submit(&action, &selection, &amount);
+                    let (snapshot, _) = ui.refresh();
+                    let result = lua.create_table()?;
+                    result.set("generation", ui.generation.to_string())?;
+                    result.set("page_size", PAGE_SIZE)?;
+                    let action = AdminAction::parse(&action);
+                    let Some(action) = action.filter(|action| {
+                        matches!(
+                            action,
+                            AdminAction::Item
+                                | AdminAction::Mount
+                                | AdminAction::Teleport
+                                | AdminAction::Reputation
+                                | AdminAction::Weather
+                        )
+                    }) else {
+                        result.set("entries", lua.create_table()?)?;
+                        result.set("reason", "This operation has no browsable catalog.")?;
+                        result.set("total", 0)?;
+                        result.set("pages", 0)?;
+                        result.set("page", 0)?;
+                        return Ok(result);
+                    };
+                    let search = ui.catalogs[action as usize].get_or_insert_with(|| {
+                        CatalogSearch::new(action, snapshot.catalog(action))
+                    });
+                    if let Err(reason) = search.filter(&query.to_str()?) {
+                        result.set("entries", lua.create_table()?)?;
+                        result.set("reason", reason)?;
+                        result.set("total", 0)?;
+                        result.set("pages", 0)?;
+                        result.set("page", 0)?;
+                    } else {
+                        let page = search.page(requested);
+                        result.set(
+                            "entries",
+                            catalog_table(
+                                lua,
+                                search
+                                    .page_indices(page)
+                                    .map(|index| &snapshot.catalog(action)[index]),
+                            )?,
+                        )?;
+                        result.set("reason", "")?;
+                        result.set("total", search.total())?;
+                        result.set("pages", search.pages())?;
+                        result.set("page", if search.total() == 0 { 0 } else { page })?;
+                    }
+                    Ok(result)
+                },
+            )?,
+        )?;
+        self.lua.globals().set(
+            "BenillaAdminSubmit",
+            self.lua.create_function(
+                |lua,
+                 (action, selection, amount, generation): (
+                    String,
+                    String,
+                    String,
+                    Option<String>,
+                )| {
+                    let mut ui = lua
+                        .app_data_mut::<AdminUi>()
+                        .expect("admin interface installed");
+                    let result = ui.submit(&action, &selection, &amount, generation.as_deref());
                     if let Err(reason) = &result {
                         ui.message = reason.clone();
                         ui.message_context = ui.snapshot().context;
@@ -593,12 +726,20 @@ impl UiScript {
     }
 }
 
-fn catalog_table(lua: &Lua, entries: &[AdminCatalogEntry]) -> mlua::Result<Table> {
+fn catalog_table<'a>(
+    lua: &Lua,
+    entries: impl Iterator<Item = &'a AdminCatalogEntry>,
+) -> mlua::Result<Table> {
     let rows = lua.create_table()?;
-    for (index, entry) in entries.iter().enumerate() {
+    for (index, entry) in entries.enumerate() {
         let row = lua.create_table()?;
         row.set("id", entry.id.to_string())?;
         row.set("label", entry.label.as_str())?;
+        let mut display: String = entry.label.chars().take(44).collect();
+        if entry.label.chars().nth(44).is_some() {
+            display.push_str("...");
+        }
+        row.set("display_label", display)?;
         rows.set(index + 1, row)?;
     }
     Ok(rows)

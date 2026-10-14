@@ -1,3 +1,4 @@
+mod world_setup;
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,23 +16,35 @@ const LOCK: &str = "profile.lock";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Payload {
+struct Payload<S> {
     secret: Zeroizing<[u8; 32]>,
     public_key: [u8; 32],
     owner_id: OwnerId,
-    state: State,
+    state: S,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Envelope {
+struct Envelope<S> {
     format_version: u32,
-    payload: Payload,
+    payload: Payload<S>,
     checksum: [u8; 32],
 }
-fn checksum(payload: &Payload) -> Result<[u8; 32], Error> {
+// Keep this exact v1 field order: checksum verification precedes conversion to v2.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StateV1 {
+    revision: u64,
+    selected: Option<CharacterId>,
+    characters: Vec<Character>,
+}
+fn checksum<S: Serialize>(payload: &Payload<S>, version: u32) -> Result<[u8; 32], Error> {
     let bytes = Zeroizing::new(serde_json::to_vec(payload).map_err(|_| Error::Corrupt)?);
     let mut hash = Sha256::new();
-    hash.update(b"benilla-profile-v1\0");
+    hash.update(match version {
+        1 => b"benilla-profile-v1\0",
+        2 => b"benilla-profile-v2\0",
+        _ => return Err(Error::UnsupportedVersion),
+    });
     hash.update(&bytes);
     Ok(hash.finalize().into())
 }
@@ -47,7 +60,7 @@ pub(super) fn encode(
     };
     let envelope = Envelope {
         format_version: FORMAT_VERSION,
-        checksum: checksum(&payload)?,
+        checksum: checksum(&payload, FORMAT_VERSION)?,
         payload,
     };
     let bytes = Zeroizing::new(serde_json::to_vec(&envelope).map_err(|_| Error::Corrupt)?);
@@ -60,12 +73,39 @@ pub(super) fn decode(bytes: &[u8]) -> Result<(ProfileIdentity, State), Error> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err(Error::Corrupt);
     }
-    // No serde error is exposed: diagnostics must never echo a key or file contents.
-    let envelope: Envelope = serde_json::from_slice(bytes).map_err(|_| Error::Corrupt)?;
-    if envelope.format_version != FORMAT_VERSION {
-        return Err(Error::UnsupportedVersion);
+    // Read only the discriminator first; errors never echo a key or file contents.
+    #[derive(Deserialize)]
+    struct Version {
+        format_version: u32,
     }
-    if checksum(&envelope.payload)? != envelope.checksum {
+    let version: Version = serde_json::from_slice(bytes).map_err(|_| Error::Corrupt)?;
+    let (identity, state) = match version.format_version {
+        1 => {
+            let envelope: Envelope<StateV1> =
+                serde_json::from_slice(bytes).map_err(|_| Error::Corrupt)?;
+            let (identity, old) = validate_envelope(envelope)?;
+            // Opening is read-only. The next explicit mutation writes v2 atomically and keeps
+            // the original validated v1 bytes in profile.previous.json before replacement.
+            (
+                identity,
+                State {
+                    revision: old.revision,
+                    selected: old.selected,
+                    characters: old.characters,
+                    archived: Vec::new(),
+                },
+            )
+        }
+        FORMAT_VERSION => validate_envelope(
+            serde_json::from_slice::<Envelope<State>>(bytes).map_err(|_| Error::Corrupt)?,
+        )?,
+        _ => return Err(Error::UnsupportedVersion),
+    };
+    state.validate(identity.owner_id())?;
+    Ok((identity, state))
+}
+fn validate_envelope<S: Serialize>(envelope: Envelope<S>) -> Result<(ProfileIdentity, S), Error> {
+    if checksum(&envelope.payload, envelope.format_version)? != envelope.checksum {
         return Err(Error::Corrupt);
     }
     let identity = ProfileIdentity {
@@ -76,7 +116,6 @@ pub(super) fn decode(bytes: &[u8]) -> Result<(ProfileIdentity, State), Error> {
     {
         return Err(Error::Corrupt);
     }
-    envelope.payload.state.validate(identity.owner_id())?;
     Ok((identity, envelope.payload.state))
 }
 
@@ -554,7 +593,7 @@ mod windows_path_tests {
 #[cfg(test)]
 mod schema_tests {
     use super::*;
-    fn fixture() -> Envelope {
+    fn fixture() -> Envelope<State> {
         let identity = ProfileIdentity {
             key: SigningKey::from_bytes(&[5; 32]),
         };
@@ -574,6 +613,7 @@ mod schema_tests {
             revision: 0,
             selected: Some(character.id),
             characters: vec![character],
+            archived: Vec::new(),
         };
         serde_json::from_slice(&encode(&identity, &state).unwrap()).unwrap()
     }
@@ -596,7 +636,7 @@ mod schema_tests {
                 8 => envelope.payload.state.characters[0].name = "fIxTuRe".into(),
                 _ => unreachable!(),
             }
-            envelope.checksum = checksum(&envelope.payload).unwrap();
+            envelope.checksum = checksum(&envelope.payload, envelope.format_version).unwrap();
             let bytes = Zeroizing::new(serde_json::to_vec(&envelope).unwrap());
             assert!(matches!(decode(&bytes), Err(Error::Corrupt)), "case {case}");
         }

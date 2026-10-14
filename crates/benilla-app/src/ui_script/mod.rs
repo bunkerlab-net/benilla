@@ -32,6 +32,8 @@ pub(crate) use input::feed_keys;
 mod layer_tests;
 mod load_log;
 mod manifest;
+mod world_setup;
+pub(crate) use world_setup::plugin as world_setup_plugin;
 
 /// The stock FrameXML this client runs off the player's own patch chain; its header is the rule.
 mod reference_ui;

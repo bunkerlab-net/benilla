@@ -840,3 +840,46 @@ fn full_application_queue_refuses_avatar_without_blocking() {
     )
     .is_err());
 }
+
+#[test]
+fn confirmed_delete_refreshes_the_exact_local_roster_and_restart_keeps_the_archive() {
+    let dir = Temp::new();
+    let (handles, start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    listed(&handles);
+    let one = create(&handles, "Firstsaved", 1, 1, 0);
+    let two = create(&handles, "Othersaved", 2, 7, 1);
+    handles.pick.send(CharRequest::Delete(one)).unwrap();
+    let roster = listed(&handles);
+    assert_eq!(roster.len(), 1);
+    assert_eq!(roster[0].guid, two);
+    next_matching(&handles, |event| {
+        matches!(
+            event,
+            SessionEvent::CharActionResult {
+                action: benilla_protocol::CharAction::Delete,
+                code: benilla_protocol::messages::CHAR_DELETE_SUCCESS,
+            }
+        )
+    });
+    handles.pick.send(CharRequest::Delete(one)).unwrap();
+    next_matching(&handles, |event| {
+        matches!(
+            event,
+            SessionEvent::CharActionResult {
+                action: benilla_protocol::CharAction::Delete,
+                code: 0x3a,
+            }
+        )
+    });
+    drop(start);
+    let store = ProfileStore::open(dir.profile()).unwrap();
+    assert_eq!(store.characters().len(), 1);
+    assert_eq!(character_guid(store.selected_character().unwrap()), two);
+    assert_eq!(character_guid(&store.archived_characters()[0]), one);
+    drop(store);
+    let (handles, start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    let roster = listed(&handles);
+    assert_eq!(roster.len(), 1);
+    assert_eq!(roster[0].guid, two);
+    drop(start);
+}
