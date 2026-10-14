@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v13 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v14 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -75,7 +75,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 13, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 14, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -114,9 +114,9 @@ Schema 3 applies source Player::Kill/SetDeathState/KillPlayer ordering, retains 
 except equipment clamping, preserves released flights and passive holders, and
 cancels preparing casts through the existing execution path. Checked durable death
 and reclaim timers continue across reload. The six-minute boundary records release
-unavailable once and continues later world ticks. The client requires a real local
-session movement-order counter for root; controller allocation/acknowledgement
-handling remains to be wired. Ghost aura, corpse creation/placement, graveyard
+unavailable once and continues later world ticks. The actual local controller now allocates a shared session movement-order
+counter for root and supported player slow speeds, with exact typed
+acknowledgements. Ghost aura, corpse creation/placement, graveyard
 selection/navigation, reclaim and resurrection are separate missing dependencies.
 
 The receipt-only prelude performs no NPC timers, movement or AI. It preserves earlier
@@ -154,5 +154,11 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format13 changes experimental simulation checkpoints/records, not
+typed. Native format14 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
+
+The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
+source and host closure, source-ordered apply/replace/expire/death, current
+movement budgets, client fields/durations/speed orders and exact session ACKs.
+Its source-effect entry is fixture-only until the NPC triggered-cast host exists;
+rear melee remains rejected. Native14 does not change character/profile files.

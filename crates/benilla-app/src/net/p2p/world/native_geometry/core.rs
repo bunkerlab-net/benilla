@@ -38,8 +38,8 @@ impl Body {
 }
 
 /// Trusted source-resolved player body and maximum speed for this bounded movement state.
-/// Sprint/mount/swim/flight, movement auras, transports, jump/fall and server movement modes
-/// require separate policy support; accepting a peer-supplied speed cannot construct this.
+/// Enabled native slow profiles supply their current source-derived ground speed in the
+/// authority request. Sprint/mount/swim/flight, transports and jump/fall remain excluded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PlayerMotion {
     pub body: Body,
@@ -431,6 +431,7 @@ fn player_path(query: &Query, player: PlayerMotion) -> Result<Option<Vec<[f32; 3
         accepted_path,
         destination,
         elapsed_ms,
+        speed,
     } = query
     else {
         return Err(Failure::UnsupportedQuery);
@@ -454,7 +455,13 @@ fn player_path(query: &Query, player: PlayerMotion) -> Result<Option<Vec<[f32; 3
     {
         return Err(Failure::Invalid);
     }
-    let numerator = f64::from(player.speed.as_f32()) * f64::from(*elapsed_ms);
+    // Only the trusted runtime constructs this request; the speed is echoed and replay-bound.
+    // Legacy profiles retain the session speed. Enabled profiles carry the live movement mode.
+    let speed = speed.unwrap_or(player.speed).as_f32();
+    if !(0.0..=MAX_SEGMENT).contains(&speed) {
+        return Err(Failure::Invalid);
+    }
+    let numerator = f64::from(speed) * f64::from(*elapsed_ms);
     let nearest_budget = numerator / 1000.0;
     // Fused residual retains the sign of division error; multiplying the quotient back
     // normally can round away an upward error (e.g. .001 * 1000 == 1).

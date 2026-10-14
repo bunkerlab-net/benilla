@@ -81,6 +81,7 @@ pub struct NpcProfile {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Profile {
+    pub player_slow: Option<PlayerSlowGenesis>,
     pub source_motion: Option<MotionGenesis>,
     pub interactions: Option<InteractionCatalog>,
     pub quest_progression: Option<QuestProgressionGenesis>,
@@ -98,9 +99,10 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v13\0",
+            b"benilla-native-profile-v14\0",
             &(
                 NATIVE_POLICY,
+                benilla_sim::player_slow::PLAYER_SLOW_POLICY,
                 RNG_POLICY,
                 spell::SPELL_EXECUTION_POLICY_ID,
                 ai::CREATURE_AI_POLICY_ID,
@@ -137,6 +139,9 @@ impl Profile {
             .collect()
     }
     pub fn validate(&self) -> Result<(), NativeError> {
+        if let Some(g) = &self.player_slow {
+            g.validate(self)?;
+        }
         if let Some(g) = &self.source_motion {
             g.validate(self)?;
         }
@@ -274,6 +279,7 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub player_slow: Option<PlayerSlowState>,
     pub player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
     pub player_events: PlayerEvents,
     pub quest_progression: Option<QuestProgressionState>,
@@ -399,6 +405,7 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    PlayerSlow(PlayerSlowEvent),
     NpcMotion {
         id: NpcId,
         event: benilla_sim::creature_motion::Event,
@@ -518,6 +525,8 @@ pub enum Query {
     },
     Movement(ai::movement::MovementRequest),
     PlayerMovement {
+        /// Runtime-derived current movement speed; None belongs to the legacy fixture policy.
+        speed: Option<ai::Real>,
         /// One immutable origin and elapsed budget for the entire frame, never per packet.
         frame_origin: ai::Point,
         /// Previously accepted endpoints in arrival order, excluding frame_origin.

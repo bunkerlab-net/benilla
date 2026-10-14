@@ -408,6 +408,7 @@ impl NativeWorld {
             cast_inputs: BTreeMap::new(),
             movement_origin: self.state.position,
             movement_path: vec![],
+            player_auras_updated: false,
         };
         frame.quest_interaction_gate(quest, giver, reward)
     }

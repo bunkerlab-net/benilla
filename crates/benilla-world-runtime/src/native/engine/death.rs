@@ -48,7 +48,7 @@ impl<A: Authority> Frame<'_, A> {
                 },
                 &current,
             )?;
-        self.death_actions(plan.actions)?;
+        self.death_actions(plan.actions, None)?;
         self.state.combat.as_mut().unwrap().death = Some(plan.next);
         Ok(())
     }
@@ -71,7 +71,18 @@ impl<A: Authority> Frame<'_, A> {
                 caster_aura_state: a.caster_aura_state,
             });
         }
-        let holders = holders.into_values().collect::<Vec<_>>();
+        let mut holders = holders.into_values().collect::<Vec<_>>();
+        if let Some(slow) = &self.state.player_slow {
+            holders.extend(slow.holders().map(|h| d::DeathAura {
+                holder_id: h.id,
+                spell_id: h.spell_id,
+                attributes: h.attributes,
+                attributes_ex3: h.attributes_ex3,
+                caster_aura_state: h.caster_aura_state,
+            }));
+        }
+        // Unit's holder multimap removes by spell-ID order, not insertion/allocator order.
+        holders.sort_by_key(|h| (h.spell_id, h.holder_id));
         let (current, released) = self.death_spells();
         let damage = result.total_damage();
         let mut checked_health = self.state.health;
@@ -105,11 +116,15 @@ impl<A: Authority> Frame<'_, A> {
             })?;
         // Full owner/character plus killer generation remain in state/action/journal binding.
         self.state.combat.as_mut().unwrap().death_killer = Some(killer);
-        self.death_actions(plan.actions)?;
+        self.death_actions(plan.actions, Some(killer))?;
         self.state.combat.as_mut().unwrap().death = Some(plan.next);
         Ok(())
     }
-    fn death_actions(&mut self, actions: Vec<d::DeathAction>) -> Result<(), NativeError> {
+    fn death_actions(
+        &mut self,
+        actions: Vec<d::DeathAction>,
+        callback_owned_npc: Option<NpcId>,
+    ) -> Result<(), NativeError> {
         for action in actions {
             self.events.push(Event::Death(action.clone()));
             match action {
@@ -145,10 +160,39 @@ impl<A: Authority> Frame<'_, A> {
                 d::DeathAction::InterruptCurrentSpell { cast_id, .. } => {
                     self.interrupt_scheduled_cast(cast_id, spell::CastFailure::CasterDead)?;
                 }
-                d::DeathAction::RemoveAuraByDeath { .. } => {
-                    return Err(NativeError::UnsupportedMechanic(
-                        "active player aura removal",
-                    ))
+                d::DeathAction::RemoveAuraByDeath {
+                    holder_id,
+                    spell_id,
+                } => {
+                    let slow =
+                        self.state
+                            .player_slow
+                            .as_mut()
+                            .ok_or(NativeError::UnsupportedMechanic(
+                                "active player aura removal",
+                            ))?;
+                    if !slow
+                        .holders()
+                        .any(|h| h.id == holder_id && h.spell_id == spell_id)
+                    {
+                        return Err(NativeError::InvalidState);
+                    }
+                    let holder = slow
+                        .holders()
+                        .find(|h| h.id == holder_id)
+                        .ok_or(NativeError::InvalidState)?;
+                    // The melee callback owns its current NPC outside state.npcs until return.
+                    let level =
+                        if callback_owned_npc.is_some_and(|npc| npc.spawn == holder.caster.spawn) {
+                            self.profile
+                                .npc(holder.caster.spawn)
+                                .ok_or(NativeError::InvalidState)?
+                                .ai
+                                .level
+                        } else {
+                            slow.removal_level(holder_id, self.profile, &self.state.npcs)?
+                        };
+                    slow.remove(holder_id, PlayerSlowRemoval::Death, level, &mut self.events)?;
                 }
                 // All other mutable dependencies are absent in the checked bounded policy.
                 // Body/root/timer/release facts are committed by the checked lifecycle and

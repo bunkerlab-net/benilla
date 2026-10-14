@@ -217,6 +217,7 @@ mod tests {
                     cast_inputs: BTreeMap::new(),
                     movement_origin: world.state.position,
                     movement_path: vec![],
+                    player_auras_updated: false,
                 };
                 frame.command(&Command::MovementPose {
                     destination: toward,

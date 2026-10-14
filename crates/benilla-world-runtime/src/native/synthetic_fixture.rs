@@ -52,6 +52,7 @@ pub fn profile() -> Profile {
         damage_pushback: true,
     };
     Profile {
+        player_slow: None,
         source_motion: None,
         interactions: None,
         quest_progression: None,

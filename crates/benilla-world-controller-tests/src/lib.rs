@@ -1,6 +1,9 @@
 #![cfg(test)]
 mod net {
-    use benilla_protocol::{messages::MoveMode, JumpInfo, TransportPose};
+    use benilla_protocol::{
+        messages::{MoveMode, SpeedKind},
+        JumpInfo, TransportPose,
+    };
     include!(concat!(env!("OUT_DIR"), "/commands.rs"));
 }
 #[path = "../../benilla-app/src/net/p2p/world.rs"]

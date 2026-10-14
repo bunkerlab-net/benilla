@@ -47,8 +47,9 @@ fn bag_harness_with(extra: &[&str]) -> UiScript {
 
 /// Top to bottom. Deviation: the 1.15 era client's ESC ladder, because its settings screens
 /// replace 1.12's; without the AddOns rung, as the character-select screen is the only addon UI.
-const LADDER: [&str; 7] = [
+const LADDER: [&str; 8] = [
     "GameMenuButtonOptions",
+    "BenillaGameMenuButtonAdmin",
     "BenillaGameMenuButtonEditMode",
     "BenillaGameMenuButtonSupport",
     "GameMenuButtonMacros",
@@ -58,7 +59,7 @@ const LADDER: [&str; 7] = [
 ];
 
 /// The era layout (MainMenuFrameTemplates: padding 32 top and 28 elsewhere, 20-unit section
-/// gaps) over seven 144x21 rungs: 200x267, gaps after Options, after Macros and before Return.
+/// gaps) over eight 144x21 rungs: 200x288, gaps after Options, after Macros and before Return.
 #[test]
 fn the_menu_has_the_era_frame_and_button_ladder() {
     let _data = benilla_formats::wow_data_or_skip!();
@@ -69,11 +70,11 @@ fn the_menu_has_the_era_frame_and_button_ladder() {
     let (w, h) = s
         .eval::<(f64, f64)>("return GameMenuFrame:GetWidth(), GameMenuFrame:GetHeight()")
         .unwrap();
-    assert_eq!((w, h), (200.0, 267.0), "the era frame size");
+    assert_eq!((w, h), (200.0, 288.0), "the era frame size");
 
     let top = s.eval::<f64>("return GameMenuFrame:GetTop()").unwrap();
     let left = s.eval::<f64>("return GameMenuFrame:GetLeft()").unwrap();
-    const TOPS: [f64; 7] = [32.0, 73.0, 94.0, 115.0, 156.0, 177.0, 218.0];
+    const TOPS: [f64; 8] = [32.0, 73.0, 94.0, 115.0, 136.0, 177.0, 198.0, 239.0];
     for (name, down) in LADDER.iter().zip(TOPS) {
         let (bw, bh, btop, bleft) = s
             .eval::<(f64, f64, f64, f64)>(&format!(
@@ -747,4 +748,33 @@ fn the_menu_rides_the_shared_era_window_scale() {
     let want = s.eval::<f64>("return BENILLA_ERA_WINDOW_SCALE").unwrap();
     assert!((k - want).abs() < 1e-6, "menu scale {k} != knob {want}");
     assert!((want - 0.78).abs() < 1e-6, "the knob itself moved: {want}");
+}
+
+/// The fork panel inherits the player's real 1.12 templates, not a synthetic render lookalike.
+#[test]
+fn admin_panel_uses_stock_controls_and_escape_closes_without_reopening_the_menu() {
+    let _data = benilla_formats::wow_data_or_skip!();
+    let s = harness();
+    s.install_admin_interface().unwrap();
+    s.run("ToggleGameMenu(); BenillaGameMenuButtonAdmin:Click()")
+        .unwrap();
+    assert!(s.frame_visible("BenillaAdminFrame"));
+    assert!(!s.frame_visible("GameMenuFrame"));
+    assert!(s.eval::<bool>("return IsOptionFrameOpen() ~= nil").unwrap());
+    for index in 1..=11 {
+        s.run(&format!("BenillaAdmin_Select({index})")).unwrap();
+        assert!(!s
+            .eval::<bool>("return BenillaAdminFrameApply:IsEnabled() ~= 0")
+            .unwrap());
+        assert!(!s
+            .eval::<String>("return BenillaAdminFrameReason:GetText()")
+            .unwrap()
+            .is_empty());
+    }
+    s.run("ToggleGameMenu()").unwrap();
+    assert!(!s.frame_visible("BenillaAdminFrame"));
+    assert!(!s.frame_visible("GameMenuFrame"));
+    s.run("ToggleGameMenu(); BenillaGameMenuButtonAdmin:Click(); BenillaAdminFrameCloseButton:Click()").unwrap();
+    assert!(!s.frame_visible("BenillaAdminFrame"));
+    assert!(s.errors().is_empty(), "{:?}", s.errors());
 }

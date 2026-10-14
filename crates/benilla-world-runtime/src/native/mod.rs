@@ -7,6 +7,11 @@ pub use loot::*;
 mod engine;
 mod npc_events;
 pub use npc_events::{NpcEventHandle, NpcEvents, NPC_EVENT_POLICY};
+mod player_slow;
+pub use player_slow::{
+    PlayerSlowCasterSource, PlayerSlowCatalog, PlayerSlowEvent, PlayerSlowGenesis,
+    PlayerSlowHolder, PlayerSlowHostSource, PlayerSlowRemoval, PlayerSlowSource, PlayerSlowState,
+};
 mod player_events;
 pub use player_events::{
     FinishedSpellReason, PlayerEvents, SpellEventLifetime, PLAYER_EVENT_POLICY,
@@ -43,8 +48,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 13;
-pub const NATIVE_POLICY: &str = "benilla-native-npc-events-v13";
+pub const NATIVE_FORMAT_VERSION: u32 = 14;
+pub const NATIVE_POLICY: &str = "benilla-native-player-slow-v14";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -65,6 +70,7 @@ pub enum NativeCapability {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeError {
+    PlayerSlow(benilla_sim::player_slow::SlowError),
     Inventory(benilla_sim::inventory::Error),
     Loot(benilla_sim::loot::Error),
     Quest(benilla_sim::quest_lifecycle::Error),
@@ -183,6 +189,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let state = State {
+            player_slow: profile.player_slow.as_ref().map(|_| PlayerSlowState::new()),
             player_movement_flags: profile
                 .source_motion
                 .as_ref()
@@ -230,7 +237,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v13\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v14\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -381,3 +388,13 @@ mod facing_tests;
 
 #[cfg(test)]
 mod npc_event_tests;
+
+#[cfg(test)]
+mod player_slow_tests;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_slow_fixture;
+impl From<benilla_sim::player_slow::SlowError> for NativeError {
+    fn from(error: benilla_sim::player_slow::SlowError) -> Self {
+        Self::PlayerSlow(error)
+    }
+}

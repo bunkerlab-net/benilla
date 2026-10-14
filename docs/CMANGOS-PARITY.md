@@ -23,6 +23,9 @@ headless regression tests, including replay, partial loot and checkpoint continu
 The app controller has tests for command admission, correction, checkpoint cadence
 and failed-save retry, but native-content entry remains closed.
 
+The [Vanilla-style Admin panel](P2P-ADMIN.md) has a typed, capability-gated UI
+interface. Its production backend is not attached; no admin grants are enabled.
+
 The separate native component path now integrates source-derived spell execution,
 ordinary NPC AI/melee, player stat/skill/equipment initialization and durable replay.
 Its production capability remains unavailable pending a complete local-data compiler
@@ -181,14 +184,16 @@ is meaningful without a bounded content/mechanics inventory.
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 13, without changing the
+  service uses experimental native checkpoint format 14, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,
   generation-guarded handles and transactional replay/save/reopen. See the
   [NPC event contract](../crates/benilla-world-runtime/NPC-EVENTS.md). Triggered
-  NPC-to-player spells, daze aura/speed effects and rear-melee admission remain
-  unimplemented; this queue infrastructure does not complete those mechanics.
+  NPC-to-player casting and rear-melee admission remain unimplemented. The
+  [bounded slow-holder milestone](../crates/benilla-world-runtime/src/native/PLAYER-SLOW.md)
+  implements source-bound holder lifecycle, speed aggregation and durable
+  projection/ACKs through fixture-only effects; it does not complete rear daze.
 - **Dependencies:** derived stats, weapon skill and school, attack timers,
   deterministic random draws, armor/resistance, block/absorb, auras/procs,
   reach/facing/LOS, threat, loot credit, quests, corpses and resurrection.

@@ -1035,6 +1035,8 @@ name = "benilla-world-controller-tests"
 version = "0.2.0"
 dependencies = [
  "benilla-config",
+ "benilla-formats",
+ "benilla-native-nav",
  "benilla-profile",
  "benilla-protocol",
  "benilla-sim",
@@ -1044,6 +1046,7 @@ dependencies = [
  "benilla-world-store",
  "crossbeam-channel",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

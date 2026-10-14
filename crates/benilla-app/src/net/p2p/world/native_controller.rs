@@ -3,7 +3,7 @@
 //! is still uninhabited. Component-test fixtures cannot enter through a production request.
 use super::*;
 use crate::{creature_anim::move_flags, net::ClientCommand};
-use benilla_protocol::messages::{MoveMode, RelayVerb};
+use benilla_protocol::messages::{MoveMode, RelayVerb, SpeedKind};
 use benilla_sim::creature_ai::Point;
 use benilla_world_client::native::{NativeMovementOrders, NativeProjection};
 use benilla_world_runtime::native as n;
@@ -37,6 +37,23 @@ struct RootOrder {
     guid: u64,
     counter: u32,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SpeedOrder {
+    guid: u64,
+    counter: u32,
+    kind: SpeedKind,
+    speed_bits: u32,
+}
+fn speed_index(kind: SpeedKind) -> usize {
+    match kind {
+        SpeedKind::Walk => 0,
+        SpeedKind::Run => 1,
+        SpeedKind::RunBack => 2,
+        SpeedKind::Swim => 3,
+        SpeedKind::SwimBack => 4,
+        SpeedKind::TurnRate => 5,
+    }
+}
 enum CancelTarget {
     Instance(u64),
     Queued(u64),
@@ -69,12 +86,14 @@ struct PendingTick {
     moving: bool,
 }
 /// One forced-order namespace per actual session, independent of saved simulation time.
-/// Root is currently its only producer: unsupported speed/mode commands cannot allocate a
-/// second namespace. A restored corpse receives a fresh root order and must acknowledge it.
+/// Root and forced speeds share the counter. Restored state receives fresh session orders.
+/// Exact outstanding speed echoes are a local typed contract, not raw anti-cheat parity.
 struct MovementOrders {
     counter: NativeMovementOrders,
     pending: Option<RootOrder>,
     acknowledged: Option<RootOrder>,
+    pending_speeds: std::collections::BTreeMap<u32, SpeedOrder>,
+    acknowledged_speeds: [Option<SpeedOrder>; 6],
 }
 impl MovementOrders {
     #[cfg(test)]
@@ -83,10 +102,38 @@ impl MovementOrders {
             counter: NativeMovementOrders::from_session_next_counter(0),
             pending: None,
             acknowledged: None,
+            pending_speeds: std::collections::BTreeMap::new(),
+            acknowledged_speeds: [None; 6],
         }
     }
+    fn can_emit(&self, events: &[SessionEvent]) -> bool {
+        self.pending_speeds.len()
+            + events
+                .iter()
+                .filter(|e| matches!(e, SessionEvent::ForceSpeedChange { .. }))
+                .count()
+            <= MAX_PENDING_EVENTS
+    }
     fn emitted(&mut self, events: &[SessionEvent]) {
+        debug_assert!(self.can_emit(events));
         for event in events {
+            if let SessionEvent::ForceSpeedChange {
+                guid,
+                kind,
+                counter,
+                speed,
+            } = event
+            {
+                self.pending_speeds.insert(
+                    *counter,
+                    SpeedOrder {
+                        guid: *guid,
+                        counter: *counter,
+                        kind: *kind,
+                        speed_bits: speed.to_bits(),
+                    },
+                );
+            }
             if let SessionEvent::MoveMode {
                 guid,
                 counter,
@@ -99,6 +146,21 @@ impl MovementOrders {
                     counter: *counter,
                 });
             }
+        }
+    }
+    fn acknowledge_speed(&mut self, order: SpeedOrder) -> Result<(), Error> {
+        let acknowledged = &mut self.acknowledged_speeds[speed_index(order.kind)];
+        if self.pending_speeds.get(&order.counter) == Some(&order) {
+            self.pending_speeds.remove(&order.counter);
+            // Out-of-order exact ACKs retire only their own outstanding order.
+            if acknowledged.is_none_or(|old| old.counter < order.counter) {
+                *acknowledged = Some(order);
+            }
+            Ok(())
+        } else if *acknowledged == Some(order) {
+            Ok(())
+        } else {
+            Err(Error::InvalidMovementAck)
         }
     }
     fn acknowledge(&mut self, order: RootOrder, flags: u32) -> Result<(), Error> {
@@ -138,6 +200,7 @@ pub(crate) struct NativeController {
     next_ticket: u64,
     pending: Option<PendingTick>,
     outbox: Option<PendingEvents>,
+    resync_slow_durations: bool,
     debt: Duration,
     saved_tick: u64,
     pause: Option<Pause>,
@@ -178,7 +241,10 @@ impl NativeController {
                     n::NativeWorld::synthetic_component_test(data, world, selected.player, seed)?;
                 let projection = NativeProjection::new(&world, selected.player, catalog)?;
                 // Validate all initial fields before creating even the world container.
-                projection.initial_events(&world)?;
+                projection.initial_events_with_movement_orders(
+                    &world,
+                    &mut NativeMovementOrders::from_session_next_counter(0),
+                )?;
                 match std::fs::create_dir(path.parent().expect("fixed world container")) {
                     Ok(()) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -236,6 +302,7 @@ impl NativeController {
             next_ticket: 0,
             pending: None,
             outbox: None,
+            resync_slow_durations: false,
             debt: Duration::ZERO,
             saved_tick,
             pause: None,
@@ -488,14 +555,25 @@ impl NativeController {
         // Immediately retire the committed input. A projection/checkpoint failure must never
         // rerun a committed cast, loot/reward, RNG draw or sequence on explicit retry.
         let pending = self.pending.take().expect("committed staged tick");
+        let mut staged_orders =
+            NativeMovementOrders::from_session_next_counter(self.orders.counter.next_counter());
         let projected = self
             .projection
-            .advance_with_movement_orders(&self.world, &mut self.orders.counter)
+            .advance_with_movement_orders(&self.world, &mut staged_orders)
             .and_then(|mut projected| {
                 if pending.moving {
                     projected.push(self.correction_at(PublishedPose::of(&self.world)));
                 }
-                if projected.len() > MAX_PENDING_EVENTS {
+                // A successful explicit pause retry may need one fresh UI timer per holder.
+                let timers = self
+                    .world
+                    .state()
+                    .player_slow
+                    .as_ref()
+                    .map_or(0, |state| state.holders().count());
+                if projected.len() + timers > MAX_PENDING_EVENTS
+                    || !self.orders.can_emit(&projected)
+                {
                     return Err(benilla_world_client::Error::Unrepresentable);
                 }
                 Ok(projected)
@@ -512,9 +590,13 @@ impl NativeController {
                 return Err(error.into());
             }
         };
-        if self.world.profile().quest_progression.is_some() || pending.moving {
+        self.orders.counter = staged_orders;
+        if self.world.profile().quest_progression.is_some()
+            || self.world.profile().player_slow.is_some()
+            || pending.moving
+        {
             // Pose-bearing ticks also save before publishing authoritative position/facing.
-            // Progression also mutates without an event (played time, resource/skill sync).
+            // Progression and slow durations also mutate without a projected event.
             // Persist every enabled tick, accepting one synchronous checkpoint per tick.
             // Project first: the store receipt clears last_tick and its event journal.
             self.outbox = Some(PendingEvents {
@@ -530,6 +612,28 @@ impl NativeController {
         }
         Ok(())
     }
+    fn resync_slow_timers(&mut self, events: &mut Vec<SessionEvent>) {
+        if !self.resync_slow_durations {
+            return;
+        }
+        self.resync_slow_durations = false;
+        // UI aura countdowns use wall-clock time; the authoritative simulation pauses.
+        // Refresh only durations on retry, without replaying applications or speed orders.
+        if let Some(state) = &self.world.state().player_slow {
+            for holder in state.holders() {
+                if !events.iter().any(|event| {
+                    matches!(event,
+                    SessionEvent::AuraDuration { slot, remaining_ms }
+                    if *slot == holder.slot && *remaining_ms == holder.remaining_ms)
+                }) {
+                    events.push(SessionEvent::AuraDuration {
+                        slot: holder.slot,
+                        remaining_ms: holder.remaining_ms,
+                    });
+                }
+            }
+        }
+    }
     fn publish_pending(&mut self, events: &mut Vec<SessionEvent>) {
         // This is one delivery to the local caller, not an acknowledged network outbox.
         // A crash after persistence is recovered through initial state, not notification replay.
@@ -538,7 +642,8 @@ impl NativeController {
             .as_ref()
             .is_some_and(|batch| batch.saved.is_some())
         {
-            let batch = self.outbox.take().expect("durable pending events");
+            let mut batch = self.outbox.take().expect("durable pending events");
+            self.resync_slow_timers(&mut batch.events);
             self.published(&batch.events);
             events.extend(batch.events);
         }
@@ -621,6 +726,50 @@ impl Driven for NativeController {
             return Ok(commands::Received {
                 events: vec![],
                 logout: true,
+            });
+        }
+        // ACK poses are validated but never admitted as movement or authority facts.
+        if let ClientCommand::ForceSpeedAck {
+            kind,
+            guid,
+            counter,
+            speed,
+            flags,
+            pos,
+            orientation,
+            pitch,
+            fall_time: _,
+            jump,
+            transport,
+        } = command
+        {
+            let supported_flags = move_flags::ANY_MOVE
+                | move_flags::TURN_LEFT
+                | move_flags::TURN_RIGHT
+                | move_flags::WALK_MODE
+                | move_flags::ROOT;
+            if self.closed
+                || guid != self.player_guid()
+                || !speed.is_finite()
+                || speed < 0.0
+                || flags & !supported_flags != 0
+                || !pitch.is_finite()
+                || pitch != 0.0
+                || jump.is_some()
+                || transport.is_some()
+            {
+                return Err(Error::InvalidMovementAck);
+            }
+            Self::pose(pos, orientation).map_err(|_| Error::InvalidMovementAck)?;
+            self.orders.acknowledge_speed(SpeedOrder {
+                guid,
+                counter,
+                kind,
+                speed_bits: speed.to_bits(),
+            })?;
+            return Ok(commands::Received {
+                events: vec![],
+                logout: false,
             });
         }
         // Root acknowledgment is session bookkeeping, also accepted while checkpoint-paused.
@@ -947,6 +1096,7 @@ impl Driven for NativeController {
             return Err(Error::Paused);
         }
         let saved = self.checkpoint()?;
+        self.resync_slow_durations = true;
         self.pause = None;
         Ok(saved)
     }
@@ -961,6 +1111,7 @@ impl Driven for NativeController {
         {
             return Err(Error::Paused);
         }
+        self.resync_slow_durations = true;
         self.pause = None;
         Ok(())
     }

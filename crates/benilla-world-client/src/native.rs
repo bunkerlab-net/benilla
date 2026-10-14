@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 mod loot;
 #[path = "native_motion.rs"]
 mod motion;
+#[path = "native_player_slow.rs"]
+mod player_slow;
 #[path = "native_quests.rs"]
 mod quests;
 
@@ -26,9 +28,13 @@ impl NativeMovementOrders {
         self.next
     }
 }
-fn root_order(guid: u64, next: &mut Option<u32>) -> Result<SessionEvent, Error> {
+fn movement_counter(next: &mut Option<u32>) -> Result<u32, Error> {
     let counter = next.ok_or(Error::MissingMovementOrderState)?;
     *next = Some(counter.checked_add(1).ok_or(Error::Unrepresentable)?);
+    Ok(counter)
+}
+fn root_order(guid: u64, next: &mut Option<u32>) -> Result<SessionEvent, Error> {
+    let counter = movement_counter(next)?;
     Ok(SessionEvent::MoveMode {
         guid,
         counter,
@@ -91,6 +97,14 @@ impl NativeProjection {
         for a in w.abilities() {
             if !catalog.contains_spell(a.id) {
                 return Err(Error::UnboundSpell(a.id));
+            }
+        }
+        // Incoming aura renderability is independent of the player's learned spellbook.
+        if let Some(slow) = &w.profile().player_slow {
+            for id in slow.spell_ids() {
+                if !catalog.contains_spell(id) {
+                    return Err(Error::UnboundSpell(id));
+                }
             }
         }
         let mut out = Self {
@@ -353,6 +367,7 @@ impl NativeProjection {
         }
         pairs.extend(quests::player_pairs(w, &self.quest_metadata));
         pairs.extend(loot::player_pairs(w));
+        pairs.extend(player_slow::player_pairs(w));
         SessionEvent::ObjectValues {
             guid: self.player_guid,
             fields: ObjectFields::from_pairs(&pairs),
@@ -566,6 +581,7 @@ impl NativeProjection {
         events.extend(self.initial_inventory(w));
         events.extend(self.initial_reputations(w)?);
         events.push(self.player_values(w));
+        events.extend(player_slow::initial(w, self.player_guid, orders)?);
         events.push(SessionEvent::ObjectMove {
             guid: self.player_guid,
             position: point(w.state().position),
@@ -709,6 +725,7 @@ impl NativeProjection {
         events.extend(self.equipment_events(w, false)?);
         let mut quest_frame = quests::Frame::new(&self.previous);
         let mut loot_frame = loot::Frame::new(&self.previous);
+        let mut slow_frame = player_slow::Frame::new(&self.previous);
         // AttackStop(false) already cleared melee-attacking state during death cleanup.
         // The visible target may remain until ordinary evade, which must not emit a
         // second stop in this frame or the next one.
@@ -757,6 +774,7 @@ impl NativeProjection {
                     events.extend(self.quest_progression_event(w, event, &mut quest_frame, &mut loot_frame)?);
                 },
                 n::Event::Loot(event) => events.extend(self.loot_event(w, event, &mut loot_frame)?),
+                n::Event::PlayerSlow(event) => events.extend(slow_frame.project(event, self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::RootMovement) => events.push(root_order(self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::SendDurabilityDamageDeath) => events.push(SessionEvent::DurabilityDamageDeath),
                 n::Event::Death(benilla_sim::player_death::DeathAction::ReleaseUnavailable { .. }) => events.push(SessionEvent::Notification { text: "Spirit release is unavailable: corpse, ghost and graveyard traversal are not implemented".into() }),
@@ -961,6 +979,7 @@ impl NativeProjection {
         }
         quest_frame.finish(w)?;
         loot_frame.validate_final(w)?;
+        slow_frame.finish(w)?;
         events.extend(loot_frame.finish(self, w));
         events.extend(source_values);
         events.push(self.player_values(w));
@@ -1601,3 +1620,7 @@ mod source_spell_tests {
         assert_eq!(outcomes, [true, true]);
     }
 }
+
+#[cfg(test)]
+#[path = "native_player_slow_tests.rs"]
+mod player_slow_tests;

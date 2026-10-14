@@ -332,31 +332,36 @@ fn generation_one_requires_actual_genesis_even_with_valid_checksum() {
 }
 
 #[test]
-fn format12_current_or_previous_is_refused_without_replacement_or_deletion() {
-    for incompatible in ["world.checkpoint", "world.previous"] {
-        let t = Temp::new();
-        let mut w = f::world();
-        let (mut store, _) = NativeStore::create(t.path(), &w).unwrap();
-        tick(&mut w);
-        store.checkpoint(&mut w).unwrap();
-        drop(store);
-        let path = t.path().join(incompatible);
-        let mut envelope = Envelope::decode(&fs::read(&path).unwrap()).unwrap();
-        let mut old = serde_json::to_value(&envelope.base).unwrap();
-        old["version"] = 12.into();
-        old["state"]["version"] = 12.into();
-        old["state"]["policy"] = "benilla-native-current-pose-facing-v12".into();
-        envelope.base = serde_json::from_value(old).unwrap();
-        fs::write(&path, envelope.encode().unwrap()).unwrap();
-        let current = fs::read(t.path().join("world.checkpoint")).unwrap();
-        let previous = fs::read(t.path().join("world.previous")).unwrap();
-        assert!(open(&t.path()).is_err());
-        assert!(NativeStore::create(t.path(), &f::world()).is_err());
-        assert_eq!(
-            fs::read(t.path().join("world.checkpoint")).unwrap(),
-            current
-        );
-        assert_eq!(fs::read(t.path().join("world.previous")).unwrap(), previous);
+fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
+    for (version, policy) in [
+        (12, "benilla-native-current-pose-facing-v12"),
+        (13, "benilla-native-npc-events-v13"),
+    ] {
+        for incompatible in ["world.checkpoint", "world.previous"] {
+            let t = Temp::new();
+            let mut w = f::world();
+            let (mut store, _) = NativeStore::create(t.path(), &w).unwrap();
+            tick(&mut w);
+            store.checkpoint(&mut w).unwrap();
+            drop(store);
+            let path = t.path().join(incompatible);
+            let mut envelope = Envelope::decode(&fs::read(&path).unwrap()).unwrap();
+            let mut old = serde_json::to_value(&envelope.base).unwrap();
+            old["version"] = version.into();
+            old["state"]["version"] = version.into();
+            old["state"]["policy"] = policy.into();
+            envelope.base = serde_json::from_value(old).unwrap();
+            fs::write(&path, envelope.encode().unwrap()).unwrap();
+            let current = fs::read(t.path().join("world.checkpoint")).unwrap();
+            let previous = fs::read(t.path().join("world.previous")).unwrap();
+            assert!(open(&t.path()).is_err());
+            assert!(NativeStore::create(t.path(), &f::world()).is_err());
+            assert_eq!(
+                fs::read(t.path().join("world.checkpoint")).unwrap(),
+                current
+            );
+            assert_eq!(fs::read(t.path().join("world.previous")).unwrap(), previous);
+        }
     }
 }
 

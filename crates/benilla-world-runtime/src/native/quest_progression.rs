@@ -429,6 +429,9 @@ impl QuestProgressionGenesis {
         }
         self.kill.validate(profile, self.loot.is_some())
     }
+    pub(in crate::native) fn maximum_player_level(&self) -> u32 {
+        self.levels.rules().max_player_level
+    }
     pub fn quest_catalog(&self) -> &q::Catalog {
         &self.quests
     }

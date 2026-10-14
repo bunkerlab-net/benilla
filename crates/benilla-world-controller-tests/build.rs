@@ -44,6 +44,7 @@ fn main() {
     let wanted: BTreeSet<_> = [
         "Move",
         "MoveModeAck",
+        "ForceSpeedAck",
         "CancelCast",
         "CastSpell",
         "AttackSwing",
@@ -100,7 +101,11 @@ fn main() {
         found, wanted,
         "all required declarations must come from actual app source"
     );
-    let generated = format!("#[allow(dead_code)] #[derive(Debug)] pub(crate) enum MoveKind {{ {} }}\n#[allow(dead_code)] #[derive(Debug)] pub(crate) enum ClientCommand {{ {} UnsupportedHarnessCommand, }}", enum_body(&source, "MoveKind"), selected);
+    let generated = format!(
+        "#[allow(dead_code)] #[derive(Debug)] pub(crate) enum MoveKind {{ {} }}\n#[allow(dead_code)] #[derive(Debug)] pub(crate) enum ClientCommand {{ {} UnsupportedHarnessCommand, }}",
+        enum_body(&source, "MoveKind"),
+        selected
+    );
     fs::write(
         PathBuf::from(env::var("OUT_DIR").unwrap()).join("commands.rs"),
         generated,

@@ -12,10 +12,199 @@
     </Font>
 
     <Script><![CDATA[
-        -- ══ The frame: the era layout, 28+144+28 wide, 32 top, 28 bottom, 7 rungs of 21 and
+        -- Fork deviation requested for local-world administration. Every widget uses stock
+        -- 1.12 templates/art. The Rust interface is an untrusted-input boundary, never a GM chat command.
+        local actions = {
+            { "item", "Items / Bags", "Grant Item", "Search the validated Classic item catalog by name or item ID, including all bag sizes. Granting an item does not imply every use or equip effect is supported.", "Count (1-200)", "1" },
+            { "gold", "Gold", "Grant Gold", "Classic money: 1 gold = 10,000 copper. The authority checks the character's balance and commits the grant atomically.", "Gold (1-10,000)", "1" },
+            { "mount", "Mounts", "Grant Mount", "Choose a supported mount from this world's catalog. This grants the real supported mount; it does not swap the character's appearance.", nil, "" },
+            { "speed", "Movement Speed", "Set Speed", "Movement changes require the world's authoritative movement and acknowledgement path. 100% restores the normal admin speed setting.", "Speed % (100-300)", "100" },
+            { "teleport", "City Teleport", "Teleport", "Choose a major city supported by this world. The authority validates its map, destination and current session before moving the character.", nil, "" },
+            { "level", "Level +1", "Gain +1 Level", "Instantly gain exactly one level, up to this world's supported Classic maximum. The authority applies the full level-up state changes.", nil, "" },
+            { "xp", "XP Gain", "", "On: receive XP normally. Off: keep current XP and level, but receive no further XP from any source. The setting must persist with the character.", nil, "" },
+            { "reputation", "Reputation", "Adjust Reputation", "Choose a supported faction. Positive points increase reputation; negative points decrease it. The authority validates faction rules and limits.", "Points (-42,999 to +42,999; nonzero)", "100" },
+            { "honor", "Honor Points", "Grant Honor", "Classic honor contribution is tracked by day and week. Honorable kills and PvP rank are separate. Requires a durable, authorized honor backend.", "Contribution points (1-100,000)", "1" },
+            { "time", "Time of Day", "Set World Time", "Set the world clock for all participants, in 24-hour time. Enter auto to return to the automatic world clock. This is not a local lighting override.", "HH:MM (00:00-23:59), or auto", "12:00" },
+            { "weather", "Weather", "Set Weather", "Choose a validated weather option for your current location, including Automatic to restore normal weather. The world authority rechecks location and applies it consistently.", nil, "" },
+        }
+        local catalogActions = { item = 1, mount = 1, teleport = 1, reputation = 1, weather = 1 }
+        local selected, filtered, entryIndex = 1, {}, 1
+        local currentView, lastEntries, lastQuery, lastAction
+
+        local function setEnabled(button, enabled)
+            if enabled then button:Enable() else button:Disable() end
+        end
+
+        function BenillaAdmin_Select(index)
+            selected = index
+            entryIndex = 1
+            BenillaAdminFrameSearch:SetText("")
+            BenillaAdminFrameAmount:SetText(actions[index][6])
+            BenillaAdminFrameSearch:ClearFocus()
+            BenillaAdminFrameAmount:ClearFocus()
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_Cycle(direction)
+            if table.getn(filtered) > 0 then
+                entryIndex = math.mod(entryIndex - 1 + direction + table.getn(filtered), table.getn(filtered)) + 1
+            end
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_Refresh()
+            if not BenillaAdminFrameApply then return end
+            local spec = actions[selected]
+            currentView = BenillaAdminGetView and BenillaAdminGetView() or {
+                identity = "No verified world admin", status = "Admin gameplay backend unavailable in this session.", message = "",
+            }
+            local capability = currentView[spec[1]] or {
+                enabled = false, reason = "Admin gameplay backend unavailable in this session.", entries = {},
+            }
+            BenillaAdminFrameIdentity:SetText(currentView.identity)
+            BenillaAdminFrameContext:SetText(currentView.status)
+            BenillaAdminFrameOperationTitle:SetText(spec[2])
+            BenillaAdminFrameHelp:SetText(spec[4])
+            BenillaAdminFrameReason:SetText(capability.reason ~= "" and capability.reason or "Available to the verified world admin")
+            BenillaAdminFrameResult:SetText(currentView.message)
+            for i = 1, table.getn(actions) do
+                getglobal("BenillaAdminAction" .. i):SetButtonState(i == selected and "PUSHED" or "NORMAL", i == selected)
+            end
+            local catalog = catalogActions[spec[1]]
+            for _, widget in ipairs({ BenillaAdminFrameSearch, BenillaAdminFrameSearchLabel, BenillaAdminFrameChoice,
+                BenillaAdminFramePrevious, BenillaAdminFrameNext }) do
+                if catalog then widget:Show() else widget:Hide() end
+            end
+            local query = string.lower(BenillaAdminFrameSearch:GetText())
+            if lastEntries ~= capability.entries or lastQuery ~= query or lastAction ~= selected then
+                filtered = {}
+                entryIndex = 1
+                for _, entry in ipairs(capability.entries) do
+                    if query == "" or string.find(string.lower(entry.label), query, 1, 1) or entry.id == query then
+                        table.insert(filtered, entry)
+                    end
+                end
+                lastEntries, lastQuery, lastAction = capability.entries, query, selected
+            end
+            if entryIndex > table.getn(filtered) then entryIndex = 1 end
+            local entry = filtered[entryIndex]
+            BenillaAdminFrameChoice:SetText(entry and (entry.label .. " [" .. entry.id .. "]\n" .. entryIndex .. " / " .. table.getn(filtered)) or "No supported catalog matches")
+            setEnabled(BenillaAdminFramePrevious, table.getn(filtered) > 1)
+            setEnabled(BenillaAdminFrameNext, table.getn(filtered) > 1)
+            if spec[5] then
+                BenillaAdminFrameAmountLabel:SetText(spec[5])
+                BenillaAdminFrameAmountLabel:Show()
+                BenillaAdminFrameAmount:Show()
+            else
+                BenillaAdminFrameAmountLabel:Hide()
+                BenillaAdminFrameAmount:Hide()
+            end
+            local label = spec[3]
+            if spec[1] == "xp" then
+                if currentView.xp_enabled == nil then label = "XP Control Unavailable"
+                elseif currentView.xp_enabled then label = "Turn XP Gain Off"
+                else label = "Turn XP Gain On" end
+            elseif spec[1] == "level" and currentView.current_level then
+                label = "Gain +1 Level (" .. currentView.current_level .. "/" .. currentView.max_level .. ")"
+            end
+            BenillaAdminFrameApply:SetText(label)
+            setEnabled(BenillaAdminFrameApply, capability.enabled and (not catalog or entry))
+        end
+
+        function BenillaAdmin_Apply()
+            local spec = actions[selected]
+            local capability = currentView and currentView[spec[1]]
+            if not capability or not capability.enabled or not BenillaAdminSubmit then
+                BenillaAdmin_Refresh()
+                return
+            end
+            local entry = filtered[entryIndex]
+            local amount = BenillaAdminFrameAmount:GetText()
+            if spec[1] == "xp" then amount = currentView.xp_enabled and "off" or "on" end
+            BenillaAdminSubmit(spec[1], entry and entry.id or "", amount)
+            BenillaAdminFrameAmount:ClearFocus()
+            BenillaAdmin_Refresh()
+        end
+
+        function BenillaAdmin_OnLoad()
+            UIPanelWindows["BenillaAdminFrame"] = { area = "center", pushable = 0, whileDead = 1 }
+            for index, spec in ipairs(actions) do
+                local row = CreateFrame("Button", "BenillaAdminAction" .. index, this, "UIPanelButtonTemplate")
+                row:SetWidth(134)
+                row:SetHeight(22)
+                row:SetPoint("TOPLEFT", this, "TOPLEFT", 20, -77 - (index - 1) * 27)
+                row:SetText(spec[2])
+                row:SetID(index)
+                row:SetScript("OnClick", function() BenillaAdmin_Select(this:GetID()) end)
+            end
+        end
+    ]]></Script>
+    <!-- The stock dialog frame art, fonts, edit box and red button templates are read from the
+         player's own FrameXML/MPQs. No stock interface code or assets are bundled here. -->
+    <Frame name="BenillaAdminFrame" parent="UIParent" frameStrata="DIALOG" toplevel="true" enableMouse="true" hidden="true">
+        <Size><AbsDimension x="584" y="528"/></Size>
+        <Anchors><Anchor point="CENTER"/></Anchors>
+        <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+            <TileSize><AbsValue val="32"/></TileSize><EdgeSize><AbsValue val="32"/></EdgeSize>
+            <BackgroundInsets><AbsInset left="11" right="12" top="12" bottom="11"/></BackgroundInsets>
+        </Backdrop>
+        <Layers>
+            <Layer level="ARTWORK">
+                <Texture name="$parentHeader" file="Interface\DialogFrame\UI-DialogBox-Header">
+                    <Size><AbsDimension x="256" y="64"/></Size>
+                    <Anchors><Anchor point="TOP"><Offset><AbsDimension x="0" y="12"/></Offset></Anchor></Anchors>
+                </Texture>
+            </Layer>
+            <Layer level="OVERLAY">
+                <FontString inherits="GameFontNormal" text="Admin"><Anchors><Anchor point="TOP"><Offset><AbsDimension x="0" y="-2"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentIdentity" inherits="GameFontNormal" justifyH="LEFT"><Size><AbsDimension x="530" y="18"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-35"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentContext" inherits="GameFontHighlightSmall" justifyH="LEFT"><Size><AbsDimension x="530" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-53"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentOperationTitle" inherits="GameFontNormalLarge" justifyH="LEFT"><Size><AbsDimension x="380" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-80"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentHelp" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="380" y="58"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-110"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentSearchLabel" inherits="GameFontNormalSmall" justifyH="LEFT" text="Search supported catalog (name or ID)"><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-174"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentChoice" inherits="GameFontHighlight" justifyH="CENTER"><Size><AbsDimension x="280" y="42"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="218" y="-217"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentAmountLabel" inherits="GameFontNormalSmall" justifyH="LEFT"><Size><AbsDimension x="380" y="18"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-269"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentReason" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="380" y="42"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-320"/></Offset></Anchor></Anchors></FontString>
+                <FontString name="$parentResult" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP"><Size><AbsDimension x="530" y="42"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="24" y="-471"/></Offset></Anchor></Anchors></FontString>
+            </Layer>
+        </Layers>
+        <Frames>
+            <Button name="$parentCloseButton" inherits="UIPanelCloseButton"><Anchors><Anchor point="TOPRIGHT"><Offset><AbsDimension x="-5" y="-5"/></Offset></Anchor></Anchors><Scripts><OnClick>HideUIPanel(BenillaAdminFrame)</OnClick></Scripts></Button>
+            <EditBox name="$parentSearch" inherits="InputBoxTemplate" autoFocus="false" letters="80">
+                <Size><AbsDimension x="366" y="20"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="184" y="-191"/></Offset></Anchor></Anchors>
+                <Scripts><OnTextChanged>BenillaAdmin_Refresh()</OnTextChanged><OnEscapePressed>this:ClearFocus(); HideUIPanel(BenillaAdminFrame)</OnEscapePressed></Scripts>
+            </EditBox>
+            <EditBox name="$parentAmount" inherits="InputBoxTemplate" autoFocus="false" letters="10">
+                <Size><AbsDimension x="110" y="20"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="184" y="-291"/></Offset></Anchor></Anchors>
+                <Scripts><OnEscapePressed>this:ClearFocus(); HideUIPanel(BenillaAdminFrame)</OnEscapePressed><OnEnterPressed>this:ClearFocus()</OnEnterPressed></Scripts>
+            </EditBox>
+            <Button name="$parentPrevious" inherits="UIPanelButtonTemplate" text="&lt;"><Size><AbsDimension x="32" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-222"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaAdmin_Cycle(-1)</OnClick></Scripts></Button>
+            <Button name="$parentNext" inherits="UIPanelButtonTemplate" text="&gt;"><Size><AbsDimension x="32" y="22"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="520" y="-222"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaAdmin_Cycle(1)</OnClick></Scripts></Button>
+            <Button name="$parentApply" inherits="UIPanelButtonTemplate"><Size><AbsDimension x="230" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="176" y="-428"/></Offset></Anchor></Anchors><Scripts><OnClick>BenillaAdmin_Apply()</OnClick></Scripts></Button>
+            <Button name="$parentDone" inherits="UIPanelButtonTemplate" text="CLOSE"><Size><AbsDimension x="134" y="24"/></Size><Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-428"/></Offset></Anchor></Anchors><Scripts><OnClick>HideUIPanel(BenillaAdminFrame)</OnClick></Scripts></Button>
+        </Frames>
+        <Scripts>
+            <OnLoad>BenillaAdmin_OnLoad()</OnLoad>
+            <OnShow>
+                local scale = math.min(1, GetScreenWidth() / 604, GetScreenHeight() / 548)
+                this:SetScale(scale)
+                BenillaAdmin_Select(1)
+                if UpdateMicroButtons then UpdateMicroButtons() end
+                PlaySound("igMainMenuOpen")
+            </OnShow>
+            <OnUpdate>
+                this.adminElapsed = (this.adminElapsed or 0) + arg1
+                if this.adminElapsed &gt;= 0.25 then this.adminElapsed = 0; BenillaAdmin_Refresh() end
+            </OnUpdate>
+            <OnHide>BenillaAdminFrameSearch:ClearFocus(); BenillaAdminFrameAmount:ClearFocus(); if UpdateMicroButtons then UpdateMicroButtons() end; PlaySound("igMainMenuClose")</OnHide>
+        </Scripts>
+    </Frame>
+
+    <Script><![CDATA[
+        -- ══ The frame: the era layout, 28+144+28 wide, 32 top, 28 bottom, 8 rungs of 21 and
         -- three gaps of 20 ═══════════════════════════════════════════════════════════════════════
         GameMenuFrame:SetWidth(200)
-        GameMenuFrame:SetHeight(267)
+        GameMenuFrame:SetHeight(288)
 
         -- The stock title (`GameMenuFrame.xml:36`) has no name: found as addons find it.
         for _, region in ipairs({ GameMenuFrame:GetRegions() }) do
@@ -62,10 +251,21 @@
         -- (ShaguTweaks) moves them down as it moves the stock rungs.
         GameMenuButtonKeybindings:Hide()
 
+        -- Fork-only Admin rung, using the same stock button template as the game menu.
+        local admin = CreateFrame("Button", "BenillaGameMenuButtonAdmin", GameMenuFrame,
+            "GameMenuButtonTemplate")
+        admin:SetPoint("TOP", GameMenuButtonKeybindings, "TOP", 0, -19)
+        admin:SetText("Admin")
+        admin:SetScript("OnClick", function()
+            PlaySound("igMainMenuOption")
+            HideUIPanel(GameMenuFrame)
+            ShowUIPanel(BenillaAdminFrame)
+        end)
+
         -- The era's Edit Mode and Support, with nothing behind them yet: disabled.
         local editMode = CreateFrame("Button", "BenillaGameMenuButtonEditMode", GameMenuFrame,
             "GameMenuButtonTemplate")
-        editMode:SetPoint("TOP", GameMenuButtonKeybindings, "TOP", 0, -19)
+        editMode:SetPoint("TOP", admin, "BOTTOM", 0, 0)
         editMode:SetText("Edit Mode")
         editMode:Disable()
         local support = CreateFrame("Button", "BenillaGameMenuButtonSupport", GameMenuFrame,
@@ -92,6 +292,7 @@
 
         -- `UIParent.lua:996`: a yes keeps the ESC sweep off the centre panel, which our window is.
         function IsOptionFrameOpen()
+            if BenillaAdminFrame:IsVisible() then return 1 end
             if BenillaOptions_IsOpen() then
                 return 1
             end
@@ -102,6 +303,7 @@
         -- ladder. Our Close click is the discard-and-hide of the reference's `OptionsFrameCancel`.
         function ToggleGameMenu(clicked)
             if clicked then
+                if BenillaAdminFrame:IsVisible() then HideUIPanel(BenillaAdminFrame) end
                 -- As the reference's `clicked` arm: close an options window, then toggle.
                 if BenillaOptions_IsOpen() then
                     BenillaOptionsFrameCloseButton:Click()
@@ -109,6 +311,10 @@
                 return Ref_ToggleGameMenu(clicked)
             end
             if StaticPopup_EscapePressed() then
+                return
+            end
+            if BenillaAdminFrame:IsVisible() then
+                HideUIPanel(BenillaAdminFrame)
                 return
             end
             if BenillaOptions_IsOpen() then
@@ -124,7 +330,7 @@
             if Ref_UpdateMicroButtons then
                 Ref_UpdateMicroButtons()
             end
-            if MainMenuMicroButton and BenillaOptions_IsOpen() then
+            if MainMenuMicroButton and (BenillaOptions_IsOpen() or BenillaAdminFrame:IsVisible()) then
                 MainMenuMicroButton:SetButtonState("PUSHED", 1)
             end
         end

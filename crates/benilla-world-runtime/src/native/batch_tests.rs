@@ -277,6 +277,7 @@ impl Authority for PathBudget {
             accepted_path,
             destination,
             elapsed_ms,
+            ..
         } = &request.query
         else {
             return self.inner.resolve(request);

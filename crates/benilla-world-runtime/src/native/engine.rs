@@ -6,6 +6,7 @@ mod death;
 mod event_scheduler;
 mod facing;
 mod hostile_spell;
+mod player_slow;
 mod spell_authority;
 use spell_authority::SpellHistory;
 mod loot;
@@ -117,6 +118,7 @@ impl NativeWorld {
             cast_inputs: BTreeMap::new(),
             movement_origin: self.state.position,
             movement_path: Vec::new(),
+            player_auras_updated: false,
         };
         for i in &inputs {
             let event_start = frame.events.len();
@@ -143,6 +145,11 @@ impl NativeWorld {
                 .ok_or(NativeError::Limit)?;
         }
         frame.player_event_update()?;
+        #[cfg(any(test, feature = "synthetic-native-tests"))]
+        frame.synthetic_player_slow_effects(false)?;
+        frame.player_slow_update()?;
+        #[cfg(any(test, feature = "synthetic-native-tests"))]
+        frame.synthetic_player_slow_effects(true)?;
         if frame.profile.source_motion.is_none() {
             let ids = frame.state.npcs.keys().copied().collect::<Vec<_>>();
             for id in ids {
@@ -176,7 +183,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v13\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v14\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -234,6 +241,7 @@ struct Frame<'a, A> {
     cast_inputs: BTreeMap<u64, Option<u64>>,
     movement_origin: ai::Point,
     movement_path: Vec<ai::Point>,
+    player_auras_updated: bool,
 }
 impl<A: Authority> Frame<'_, A> {
     fn interaction_moment(&self) -> InteractionMoment {
@@ -610,7 +618,7 @@ impl<A: Authority> Frame<'_, A> {
                 if self.profile.source_motion.is_none() {
                     return Err(NativeError::InvalidInput);
                 }
-                let rejection = self.pose(*destination, *orientation)?;
+                let rejection = self.pose(*destination, *orientation, Some(*movement_flags))?;
                 if rejection.is_none() {
                     self.state.player_movement_flags = Some(*movement_flags);
                     self.events.push(Event::PlayerMovementState {
@@ -623,7 +631,7 @@ impl<A: Authority> Frame<'_, A> {
                 if self.profile.source_motion.is_some() {
                     return Err(NativeError::InvalidInput);
                 }
-                self.pose(*destination, self.state.orientation)?
+                self.pose(*destination, self.state.orientation, None)?
             }
             Command::Pose {
                 destination,
@@ -632,7 +640,7 @@ impl<A: Authority> Frame<'_, A> {
                 if self.profile.source_motion.is_some() {
                     return Err(NativeError::InvalidInput);
                 }
-                self.pose(*destination, *orientation)?
+                self.pose(*destination, *orientation, None)?
             }
         };
         if let Some(r) = rejection {
@@ -644,6 +652,7 @@ impl<A: Authority> Frame<'_, A> {
         &mut self,
         destination: ai::Point,
         orientation: Orientation,
+        movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
     ) -> Result<Option<Rejection>, NativeError> {
         destination.distance_squared(destination)?;
         if self.state.health == 0 {
@@ -653,6 +662,18 @@ impl<A: Authority> Frame<'_, A> {
             let Facts::PlayerMovement { accepted } = self.ask(
                 None,
                 Query::PlayerMovement {
+                    speed: self
+                        .state
+                        .player_slow
+                        .as_ref()
+                        .map(|slow| {
+                            slow.movement_speed(
+                                movement_flags
+                                    .or(self.state.player_movement_flags)
+                                    .ok_or(NativeError::InvalidState)?,
+                            )
+                        })
+                        .transpose()?,
                     frame_origin: self.movement_origin,
                     accepted_path: self.movement_path.clone(),
                     destination,
@@ -1354,7 +1375,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v13\0",
+            b"benilla-native-melee-action-v14\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1623,7 +1644,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v13\0",
+            b"benilla-native-melee-chain-v14\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

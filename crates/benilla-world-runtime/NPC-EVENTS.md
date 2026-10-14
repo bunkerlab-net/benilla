@@ -56,7 +56,7 @@ alone does not clear `CanAggro` or abort the queue. A dead creature's due visito
 can set `CanAggro=false`; ordinary corpse removal preserves whichever value the
 source had until respawn resets it.
 
-Checkpoint format 13 (`benilla-native-npc-events-v13`) binds source policy,
+Checkpoint format 14 (`benilla-native-player-slow-v14`) binds source policy,
 owner, queue, pending notify, aggro state and count of DEAD updates skipped by
 the processor. The exact queue clock equals `(tick - skipped_updates) * diff`;
 the AI's actual corpse-removal timestamp independently bounds the current DEAD
@@ -83,8 +83,9 @@ when an effective-instant triggered cast executes synchronously. OLD_TRIGGERED
 does not by itself mean instant, unavoidable hit or no duration.
 
 The player projectile adapter cannot be reused as an NPC-to-player spell host.
-No guessed spell 1604 rows, NPC cast callback, player aura holder/expiry, speed
-aggregation/recalculation or movement consequence is added here. Rear-melee/daze
+The [player slow holder milestone](src/native/PLAYER-SLOW.md) provides bounded
+source-bound effects, expiry and movement publication through an explicit fixture-only
+entry. No guessed spell1604 rows or NPC cast callback is added. Rear-melee/daze
 admission remains closed until that actual path exists. These authored tests do
 not establish raw-content admission, client assets, live-realm behavior, complete
 Classic combat, multi-player simulation or general server map scheduling.

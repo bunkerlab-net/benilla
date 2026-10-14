@@ -355,6 +355,7 @@ fn player_query(path: &[[f32; 3]], destination: [f32; 3]) -> Query {
             .collect(),
         destination: ai::Point::new(destination[0], destination[1], destination[2]).unwrap(),
         elapsed_ms: 50,
+        speed: None,
     }
 }
 #[test]
@@ -868,4 +869,61 @@ fn navigation_revision_binds_every_snapshot_field_and_raw_support() {
         SourceNavigationProvider::bind(&s, unrelated, p.load_navigation().unwrap(), raw),
         Err(Failure::Binding)
     ));
+}
+
+#[test]
+fn source_live_speed_replaces_fixed_session_speed_without_renewing_cumulative_budget() {
+    let player = session().player.unwrap();
+    let mut query = player_query(&[], [0.25, 0.0, 5.0]);
+    assert_eq!(
+        solve_player(&query, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: true })
+    );
+    if let Query::PlayerMovement { speed, .. } = &mut query {
+        *speed = Some(ai::Real::new(4.2).unwrap());
+    }
+    assert_eq!(
+        solve_player(&query, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
+    if let Query::PlayerMovement { destination, .. } = &mut query {
+        *destination = ai::Point::new(0.2, 0.0, 5.0).unwrap();
+    }
+    assert_eq!(
+        solve_player(&query, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: true })
+    );
+    if let Query::PlayerMovement {
+        accepted_path,
+        destination,
+        ..
+    } = &mut query
+    {
+        accepted_path.push(*destination);
+        *destination = ai::Point::new(0.0, 0.0, 5.0).unwrap();
+    }
+    assert_eq!(
+        solve_player(&query, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
+    if let Query::PlayerMovement {
+        accepted_path,
+        speed,
+        ..
+    } = &mut query
+    {
+        accepted_path.clear();
+        *speed = Some(ai::Real::new(0.0).unwrap());
+    }
+    assert_eq!(
+        solve_player(&query, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: true })
+    );
+    if let Query::PlayerMovement { destination, .. } = &mut query {
+        *destination = ai::Point::new(0.001, 0.0, 5.0).unwrap();
+    }
+    assert_eq!(
+        solve_player(&query, player, &mut Proof(Ok(()))),
+        Ok(Facts::PlayerMovement { accepted: false })
+    );
 }

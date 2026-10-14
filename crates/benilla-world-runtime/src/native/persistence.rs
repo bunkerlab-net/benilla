@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v13\0", self)
+        crate::digest(b"benilla-native-record-v14\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +48,7 @@ struct NpcState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StateCheckpoint {
+    player_slow: Option<player_slow::PlayerSlowSnapshot>,
     player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
     player_events: player_events::PlayerEventsSnapshot,
     quest_progression: Option<quest_progression::QuestProgressionSnapshot>,
@@ -147,10 +148,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v13\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v14\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v13\0",
+                    b"benilla-native-checkpoint-v14\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -162,6 +163,7 @@ impl Checkpoint {
 }
 pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> StateCheckpoint {
     StateCheckpoint {
+        player_slow: state.player_slow.as_ref().map(PlayerSlowState::snapshot),
         player_movement_flags: state.player_movement_flags,
         player_events: state.player_events.snapshot(),
         quest_progression: state
@@ -253,7 +255,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v13\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v14\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -263,7 +265,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v13\0",
+            b"benilla-native-checkpoint-v14\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -286,10 +288,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v13\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v14\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v13\0",
+                    b"benilla-native-checkpoint-v14\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -641,7 +643,13 @@ impl NativeWorld {
         if s.player_movement_flags.is_some() != profile.source_motion.is_some() {
             return Err(NativeError::InvalidCheckpoint);
         }
+        let player_slow = match (&profile.player_slow, s.player_slow) {
+            (Some(_), Some(snapshot)) => Some(PlayerSlowState::restore(snapshot)?),
+            (None, None) => None,
+            _ => return Err(NativeError::InvalidCheckpoint),
+        };
         let state = State {
+            player_slow,
             player_movement_flags: s.player_movement_flags,
             player_events,
             quest_progression,
@@ -663,6 +671,9 @@ impl NativeWorld {
             combat,
         };
         state.player_events.validate(&state, &profile)?;
+        if let Some(slow) = &state.player_slow {
+            slow.validate(&state, &profile)?;
+        }
         let result = Self {
             profile_digest: profile.digest(),
             profile,

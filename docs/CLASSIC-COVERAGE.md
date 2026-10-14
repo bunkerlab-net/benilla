@@ -115,8 +115,7 @@ queue primitive and bounded per-player notification/SpellEvent integration now
 preserve due order, retained spell lifetimes, transactional rollback and durable
 reopening. A [per-NPC source event queue](../crates/benilla-world-runtime/NPC-EVENTS.md)
 now owns AI notifications through corpse, DEAD and respawn phases, with
-generation-bound handles and durable retry. NPC spell callbacks and player
-aura/speed effects are still required before rear melee/daze can be admitted.
+generation-bound handles and durable retry. A bounded [player slow-holder path](../crates/benilla-world-runtime/src/native/PLAYER-SLOW.md) now binds explicit raw source rows to active holders, source speed aggregation, movement budgets and durable client/ACK publication. Its authored effect entry is fixture-only. NPC SpellStart/target/hit callbacks and rear-melee integration are still required before rear melee/daze can be admitted.
 General spell effects, NPC casts and the complete failed-attempt
 lifecycle remain incomplete. See [player events](../crates/benilla-world-runtime/PLAYER-EVENTS.md)
 and the

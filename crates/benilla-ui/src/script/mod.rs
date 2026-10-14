@@ -15,6 +15,7 @@
 mod action;
 mod action_bar_toggles;
 mod addon_message;
+pub mod admin;
 mod auction;
 mod aura;
 mod backdrop;

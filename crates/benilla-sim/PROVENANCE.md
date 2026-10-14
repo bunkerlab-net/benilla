@@ -597,3 +597,14 @@ IEEE RNE including explicit source FMA; raw signed zeros/subnormals and the
 stricter runtime storage domain are documented separately. Full pinned hashes,
 licenses and independent source-extracted boundary/digest evidence are linked
 from the contract. This adds no content or production admission.
+
+## Bounded player decrease-speed arithmetic
+
+`player_slow` ports the living, unmounted, unmodified player branch of
+`Unit::UpdateSpeed`, `Unit::GetMaxNegativeAuraModifier`, `Unit::GetSpeed`,
+`Unit::SetSpeedRate`'s floor and `Aura::HandleAuraModDecreaseSpeed` at the same
+pinned CMaNGOS Classic revision. [PLAYER-SLOW.md](PLAYER-SLOW.md) documents the
+exact source files/hashes, software-binary32 operation order, required host
+exclusions and source-extracted oracle. No spell1604 amount/duration or game rows
+are supplied. The runtime's separate source/host catalog and private fixture-only
+effect seam do not complete NPC triggered casting or rear-melee admission.

@@ -97,6 +97,7 @@ fn parsed_authored_adt_drives_actual_movement_solver() {
         accepted_path: vec![],
         destination,
         elapsed_ms: 500,
+        speed: None,
     };
     let player = core::PlayerMotion {
         body,
