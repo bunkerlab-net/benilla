@@ -142,3 +142,86 @@ fn malformed_or_unapproved_candidates_never_enter_pool() {
     assert!(CandidatePool::new(id(1), 0, vec![]).is_err());
     assert!(CandidatePool::new(id(1), 65, vec![]).is_err());
 }
+
+#[test]
+fn refreshed_idle_incumbents_can_yield_to_newcomers_but_churn_is_paced() {
+    let now = Instant::now();
+    let mut p = pool(2);
+    let empty = HashSet::new();
+    p.observe(&ticket(2, 1234), now).unwrap();
+    p.observe(&ticket(3, 1234), now).unwrap();
+    p.next_due(now).unwrap();
+    p.next_due(now).unwrap();
+    assert!(!p
+        .observe_protected(
+            &ticket(4, 1234),
+            now + MIN_RESIDENCE - Duration::from_nanos(1),
+            &empty
+        )
+        .unwrap());
+    // Advertisements do not reset original residence, so refreshing cannot pin a slot.
+    p.observe(&ticket(2, 5678), now + MIN_RESIDENCE).unwrap();
+    assert!(p
+        .observe_protected(&ticket(4, 1234), now + MIN_RESIDENCE, &empty)
+        .unwrap());
+    assert_eq!(p.len(), 2);
+    assert!(!p
+        .observe_protected(&ticket(5, 1234), now + MIN_RESIDENCE, &empty)
+        .unwrap());
+    assert!(p
+        .observe_protected(
+            &ticket(5, 1234),
+            now + MIN_RESIDENCE + EVICTION_INTERVAL,
+            &empty
+        )
+        .unwrap());
+    assert!(p.contains(&id(4)) && p.contains(&id(5)));
+}
+
+#[test]
+fn active_candidates_are_neither_evicted_nor_scheduled_again() {
+    let now = Instant::now();
+    let mut p = pool(1);
+    p.observe(&ticket(2, 1234), now).unwrap();
+    p.next_due(now).unwrap();
+    let protected = HashSet::from([id(2)]);
+    p.observe(&ticket(2, 5678), now + MIN_RESIDENCE).unwrap();
+    assert!(!p
+        .observe_protected(&ticket(3, 1234), now + MIN_RESIDENCE, &protected)
+        .unwrap());
+    assert!(p
+        .next_due_excluding(now + MIN_RESIDENCE, &protected)
+        .is_none());
+    // Removing protection resumes the same bounded retry state.
+    assert_eq!(p.next_due(now + MIN_RESIDENCE).unwrap().id, id(2));
+}
+
+#[test]
+fn candidates_get_an_initial_attempt_before_eviction() {
+    let now = Instant::now();
+    let mut p = pool(1);
+    p.observe(&ticket(2, 1234), now).unwrap();
+    assert!(!p
+        .observe_protected(&ticket(3, 1234), now + MIN_RESIDENCE, &HashSet::new())
+        .unwrap());
+    assert_eq!(p.next_due(now + MIN_RESIDENCE).unwrap().id, id(2));
+}
+
+#[test]
+fn candidate_input_validates_before_queueing_and_is_bounded() {
+    let (input, mut adapter) = Adapter::new(id(1), 1, vec![]).unwrap();
+    assert!(input.submit(&"x".repeat(8193)).is_err());
+    let relay = serde_json::to_string(
+        &EndpointAddr::new(id(2)).with_relay_url("https://unapproved.example".parse().unwrap()),
+    )
+    .unwrap();
+    assert!(input.submit(&relay).is_err());
+    for _ in 0..INPUT_QUEUE {
+        input.submit(&ticket(2, 1234)).unwrap();
+    }
+    assert!(input.submit(&ticket(2, 1234)).is_err());
+    assert_eq!(adapter.receiver.try_recv().unwrap(), ticket(2, 1234));
+    input.submit(&ticket(2, 1234)).unwrap();
+    drop(adapter);
+    assert!(input.submit(&ticket(2, 1234)).is_err());
+}

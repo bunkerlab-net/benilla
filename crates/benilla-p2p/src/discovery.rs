@@ -1,4 +1,4 @@
-//! Offline groundwork for automatic discovery; no publisher, lookup or dial is started here.
+//! Discovery primitives and opt-in candidate input; no publisher or lookup runs here.
 //!
 //! Discovery only supplies untrusted candidates. Admission must still complete the existing
 //! PSK and persistent owner handshake while the caller retains the exclusive profile lock.
@@ -9,13 +9,16 @@ use crate::{internet::parse_ticket, Error};
 use iroh::{EndpointAddr, EndpointId, RelayUrl};
 use ring::hkdf;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
 
 const SALT: &[u8] = b"benilla-discovery-v1\0";
 const CANDIDATE_TTL: Duration = Duration::from_secs(120);
+const MIN_RESIDENCE: Duration = Duration::from_secs(30);
+const EVICTION_INTERVAL: Duration = Duration::from_secs(5);
+const INPUT_QUEUE: usize = 32;
 const MAX_RETRY: Duration = Duration::from_secs(60);
 
 /// Separate discovery outputs from the existing Argon2id-derived transport PSK.
@@ -64,19 +67,22 @@ struct Candidate {
     expires: Instant,
     next_attempt: Instant,
     retry: Duration,
+    admitted: Instant,
+    attempted: bool,
 }
 
 /// Bounded, expiring candidates for an eventual discovery adapter. This does not connect,
 /// authenticate, authorize, or modify a running Network. All times are caller-supplied
 /// monotonic times, permitting deterministic tests without sockets or sleeping.
-/// A full pool rejects newcomers instead of evicting incumbents. Before live integration,
-/// the adapter needs an admission/eviction policy: unauthenticated refreshes can otherwise
-/// keep unreachable incumbents resident indefinitely. Capacity bounds are not Sybil defense.
+/// The live adapter can admit newcomers by evicting old, attempted idle candidates at a
+/// bounded rate. Refreshes never reset residence or backoff. This limits churn and permanent
+/// incumbent pinning, but cannot guarantee admission against an unlimited Sybil attacker.
 pub struct CandidatePool {
     local: EndpointId,
     limit: usize,
     allowed_relays: Vec<RelayUrl>,
     candidates: BTreeMap<EndpointId, Candidate>,
+    last_eviction: Option<Instant>,
 }
 
 impl CandidatePool {
@@ -99,12 +105,31 @@ impl CandidatePool {
             limit,
             allowed_relays,
             candidates: BTreeMap::new(),
+            last_eviction: None,
         })
     }
 
     /// Returns false for self or a full pool. Refreshes never bypass a candidate's backoff.
     /// Unknown relays and malformed addresses fail closed, as with manual endpoint tickets.
     pub fn observe(&mut self, ticket: &str, now: Instant) -> Result<bool, Error> {
+        self.observe_inner(ticket, now, None)
+    }
+
+    pub(super) fn observe_protected(
+        &mut self,
+        ticket: &str,
+        now: Instant,
+        protected: &HashSet<EndpointId>,
+    ) -> Result<bool, Error> {
+        self.observe_inner(ticket, now, Some(protected))
+    }
+
+    fn observe_inner(
+        &mut self,
+        ticket: &str,
+        now: Instant,
+        protected: Option<&HashSet<EndpointId>>,
+    ) -> Result<bool, Error> {
         let address = parse_ticket(ticket)?;
         if address
             .relay_urls()
@@ -127,7 +152,30 @@ impl CandidatePool {
             return Ok(true);
         }
         if self.candidates.len() >= self.limit {
-            return Ok(false);
+            let Some(protected) = protected else {
+                return Ok(false);
+            };
+            if self
+                .last_eviction
+                .is_some_and(|last| now.saturating_duration_since(last) < EVICTION_INTERVAL)
+            {
+                return Ok(false);
+            }
+            let victim = self
+                .candidates
+                .iter()
+                .filter(|(id, c)| {
+                    !protected.contains(*id)
+                        && c.attempted
+                        && now.saturating_duration_since(c.admitted) >= MIN_RESIDENCE
+                })
+                .min_by_key(|(id, c)| (c.admitted, **id))
+                .map(|(id, _)| *id);
+            let Some(victim) = victim else {
+                return Ok(false);
+            };
+            self.candidates.remove(&victim);
+            self.last_eviction = Some(now);
         }
         self.candidates.insert(
             address.id,
@@ -136,6 +184,8 @@ impl CandidatePool {
                 expires,
                 next_attempt: now,
                 retry: Duration::from_secs(1),
+                admitted: now,
+                attempted: false,
             },
         );
         Ok(true)
@@ -146,16 +196,25 @@ impl CandidatePool {
     /// Choose earliest due time rather than key order, so a noisy low-ID peer cannot starve
     /// other due candidates. A future live adapter can add bounded jitter to its wake time.
     pub fn next_due(&mut self, now: Instant) -> Option<EndpointAddr> {
+        self.next_due_excluding(now, &HashSet::new())
+    }
+
+    pub(super) fn next_due_excluding(
+        &mut self,
+        now: Instant,
+        protected: &HashSet<EndpointId>,
+    ) -> Option<EndpointAddr> {
         self.expire(now);
         let id = self
             .candidates
             .iter()
-            .filter(|(_, candidate)| candidate.next_attempt <= now)
+            .filter(|(id, candidate)| candidate.next_attempt <= now && !protected.contains(*id))
             .min_by_key(|(id, candidate)| (candidate.next_attempt, **id))
             .map(|(id, _)| *id)?;
         let candidate = self.candidates.get_mut(&id)?;
         candidate.next_attempt = now.checked_add(candidate.retry)?;
         candidate.retry = (candidate.retry * 2).min(MAX_RETRY);
+        candidate.attempted = true;
         Some(candidate.address.clone())
     }
 
@@ -168,12 +227,73 @@ impl CandidatePool {
             .retain(|_, candidate| candidate.expires > now);
     }
 
+    pub(super) fn is_due(&self, id: &EndpointId, now: Instant) -> bool {
+        self.candidates
+            .get(id)
+            .is_some_and(|candidate| candidate.expires > now && candidate.next_attempt <= now)
+    }
+
+    pub(super) fn contains(&self, id: &EndpointId) -> bool {
+        self.candidates.contains_key(id)
+    }
+
     pub fn len(&self) -> usize {
         self.candidates.len()
     }
     pub fn is_empty(&self) -> bool {
         self.candidates.is_empty()
     }
+}
+
+/// Bounded local injection seam; constructing this starts no tasks or discovery traffic.
+pub(super) struct CandidateInput {
+    sender: tokio::sync::mpsc::Sender<String>,
+    allowed_relays: Vec<RelayUrl>,
+}
+impl CandidateInput {
+    pub(super) fn submit(&self, ticket: &str) -> Result<(), Error> {
+        let address = parse_ticket(ticket)?;
+        if address
+            .relay_urls()
+            .any(|relay| !self.allowed_relays.contains(relay))
+        {
+            return Err(Error::Protocol(
+                "discovered relay missing from explicit allowlist",
+            ));
+        }
+        self.sender
+            .try_send(ticket.to_owned())
+            .map_err(|_| Error::Protocol("candidate input full or closed"))
+    }
+}
+pub(super) struct Adapter {
+    pub(super) pool: CandidatePool,
+    receiver: tokio::sync::mpsc::Receiver<String>,
+}
+impl Adapter {
+    pub(super) fn new(
+        local: EndpointId,
+        limit: usize,
+        allowed_relays: Vec<RelayUrl>,
+    ) -> Result<(CandidateInput, Self), Error> {
+        let pool = CandidatePool::new(local, limit, allowed_relays.clone())?;
+        let (sender, receiver) = tokio::sync::mpsc::channel(INPUT_QUEUE);
+        Ok((
+            CandidateInput {
+                sender,
+                allowed_relays,
+            },
+            Self { pool, receiver },
+        ))
+    }
+}
+pub(super) async fn receive(adapter: &mut Option<Adapter>) -> String {
+    if let Some(adapter) = adapter {
+        if let Some(ticket) = adapter.receiver.recv().await {
+            return ticket;
+        }
+    }
+    std::future::pending().await
 }
 
 #[cfg(test)]

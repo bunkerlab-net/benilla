@@ -170,6 +170,7 @@ pub fn generate_peer_id() -> Result<PeerId, Error> {
 pub struct Network {
     address: SocketAddr,
     endpoint: Option<iroh::Endpoint>,
+    candidate_input: Option<discovery::CandidateInput>,
     commands: async_mpsc::Sender<Command>,
     events: mpsc::Receiver<Event>,
     diagnostics: mpsc::Receiver<Event>,
@@ -224,19 +225,28 @@ impl Network {
         let worker = thread::Builder::new().name("benilla-p2p".into()).spawn(move || {
             runtime.block_on(async move {
                 if let Ok(listener) = TcpListener::from_std(listener) {
-                    tokio::select! { _ = run(internet::Backend::Tcp(listener),config,key,hello,identity,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
+                    tokio::select! { _ = run(internet::Backend::Tcp(listener),config,key,hello,identity,rx,tx,diagnostic_tx,None) => {}, _ = stopped => {} }
                 }
             });
         })?;
         Ok(Self {
             address,
             endpoint: None,
+            candidate_input: None,
             commands,
             events,
             diagnostics,
             stop: Some(stop),
             worker: Some(worker),
         })
+    }
+    /// Submit an untrusted endpoint ticket to the opt-in dynamic adapter. Queueing is not
+    /// admission: the normal PSK/owner handshake still applies. Does not start a producer.
+    pub fn submit_discovery_candidate(&self, ticket: &str) -> Result<(), Error> {
+        self.candidate_input
+            .as_ref()
+            .ok_or(Error::Protocol("dynamic candidates are disabled"))?
+            .submit(ticket)
     }
     pub fn local_addr(&self) -> SocketAddr {
         self.address
@@ -362,12 +372,14 @@ async fn noise_handshake<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin
 
 struct LivePeer {
     token: u64,
+    endpoint: Option<iroh::EndpointId>,
     preferred: bool,
     send: async_mpsc::Sender<Vec<u8>>,
     task: tokio::task::JoinHandle<()>,
 }
 enum Internal {
     Ready {
+        endpoint: Option<iroh::EndpointId>,
         token: u64,
         address: String,
         outbound: bool,
@@ -377,6 +389,7 @@ enum Internal {
         permit: tokio::sync::OwnedSemaphorePermit,
     },
     Failed {
+        token: u64,
         address: String,
         outbound: bool,
         reason: String,
@@ -402,36 +415,74 @@ async fn run(
     mut commands: async_mpsc::Receiver<Command>,
     events: mpsc::SyncSender<Event>,
     diagnostics: mpsc::SyncSender<Event>,
+    mut discovery: Option<discovery::Adapter>,
 ) {
     let (updates, mut incoming) = async_mpsc::channel(QUEUE);
     let permits = Arc::new(tokio::sync::Semaphore::new(config.max_peers * 2));
     let mut peers: HashMap<PeerId, LivePeer> = HashMap::new();
     let mut outbound_addresses = std::collections::HashSet::new();
     let mut known_outbound_ids: HashMap<String, PeerId> = HashMap::new();
+    let mut endpoint_attempts = HashMap::<iroh::EndpointId, u64>::new();
+    let mut endpoint_owners = HashMap::<iroh::EndpointId, PeerId>::new();
+    // Dropping run (including the stop select) cancels every unfinished handshake.
+    let mut handshakes = tokio::task::JoinSet::new();
     let mut token = 0u64;
     let mut retry = time::interval(Duration::from_secs(2));
     retry.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
     let targets = backend.targets(&config);
+    let static_endpoints: std::collections::HashSet<_> = targets
+        .iter()
+        .filter_map(|t| internet::parse_ticket(t).ok().map(|a| a.id))
+        .collect();
     loop {
+        // Reap completed tasks on every turn, not only when select chooses the join branch.
+        while handshakes.try_join_next().is_some() {}
         tokio::select! {
+            _ = handshakes.join_next(), if !handshakes.is_empty() => {},
+            ticket = discovery::receive(&mut discovery) => {
+                let protected = protected_endpoints(&endpoint_attempts, &endpoint_owners, &peers);
+                if let Some(adapter) = discovery.as_mut() {
+                    // Input was validated before queueing. Do not echo untrusted ticket text.
+                    let _ = adapter.pool.observe_protected(&ticket, std::time::Instant::now(), &protected);
+                }
+            },
             accepted = backend.accept() => {
                 if let Some((candidate,address)) = accepted {
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
                         token += 1;
-                        launch_candidate(token,address,Some(candidate),&backend,key.clone(),hello.clone(),identity.clone(),config.handshake_timeout,permit,updates.clone());
+                        launch_candidate(token,address,Some(candidate),&backend,key.clone(),hello.clone(),identity.clone(),config.handshake_timeout,permit,updates.clone(),&mut handshakes);
                     }
                 }
             }
             _ = retry.tick() => {
+                endpoint_owners.retain(|id, _| static_endpoints.contains(id) || endpoint_attempts.contains_key(id) || peers.values().any(|p| p.endpoint == Some(*id)) || discovery.as_ref().is_some_and(|d| d.pool.contains(id)));
                 for address in &targets {
-                    if outbound_addresses.contains(address)
+                    let endpoint_id = internet::parse_ticket(address).ok().map(|a| a.id);
+                    // Give a due refreshed ticket a chance before retrying a stale manual
+                    // address for the same endpoint. Manual fallback remains between retries.
+                    if endpoint_id.is_some_and(|id| endpoint_attempts.contains_key(&id) || discovery.as_ref().is_some_and(|d| d.pool.is_due(&id, std::time::Instant::now()))) || outbound_addresses.contains(address)
                         || known_outbound_ids.get(address).is_some_and(|id| peers.contains_key(id))
                         || backend.is_self(address) { continue; }
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
                         outbound_addresses.insert(address.clone());
                         token += 1;
-                        launch_candidate(token,address.clone(),None,&backend,key.clone(),hello.clone(),identity.clone(),config.handshake_timeout,permit,updates.clone());
+                        if let Some(id) = endpoint_id { endpoint_attempts.insert(id, token); }
+                        launch_candidate(token,address.clone(),None,&backend,key.clone(),hello.clone(),identity.clone(),config.handshake_timeout,permit,updates.clone(),&mut handshakes);
                     }
+                }
+                // Bound dial work per tick independently of producer traffic and peer limits.
+                for _ in 0..4 {
+                    if peers.len() >= config.max_peers { break; }
+                    let Ok(permit) = permits.clone().try_acquire_owned() else { break; };
+                    let protected = protected_endpoints(&endpoint_attempts, &endpoint_owners, &peers);
+                    let Some(address) = discovery.as_mut().and_then(|d| d.pool.next_due_excluding(std::time::Instant::now(), &protected)) else { break; };
+                    let id = address.id;
+                    let Ok(address) = serde_json::to_string(&address) else { continue; };
+                    if outbound_addresses.contains(&address) { continue; }
+                    token += 1;
+                    endpoint_attempts.insert(id, token);
+                    outbound_addresses.insert(address.clone());
+                    launch_candidate(token,address,None,&backend,key.clone(),hello.clone(),identity.clone(),config.handshake_timeout,permit,updates.clone(),&mut handshakes);
                 }
             }
             command = commands.recv() => match command {
@@ -452,18 +503,24 @@ async fn run(
                 }
             },
             update = incoming.recv() => match update {
-                Some(Internal::Failed { address,outbound,reason }) => {
+                Some(Internal::Failed { token,address,outbound,reason }) => {
                     if outbound { outbound_addresses.remove(&address); }
+                    endpoint_attempts.retain(|_, active| *active != token);
                     // These unauthenticated diagnostics are deliberately lossy and isolated.
                     let _ = diagnostics.try_send(Event::Rejected { address: internet::diagnostic_address(&address),reason });
                 }
-                Some(Internal::Ready { token,address,outbound,stream,noise,hello: remote,permit }) => {
+                Some(Internal::Ready { endpoint,token,address,outbound,stream,noise,hello: remote,permit }) => {
                     let id = remote.peer_id;
-                    if outbound { known_outbound_ids.insert(address.clone(),id); }
+                    if outbound {
+                        if targets.contains(&address) { known_outbound_ids.insert(address.clone(),id); }
+                        if let Ok(addr) = internet::parse_ticket(&address) { endpoint_owners.insert(addr.id, id); }
+                        endpoint_owners.retain(|endpoint, _| static_endpoints.contains(endpoint) || endpoint_attempts.contains_key(endpoint) || peers.values().any(|p| p.endpoint == Some(*endpoint)) || discovery.as_ref().is_some_and(|d| d.pool.contains(endpoint)));
+                    }
                     // Prefer the connection dialed by the lexicographically smaller peer ID.
                     let preferred = outbound == (hello.peer_id < id);
                     if peers.get(&id).is_some_and(|old| old.preferred || !preferred) || (!peers.contains_key(&id) && peers.len() >= config.max_peers) {
                         if outbound { outbound_addresses.remove(&address); }
+                        endpoint_attempts.retain(|_, active| *active != token);
                         continue;
                     }
                     let replacing = peers.remove(&id);
@@ -476,13 +533,18 @@ async fn run(
                         let _guard = guard;
                         let _ = session(stream,*noise,id,token,receive,updates).await;
                     });
-                    peers.insert(id,LivePeer { token,preferred,send,task });
+                    peers.insert(id,LivePeer { token,endpoint,preferred,send,task });
+                    // Bind inbound transport identities only after the complete owner/PSK
+                    // handshake and admission. Later advertisements cannot restart this peer.
+                    if let Some(endpoint) = endpoint { endpoint_owners.insert(endpoint, id); }
+                    endpoint_owners.retain(|endpoint, _| static_endpoints.contains(endpoint) || endpoint_attempts.contains_key(endpoint) || peers.values().any(|p| p.endpoint == Some(*endpoint)) || discovery.as_ref().is_some_and(|d| d.pool.contains(endpoint)));
                     // A replacement is a fresh stream: force the application to resend its
                     // initial state rather than silently losing a queued introduction.
                     if replacing.is_some() && events.try_send(Event::PeerLeft(id)).is_err() { break; }
                     if events.try_send(Event::PeerJoined(remote)).is_err() { break; }
                 }
                 Some(Internal::Closed { token,id,address,outbound }) => {
+                    endpoint_attempts.retain(|_, active| *active != token);
                     if outbound { outbound_addresses.remove(&address); }
                     if peers.get(&id).is_some_and(|peer| peer.token == token) {
                         peers.remove(&id);
@@ -499,6 +561,23 @@ async fn run(
     for peer in peers.values() {
         peer.task.abort();
     }
+}
+
+fn protected_endpoints(
+    attempts: &HashMap<iroh::EndpointId, u64>,
+    owners: &HashMap<iroh::EndpointId, PeerId>,
+    peers: &HashMap<PeerId, LivePeer>,
+) -> std::collections::HashSet<iroh::EndpointId> {
+    attempts
+        .keys()
+        .copied()
+        .chain(
+            owners
+                .iter()
+                .filter(|(_, owner)| peers.contains_key(*owner))
+                .map(|(id, _)| *id),
+        )
+        .collect()
 }
 
 // Cancellation reports closure with backpressure without blocking the runtime's thread.
@@ -535,20 +614,23 @@ fn launch_candidate(
     limit: Duration,
     permit: tokio::sync::OwnedSemaphorePermit,
     updates: async_mpsc::Sender<Internal>,
+    handshakes: &mut tokio::task::JoinSet<()>,
 ) {
     let endpoint = backend.endpoint();
-    tokio::spawn(async move {
+    handshakes.spawn(async move {
         let outbound = candidate.is_none();
         let result = timeout(limit, async {
-            let mut stream = internet::connect(candidate, endpoint, &address).await?;
+            let (mut stream, remote_endpoint) =
+                internet::connect(candidate, endpoint, &address).await?;
             let (noise, remote) =
                 handshake_mode(&mut stream, &key, &hello, outbound, identity.as_ref()).await?;
-            Ok::<_, Error>((stream, noise, remote))
+            Ok::<_, Error>((stream, noise, remote, remote_endpoint))
         })
         .await
         .unwrap_or(Err(Error::Timeout));
         let message = match result {
-            Ok((stream, noise, hello)) => Internal::Ready {
+            Ok((stream, noise, hello, endpoint)) => Internal::Ready {
+                endpoint,
                 token,
                 address,
                 outbound,
@@ -558,6 +640,7 @@ fn launch_candidate(
                 permit,
             },
             Err(error) => Internal::Failed {
+                token,
                 address,
                 outbound,
                 reason: error.rejection_reason().into(),

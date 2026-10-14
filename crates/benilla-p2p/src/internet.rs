@@ -10,7 +10,7 @@ use std::collections::HashSet;
 const ALPN: &[u8] = b"benilla/psk-stream/1";
 const MAX_TICKET: usize = 8192;
 
-/// Internet mode requires private exchange of endpoint tickets. A relay is infrastructure,
+/// Internet mode uses private tickets or opt-in runtime candidate submissions. A relay is infrastructure,
 /// not game authority: QUIC and the existing Noise session encrypt all game traffic.
 #[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -21,6 +21,9 @@ pub struct InternetConfig {
     pub peer_tickets: Vec<String>,
     /// Explicit permission to request router mappings via UPnP/PCP/NAT-PMP.
     pub port_mapping: bool,
+    /// Accept bounded runtime candidate submissions. Disabled by default. This alone starts
+    /// no discovery service: an explicitly configured producer must submit endpoint tickets.
+    pub dynamic_candidates: bool,
 }
 impl fmt::Debug for InternetConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -28,6 +31,7 @@ impl fmt::Debug for InternetConfig {
             .field("relay_count", &self.relay_urls.len())
             .field("peer_ticket_count", &self.peer_tickets.len())
             .field("port_mapping", &self.port_mapping)
+            .field("dynamic_candidates", &self.dynamic_candidates)
             .finish()
     }
 }
@@ -141,7 +145,7 @@ impl Network {
         let relay_mode = if relays.is_empty() {
             RelayMode::Disabled
         } else {
-            RelayMode::Custom(relays.into_iter().collect::<RelayMap>())
+            RelayMode::Custom(relays.clone().into_iter().collect::<RelayMap>())
         };
         let mapping = if internet.port_mapping {
             PortmapperConfig::default()
@@ -169,6 +173,13 @@ impl Network {
             .next()
             .ok_or(Error::Protocol("internet endpoint has no socket"))?;
         let public_endpoint = endpoint.clone();
+        let (candidate_input, discovery) = if internet.dynamic_candidates {
+            let (input, adapter) =
+                discovery::Adapter::new(endpoint.id(), config.max_peers, relays)?;
+            (Some(input), Some(adapter))
+        } else {
+            (None, None)
+        };
         let key = Zeroizing::new(*psk);
         let (commands, rx) = async_mpsc::channel(QUEUE);
         let (tx, events) = mpsc::sync_channel(QUEUE);
@@ -177,7 +188,7 @@ impl Network {
         let worker = thread::Builder::new().name("benilla-internet".into()).spawn(move || {
             runtime.block_on(async move {
                 let backend = Backend::Internet { endpoint: endpoint.clone(), peers };
-                tokio::select! { _ = run(backend,config,key,hello,identity,rx,tx,diagnostic_tx) => {}, _ = stopped => {} }
+                tokio::select! { _ = run(backend,config,key,hello,identity,rx,tx,diagnostic_tx,discovery) => {}, _ = stopped => {} }
                 // Best-effort bounded graceful close, including router mapping cleanup.
                 let _ = timeout(Duration::from_secs(2), endpoint.close()).await;
             });
@@ -185,6 +196,7 @@ impl Network {
         Ok(Self {
             address,
             endpoint: Some(public_endpoint),
+            candidate_input,
             commands,
             events,
             diagnostics,
@@ -264,11 +276,11 @@ pub(super) async fn connect(
     candidate: Option<Candidate>,
     endpoint: Option<Endpoint>,
     address: &str,
-) -> Result<Stream, Error> {
+) -> Result<(Stream, Option<iroh::EndpointId>), Error> {
     let connection = match candidate {
         Some(Candidate::Tcp(stream)) => {
             stream.set_nodelay(true)?;
-            return Ok(Box::new(stream));
+            return Ok((Box::new(stream), None));
         }
         Some(Candidate::Internet(incoming)) => {
             let connection = (*incoming)
@@ -278,13 +290,16 @@ pub(super) async fn connect(
                 .accept_bi()
                 .await
                 .map_err(|_| Error::Protocol("internet stream failed"))?;
-            return Ok(Box::new(tokio::io::join(recv, send)));
+            return Ok((
+                Box::new(tokio::io::join(recv, send)),
+                Some(connection.remote_id()),
+            ));
         }
         None => match endpoint {
             None => {
                 let stream = TcpStream::connect(address).await?;
                 stream.set_nodelay(true)?;
-                return Ok(Box::new(stream));
+                return Ok((Box::new(stream), None));
             }
             Some(endpoint) => endpoint
                 .connect(parse_ticket(address)?, ALPN)
@@ -296,7 +311,10 @@ pub(super) async fn connect(
         .open_bi()
         .await
         .map_err(|_| Error::Protocol("internet stream failed"))?;
-    Ok(Box::new(tokio::io::join(recv, send)))
+    Ok((
+        Box::new(tokio::io::join(recv, send)),
+        Some(connection.remote_id()),
+    ))
 }
 
 #[cfg(test)]
@@ -352,6 +370,7 @@ mod tests {
     fn no_implicit_infrastructure_or_router_mapping() {
         let config = InternetConfig::default();
         assert!(!config.port_mapping);
+        assert!(!config.dynamic_candidates);
         assert!(config.relay_urls.is_empty());
         assert!(config.peer_tickets.is_empty());
         config.validate().unwrap();
@@ -590,7 +609,7 @@ mod tests {
             let address = serde_json::to_string(&a.addr()).unwrap();
             let receive = async {
                 let incoming = a.accept().await.unwrap();
-                let mut stream = connect(
+                let (mut stream, _) = connect(
                     Some(Candidate::Internet(Box::new(incoming))),
                     None,
                     "loopback relay",
@@ -613,7 +632,7 @@ mod tests {
                 assert_eq!(&clear[..len], b"private relayed frame");
             };
             let send = async {
-                let mut stream = connect(None, Some(b.clone()), &address).await.unwrap();
+                let (mut stream, _) = connect(None, Some(b.clone()), &address).await.unwrap();
                 let identity = owned.then(|| owner(2));
                 let local = if owned { owned_hello(2) } else { hello(2) };
                 let (mut noise, _) =
@@ -643,5 +662,219 @@ mod tests {
         assert!(
             Network::start_internet(config, InternetConfig::default(), &key(), hello(1)).is_err()
         );
+    }
+
+    #[test]
+    fn dynamic_adapter_is_disabled_by_default_and_solo_startup_is_nonblocking() {
+        let started = Instant::now();
+        let network = Network::start_internet_owned(
+            config(),
+            InternetConfig::default(),
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(network
+            .submit_discovery_candidate(&ticket(&network))
+            .is_err());
+        assert!(network.try_recv().is_err());
+    }
+
+    #[test]
+    fn dynamic_owned_candidates_connect_without_manual_bootstrap_tickets() {
+        let a = Network::start_internet_owned(
+            config(),
+            InternetConfig::default(),
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        let b = Network::start_internet_owned(
+            config(),
+            InternetConfig {
+                dynamic_candidates: true,
+                ..Default::default()
+            },
+            &key(),
+            owned_hello(2),
+            owner(2),
+        )
+        .unwrap();
+        assert!(b.try_recv().is_err());
+        let initial = ticket(&a);
+        b.submit_discovery_candidate(&initial).unwrap();
+        assert!(matches!(next(&a), Event::PeerJoined(h) if h.peer_id == owner(2).owner_id()));
+        assert!(matches!(next(&b), Event::PeerJoined(h) if h.peer_id == owner(1).owner_id()));
+        // A changed address set for an already active EndpointId must not initiate another
+        // handshake, reconnect, or reset its owner session.
+        let blackhole = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let changed = parse_ticket(&initial)
+            .unwrap()
+            .with_ip_addr(blackhole.local_addr().unwrap());
+        b.submit_discovery_candidate(&serde_json::to_string(&changed).unwrap())
+            .unwrap();
+        thread::sleep(Duration::from_millis(2200));
+        assert!(b.try_recv().is_err());
+        assert!(a.try_recv().is_err());
+        b.try_send(Command::Broadcast(b"dynamic".to_vec())).unwrap();
+        assert!(matches!(next(&a), Event::Frame { payload, .. } if payload == b"dynamic"));
+    }
+
+    #[test]
+    fn dynamic_candidates_cannot_bypass_group_or_owner_authentication() {
+        let a = Network::start_internet_owned(
+            config(),
+            InternetConfig::default(),
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        let wrong_key = std::array::from_fn(|i| (i as u8).wrapping_add(1));
+        let b = Network::start_internet_owned(
+            config(),
+            InternetConfig {
+                dynamic_candidates: true,
+                ..Default::default()
+            },
+            &wrong_key,
+            owned_hello(2),
+            owner(2),
+        )
+        .unwrap();
+        b.submit_discovery_candidate(&ticket(&a)).unwrap();
+        assert!(matches!(next(&b), Event::Rejected { .. }));
+        assert!(matches!(next(&a), Event::Rejected { .. }));
+        drop(b);
+        // A legacy peer with the correct shared key still cannot join an owned network.
+        let legacy = Network::start_internet(
+            config(),
+            InternetConfig {
+                dynamic_candidates: true,
+                ..Default::default()
+            },
+            &key(),
+            hello(3),
+        )
+        .unwrap();
+        legacy.submit_discovery_candidate(&ticket(&a)).unwrap();
+        assert!(matches!(next(&legacy), Event::Rejected { .. }));
+        assert!(matches!(next(&a), Event::Rejected { .. }));
+    }
+
+    #[test]
+    fn stopping_cancels_pending_dynamic_dials() {
+        let mut settings = config();
+        settings.handshake_timeout = Duration::from_secs(30);
+        let network = Network::start_internet_owned(
+            settings,
+            InternetConfig {
+                dynamic_candidates: true,
+                ..Default::default()
+            },
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        let blackhole = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let unreachable = EndpointAddr::new(iroh::SecretKey::from_bytes(&[99; 32]).public())
+            .with_ip_addr(blackhole.local_addr().unwrap());
+        network
+            .submit_discovery_candidate(&serde_json::to_string(&unreachable).unwrap())
+            .unwrap();
+        // The retry timer has ticked while the QUIC handshake is still pending.
+        thread::sleep(Duration::from_millis(2200));
+        let started = Instant::now();
+        drop(network);
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    fn fresh_dynamic_ticket_is_not_starved_by_stale_manual_address() {
+        let a = Network::start_internet_owned(
+            config(),
+            InternetConfig::default(),
+            &key(),
+            owned_hello(1),
+            owner(1),
+        )
+        .unwrap();
+        let fresh = ticket(&a);
+        let blackhole = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let stale = EndpointAddr::new(parse_ticket(&fresh).unwrap().id)
+            .with_ip_addr(blackhole.local_addr().unwrap());
+        let mut settings = config();
+        settings.handshake_timeout = Duration::from_secs(1);
+        let b = Network::start_internet_owned(
+            settings,
+            InternetConfig {
+                peer_tickets: vec![serde_json::to_string(&stale).unwrap()],
+                dynamic_candidates: true,
+                ..Default::default()
+            },
+            &key(),
+            owned_hello(2),
+            owner(2),
+        )
+        .unwrap();
+        b.submit_discovery_candidate(&fresh).unwrap();
+        let started = Instant::now();
+        loop {
+            match next(&b) {
+                Event::PeerJoined(h) => {
+                    assert_eq!(h.peer_id, owner(1).owner_id());
+                    break;
+                }
+                Event::Rejected { .. } if started.elapsed() < Duration::from_secs(6) => {}
+                event => panic!("unexpected dynamic event: {event:?}"),
+            }
+        }
+        assert!(matches!(next(&a), Event::PeerJoined(_)));
+    }
+
+    #[test]
+    fn late_advertisement_does_not_replace_an_inbound_owned_session() {
+        let (local, remote) = if owner(1).owner_id() < owner(2).owner_id() {
+            (1, 2)
+        } else {
+            (2, 1)
+        };
+        let a = Network::start_internet_owned(
+            config(),
+            InternetConfig {
+                dynamic_candidates: true,
+                ..Default::default()
+            },
+            &key(),
+            owned_hello(local),
+            owner(local),
+        )
+        .unwrap();
+        let b = Network::start_internet_owned(
+            config(),
+            InternetConfig {
+                peer_tickets: vec![ticket(&a)],
+                ..Default::default()
+            },
+            &key(),
+            owned_hello(remote),
+            owner(remote),
+        )
+        .unwrap();
+        assert!(matches!(next(&a), Event::PeerJoined(_)));
+        assert!(matches!(next(&b), Event::PeerJoined(_)));
+        // Local owner sorts smaller: an unnecessary outgoing handshake would replace the
+        // healthy inbound session under the normal symmetric-dial preference rule.
+        a.submit_discovery_candidate(&ticket(&b)).unwrap();
+        thread::sleep(Duration::from_millis(2200));
+        assert!(a.try_recv().is_err());
+        assert!(b.try_recv().is_err());
+        b.try_send(Command::Broadcast(b"still inbound".to_vec()))
+            .unwrap();
+        assert!(matches!(next(&a), Event::Frame { payload, .. } if payload == b"still inbound"));
     }
 }
