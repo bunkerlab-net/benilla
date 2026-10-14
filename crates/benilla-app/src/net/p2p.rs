@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
 mod character_actions;
+mod emotes;
 mod encounter;
 #[path = "p2p/world/native_geometry/mod.rs"]
 mod native_geometry;
@@ -30,7 +31,7 @@ pub(super) use native_geometry::plugin as native_geometry_plugin;
 use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
-const CONTENT_VERSION: &str = "benilla-saved-exploration-northshire-v2";
+const CONTENT_VERSION: &str = "benilla-saved-exploration-northshire-v3";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
 /// Public connection metadata plus the local setup mailbox; no signing keys or PSKs.
@@ -103,6 +104,14 @@ enum Frame {
     Say {
         text: String,
     },
+    TextEmote {
+        text_id: u32,
+        target: u64,
+    },
+    Presentation {
+        stand_state: u8,
+        state_emote: Option<u32>,
+    },
 }
 
 impl Frame {
@@ -145,6 +154,12 @@ impl Frame {
                     || flags & 0x200 != 0
                 {
                     bail!("invalid P2P movement");
+                }
+            }
+            Self::TextEmote { .. } => {}
+            Self::Presentation { stand_state, .. } => {
+                if !emotes::valid_stand_state(u32::from(*stand_state)) {
+                    bail!("invalid P2P stand state");
                 }
             }
             Self::Say { text } => {
@@ -285,6 +300,7 @@ impl P2pStart {
     pub(crate) fn start(
         &mut self,
         catalog: Option<&benilla_formats::CharCreateCatalog>,
+        emotes: Option<&benilla_formats::EmoteSoundCatalog>,
     ) -> std::result::Result<(), String> {
         let synthetic = self
             .pending
@@ -305,7 +321,7 @@ impl P2pStart {
                 .join("p2p-profile");
             StartRequest {
                 root: Some(root),
-                catalog: Some(AvatarCatalog::from_client(catalog)),
+                catalog: Some(AvatarCatalog::from_client(catalog, emotes)),
                 generation: self.generation.load(Ordering::SeqCst),
             }
         };
@@ -644,8 +660,35 @@ fn apply_peer_frame(
                 text,
             ),
         )?,
+        Frame::TextEmote { text_id, target } if joined.is_some() => {
+            emotes::emit_text_emote(
+                events,
+                character_guid(joined.as_ref().expect("admitted character")),
+                text_id,
+                target,
+                character,
+                peers,
+                catalog,
+            )?;
+        }
+        Frame::Presentation {
+            stand_state,
+            state_emote,
+        } if joined.is_some() => {
+            emotes::emit_presentation(
+                events,
+                joined.as_ref().expect("admitted character"),
+                stand_state,
+                state_emote,
+                catalog,
+            )?;
+        }
         // A broadcast already queued at the connection edge may beat its avatar.
-        Frame::Move { .. } | Frame::Say { .. } if joined.is_none() => {}
+        Frame::Move { .. }
+        | Frame::Say { .. }
+        | Frame::TextEmote { .. }
+        | Frame::Presentation { .. }
+            if joined.is_none() => {}
         _ => bail!("peer sent an invalid session transition"),
     }
     Ok(())
@@ -825,6 +868,9 @@ fn run_exploration_character(
     let mut orientation = character.position.orientation;
     let mut peers = BTreeMap::<PeerId, Option<Character>>::new();
     let mut denied = std::collections::BTreeSet::new();
+    // Transient presentation is bounded to this avatar and never enters saved progression.
+    let mut stand_state = 0;
+    let mut state_emote = None;
     let mut last_checkpoint = Instant::now();
     let mut last_rejection_warning: Option<Instant> = None;
     let started = Instant::now();
@@ -917,6 +963,16 @@ fn run_exploration_character(
                             .encode()?,
                         })
                         .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
+                    network
+                        .try_send(Command::Send {
+                            peer_id: peer,
+                            payload: Frame::Presentation {
+                                stand_state,
+                                state_emote,
+                            }
+                            .encode()?,
+                        })
+                        .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
                 }
                 Event::PeerLeft(peer) => {
                     if let Some(Some(other)) = peers.remove(&peer) {
@@ -1001,6 +1057,45 @@ fn run_exploration_character(
                         }
                         emit(events, chat(character_guid(character), text.clone()))?;
                         Some(Frame::Say { text })
+                    }
+                    ClientCommand::TextEmote { text_id, target } => {
+                        if !catalog.1.contains_text(text_id) {
+                            emit(
+                                events,
+                                chat(0, "This emote is unavailable in your game data.".into()),
+                            )?;
+                            continue;
+                        }
+                        if emotes::state_emote_id(&catalog.1, text_id).is_some() {
+                            state_emote = Some(text_id);
+                        }
+                        emotes::emit_text_emote(
+                            events,
+                            character_guid(character),
+                            text_id,
+                            target,
+                            character,
+                            &peers,
+                            catalog,
+                        )?;
+                        Some(Frame::TextEmote { text_id, target })
+                    }
+                    ClientCommand::StandStateChange { state } => {
+                        if !emotes::valid_stand_state(state) {
+                            continue;
+                        }
+                        stand_state = state as u8;
+                        emotes::emit_presentation(
+                            events,
+                            character,
+                            stand_state,
+                            state_emote,
+                            catalog,
+                        )?;
+                        Some(Frame::Presentation {
+                            stand_state,
+                            state_emote,
+                        })
                     }
                     ClientCommand::Chat { .. } => {
                         emit(

@@ -116,7 +116,7 @@ roster = [{{id="01010101010101010101010101010101", address="{endpoint}"}}, {{id=
             P2pSettings(config.p2p.unwrap(), config.ruleset),
             P2pEndpointTicket::default(),
         );
-        start.start(None).unwrap();
+        start.start(None, None).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut connected = false;
         loop {

@@ -8,7 +8,10 @@ use std::path::Path;
 /// A small, immutable snapshot of the actual install's character-creation DBCs.
 /// Peers send appearance choices, never display IDs or faction templates to trust.
 #[derive(Clone, Default)]
-pub(super) struct AvatarCatalog(BTreeMap<(u8, u8), Body>);
+pub(super) struct AvatarCatalog(
+    BTreeMap<(u8, u8), Body>,
+    pub(super) benilla_formats::EmoteSoundCatalog,
+);
 #[derive(Clone)]
 struct Body {
     display: u32,
@@ -18,7 +21,10 @@ struct Body {
     hair_colors: Vec<u8>,
 }
 impl AvatarCatalog {
-    pub(super) fn from_client(catalog: &benilla_formats::CharCreateCatalog) -> Self {
+    pub(super) fn from_client(
+        catalog: &benilla_formats::CharCreateCatalog,
+        emotes: Option<&benilla_formats::EmoteSoundCatalog>,
+    ) -> Self {
         let mut bodies = BTreeMap::new();
         for race in catalog
             .race_rows()
@@ -52,7 +58,7 @@ impl AvatarCatalog {
                 );
             }
         }
-        Self(bodies)
+        Self(bodies, emotes.cloned().unwrap_or_default())
     }
     pub(super) fn validate(&self, race: u8, class: u8, gender: u8, look: Appearance) -> Result<()> {
         let body = self
@@ -119,6 +125,7 @@ impl AvatarCatalog {
                 ),
             ]
             .into(),
+            Default::default(),
         )
     }
 }

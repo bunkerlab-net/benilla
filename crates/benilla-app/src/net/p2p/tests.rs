@@ -883,3 +883,127 @@ fn confirmed_delete_refreshes_the_exact_local_roster_and_restart_keeps_the_archi
     assert_eq!(roster[0].guid, two);
     drop(start);
 }
+
+#[test]
+fn exploration_slash_emote_commands_echo_without_a_peer() {
+    let temp = Temp::new();
+    let (handles, mut start) =
+        prepare(settings(free_endpoint(), &[]), P2pEndpointTicket::default());
+    let mut request = request(&temp.profile());
+    request.catalog.as_mut().unwrap().1 = benilla_formats::EmoteSoundCatalog::default()
+        .with_text_row(9001, 8001, 0)
+        .with_text_row(9002, 8002, 2);
+    start.start_request(request).unwrap();
+    listed(&handles);
+    let guid = create(&handles, "Emoter", 1, 1, 0);
+    enter(&handles, guid);
+    for text_id in [9001, 9002] {
+        handles
+            .commands
+            .send(ClientCommand::TextEmote { text_id, target: 0 })
+            .unwrap();
+        let visual = next_matching(&handles, |e| {
+            matches!(
+                e,
+                SessionEvent::Emote { .. } | SessionEvent::ObjectValues { .. }
+            )
+        });
+        match (text_id, visual) {
+            (
+                9001,
+                SessionEvent::Emote {
+                    guid: actor,
+                    emote_id: 8001,
+                },
+            ) => assert_eq!(actor, guid),
+            (
+                9002,
+                SessionEvent::ObjectValues {
+                    guid: actor,
+                    fields,
+                },
+            ) => {
+                assert_eq!(actor, guid);
+                assert_eq!(fields.unit_emote_state(), 8002);
+            }
+            other => panic!("wrong emote presentation: {other:?}"),
+        }
+        assert!(
+            matches!(next_matching(&handles, |e| matches!(e, SessionEvent::TextEmote { .. })), SessionEvent::TextEmote { guid: actor, text_emote, target_name } if actor == guid && text_emote == text_id && target_name.is_empty())
+        );
+    }
+    for state in [1, 3, 8, 0] {
+        handles
+            .commands
+            .send(ClientCommand::StandStateChange { state })
+            .unwrap();
+        assert!(
+            matches!(next_matching(&handles, |e| matches!(e, SessionEvent::ObjectValues { .. })), SessionEvent::ObjectValues { guid: actor, fields } if actor == guid && fields.unit_stand_state() == state as u8 && fields.unit_emote_state() == 8002)
+        );
+    }
+    handles
+        .commands
+        .send(ClientCommand::TextEmote {
+            text_id: u32::MAX,
+            target: 0,
+        })
+        .unwrap();
+    next_matching(
+        &handles,
+        |e| matches!(e, SessionEvent::Chat(message) if message.text.contains("emote is unavailable")),
+    );
+}
+
+#[test]
+fn a_late_joiner_receives_current_loop_and_posture_without_replayed_text() {
+    let first = Temp::new();
+    let second = Temp::new();
+    let endpoint = free_endpoint();
+    let open_with_emote = |root: &Path, settings| {
+        let (handles, mut start) = prepare(settings, P2pEndpointTicket::default());
+        let mut request = request(root);
+        request.catalog.as_mut().unwrap().1 =
+            benilla_formats::EmoteSoundCatalog::default().with_text_row(9002, 8002, 2);
+        start.start_request(request).unwrap();
+        listed(&handles);
+        (handles, start)
+    };
+    let (a, _a_start) = open_with_emote(&first.profile(), settings(endpoint, &[]));
+    let actor = create(&a, "Dancer", 1, 1, 0);
+    enter(&a, actor);
+    a.commands
+        .send(ClientCommand::TextEmote {
+            text_id: 9002,
+            target: 0,
+        })
+        .unwrap();
+    next_matching(&a, |e| matches!(e, SessionEvent::TextEmote { .. }));
+    a.commands
+        .send(ClientCommand::StandStateChange { state: 8 })
+        .unwrap();
+    next_matching(
+        &a,
+        |e| matches!(e, SessionEvent::ObjectValues { fields, .. } if fields.unit_stand_state() == 8),
+    );
+    let (b, _b_start) = open_with_emote(&second.profile(), settings(free_endpoint(), &[endpoint]));
+    let observer = create(&b, "Observer", 1, 1, 0);
+    enter(&b, observer);
+    next_matching(
+        &b,
+        |e| matches!(e, SessionEvent::ObjectCreate { guid, .. } if *guid == actor),
+    );
+    let snapshot = next_matching(
+        &b,
+        |e| matches!(e, SessionEvent::ObjectValues { guid, .. } | SessionEvent::TextEmote { guid, .. } if *guid == actor),
+    );
+    assert!(
+        matches!(snapshot, SessionEvent::ObjectValues { fields, .. } if fields.unit_stand_state() == 8 && fields.unit_emote_state() == 8002)
+    );
+    a.commands
+        .send(ClientCommand::StandStateChange { state: 0 })
+        .unwrap();
+    next_matching(
+        &b,
+        |e| matches!(e, SessionEvent::ObjectValues { guid, fields } if *guid == actor && fields.unit_stand_state() == 0 && fields.unit_emote_state() == 8002),
+    );
+}

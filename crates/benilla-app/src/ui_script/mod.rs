@@ -880,6 +880,8 @@ mod loot_tests;
 mod group_loot_tests;
 
 #[cfg(test)]
+mod chat_history_tests;
+#[cfg(test)]
 pub(crate) mod chat_tests;
 
 /// The chat bubble's `UIMenu` kit driven as a menu: the rows' label and shortcut anchoring.

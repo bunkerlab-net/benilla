@@ -848,6 +848,7 @@ pub(crate) fn login_input(
         Option<ResMut<crate::ui_script::login_options::LoginOptions>>,
         Option<ResMut<crate::net::P2pStart>>,
         Option<Res<crate::entities::CharCreate>>,
+        Option<Res<crate::sound::EmoteSounds>>,
     ),
     presses: Query<(Entity, &LoginAction, Ref<Interaction>)>,
     clicks: Res<crate::glue::GlueClicks>,
@@ -868,7 +869,8 @@ pub(crate) fn login_input(
     // The reference's `RealmList` is a DIALOG-strata frame over this screen, so while it is up
     // everything here is inert, Escape included (it is the list's Cancel), through the frame
     // its own Escape closes it in.
-    let (mut settings, cvars, recovery, mut options, mut p2p_start, catalog) = settings_state;
+    let (mut settings, cvars, recovery, mut options, mut p2p_start, catalog, emotes) =
+        settings_state;
     if realms.owns_input()
         || settings.open
         || options.as_ref().is_some_and(|o| o.active || o.requested)
@@ -1002,7 +1004,10 @@ pub(crate) fn login_input(
     if do_login && attempt.p2p.is_some() {
         match p2p_start.as_deref_mut() {
             Some(start) if start.can_start() => {
-                if let Err(error) = start.start(catalog.as_deref().map(|c| &c.0)) {
+                if let Err(error) = start.start(
+                    catalog.as_deref().map(|c| &c.0),
+                    emotes.as_deref().map(|e| &e.0),
+                ) {
                     dialog.open_error(&error);
                 }
             }
