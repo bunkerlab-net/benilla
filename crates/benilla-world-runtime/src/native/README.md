@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v3 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v9 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -10,6 +10,8 @@ A complete compiler should issue a capability from each user's validated local d
 The opt-in `synthetic-native-tests` feature exposes only synthetic construction and
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
+
+Player pose and orientation persistence are documented in [ORIENTATION.md](ORIENTATION.md).
 
 ## Initialization and callbacks
 
@@ -98,8 +100,8 @@ lock, previous-good retention and exact replay-verified receipts. Its Linux synt
 tests do not prove native admission, app checkpoint cadence or platform power-loss
 behavior. `checkpoint_committed` acknowledges only the writer's exact durable receipt.
 Login/resume also needs an in-flight visual reconstruction policy. Native loot,
-quests, progression, revive, general auras, creature health regeneration and
-multiplayer membership are not supplied by this integration.
+quests, progression, revive, general auras and multiplayer membership remain
+limited by the separately documented component boundaries.
 
 Actual client collision/terrain-stream access is main-thread-bound and needs bounded
 request/reply snapshots. Unloaded geometry must never mean clear space. Existing
@@ -124,3 +126,20 @@ loop is documented explicitly in DEATH.md and does not claim full MapManager par
 No Blizzard assets/database rows are distributed. Formula source/license details
 remain in the simulation component documents and EQUIPMENT.md. Focused tests do not
 replace workspace, platform, source-data or real-client gates.
+
+## Ordinary creature regeneration
+
+NPC profiles bind required captured health flags, creature kind, effective player-
+control flags and explicit active-power evidence through the
+[ordinary creature regeneration policy](../../../benilla-sim/CREATURE-REGENERATION.md).
+Unknown/control/pet/overridden cases and relevant configured power regeneration
+are rejected. Proven zero-maximum or disabled power paths are accepted.
+
+The persisted NPC timer starts at zero, advances after its source-ordered AI and
+CombatManager update, and performs at most one health pulse per living update.
+Death, corpse, respawn-transition and despawn updates freeze it; evade/home never
+reset it or instantly refill health. Actual gains emit NpcHealthRegenerated and
+the client publishes the committed unit-health value. Checkpoint/replay and
+client tests use authored fixtures only; production admission remains closed.
+Source quest reputation state, synchronous objective callbacks, client packet ordering
+and durable/session boundaries are specified in [REPUTATION.md](REPUTATION.md).

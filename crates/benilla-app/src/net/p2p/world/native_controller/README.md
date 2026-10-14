@@ -108,7 +108,8 @@ that order and the current app's root flag without moving/falling flags. Turning
 walking and other stationary echoed flags are not rejected merely for being present.
 Matching duplicate acknowledgment is idempotent. Unknown/stale counters do not clear
 a current order. ACK position and orientation are validated but never committed as
-world movement. Dead/rooted movement receives a current self-mover correction.
+world movement. Dead/rooted movement receives a current self-mover correction
+without changing the saved or projected orientation.
 A restored corpse starts a fresh session, emits its own root, and cannot reuse the
 prior session's acknowledgment state.
 
@@ -117,6 +118,23 @@ mask parity: the pinned CMaNGOS `Object.h` declares `MOVEFLAG_ROOT = 0x08000000`
 this client's `MoveMode::Root.flag()` and `creature_anim::move_flags::ROOT` use
 `0x00001000`. The discrepancy requires separate reference resolution; this controller
 does not change those constants or use the upstream bit to invalidate real app ACKs.
+
+## Transactional player pose
+
+Position and orientation enter as one sequenced `Pose`, with initial orientation
+explicitly bound by the native profile. Neither queued input nor blocked/dead
+movement changes the selected character or the delivered player facing. Pure turns
+have no geometry/path-distance request and do not renew elapsed movement time.
+Ordered pose events retain each input's orientation, including turn/cast/turn within
+one tick. Spell authority requests witness the current orientation without claiming
+implemented facing predicates or rear-hit/daze support.
+
+Pose-bearing ticks save before publishing, even when progression is disabled.
+The last delivered pose is projection state: if checkpointing fails, the computed
+world and ordered outbox are retained for exact retry, while player getters and
+corrections still report the previous delivered pose. A save receipt alone does not
+publish it. Reopen uses the durable native pose rather than exploration-character
+orientation. See [the runtime contract](../../../../../../benilla-world-runtime/src/native/ORIENTATION.md).
 
 ## Inventory, corpse panels and ordinary quest rewards
 

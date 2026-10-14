@@ -34,7 +34,8 @@ pub struct DependencyAudit {
     pub collection_item_effects: Evidence,
 }
 
-/// Gameplay columns outside the supported domain, retained to reject, never defaulted.
+/// Loader-resolved auxiliary columns. Unsupported behaviors reject, never default.
+/// Reputation columns retain their original schema location for host integration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExcludedFields {
     pub required_skill: u32,
@@ -78,12 +79,6 @@ impl ExcludedFields {
             required_skill,
             required_skill_value,
             required_condition,
-            rep_objective_faction,
-            rep_objective_value,
-            required_min_rep_faction,
-            required_min_rep_value,
-            required_max_rep_faction,
-            required_max_rep_value,
             quest_type,
             suggested_players,
             limit_time,
@@ -92,7 +87,6 @@ impl ExcludedFields {
             source_item,
             source_item_count,
             source_spell,
-            reward_faction_flags,
             reward_spell,
             reward_spell_cast,
             reward_mail_template,
@@ -101,13 +95,7 @@ impl ExcludedFields {
             complete_script
         );
         macro_rules! arrays { ($($field:ident),+ $(,)?) => {$(if self.$field.iter().any(|&v| v != 0) { return Err(Error::Unsupported(stringify!($field))); })+}; }
-        arrays!(
-            required_source,
-            required_source_count,
-            required_spell,
-            reward_rep_faction,
-            reward_rep_value
-        );
+        arrays!(required_source, required_source_count, required_spell);
         for (items, counts) in [
             (&self.reward_choice_item[..], &self.reward_choice_count[..]),
             (&self.reward_item[..], &self.reward_item_count[..]),

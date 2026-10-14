@@ -236,7 +236,8 @@ fn current_cast_duration_never_replaces_prepare_timer_pushback_or_gcd() {
 #[test]
 fn exact_prepare_and_independent_release_witnesses_are_required_for_restore() {
     assert_eq!(SPELL_CHECKPOINT_VERSION, 1);
-    assert_eq!(CAST_CHECKPOINT_VERSION, 2);
+    assert_eq!(CAST_CHECKPOINT_VERSION, 3);
+    assert_eq!(AURA_CHECKPOINT_VERSION, 2);
     let prepared = recipe(5, 100);
     let current = recipe(20, 250);
     let context = MageProjectileReleaseContext::from_specs(&prepared, &current).unwrap();

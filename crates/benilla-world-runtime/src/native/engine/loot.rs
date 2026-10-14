@@ -113,6 +113,7 @@ impl<A: Authority> Frame<'_, A> {
         } = self.ask(
             Some(id),
             Query::LootInteraction {
+                witness: self.interaction_witness()?,
                 player_position: self.state.position,
                 npc_position: npc.ai.position(),
             },
@@ -196,12 +197,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         for cast in ids {
-            let mut c = self.state.casts.remove(&cast).unwrap();
-            let events = c.execution.cancel(
-                &mut self.state.resources.caster,
-                spell::CastFailure::Interrupted,
-            );
-            self.spell_events(cast, c.ability, c.target, events)?;
+            self.interrupt_scheduled_cast(cast, spell::CastFailure::Interrupted)?;
         }
         Ok(None)
     }

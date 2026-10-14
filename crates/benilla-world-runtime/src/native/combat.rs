@@ -85,6 +85,7 @@ pub struct InitialAuraMetadata {
     pub attributes: u32,
     pub attributes_ex3: u32,
     pub caster_aura_state: u32,
+    pub aura_interrupt_flags: u32,
 }
 /// Only the source initializer can construct this value. It is not an admission token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -275,6 +276,7 @@ impl Profile {
                         attributes: raw.words[6],
                         attributes_ex3: raw.words[9],
                         caster_aura_state: raw.words[16],
+                        aura_interrupt_flags: raw.words[22],
                     }
                 })
                 .collect(),

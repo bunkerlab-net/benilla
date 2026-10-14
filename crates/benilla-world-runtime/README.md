@@ -1,7 +1,8 @@
 # Solo world runtime
 
 The separate source-bound native reconstruction is documented in
-[NATIVE-QUEST-PROGRESSION.md](NATIVE-QUEST-PROGRESSION.md) and
+[NATIVE-QUEST-PROGRESSION.md](NATIVE-QUEST-PROGRESSION.md),
+[NATIVE-INTERACTIONS.md](NATIVE-INTERACTIONS.md) and
 [LOOT-INVENTORY.md](LOOT-INVENTORY.md). Its capability remains closed;
 the original fixture described below is a different runtime.
 

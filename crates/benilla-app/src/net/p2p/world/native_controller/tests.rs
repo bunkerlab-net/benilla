@@ -227,7 +227,7 @@ fn selected_identity_native_clock_and_saves_never_touch_profile() {
     let mut c = h.start(stationary());
     let driven: &dyn Driven = &c;
     assert_eq!(driven.map_id(), 7);
-    assert_eq!(driven.facing(), h.character.position.orientation);
+    assert_eq!(driven.facing(), stationary().player.orientation.as_f32());
     assert_eq!(
         driven.initial_player_fields().unwrap().unit_health(),
         Some(90)
@@ -290,13 +290,15 @@ fn movement_preserves_binary32_and_native_cast_interruption() {
     assert!(out.pause.is_none());
     assert_eq!(c.position_xyz()[0].to_bits(), x.to_bits());
     assert!(out.events.iter().any(|e| matches!(e, SessionEvent::UnitMove { guid, position, .. } if *guid == c.player_guid() && position[0].to_bits() == x.to_bits())));
-    assert!(c.world.last_tick().unwrap().events.iter().any(|e| matches!(
+    assert!(out.events.iter().any(|e| matches!(
         e,
-        n::Event::Spell {
-            event: benilla_sim::classic_spell::SpellEvent::Failed(_),
+        SessionEvent::SpellFailedOther {
+            spell_id: 60001,
             ..
         }
     )));
+    assert!(c.world.state().casts.is_empty());
+    assert!(out.saved.is_some());
 }
 struct ToggleAuthority {
     unavailable: Arc<AtomicBool>,
@@ -347,6 +349,10 @@ fn unavailable_authority_retains_exact_input_tick_and_explicit_retry() {
         Some(PauseKind::Authority)
     ));
     let inputs = c.pending.as_ref().unwrap().inputs.clone();
+    let mut expected = c.world.clone();
+    expected
+        .step_batch(1, inputs, &mut fixture::KernelAuthority::default())
+        .unwrap();
     c.pump(Duration::from_secs(60));
     assert_eq!(c.debt, c.tick_duration());
     assert!(matches!(
@@ -360,9 +366,11 @@ fn unavailable_authority_retains_exact_input_tick_and_explicit_retry() {
     assert_eq!(out.ticks, 1);
     assert!(out.pause.is_none());
     assert_eq!(
-        c.world.last_tick().unwrap().inputs,
-        inputs.into_iter().map(|i| i.input).collect::<Vec<_>>()
+        c.world.checkpoint().unwrap(),
+        expected.checkpoint().unwrap()
     );
+    assert!(out.saved.is_some());
+    assert!(c.world.records().is_empty());
     let observed = observed.lock().unwrap();
     assert_eq!(observed[0], observed[1]);
     assert!(c.pending.is_none());
@@ -920,6 +928,14 @@ fn full_batch_checkpoint_retry_and_reopen_never_repeat_any_input() {
     assert!(c.pending.is_none());
     assert_eq!(c.world.state().next_sequence, 2);
     assert_eq!(c.world.last_tick().unwrap().inputs.len(), 2);
+    assert!(out.events.is_empty());
+    assert_eq!(c.position_xyz(), [0.0; 3]);
+    assert_eq!(c.facing(), 0.0);
+    let state = c.world.state_digest();
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    c.retry_checkpoint().unwrap();
+    let out = c.pump(Duration::ZERO);
+    assert_eq!(out.ticks, 0);
     assert_eq!(
         out.events
             .iter()
@@ -927,12 +943,9 @@ fn full_batch_checkpoint_retry_and_reopen_never_repeat_any_input() {
             .count(),
         2
     );
-    let state = c.world.state_digest();
-    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
-    c.retry_checkpoint().unwrap();
-    let out = c.pump(Duration::ZERO);
-    assert_eq!(out.ticks, 0);
-    assert!(out.events.is_empty());
+    assert_eq!(c.position_xyz(), [0.25, 0.0, 0.0]);
+    assert_eq!(c.facing(), 0.75);
+    assert!(c.pump(Duration::ZERO).events.is_empty());
     assert_eq!(c.world.state_digest(), state);
     c.shutdown().unwrap();
     drop(c);
@@ -946,3 +959,17 @@ mod quest_tests;
 
 #[path = "loot_tests.rs"]
 mod loot_tests;
+
+#[path = "pose_tests.rs"]
+mod pose_tests;
+
+#[path = "reputation_tests.rs"]
+mod reputation_tests;
+
+#[path = "interaction_tests.rs"]
+mod interaction_tests;
+#[path = "motion_tests.rs"]
+mod motion_tests;
+
+#[path = "event_scheduler_tests.rs"]
+mod event_scheduler_tests;

@@ -4,7 +4,8 @@ use super::*;
 use serde::{Deserialize, Serialize};
 
 pub const SPELL_CHECKPOINT_VERSION: u32 = 1;
-pub const CAST_CHECKPOINT_VERSION: u32 = 2;
+pub const CAST_CHECKPOINT_VERSION: u32 = 3;
+pub const AURA_CHECKPOINT_VERSION: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceCheckpoint {
@@ -70,6 +71,7 @@ impl CasterResources {
 #[serde(deny_unknown_fields)]
 pub struct CastCheckpoint {
     version: u32,
+    policy: String,
     prepared_spec: MageProjectileSpec,
     release: Option<MageProjectileReleaseContext>,
     caster_id: u64,
@@ -87,6 +89,7 @@ impl MageProjectileCast {
     pub fn checkpoint(&self) -> CastCheckpoint {
         CastCheckpoint {
             version: CAST_CHECKPOINT_VERSION,
+            policy: SPELL_EXECUTION_POLICY_ID.into(),
             prepared_spec: self.spec.clone(),
             release: self.release,
             caster_id: self.caster_id,
@@ -126,6 +129,7 @@ impl MageProjectileCast {
         }
         let current = release.map(|context| context.apply(&spec)).transpose()?;
         if s.version != CAST_CHECKPOINT_VERSION
+            || s.policy != SPELL_EXECUTION_POLICY_ID
             || s.caster_id == 0
             || s.target_id == 0
             || s.caster_id == s.target_id
@@ -323,6 +327,30 @@ impl MageProjectileCast {
         }
         Ok(())
     }
+    /// Scheduled restore binds the observed callback clock independently from map
+    /// time. The host must cross-check it with the actual owning event/lifetime.
+    /// This does not admit finished or detached spell objects as executable casts.
+    pub fn restore_scheduled_with_release(
+        s: CastCheckpoint,
+        spec: MageProjectileSpec,
+        release: Option<MageProjectileReleaseContext>,
+        now_ms: u64,
+        callback_ms: u64,
+    ) -> Result<Self, SpellError> {
+        if callback_ms > now_ms || s.last_update_ms != callback_ms {
+            return Err(SpellError::State("scheduled callback clock"));
+        }
+        let cast = Self::restore_with_release(s, spec, release, callback_ms)?;
+        match cast.state {
+            CastState::Casting { .. } if callback_ms == now_ms => {}
+            CastState::Traveling { impact_at_ms } if impact_at_ms > now_ms => {}
+            _ => return Err(SpellError::State("scheduled live state/deadline")),
+        }
+        Ok(cast)
+    }
+    pub fn last_update_ms(&self) -> u64 {
+        self.last_update_ms
+    }
     pub fn created_ms(&self) -> u64 {
         self.created_ms
     }
@@ -362,6 +390,7 @@ pub struct AuraCheckpoint {
 #[serde(deny_unknown_fields)]
 pub struct DamageTargetCheckpoint {
     version: u32,
+    policy: String,
     id: u64,
     health: u32,
     aura: Option<AuraCheckpoint>,
@@ -369,11 +398,12 @@ pub struct DamageTargetCheckpoint {
 impl DamageTarget {
     pub fn checkpoint(&self) -> DamageTargetCheckpoint {
         DamageTargetCheckpoint {
-            version: SPELL_CHECKPOINT_VERSION,
+            version: AURA_CHECKPOINT_VERSION,
+            policy: SPELL_EXECUTION_POLICY_ID.into(),
             id: self.id,
             health: self.health,
             aura: self.aura.as_ref().map(|a| AuraCheckpoint {
-                version: SPELL_CHECKPOINT_VERSION,
+                version: AURA_CHECKPOINT_VERSION,
                 spell_id: a.spell_id,
                 caster_id: a.caster_id,
                 effect_slot: a.effect_slot,
@@ -396,7 +426,7 @@ impl DamageTarget {
         now_ms: u64,
     ) -> Result<Self, SpellError> {
         spec.validate()?;
-        if s.version != SPELL_CHECKPOINT_VERSION {
+        if s.version != AURA_CHECKPOINT_VERSION || s.policy != SPELL_EXECUTION_POLICY_ID {
             return Err(SpellError::State("target checkpoint version"));
         }
         let mut target = Self::new(s.id, s.health)?;
@@ -409,7 +439,7 @@ impl DamageTarget {
             else {
                 return Err(SpellError::State("unknown checkpoint aura effect"));
             };
-            if a.version != SPELL_CHECKPOINT_VERSION
+            if a.version != AURA_CHECKPOINT_VERSION
                 || a.spell_id != spec.spell_id
                 || a.caster_id != caster_id
                 || caster_id == 0

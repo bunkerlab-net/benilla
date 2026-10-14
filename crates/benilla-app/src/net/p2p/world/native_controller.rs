@@ -22,6 +22,9 @@ struct PendingEvents {
 
 struct LocalAuthority(Box<dyn n::Authority + Send>);
 impl n::Authority for LocalAuthority {
+    fn observe_derived(&mut self, reply: &n::AuthorityReply) -> Result<(), n::NativeError> {
+        self.0.observe_derived(reply)
+    }
     fn resolve(
         &mut self,
         request: &n::AuthorityRequest,
@@ -46,6 +49,20 @@ enum Intent {
 struct PublishedLoot {
     guid: u64,
     corpse: NpcHandle,
+}
+/// Last delivered projection, never an alternate simulation authority.
+#[derive(Clone, Copy)]
+struct PublishedPose {
+    position: Point,
+    orientation: n::Orientation,
+}
+impl PublishedPose {
+    fn of(world: &n::NativeWorld) -> Self {
+        Self {
+            position: world.state().position,
+            orientation: world.state().orientation,
+        }
+    }
 }
 struct PendingTick {
     inputs: Vec<n::OwnedInput>,
@@ -110,10 +127,12 @@ pub(crate) struct NativeController {
     projection: NativeProjection,
     store: NativeStore,
     selected: Selection,
+    published_pose: PublishedPose,
     authority: LocalAuthority,
     orders: MovementOrders,
     loot_window: Option<PublishedLoot>,
     initial: Option<Vec<SessionEvent>>,
+    initial_reputation_ack: bool,
     initial_fields: benilla_protocol::ObjectFields,
     actions: VecDeque<Intent>,
     next_ticket: u64,
@@ -198,16 +217,20 @@ impl NativeController {
                 _ => None,
             })
             .ok_or(Error::WrongCharacter)?;
+        let initial_reputation_ack = world.reputation_initial_ack_needed();
         let saved_tick = world.state().tick;
+        let published_pose = PublishedPose::of(&world);
         Ok(Self {
             world,
             projection,
             store,
             selected,
+            published_pose,
             authority: LocalAuthority(Box::new(authority)),
             orders,
             loot_window: None,
             initial: Some(initial),
+            initial_reputation_ack,
             initial_fields,
             actions: VecDeque::new(),
             next_ticket: 0,
@@ -243,6 +266,20 @@ impl NativeController {
         self.orders.emitted(events);
         for event in events {
             match event {
+                SessionEvent::ObjectMove {
+                    guid,
+                    position,
+                    orientation,
+                } if *guid == self.player_guid() => {
+                    // Consume the actual delivered pose, including delayed initial events.
+                    // These values came only from validated native state/event projection.
+                    self.published_pose = PublishedPose {
+                        position: Point::new(position[0], position[1], position[2])
+                            .expect("validated native projected position"),
+                        orientation: n::Orientation::from_bits(orientation.to_bits())
+                            .expect("validated native projected orientation"),
+                    };
+                }
                 SessionEvent::LootResponse { guid, .. } => {
                     // Stock item/money packets have no GUID. Only the actual published panel
                     // binds their corpse; a queued open or restored target grants no panel.
@@ -324,7 +361,7 @@ impl NativeController {
         Duration::from_millis(u64::from(self.world.profile().tick_ms))
     }
     fn queue(&mut self, command: n::Command) -> Result<(), Error> {
-        if self.actions.len() == MAX_ACTIONS {
+        if self.actions.len() + usize::from(self.initial_reputation_ack) == MAX_ACTIONS {
             return Err(Error::Backpressure);
         }
         let ticket = self.next_ticket;
@@ -334,24 +371,31 @@ impl NativeController {
         Ok(())
     }
     fn queue_cancel(&mut self, spell_id: u32, target: CancelTarget) -> Result<(), Error> {
-        if self.actions.len() == MAX_ACTIONS {
+        if self.actions.len() + usize::from(self.initial_reputation_ack) == MAX_ACTIONS {
             return Err(Error::Backpressure);
         }
         self.actions
             .push_back(Intent::CancelCast { spell_id, target });
         Ok(())
     }
-    fn pose(position: [f32; 3], facing: f32) -> Result<Point, Error> {
-        if !facing.is_finite() || facing.abs() > 100.0 {
-            return Err(Error::InvalidMovement);
-        }
-        Point::new(position[0], position[1], position[2]).map_err(|_| Error::InvalidMovement)
+    fn pose(position: [f32; 3], facing: f32) -> Result<(Point, n::Orientation), Error> {
+        let orientation = n::Orientation::new(facing).map_err(|_| Error::InvalidMovement)?;
+        let position = Point::new(position[0], position[1], position[2])
+            .map_err(|_| Error::InvalidMovement)?;
+        Ok((position, orientation))
     }
     fn correction(&self) -> SessionEvent {
+        self.correction_at(self.published_pose)
+    }
+    fn correction_at(&self, pose: PublishedPose) -> SessionEvent {
         SessionEvent::UnitMove {
             guid: self.player_guid(),
-            position: self.position_xyz(),
-            orientation: self.selected.facing,
+            position: [
+                pose.position.x.as_f32(),
+                pose.position.y.as_f32(),
+                pose.position.z.as_f32(),
+            ],
+            orientation: pose.orientation.as_f32(),
             flags: if self.world.state().health == 0 {
                 move_flags::ROOT
             } else {
@@ -369,12 +413,29 @@ impl NativeController {
         self.world
             .state()
             .next_sequence
-            .checked_add(self.actions.len() as u64)
+            .checked_add((self.actions.len() + usize::from(self.initial_reputation_ack)) as u64)
             .ok_or(n::NativeError::Limit)?;
         // All accepted local actions run in source order before one fixed simulation update.
         // Session-only tickets bind a pre-SpellStart cancel to its queued request; the durable
         // batch records its exact preceding input sequence instead of a predicted cast ID.
-        let mut inputs = Vec::with_capacity(self.actions.len());
+        let mut inputs =
+            Vec::with_capacity(self.actions.len() + usize::from(self.initial_reputation_ack));
+        if self.initial_reputation_ack {
+            // Delivery bookkeeping never advances the world by itself. The initial
+            // packet was sent from committed state; clear source needSend before
+            // every user input and simulation callback of this natural update.
+            inputs.push(n::OwnedInput {
+                authenticated_owner: self.selected.player.owner,
+                input: n::Input {
+                    world: self.world.state().world,
+                    tick: self.world.state().tick + 1,
+                    player: self.selected.player,
+                    sequence: self.world.state().next_sequence,
+                    command: n::Command::AcknowledgeInitialReputations,
+                },
+            });
+            self.initial_reputation_ack = false;
+        }
         let mut cast_sequences = std::collections::BTreeMap::new();
         let mut moving = false;
         for intent in self.actions.drain(..) {
@@ -396,7 +457,10 @@ impl NativeController {
                     },
                 },
             };
-            moving |= matches!(command, n::Command::Move { .. });
+            moving |= matches!(
+                command,
+                n::Command::Move { .. } | n::Command::Pose { .. } | n::Command::MovementPose { .. }
+            );
             inputs.push(n::OwnedInput {
                 authenticated_owner: self.selected.player.owner,
                 input: n::Input {
@@ -429,7 +493,7 @@ impl NativeController {
             .advance_with_movement_orders(&self.world, &mut self.orders.counter)
             .and_then(|mut projected| {
                 if pending.moving {
-                    projected.push(self.correction());
+                    projected.push(self.correction_at(PublishedPose::of(&self.world)));
                 }
                 if projected.len() > MAX_PENDING_EVENTS {
                     return Err(benilla_world_client::Error::Unrepresentable);
@@ -448,7 +512,8 @@ impl NativeController {
                 return Err(error.into());
             }
         };
-        if self.world.profile().quest_progression.is_some() {
+        if self.world.profile().quest_progression.is_some() || pending.moving {
+            // Pose-bearing ticks also save before publishing authoritative position/facing.
             // Progression also mutates without an event (played time, resource/skill sync).
             // Persist every enabled tick, accepting one synchronous checkpoint per tick.
             // Project first: the store receipt clears last_tick and its event journal.
@@ -530,11 +595,11 @@ impl Driven for NativeController {
         self.world.profile().map_id
     }
     fn position_xyz(&self) -> [f32; 3] {
-        let p = self.world.state().position;
+        let p = self.published_pose.position;
         [p.x.as_f32(), p.y.as_f32(), p.z.as_f32()]
     }
     fn facing(&self) -> f32 {
-        self.selected.facing
+        self.published_pose.orientation.as_f32()
     }
     fn player_guid(&self) -> u64 {
         self.projection.player_guid()
@@ -607,7 +672,7 @@ impl Driven for NativeController {
                 transport: None,
                 ..
             } => {
-                let destination = Self::pose(pos, orientation)?;
+                let (destination, orientation) = Self::pose(pos, orientation)?;
                 let supported_flags = move_flags::ANY_MOVE
                     | move_flags::TURN_LEFT
                     | move_flags::TURN_RIGHT
@@ -620,15 +685,31 @@ impl Driven for NativeController {
                 {
                     return Err(Error::InvalidMovement);
                 }
+                let movement_flags = self
+                    .world
+                    .profile()
+                    .source_motion
+                    .as_ref()
+                    .map(|_| benilla_sim::creature_motion::GroundMovementFlags::from_bits(flags))
+                    .transpose()
+                    .map_err(|_| Error::InvalidMovement)?;
                 if self.world.state().health == 0
                     || self.orders.pending.is_some()
                     || self.orders.acknowledged.is_some()
                 {
-                    self.selected.facing = orientation;
                     events.push(self.correction());
                 } else {
-                    self.queue(n::Command::Move { destination })?;
-                    self.selected.facing = orientation;
+                    self.queue(match movement_flags {
+                        Some(movement_flags) => n::Command::MovementPose {
+                            destination,
+                            orientation,
+                            movement_flags,
+                        },
+                        None => n::Command::Pose {
+                            destination,
+                            orientation,
+                        },
+                    })?;
                 }
             }
             ClientCommand::CastSpell {

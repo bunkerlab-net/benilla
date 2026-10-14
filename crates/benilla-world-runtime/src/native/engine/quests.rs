@@ -21,10 +21,7 @@ impl<A: Authority> Frame<'_, A> {
         let Some(npc) = self.state.npcs.get(&giver.spawn).filter(|n| {
             n.id == giver
                 && n.health > 0
-                && !matches!(
-                    n.ai.phase(),
-                    ai::Phase::Corpse | ai::Phase::Despawned | ai::Phase::ReturningHome
-                )
+                && !matches!(n.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned)
         }) else {
             return Ok(Some(Rejection::UnknownTarget));
         };
@@ -32,12 +29,26 @@ impl<A: Authority> Frame<'_, A> {
             .profile
             .npc(giver.spawn)
             .ok_or(NativeError::InvalidState)?;
-        let Some(row) = g.npc_rows.get(&profile.entry) else {
-            return Ok(Some(Rejection::QuestInteraction));
+        let (npc_flags, unit_flags) =
+            match interactions::current_npc_flags(self.profile, self.state, npc) {
+                Ok(flags) => flags,
+                Err(_)
+                    if self.profile.interactions.is_none()
+                        && !g.npc_rows.contains_key(&profile.entry) =>
+                {
+                    return Ok(Some(Rejection::QuestInteraction))
+                }
+                Err(error) => return Err(error),
+            };
+        // Hello uses UNIT_NPC_FLAG_NONE; CanInteractWithQuestGiver uses QUESTGIVER.
+        let required_flags = if quest == 0 && !reward {
+            npc_flags != 0
+        } else {
+            npc_flags & 2 != 0
         };
-        if row.npc_flags & 2 == 0
-            || row.unit_flags & 0x0200_0000 != 0
-            || npc.ai.phase() == ai::Phase::Combat
+        if !required_flags
+            || unit_flags & 0x0200_0000 != 0
+            || (npc.ai.target().is_some() && npc.ai.victim_detached_at_ms().is_none())
         {
             return Ok(Some(Rejection::QuestInteraction));
         }
@@ -51,6 +62,7 @@ impl<A: Authority> Frame<'_, A> {
             return Ok(Some(Rejection::QuestInteraction));
         }
         let query = Query::QuestInteraction {
+            witness: self.interaction_witness()?,
             quest,
             reward,
             player_position: self.state.position,
@@ -58,14 +70,14 @@ impl<A: Authority> Frame<'_, A> {
             player_health: self.state.health,
             npc_health: npc.health,
             npc_entry: profile.entry,
-            npc_flags: row.npc_flags,
-            unit_flags: row.unit_flags,
+            npc_flags,
+            unit_flags,
         };
         let Facts::QuestInteraction(facts) = self.ask(Some(giver), query)? else {
             return Err(NativeError::AuthorityBinding);
         };
         // Player::GetNPCIfCanInteractWith + Relations::CanInteractNow. The source
-        // does not gate this path on LOS; it remains captured geometry evidence.
+        // does not gate this path on LOS; this semantic query requests no geometry.
         if !facts.player_in_world
             || facts.player_taxi_flying
             || facts.player_cannot_react_or_lost_control
@@ -382,6 +394,7 @@ impl NativeWorld {
     ) -> Result<Option<Rejection>, NativeError> {
         let mut next = self.state.clone();
         let mut frame = Frame {
+            read_only: true,
             profile: &self.profile,
             profile_digest: self.profile_digest,
             state: &mut next,
@@ -390,6 +403,7 @@ impl NativeWorld {
             events: vec![],
             draws: vec![],
             receipts: BTreeMap::new(),
+            source_inside_alive_unit: false,
             moved: false,
             cast_inputs: BTreeMap::new(),
             movement_origin: self.state.position,
@@ -408,8 +422,7 @@ impl NativeWorld {
         giver: NpcId,
         authority: &mut impl Authority,
     ) -> Result<bool, NativeError> {
-        let g = self
-            .profile
+        self.profile
             .quest_progression
             .as_ref()
             .ok_or(NativeError::UnsupportedMechanic(
@@ -425,16 +438,9 @@ impl NativeWorld {
             .profile
             .npc(giver.spawn)
             .ok_or(NativeError::InvalidState)?;
-        let row = g
-            .npc_rows
-            .get(&profile.entry)
-            .ok_or(NativeError::UnsupportedMechanic(
-                "unresolved NPC dialog flags",
-            ))?;
-        // Creature::SetDeathState(JUST_DIED) clears current UNIT_NPC_FLAGS;
-        // revival restores template flags. Generic CanInteract reads current flags.
-        let npc_flags = if npc.health == 0 { 0 } else { row.npc_flags };
-        if npc_flags == 0 || row.unit_flags & 0x0200_0000 != 0 {
+        let (npc_flags, unit_flags) =
+            interactions::current_npc_flags(&self.profile, &self.state, npc)?;
+        if npc_flags == 0 || unit_flags & 0x0200_0000 != 0 {
             return Ok(false);
         }
         // The native death state stops at Corpse and cannot enter ghost state.
@@ -448,15 +454,35 @@ impl NativeWorld {
                 npc: Some(giver),
             },
             query: Query::QuestStatus {
+                witness: interactions::witness(
+                    self.profile_digest,
+                    &self.state,
+                    InteractionMoment::ReadOnly,
+                )?,
                 player_position: self.state.position,
                 npc_position: npc.ai.position(),
                 npc_entry: profile.entry,
                 npc_flags,
-                unit_flags: row.unit_flags,
+                unit_flags,
                 player_ghost: false,
             },
         };
-        let reply = authority.resolve(&request)?;
+        let reply = if let Some(facts) = interactions::resolve(
+            &self.profile,
+            self.profile_digest,
+            &self.state,
+            &request,
+            InteractionMoment::ReadOnly,
+        )? {
+            let reply = AuthorityReply {
+                request: request.clone(),
+                facts,
+            };
+            authority.observe_derived(&reply)?;
+            reply
+        } else {
+            authority.resolve(&request)?
+        };
         if reply.request != request {
             return Err(NativeError::AuthorityBinding);
         }

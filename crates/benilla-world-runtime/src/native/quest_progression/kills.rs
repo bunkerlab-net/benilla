@@ -222,6 +222,7 @@ impl QuestProgressionState {
         )?;
         let abilities = g.resolve_abilities(&tx.host.progression.training, tx.state.view())?;
         let mut next = Self {
+            reputation: self.reputation.clone(),
             inventory: self.inventory.clone(),
             inventory_receipts: self.inventory_receipts.clone(),
             loot_target: self.loot_target,

@@ -205,7 +205,19 @@ fn menu_icon(
             });
         }
     } else if relation(w, entry, quest, false)?
-        && q::can_take_view(g.quest_catalog(), view, identity(w, level)?, quest).is_ok()
+        && q::can_take_view_with_reputation(
+            g.quest_catalog(),
+            view,
+            identity(w, level)?,
+            quest,
+            |faction| {
+                state(w)
+                    .map_err(|_| q::Error::Host("native reputation state"))?
+                    .reputation(g, faction)
+                    .map_err(|_| q::Error::Host("native reputation query"))
+            },
+        )
+        .is_ok()
     {
         return Ok(p::dialog_status::AVAILABLE);
     }
@@ -234,7 +246,19 @@ fn marker_icon(
         return Ok(p::dialog_status::NONE);
     }
     if !relation(w, entry, quest, false)?
-        || q::can_see_start_view(g.quest_catalog(), view, identity(w, level)?, quest).is_err()
+        || q::can_see_start_view_with_reputation(
+            g.quest_catalog(),
+            view,
+            identity(w, level)?,
+            quest,
+            |faction| {
+                state(w)
+                    .map_err(|_| q::Error::Host("native reputation state"))?
+                    .reputation(g, faction)
+                    .map_err(|_| q::Error::Host("native reputation query"))
+            },
+        )
+        .is_err()
     {
         return Ok(p::dialog_status::NONE);
     }
@@ -914,6 +938,9 @@ impl NativeProjection {
     ) -> Result<Vec<SessionEvent>, Error> {
         let mut events = vec![];
         match event {
+            n::QuestProgressionEvent::Reputation(event) => {
+                events.extend(reputation_event(event)?);
+            }
             n::QuestProgressionEvent::RewardItem(stored) => {
                 events.extend(inventory_frame.reward_item(self, w, stored)?);
             }
@@ -1085,3 +1112,42 @@ impl NativeProjection {
 #[cfg(test)]
 #[path = "native_quests_tests.rs"]
 pub(super) mod tests;
+
+fn reputation_event(event: &benilla_sim::reputation::Event) -> Result<Vec<SessionEvent>, Error> {
+    use benilla_sim::reputation::Event;
+    Ok(match event {
+        Event::Visible { list_id } => vec![SessionEvent::ReputationVisible { list_id: *list_id }],
+        Event::StateSent { standings } => vec![SessionEvent::ReputationDelta {
+            standings: standings.clone(),
+        }],
+        Event::ReputationChanged { .. } => vec![],
+        Event::InitialSent { factions } => vec![initial_reputation(factions.iter())?],
+    })
+}
+fn initial_reputation<'a>(
+    factions: impl Iterator<Item = &'a benilla_sim::reputation::FactionState>,
+) -> Result<SessionEvent, Error> {
+    let mut standings = vec![(0, 0); 64];
+    for faction in factions {
+        let entry = standings
+            .get_mut(faction.reputation_list_id as usize)
+            .ok_or(Error::Unrepresentable)?;
+        // Source serializes uint8(Flags), including the byte-width conversion.
+        *entry = (faction.flags as u8, faction.standing);
+    }
+    Ok(SessionEvent::Reputations { standings })
+}
+impl NativeProjection {
+    pub(super) fn initial_reputations(
+        &self,
+        w: &n::NativeWorld,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        w.state()
+            .quest_progression
+            .as_ref()
+            .and_then(|q| q.reputation.as_ref())
+            .map(|r| initial_reputation(r.view().factions().values()).map(|e| vec![e]))
+            .transpose()
+            .map(Option::unwrap_or_default)
+    }
+}

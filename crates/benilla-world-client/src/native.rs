@@ -8,6 +8,8 @@ use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
 use std::collections::{BTreeMap, BTreeSet};
 #[path = "native_loot.rs"]
 mod loot;
+#[path = "native_motion.rs"]
+mod motion;
 #[path = "native_quests.rs"]
 mod quests;
 
@@ -221,7 +223,51 @@ impl NativeProjection {
         destination: ai::Point,
     ) -> Result<n::OwnedInput, Error> {
         self.check(w)?;
+        if w.profile().source_motion.is_some() {
+            return Err(Error::UnsupportedCommand);
+        }
         Ok(self.input(w, n::Command::Move { destination }))
+    }
+    /// A sequenced pose shares the runtime's atomic movement/turn validation.
+    pub fn pose(
+        &self,
+        w: &n::NativeWorld,
+        destination: ai::Point,
+        orientation: n::Orientation,
+    ) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        if w.profile().source_motion.is_some() {
+            return Err(Error::UnsupportedCommand);
+        }
+        Ok(self.input(
+            w,
+            n::Command::Pose {
+                destination,
+                orientation,
+            },
+        ))
+    }
+    /// Source motion requires the actual sequenced ground flags; position deltas
+    /// cannot distinguish walking, running, stationary turning, or a stop.
+    pub fn movement_pose(
+        &self,
+        w: &n::NativeWorld,
+        destination: ai::Point,
+        orientation: n::Orientation,
+        movement_flags: benilla_sim::creature_motion::GroundMovementFlags,
+    ) -> Result<n::OwnedInput, Error> {
+        self.check(w)?;
+        if w.profile().source_motion.is_none() {
+            return Err(Error::UnsupportedCommand);
+        }
+        Ok(self.input(
+            w,
+            n::Command::MovementPose {
+                destination,
+                orientation,
+                movement_flags,
+            },
+        ))
     }
     fn input(&self, w: &n::NativeWorld, command: n::Command) -> n::OwnedInput {
         n::OwnedInput {
@@ -466,14 +512,21 @@ impl NativeProjection {
                 guid,
                 kind: EntityKind::Unit,
                 display_id: Some(profile.display_id),
-                position: point(npc.ai.position()),
-                orientation: 0.0,
+                position: point(
+                    npc.source_motion
+                        .as_ref()
+                        .map_or(npc.ai.position(), |source| source.motion.pose().position),
+                ),
+                orientation: npc
+                    .source_motion
+                    .as_ref()
+                    .map_or(0.0, |source| source.motion.pose().orientation.as_f32()),
                 scale: 1.0,
                 speeds: None,
                 mover: None,
                 transport_progress: None,
                 transport: None,
-                spline: None,
+                spline: motion::create_spline(npc)?,
                 fields: fields.into_created(p::ObjectType::Unit),
             },
         ])
@@ -511,7 +564,13 @@ impl NativeProjection {
         }
         events.extend(self.equipment_events(w, true)?);
         events.extend(self.initial_inventory(w));
+        events.extend(self.initial_reputations(w)?);
         events.push(self.player_values(w));
+        events.push(SessionEvent::ObjectMove {
+            guid: self.player_guid,
+            position: point(w.state().position),
+            orientation: w.state().orientation.as_f32(),
+        });
         events.extend(self.initial_loot_window(w)?);
         if w.state()
             .combat
@@ -590,10 +649,18 @@ impl NativeProjection {
             return Err(Error::StaleProjection);
         }
         let next = self.guids(w)?;
+        let mut source_frame = if w.profile().source_motion.is_some() {
+            Some(motion::Frame::new(&self.npcs, &self.previous, w)?)
+        } else {
+            None
+        };
         let mut events = vec![];
-        for (id, guid) in &self.npcs {
-            if !next.contains_key(id) {
-                events.push(SessionEvent::ObjectDestroyed(*guid));
+        let mut source_values = vec![];
+        if source_frame.is_none() {
+            for (id, guid) in &self.npcs {
+                if !next.contains_key(id) {
+                    events.push(SessionEvent::ObjectDestroyed(*guid));
+                }
             }
         }
         for npc in w
@@ -608,7 +675,7 @@ impl NativeProjection {
                 .get(&npc.id.spawn)
                 .filter(|n| n.id == npc.id && self.npcs.contains_key(&n.id))
             {
-                if old.ai.position() != npc.ai.position() {
+                if npc.source_motion.is_none() && old.ai.position() != npc.ai.position() {
                     events.push(SessionEvent::MonsterMove {
                         guid: next[&npc.id],
                         transport: None,
@@ -623,12 +690,19 @@ impl NativeProjection {
                     });
                 }
                 if old != npc {
-                    events.push(SessionEvent::ObjectValues {
+                    let values = SessionEvent::ObjectValues {
                         guid: next[&npc.id],
                         fields: self.npc_fields(w, npc)?,
-                    });
+                    };
+                    if source_frame.is_some() {
+                        // Map::Update sends accumulated values after creature
+                        // callbacks. Only final represented survivors enter here.
+                        source_values.push(values);
+                    } else {
+                        events.push(values);
+                    }
                 }
-            } else {
+            } else if source_frame.is_none() {
                 events.extend(self.create(w, npc)?);
             }
         }
@@ -650,16 +724,14 @@ impl NativeProjection {
         for event in &record.events {
             // HandleQuestgiverAcceptQuest closes gossip after AddQuest and
             // CompleteQuest callbacks, before the next input or world update.
-            if accepted_quest_pending_close
-                && !matches!(
-                    event,
-                    n::Event::QuestProgression(n::QuestProgressionEvent::Quest { .. })
-                )
-            {
+            if accepted_quest_pending_close && !matches!(event, n::Event::QuestProgression(_)) {
                 events.push(SessionEvent::GossipComplete);
                 accepted_quest_pending_close = false;
             }
             let target_guid = |id: &NpcId| {
+                if let Some(frame) = &source_frame {
+                    return frame.guid(id);
+                }
                 next.get(id)
                     .or_else(|| self.npcs.get(id))
                     .copied()
@@ -702,10 +774,10 @@ impl NativeProjection {
                 n::Event::Rejected(r) => events.push(SessionEvent::Notification {
                     text: format!("Native action rejected: {r:?}"),
                 }),
-                n::Event::PlayerMoved(position) => events.push(SessionEvent::ObjectMove {
+                n::Event::PlayerPose { position, orientation } => events.push(SessionEvent::ObjectMove {
                     guid: self.player_guid,
                     position: point(*position),
-                    orientation: 0.0,
+                    orientation: orientation.as_f32(),
                 }),
                 n::Event::Spell {
                     cast_id,
@@ -796,7 +868,7 @@ impl NativeProjection {
                             blocked: 0,
                             hit_info: if *critical { 2 } else { 0 },
                         })),
-                        spell::SpellEvent::PeriodicDamage { amount, .. } => {
+                        spell::SpellEvent::PeriodicDamage { amount, absorb, resist, .. } => {
                             events.push(SessionEvent::PeriodicAuraLog(p::PeriodicAuraLog {
                                 target: guid.ok_or(Error::UnknownTarget)?,
                                 caster: self.player_guid,
@@ -804,8 +876,8 @@ impl NativeProjection {
                                 ticks: vec![p::PeriodicTick::Damage {
                                     amount: *amount,
                                     school: u32::from(school),
-                                    absorb: 0,
-                                    resist: 0,
+                                    absorb: *absorb,
+                                    resist: *resist,
                                 }],
                             }))
                         }
@@ -818,7 +890,22 @@ impl NativeProjection {
                         _ => {}
                     }
                 }
+                n::Event::NpcMotion { id, event } => {
+                    let frame = source_frame.as_ref().ok_or(Error::StaleProjection)?;
+                    events.extend(motion::project(*id, event, self.player_guid, frame.represented())?);
+                }
                 n::Event::Npc { id, effect } => match effect {
+                    ai::Effect::CorpseRemoved if source_frame.is_some() => {
+                        events.push(source_frame.as_mut().unwrap().remove(*id)?);
+                    }
+                    ai::Effect::Respawned { .. } if source_frame.is_some() => {
+                        let npc = w.state().npcs.get(&id.spawn)
+                            .filter(|npc| npc.id == *id && npc.ai.phase() != ai::Phase::Despawned)
+                            .ok_or(Error::StaleProjection)?;
+                        let guid = *next.get(id).ok_or(Error::StaleProjection)?;
+                        source_frame.as_mut().unwrap().spawn(*id, guid)?;
+                        events.extend(self.create(w, npc)?);
+                    }
                     ai::Effect::CombatStarted { .. } => {
                         attack_stopped.remove(id);
                         let guid = target_guid(id)?;
@@ -860,9 +947,13 @@ impl NativeProjection {
         if accepted_quest_pending_close {
             events.push(SessionEvent::GossipComplete);
         }
+        if let Some(frame) = &source_frame {
+            frame.finish(&next)?;
+        }
         quest_frame.finish(w)?;
         loot_frame.validate_final(w)?;
         events.extend(loot_frame.finish(self, w));
+        events.extend(source_values);
         events.push(self.player_values(w));
         self.previous = w.state().clone();
         self.previous_digest = record.after;
@@ -1096,6 +1187,23 @@ mod stale_target_tests {
         assert!(all
             .iter()
             .any(|e| matches!(e, SessionEvent::ObjectDestroyed(_))));
+        // Source SpellEvent does not poll a traveling target every map frame.
+        // The stale generation is resolved on the original flight deadline.
+        assert!(!all.iter().any(|e| matches!(
+            e,
+            SessionEvent::SpellFailedOther {
+                spell_id: 60001,
+                ..
+            }
+        )));
+        let spell::CastState::Traveling { impact_at_ms } = w.state().casts[&1].execution.state()
+        else {
+            panic!()
+        };
+        while w.state().now_ms < impact_at_ms {
+            w.step(w.state().tick + 1, None, &mut a).unwrap();
+            all.extend(p.advance(&w).unwrap());
+        }
         assert!(all.iter().any(|e| matches!(
             e,
             SessionEvent::SpellFailedOther {
@@ -1340,3 +1448,73 @@ mod death_stop_tests {
         assert_eq!(stops.get(&b_guid), Some(&1));
     }
 }
+
+#[cfg(test)]
+mod pose_projection_tests {
+    use super::*;
+    use n::synthetic_fixture as fixture;
+
+    #[test]
+    fn initial_and_ordered_pose_projection_use_bound_orientation() {
+        let mut profile = fixture::profile();
+        profile.player.orientation = n::Orientation::new(0.25).unwrap();
+        let mut world =
+            n::NativeWorld::synthetic_component_test(profile, [8; 16], fixture::player(), 7)
+                .unwrap();
+        let mut projection =
+            NativeProjection::new(&world, world.state().player, &super::tests::Catalog).unwrap();
+        assert!(projection.initial_events(&world).unwrap().iter().any(|e| matches!(e,
+            SessionEvent::ObjectMove { guid, orientation, .. } if *guid == projection.player_guid() && *orientation == 0.25)));
+        let position = world.state().position;
+        let first = projection
+            .pose(&world, position, n::Orientation::new(1.0).unwrap())
+            .unwrap();
+        let mut cast = projection
+            .local(
+                &world,
+                UiRequest::CastAtNpc {
+                    ability: 60001,
+                    target: NpcHandle {
+                        id: world.state().npcs[&2].id,
+                    },
+                },
+            )
+            .unwrap();
+        cast.input.sequence += 1;
+        let mut last = projection
+            .pose(&world, position, n::Orientation::new(2.0).unwrap())
+            .unwrap();
+        last.input.sequence += 2;
+        world
+            .step_batch(
+                1,
+                vec![first, cast, last],
+                &mut fixture::SyntheticAuthority::default(),
+            )
+            .unwrap();
+        let events = projection.advance(&world).unwrap();
+        let ordered: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                SessionEvent::ObjectMove {
+                    guid, orientation, ..
+                } if *guid == projection.player_guid() => Some(*orientation),
+                SessionEvent::SpellStart { .. } => Some(-1.0),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ordered, vec![1.0, -1.0, 2.0]);
+        let input = projection.move_to(&world, fixture::point(1.0)).unwrap();
+        world
+            .step(2, Some(input), &mut fixture::SyntheticAuthority::default())
+            .unwrap();
+        let events = projection.advance(&world).unwrap();
+        assert!(events.iter().any(
+            |e| matches!(e, SessionEvent::ObjectMove { guid, orientation, .. }
+            if *guid == projection.player_guid() && *orientation == 2.0)
+        ));
+    }
+}
+#[cfg(test)]
+#[path = "native_regeneration_tests.rs"]
+mod regeneration_tests;

@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v8\0", self)
+        crate::digest(b"benilla-native-record-v9\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +34,8 @@ struct CastState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NpcState {
+    source_motion: Option<NpcMotionSnapshot>,
+    regen_elapsed_ms: u32,
     original_loot_recipient: Option<crate::PlayerId>,
     corpse_loot: Option<CorpseLoot>,
     aura_bindings: BTreeMap<u32, ExecutionBinding>,
@@ -45,6 +47,8 @@ struct NpcState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StateCheckpoint {
+    player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
+    player_events: player_events::PlayerEventsSnapshot,
     quest_progression: Option<quest_progression::QuestProgressionSnapshot>,
     version: u32,
     policy: String,
@@ -58,6 +62,7 @@ pub(super) struct StateCheckpoint {
     now_ms: u64,
     next_sequence: u64,
     position: ai::Point,
+    orientation: Orientation,
     health: u32,
     resources: spell::ResourceCheckpoint,
     regen_elapsed_ms: u32,
@@ -141,10 +146,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v8\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v9\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v8\0",
+                    b"benilla-native-checkpoint-v9\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -154,77 +159,85 @@ impl Checkpoint {
         Ok(s)
     }
 }
+pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> StateCheckpoint {
+    StateCheckpoint {
+        player_movement_flags: state.player_movement_flags,
+        player_events: state.player_events.snapshot(),
+        quest_progression: state
+            .quest_progression
+            .as_ref()
+            .map(QuestProgressionState::snapshot),
+        version: NATIVE_FORMAT_VERSION,
+        policy: NATIVE_POLICY.into(),
+        rng_policy: RNG_POLICY.into(),
+        profile: profile_digest,
+        domain: state.domain,
+        world: state.world,
+        player: state.player,
+        seed: state.seed,
+        tick: state.tick,
+        now_ms: state.now_ms,
+        next_sequence: state.next_sequence,
+        position: state.position,
+        orientation: state.orientation,
+        health: state.health,
+        resources: state.resources.caster.checkpoint(),
+        regen_elapsed_ms: state.resources.regen_elapsed_ms(),
+        last_mana_use_timer_ms: state.resources.last_mana_use_timer_ms(),
+        npcs: state
+            .npcs
+            .iter()
+            .map(|(&id, n)| {
+                (
+                    id,
+                    NpcState {
+                        source_motion: n.source_motion.as_ref().map(NpcMotion::snapshot),
+                        regen_elapsed_ms: n.regen_elapsed_ms,
+                        original_loot_recipient: n.original_loot_recipient,
+                        corpse_loot: n.corpse_loot.clone(),
+                        aura_bindings: n.aura_bindings.clone(),
+                        id: n.id,
+                        health: n.health,
+                        ai: n.ai.checkpoint(),
+                        auras: n
+                            .auras
+                            .iter()
+                            .map(|(&spell, a)| {
+                                let mut a = a.clone();
+                                a.health = n.health;
+                                (spell, a.checkpoint())
+                            })
+                            .collect(),
+                    },
+                )
+            })
+            .collect(),
+        casts: state
+            .casts
+            .iter()
+            .map(|(&id, c)| {
+                (
+                    id,
+                    CastState {
+                        binding: c.binding.clone(),
+                        release_binding: c.release_binding.clone(),
+                        id: c.id,
+                        ability: c.ability,
+                        target: c.target,
+                        origin: c.origin,
+                        execution: c.execution.checkpoint(),
+                    },
+                )
+            })
+            .collect(),
+        next_cast_id: state.next_cast_id,
+        rng_counter: state.rng_counter,
+        combat: state.combat.as_ref().map(PlayerCombatState::snapshot),
+    }
+}
 impl NativeWorld {
     pub(super) fn snapshot_of(&self, state: &State) -> StateCheckpoint {
-        StateCheckpoint {
-            quest_progression: state
-                .quest_progression
-                .as_ref()
-                .map(QuestProgressionState::snapshot),
-            version: NATIVE_FORMAT_VERSION,
-            policy: NATIVE_POLICY.into(),
-            rng_policy: RNG_POLICY.into(),
-            profile: self.profile_digest,
-            domain: state.domain,
-            world: state.world,
-            player: state.player,
-            seed: state.seed,
-            tick: state.tick,
-            now_ms: state.now_ms,
-            next_sequence: state.next_sequence,
-            position: state.position,
-            health: state.health,
-            resources: state.resources.caster.checkpoint(),
-            regen_elapsed_ms: state.resources.regen_elapsed_ms(),
-            last_mana_use_timer_ms: state.resources.last_mana_use_timer_ms(),
-            npcs: state
-                .npcs
-                .iter()
-                .map(|(&id, n)| {
-                    (
-                        id,
-                        NpcState {
-                            original_loot_recipient: n.original_loot_recipient,
-                            corpse_loot: n.corpse_loot.clone(),
-                            aura_bindings: n.aura_bindings.clone(),
-                            id: n.id,
-                            health: n.health,
-                            ai: n.ai.checkpoint(),
-                            auras: n
-                                .auras
-                                .iter()
-                                .map(|(&spell, a)| {
-                                    let mut a = a.clone();
-                                    a.health = n.health;
-                                    (spell, a.checkpoint())
-                                })
-                                .collect(),
-                        },
-                    )
-                })
-                .collect(),
-            casts: state
-                .casts
-                .iter()
-                .map(|(&id, c)| {
-                    (
-                        id,
-                        CastState {
-                            binding: c.binding.clone(),
-                            release_binding: c.release_binding.clone(),
-                            id: c.id,
-                            ability: c.ability,
-                            target: c.target,
-                            origin: c.origin,
-                            execution: c.execution.checkpoint(),
-                        },
-                    )
-                })
-                .collect(),
-            next_cast_id: state.next_cast_id,
-            rng_counter: state.rng_counter,
-            combat: state.combat.as_ref().map(PlayerCombatState::snapshot),
-        }
+        snapshot_state(self.profile_digest, state)
     }
     pub(super) fn checkpoint_state(&self) -> StateCheckpoint {
         self.snapshot_of(&self.state)
@@ -238,7 +251,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v8\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v9\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -248,7 +261,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v8\0",
+            b"benilla-native-checkpoint-v9\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -271,10 +284,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v8\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v9\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v8\0",
+                    b"benilla-native-checkpoint-v9\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -300,6 +313,7 @@ impl NativeWorld {
                     .ok_or(NativeError::InvalidCheckpoint)?
             || s.rng_counter > s.tick.saturating_mul(MAX_RNG_WORDS_PER_TICK)
             || s.next_sequence > s.tick.saturating_mul(MAX_INPUTS_PER_TICK as u64)
+            || (s.next_sequence == 0 && s.orientation != profile.player.orientation)
             || s.health
                 > s.combat
                     .as_ref()
@@ -395,6 +409,12 @@ impl NativeWorld {
             let p = profile.npc(id).ok_or(NativeError::InvalidCheckpoint)?;
             if n.id.spawn != id
                 || n.id.generation > s.tick
+                || n.regen_elapsed_ms >= benilla_sim::creature_regeneration::REGEN_INTERVAL_MS
+                || u64::from(n.regen_elapsed_ms) > s.tick.saturating_mul(u64::from(profile.tick_ms))
+                || !n.regen_elapsed_ms.is_multiple_of(gcd(
+                    profile.tick_ms,
+                    benilla_sim::creature_regeneration::REGEN_INTERVAL_MS,
+                ))
                 || n.health > p.max_health
                 || n.auras.len() > MAX_AURAS
                 || n.auras.keys().ne(n.aura_bindings.keys())
@@ -403,6 +423,9 @@ impl NativeWorld {
             }
             let ai = ai::SoloCreatureAi::restore(n.ai, p.ai.clone(), s.now_ms, s.tick, SOLO_UNIT)?;
             ai.validate_fixed_step(profile.tick_ms)?;
+            if profile.source_motion.is_none() && ai.has_pre_unit_death() {
+                return Err(NativeError::InvalidCheckpoint);
+            }
             if (n.health == 0) != matches!(ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned) {
                 return Err(NativeError::InvalidCheckpoint);
             }
@@ -444,9 +467,18 @@ impl NativeWorld {
                 }
                 auras.insert(ability, target);
             }
+            if n.source_motion.is_some() != profile.source_motion.is_some() {
+                return Err(NativeError::InvalidCheckpoint);
+            }
+            let source_motion = n
+                .source_motion
+                .map(|m| NpcMotion::restore(m, &profile, &ai, s.now_ms))
+                .transpose()?;
             npcs.insert(
                 id,
                 Npc {
+                    source_motion,
+                    regen_elapsed_ms: n.regen_elapsed_ms,
                     original_loot_recipient: n.original_loot_recipient,
                     corpse_loot: n.corpse_loot,
                     id: n.id,
@@ -484,6 +516,7 @@ impl NativeWorld {
                 }
             }
         }
+        let player_events = PlayerEvents::restore(s.player_events)?;
         let mut casts = BTreeMap::new();
         for (id, c) in s.casts {
             c.binding
@@ -510,11 +543,16 @@ impl NativeWorld {
                     released.release_context(&c.binding)
                 })
                 .transpose()?;
-            let execution = spell::MageProjectileCast::restore_with_release(
+            let callback_ms = player_events
+                .spell_lifetime(id)
+                .and_then(|l| l.last_callback_ms)
+                .ok_or(NativeError::InvalidCheckpoint)?;
+            let execution = spell::MageProjectileCast::restore_scheduled_with_release(
                 c.execution,
                 spec.clone(),
                 release_context,
                 s.now_ms,
+                callback_ms,
             )
             .map_err(|_| NativeError::InvalidCheckpoint)?;
             match (execution.state(), &c.release_binding) {
@@ -594,7 +632,12 @@ impl NativeWorld {
                 return Err(NativeError::InvalidCheckpoint);
             }
         }
+        if s.player_movement_flags.is_some() != profile.source_motion.is_some() {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         let state = State {
+            player_movement_flags: s.player_movement_flags,
+            player_events,
             quest_progression,
             domain: s.domain,
             world: s.world,
@@ -604,6 +647,7 @@ impl NativeWorld {
             now_ms: s.now_ms,
             next_sequence: s.next_sequence,
             position: s.position,
+            orientation: s.orientation,
             health: s.health,
             resources,
             npcs,
@@ -612,6 +656,7 @@ impl NativeWorld {
             rng_counter: s.rng_counter,
             combat,
         };
+        state.player_events.validate(&state, &profile)?;
         let result = Self {
             profile_digest: profile.digest(),
             profile,
@@ -673,6 +718,13 @@ struct ReplayAuthority<'a> {
     index: usize,
 }
 impl Authority for ReplayAuthority<'_> {
+    fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
+        if self.replies.get(self.index) != Some(reply) {
+            return Err(NativeError::ReplayMismatch);
+        }
+        self.index += 1;
+        Ok(())
+    }
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let r = self
             .replies
@@ -683,4 +735,12 @@ impl Authority for ReplayAuthority<'_> {
         self.index += 1;
         Ok(r)
     }
+}
+
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }

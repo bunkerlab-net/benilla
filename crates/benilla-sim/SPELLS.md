@@ -258,3 +258,21 @@ immutable metadata, prepared timer/pushback/GCD, changed-context replay,
 independent witness validation, zero/positive mana marker changes, early/flight
 rebinding refusal, bad dice and no-RNG failed release. The fixture is newly
 regenerated evidence, not byte-for-byte recovery of a historical fixture.
+
+## Timed creature evade and periodic accounting
+
+The periodic execution policy v3 retains explicit amount/effective/absorb/resist
+in periodic events. `DamageTarget::update_aura_with_evade` distinguishes ordinary
+school immunity from the source DealDamageMods evade branch: timed/home evade
+adds current damage to prior absorb, applies the existing signed-resist order,
+and logs zero effective damage in the admitted no-resistance/no-shield domain.
+Aura timers continue; actual EnterEvadeMode separately removes ordinary auras.
+The older `update_aura` entrypoint retains its explicit non-evading precondition.
+See [the source ordering, remaining callback exclusions and oracle](CREATURE-REGENERATION.md#timed-evade-damage-ordering).
+
+Cast checkpoints are version 3 and target/aura checkpoints version 2; executable
+cast/target DTOs also require the exact spell execution policy string. Old
+versions, missing/old policy strings and old periodic events without absorb/resist
+are rejected. Resource-only checkpoints remain version 1 because their semantics
+are unchanged. Native profile digests bind this spell policy, and state/history
+checkpoints bind that profile; prior worlds are not silently reinterpreted.

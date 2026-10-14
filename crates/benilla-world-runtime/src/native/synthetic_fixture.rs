@@ -52,6 +52,8 @@ pub fn profile() -> Profile {
         damage_pushback: true,
     };
     Profile {
+        source_motion: None,
+        interactions: None,
         quest_progression: None,
         combat: None,
         content_digest: [3; 32],
@@ -62,6 +64,7 @@ pub fn profile() -> Profile {
         map_id: 7,
         player: PlayerProfile {
             start: point(0.0),
+            orientation: Orientation::ZERO,
             level: 1,
             max_health: 100,
             max_mana: 100,
@@ -94,6 +97,16 @@ pub fn profile() -> Profile {
             },
         ],
         npcs: vec![NpcProfile {
+            health_regeneration: benilla_sim::creature_regeneration::Policy {
+                kind: benilla_sim::creature_regeneration::CreatureKind::Ordinary,
+                regenerate_stats: 2,
+                creature_type_flags: 0,
+                unit_flags: 0,
+                power: benilla_sim::creature_regeneration::PowerEvidence::Known {
+                    power_type: 0,
+                    max_power: 0,
+                },
+            },
             combat: None,
             ai: ai::Profile {
                 creature_id: 2,
@@ -156,6 +169,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::SourceMotion(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "legacy authored fixture has no source motion evidence",
+                ))
+            }
             Query::LootInteraction { .. } => {
                 return Err(NativeError::AuthorityUnavailable(
                     "synthetic fixture has no loot facts",

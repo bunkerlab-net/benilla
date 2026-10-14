@@ -179,7 +179,7 @@ impl Host for Ledger {
     fn apply(&mut self, effect: &HostEffect) -> Result<(), Error> {
         match *effect {
             HostEffect::StoreRewardItem { .. } => {
-                return Err(Error::Unsupported("fixture reward items"))
+                return Err(Error::Unsupported("fixture reward items"));
             }
             HostEffect::DestroyCarriedStack { item, count } => {
                 *self.carried.get_mut(&item).ok_or(Error::Host("item"))? -= count
@@ -216,6 +216,7 @@ fn event(e: &Event) -> String {
             added,
         } => format!("item:{quest}:{objective}:{previous}:{added}"),
         Event::RemoveTimedQuest(id) => format!("timed:{id}"),
+        Event::ReputationVisible(faction) => format!("visible:{faction}"),
         Event::RewardReputation(id) => format!("rep:{id}"),
         Event::Host(HostEffect::DestroyCarriedStack { item, count }) => {
             format!("destroy:{item}:{count}")
@@ -540,7 +541,7 @@ fn reject_missing_dependencies_unknown_effects_and_corrupt_snapshots() {
         let mut q = q.clone();
         match field {
             0 => q.excluded.reward_item[0] = 2,
-            1 => q.excluded.reward_rep_value[0] = 5,
+            1 => q.excluded.reward_spell = 5,
             2 => q.excluded.complete_script = 3,
             3 => q.special_flags |= 1,
             _ => q.excluded.exclusive_group = -1,
@@ -900,3 +901,6 @@ fn source_visible_start_omits_take_status_and_level_gates() {
         Err(Error::Rejected(Gate::AlreadyTaken))
     );
 }
+
+#[path = "quest_lifecycle/reputation.rs"]
+mod reputation;

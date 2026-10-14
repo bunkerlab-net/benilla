@@ -60,9 +60,50 @@ pub enum BlockReason {
     StaleContent,
     StaleRequest,
 }
+/// Opaque proof emitted only by the source motion kernel after a completed
+/// transactional update. It cannot be constructed, serialized or deserialized
+/// by a geometry adapter, network peer or checkpoint loader.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceMotion {
+    pub(crate) position: Point,
+    pub(crate) relocated: bool,
+    pub(crate) home_arrived: bool,
+    pub(crate) reachable: Option<bool>,
+    pub(crate) moving_and_running: bool,
+    pub(crate) last_move_ms: u64,
+    pub(crate) now_ms: u64,
+    pub(crate) stationary_melee_refresh_eligible: bool,
+    pub(crate) target_moving_and_running: bool,
+}
+impl SourceMotion {
+    pub fn position(&self) -> Point {
+        self.position
+    }
+    pub fn relocated(&self) -> bool {
+        self.relocated
+    }
+    pub fn home_arrived(&self) -> bool {
+        self.home_arrived
+    }
+    pub fn reachable(&self) -> Option<bool> {
+        self.reachable
+    }
+    pub fn moving_and_running(&self) -> bool {
+        self.moving_and_running
+    }
+    pub fn last_move_ms(&self) -> u64 {
+        self.last_move_ms
+    }
+    pub fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum MovementResult {
+    /// Internal completed source-spline update; never an Authority outcome.
+    #[serde(skip)]
+    SourceSpline(SourceMotion),
     /// Position is computed by the authority's continuous movement solver. `travelled`
     /// is total path length this interval, including every bend/height adjustment.
     Progress {
@@ -124,6 +165,9 @@ pub fn resolve_movement(
         return Err(AiError::Invalid("movement request"));
     }
     let outcome = authority.resolve(&request)?;
+    if matches!(outcome.result, MovementResult::SourceSpline(_)) {
+        return Err(AiError::Invalid("external source motion token"));
+    }
     if outcome.request_id != request.request_id {
         return Err(AiError::Movement(BlockReason::StaleRequest));
     }

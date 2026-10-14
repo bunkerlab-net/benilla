@@ -247,6 +247,8 @@ fn prepare_cast_travel_and_periodic_are_real_state_transitions() {
         assert_eq!(
             events[0],
             SpellEvent::PeriodicDamage {
+                absorb: 0,
+                resist: 0,
                 amount: 2,
                 effective: 2,
                 tick: tick as u32
@@ -433,6 +435,8 @@ fn periodic_immunity_consumes_tick_and_death_cleans_up() {
         events,
         vec![
             SpellEvent::PeriodicDamage {
+                absorb: 0,
+                resist: 0,
                 amount: 2,
                 effective: 1,
                 tick: 2
@@ -627,4 +631,184 @@ fn current_impact_rank_changes_periodic_value_but_not_committed_direct_payload()
         .is_err());
     assert_eq!(cast, before);
     assert_eq!(b, target_before);
+}
+
+#[test]
+fn source_periodic_evade_accounting_preserves_prior_absorb_and_resist_order() {
+    let mut count = 0;
+    for line in include_str!("fixtures/periodic_evade.tsv").lines() {
+        let v: Vec<i64> = line.split('\t').map(|n| n.parse().unwrap()).collect();
+        let result =
+            periodic_damage_after_evade_mods(v[0] as u32, v[1] as u32, v[2] as i32, v[3] != 0)
+                .unwrap();
+        assert_eq!(
+            (result.amount, result.absorb, result.resist),
+            (v[4] as u32, v[5] as u32, v[2] as i32),
+            "{line}"
+        );
+        assert_eq!(v[6], if v[3] != 0 { 0 } else { 12 });
+        count += 1;
+    }
+    assert_eq!(count, 120);
+}
+#[test]
+fn timed_evade_absorbs_but_keeps_aura_clock_and_school_immunity_precedes_it() {
+    let (mut cast, _) = flying();
+    let mut target = DamageTarget::new(2, 100).unwrap();
+    cast.impact(2000, &mut target, true, false, [None; 3])
+        .unwrap();
+    target.health = 1; // Would be lethal if the tick reached ModifyHealth.
+    let events = target
+        .update_aura_with_evade(3000, 1000, false, true)
+        .unwrap();
+    assert_eq!(
+        events,
+        vec![SpellEvent::PeriodicDamage {
+            amount: 0,
+            effective: 0,
+            absorb: 2,
+            resist: 0,
+            tick: 1
+        }]
+    );
+    assert_eq!(target.health, 1);
+    assert_eq!(target.aura().unwrap().ticks, 1);
+    assert_eq!(target.aura().unwrap().duration_ms, 3000);
+    assert_eq!(
+        target
+            .update_aura_with_evade(4000, 1000, true, true)
+            .unwrap(),
+        vec![SpellEvent::Immune]
+    );
+    assert_eq!(target.aura().unwrap().ticks, 2);
+    let events = target
+        .update_aura_with_evade(5000, 1000, false, false)
+        .unwrap();
+    assert!(matches!(
+        events[0],
+        SpellEvent::PeriodicDamage {
+            amount: 2,
+            effective: 1,
+            absorb: 0,
+            resist: 0,
+            tick: 3
+        }
+    ));
+    assert_eq!(target.health, 0);
+    assert!(target.aura().is_none());
+}
+
+#[test]
+fn old_cast_aura_and_periodic_event_formats_cannot_reenter_v3_execution() {
+    let (mut cast, _) = flying();
+    let cp = serde_json::to_value(cast.checkpoint()).unwrap();
+    assert_eq!(cp["policy"], SPELL_EXECUTION_POLICY_ID);
+    for (field, value) in [
+        ("version", serde_json::json!(2)),
+        (
+            "policy",
+            serde_json::json!("cmangos-8ec338a1-mage-projectile-periodic-binary32-v2"),
+        ),
+    ] {
+        let mut old = cp.clone();
+        old[field] = value;
+        assert!(
+            MageProjectileCast::restore(serde_json::from_value(old).unwrap(), spec(), 1500)
+                .is_err()
+        );
+    }
+    let mut old = cp;
+    old.as_object_mut().unwrap().remove("policy");
+    assert!(serde_json::from_value::<CastCheckpoint>(old).is_err());
+    let mut target = DamageTarget::new(2, 100).unwrap();
+    cast.impact(2000, &mut target, true, false, [None; 3])
+        .unwrap();
+    let cp = serde_json::to_value(target.checkpoint()).unwrap();
+    assert_eq!(cp["policy"], SPELL_EXECUTION_POLICY_ID);
+    for (field, value) in [
+        ("version", serde_json::json!(1)),
+        (
+            "policy",
+            serde_json::json!("cmangos-8ec338a1-mage-projectile-periodic-binary32-v2"),
+        ),
+    ] {
+        let mut old = cp.clone();
+        old[field] = value;
+        assert!(
+            DamageTarget::restore(serde_json::from_value(old).unwrap(), &spec(), 1, 2000).is_err()
+        );
+    }
+    let mut old = cp.clone();
+    old["aura"]["version"] = serde_json::json!(1);
+    assert!(DamageTarget::restore(serde_json::from_value(old).unwrap(), &spec(), 1, 2000).is_err());
+    let mut old = cp;
+    old.as_object_mut().unwrap().remove("policy");
+    assert!(serde_json::from_value::<DamageTargetCheckpoint>(old).is_err());
+    assert!(serde_json::from_str::<SpellEvent>(
+        r#"{"PeriodicDamage":{"amount":2,"effective":2,"tick":1}}"#
+    )
+    .is_err());
+}
+
+#[test]
+fn scheduled_restore_binds_callback_time_without_relaxing_frame_restore() {
+    let (cast, _) = flying();
+    let checkpoint = cast.checkpoint();
+    let context = cast.release_context().unwrap();
+    assert!(MageProjectileCast::restore_with_release(
+        checkpoint.clone(),
+        spec(),
+        Some(context),
+        1600
+    )
+    .is_err());
+    let restored = MageProjectileCast::restore_scheduled_with_release(
+        checkpoint.clone(),
+        spec(),
+        Some(context),
+        1600,
+        1500,
+    )
+    .unwrap();
+    assert_eq!(restored, cast);
+    for (now, callback) in [(1499, 1500), (1600, 1499), (2000, 1500)] {
+        assert!(MageProjectileCast::restore_scheduled_with_release(
+            checkpoint.clone(),
+            spec(),
+            Some(context),
+            now,
+            callback
+        )
+        .is_err());
+    }
+    let (casting, _) = prepare();
+    assert!(MageProjectileCast::restore_scheduled_with_release(
+        casting.checkpoint(),
+        spec(),
+        None,
+        1,
+        0
+    )
+    .is_err());
+}
+
+#[test]
+fn source_event_reentry_is_explicit_and_only_allows_traveling_same_clock() {
+    let (mut cast, mut resources) = flying();
+    let before = cast.clone();
+    assert!(cast
+        .update(1500, 1500, &mut resources, checks(), None)
+        .is_err());
+    assert_eq!(cast, before);
+    assert!(cast
+        .update_from_event_with_release(1500, 1500, &mut resources, checks(), None, None)
+        .unwrap()
+        .is_empty());
+    let (mut casting, mut resources) = prepare();
+    casting
+        .update(0, 100, &mut resources, checks(), None)
+        .unwrap();
+    assert!(casting
+        .update_from_event_with_release(0, 100, &mut resources, checks(), None, None)
+        .is_err());
 }

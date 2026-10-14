@@ -329,11 +329,11 @@ impl QuestProgressionState {
         &self,
         g: &QuestProgressionGenesis,
         combat: &PlayerCombatState,
-    ) -> Result<(), NativeError> {
+    ) -> Result<BTreeMap<usize, u32>, NativeError> {
         if self.genesis != g.identity {
             return Err(NativeError::InvalidCheckpoint);
         }
-        validate_history(
+        let boundaries = validate_history(
             g,
             self.player.view(),
             &self.training,
@@ -350,7 +350,7 @@ impl QuestProgressionState {
         if expected_broken != combat.recipe.snapshot().broken_slots {
             return Err(NativeError::InvalidCheckpoint);
         }
-        Ok(())
+        Ok(boundaries)
     }
 }
 
@@ -366,7 +366,7 @@ pub(super) fn validate_history(
     expected_derived: &DerivedStats,
     calls: &[DerivedCall],
     expected_recipe: &init::StatRecipe,
-) -> Result<(), NativeError> {
+) -> Result<BTreeMap<usize, u32>, NativeError> {
     if calls.len() > MAX_DERIVED_CALLS {
         return Err(NativeError::InvalidCheckpoint);
     }
@@ -375,6 +375,7 @@ pub(super) fn validate_history(
     let mut training = g.training.clone();
     let mut derived = DerivedStats::from_snapshot(source.view(), &g.initial_derived_inputs)?;
     let mut index = 0;
+    let mut boundaries = BTreeMap::from([(0, source.view().level)]);
     while let Some(call) = calls.get(index) {
         match call {
             DerivedCall::Level {
@@ -470,6 +471,9 @@ pub(super) fn validate_history(
                 index += 1;
             }
         }
+        // A Level packet alone is not an attained level: all mandatory source
+        // hooks must replay before exposing this completed-operation boundary.
+        boundaries.insert(index, source.view().level);
     }
     boundary(g, player, source.view(), &recipe)?;
     if *expected_derived != derived
@@ -478,7 +482,7 @@ pub(super) fn validate_history(
     {
         return Err(NativeError::InvalidCheckpoint);
     }
-    Ok(())
+    Ok(boundaries)
 }
 
 #[cfg(test)]

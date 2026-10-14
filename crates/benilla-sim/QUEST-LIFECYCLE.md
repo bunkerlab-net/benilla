@@ -3,7 +3,7 @@
 `benilla_sim::quest_lifecycle` translates ordinary, solo quest acceptance,
 kill/talk/collection credit, completion and reward orchestration from CMaNGOS
 Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The policy identity is
-`cmangos-8ec338a1-ordinary-quest-lifecycle-v2`. This is an independent simulation
+`cmangos-8ec338a1-ordinary-quest-lifecycle-v3`. This is an independent simulation
 reducer, not a native content compiler, complete inventory/level-up implementation,
 world-runtime integration, durable store, or claim that a real starter quest works.
 The authored world-runtime fixture is unrelated and is not evidence of Classic
@@ -57,8 +57,8 @@ minimum-int relationships and oversized IDs are rejected. Positive/negative
 exclusive groups, breadcrumb relationships and dependent breadcrumbs remain
 unsupported, so their all-member/branch/recursive rules are never approximated.
 
-The following also remain excluded: required skills/conditions/reputation;
-reputation objectives/rewards; timed, weekly, repeatable, auto-reward/auto-complete,
+The following also remain excluded: required skills/conditions;
+timed, weekly, repeatable, auto-reward/auto-complete,
 exploration, escort, cast and GO objectives; group/raid/shared acceptance;
 source items/spells, source-drop rules, reward spells,
 mail and all scripts. `SHARABLE` may be present as a flag, but only solo acceptance
@@ -127,11 +127,12 @@ reset path.
 
 ## Source ordering
 
-Acceptance checks source status, class, race, level, prerequisite, forward/previous
+Acceptance checks source status, class, race, level, reputation, prerequisite, forward/previous
 chain and active gates in `CanTakeQuest` order; other source gates are inert only
 because admission proved their prerequisites absent. `CanAddQuest` checks the
 first free slot. Source-item storage is absent by admission. Acceptance initializes
-progress, sets the first free log slot, records the inert acceptance hook, adjusts
+progress, calls reputation `SetVisible` for a nonzero reputation objective faction
+before setting the first free log slot, records the inert acceptance hook, adjusts
 collection counts including bank inventory, and updates world objects. The
 operation composes `AddQuest` with a subsequent `CanCompleteQuest`/`CompleteQuest`
 check; this composition is an explicit adapter operation, not a port of all
@@ -162,7 +163,7 @@ and existing required money, then preflights `quest::reward_quote`. In source or
 1. Destroy required items, including each stack's pre-removal quest callbacks.
    The rewarding quest can temporarily become incomplete here
 2. Remove timed-quest membership, store the selected then fixed reward items with
-   their pre-store callbacks, and call the proven-inert reputation reward hook
+   their pre-store callbacks, and call the synchronous reputation reward host
 3. Clear the quest-log slot
 4. Below the actual configured cap, invoke `GiveXP`; at/above cap apply the separate
    XP-to-money conversion. XP itself is calculated by the existing software-binary32
@@ -266,3 +267,48 @@ See [INVENTORY.md](INVENTORY.md) for the actual backpack host and
 for its source-ordered native durable integration. The original lifecycle oracle
 retains its explicit no-reward-item adapters; the separate reward-item oracle
 exercises the newly admitted storage/callback path. Neither admits real content.
+
+
+## Reputation host and callback evidence
+
+Required-min reputation is inclusive; required-max is exclusive. Both gates query
+only nonzero factions and precede predecessor checks. `can_take_view_with_reputation`
+and `can_see_start_view_with_reputation` accept fallible callback-time standing
+queries; legacy view calls reject when a reputation query is needed. A nonzero
+reputation objective is checked after item, creature and money requirements.
+`reputation_changed` walks quest-log slots in their stored order, completes an
+incomplete quest only after all completion checks pass, and makes a completed
+quest incomplete when its standing falls below the objective. It preserves each
+intermediate world-object view and completed-bit callback.
+
+`Host::reputation` returns absolute standing. `reputation_visible` stages the exact
+source visibility mechanism before the `ReputationVisible` marker and `LogSet`.
+`reward_reputation` stages the source reward mechanism and all synchronous quest
+callbacks before the `RewardReputation` marker, log clearing and XP. Native hosts
+may queue their reputation outputs and callback quest events for expansion at the
+marker; they must not also append duplicate callbacks to the outer event stream.
+The default query/visibility hooks fail closed. The default reward hook succeeds
+only when every reputation reward faction, value and flag is zero. Any hook
+failure discards the reducer's cloned host, quest state and events together.
+Reputation fields remain in `ExcludedFields` for schema compatibility; they are
+admitted host inputs, unlike the remaining unsupported fields in that structure.
+The caller must resolve faction dependencies and use the audited reputation host;
+this reducer does not implement standing rates, racial modifiers or spillover.
+
+The supplemental generator hash-checks the same five pinned files and compiles
+29 unchanged Player method bodies, including `SatisfyQuestReputation`,
+`ReputationChanged` and `CanSeeStartQuest`. Its 1,212 synthetic probes cover signed
+min/max boundaries (900), acceptance/visibility and competing requirements (180),
+slot-ordered completion/demotion callbacks (108), and synchronous reward callbacks
+before log clearing/XP (24). Callback-time views are compared exactly. The harness
+reputation host applies authored signed deltas; these probes establish quest
+orchestration, not reputation reward arithmetic or spillover parity. Rust tests
+also inject failures after visibility, after each reputation delta/callback, and
+after a later XP effect, and verify that unsupported hosts fail closed.
+
+```
+python3 crates/benilla-sim/tools/generate_quest_reputation_fixture.py \
+  /path/to/pinned/cmangos-classic --check
+cargo test -p benilla-sim --test quest_lifecycle
+cargo test -p benilla-sim --release --test quest_lifecycle
+```

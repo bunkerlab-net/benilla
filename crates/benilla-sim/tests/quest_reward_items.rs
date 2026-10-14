@@ -128,6 +128,7 @@ fn event(e: &Event) -> String {
             added,
         } => format!("item:{quest}:{objective}:{previous}:{added}"),
         Event::RemoveTimedQuest(id) => format!("timed:{id}"),
+        Event::ReputationVisible(faction) => format!("visible:{faction}"),
         Event::RewardReputation(id) => format!("rep:{id}"),
         Event::Host(HostEffect::DestroyCarriedStack { item, count }) => {
             format!("destroy:{item}:{count}")

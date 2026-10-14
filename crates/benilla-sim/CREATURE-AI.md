@@ -110,7 +110,7 @@ manager decrement, exactly where `AttackerStateUpdate` calls its reset helper.
 It is not a next-tick receipt or a blanket "every outgoing damage refreshes" rule. The damage executor must use `is_evading`
 to honor immunity, and reject damage while returning/unreachable; this state machine
 rejects damage receipts during those states. `is_evade_regeneration` exposes the
-source flag, but health regeneration and reset-entry effects remain external.
+source flag. The native runtime applies the separate [ordinary creature health](CREATURE-REGENERATION.md) kernel after this update; reset-entry effects remain external.
 
 ## Movement adapter contract
 

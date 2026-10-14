@@ -1024,6 +1024,7 @@ dependencies = [
  "benilla-sim",
  "benilla-world-data",
  "benilla-world-runtime",
+ "rustc_apfloat",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1058,6 +1059,7 @@ dependencies = [
 name = "benilla-world-runtime"
 version = "0.2.0"
 dependencies = [
+ "benilla-formats",
  "benilla-sim",
  "benilla-world-data",
  "serde",

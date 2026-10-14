@@ -5,9 +5,25 @@ mod combat;
 mod loot;
 pub use loot::*;
 mod engine;
+mod player_events;
+pub use player_events::{
+    FinishedSpellReason, PlayerEvents, SpellEventLifetime, PLAYER_EVENT_POLICY,
+};
 pub mod equipment;
 pub use combat::*;
+mod interactions;
 mod model;
+mod motion;
+pub use interactions::{
+    InteractionAudit, InteractionCatalog, InteractionControlSeed, InteractionEvidence,
+    InteractionFactionSource, InteractionInput, InteractionMoment, InteractionWitness,
+    NpcInteractionSource, PlayerInteractionSource, INTERACTION_POLICY,
+};
+pub use motion::*;
+#[cfg(test)]
+mod interaction_tests;
+mod orientation;
+pub use orientation::Orientation;
 mod persistence;
 mod quest_progression;
 pub use quest_progression::*;
@@ -18,8 +34,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 8;
-pub const NATIVE_POLICY: &str = "benilla-native-cast-phases-reconstruction-v8";
+pub const NATIVE_FORMAT_VERSION: u32 = 9;
+pub const NATIVE_POLICY: &str = "benilla-native-source-unit-state-v9";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -43,7 +59,14 @@ pub enum NativeError {
     Inventory(benilla_sim::inventory::Error),
     Loot(benilla_sim::loot::Error),
     Quest(benilla_sim::quest_lifecycle::Error),
+    Reputation(benilla_sim::reputation::Error),
     Progression(benilla_sim::player_progression::Error),
+    CreatureRegeneration(benilla_sim::creature_regeneration::Error),
+    InteractionRelation(benilla_sim::classic_targets::TargetUnsupported),
+    InteractionEvidence {
+        dependency: &'static str,
+        observed: InteractionEvidence,
+    },
     InvalidProfile,
     InvalidInput,
     InvalidState,
@@ -58,7 +81,10 @@ pub enum NativeError {
     UnsupportedAbility(u32),
     UnknownTarget,
     Navigation(ai::AiError),
+    Motion(benilla_sim::creature_motion::MotionError),
     Spell(spell::SpellError),
+    EventProcessor(benilla_sim::event_processor::EventError),
+    SpellScheduler(benilla_sim::spell_event::SpellEventError),
     ReplayMismatch,
     UnsupportedMechanic(&'static str),
     Equipment(equipment::EquipmentError),
@@ -112,6 +138,8 @@ impl NativeWorld {
             npcs.insert(
                 p.ai.creature_id,
                 Npc {
+                    source_motion: NpcMotion::new(&profile, p)?,
+                    regen_elapsed_ms: 0,
                     id: crate::NpcId {
                         spawn: p.ai.creature_id,
                         generation: 0,
@@ -132,7 +160,16 @@ impl NativeWorld {
             0,
             0,
         )?;
+        let mut player_events = PlayerEvents::new(world, player);
+        if profile.source_motion.is_some() {
+            player_events.schedule_notify(0, false)?;
+        }
         let state = State {
+            player_movement_flags: profile
+                .source_motion
+                .as_ref()
+                .map(|g| g.player_movement_flags),
+            player_events,
             domain: Domain::SyntheticComponentTest,
             world,
             player,
@@ -141,6 +178,7 @@ impl NativeWorld {
             next_sequence: 0,
             now_ms: profile.clock_origin_ms,
             position: profile.player.start,
+            orientation: profile.player.orientation,
             health: profile.player.current_health,
             resources,
             npcs,
@@ -174,7 +212,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v8\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v9\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -267,3 +305,40 @@ pub mod synthetic_loot_fixture;
 
 #[cfg(test)]
 mod quest_reward_tests;
+
+#[cfg(test)]
+mod orientation_tests;
+impl From<benilla_sim::creature_regeneration::Error> for NativeError {
+    fn from(e: benilla_sim::creature_regeneration::Error) -> Self {
+        Self::CreatureRegeneration(e)
+    }
+}
+impl From<benilla_sim::reputation::Error> for NativeError {
+    fn from(e: benilla_sim::reputation::Error) -> Self {
+        Self::Reputation(e)
+    }
+}
+#[cfg(test)]
+mod regeneration_tests;
+#[cfg(test)]
+mod reputation_tests;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_reputation_fixture;
+
+#[cfg(test)]
+mod motion_tests;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_motion_fixture;
+
+impl From<benilla_sim::event_processor::EventError> for NativeError {
+    fn from(error: benilla_sim::event_processor::EventError) -> Self {
+        Self::EventProcessor(error)
+    }
+}
+impl From<benilla_sim::spell_event::SpellEventError> for NativeError {
+    fn from(error: benilla_sim::spell_event::SpellEventError) -> Self {
+        Self::SpellScheduler(error)
+    }
+}
+#[cfg(test)]
+mod event_scheduler_tests;

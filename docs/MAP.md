@@ -128,7 +128,7 @@
 - **benilla-p2p** (lib.rs): identity internet
 - **benilla-profile** (lib.rs): storage tests
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
-- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init encounter inventory loot mage_resource npc_melee player_death player_progression quest quest_lifecycle starter_init xp
+- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init creature_regeneration encounter inventory loot mage_resource npc_melee player_death player_progression quest quest_lifecycle reputation starter_init xp
 - **benilla-srp** (lib.rs): vanilla_header
 - **benilla-ui** (lib.rs): bindings_xml civil framexml justify layout loader markup messages order script source status strings toc widget
 - **benilla-visual** (lib.rs): relight

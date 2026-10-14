@@ -33,8 +33,10 @@ transitions and source-derived numeric behavior. See
 
 Still required for a populated ordinary world: compatible local spawn/template
 closure, model/stat overrides, active spawn groups/pools/events, truthful unit
-lifecycle/aggro state, complete motion integration, health regeneration and the
-remaining AI/script behaviors. Unsupported records must not silently lose their
+lifecycle/aggro state, complete motion integration and the remaining AI/script behaviors. Ordinary
+uncontrolled-creature health regeneration is integrated with persisted timers
+and source evade ordering; power regeneration and controlled/pet branches remain
+explicitly unsupported. See [regeneration coverage](../crates/benilla-sim/CREATURE-REGENERATION.md). Unsupported records must not silently lose their
 behavior or become invented passive creatures.
 
 ### Pathing and collision
@@ -46,9 +48,13 @@ geometry proof. See the [VMap provenance](../crates/benilla-app/src/net/p2p/worl
 and [Detour provenance](../crates/benilla-native-nav/PROVENANCE.md).
 
 `TargetedMovementGenerator.cpp`, `HomeMovementGenerator.cpp` and `PathFinder.cpp`
-have been inspected, but the complete owner-dependent pathfinder, chase/spline
-controller, waypoint/script execution, liquid accessibility, slopes and world
-streaming transitions are not implemented by a successful Detour query. Reachable,
+have been inspected. A bounded one-player/one-creature chase, spline, Home and
+notification adapter now updates transactional runtime state and projects ordered
+client movement packets, including save/reopen and rollback checks. See
+[runtime motion](../crates/benilla-world-runtime/NATIVE-MOTION.md). The complete
+owner-dependent pathfinder, multi-unit visitor coverage, waypoint/script execution,
+liquid accessibility, slopes and world-streaming transitions remain incomplete.
+A successful Detour query alone does not establish those behaviors. Reachable,
 accessible, visible and line-of-sight are distinct source predicates.
 
 ### Quests and progression
@@ -59,9 +65,15 @@ callbacks, with runtime persistence and client packet projection. `QuestDef.cpp`
 `QuestHandler.cpp` and loader relations are part of the source audit. See
 [simulation provenance](../crates/benilla-sim/PROVENANCE.md).
 
-Remaining coverage includes source-native reputation and its reward ordering,
-script/condition closure, gameobjects, timed/escort/exploration/cast objectives,
-other ordinary dependency branches and all relevant content. An authored quest
+Ordinary quest reputation now uses an immutable source catalog and persisted
+reducer state. Synchronous objective callbacks run between spillover/reward slots
+before XP; client initialization/delta packets and save/reopen ordering are
+integrated. Replay checks callback witnesses and completed progression prefixes.
+See [runtime reputation](../crates/benilla-world-runtime/src/native/REPUTATION.md).
+
+Remaining coverage includes kill/spell reputation, forced reactions and aura
+modifiers, script/condition closure, gameobjects, timed/escort/exploration/cast
+objectives, other ordinary dependency branches and all relevant content. An authored quest
 fixture or source oracle is not evidence that real world quests are admitted.
 
 ### Loot and items
@@ -81,9 +93,19 @@ order must be proven before admitting additional records.
 Cast prepare/release/impact, selected resource/stat/training branches and ordinary
 melee are incremental source ports. Full classes, aura/proc/immunity/resistance
 semantics, source target relations, death/recovery and world services remain.
-State must be shared transactionally by all systems: orientation, movement,
-reputation, auras and lifecycle cannot be guessed from rendering or copied into an
-independent mutable authority mirror.
+Player orientation now follows sequenced transactional pose updates and durable
+client publication. Source reputation and tracked player/NPC relation predicates
+feed an internal quest-status, quest-interaction and loot-interaction host using
+current transactional state and ordered replay witnesses. Spell, melee and NPC
+semantic authority remain separate integration work. The source EventProcessor
+queue primitive and bounded per-player notification/SpellEvent integration now
+preserve due order, retained spell lifetimes, transactional rollback and durable
+reopening. General spell effects, NPC casts and the complete failed-attempt
+lifecycle remain incomplete. See [player events](../crates/benilla-world-runtime/PLAYER-EVENTS.md)
+and the
+[interaction host boundary](../crates/benilla-world-runtime/NATIVE-INTERACTIONS.md). State must be shared transactionally by all systems:
+orientation, movement, reputation, auras and lifecycle cannot be guessed from
+rendering or copied into an independent mutable authority mirror.
 
 ## Integration order and evidence
 

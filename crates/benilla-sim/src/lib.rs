@@ -14,6 +14,7 @@ pub mod quest_lifecycle;
 
 /// Bounded source-derived ordinary creature initialization from explicit local rows.
 pub mod creature_init;
+pub mod creature_regeneration;
 
 pub mod classic_targets;
 
@@ -39,3 +40,15 @@ pub mod loot;
 
 /// Bounded source-derived ordinary backpack storage.
 pub mod inventory;
+
+/// Source-native reputation initialization, flags, gains and ordered spillover.
+pub mod reputation;
+
+/// Source-derived NPC chase/home spline motion with explicit spatial evidence.
+pub mod creature_motion;
+
+/// Source-derived per-Unit event ordering with bounded transactional dispatch.
+pub mod event_processor;
+
+/// Exact bounded SpellEvent callback scheduling decisions; host lifecycle is separate.
+pub mod spell_event;

@@ -14,7 +14,7 @@ pub use numeric::{
 };
 use std::collections::BTreeMap;
 
-pub const SPELL_EXECUTION_POLICY_ID: &str = "cmangos-8ec338a1-mage-projectile-periodic-binary32-v2";
+pub const SPELL_EXECUTION_POLICY_ID: &str = "cmangos-8ec338a1-mage-projectile-periodic-binary32-v3";
 const MAX_AMOUNT: u32 = 1_000_000;
 const MAX_TIME: u32 = 3_600_000;
 
@@ -265,6 +265,8 @@ pub enum SpellEvent {
     PeriodicDamage {
         amount: u32,
         effective: u32,
+        absorb: u32,
+        resist: i32,
         tick: u32,
     },
     AuraRemoved,
@@ -329,8 +331,19 @@ impl DamageTarget {
         diff_ms: u32,
         immune: bool,
     ) -> Result<Vec<SpellEvent>, SpellError> {
+        self.update_aura_with_evade(now_ms, diff_ms, immune, false)
+    }
+    /// Timed evade is DealDamageMods absorption, not school immunity or aura removal.
+    /// Existing no-resistance/no-absorb/no-proc/no-interrupt-aura domain still applies.
+    pub fn update_aura_with_evade(
+        &mut self,
+        now_ms: u64,
+        diff_ms: u32,
+        immune: bool,
+        evading: bool,
+    ) -> Result<Vec<SpellEvent>, SpellError> {
         let mut next = self.clone();
-        let events = next.update_aura_inner(now_ms, diff_ms, immune)?;
+        let events = next.update_aura_inner(now_ms, diff_ms, immune, evading)?;
         *self = next;
         Ok(events)
     }
@@ -339,6 +352,7 @@ impl DamageTarget {
         now_ms: u64,
         diff_ms: u32,
         immune: bool,
+        evading: bool,
     ) -> Result<Vec<SpellEvent>, SpellError> {
         if diff_ms > MAX_TIME {
             return Err(SpellError::Domain("aura diff"));
@@ -374,11 +388,14 @@ impl DamageTarget {
                 if immune {
                     events.push(SpellEvent::Immune);
                 } else {
-                    let effective = self.health.min(aura.amount);
+                    let damage = periodic_damage_after_evade_mods(aura.amount, 0, 0, evading)?;
+                    let effective = self.health.min(damage.amount);
                     self.health -= effective;
                     events.push(SpellEvent::PeriodicDamage {
-                        amount: aura.amount,
+                        amount: damage.amount,
                         effective,
+                        absorb: damage.absorb,
+                        resist: damage.resist,
                         tick: aura.ticks,
                     });
                 }
@@ -392,6 +409,41 @@ impl DamageTarget {
         Ok(events)
     }
 }
+
+/// Post-CalculateDamageAbsorbAndResist accounting, before periodic log/DealDamage.
+/// This arithmetic helper does not resolve resistance, shields, AI hooks or procs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PeriodicDamageAmounts {
+    pub amount: u32,
+    pub absorb: u32,
+    pub resist: i32,
+}
+/// Unit::DealDamageMods adds the incoming damage to any existing absorb, then
+/// zeros damage. SpellAuras.cpp applies negative-resist bonus/positive malus next.
+pub fn periodic_damage_after_evade_mods(
+    mut amount: u32,
+    mut absorb: u32,
+    resist: i32,
+    evading: bool,
+) -> Result<PeriodicDamageAmounts, SpellError> {
+    if amount > MAX_AMOUNT || absorb > MAX_AMOUNT || resist.unsigned_abs() > MAX_AMOUNT {
+        return Err(SpellError::Domain("periodic damage accounting"));
+    }
+    if evading {
+        absorb += amount;
+        amount = 0;
+    }
+    let bonus = if resist < 0 { resist.unsigned_abs() } else { 0 };
+    amount += bonus;
+    let malus = absorb + if resist > 0 { resist as u32 } else { 0 };
+    amount = amount.saturating_sub(malus);
+    Ok(PeriodicDamageAmounts {
+        amount,
+        absorb,
+        resist,
+    })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PeriodicDamageAura {
     pub spell_id: u32,
@@ -589,6 +641,35 @@ impl MageProjectileCast {
         if release.is_some() && !self.release_due(now_ms, diff_ms) {
             return Err(SpellError::State("release context outside release update"));
         }
+        self.update_dispatch(now_ms, diff_ms, resources, checks, launch, release, false)
+    }
+    /// Exact SpellEvent callbacks may re-enter a traveling spell at the same map
+    /// time after a zero-delay re-add. Ordinary frame updates remain strict.
+    pub fn update_from_event_with_release(
+        &mut self,
+        now_ms: u64,
+        diff_ms: u32,
+        resources: &mut CasterResources,
+        checks: CastChecks,
+        launch: Option<LaunchContext>,
+        release: Option<MageProjectileReleaseContext>,
+    ) -> Result<Vec<SpellEvent>, SpellError> {
+        if release.is_some() && !self.release_due(now_ms, diff_ms) {
+            return Err(SpellError::State("release context outside event update"));
+        }
+        self.update_dispatch(now_ms, diff_ms, resources, checks, launch, release, true)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn update_dispatch(
+        &mut self,
+        now_ms: u64,
+        diff_ms: u32,
+        resources: &mut CasterResources,
+        checks: CastChecks,
+        launch: Option<LaunchContext>,
+        release: Option<MageProjectileReleaseContext>,
+        event_dispatch: bool,
+    ) -> Result<Vec<SpellEvent>, SpellError> {
         let current = release
             .unwrap_or_else(|| MageProjectileReleaseContext::unchanged(&self.spec))
             .apply(&self.spec)?;
@@ -601,11 +682,13 @@ impl MageProjectileCast {
             checks,
             launch,
             &current,
+            event_dispatch,
         )?;
         *self = next;
         *resources = next_resources;
         Ok(events)
     }
+    #[allow(clippy::too_many_arguments)]
     fn update_inner(
         &mut self,
         now_ms: u64,
@@ -614,6 +697,7 @@ impl MageProjectileCast {
         checks: CastChecks,
         launch: Option<LaunchContext>,
         current: &MageProjectileSpec,
+        event_dispatch: bool,
     ) -> Result<Vec<SpellEvent>, SpellError> {
         if now_ms < self.last_update_ms || diff_ms > MAX_TIME {
             return Err(SpellError::Domain("cast time progression"));
@@ -636,7 +720,9 @@ impl MageProjectileCast {
                 return Ok(Vec::new());
             }
         }
-        if now_ms == self.last_update_ms {
+        if now_ms == self.last_update_ms
+            && !(event_dispatch && matches!(self.state, CastState::Traveling { .. }))
+        {
             return Err(SpellError::State("duplicate cast update"));
         }
         self.last_update_ms = now_ms;

@@ -16,7 +16,8 @@ pub use numeric::{
     within_interaction_distance, Point, Real,
 };
 
-pub const CREATURE_AI_POLICY_ID: &str = "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-loot-v3";
+pub const CREATURE_AI_POLICY_ID: &str =
+    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-events-v4";
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
 
@@ -150,6 +151,11 @@ pub enum ThreatKind {
 pub enum CombatEvent {
     /// UnitAI::AttackedBy; authenticated successful attack initiation, not a peer command.
     AttackedBy {
+        target: u64,
+    },
+    /// Explicit CombatManager::TriggerCombatTimer callback, including resisted
+    /// hostile spells. It changes pursuit/lastRefresh without inventing damage.
+    CombatTimerTriggered {
         target: u64,
     },
     /// Already-resolved post-modifier threat. DOT does not refresh the pursuit timer.
@@ -314,6 +320,7 @@ pub struct SoloCreatureAi {
     corpse_timer_last_ms: u64,
     corpse_timer_calls: Vec<CorpseTimerCall>,
     death_at_ms: Option<u64>,
+    death_deferred: bool,
     despawned_at_ms: Option<u64>,
     respawn_at_ms: u64,
 }
@@ -329,6 +336,8 @@ pub struct ReceiptStep {
     geometry_revision: Revision,
     receipts: Vec<Receipt>,
     effects: Vec<Effect>,
+    source_sight_events: bool,
+    skip_current_death_corpse: bool,
 }
 impl ReceiptStep {
     pub fn effects(&self) -> &[Effect] {
@@ -339,6 +348,20 @@ impl ReceiptStep {
 pub enum MainhandResult {
     Unchanged,
     TargetDied,
+}
+/// Source-ordered UnitAI callbacks; facing occurs on every selected-target update,
+/// before a possible swing, without implying movement or relocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrderedHook {
+    FaceTarget {
+        target: u64,
+        position: Point,
+    },
+    Mainhand {
+        target: u64,
+        position: Point,
+        combat_started: bool,
+    },
 }
 impl SoloCreatureAi {
     pub fn new(profile: Profile) -> Result<Self, AiError> {
@@ -368,6 +391,7 @@ impl SoloCreatureAi {
             corpse_timer_last_ms: 0,
             corpse_timer_calls: vec![],
             death_at_ms: None,
+            death_deferred: true,
             despawned_at_ms: None,
             respawn_at_ms: 0,
         })
@@ -377,6 +401,14 @@ impl SoloCreatureAi {
     }
     pub fn position(&self) -> Point {
         self.position
+    }
+    pub fn combat_start_position(&self) -> Point {
+        self.combat_start
+    }
+    /// Whether this death entered CORPSE before the current Creature::Update.
+    /// Legacy batched receipt adapters never admit this source-only phase.
+    pub fn has_pre_unit_death(&self) -> bool {
+        self.death_at_ms.is_some() && !self.death_deferred
     }
     pub fn target(&self) -> Option<u64> {
         self.target
@@ -434,6 +466,41 @@ impl SoloCreatureAi {
     /// Applies already-resolved events at their bound frame instant, without advancing
     /// this creature's unit clock/timers/movement/AI. Finish in the original update order.
     pub fn begin_receipts(&mut self, o: &Observation) -> Result<ReceiptStep, AiError> {
+        self.begin_receipts_inner(o, false, false)
+    }
+    /// A source visitor has either called MoveInLineOfSight at the event phase or
+    /// proved no such visit. Unlike legacy observations, later AI never polls sight.
+    pub fn begin_source_receipts(
+        &mut self,
+        o: &Observation,
+        sight_visitor: bool,
+    ) -> Result<ReceiptStep, AiError> {
+        self.begin_receipts_inner(o, true, sight_visitor)
+    }
+    /// Creature::Update selects CORPSE immediately if death preceded its entry;
+    /// a death inside its ALIVE Unit update defers corpse handling one frame.
+    pub fn begin_source_receipts_in_phase(
+        &mut self,
+        o: &Observation,
+        entered_alive: bool,
+    ) -> Result<ReceiptStep, AiError> {
+        let now = self
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("source phase clock"))?;
+        if self.death_at_ms == Some(now) && self.death_deferred != entered_alive {
+            return Err(AiError::Invalid("source death phase binding"));
+        }
+        let mut token = self.begin_receipts_inner(o, true, false)?;
+        token.skip_current_death_corpse = entered_alive;
+        Ok(token)
+    }
+    fn begin_receipts_inner(
+        &mut self,
+        o: &Observation,
+        source_sight_events: bool,
+        sight_visitor: bool,
+    ) -> Result<ReceiptStep, AiError> {
         self.validate_observation(o)?;
         if self.pending_receipts.is_some() {
             return Err(AiError::Invalid("unfinished receipt prelude"));
@@ -454,6 +521,9 @@ impl SoloCreatureAi {
             next.receipt_id = receipt.id;
             next.event(&receipt.event, o.target.as_ref(), &mut effects)?;
         }
+        if sight_visitor {
+            next.observe_sight(o, &mut effects)?;
+        }
         next.now_ms = old_now;
         next.pending_receipts = Some((o.sequence, now_ms));
         let token = ReceiptStep {
@@ -466,9 +536,90 @@ impl SoloCreatureAi {
             geometry_revision: o.geometry_revision,
             receipts: o.receipts.clone(),
             effects,
+            source_sight_events,
+            skip_current_death_corpse: true,
         };
         *self = next;
         Ok(token)
+    }
+    /// A synchronous source combat callback at the current map frame, before
+    /// this creature's Unit update. Apply each event while its health/pose witness
+    /// is current; never replay its Motion effect against a later final AI state.
+    pub fn source_combat_event(&mut self, o: &Observation) -> Result<Vec<Effect>, AiError> {
+        self.source_combat_event_with_phase(o, true)
+    }
+    pub fn source_combat_event_with_phase(
+        &mut self,
+        o: &Observation,
+        inside_alive_unit_update: bool,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.validate_observation(o)?;
+        if self.pending_receipts.is_some() || o.receipts.len() != 1 {
+            return Err(AiError::Invalid("source combat event phase"));
+        }
+        let mut next = self.clone();
+        next.now_ms = next
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("source combat event clock"))?;
+        let receipt = &o.receipts[0];
+        if receipt.id <= next.receipt_id {
+            return Err(AiError::Invalid("source combat receipt identity"));
+        }
+        next.receipt_id = receipt.id;
+        let mut effects = Vec::new();
+        next.event(&receipt.event, o.target.as_ref(), &mut effects)?;
+        if matches!(receipt.event, CombatEvent::Died) {
+            next.death_deferred = inside_alive_unit_update;
+        }
+        next.now_ms = self.now_ms;
+        *self = next;
+        Ok(effects)
+    }
+    /// Player-owned visitor runs before this creature's Unit update. It can
+    /// synchronously AttackStart without decrementing any creature timer.
+    pub fn source_sight_event(&mut self, o: &Observation) -> Result<Vec<Effect>, AiError> {
+        self.validate_observation(o)?;
+        if self.pending_receipts.is_some() {
+            return Err(AiError::Invalid("sight during receipt prelude"));
+        }
+        let mut next = self.clone();
+        next.now_ms = next
+            .now_ms
+            .checked_add(u64::from(o.elapsed_ms))
+            .ok_or(AiError::Invalid("sight clock"))?;
+        let mut effects = Vec::new();
+        next.observe_sight(o, &mut effects)?;
+        next.now_ms = self.now_ms;
+        *self = next;
+        Ok(effects)
+    }
+    /// Creature-owned visitor runs after earlier damage receipts but before its
+    /// spline/AI phase. Extend only the matching source prelude's prepared state.
+    pub fn source_sight_after_receipts(
+        &mut self,
+        o: &Observation,
+        token: &mut ReceiptStep,
+    ) -> Result<(), AiError> {
+        if !token.source_sight_events
+            || *self != token.prepared
+            || token.sequence != o.sequence
+            || token.elapsed_ms != o.elapsed_ms
+            || token.geometry_revision != o.geometry_revision
+        {
+            return Err(AiError::Invalid("sight receipt binding"));
+        }
+        self.validate_observation(o)?;
+        let mut next = self.clone();
+        let old_now = next.now_ms;
+        next.now_ms = token.now_ms;
+        let mut effects = Vec::new();
+        next.observe_sight(o, &mut effects)?;
+        next.now_ms = old_now;
+        token.effects.extend(effects);
+        token.prepared = next.clone();
+        *self = next;
+        Ok(())
     }
     /// Synchronous RemoveAllAttackers/hostile-reference removal. AttackStop(false)
     /// retains visible TargetGuid and chase; ordinary later AI selects no target.
@@ -493,6 +644,22 @@ impl SoloCreatureAi {
         o: Observation,
         token: ReceiptStep,
         mainhand: &mut impl FnMut(u64, Point, bool) -> Result<MainhandResult, AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.finish_receipts_with_hooks(o, token, &mut |hook| match hook {
+            OrderedHook::FaceTarget { .. } => Ok(MainhandResult::Unchanged),
+            OrderedHook::Mainhand {
+                target,
+                position,
+                combat_started,
+            } => mainhand(target, position, combat_started),
+        })
+    }
+    /// The caller stages hook mutations with the complete world transaction.
+    pub fn finish_receipts_with_hooks(
+        &mut self,
+        o: Observation,
+        token: ReceiptStep,
+        hook: &mut impl FnMut(OrderedHook) -> Result<MainhandResult, AiError>,
     ) -> Result<Vec<Effect>, AiError> {
         self.validate_observation(&o)?;
         if token.geometry_revision != o.geometry_revision
@@ -519,7 +686,7 @@ impl SoloCreatureAi {
             return Err(AiError::Invalid("receipt token prepared-state binding"));
         }
         let mut next = self.clone();
-        let effects = next.apply(o, token, mainhand)?;
+        let effects = next.apply(o, token, hook)?;
         *self = next;
         Ok(effects)
     }
@@ -548,7 +715,7 @@ impl SoloCreatureAi {
         &mut self,
         o: Observation,
         token: ReceiptStep,
-        mainhand: &mut impl FnMut(u64, Point, bool) -> Result<MainhandResult, AiError>,
+        hook: &mut impl FnMut(OrderedHook) -> Result<MainhandResult, AiError>,
     ) -> Result<Vec<Effect>, AiError> {
         self.now_ms = token.now_ms;
         self.sequence = o.sequence;
@@ -560,7 +727,7 @@ impl SoloCreatureAi {
             self.mainhand_ms = self.mainhand_ms.saturating_sub(o.elapsed_ms);
         }
         // Death during Unit::Update waits until the next Creature::Update for corpse timers.
-        if effects.contains(&Effect::Died) {
+        if self.death_at_ms == Some(self.now_ms) && token.skip_current_death_corpse {
             return Ok(effects);
         }
         match self.phase {
@@ -583,6 +750,7 @@ impl SoloCreatureAi {
                 if self.now_ms >= self.respawn_at_ms {
                     self.phase = Phase::Idle;
                     self.death_at_ms = None;
+                    self.death_deferred = true;
                     self.corpse_timer_calls.clear();
                     self.corpse_timer_previous_ms = 0;
                     self.corpse_timer_last_ms = 0;
@@ -602,33 +770,8 @@ impl SoloCreatureAi {
             }
             return Ok(effects);
         }
-        if self.phase == Phase::Idle {
-            if let Some(t) = &o.target {
-                if self.profile.reaction == Reaction::Aggressive
-                    && !self.profile.neutral_to_all
-                    && o.can_initiate_attack
-                    && t.alive
-                    && t.online
-                    && t.visible
-                    && t.can_attack_on_sight
-                    && t.accessible
-                    && t.line_of_sight
-                {
-                    let radius = attack_distance(
-                        self.profile.level,
-                        t.level,
-                        self.profile.detection,
-                        self.profile.aggro_rate,
-                    )?;
-                    if !self
-                        .position
-                        .square_distance(t.position, true)?
-                        .greater(radius.mul(radius)?)
-                    {
-                        self.attack_start(t, &mut effects)?;
-                    }
-                }
-            }
+        if !token.source_sight_events {
+            self.observe_sight(&o, &mut effects)?;
         }
         if self.phase != Phase::Combat {
             return Ok(effects);
@@ -640,6 +783,10 @@ impl SoloCreatureAi {
             return Ok(effects);
         };
         // SelectHostileTarget faces the current victim before UpdateMeleeAttackingState.
+        hook(OrderedHook::FaceTarget {
+            target: t.id,
+            position: self.position,
+        })?;
         effects.push(Effect::FaceTarget { target: t.id });
         match reachability {
             Some(false) if self.unreachable_ms == 0 => self.unreachable_ms = UNREACHABLE_MS,
@@ -676,13 +823,13 @@ impl SoloCreatureAi {
                 }
                 self.mainhand_ms = self.profile.mainhand_interval_ms;
                 effects.push(Effect::MainhandSwing { target: t.id });
-                let result = mainhand(
-                    t.id,
-                    self.position,
-                    effects
+                let result = hook(OrderedHook::Mainhand {
+                    target: t.id,
+                    position: self.position,
+                    combat_started: effects
                         .iter()
                         .any(|e| matches!(e, Effect::CombatStarted { .. })),
-                )?;
+                })?;
                 if result == MainhandResult::TargetDied {
                     self.detach_dead_victim(t.id, self.now_ms)?;
                 }
@@ -736,6 +883,37 @@ impl SoloCreatureAi {
         }
         Ok(effects)
     }
+    fn observe_sight(&mut self, o: &Observation, effects: &mut Vec<Effect>) -> Result<(), AiError> {
+        if self.phase == Phase::Idle {
+            if let Some(t) = &o.target {
+                if self.profile.reaction == Reaction::Aggressive
+                    && !self.profile.neutral_to_all
+                    && o.can_initiate_attack
+                    && t.alive
+                    && t.online
+                    && t.visible
+                    && t.can_attack_on_sight
+                    && t.accessible
+                    && t.line_of_sight
+                {
+                    let radius = attack_distance(
+                        self.profile.level,
+                        t.level,
+                        self.profile.detection,
+                        self.profile.aggro_rate,
+                    )?;
+                    if !self
+                        .position
+                        .square_distance(t.position, true)?
+                        .greater(radius.mul(radius)?)
+                    {
+                        self.attack_start(t, effects)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     fn event(
         &mut self,
         e: &CombatEvent,
@@ -747,6 +925,7 @@ impl SoloCreatureAi {
                 return Err(AiError::Invalid("duplicate death"));
             }
             self.death_at_ms = Some(self.now_ms);
+            self.death_deferred = true;
             self.corpse_timer_calls.clear();
             self.corpse_timer_previous_ms = 0;
             self.corpse_timer_last_ms = self.now_ms;
@@ -775,7 +954,9 @@ impl SoloCreatureAi {
             return Err(AiError::Invalid("combat receipt during death/home evade"));
         }
         let id = match e {
-            CombatEvent::AttackedBy { target } | CombatEvent::Threat { target, .. } => *target,
+            CombatEvent::AttackedBy { target }
+            | CombatEvent::CombatTimerTriggered { target }
+            | CombatEvent::Threat { target, .. } => *target,
             _ => unreachable!(),
         };
         if self.target.is_some_and(|existing| existing != id) {
@@ -789,6 +970,12 @@ impl SoloCreatureAi {
                 if self.phase == Phase::Idle {
                     self.attack_start(t, effects)?;
                 }
+            }
+            CombatEvent::CombatTimerTriggered { .. } => {
+                if self.phase != Phase::Combat {
+                    return Err(AiError::Invalid("combat timer without represented victim"));
+                }
+                self.refresh_pursuit();
             }
             CombatEvent::Threat { amount, kind, .. } => {
                 amount.nonnegative("resolved threat")?;
@@ -907,7 +1094,9 @@ impl SoloCreatureAi {
         } else {
             self.profile.run_speed
         };
-        if r.speed != speed {
+        // The private source token already advanced a validated current Unit
+        // walk/run/wounded spline. External segments retain the legacy speed gate.
+        if !matches!(m.result, MovementResult::SourceSpline(_)) && r.speed != speed {
             return Err(AiError::Invalid(
                 "movement speed is not resolved native speed",
             ));
@@ -917,6 +1106,32 @@ impl SoloCreatureAi {
         }
         self.movement_request_id = r.request_id;
         match &m.result {
+            MovementResult::SourceSpline(source) => {
+                if source.now_ms != self.now_ms
+                    || source.last_move_ms > source.now_ms
+                    || source.moving_and_running != o.creature_moving_and_running
+                    || source.stationary_melee_refresh_eligible
+                        != o.stationary_melee_refresh_eligible
+                    || o.target.as_ref().is_some_and(|target| {
+                        target.moving_and_running != source.target_moving_and_running
+                    })
+                {
+                    return Err(AiError::Invalid("source movement clock/flags"));
+                }
+                self.position = source.position;
+                if source.relocated {
+                    effects.push(Effect::PositionCommitted(source.position));
+                }
+                if source.home_arrived {
+                    if r.purpose != MovementPurpose::Home {
+                        return Err(AiError::Invalid("chase cannot complete Home"));
+                    }
+                    self.phase = Phase::Idle;
+                    self.motion = None;
+                    effects.push(Effect::HomeReached);
+                }
+                Ok(source.reachable)
+            }
             MovementResult::Blocked(
                 BlockReason::MissingGeometry
                 | BlockReason::UnsupportedNavigation

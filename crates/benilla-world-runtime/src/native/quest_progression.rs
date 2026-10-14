@@ -15,12 +15,14 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod bindings;
 mod derived;
 mod kills;
+mod reputation;
 pub use bindings::ExecutionBinding;
 pub use derived::DerivedCall;
 pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillPolicy};
+pub use reputation::NativeReputationState;
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-progression-reconstruction-v3";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v4";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -51,6 +53,8 @@ pub struct QuestDialogRules {
 }
 #[derive(Clone, Debug)]
 pub struct QuestProgressionInput {
+    /// Explicit source-resolved closure. None leaves reputation unavailable.
+    pub reputation: Option<benilla_sim::reputation::Catalog>,
     pub loot: Option<NativeLootInput>,
     pub quests: Vec<q::QuestRow>,
     pub relations: q::QuestRelations,
@@ -70,6 +74,7 @@ pub struct QuestProgressionInput {
 }
 #[derive(Clone, Debug)]
 pub struct QuestProgressionGenesis {
+    reputation: Option<benilla_sim::reputation::Catalog>,
     pub loot: Option<NativeLootGenesis>,
     loot_identity: Option<crate::Digest>,
     identity: crate::Digest,
@@ -146,6 +151,7 @@ impl QuestProgressionGenesis {
         }
         rows.derived_audit.validate()?;
         rows.kill.validate(profile, rows.loot.is_some())?;
+        reputation::validate_input(rows.reputation.as_ref(), &rows.quests, input)?;
         let mage = init::initialize_mage(input)?;
         let loot = rows
             .loot
@@ -273,6 +279,7 @@ impl QuestProgressionGenesis {
         }
         let initial_derived_inputs = derived::initial_inputs(&initial_combat, rows.derived_audit);
         let mut out = Self {
+            reputation: rows.reputation,
             loot_identity: loot.as_ref().map(NativeLootGenesis::identity),
             loot,
             identity: [0; 32],
@@ -316,7 +323,7 @@ impl QuestProgressionGenesis {
             host = tx.host;
         }
         out.identity = crate::digest(
-            b"benilla-native-quest-progression-genesis-v3\0",
+            b"benilla-native-quest-progression-genesis-v4\0",
             &(
                 (
                     QUEST_PROGRESSION_POLICY,
@@ -324,6 +331,10 @@ impl QuestProgressionGenesis {
                     pg::POLICY_ID,
                     pg::derived::POLICY_ID,
                     init::LIVE_TRAINING_POLICY_ID,
+                    reputation::POLICY_ID,
+                    out.reputation
+                        .as_ref()
+                        .map(benilla_sim::reputation::Catalog::hash),
                 ),
                 (
                     out.quests.hash(),
@@ -656,6 +667,7 @@ impl QuestProgressionGenesis {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum QuestProgressionEvent {
+    Reputation(Box<benilla_sim::reputation::Event>),
     RewardItem(Box<inv::Stored>),
     RewardRefused {
         quest: u32,
@@ -681,6 +693,7 @@ pub enum QuestProgressionEvent {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestProgressionState {
+    pub reputation: Option<NativeReputationState>,
     pub inventory: Option<inv::State>,
     pub inventory_receipts: BTreeMap<u64, ItemReceipt>,
     pub loot_target: Option<crate::NpcId>,
@@ -701,6 +714,7 @@ pub struct QuestProgressionState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::native) struct QuestProgressionSnapshot {
+    reputation: Option<NativeReputationState>,
     inventory: Option<inv::State>,
     inventory_receipts: BTreeMap<u64, ItemReceipt>,
     loot_target: Option<crate::NpcId>,
@@ -747,6 +761,8 @@ impl pg::Host for ProgressionHost {
 }
 #[derive(Clone)]
 struct QuestHost<'a> {
+    reputation: Option<NativeReputationState>,
+    reputation_calls: VecDeque<(reputation::Marker, Vec<QuestProgressionEvent>)>,
     inventory: Option<inv::State>,
     genesis: &'a QuestProgressionGenesis,
     player: pg::State,
@@ -755,6 +771,21 @@ struct QuestHost<'a> {
     calls: VecDeque<(q::HostEffect, Vec<QuestProgressionEvent>, u8, u32)>,
 }
 impl q::Host for QuestHost<'_> {
+    fn reputation(&self, faction: u32) -> Result<i32, q::Error> {
+        self.current_reputation(faction)
+    }
+    fn reputation_visible(&mut self, faction: u32) -> Result<(), q::Error> {
+        self.show_reputation(faction)
+    }
+    fn reward_reputation(
+        &mut self,
+        catalog: &q::Catalog,
+        state: &mut q::State,
+        quest: u32,
+        _events: &mut Vec<q::Event>,
+    ) -> Result<(), q::Error> {
+        self.grant_reputation(catalog, state, quest)
+    }
     fn participation(&self) -> q::Participation {
         q::Participation::Solo
     }
@@ -875,6 +906,7 @@ impl QuestProgressionState {
         now_ms: u64,
     ) -> Result<Self, NativeError> {
         Ok(Self {
+            reputation: reputation::initialize(g)?,
             inventory: g.loot.as_ref().map(|l| l.initial_inventory.clone()),
             inventory_receipts: g.loot.as_ref().map_or_else(BTreeMap::new, |l| {
                 loot::initial_inventory_receipts(&l.initial_inventory)
@@ -897,6 +929,7 @@ impl QuestProgressionState {
     }
     pub(in crate::native) fn snapshot(&self) -> QuestProgressionSnapshot {
         QuestProgressionSnapshot {
+            reputation: self.reputation.clone(),
             inventory: self.inventory.clone(),
             inventory_receipts: self.inventory_receipts.clone(),
             loot_target: self.loot_target,
@@ -943,6 +976,7 @@ impl QuestProgressionState {
             return Err(NativeError::InvalidCheckpoint);
         }
         let out = Self {
+            reputation: s.reputation,
             inventory: s.inventory,
             inventory_receipts: s.inventory_receipts,
             loot_target: s.loot_target,
@@ -979,7 +1013,8 @@ impl QuestProgressionState {
             (None, None) if out.inventory_receipts.is_empty() && out.loot_target.is_none() => {}
             _ => return Err(NativeError::InvalidCheckpoint),
         }
-        out.validate_derived(g, c)?;
+        let progression_boundaries = out.validate_derived(g, c)?;
+        reputation::validate_saved(g, &out, &progression_boundaries)?;
         let mut check = out.clone();
         check.synchronize(g, c, health, mana)?;
         if check != out {
@@ -1056,6 +1091,8 @@ impl QuestProgressionState {
             self.player.view(),
         )?;
         let host = QuestHost {
+            reputation: self.reputation.clone(),
+            reputation_calls: VecDeque::new(),
             inventory: self.inventory.clone(),
             genesis: g,
             player: self.player.clone(),
@@ -1079,6 +1116,16 @@ impl QuestProgressionState {
         let (mut level, mut money) = (self.player.view().level as u8, self.money);
         let mut events = vec![];
         for event in tx.events {
+            if let Some(marker) = reputation::Marker::from_event(&event) {
+                if let Some((expected, nested)) = tx.host.reputation_calls.pop_front() {
+                    if marker != expected {
+                        return Err(NativeError::InvalidState);
+                    }
+                    events.extend(nested);
+                } else if tx.host.reputation.is_some() {
+                    return Err(NativeError::InvalidState);
+                }
+            }
             if let q::Event::Host(effect) = &event {
                 let (expected, nested, l, m) =
                     tx.host.calls.pop_front().ok_or(NativeError::InvalidState)?;
@@ -1095,10 +1142,11 @@ impl QuestProgressionState {
                 money,
             });
         }
-        if !tx.host.calls.is_empty() {
+        if !tx.host.calls.is_empty() || !tx.host.reputation_calls.is_empty() {
             return Err(NativeError::InvalidState);
         }
         let mut next = self.clone();
+        next.reputation = tx.host.reputation;
         next.quests = tx.state;
         next.player = tx.host.player;
         next.abilities = g.resolve_abilities(&tx.host.progression.training, next.player.view())?;
@@ -1107,6 +1155,7 @@ impl QuestProgressionState {
         next.derived_calls = tx.host.progression.derived_calls;
         next.money = tx.host.money;
         next.inventory = tx.host.inventory;
+        reputation::record_objective_mutations(self, &mut next, g, &events)?;
         if next.inventory != self.inventory {
             let reason = crate::digest(
                 b"benilla-native-quest-item-mutation-v1\0",

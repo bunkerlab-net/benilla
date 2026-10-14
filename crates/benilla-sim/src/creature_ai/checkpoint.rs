@@ -2,7 +2,7 @@
 //! Checked AI checkpoints, separate from live non-deserializable authority state.
 use super::*;
 use serde::{Deserialize, Serialize};
-pub const AI_CHECKPOINT_VERSION: u32 = 3;
+pub const AI_CHECKPOINT_VERSION: u32 = 4;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiCheckpoint {
@@ -31,6 +31,7 @@ pub struct AiCheckpoint {
     corpse_timer_calls: Vec<CorpseTimerCall>,
     respawn_at_ms: u64,
     death_at_ms: Option<u64>,
+    death_deferred: bool,
     despawned_at_ms: Option<u64>,
 }
 impl SoloCreatureAi {
@@ -61,6 +62,7 @@ impl SoloCreatureAi {
             corpse_timer_calls: self.corpse_timer_calls.clone(),
             respawn_at_ms: self.respawn_at_ms,
             death_at_ms: self.death_at_ms,
+            death_deferred: self.death_deferred,
             despawned_at_ms: self.despawned_at_ms,
         }
     }
@@ -115,7 +117,8 @@ impl SoloCreatureAi {
             {
                 return Err(AiError::Invalid("AI checkpoint death timers"));
             }
-        } else if matches!(s.phase, Phase::Corpse | Phase::Despawned)
+        } else if !s.death_deferred
+            || matches!(s.phase, Phase::Corpse | Phase::Despawned)
             || !s.corpse_timer_calls.is_empty()
             || s.corpse_timer_last_ms != 0
             || s.corpse_timer_previous_ms != 0
@@ -196,6 +199,7 @@ impl SoloCreatureAi {
             corpse_timer_calls: s.corpse_timer_calls,
             respawn_at_ms: s.respawn_at_ms,
             death_at_ms: s.death_at_ms,
+            death_deferred: s.death_deferred,
             despawned_at_ms: s.despawned_at_ms,
         })
     }
@@ -229,18 +233,21 @@ impl SoloCreatureAi {
                 .and_then(|t| (t / tick).checked_mul(tick))
                 .and_then(|t| t.checked_add(self.profile.clock_origin_ms))
                 .ok_or(AiError::Invalid("fixed-step corpse time overflow"))?;
-            let earliest = ceiling.max(
+            let earliest = ceiling.max(if self.death_deferred {
                 death
                     .checked_add(tick)
-                    .ok_or(AiError::Invalid("fixed-step death overflow"))?,
-            );
+                    .ok_or(AiError::Invalid("fixed-step death overflow"))?
+            } else {
+                death
+            });
             if removed != earliest {
                 return Err(AiError::Invalid("delayed fixed-step corpse removal"));
             }
         }
         match self.phase {
             Phase::Corpse
-                if self.death_at_ms != Some(self.now_ms) && self.now_ms >= self.corpse_at_ms =>
+                if (self.death_at_ms != Some(self.now_ms) || !self.death_deferred)
+                    && self.now_ms >= self.corpse_at_ms =>
             {
                 Err(AiError::Invalid("overdue fixed-step corpse"))
             }

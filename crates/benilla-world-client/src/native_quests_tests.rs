@@ -26,8 +26,8 @@ impl Catalog {
                             level: row.reward.xp.quest_level,
                             zone_or_sort: 0,
                             quest_type: 0,
-                            rep_objective_faction: 0,
-                            rep_objective_value: 0,
+                            rep_objective_faction: row.excluded.rep_objective_faction,
+                            rep_objective_value: row.excluded.rep_objective_value as u32,
                             next_quest_in_chain: row.next_in_chain,
                             money: row.reward.reward_or_required_money,
                             money_max_level: row.reward.xp.reward_money_max_level,
@@ -1103,4 +1103,126 @@ fn reward_during_prepare_projects_original_start_and_delayed_source_release() {
         w.state().casts[&id].release_binding.as_ref().unwrap().level,
         3
     );
+}
+
+#[test]
+fn native_reputation_packets_preserve_intermediate_callbacks_and_pre_xp_order() {
+    use n::synthetic_reputation_fixture as rep;
+    let mut w = rep::world();
+    let mut p = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    let mut a = fixture::QuestAuthority::default();
+    let giver = giver(&w);
+    let initial = p.initial_events(&w).unwrap();
+    let standings = initial
+        .iter()
+        .find_map(|e| match e {
+            SessionEvent::Reputations { standings } => Some(standings),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(standings.len(), 64);
+    assert_eq!(standings[3], (2, 0));
+    assert_eq!(standings[7], (0, 0));
+    assert!(standings
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != 3)
+        .all(|(_, s)| *s == (0, 0)));
+    assert!(
+        matches!(p.quest_greeting(&w,giver).unwrap(),SessionEvent::QuestGreeting(menu) if !menu.quests.iter().any(|q|q.quest_id==rep::GATED))
+    );
+    let accepted = step(
+        &mut w,
+        &mut p,
+        &mut a,
+        Some(UiRequest::AcceptQuest {
+            quest: rep::OBJECTIVE,
+            giver,
+        }),
+    );
+    let visible = accepted
+        .iter()
+        .position(|e| matches!(e, SessionEvent::ReputationVisible { list_id: 7 }))
+        .unwrap();
+    let log=accepted.iter().position(|e|matches!(e,SessionEvent::ObjectValues{fields,..} if fields.player_quest_log(0).is_some_and(|q|q.quest_id==rep::OBJECTIVE))).unwrap();
+    assert!(visible < log);
+    let close = accepted
+        .iter()
+        .position(|e| matches!(e, SessionEvent::GossipComplete))
+        .unwrap();
+    assert!(log < close);
+    step(
+        &mut w,
+        &mut p,
+        &mut a,
+        Some(UiRequest::AcceptQuest {
+            quest: rep::GRANT,
+            giver,
+        }),
+    );
+    let rewarded = step(
+        &mut w,
+        &mut p,
+        &mut a,
+        Some(UiRequest::TurnInQuest {
+            quest: rep::GRANT,
+            giver,
+        }),
+    );
+    let deltas: Vec<_> = rewarded
+        .iter()
+        .filter_map(|e| match e {
+            SessionEvent::ReputationDelta { standings } => Some(standings.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        deltas,
+        vec![
+            vec![(3, 200), (7, 200)],
+            vec![(3, 100), (7, 100)],
+            vec![(3, 200), (7, 200)]
+        ]
+    );
+    let toggles: Vec<_> = rewarded
+        .iter()
+        .take_while(|e| !matches!(e, SessionEvent::XpGain(_)))
+        .filter_map(|e| match e {
+            SessionEvent::ObjectValues { fields, .. } => {
+                fields.player_quest_log(0).map(|q| q.state)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(toggles, [1, 0, 1]);
+    let last_delta = rewarded
+        .iter()
+        .rposition(|e| matches!(e, SessionEvent::ReputationDelta { .. }))
+        .unwrap();
+    let clear=rewarded.iter().position(|e|matches!(e,SessionEvent::ObjectValues{fields,..} if fields.player_quest_log(1).is_some_and(|q|q.quest_id==0))).unwrap();
+    let xp = rewarded
+        .iter()
+        .position(|e| matches!(e, SessionEvent::XpGain(_)))
+        .unwrap();
+    assert!(last_delta < clear && clear < xp);
+    assert!(
+        matches!(p.quest_greeting(&w,giver).unwrap(),SessionEvent::QuestGreeting(menu) if menu.quests.iter().any(|q|q.quest_id==rep::GATED))
+    );
+    let restored = n::NativeWorld::restore_synthetic_component_test(
+        w.profile().clone(),
+        w.checkpoint().unwrap(),
+    )
+    .unwrap();
+    let reopened =
+        NativeProjection::new(&restored, restored.state().player, &Catalog::new(&restored))
+            .unwrap()
+            .initial_events(&restored)
+            .unwrap();
+    assert!(reopened.iter().any(|e|matches!(e,SessionEvent::Reputations{standings} if standings[3]==(1,200)&&standings[7]==(1,200))));
+    assert!(!reopened.iter().any(|e| matches!(
+        e,
+        SessionEvent::ReputationDelta { .. }
+            | SessionEvent::XpGain(_)
+            | SessionEvent::ReputationVisible { .. }
+    )));
 }

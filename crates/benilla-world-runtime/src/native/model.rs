@@ -12,6 +12,7 @@ pub enum Domain {
 #[serde(deny_unknown_fields)]
 pub struct PlayerProfile {
     pub start: ai::Point,
+    pub orientation: Orientation,
     pub level: u8,
     pub max_health: u32,
     pub max_mana: u32,
@@ -69,6 +70,7 @@ pub enum AbilityAdmission {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NpcProfile {
+    pub health_regeneration: benilla_sim::creature_regeneration::Policy,
     pub combat: Option<CreatureCombatProfile>,
     pub ai: ai::Profile,
     pub entry: u32,
@@ -79,6 +81,8 @@ pub struct NpcProfile {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Profile {
+    pub source_motion: Option<MotionGenesis>,
+    pub interactions: Option<InteractionCatalog>,
     pub quest_progression: Option<QuestProgressionGenesis>,
     pub combat: Option<CombatGenesis>,
     pub content_digest: Digest,
@@ -94,12 +98,14 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v8\0",
+            b"benilla-native-profile-v9\0",
             &(
                 NATIVE_POLICY,
                 RNG_POLICY,
                 spell::SPELL_EXECUTION_POLICY_ID,
                 ai::CREATURE_AI_POLICY_ID,
+                benilla_sim::creature_motion::CREATURE_MOTION_POLICY_ID,
+                benilla_sim::creature_regeneration::CREATURE_REGENERATION_POLICY_ID,
                 mana::MAGE_RESOURCE_POLICY_ID,
                 benilla_sim::starter_init::STARTER_INIT_POLICY_ID,
                 benilla_sim::npc_melee::NPC_MELEE_POLICY_ID,
@@ -131,6 +137,9 @@ impl Profile {
             .collect()
     }
     pub fn validate(&self) -> Result<(), NativeError> {
+        if let Some(g) = &self.source_motion {
+            g.validate(self)?;
+        }
         let p = &self.player;
         if self.content_digest == [0; 32]
             || self.authority_policy == [0; 32]
@@ -194,6 +203,9 @@ impl Profile {
         if let Some(g) = &self.quest_progression {
             g.validate(self)?;
         }
+        if let Some(interactions) = &self.interactions {
+            interactions.validate(self)?;
+        }
         for n in &self.npcs {
             if n.ai.creature_id <= SOLO_UNIT
                 || n.entry == 0
@@ -209,6 +221,7 @@ impl Profile {
             {
                 return Err(NativeError::InvalidProfile);
             }
+            n.health_regeneration.validate()?;
             ai::SoloCreatureAi::new(n.ai.clone())?;
             if let (Some(g), Some(c)) = (&self.combat, &n.combat) {
                 benilla_sim::npc_melee::prepare(benilla_sim::npc_melee::MeleeInput {
@@ -248,6 +261,8 @@ pub struct Cast {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Npc {
+    pub source_motion: Option<NpcMotion>,
+    pub regen_elapsed_ms: u32,
     pub original_loot_recipient: Option<PlayerId>,
     pub corpse_loot: Option<CorpseLoot>,
     pub aura_bindings: BTreeMap<u32, ExecutionBinding>,
@@ -258,6 +273,8 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
+    pub player_events: PlayerEvents,
     pub quest_progression: Option<QuestProgressionState>,
     pub domain: Domain,
     pub world: WorldId,
@@ -267,6 +284,7 @@ pub struct State {
     pub now_ms: u64,
     pub next_sequence: u64,
     pub position: ai::Point,
+    pub orientation: Orientation,
     pub health: u32,
     pub resources: mana::MageManaState,
     pub npcs: BTreeMap<u64, Npc>,
@@ -278,6 +296,11 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    MovementPose {
+        destination: ai::Point,
+        orientation: Orientation,
+        movement_flags: benilla_sim::creature_motion::GroundMovementFlags,
+    },
     ChooseQuestReward {
         quest: u32,
         giver: NpcId,
@@ -304,6 +327,8 @@ pub enum Command {
         quest: u32,
         giver: NpcId,
     },
+    /// Internal controller lifecycle acknowledgement; no network/UI request maps here.
+    AcknowledgeInitialReputations,
     ReleaseSpirit,
     Cast {
         ability: u32,
@@ -313,8 +338,14 @@ pub enum Command {
         spell_id: u32,
         target: CancelCastTarget,
     },
+    /// Position-only intent preserves the current orientation.
     Move {
         destination: ai::Point,
+    },
+    /// Atomic pose intent. An unchanged destination turns without a movement request.
+    Pose {
+        destination: ai::Point,
+        orientation: Orientation,
     },
 }
 /// An exact preparing instance, or the cast created by an earlier input in this frame.
@@ -367,6 +398,13 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    NpcMotion {
+        id: NpcId,
+        event: benilla_sim::creature_motion::Event,
+    },
+    PlayerMovementState {
+        movement_flags: benilla_sim::creature_motion::GroundMovementFlags,
+    },
     Loot(LootEvent),
     QuestProgression(QuestProgressionEvent),
     InputResult {
@@ -391,11 +429,19 @@ pub enum Event {
         outcome: MeleeOutcome,
         effective: u32,
     },
+    NpcHealthRegenerated {
+        id: NpcId,
+        before: u32,
+        after: u32,
+    },
     Mana {
         before: u32,
         after: u32,
     },
-    PlayerMoved(ai::Point),
+    PlayerPose {
+        position: ai::Point,
+        orientation: Orientation,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -418,11 +464,14 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    SourceMotion(MotionQuery),
     LootInteraction {
+        witness: InteractionWitness,
         player_position: ai::Point,
         npc_position: ai::Point,
     },
     QuestInteraction {
+        witness: InteractionWitness,
         quest: u32,
         reward: bool,
         player_position: ai::Point,
@@ -434,6 +483,7 @@ pub enum Query {
         unit_flags: u32,
     },
     QuestStatus {
+        witness: InteractionWitness,
         player_position: ai::Point,
         npc_position: ai::Point,
         npc_entry: u32,
@@ -442,6 +492,8 @@ pub enum Query {
         player_ghost: bool,
     },
     NativeMelee {
+        /// Present only when source SetInFront has run at the ordered AI phase.
+        npc_orientation: Option<Orientation>,
         action: u64,
         state_binding: Digest,
         player_in_combat: bool,
@@ -452,6 +504,8 @@ pub enum Query {
         cast_id: u64,
         ability: u32,
         phase: CastPhase,
+        /// Exact current pose witness, not an implemented facing predicate.
+        player_orientation: Orientation,
         player_position: ai::Point,
         target_position: ai::Point,
     },
@@ -520,6 +574,7 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    SourceMotion(MotionFacts),
     LootInteraction {
         player_in_world: bool,
         player_stunned: bool,
@@ -550,6 +605,11 @@ pub struct AuthorityReply {
 /// elapsed_ms budget and all segment/geometry rules. Repeated requests do not renew time.
 pub trait Authority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError>;
+    /// Observe or verify a runtime-derived reply in original query order. This hook
+    /// cannot substitute facts; replay compares the complete recorded reply here.
+    fn observe_derived(&mut self, _reply: &AuthorityReply) -> Result<(), NativeError> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -564,7 +624,6 @@ pub struct QuestInteractionFacts {
     pub npc_invisible_to_alive: bool,
     pub player_reaction: u8,
     pub npc_reaction: u8,
-    pub line_of_sight: bool,
 }
 impl State {
     pub(in crate::native) fn level(&self, profile: &Profile) -> u8 {

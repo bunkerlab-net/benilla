@@ -143,16 +143,7 @@ impl<A: Authority> Frame<'_, A> {
                     }
                 }
                 d::DeathAction::InterruptCurrentSpell { cast_id, .. } => {
-                    let mut cast = self
-                        .state
-                        .casts
-                        .remove(&cast_id)
-                        .ok_or(NativeError::InvalidState)?;
-                    let events = cast.execution.cancel(
-                        &mut self.state.resources.caster,
-                        spell::CastFailure::CasterDead,
-                    );
-                    self.spell_events(cast_id, cast.ability, cast.target, events)?;
+                    self.interrupt_scheduled_cast(cast_id, spell::CastFailure::CasterDead)?;
                 }
                 d::DeathAction::RemoveAuraByDeath { .. } => {
                     return Err(NativeError::UnsupportedMechanic(

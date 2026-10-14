@@ -9,7 +9,7 @@ mod model;
 use crate::quest::{self, QuestPlayerIdentity, RewardContext};
 pub use model::*;
 
-pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v2";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v3";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     Unsupported(&'static str),
@@ -36,6 +36,7 @@ pub enum Gate {
     Class,
     Race,
     Level,
+    Reputation,
     Previous,
     NextChain,
     PreviousChain,
@@ -63,12 +64,47 @@ pub enum Participation {
 
 /// An in-memory deep clone, without externally visible side effects. Implementations
 /// must use audited native inventory/GiveXP/ModifyMoney mechanisms, not fallback rules.
-/// No blanket/default implementation is provided. Failure must not mutate the original.
+/// Reputation defaults fail closed unless the reward fields are all zero.
+/// Failure must not mutate the original.
 pub trait Host: Clone {
     fn participation(&self) -> Participation;
     fn identity(&self) -> QuestPlayerIdentity;
     fn reward_context(&self) -> RewardContext;
     fn money(&self) -> u32;
+    /// Source GetReputation's absolute standing. A host without reputation support
+    /// must fail when a nonzero faction is queried, never assume neutral standing.
+    fn reputation(&self, _faction: u32) -> Result<i32, Error> {
+        Err(Error::Unsupported("reputation_host"))
+    }
+    /// Source AddQuest SetVisible, before the new quest enters the log. The host
+    /// must retain its staged reputation outputs for the ReputationVisible marker.
+    fn reputation_visible(&mut self, _faction: u32) -> Result<(), Error> {
+        Err(Error::Unsupported("reputation_visible_host"))
+    }
+    /// Synchronous source RewardReputation. Apply every standing change and call
+    /// reputation_changed at its native position before proceeding to the next.
+    /// All changes are staged; host-specific outputs must retain callback order.
+    /// Native adapters may queue callback events and expand the RewardReputation
+    /// marker instead of appending them to events; never publish both copies.
+    fn reward_reputation(
+        &mut self,
+        catalog: &Catalog,
+        _state: &mut State,
+        quest: u32,
+        _events: &mut Vec<Event>,
+    ) -> Result<(), Error> {
+        let fields = &catalog.row(quest)?.excluded;
+        if fields
+            .reward_rep_faction
+            .iter()
+            .any(|&faction| faction != 0)
+            || fields.reward_rep_value.iter().any(|&value| value != 0)
+            || fields.reward_faction_flags != 0
+        {
+            return Err(Error::Unsupported("reward_reputation_host"));
+        }
+        Ok(())
+    }
     fn item_count(&self, item: u32, include_bank: bool) -> Result<u32, Error>;
     /// Exact source DestroyItemCount stack traversal, each step in deletion order.
     fn removal_steps(&self, item: u32, count: u32) -> Result<Vec<u32>, Error>;
@@ -93,6 +129,7 @@ pub enum HostEffect {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    ReputationVisible(u32),
     LogSet {
         slot: usize,
         quest: Option<u32>,
@@ -200,7 +237,9 @@ fn money_required(q: &QuestRow, host: &impl Host) -> Result<u32, Error> {
 }
 pub fn can_take(catalog: &Catalog, state: &State, host: &impl Host, id: u32) -> Result<(), Error> {
     check_catalog(catalog, state)?;
-    can_take_identity(catalog, state, host.identity(), id, true, true)
+    can_take_identity(catalog, state, host.identity(), id, true, true, |faction| {
+        host.reputation(faction)
+    })
 }
 /// Read-only source eligibility against a captured callback-time quest view.
 /// No host mutation, reward, interaction admission, or item assumptions occur.
@@ -210,16 +249,27 @@ pub fn can_take_view(
     identity: QuestPlayerIdentity,
     id: u32,
 ) -> Result<(), Error> {
-    let state = State {
-        snapshot: Snapshot {
-            policy: POLICY_ID.into(),
-            catalog_hash: catalog.hash(),
-            next_sequence: 0,
-            log: view.log,
-            records: view.records.clone(),
-        },
-    };
-    can_take_identity(catalog, &state, identity, id, true, true)
+    can_take_view_with_reputation(catalog, view, identity, id, |_| {
+        Err(Error::Unsupported("reputation_host"))
+    })
+}
+/// Captured-view CanTakeQuest with the same callback-time reputation standing.
+pub fn can_take_view_with_reputation(
+    catalog: &Catalog,
+    view: &QuestView,
+    identity: QuestPlayerIdentity,
+    id: u32,
+    reputation: impl FnMut(u32) -> Result<i32, Error>,
+) -> Result<(), Error> {
+    can_take_identity(
+        catalog,
+        &state_from_view(catalog, view),
+        identity,
+        id,
+        true,
+        true,
+        reputation,
+    )
 }
 /// Source CanSeeStartQuest's non-level eligibility gates. The caller supplies
 /// the explicit high-level hide rule separately; status and log capacity are
@@ -230,7 +280,30 @@ pub fn can_see_start_view(
     identity: QuestPlayerIdentity,
     id: u32,
 ) -> Result<(), Error> {
-    let state = State {
+    can_see_start_view_with_reputation(catalog, view, identity, id, |_| {
+        Err(Error::Unsupported("reputation_host"))
+    })
+}
+/// Captured-view CanSeeStartQuest with a fallible callback-time standing query.
+pub fn can_see_start_view_with_reputation(
+    catalog: &Catalog,
+    view: &QuestView,
+    identity: QuestPlayerIdentity,
+    id: u32,
+    reputation: impl FnMut(u32) -> Result<i32, Error>,
+) -> Result<(), Error> {
+    can_take_identity(
+        catalog,
+        &state_from_view(catalog, view),
+        identity,
+        id,
+        false,
+        false,
+        reputation,
+    )
+}
+fn state_from_view(catalog: &Catalog, view: &QuestView) -> State {
+    State {
         snapshot: Snapshot {
             policy: POLICY_ID.into(),
             catalog_hash: catalog.hash(),
@@ -238,8 +311,7 @@ pub fn can_see_start_view(
             log: view.log,
             records: view.records.clone(),
         },
-    };
-    can_take_identity(catalog, &state, identity, id, false, false)
+    }
 }
 fn can_take_identity(
     catalog: &Catalog,
@@ -248,6 +320,7 @@ fn can_take_identity(
     id: u32,
     status_gate: bool,
     level_gate: bool,
+    mut reputation: impl FnMut(u32) -> Result<i32, Error>,
 ) -> Result<(), Error> {
     let q = catalog.row(id)?;
     // The omitted gates are proven inert at Catalog admission, not assumed true.
@@ -263,6 +336,18 @@ fn can_take_identity(
         if !ok && (gate != Gate::Level || level_gate) {
             return Err(Error::Rejected(gate));
         }
+    }
+    // Player::SatisfyQuestReputation: inclusive minimum, exclusive maximum.
+    let fields = &q.excluded;
+    if fields.required_min_rep_faction != 0
+        && reputation(fields.required_min_rep_faction)? < fields.required_min_rep_value
+    {
+        return Err(Error::Rejected(Gate::Reputation));
+    }
+    if fields.required_max_rep_faction != 0
+        && reputation(fields.required_max_rep_faction)? >= fields.required_max_rep_value
+    {
+        return Err(Error::Rejected(Gate::Reputation));
     }
     if let Some(previous) = catalog.previous.get(&id) {
         if !previous.iter().any(|&prev| {
@@ -315,7 +400,10 @@ pub fn can_complete(
     }
     Ok((0..OBJECTIVES).all(|i| {
         p.items[i] >= q.required_item_count[i] && p.creatures[i] >= q.required_creature_count[i]
-    }) && host.money() >= money_required(q, host)?)
+    }) && host.money() >= money_required(q, host)?
+        && (q.excluded.rep_objective_faction == 0
+            || host.reputation(q.excluded.rep_objective_faction)?
+                >= q.excluded.rep_objective_value))
 }
 pub fn can_reward(
     catalog: &Catalog,
@@ -479,6 +567,41 @@ fn money_changed(
     }
     Ok(())
 }
+/// Player::ReputationChanged, after the host has staged the new standing.
+/// Walk log slots in source order, preserving each callback-time quest view.
+/// This is an in-transaction callback, not an independently atomic operation;
+/// the caller must discard the staged host, State and events together on error.
+pub fn reputation_changed(
+    catalog: &Catalog,
+    state: &mut State,
+    host: &impl Host,
+    faction: u32,
+    events: &mut Vec<Event>,
+) -> Result<(), Error> {
+    check_catalog(catalog, state)?;
+    if faction == 0 {
+        return Err(Error::Invalid("reputation_faction"));
+    }
+    for id in state.snapshot.log.into_iter().flatten() {
+        let q = catalog.row(id)?;
+        if q.excluded.rep_objective_faction != faction {
+            continue;
+        }
+        match state.progress(id).expect("log").status {
+            Status::Incomplete => {
+                if host.reputation(faction)? >= q.excluded.rep_objective_value {
+                    maybe_complete(catalog, state, host, id, events)?;
+                }
+            }
+            Status::Complete => {
+                if host.reputation(faction)? < q.excluded.rep_objective_value {
+                    set_status(state, id, Status::Incomplete, events);
+                }
+            }
+        }
+    }
+    Ok(())
+}
 fn before_item_removed(
     catalog: &Catalog,
     state: &mut State,
@@ -609,6 +732,10 @@ pub fn reduce<H: Host>(
                     creatures: [0; OBJECTIVES],
                 },
             );
+            if q.excluded.rep_objective_faction != 0 {
+                host.reputation_visible(q.excluded.rep_objective_faction)?;
+                events.push(Event::ReputationVisible(q.excluded.rep_objective_faction));
+            }
             state.snapshot.log[slot] = Some(id);
             events.push(Event::LogSet {
                 slot,
@@ -717,7 +844,8 @@ pub fn reduce<H: Host>(
                     events.push(Event::Host(effect));
                 }
             }
-            events.push(Event::RewardReputation(id)); // Proven no-op by row admission.
+            host.reward_reputation(catalog, &mut state, id, &mut events)?;
+            events.push(Event::RewardReputation(id));
             if let Some(slot) = logged(&state, id) {
                 state.snapshot.log[slot] = None;
                 events.push(Event::LogSet { slot, quest: None });

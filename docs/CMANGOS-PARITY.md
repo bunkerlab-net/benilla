@@ -41,6 +41,7 @@ exclusions are documented in:
 - [Integrated bounded native death](../crates/benilla-world-runtime/src/native/DEATH.md)
 - [Bounded mage XP/level transitions](../crates/benilla-sim/PLAYER-PROGRESSION.md)
 - [Ordinary quest lifecycle and host requirements](../crates/benilla-sim/QUEST-LIFECYCLE.md)
+- [Integrated quest reputation and durable callbacks](../crates/benilla-world-runtime/src/native/REPUTATION.md)
 - [Loaded dry static VMap ray subset](../crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
 - [Conservative local geometry service](../crates/benilla-app/src/net/p2p/world/native_geometry/README.md)
 - [Native runtime integration](../crates/benilla-world-runtime/src/native/README.md)
@@ -251,6 +252,13 @@ is meaningful without a bounded content/mechanics inventory.
   credit, completion and reward orchestration against pinned source probes. It needs
   an audited transactional inventory/XP/level host, authenticated commands and atomic
   persistence before native runtime admission; unsupported quest features reject.
+  The native authored-input path integrates explicit faction/rate/spillover closure,
+  persisted reputation state, synchronous objective completion/demotion, min/max
+  reputation gates and source-ordered initial/visibility/standing events before XP.
+  Source-operation replay rejects forged standing/flags and callback snapshots;
+  controller tests cover failed-save/reopen and session initialization without an
+  extra gameplay tick. Combat reactions, kill/spell reputation and raw-data
+  admission remain separate, unavailable capabilities.
 - **Dependencies:** prerequisites/exclusive groups, reputation/race/class/level,
   timed/repeatable state, inventory, spells, exploration, escort/game-object
   scripts, group sharing/credit, condition evaluation and persistent quest log.
@@ -273,7 +281,12 @@ is meaningful without a bounded content/mechanics inventory.
   `CreateInstanceData`][scripts].
 - **Current fork:** the data profile allows passive or stationary fixed-melee
   behavior. Synthetic target selection is an original harness, not EventAI,
-  ScriptDevAI, faction reaction or production creature behavior.
+  ScriptDevAI, faction reaction or production creature behavior. The native
+  runtime integrates [ordinary health regeneration](../crates/benilla-sim/CREATURE-REGENERATION.md)
+  after AI/CombatManager with a persisted 5,000-ms accumulator, current combat/evade
+  gates and committed client health. Captured flags/control/power evidence is
+  required; active mana/focus/energy regeneration and dynamic overrides are
+  explicitly unsupported. This remains authored-fixture component coverage.
 - **Dependencies:** faction/reaction and detection, threat, motion/LOS,
   spell/quest hooks, spawn groups/events, script identity, timers and random
   decisions. A script name is a required dependency, not decorative metadata.

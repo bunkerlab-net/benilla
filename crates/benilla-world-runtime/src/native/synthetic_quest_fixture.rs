@@ -177,6 +177,7 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
         quest: 70001,
     };
     let data = QuestProgressionInput {
+        reputation: None,
         loot: None,
         dialog_rules: QuestDialogRules {
             always_show_quest_greeting: true,
@@ -302,7 +303,6 @@ impl Authority for QuestAuthority {
                     npc_invisible_to_alive: false,
                     player_reaction: if self.deny { 2 } else { 4 },
                     npc_reaction: 4,
-                    line_of_sight: false,
                 }),
             });
         }

@@ -56,6 +56,25 @@ fn lethal_cancels_preparing_but_keeps_flight_death_loss_and_exact_resume() {
     }
     assert_eq!(w.state.health, 0);
     let death_tick = w.state.tick;
+    let interrupted = w
+        .last_tick()
+        .unwrap()
+        .events
+        .iter()
+        .find_map(|event| match event {
+            Event::Death(d::DeathAction::InterruptCurrentSpell { cast_id, .. }) => Some(*cast_id),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        w.state
+            .player_events
+            .spell_lifetime(interrupted)
+            .unwrap()
+            .finished,
+        Some((w.state.now_ms, FinishedSpellReason::Interrupted))
+    );
+    assert_eq!(w.state.player_events.current_spell(), None);
     let record = w.last_tick().unwrap();
     assert!(record.events.iter().any(|e| matches!(
         e,
@@ -118,6 +137,7 @@ fn lethal_cancels_preparing_but_keeps_flight_death_loss_and_exact_resume() {
     run(&mut w, death_tick + 1, &mut a);
     run(&mut restored, death_tick + 1, &mut a);
     assert_eq!(w.state_digest(), restored.state_digest());
+    assert!(w.state.player_events.spell_lifetime(interrupted).is_none());
     let snapshot = w
         .state
         .combat
@@ -295,9 +315,9 @@ fn resigned_death_clock_killer_and_detached_state_tamper_is_rejected() {
             _ => unreachable!(),
         }
         let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v8\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v9\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v8\0",
+            b"benilla-native-checkpoint-v9\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(
