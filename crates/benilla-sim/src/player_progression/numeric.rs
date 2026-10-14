@@ -132,7 +132,8 @@ fn crit(level: u32, intellect: i32) -> Result<SpellFloat> {
 }
 /// Supported numeric fields only. Attack/weapon/defense/spell-damage/hit fields
 /// live in the mandatory audited host, not implied zero by their omission here.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NumericState {
     pub attributes: Attributes,
     pub resistances: [i32; 7],

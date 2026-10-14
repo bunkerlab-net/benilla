@@ -2,14 +2,16 @@
 // CMaNGOS Player::UpdateSkillsForLevel/GetSkillInfo/existing SetSkill branch.
 use super::{Error, Event, Host, Result, Rows, SkillLineRow, SkillRaceClassRow, Staged};
 use std::collections::BTreeSet;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum SkillStatus {
     Unchanged,
     Changed,
     New,
     Deleted,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SkillState {
     pub id: u16,
     pub position: u8,

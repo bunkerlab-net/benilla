@@ -188,7 +188,8 @@ pub struct ManaRegenModifiers {
     pub flat_mana_per_five: i32,
     pub interrupted_percent: i32,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ManaRegen {
     pub normal_per_second: SpellFloat,
     pub interrupted_per_second: SpellFloat,

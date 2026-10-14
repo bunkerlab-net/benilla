@@ -396,3 +396,15 @@ packet/state/callback order and numeric limits. Missing actual level rows,
 unsupported skill/spell hooks, and non-bit-exact armor restoration reject;
 no source database rows or client assets are included. Native skill/spell host
 and stat/equipment recipe rebasing remain separate runtime integration requirements.
+
+## Bounded solo-creature kill experience
+
+`src/player_progression/kill_xp.rs` adds the pinned source binary32 `XP::Gain`,
+victim-aware `GiveXP` and rest arithmetic described in [KILL-XP.md](KILL-XP.md).
+It shares the existing level reducer and requires explicit death/tap/side-effect
+and fresh-online continuation evidence from the owning runtime. Its 29,995-row
+synthetic extracted-source oracle covers numeric and callback order. The module
+does not itself implement a native world adapter, resting-area/offline clocks,
+honor/reputation rewards, group XP, or production capability admission. The same
+upstream GPL-2.0-or-later grant and retained notices apply; this translation and
+its synthetic oracle are GPL-3.0-or-later.

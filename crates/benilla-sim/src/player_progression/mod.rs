@@ -3,6 +3,7 @@
 // Source GPL-2.0-or-later; this bounded translation GPL-3.0-or-later.
 //! Transactional GiveXP/GiveLevel for explicit solo mage rows, levels 1–9.
 //! See PLAYER-PROGRESSION.md. The audited host is mandatory, not a no-op adapter.
+pub mod kill_xp;
 mod numeric;
 mod skills;
 
@@ -33,7 +34,8 @@ impl std::error::Error for Error {}
 
 /// Explicit authoritative rules. No captured-server configuration is inferred.
 /// `global_skill_max` is World::GetConfigMaxSkillValue's resolved uint16 result.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Rules {
     pub max_player_level: u32,
     pub always_max_skill_for_level: bool,
@@ -86,14 +88,16 @@ pub struct XpRow {
 }
 
 /// A dependency scan is mandatory. False/default booleans cannot mean unscanned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Evidence {
     Unknown,
     Absent,
     Present,
 }
 /// Live-state admission, rechecked by the host before each transaction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Audit {
     pub group_or_raid: Evidence,
     pub pet_or_controlled_unit: Evidence,
@@ -336,7 +340,8 @@ impl Catalog {
 
 /// Checkpoint DTO. Bind to the catalog, modifier provenance, and host-policy hash
 /// in the owner's authenticated atomic envelope; this is not a save-file format.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Snapshot {
     pub policy: String,
     pub catalog_identity: [u8; 32],
@@ -419,7 +424,8 @@ pub trait Host: Clone {
     fn preflight(&self, catalog: &Catalog, state: &Snapshot) -> Result<()>;
     fn apply(&mut self, event: &Event, view: &Snapshot) -> Result<()>;
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum StatHook {
     AttackPowerAndDamage { ranged: bool },
     AllCritPercentages,
@@ -429,7 +435,8 @@ pub enum StatHook {
     ManaRegen,
     WeaponHitChance { attack: u8 },
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Event {
     /// Victim GUID zero, given XP, type byte 1; no kill-only payload/rested bonus.
     NonKillXpLog {
@@ -483,7 +490,8 @@ pub enum Event {
     SessionLevel(u32),
     Xp(u32),
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Observation {
     pub event: Event,
     pub view: Snapshot,

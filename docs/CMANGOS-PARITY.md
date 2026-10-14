@@ -113,6 +113,13 @@ is meaningful without a bounded content/mechanics inventory.
   replay and equipped-item effects. It preserves created current resources rather
   than refilling to recomputed maxima. Unsupported passive/rank/hook semantics fail
   explicitly; this does not implement all races/classes or level-up progression.
+- **Bounded component ports:** the separate
+  [player progression reducer](../crates/benilla-sim/PLAYER-PROGRESSION.md) and
+  [solo kill-XP reducer](../crates/benilla-sim/KILL-XP.md) preserve source level,
+  binary32 gain, rested arithmetic and event ordering in their declared domains.
+  Kill awards require proven owner-generated death/tap state and explicit
+  no-effect honor/reputation and fresh-online clock contracts. Their headless
+  oracles do not establish playable native integration or full Classic parity.
 - **Dependencies:** player creation/level tables; class/race DBC information;
   item/aura modifiers; skills, talents, spell learning, faction/reputation;
   death/rested state; kill attribution; local rates with explicit semantics.

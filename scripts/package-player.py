@@ -36,6 +36,7 @@ DOCUMENTS = (
     "scripts/classic_export/NATIVE-SPAWN-CONTRACT.md",
     "scripts/classic_export/SPELL-REGISTRY-CONTRACT.md",
     "scripts/classic_export/INITIAL-HOOKS.md", "crates/benilla-sim/PLAYER-PROGRESSION.md",
+    "crates/benilla-sim/KILL-XP.md",
     "crates/benilla-sim/CREATURE-AI.md", "crates/benilla-sim/SPELLS.md", "crates/benilla-app/src/net/p2p/world/README.md",
     "crates/benilla-sim/QUESTS.md", "crates/benilla-world-data/PROVENANCE.md",
     "crates/benilla-world-runtime/README.md", "crates/benilla-world-store/README.md",
