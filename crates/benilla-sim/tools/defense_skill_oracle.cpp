@@ -50,18 +50,18 @@ bool roll_chance_f(float chance) {
     return source_rng::roll_chance_f(chance);
 }
 struct Player {
-    uint32 level = 1;
-    uint16 value = 1, maximum = 5;
+    uint32 harness_level = 1;
+    uint16 skill_value = 1, maximum = 5;
     SkillStatusMap mSkillStatus{{SKILL_DEFENSE, {}}};
-    uint16 GetSkillValuePure(uint16) const { return value; }
+    uint16 GetSkillValuePure(uint16) const { return skill_value; }
     uint16 GetSkillMaxPure(uint16) const { return maximum; }
     uint16 GetWeaponSkillIdForAttack(int) const { assert(false); return 0; }
-    uint32 GetLevel() const { return level; }
+    uint32 GetLevel() const { return harness_level; }
     float GetStat(int) const { assert(false); return 0; }
     void UpdateWeaponSkill(int) { assert(false); }
     void UpdateDefenseBonusesMod() {}
-    uint32 GetUInt32Value(uint32) const { return MAKE_SKILL_VALUE(value, maximum); }
-    void SetUInt32Value(uint32, uint32 packed) { value = SKILL_VALUE(packed); }
+    uint32 GetUInt32Value(uint32) const { return MAKE_SKILL_VALUE(skill_value, maximum); }
+    void SetUInt32Value(uint32, uint32 packed) { skill_value = SKILL_VALUE(packed); }
     void UpdateCombatSkills(uint32, WeaponAttackType, bool);
     void UpdateDefense(uint32);
     void UpdateSkill(uint16, uint16);
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
         for (uint32 level = 1; level <= 60; ++level)
             for (uint16 maximum = 1; maximum <= 300; ++maximum)
                 for (uint16 value = 0; value < maximum; ++value) {
-                    Player player; player.level = level; player.maximum = maximum; player.value = value;
+                    Player player; player.harness_level = level; player.maximum = maximum; player.skill_value = value;
                     roll = std::nextafter(100.0, 0.0); draws = 0;
                     player.UpdateCombatSkills(0, 0, true);
                     assert(draws == 1);
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
                 values.erase(std::unique(values.begin(), values.end()), values.end());
                 for (uint16 value : values) {
                     if (maximum > 300 && value < maximum && maximum - value >= 7) continue;
-                    Player probe; probe.level = level; probe.maximum = maximum; probe.value = value;
+                    Player probe; probe.harness_level = level; probe.maximum = maximum; probe.skill_value = value;
                     roll = 0; draws = 0; captured_chance = 0;
                     probe.UpdateCombatSkills(0, 0, true);
                     const float chance = bits<float>(captured_chance);
@@ -153,12 +153,12 @@ int main(int argc, char** argv) {
                     }
                     for (uint16 gain : {0, 1, 65535})
                         for (double value_roll : rolls) {
-                            Player player; player.level = level; player.maximum = maximum; player.value = value;
+                            Player player; player.harness_level = level; player.maximum = maximum; player.skill_value = value;
                             sWorld.gain = gain; roll = value_roll; draws = 0; captured_chance = 0;
                             player.UpdateCombatSkills(0, 0, true);
                             std::cout << level << ' ' << maximum << ' ' << value << ' ' << gain
                                       << ' ' << bits<uint64_t>(roll) << ' ' << captured_chance
-                                      << ' ' << draws << ' ' << player.value << '\n';
+                                      << ' ' << draws << ' ' << player.skill_value << '\n';
                         }
                 }
             }
