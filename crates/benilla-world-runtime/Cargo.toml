@@ -10,7 +10,8 @@ workspace = true
 
 [dependencies]
 benilla-sim = { path = "../benilla-sim" }
-benilla-formats = { path = "../benilla-formats" }
+# Only the launcher's explicit dev feature may enable source-tree path resolution.
+benilla-formats = { path = "../benilla-formats", default-features = false }
 benilla-world-data = { path = "../benilla-world-data" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

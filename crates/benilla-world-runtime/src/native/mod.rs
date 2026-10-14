@@ -19,7 +19,11 @@ pub use interactions::{
     InteractionAudit, InteractionCatalog, InteractionControlSeed, InteractionEvidence,
     InteractionFactionSource, InteractionInput, InteractionMoment, InteractionWitness,
     MeleeCombatFacts, MeleeEntryFacts, NpcCombatAuthoritySource, NpcInteractionSource,
-    NpcSemanticFacts, PlayerInteractionSource, INTERACTION_POLICY,
+    NpcSemanticFacts, NpcSpellSource, PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase,
+    SourceSpellQuery, SourceSpellRequest, SpellAuthorityCatalog, SpellAuthorityInput,
+    SpellAuthoritySource, SpellCastTimeSource, SpellDurationSource, SpellGroupSource,
+    SpellHookSources, SpellRangeResult, SpellRangeSource, SpellRankSource, SpellSessionSource,
+    SpellSourceRows, INTERACTION_POLICY, SPELL_AUTHORITY_POLICY,
 };
 pub use motion::*;
 #[cfg(test)]
@@ -36,8 +40,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 10;
-pub const NATIVE_POLICY: &str = "benilla-native-source-combat-authority-v10";
+pub const NATIVE_FORMAT_VERSION: u32 = 11;
+pub const NATIVE_POLICY: &str = "benilla-native-source-spell-authority-v11";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -214,7 +218,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v10\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v11\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -349,3 +353,8 @@ mod event_scheduler_tests;
 mod combat_authority_tests;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_combat_fixture;
+
+#[cfg(test)]
+mod spell_authority_tests;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_spell_fixture;

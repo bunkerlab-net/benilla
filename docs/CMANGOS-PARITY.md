@@ -44,6 +44,7 @@ exclusions are documented in:
 - [Integrated quest reputation and durable callbacks](../crates/benilla-world-runtime/src/native/REPUTATION.md)
 - [Loaded dry static VMap ray subset](../crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
 - [Conservative local geometry service](../crates/benilla-app/src/net/p2p/world/native_geometry/README.md)
+- [Bounded current-state spell authority](../crates/benilla-world-runtime/SPELL-AUTHORITY.md)
 - [Native runtime integration](../crates/benilla-world-runtime/src/native/README.md)
 - [Selected spell registry evidence](../scripts/classic_export/SPELL-REGISTRY-CONTRACT.md)
 

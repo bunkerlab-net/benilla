@@ -89,9 +89,15 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 10 and
-`benilla-native-source-combat-authority-v10`, with separate v10 profile, state,
-record, checkpoint and melee-action/chain hash domains. Published native format 9
+This profile/receipt contract uses native format 11 and
+`benilla-native-source-spell-authority-v11`, with separate v11 profile, state,
+record, checkpoint and melee-action/chain hash domains. Published native formats 9 and 10
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source
 semantics. OriginalFixture format 2 is unchanged.
+
+The following [spell authority](SPELL-AUTHORITY.md) increment owns format 11.
+This transition concerns experimental native simulation checkpoints and replay
+records only. It does not change the separate profile/character save format.
+Opening an incompatible native save fails without replacing or deleting its
+current or previous checkpoint files; no automatic migration is performed.

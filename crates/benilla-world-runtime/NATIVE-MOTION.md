@@ -1,6 +1,6 @@
 # Transactional source NPC motion
 
-This optional native-format-10 component connects
+This optional native-format-11 component connects
 [`creature_motion`](../benilla-sim/CREATURE-MOTION.md) to the runtime, durable
 journal/reopening, and client/controller projection. It is a bounded intermediate
 toward full Classic, not a completed ordinary combat loop or production admission.

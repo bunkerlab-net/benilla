@@ -664,3 +664,27 @@ fn wrong_callback_and_double_pop_poison_the_whole_update() {
     assert_eq!(tx.commit(), Err(EventError::PoisonedTransaction));
     assert_eq!(p.snapshot(), before);
 }
+
+#[test]
+fn callback_receipt_observes_actual_staged_queue_and_never_resumes_it() {
+    let mut p = initial();
+    let before = p.snapshot();
+    {
+        let mut tx = p.begin_update(100).unwrap();
+        assert!(tx.callback_snapshot().is_err());
+        let due = tx.pop_due().unwrap().unwrap();
+        let receipt = tx.callback_snapshot().unwrap();
+        assert_eq!(receipt.due, due);
+        assert_eq!(receipt.callback_ordinal, 1);
+        assert_eq!(receipt.queue.clock_ms, 100);
+        assert_eq!(receipt.queue.queued.len(), 1);
+        assert_eq!(receipt.queue.detached.len(), 1);
+        assert_eq!(receipt.queue.detached[0].event_id, due.event_id);
+        tx.finish_execute(true).unwrap();
+        assert!(tx.callback_snapshot().is_err());
+        tx.pop_due().unwrap().unwrap();
+        assert_eq!(tx.callback_snapshot().unwrap().callback_ordinal, 2);
+        // Dropping the transaction rolls back both popped callbacks.
+    }
+    assert_eq!(p.snapshot(), before);
+}

@@ -101,8 +101,13 @@ ordinary-creature host now derives NPC and melee relationship/combat-entry decis
 from the actual staged AI, health and motion state. Complete captured flag rows must
 agree with the initializer; visibility, accessibility, LOS and facing remain distinct
 spatial dependencies. See [combat authority](../crates/benilla-world-runtime/COMBAT-AUTHORITY.md).
-Spell semantic authority and the remaining creature/control branches are still
-separate integration work. The source EventProcessor
+A further selected spell host derives prepare/release/impact decisions and release
+hit/critical chances from raw source rows and current transactional state, with
+historical launch validation and source SpellGo publication. Its explicit ID133
+fire/MAGE boundary and 350 numeric probes do not certify real content or general
+spell parity. See [spell authority](../crates/benilla-world-runtime/SPELL-AUTHORITY.md).
+Other spell and creature/control branches remain separate integration work.
+The source EventProcessor
 queue primitive and bounded per-player notification/SpellEvent integration now
 preserve due order, retained spell lifetimes, transactional rollback and durable
 reopening. General spell effects, NPC casts and the complete failed-attempt

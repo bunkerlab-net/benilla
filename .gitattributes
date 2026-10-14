@@ -1,0 +1,11 @@
+# Exact-byte source oracles and digest fixtures must survive CRLF checkouts.
+crates/benilla-sim/tools/event_processor_source/EventProcessor.cpp text eol=lf
+crates/benilla-sim/tools/event_processor_source/EventProcessor.h text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellEvent.methods.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellEvent.declaration.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellState.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/SpellDeletable.inc text eol=lf
+crates/benilla-sim/tools/spell_event_source/UniqueTrackablePtr.h text eol=lf
+crates/benilla-sim/tools/spell_event_source/source_manifest.json text eol=lf
+crates/benilla-sim/tests/fixtures/relations_reputation_cmangos.sha256 text eol=lf
+crates/benilla-sim/tests/fixtures/lifecycle_reputation_cmangos.sha256 text eol=lf

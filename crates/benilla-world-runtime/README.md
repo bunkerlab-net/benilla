@@ -196,3 +196,10 @@ cast-interruption on open are explicit original policies. Native loot tables,
 item rules, group rolls, master loot, quests-as-drops and game-object loot remain
 unsupported. This workflow change does not lift the `local_cmangos_classic`
 source gate or change the integer armor policy.
+
+## Selected source spell host
+
+See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
+host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
+and native simulation checkpoint/record format11. This is not production content
+admission or stock Fireball certification.

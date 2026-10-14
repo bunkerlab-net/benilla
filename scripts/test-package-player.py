@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Fast packaging tests: fake binaries/source, no compiler or game data."""
+"""Packaging and resolved feature-graph tests: no app build or game data."""
 import hashlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 from pathlib import Path
 import tarfile
@@ -18,6 +19,42 @@ spec = importlib.util.spec_from_file_location("package_player", Path(__file__).w
 packager = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packager)
 SHA = "a" * 40
+
+
+class PlayerFeatureGraphTests(unittest.TestCase):
+    """Resolve the actual player/dev graphs without compiling or linking the app."""
+
+    def assert_dev_features(self, packages, enabled, *, test_dependencies=False):
+        root = Path(__file__).resolve().parents[1]
+        command = ["cargo", "tree", "--locked", "--no-default-features",
+                   "--prefix", "none", "--format", "{p}|{f}",
+                   "--edges", "normal,build,dev" if test_dependencies else "normal,build"]
+        for package in packages:
+            command.extend(["-p", package])
+        if enabled:
+            command.extend(["--features", "dev"])
+        result = subprocess.run(command, cwd=root, check=True, capture_output=True, text=True)
+        features = {}
+        for line in result.stdout.splitlines():
+            package, separator, selected = line.partition("|")
+            if separator:
+                features.setdefault(package.split()[0], set()).update(
+                    filter(None, selected.removesuffix(" (*)").strip().split(",")))
+        for package in ["benilla-app", "benilla-assets", "benilla-formats", "benilla-world"]:
+            with self.subTest(package=package):
+                self.assertIn(package, features, "the resolved graph must contain the dev seam")
+                self.assertEqual("dev" in features[package], enabled,
+                                 f"{package}: selected features {sorted(features[package])}")
+
+    def test_player_launcher_does_not_enable_dev_through_dependencies(self):
+        self.assert_dev_features(["benilla"], False)
+
+    def test_player_test_roots_do_not_enable_dev_through_dependencies(self):
+        self.assert_dev_features(["benilla-formats", "benilla-app"], False,
+                                 test_dependencies=True)
+
+    def test_explicit_dev_launcher_forwards_the_dev_seam(self):
+        self.assert_dev_features(["benilla"], True)
 
 
 class PackagingTests(unittest.TestCase):
@@ -336,6 +373,115 @@ class PackagingTests(unittest.TestCase):
             resolved = json.loads(result.stdout)
             vendor = next(p for p in resolved["packages"] if p["name"] == "packaging-vendor-probe")
             self.assertEqual(Path(vendor["manifest_path"]), dep / "Cargo.toml")
+
+
+class OracleCheckoutTests(unittest.TestCase):
+    """Keep byte-pinned inputs intact without disabling ordinary CRLF checkouts."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.repository = Path(__file__).resolve().parents[1]
+        cls.tools_path = Path("crates/benilla-sim/tools")
+        for name in ("event_processor", "spell_event"):
+            path = cls.repository / cls.tools_path / f"generate_{name}_fixture.py"
+            spec = importlib.util.spec_from_file_location(name, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            setattr(cls, name, module)
+        manifest = json.loads((cls.spell_event.SOURCE / "source_manifest.json").read_bytes())
+        cls.source_paths = [
+            *(cls.tools_path / "event_processor_source" / name for name in cls.event_processor.HASHES),
+            *(cls.tools_path / "spell_event_source" / name for name in manifest["files"]),
+            cls.tools_path / "spell_event_source/source_manifest.json",
+        ]
+        cls.pinned_paths = [*cls.source_paths, *(
+            Path("crates/benilla-sim/tests/fixtures") / name for name in (
+                "relations_reputation_cmangos.sha256", "lifecycle_reputation_cmangos.sha256"))]
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.original = {path: (self.repository / path).read_bytes() for path in self.pinned_paths}
+        self.original[Path(".gitattributes")] = (self.repository / ".gitattributes").read_bytes()
+        self.control = Path("unprotected.txt")
+        self.original[self.control] = b"ordinary text\nstill uses checkout line endings\n"
+        for path, data in self.original.items():
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        # Per-command settings and an empty template keep the probe independent of
+        # developer Git configuration, hooks, attributes, and any enclosing repo.
+        self.git_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.git_env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_ATTR_NOSYSTEM="1")
+        self.git("init", "--quiet", "--template=")
+        self.git("add", "--", ".")
+
+    def git(self, *args, autocrlf="false"):
+        result = subprocess.run([
+            "git", "-c", f"core.autocrlf={autocrlf}", "-c", "core.safecrlf=false",
+            "-c", f"core.attributesFile={os.devnull}", *args,
+        ], cwd=self.root, env=self.git_env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def checkout(self, attributes=True):
+        if not attributes:
+            self.git("rm", "--cached", "--", ".gitattributes")
+        for path in self.original:
+            (self.root / path).unlink()
+        self.git("checkout", "--", ".", autocrlf="true")
+        self.assertEqual((self.root / self.control).read_bytes(),
+                         self.original[self.control].replace(b"\n", b"\r\n"))
+
+    def checked_spell_sources(self):
+        with patch.object(self.spell_event, "ROOT", self.root / self.tools_path), \
+             patch.object(self.spell_event, "SOURCE", self.root / self.tools_path / "spell_event_source"):
+            self.spell_event.checked_sources(None)
+
+    def test_pinned_bytes_and_source_guards_survive_crlf_checkout(self):
+        self.checkout()
+        for path in self.pinned_paths:
+            with self.subTest(path=path):
+                self.assertEqual((self.root / path).read_bytes(), self.original[path])
+        for name, digest in self.event_processor.HASHES.items():
+            source = self.root / self.tools_path / "event_processor_source" / name
+            self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), digest)
+        self.checked_spell_sources()
+
+    def test_removing_attributes_reproduces_source_guard_failures(self):
+        self.checkout(attributes=False)
+        for path in self.pinned_paths:
+            with self.subTest(path=path):
+                self.assertEqual((self.root / path).read_bytes(), self.original[path].replace(b"\n", b"\r\n"))
+                self.assertNotEqual((self.root / path).read_bytes(), self.original[path])
+        with self.assertRaisesRegex(SystemExit, "pinned source manifest hash mismatch"):
+            self.checked_spell_sources()
+        manifest = self.tools_path / "spell_event_source/source_manifest.json"
+        (self.root / manifest).write_bytes(self.original[manifest])
+        with self.assertRaisesRegex(SystemExit, "pinned source hash mismatch:"):
+            self.checked_spell_sources()
+        for path in self.source_paths:
+            if path.parent.name == "spell_event_source":
+                (self.root / path).write_bytes(self.original[path])
+        with self.assertRaisesRegex(SystemExit, "pinned queue source hash mismatch:"):
+            self.checked_spell_sources()
+        for name, digest in self.event_processor.HASHES.items():
+            source = self.root / self.tools_path / "event_processor_source" / name
+            self.assertNotEqual(hashlib.sha256(source.read_bytes()).hexdigest(), digest)
+
+    def test_source_byte_mutations_still_fail_after_protected_checkout(self):
+        self.checkout()
+        self.checked_spell_sources()
+        for path in self.source_paths:
+            with self.subTest(path=path):
+                data = self.original[path]
+                (self.root / path).write_bytes(bytes([data[0] ^ 1]) + data[1:])
+                try:
+                    with self.assertRaisesRegex(SystemExit, "pinned .*hash mismatch"):
+                        self.checked_spell_sources()
+                finally:
+                    (self.root / path).write_bytes(data)
+        self.checked_spell_sources()
 
 
 class SourceRetentionTests(unittest.TestCase):

@@ -98,7 +98,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v10\0",
+            b"benilla-native-profile-v11\0",
             &(
                 NATIVE_POLICY,
                 RNG_POLICY,
@@ -464,6 +464,7 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    SourceSpell(SourceSpellQuery),
     SourceMotion(MotionQuery),
     LootInteraction {
         witness: InteractionWitness,
@@ -574,6 +575,7 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    SourceSpell(SourceSpellFacts),
     SourceMotion(MotionFacts),
     LootInteraction {
         player_in_world: bool,

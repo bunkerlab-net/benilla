@@ -818,12 +818,21 @@ impl NativeProjection {
                                             ..
                                         },
                                         n::Facts::Spell(f),
-                                    ) if id == cast_id
+                                    ) if !w.profile().has_source_spell_authority()
+                                        && id == cast_id
                                         && spell == ability
                                         && r.request.binding.npc == Some(*target) =>
                                     {
                                         Some(f.resist_chance)
                                     }
+                                    (
+                                        n::Query::SourceSpell(n::SourceSpellQuery::Semantics(context)),
+                                        n::Facts::SourceSpell(n::SourceSpellFacts::Semantics(f)),
+                                    ) if w.profile().has_source_spell_authority()
+                                        && context.phase == n::SourceSpellPhase::ReleaseHit
+                                        && context.cast_id == *cast_id
+                                        && context.ability == *ability
+                                        && r.request.binding.npc == Some(*target) => Some(f.resist_chance),
                                     _ => None,
                                 })
                                 .ok_or(Error::StaleProjection)?;
@@ -984,7 +993,7 @@ mod tests {
             false
         }
         fn contains_spell(&self, id: u32) -> bool {
-            matches!(id, 60001 | 60002)
+            matches!(id, 133 | 60001 | 60002)
         }
         fn player_power_type(&self, _: PlayerId) -> Option<u8> {
             Some(0)
@@ -1518,3 +1527,77 @@ mod pose_projection_tests {
 #[cfg(test)]
 #[path = "native_regeneration_tests.rs"]
 mod regeneration_tests;
+
+#[cfg(test)]
+mod source_spell_tests {
+    use super::*;
+    #[test]
+    fn selected_source_release_hit_projects_both_hit_and_resist_without_legacy_facts() {
+        let mut outcomes = [false; 2];
+        for seed in 0..200 {
+            let mut world = n::NativeWorld::synthetic_component_test(
+                n::synthetic_spell_fixture::profile(),
+                [8; 16],
+                n::synthetic_fixture::player(),
+                seed,
+            )
+            .unwrap();
+            let mut projection =
+                NativeProjection::new(&world, world.state().player, &super::tests::Catalog)
+                    .unwrap();
+            projection.initial_events(&world).unwrap();
+            let mut authority = n::synthetic_spell_fixture::spatial_only();
+            for tick in 1..=3 {
+                let input = (tick == 1).then(|| n::synthetic_fixture::cast(&world, 133));
+                world.step(tick, input, &mut authority).unwrap();
+                let events = projection.advance(&world).unwrap();
+                for event in events {
+                    if let SessionEvent::SpellGo {
+                        spell_id,
+                        hits,
+                        misses,
+                        ..
+                    } = event
+                    {
+                        assert_eq!(spell_id, 133);
+                        let record = world.last_tick().unwrap();
+                        assert!(!record
+                            .replies
+                            .iter()
+                            .any(|r| matches!(r.request.query, n::Query::Spell { .. })));
+                        let chance = record
+                            .replies
+                            .iter()
+                            .find_map(|r| match (&r.request.query, &r.facts) {
+                                (
+                                    n::Query::SourceSpell(n::SourceSpellQuery::Semantics(q)),
+                                    n::Facts::SourceSpell(n::SourceSpellFacts::Semantics(f)),
+                                ) if q.phase == n::SourceSpellPhase::ReleaseHit => {
+                                    Some(f.resist_chance)
+                                }
+                                _ => None,
+                            })
+                            .unwrap();
+                        let hit = record
+                            .draws
+                            .iter()
+                            .find(|d| d.purpose == n::DrawPurpose::Hit)
+                            .unwrap()
+                            .value;
+                        let resisted = hit <= i64::from(chance);
+                        outcomes[usize::from(resisted)] = true;
+                        assert_eq!(hits.len(), usize::from(!resisted));
+                        assert_eq!(misses.len(), usize::from(resisted));
+                        if resisted {
+                            assert_eq!(misses[0].1, 2);
+                        }
+                    }
+                }
+            }
+            if outcomes == [true, true] {
+                break;
+            }
+        }
+        assert_eq!(outcomes, [true, true]);
+    }
+}

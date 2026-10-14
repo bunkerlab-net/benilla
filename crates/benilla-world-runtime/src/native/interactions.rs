@@ -5,6 +5,7 @@
 use super::*;
 use crate::NpcId;
 mod combat_authority;
+pub(in crate::native) mod spell_authority;
 use benilla_formats::FactionTemplate;
 use benilla_sim::classic_targets as relations;
 pub(in crate::native) use combat_authority::WorkingNpc;
@@ -12,6 +13,7 @@ pub use combat_authority::*;
 use relations::unit_flags;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+pub use spell_authority::*;
 
 pub const INTERACTION_POLICY: &str = "cmangos-8ec338a1-native-interaction-host-v1";
 const STUNNED: u32 = 0x0004_0000;
@@ -174,6 +176,7 @@ pub struct InteractionInput {
 pub struct InteractionCatalog {
     policy: &'static str,
     combat_authority: Option<CombatAuthorityCatalog>,
+    spell_authority: Option<SpellAuthorityCatalog>,
     player: PlayerInteractionSource,
     npcs: BTreeMap<u32, NpcInteractionSource>,
     factions: BTreeMap<u32, InteractionFactionSource>,
@@ -199,6 +202,10 @@ impl Profile {
         }
         next.interactions = Some(InteractionCatalog {
             policy: INTERACTION_POLICY,
+            spell_authority: next
+                .interactions
+                .as_ref()
+                .and_then(|c| c.spell_authority.clone()),
             combat_authority: next
                 .interactions
                 .as_ref()
@@ -216,6 +223,9 @@ impl Profile {
 impl InteractionCatalog {
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         self.audit.validate()?;
+        if let Some(spells) = &self.spell_authority {
+            spells.validate(profile)?;
+        }
         if let Some(combat) = &self.combat_authority {
             combat.validate(profile)?;
         }

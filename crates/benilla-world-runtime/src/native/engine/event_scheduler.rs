@@ -90,6 +90,7 @@ impl<A: Authority> Frame<'_, A> {
                             cast_id,
                             due.diff_ms.ok_or(NativeError::InvalidState)?,
                             delay_started,
+                            &transaction.callback_snapshot()?,
                         )?;
                         let lifetime = self.state.player_events.spells.get_mut(&cast_id).unwrap();
                         lifetime.last_callback_ms = Some(self.state.now_ms);

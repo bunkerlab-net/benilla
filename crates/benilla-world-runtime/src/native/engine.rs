@@ -5,6 +5,8 @@ mod combat_authority;
 mod death;
 mod event_scheduler;
 mod hostile_spell;
+mod spell_authority;
+use spell_authority::SpellHistory;
 mod loot;
 mod motion;
 mod quests;
@@ -167,7 +169,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v10\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v11\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -282,7 +284,17 @@ impl<A: Authority> Frame<'_, A> {
         ability: u32,
         target: NpcId,
         phase: CastPhase,
+        history: SpellHistory<'_>,
     ) -> Result<SpellFacts, NativeError> {
+        if interactions::spell_authority::selected(self.profile) {
+            let phase = match phase {
+                CastPhase::Prepare => SourceSpellPhase::Prepare,
+                CastPhase::Release => SourceSpellPhase::ReleaseCheck,
+                CastPhase::Impact => SourceSpellPhase::Impact,
+                CastPhase::Aura => SourceSpellPhase::Aura,
+            };
+            return self.source_spell_facts(cast_id, ability, target, phase, history);
+        }
         let n = self
             .state
             .npcs
@@ -506,7 +518,13 @@ impl<A: Authority> Frame<'_, A> {
                     let id = self.state.next_cast_id;
                     self.state.player_events.prepare(id, self.state.now_ms)?;
                     self.state.next_cast_id = id.checked_add(1).ok_or(NativeError::Limit)?;
-                    let facts = self.facts(id, *ability, *target, CastPhase::Prepare)?;
+                    let facts = self.facts(
+                        id,
+                        *ability,
+                        *target,
+                        CastPhase::Prepare,
+                        SpellHistory::Prepare(&binding),
+                    )?;
                     let checks = spell::CastChecks {
                         caster_alive: true,
                         target_exists: true,
@@ -701,6 +719,7 @@ impl<A: Authority> Frame<'_, A> {
         id: u64,
         diff_ms: u32,
         allow_delayed: bool,
+        scheduler: &benilla_sim::event_processor::EventCallbackSnapshot,
     ) -> Result<(spell::CastState, bool), NativeError> {
         let mut c = self
             .state
@@ -731,7 +750,13 @@ impl<A: Authority> Frame<'_, A> {
         {
             let binding = ExecutionBinding::capture(self.profile, self.state, c.ability)?;
             let context = binding.release_context(&c.binding)?;
-            let facts = self.facts(id, c.ability, c.target, CastPhase::Release)?;
+            let facts = self.facts(
+                id,
+                c.ability,
+                c.target,
+                CastPhase::Release,
+                SpellHistory::Cast(&c, &binding, scheduler),
+            )?;
             checks.other_failure = facts.other_failure;
             release_context = Some(context);
             let launch = if c
@@ -744,6 +769,17 @@ impl<A: Authority> Frame<'_, A> {
                 )?
                 .is_none()
             {
+                let facts = if interactions::spell_authority::selected(self.profile) {
+                    self.source_spell_facts(
+                        id,
+                        c.ability,
+                        c.target,
+                        SourceSpellPhase::ReleaseHit,
+                        SpellHistory::Cast(&c, &binding, scheduler),
+                    )?
+                } else {
+                    facts
+                };
                 let distance = self
                     .state
                     .position
@@ -783,7 +819,13 @@ impl<A: Authority> Frame<'_, A> {
         if handled_delayed {
             let impact_binding = ExecutionBinding::capture(self.profile, self.state, c.ability)?;
             let impact_spec = impact_binding.spec()?.clone();
-            let facts = self.facts(id, c.ability, c.target, CastPhase::Impact)?;
+            let facts = self.facts(
+                id,
+                c.ability,
+                c.target,
+                CastPhase::Impact,
+                SpellHistory::Cast(&c, &impact_binding, scheduler),
+            )?;
             let hit = c
                 .execution
                 .launch_context()
@@ -870,7 +912,8 @@ impl<A: Authority> Frame<'_, A> {
                     continue;
                 }
                 let target_id = self.state.npcs[&id].id;
-                let facts = self.facts(0, ability, target_id, CastPhase::Aura)?;
+                let facts =
+                    self.facts(0, ability, target_id, CastPhase::Aura, SpellHistory::Aura)?;
                 let npc = self.state.npcs.get_mut(&id).unwrap();
                 let mut target = npc.auras.remove(&ability).unwrap();
                 target.health = npc.health;
@@ -1297,7 +1340,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v10\0",
+            b"benilla-native-melee-action-v11\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1566,7 +1609,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v10\0",
+            b"benilla-native-melee-chain-v11\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

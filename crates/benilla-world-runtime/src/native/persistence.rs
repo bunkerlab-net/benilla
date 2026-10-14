@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v10\0", self)
+        crate::digest(b"benilla-native-record-v11\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,10 +146,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v10\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v11\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v10\0",
+                    b"benilla-native-checkpoint-v11\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -251,7 +251,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v10\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v11\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -261,7 +261,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v10\0",
+            b"benilla-native-checkpoint-v11\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -284,10 +284,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v10\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v11\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v10\0",
+                    b"benilla-native-checkpoint-v11\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -561,6 +561,9 @@ impl NativeWorld {
                     let launch = execution
                         .launch_context()
                         .ok_or(NativeError::InvalidCheckpoint)?;
+                    interactions::spell_authority::validate_historical_launch(
+                        &profile, released, c.target, &launch,
+                    )?;
                     let delay =
                         spell::projectile_delay(launch.distance_squared, spec.projectile_speed)?;
                     if impact_at_ms.checked_sub(u64::from(delay)) != Some(released.captured_ms) {

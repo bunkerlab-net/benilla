@@ -109,6 +109,63 @@ impl ExecutionBinding {
         )?)
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(in crate::native) fn historical_create_mana(
+        &self,
+        profile: &Profile,
+    ) -> Result<u32, NativeError> {
+        match (&profile.quest_progression, &self.progression) {
+            (Some(_), Some(h)) => Ok(h.recipe.modifiers.create_mana),
+            (None, None) => Ok(profile
+                .combat
+                .as_ref()
+                .ok_or(NativeError::InvalidCheckpoint)?
+                .recipe
+                .snapshot()
+                .modifiers
+                .create_mana),
+            _ => Err(NativeError::InvalidCheckpoint),
+        }
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(in crate::native) fn historical_spell_crit(
+        &self,
+        profile: &Profile,
+    ) -> Result<spell::SpellFloat, NativeError> {
+        match (&profile.quest_progression, &self.progression) {
+            (Some(g), Some(h)) => {
+                let p = &h.player;
+                let fresh = g.initial_combat.recipe.rebase(
+                    p.level,
+                    p.modifiers.create,
+                    p.modifiers.create_health,
+                    p.modifiers.create_mana,
+                )?;
+                let recipe = init::StatRecipe::restore(&fresh, &h.recipe)?;
+                Ok(recipe
+                    .current(init::Resources {
+                        health: p.numeric.health,
+                        max_health: p.numeric.max_health,
+                        mana: p.numeric.powers[0],
+                        max_mana: p.numeric.max_powers[0],
+                    })?
+                    .spell_crit_percent)
+            }
+            (None, None) => {
+                let c = profile
+                    .combat
+                    .as_ref()
+                    .ok_or(NativeError::InvalidCheckpoint)?;
+                // Selection forbids durability-driven stat mutation without the
+                // historical recipe/callback owner above.
+                if c.equipment.items.iter().any(|i| i.max_durability != 0) {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                Ok(c.stats.crit_percent)
+            }
+            _ => Err(NativeError::InvalidCheckpoint),
+        }
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn validate(
         &self,
         profile: &Profile,
@@ -175,6 +232,7 @@ impl ExecutionBinding {
             _ => return Err(NativeError::InvalidCheckpoint),
         }
         self.spec()?.validate()?;
+        interactions::spell_authority::validate_historical_binding(profile, self)?;
         Ok(())
     }
 }

@@ -231,12 +231,13 @@ impl EventProcessor {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallbackKind {
     Execute,
     Abort,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DueEvent {
     pub event_id: u64,
     pub kind: EventKind,
@@ -249,6 +250,15 @@ pub struct DueEvent {
     pub insertion_id: u64,
     pub add_time_ms: u64,
     pub exec_time_ms: u64,
+}
+/// Read-only callback receipt. It cannot restore or resume a transaction.
+/// The executing event is detached from `queue`, exactly after source erase.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventCallbackSnapshot {
+    pub queue: EventProcessorSnapshot,
+    pub due: DueEvent,
+    pub callback_ordinal: u32,
 }
 enum Mode {
     Update {
@@ -281,6 +291,20 @@ impl<'a> EventTransaction<'a> {
     }
     pub fn clock_ms(&self) -> u64 {
         self.staged.clock_ms()
+    }
+    /// Observe the live staged queue and pending callback, never the detached
+    /// enclosing owner's placeholder. No mutation or RNG is performed.
+    pub fn callback_snapshot(&self) -> Result<EventCallbackSnapshot, EventError> {
+        if self.poisoned {
+            return Err(EventError::PoisonedTransaction);
+        }
+        Ok(EventCallbackSnapshot {
+            queue: self.staged.snapshot(),
+            due: self
+                .pending
+                .ok_or(EventError::Invalid("no pending callback"))?,
+            callback_ordinal: self.callbacks as u32,
+        })
     }
     pub fn next_event_id(&self) -> u64 {
         self.staged.next_event_id()

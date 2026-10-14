@@ -169,6 +169,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::SourceSpell(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "source spell spatial fixture",
+                ))
+            }
             Query::SourceMotion(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "legacy authored fixture has no source motion evidence",
