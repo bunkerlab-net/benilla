@@ -5,7 +5,7 @@
     dead_code,
     reason = "native production session admission remains closed"
 )]
-mod core;
+pub(super) mod core;
 mod products;
 mod source_navigation;
 mod source_vmap;

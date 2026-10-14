@@ -133,7 +133,7 @@
 - **benilla-ui** (lib.rs): bindings_xml civil framexml justify layout loader markup messages order script source status strings toc widget
 - **benilla-visual** (lib.rs): relight
 - **benilla-world-client** (lib.rs): interactions metadata native
-- **benilla-world-controller-tests** (lib.rs): world
+- **benilla-world-controller-tests** (lib.rs): native_geometry world
 - **benilla-world-data** (lib.rs): model validate
 - **benilla-world-runtime** (lib.rs): engine model native persistence rules
 - **benilla-world-store** (lib.rs): envelope native storage tests

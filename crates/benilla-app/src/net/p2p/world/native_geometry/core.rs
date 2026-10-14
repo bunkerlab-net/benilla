@@ -530,7 +530,7 @@ fn player_path(query: &Query, player: PlayerMotion) -> Result<Option<Vec<[f32; 3
     Ok(Some(points))
 }
 
-pub(super) fn solve_player(
+pub(crate) fn solve_player(
     query: &Query,
     player: PlayerMotion,
     geometry: &mut impl Corridor,
@@ -562,7 +562,7 @@ fn validate_outcome(request: &MovementRequest, outcome: &MovementOutcome) -> Res
 
 /// Geometry providers must prove coverage first, then the entire swept body, elevated LOS,
 /// continuous support and absence of liquid. No-hit alone is never this certificate.
-pub(super) trait Corridor {
+pub(crate) trait Corridor {
     fn certify(&mut self, from: [f32; 3], to: [f32; 3], body: Body) -> Result<(), Failure>;
 }
 

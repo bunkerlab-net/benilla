@@ -361,26 +361,8 @@ fn death_root_and_slow_speeds_share_one_session_counter_and_independent_typed_ac
     assert_eq!(c.world.state_digest(), state);
 }
 
-// Compile the actual app solver, not a second allowance implementation.
-#[allow(dead_code)]
-#[path = "../native_geometry/core.rs"]
-mod geometry;
-use geometry as core;
-// The exact core's own cfg(test) cases reference its normal geometry siblings.
-#[allow(dead_code)]
-#[path = "../../../../../../benilla-world/src/terrain_stream/native_coverage/planar.rs"]
-mod planar;
-#[path = "../native_geometry/products/mod.rs"]
-mod products;
-#[allow(dead_code)]
-#[path = "../native_geometry/source_navigation.rs"]
-mod source_navigation;
-#[allow(dead_code)]
-#[path = "../native_geometry/source_vmap.rs"]
-mod source_vmap;
-#[allow(dead_code)]
-#[path = "../../../../../../benilla-world/src/terrain_stream/native_coverage/static_mesh.rs"]
-mod static_mesh;
+// Reuse the actual app solver. The standalone harness supplies this same module path.
+use crate::net::p2p::native_geometry::core as geometry;
 struct ClearAuthoredCorridor;
 impl geometry::Corridor for ClearAuthoredCorridor {
     fn certify(

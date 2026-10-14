@@ -1,5 +1,9 @@
 #![cfg(test)]
+pub(crate) mod native_geometry;
 mod net {
+    pub(crate) mod p2p {
+        pub(crate) use crate::native_geometry;
+    }
     use benilla_protocol::{
         messages::{MoveMode, SpeedKind},
         JumpInfo, TransportPose,
