@@ -28,20 +28,16 @@ fn multiply(a: Matrix, b: Matrix) -> Matrix {
     })
 }
 /// G3D::Matrix3::fromEulerAnglesZYX; ModelInstance uses {rotation.y,x,z}.
-pub(super) fn rotation(angles: Vector) -> Matrix {
-    let radians = |angle: f32| (std::f64::consts::PI * f64::from(angle) / 180.0) as f32;
-    // Pinned G3D resolves the float sin/cos overload after the angle cast.
-    let sc = |angle: f32| {
-        let a = radians(angle);
-        (a.sin(), a.cos())
-    };
-    let (s, c) = sc(angles[1]);
+pub(super) fn rotation(angles: Vector) -> Result<Matrix, Error> {
+    // G3D casts degrees to binary32 radians before its float trig overloads.
+    // Pin their source profile rather than inheriting the host libc approximation.
+    let (s, c) = super::trig::sin_cos_degrees(angles[1])?;
     let z = [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]];
-    let (s, c) = sc(angles[0]);
+    let (s, c) = super::trig::sin_cos_degrees(angles[0])?;
     let y = [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]];
-    let (s, c) = sc(angles[2]);
+    let (s, c) = super::trig::sin_cos_degrees(angles[2])?;
     let x = [[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]];
-    multiply(z, multiply(y, x))
+    Ok(multiply(z, multiply(y, x)))
 }
 /// Source cofactor inverse, not a transpose approximation of a float rotation.
 pub(super) fn inverse(m: Matrix) -> Result<Matrix, Error> {

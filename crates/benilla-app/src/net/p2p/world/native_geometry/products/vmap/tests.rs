@@ -336,3 +336,37 @@ fn empty_groups_cannot_amplify_per_placement_validation_work() {
     }
     assert_eq!(charge_placement(&mut work, &model), Err(Error::Budget));
 }
+
+#[test]
+fn source_trig_seam_preserves_strict_transformed_vertex_containment() {
+    // The source float sin at 13 degrees is one ULP above other libm results.
+    // That difference moves this rotated vertex two ULPs below the native bound.
+    assert_eq!(
+        trig::sin_cos_degrees(13.0).unwrap().0.to_bits(),
+        0x3e66_5992
+    );
+    let mut snapshot = snapshot();
+    let spawn = snapshot
+        .spawns
+        .iter_mut()
+        .flatten()
+        .find(|s| s.id == 104)
+        .unwrap();
+    let world = apply(
+        rotation(spawn.angles).unwrap(),
+        scale([-4.0, -4.0, -3.0], spawn.scale),
+    );
+    assert_eq!((world[2] + spawn.position[2]).to_bits(), 0x3fcb_69e8);
+    assert_eq!(spawn.bounds.low[2].to_bits(), 0x3fcb_69e8);
+    let (_, c13) = trig::sin_cos_degrees(13.0).unwrap();
+    let (s9, c9) = trig::sin_cos_degrees(-9.0).unwrap();
+    let other_libm_row = [-f32::from_bits(0x3e66_5991), c13 * s9, c13 * c9];
+    let outside = dot(other_libm_row, scale([-4.0, -4.0, -3.0], spawn.scale)) + spawn.position[2];
+    assert_eq!(outside.to_bits(), 0x3fcb_69e6);
+    assert!(outside < spawn.bounds.low[2]);
+    let model = &snapshot.models[spawn.model];
+    assert_eq!(spawn.validate_model_bounds(model), Ok(()));
+    // No padding/tolerance: even one ULP of genuine vertex exclusion still rejects.
+    spawn.bounds.low[2] = spawn.bounds.low[2].next_up();
+    assert_eq!(spawn.validate_model_bounds(model), Err(Error::Format));
+}

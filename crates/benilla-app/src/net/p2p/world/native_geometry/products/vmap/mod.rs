@@ -4,6 +4,7 @@
 //! before publication. No untrusted bytes are passed to native code. See PROVENANCE.md.
 mod bih;
 mod math;
+mod trig;
 use self::{bih::Bih, math::*};
 use super::{Error, Hash, InventoriedProducts, ProductId};
 use sha2::{Digest, Sha256};
@@ -14,7 +15,7 @@ const MAX_ELEMENTS: usize = 262_144;
 const MAX_GROUPS: usize = 4096;
 const MAX_SPAWNS: usize = 16_384;
 pub(crate) const MAX_QUERY_WORK: usize = 32_768;
-const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v1";
+const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v2-glibc-2.41-bounded-trig";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SnapshotBinding {
@@ -509,7 +510,7 @@ impl Spawn {
                 position,
                 angles,
                 scale,
-                inverse: inverse(rotation(angles))?,
+                inverse: inverse(rotation(angles)?)?,
                 inverse_scale: 1.0 / scale,
                 bounds,
                 model,
@@ -528,7 +529,7 @@ impl Spawn {
             && self.bounds.high.map(f32::to_bits) == other.bounds.high.map(f32::to_bits)
     }
     fn validate_model_bounds(&self, model: &Model) -> Result<(), Error> {
-        let r = rotation(self.angles);
+        let r = rotation(self.angles)?;
         for group in &model.groups {
             for p in &group.vertices {
                 // Source assembler transforms vertices with ModelPosition rotation/scale.

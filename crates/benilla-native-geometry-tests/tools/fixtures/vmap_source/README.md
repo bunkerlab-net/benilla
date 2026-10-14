@@ -20,7 +20,9 @@ before invoking g++. It compiles the original, unmodified `BIH.cpp`, `WorldModel
 avoiding an unrelated Boost/core dependency. No math, query or serialization method is
 stubbed. Compiler settings are C++17, `-O0`, no fast math, no contraction, no strict aliasing,
 and `FE_TONEAREST`. The checked profile is little-endian IEEE binary32 on Linux x86-64.
-Other platform/library floating-point behavior requires its own verification.
+The portable consumer pins the Linux float-trig profile instead of inheriting another
+platform C library; the original fixture products and queries are not regenerated for it.
+Cross-platform execution still requires its own native CI verification.
 
 `CollisionDetection.cpp` has a static `Array` requiring unrelated allocator/input-grab
 subsystems. Its two AABox collision methods are therefore extracted verbatim from the
@@ -81,3 +83,33 @@ NaNs, missing-child infinity sentinels, BVH2 clipping, subnormals, all axes, shr
 fuzzy-comparison adjacent values and root endpoints. These are constructed typed arrays,
 not native parser input. Some rays are deliberately approximate-unit to probe traversal
 boundaries directly; they are not a promise that a public endpoint API accepts them.
+
+## Portable trig-profile oracle
+
+The separate `generate_vmap_trig_fixture.py` compiles the exact generic float trig
+functions and coefficient arrays from glibc 2.41 commit
+`74f59e9271cbb4071671e5a474e7d4f1622b186f`. Supply a directory containing the five original
+`sysdeps/ieee754/flt-32` files named in `vmap_glibc_source_hashes.sha256`:
+
+```sh
+python3 crates/benilla-native-geometry-tests/tools/generate_vmap_trig_fixture.py /path/to/glibc-flt-32
+python3 crates/benilla-native-geometry-tests/tools/generate_vmap_trig_fixture.py /path/to/glibc-flt-32 --check
+```
+
+It verifies every whole-file hash before compiling. Only include/declaration plumbing
+is supplied; math bodies and coefficient arrays are original source. Compilation uses
+C++17, `-O0`, no fast math, no contraction, round-to-nearest and generic
+`TOINT_INTRINSICS=0`. No platform trig function supplies these expectations.
+
+`trig-cases.tsv` covers both signs, signed zero, subnormals, tiny-input and `abstop12`
+branch thresholds, 13° and all quadrant boundaries through ±360°, with three neighboring
+binary32 angles on either side where admitted. It has 202 cases. `trig-grid.sha256`
+hashes 12-byte little-endian records `(angle bits, sine bits, cosine bits)`: first every
+4093rd nonnegative angle bit pattern through `360.0f32`, then every 1/1024-degree value
+from 0 through 360, each with positive then negative sign. All 1,292,314 records are
+recomputed by the Rust tests. Finite angles outside ±360 and nonfinite inputs are
+separately rejected. This bounded source profile preserves exact transformed containment;
+a regression also proves that a bound hiding one ULP of a vertex still rejects.
+
+See the consumer's
+[numeric provenance and original license](../../../../benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md#portable-euler-numeric-profile).

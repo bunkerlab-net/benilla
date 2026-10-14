@@ -59,10 +59,44 @@ raw-input cap is explicitly not a 16 MiB resident-memory cap. At the maximum map
 bounds vector occupies 7 MiB. These are additional to decoded arrays and the separately
 owned inventory (up to 64 MiB input plus its decoded terrain).
 
+## Portable Euler numeric profile
+
+The original G3D float `sin`/`cos` overloads inherit the native C library and are not
+bit-identical across platforms. For example, after the source degree conversion, 13°
+is binary32 `0x3e685696`: the Linux fixture profile's float sine is `0x3e665992`, whereas
+another legitimate approximation is `0x3e665991`. The latter moves the authored rotated
+ramp corner's world z from `0x3fcb69e8` to `0x3fcb69e6`, outside the exact serialized
+bound. Bounds remain strict; widening them or accepting an epsilon would hide geometry.
+
+`trig.rs` therefore intentionally pins the fixture profile's generic
+[glibc 2.41 implementation](https://github.com/bminor/glibc/tree/74f59e9271cbb4071671e5a474e7d4f1622b186f/sysdeps/ieee754/flt-32)
+at commit `74f59e9271cbb4071671e5a474e7d4f1622b186f`, independently of the host libc.
+This is a source-derived port of `s_sinf.c`, `s_cosf.c`, `sincosf_poly.h`,
+`s_sincosf.h` and `s_sincosf_data.c`, restricted to finite Euler angles in [-360,360].
+The source degree conversion, binary32 radian cast, `abstop12` branch comparisons,
+`TOINT_INTRINSICS=0` reduction, coefficient bits, and unfused binary64 expression order
+are retained. The admitted radian range fits the source fast reducer; no general
+large-angle, nonfinite, floating-point exception or alternate rounding-mode API is
+provided. NaN, infinities and out-of-range degrees reject before reduction. Both inverse
+query transforms and forward vertex validation use this same profile. The policy binding
+is changed so snapshots cannot silently cross numeric profiles. Existing CMaNGOS/G3D
+product bytes and all existing geometric oracle expectations remain unchanged.
+
+The original [glibc notice](GLIBC-NOTICE.txt) and
+[LGPL-2.1-or-later license](GLIBC-LICENSE.txt) are retained. The bounded Rust translation
+was made on 2026-10-14; original copyright is Free Software Foundation, Inc., 2018–2025.
+[Full-file SHA-256 guards](../../../../../../../../benilla-native-geometry-tests/tools/vmap_glibc_source_hashes.sha256)
+pin all five originals. The independent offline C++ oracle compiles their original math
+bodies and coefficient arrays, with only include/declaration plumbing supplied, and with
+round-to-nearest, no fast math and no contraction. Tests compare 202 signed boundary
+cases plus a SHA-256 digest over 1,292,314 signed samples spanning the complete admitted
+bit range and a 1/1024-degree grid. These are differential samples, not an exhaustive
+proof over all binary32 angles or a claim of universal native-libc equivalence.
+
 ## Queries and current consumer
 
-The query port preserves source binary32 expression order, G3D's float trig and cofactor
-inverse, `{rotation.y, rotation.x, rotation.z}` ordering, inverse scale, source AABB gate,
+The query port preserves source binary32 expression order, G3D's float-argument trig
+contract under the pinned profile above, and its cofactor inverse, `{rotation.y, rotation.x, rotation.z}` ordering, inverse scale, source AABB gate,
 nearest triangle intersection, BIH ordering/pruning, signed-zero direction bits and the
 source's NaN branch behavior at parallel clips. Rays use the strict source `0 < t < max`
 interval. The endpoint API performs VMapManager2's coordinate conversion before source
@@ -72,7 +106,7 @@ limited to 4,096. Each query has at most 32,768 work steps and an absolute deadl
 Exhaustion, malformed queries and unresolved candidates are errors, never clear rays.
 
 A reply echoes exact endpoint bits, M2 mask, ticket and snapshot binding. The binding
-contains map, content, source epoch, full inventory revision and static-ray policy-v1.
+contains map, content, source epoch, full inventory revision and static-ray policy-v2 with the bounded glibc-2.41 trig profile.
 Those are consistency declarations, not authenticated provenance or a live source lease.
 
 The app's optional `install_with_static_vmap` connects this snapshot through
@@ -101,7 +135,7 @@ bindings have separate rejection tests. Provider tests show that source hits blo
 unsupported support or participants remain unavailable.
 
 Linux x86-64 source-oracle comparison and the exact-code headless harness are separate
-from full Bevy compilation/linking, other platform math behavior, real lawful local
+from full Bevy compilation/linking, cross-platform execution gates, real lawful local
 Classic Data, and live visual/runtime tests. Real-asset validation has not been performed.
 No Northshire slope/navigation claim follows. The separately bounded dry Detour reader
 adds a query veto; actual owner-dependent PathFinder, sloped-body support, complete dynamic-participant audit,
