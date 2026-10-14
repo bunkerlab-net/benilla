@@ -2,8 +2,18 @@
 
 `starter_init::initialize_mage` is a pure, transactional translation of a bounded
 fresh level-one mage initialization path. Its policy is
-`cmangos-8ec338a1-level1-mage-init-softfloat-v1`. It includes no native character
+`cmangos-8ec338a1-level1-mage-init-softfloat-v2`. It includes no native character
 rows, game assets, assumed race abilities, or class/race stat presets.
+
+## Policy compatibility
+
+Policy v2 adds only the admitted passive DurationIndex0/resolved-duration0
+permanence branch described below. The initializer policy is included in the
+native runtime profile digest. Profiles bound under v1 have a different identity;
+their checkpoints and journals must reject as incompatible under v2. There is
+no automatic migration or rebase, even for inputs whose resulting stats are
+unchanged. Recreate a compatible profile and fresh state from the validated
+inputs; never relabel an old digest or checkpoint to bypass this boundary.
 
 ## Input and trust boundary
 
@@ -18,7 +28,10 @@ certificate, a spell executor, or a native-world capability token.
 A `SpellRow` has all 173 canonical numeric SpellEntry word positions, with SQL
 `spell_template` values overlaid by the upstream server precedence. Passing raw
 client Spell.dbc words without checking server overrides is invalid. Its duration
-comes from the actual dependent SpellDuration row. Previous-rank, talent,
+comes from the actual dependent SpellDuration row, or the pinned zero result
+after proving that lookup has no row. DurationIndex0 alone does not prove the
+duration value: a real row zero must be retained. The reducer requires a resolved
+duration; `None` remains unknown and is rejected for initial auras. Previous-rank, talent,
 spell-learning, and external-hook observations must come from captured source
 relationships, not a caller's neutral assumptions. Visual/string words are not
 interpreted here. All three effects are preserved. IDs in tests above 900 million
@@ -110,6 +123,7 @@ modifier handling, total-percent nonpositive clamp, stamina/intellect break at
 - Recursive skill-to-spell and spell-to-skill learning, including first effect
   118, skill-step effect 44's early return, and bounded source skill bonuses
 - Constant, direct self initial casts with proven permanent duration for auras
+  (duration -1 or the pinned passive DurationIndex0/raw-duration0 branch)
 - Stat aura 29, base-percent stat aura 80, total-percent stat aura 137
 - Resistance aura 22, base resistance 83, total resistance percent 101,
   base resistance percent 142; all seven schools are retained

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Protocol
 
-from .columns import COLUMNS, STARTER_SCHEMA
-from . import event_ai, starter, learning, native_spawn, spell_registry
+from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA
+from . import event_ai, starter, learning, native_spawn, spell_registry, initial_hooks
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -30,6 +30,8 @@ class Query:
               "query.native_spawn_mode")
         check(self.table != spell_registry.TABLE or self.mode == "spell_registry_selectors",
               "query.spell_registry_mode")
+        check(self.table not in initial_hooks.TABLES or self.mode == "initial_hook_selectors",
+              "query.initial_hook_mode")
         integer(self.limit, 1, MAX_ROWS, "query.limit")
         columns = ",".join(f"`{name}` AS `{name}`" for name in COLUMNS[self.table])
         order = ",".join(f"`{name}`" for name in KEYS[self.table])
@@ -68,6 +70,16 @@ class Query:
                 integer(value, 1, 0x7fffffff, "spell_registry.selector_domain")
             where = f"`Id` IN ({','.join(['%s']*len(self.ids))})"
             params = self.ids
+        elif self.mode == "initial_hook_selectors":
+            check(self.table in initial_hooks.TABLES and self.selection is None
+                  and 0 < len(self.ids) <= MAX_SPELLS and self.limit <= initial_hooks.LIMITS[self.table],
+                  "query.initial_hook_selectors")
+            check(len(set(self.ids)) == len(self.ids), "query.duplicate_ids")
+            for value in self.ids:
+                integer(value, 1, 0xffffff, "initial_hooks.selector_domain")
+            field = initial_hooks.SELECTOR_COLUMNS[self.table]
+            where = f"`{field}` IN ({','.join(['%s']*len(self.ids))})"
+            params = self.ids
         elif self.mode == "learning_presence":
             check(self.table == "spell_learn_spell" and self.selection is None and not self.ids
                   and self.limit == 1, "query.learning_presence")
@@ -105,12 +117,17 @@ class ReadSource(Protocol):
 
 
 def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
-            dependency_request: dict[str, Any] | None = None) -> dict[str, Any]:
+            dependency_request: dict[str, Any] | None = None, *,
+            capture_initial_hooks: bool = False) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
     if dependency_request is not None:
         learning.request(dependency_request, selection)
     inventory = source.inspect()
+    check(type(capture_initial_hooks) is bool, "initial_hooks.request_boolean")
+    check(not capture_initial_hooks or selection.starter is not None, "initial_hooks.starter_selection_required")
     minimum = required_tables(selection)
+    if capture_initial_hooks:
+        minimum.update(INITIAL_HOOK_SCHEMA)
     profiles = schema_profile(inventory, minimum)
     engines = {p["engine"] for p in profiles.values()}
     tables: dict[str, list[dict[str, Any]]] = {}
@@ -288,6 +305,10 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             registry_ids = set(spell_registry.selected_ids(tables))
             tables[spell_registry.TABLE] = get(spell_registry.TABLE, registry_ids, MAX_SPELLS,
                                                mode="spell_registry_selectors")
+        if capture_initial_hooks:
+            hook_ids = set(initial_hooks.selected_ids(tables))
+            for table in initial_hooks.TABLES:
+                tables[table] = get(table, hook_ids, initial_hooks.LIMITS[table], mode="initial_hook_selectors")
         check(version_before == normalize_version_notes(source.version_notes(), profiles["db_version"]), "snapshot.version_changed")
         findings = full_report(tables, profiles, selection)
         bundle = {
@@ -307,6 +328,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
             bundle["spell_script_capture"] = spell_registry.evidence(bundle)
             bundle["learning_capture"] = learning.evidence(tables, dependency_request, global_learning_rows)
+        if capture_initial_hooks:
+            bundle["initial_hook_capture"] = initial_hooks.evidence(bundle)
         check(len(canonical(bundle)) <= MAX_BUNDLE_BYTES, "bundle.byte_limit")
         validate_bundle(bundle)
         return bundle
@@ -329,6 +352,8 @@ def validate_bundle(bundle: Any) -> None:
             expected.add("native_spawn_capture")
         if "spell_script_capture" in bundle:
             expected.add("spell_script_capture")
+        if "initial_hook_capture" in bundle:
+            expected.add("initial_hook_capture")
     check(set(bundle) == expected, "bundle.fields")
     check(bundle["format"] in {FORMAT, STARTER_FORMAT} and bundle["core_revision"] == CORE_REVISION
           and bundle["database_revision"] == DATABASE_REVISION and bundle["client_build"] == 5875,
@@ -380,6 +405,11 @@ def validate_bundle(bundle: Any) -> None:
     if "native_spawn_capture" in bundle:
         check(selection.starter is not None, "native_spawn.starter_selection_required")
         native_spawn.validate(bundle)
+    check(bool(set(initial_hooks.TABLES) & set(bundle["tables"])) == ("initial_hook_capture" in bundle),
+          "initial_hooks.coverage_required_with_tables")
+    if "initial_hook_capture" in bundle:
+        check(selection.starter is not None, "initial_hooks.starter_selection_required")
+        initial_hooks.validate(bundle)
     check((spell_registry.TABLE in bundle["tables"]) == ("spell_script_capture" in bundle),
           "spell_registry.coverage_required_with_table")
     if "spell_script_capture" in bundle:

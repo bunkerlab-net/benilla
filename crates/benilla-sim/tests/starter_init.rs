@@ -1438,3 +1438,38 @@ fn spellbook_successor_relationships_cannot_hide_outside_previous_rank_metadata(
     i.skill_abilities = Rows::Complete(vec![link]);
     assert!(initialize_mage(&i).unwrap().abilities[&900_000_150].active);
 }
+
+#[test]
+fn passive_duration_index_zero_is_permanent_without_inventing_a_duration() {
+    let mut i = input();
+    let mut s = aura(900_000_171, 29, 3, 7);
+    s.words[30] = 0;
+    s.duration_ms = Some(0);
+    i.default_spells = Rows::Complete(vec![s.id]);
+    i.spells.push(s);
+    let created = initialize_mage(&i).unwrap();
+    assert_eq!(created.effective_attributes.0[3], 38);
+    assert_eq!(created.initial_auras.len(), 1);
+    first_entry(&i, &created).unwrap();
+    for (index, duration, passive) in [
+        (1, Some(0), true),
+        (0, None, true),
+        (0, Some(1), true),
+        (0, Some(0), false),
+    ] {
+        i.spells[0].words[30] = index;
+        i.spells[0].duration_ms = duration;
+        i.spells[0].words[6] = if passive { 64 } else { 0 };
+        i.spells[0].words[7] = if passive { 0 } else { 0x8000_0000 };
+        assert!(
+            matches!(
+                initialize_mage(&i),
+                Err(InitError::Unsupported {
+                    domain: "initial aura duration/trigger/equipment",
+                    ..
+                })
+            ),
+            "{index}:{duration:?}:{passive}"
+        );
+    }
+}

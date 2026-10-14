@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA
+from .columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA, INITIAL_HOOK_SCHEMA
 
 FORMAT = "benilla-classic-source-slice-v1"
 STARTER_FORMAT = "benilla-classic-source-slice-v2"
@@ -27,6 +27,8 @@ MAX_BUNDLE_BYTES = 64 * 1024 * 1024
 MAX_SCHEMA_BYTES = 2 * 1024 * 1024
 MAX_TEXT_BYTES = 16384
 KEYS = {
+    "spell_area": ("spell", "area", "quest_start", "quest_start_active", "aura_spell", "racemask", "gender"),
+    "spell_proc_event": ("entry",),
     "spell_scripts": ("Id",),
     "creature_spawn_data": ("Guid",),
     # Native SQL allows repeated Entry, but the loader overwrites by Entry without
@@ -191,11 +193,13 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     profiles = {}
     for table, meta in inventory["tables"].items():
         fields = {"engine", "table_type", "columns"}
-        if table in REGISTRY_SCHEMA and type(meta) is dict and "primary_key" in meta:
+        if table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA) and type(meta) is dict and "primary_key" in meta:
             fields.add("primary_key")
         check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
         if table in REGISTRY_SCHEMA and table in required:
             check(meta.get("primary_key") == ["Id"], "schema.registry_primary_key")
+        if table in INITIAL_HOOK_SCHEMA and table in required:
+            check(meta.get("primary_key") == list(KEYS[table]), "schema.initial_hook_primary_key")
         check(meta["table_type"] == "BASE TABLE", "schema.views_rejected")
         check(meta["engine"] in {"InnoDB", "MyISAM"}, "schema.engine")
         check(type(meta["columns"]) is list and len(meta["columns"]) <= 512, "schema.columns")
@@ -214,9 +218,9 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
         missing = wanted - set(by_name)
         if table in required:
             check(not missing, f"schema.missing_columns:{table}")
-        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA) and table in required:
+        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA) and table in required:
             check(wanted == set(by_name), f"schema.starter_columns:{table}")
-            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA)[table], 1):
+            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA)[table], 1):
                 actual = by_name[name.casefold()]
                 observed, expected = sql_type(actual["type"]), sql_type(kind)
                 # Ignore display width for integer types, never size/signedness/nullability/order.
@@ -325,8 +329,10 @@ def normalize_rows(table: str, rows: list[dict[str, Any]], profile: dict[str, An
         key = tuple(converted[name] for name in KEYS[table])
         zero_keys = {"playercreateinfo_action": {"button"},
                      "playercreateinfo_skills": {"raceMask", "classMask"},
-                     "creature_spawn_data_template": {"Entry"}}.get(table, set())
+                     "creature_spawn_data_template": {"Entry"},
+                     "spell_area": {"area", "quest_start", "quest_start_active", "racemask", "gender"}}.get(table, set())
         check(all(type(row_value) is int and row_value >= (-32768 if table == "game_event_creature" and name == "event"
+                               else -0x800000 if table == "spell_area" and name == "aura_spell"
                                else 0 if name in zero_keys else 1)
                   for name, row_value in zip(KEYS[table], key)), f"row.key:{table}")
         check(key not in keys, f"row.duplicate_key:{table}")

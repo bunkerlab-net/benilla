@@ -103,6 +103,19 @@ class LocalSqlSource:
                   and row["ordinal"] == index for index, row in enumerate(keys, 1)),
                   "schema.registry_key_metadata")
             result["tables"]["spell_scripts"]["primary_key"] = [row["name"] for row in keys]
+        from .initial_hooks import PRIMARY_KEYS
+        for table, expected in PRIMARY_KEYS.items():
+            if table not in result["tables"]:
+                continue
+            keys = self._select(
+                "SELECT COLUMN_NAME AS name,ORDINAL_POSITION AS ordinal "
+                "FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() "
+                "AND TABLE_NAME=%s AND CONSTRAINT_NAME=%s ORDER BY ORDINAL_POSITION LIMIT %s",
+                (table, "PRIMARY", len(expected) + 1), len(expected) + 1)
+            check(len(keys) <= len(expected) and all(type(row) is dict and set(row) == {"name", "ordinal"}
+                  and row["ordinal"] == index for index, row in enumerate(keys, 1)),
+                  "schema.initial_hook_key_metadata")
+            result["tables"][table]["primary_key"] = [row["name"] for row in keys]
         check(len(canonical(result)) <= MAX_SCHEMA_BYTES, "schema.byte_limit")
         profiles = schema_profile(result, set())
         self._version_profile = profiles.get("db_version")

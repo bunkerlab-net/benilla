@@ -39,6 +39,7 @@ exclusions are documented in:
 - [Creature initialization](../crates/benilla-sim/CREATURE-INIT.md)
 - [Player death/corpse lifecycle reducer](../crates/benilla-sim/PLAYER-DEATH.md)
 - [Integrated bounded native death](../crates/benilla-world-runtime/src/native/DEATH.md)
+- [Bounded mage XP/level transitions](../crates/benilla-sim/PLAYER-PROGRESSION.md)
 - [Ordinary quest lifecycle and host requirements](../crates/benilla-sim/QUEST-LIFECYCLE.md)
 - [Conservative local geometry service](../crates/benilla-app/src/net/p2p/world/native_geometry/README.md)
 - [Native runtime integration](../crates/benilla-world-runtime/src/native/README.md)

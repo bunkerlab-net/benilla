@@ -384,3 +384,15 @@ Reviewed and oracle-hash-checked files at commit
 The oracle compiles unchanged extracted bodies/loader fragment with explicit
 bounded test adapters. Its synthetic XP recorder is not a GiveXP/GiveLevel port,
 and its source/choice/reward item branches are deliberately unreachable.
+
+
+## Bounded player progression
+
+`src/player_progression/` translates the pinned CMaNGOS Classic GiveXP/GiveLevel
+path for the explicit solo mage domain described in [PLAYER-PROGRESSION.md](PLAYER-PROGRESSION.md).
+The same upstream GPL-2.0-or-later grant, authors and retained license notices
+apply; this derivative is GPL-3.0-or-later. Its extracted-source oracle covers
+packet/state/callback order and numeric limits. Missing actual level rows,
+unsupported skill/spell hooks, and non-bit-exact armor restoration reject;
+no source database rows or client assets are included. Native skill/spell host
+and stat/equipment recipe rebasing remain separate runtime integration requirements.

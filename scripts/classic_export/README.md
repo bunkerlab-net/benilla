@@ -154,3 +154,11 @@ licensing or trustworthy authorship. Bundle validation rechecks canonical rows,
 references, snapshot claims and required blockers. It always rejects a runnable
 claim. Content remains private and must not enter source control or CI artifacts.
 GPL notices for the tool do not grant rights to the user's imported content.
+
+## Optional initial spell hook evidence
+
+For a source-v2 starter selection, add `--initial-hooks` to `plan` and `capture`
+to include exact selected `spell_area` and `spell_proc_event` rows. Missing legacy
+coverage remains unknown. This captures all raw matching rows and does not
+execute conditions or resolve inherited proc semantics. See the
+[bounded initial hook capture contract](INITIAL-HOOKS.md).

@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from classic_export.capture import validate_bundle
-from classic_export import event_ai, native_spawn, spell_registry
+from classic_export import event_ai, native_spawn, spell_registry, initial_hooks
 from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA
 from classic_export.core import (CORE_REVISION, STARTER_FORMAT, KEYS, Selection,
                                  canonical, check, digest, integer)
@@ -104,6 +104,7 @@ FLOAT_SPELL_FIELDS = {"speed"} | {f"{name}{i}" for name in
 # field appears exactly once. No zero-valued flag is automatically declared inert.
 CONSUMED = {
     **{table: set(COLUMNS[table]) for table in LEARNING_SCHEMA},
+    **{table: set(COLUMNS[table]) for table in initial_hooks.TABLES},
     "creature_ai_scripts": {"id", "creature_id"},
     "spell_scripts": {"Id", "ScriptName"},
     "playercreateinfo": set(COLUMNS["playercreateinfo"]),
@@ -414,7 +415,9 @@ class Compiler:
             if source["Category"]:
                 self.lookup("SpellCategory", source["Category"], {0, 1})
             duration = (self.lookup("SpellDuration", source["DurationIndex"], {0, 1, 2, 3})
-                        if source["DurationIndex"] else None)
+                        if source["DurationIndex"] or
+                        (self.dbcs.get("SpellDuration") and 0 in self.dbcs["SpellDuration"].by_id)
+                        else None)
             if source["RequiresSpellFocus"]:
                 self.lookup("SpellFocusObject", source["RequiresSpellFocus"], {0})
             for slot in range(1, 4):
@@ -469,6 +472,7 @@ class Compiler:
                 self.issue("spell_scripts", [entry], "spell.registry_row_requires_named_handler_semantics")
             result.append({"id": entry, "initial_sql_spell": entry in initial,
                 "script_registry": registry_scope,
+                "initial_hooks": initial_hooks.scope(self.source, entry),
                 "name_locales": [row.text[i] for i in range(120, 128)] if row else None,
                 "cast_time": {"id": source["CastingTimeIndex"], "base_ms": signed(cast.words[1]),
                               "per_level_ms": signed(cast.words[2]), "minimum_ms": signed(cast.words[3])} if cast else None,
@@ -654,6 +658,7 @@ def compile_starter(source: Any, dbcs: dict[str, DbcTable], request: Request,
         "dependency_request": c.learning["dependency_request"],
         "native_spawn_capture": source.get("native_spawn_capture"),
         "spell_script_capture": source.get("spell_script_capture"),
+        "initial_hook_capture": source.get("initial_hook_capture"),
         "creature_display_inputs": display_evidence,
         "player": {"identity": identity, "level_inputs": c.progression(), "outfit": outfit,
                    "initial_sql_spells": source["tables"]["playercreateinfo_spell"],

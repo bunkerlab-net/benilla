@@ -19,7 +19,7 @@ pub use skills::{
 };
 pub use stats::{Attributes, ModifierSnapshot, Resources};
 use std::collections::{BTreeMap, BTreeSet};
-pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v1";
+pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v2";
 pub type Result<T> = std::result::Result<T, InitError>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitError {
@@ -556,11 +556,12 @@ impl Init<'_> {
                     _ => return Err(unsupported("proficiency item class", id, w[58])),
                 },
                 6 => {
-                    if row.duration_ms != Some(-1)
-                        || w[94 + i] != 0
-                        || w[109 + i] != 0
-                        || w[58] as i32 != -1
-                    {
+                    // SpellAuraHolder constructor marks passive index-zero
+                    // auras permanent even though GetSpellDuration returns 0.
+                    // Do not extend this to active auras or any other zero row.
+                    let permanent = row.duration_ms == Some(-1)
+                        || (row.duration_ms == Some(0) && w[30] == 0 && w[6] & 0x40 != 0);
+                    if !permanent || w[94 + i] != 0 || w[109 + i] != 0 || w[58] as i32 != -1 {
                         return Err(unsupported(
                             "initial aura duration/trigger/equipment",
                             id,

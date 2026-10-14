@@ -28,5 +28,9 @@
   "native_spawn_dependency_selector_capture": true,
   "bounded_native_dependency_recapture": true,
   "selected_spell_script_registry_capture": true,
-  "recursive_other_gender_model_capture": true
+  "recursive_other_gender_model_capture": true,
+  "optional_initial_hook_selector_capture": true,
+  "initial_hook_capture_format": "benilla-classic-initial-hook-selection-v1",
+  "initial_hook_condition_execution": false,
+  "initial_hook_proc_rank_resolution": false
 }

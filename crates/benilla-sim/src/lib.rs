@@ -30,3 +30,6 @@ pub mod npc_melee;
 
 /// Bounded source-derived player death and corpse lifecycle.
 pub mod player_death;
+
+/// Bounded source-derived player XP and level transitions with an audited host.
+pub mod player_progression;

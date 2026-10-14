@@ -12,6 +12,7 @@ import tempfile
 
 from classic_export.capture import capture, validate_bundle
 from classic_export import learning
+from classic_export.columns import INITIAL_HOOK_SCHEMA
 from classic_export.core import (COLUMNS, CORE_REVISION, DATABASE_REVISION, ExportError,
                                  MAX_BUNDLE_BYTES, MAX_SCHEMA_BYTES, Selection,
                                  canonical, check, decode_json, digest, required_tables, schema_profile)
@@ -61,9 +62,12 @@ def main() -> int:
         if name == "capture":
             cmd.add_argument("--selection", type=Path, required=True)
             cmd.add_argument("--dependency-request", type=Path, help="bounded native preparation recapture request")
+            cmd.add_argument("--initial-hooks", action="store_true",
+                             help="capture selected raw spell_area and spell_proc_event inputs for source-v2")
             cmd.add_argument("--quiescent-snapshot", action="store_true",
                              help="operator confirms no writer can change this already prepared local snapshot")
     cmd = sub.add_parser("plan")
+    cmd.add_argument("--initial-hooks", action="store_true")
     cmd.add_argument("--schema", type=Path, required=True)
     cmd.add_argument("--selection", type=Path, required=True)
     cmd.add_argument("--output", type=Path, required=True)
@@ -81,6 +85,9 @@ def main() -> int:
             selection = Selection.parse(read_json(args.selection, 65536))
             schema = read_json(args.schema, MAX_SCHEMA_BYTES)
             minimum = required_tables(selection)
+            if args.initial_hooks:
+                check(selection.starter is not None, "initial_hooks.starter_selection_required")
+                minimum.update(INITIAL_HOOK_SCHEMA)
             profiles = schema_profile(schema, minimum)
             output = {"format": "benilla-classic-capture-plan-v2" if selection.starter is not None else "benilla-classic-capture-plan-v1", "selection": selection.json(),
                       "core_revision": CORE_REVISION, "database_revision": DATABASE_REVISION,
@@ -97,7 +104,7 @@ def main() -> int:
             source = LocalSqlSource(args.database, args.user, args.port)
             try:
                 output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot,
-                    dependency_request)
+                    dependency_request, capture_initial_hooks=args.initial_hooks)
             finally:
                 source.close()
         write_new(args.output, output)

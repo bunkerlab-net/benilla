@@ -631,3 +631,22 @@ REGISTRY_SCHEMA = {
 }
 COLUMNS.update({table: [column[0] for column in columns]
                 for table, columns in REGISTRY_SCHEMA.items()})
+
+# Pinned sql/base/mangos.sql. Optional selected hook capture, preserving raw rows.
+INITIAL_HOOK_SCHEMA = {
+    "spell_area": [
+        ("spell", "mediumint unsigned", False), ("area", "mediumint unsigned", False),
+        ("quest_start", "mediumint unsigned", False), ("quest_start_active", "tinyint unsigned", False),
+        ("quest_end", "mediumint unsigned", False), ("condition_id", "mediumint unsigned", False),
+        ("aura_spell", "mediumint", False), ("racemask", "mediumint unsigned", False),
+        ("gender", "tinyint unsigned", False), ("autocast", "tinyint unsigned", False)],
+    "spell_proc_event": [
+        ("entry", "mediumint unsigned", False), ("SchoolMask", "tinyint unsigned", False),
+        ("SpellFamilyName", "smallint unsigned", False),
+        ("SpellFamilyMask0", "bigint unsigned", False), ("SpellFamilyMask1", "bigint unsigned", False),
+        ("SpellFamilyMask2", "bigint unsigned", False), ("procFlags", "int unsigned", False),
+        ("procEx", "int unsigned", False), ("ppmRate", "float", False),
+        ("CustomChance", "float", False), ("Cooldown", "int unsigned", False)],
+}
+COLUMNS.update({table: [column[0] for column in columns]
+                for table, columns in INITIAL_HOOK_SCHEMA.items()})
