@@ -47,7 +47,9 @@ unchanged. Projection failure retains the committed batch without reapplying it.
 The runtime versions its native snapshot/journal schema, policy and digest domains.
 Tick records contain `inputs: Vec<Input>` and source-ordered per-input outcomes.
 Older native saves are rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
-outer native envelope delegates the schema check to the runtime.
+outer native envelope delegates the schema check to the runtime. Format 13 retains
+per-NPC event queues through durable publication, retry and reopen. Tests verify a
+due NPC notification is not dispatched again after a checkpoint failure.
 
 Checkpoints run every ten simulated seconds or before native journal headroom is
 exhausted. `NativeError::JournalFull` means only uncommitted journal-capacity refusal;

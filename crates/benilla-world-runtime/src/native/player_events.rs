@@ -474,6 +474,9 @@ impl NativeWorld {
         if !state.casts.is_empty() || !state.player_events.spells.is_empty() {
             return Err(NativeError::InvalidState);
         }
+        for npc in state.npcs.values_mut() {
+            npc.events.teardown()?;
+        }
         Ok(events)
     }
 }

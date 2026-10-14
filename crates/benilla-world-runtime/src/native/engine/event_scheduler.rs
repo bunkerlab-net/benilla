@@ -43,7 +43,7 @@ impl<A: Authority> Frame<'_, A> {
                         return Err(NativeError::InvalidState);
                     }
                     if due.callback == CallbackKind::Execute {
-                        self.source_player_notify_callback(due.now_ms)?;
+                        self.source_player_notify_callback(&transaction.callback_snapshot()?)?;
                         transaction.finish_execute(true)?;
                     } else {
                         transaction.finish_abort(true)?;

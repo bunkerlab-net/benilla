@@ -58,7 +58,9 @@ admission. `NativeCapability` remains uninhabited and production startup closed.
   Readiness precedes LOS; caster-to-target LOS precedes target flags and
   CanAttackSpell; CheckRange precedes its facing branch; power follows range.
   LOS, range result and facing are distinct typed dependencies, not one allowed
-  flag. Query failure and source rejection preserve this ordering.
+  flag. The optional [facing authority](FACING-AUTHORITY.md) derives only facing
+  from the current caster pose; LOS and range remain external. Query failure and
+  source rejection preserve this ordering.
 - Release HitResult occurs only after release CheckCast/CheckPower succeeds.
   Current level, current crit stats, raw CANT_CRIT and the ordinary NPC domain
   determine hit and critical chances. `zero_resistance_npc_miss` is reused only
@@ -114,8 +116,8 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 11, `benilla-native-source-spell-authority-v11`, with v11 profile/state/
-record/checkpoint/action hash domains. Published format 10 rejects without an
+format 13, `benilla-native-npc-events-v13`, with v13 profile/state/
+record/checkpoint/action hash domains. Published formats 10 and 11 reject without an
 implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace
 them with a new world. Raw catalog changes also change the profile digest.

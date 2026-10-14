@@ -4,6 +4,7 @@ use crate::NpcId;
 mod combat_authority;
 mod death;
 mod event_scheduler;
+mod facing;
 mod hostile_spell;
 mod spell_authority;
 use spell_authority::SpellHistory;
@@ -143,6 +144,12 @@ impl NativeWorld {
         }
         frame.player_event_update()?;
         if frame.profile.source_motion.is_none() {
+            let ids = frame.state.npcs.keys().copied().collect::<Vec<_>>();
+            for id in ids {
+                let mut npc = frame.state.npcs.remove(&id).unwrap();
+                frame.npc_event_update(&mut npc)?;
+                frame.state.npcs.insert(id, npc);
+            }
             frame.auras()?;
         }
         frame.player_reactives();
@@ -169,7 +176,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v11\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v13\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -256,13 +263,19 @@ impl<A: Authority> Frame<'_, A> {
             },
             query,
         };
-        let reply = if let Some(facts) = interactions::resolve(
-            self.profile,
-            self.profile_digest,
-            self.state,
-            &request,
-            self.interaction_moment(),
-        )? {
+        // This request was assembled in this frame from the executing callback.
+        // Never admit an external pose/request as a current-state authority input.
+        let derived = match self.facing_facts(&request)? {
+            Some(facts) => Some(facts),
+            None => interactions::resolve(
+                self.profile,
+                self.profile_digest,
+                self.state,
+                &request,
+                self.interaction_moment(),
+            )?,
+        };
+        let reply = if let Some(facts) = derived {
             let reply = AuthorityReply {
                 request: request.clone(),
                 facts,
@@ -1142,6 +1155,7 @@ impl<A: Authority> Frame<'_, A> {
                         npc.corpse_loot = None;
                         npc.id.generation =
                             npc.id.generation.checked_add(1).ok_or(NativeError::Limit)?;
+                        npc.events.rebind_respawn(npc.id)?;
                         npc.health = p.max_health;
                         npc.auras.clear();
                         npc.aura_bindings.clear();
@@ -1340,7 +1354,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v11\0",
+            b"benilla-native-melee-action-v13\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1609,7 +1623,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v11\0",
+            b"benilla-native-melee-chain-v13\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

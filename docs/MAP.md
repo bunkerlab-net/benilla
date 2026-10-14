@@ -128,7 +128,7 @@
 - **benilla-p2p** (lib.rs): identity internet
 - **benilla-profile** (lib.rs): storage tests
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
-- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init creature_motion creature_regeneration encounter event_processor inventory loot mage_resource npc_melee player_death player_progression quest quest_lifecycle reputation spell_event starter_init xp
+- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init creature_motion creature_regeneration encounter event_processor facing inventory loot mage_resource npc_melee player_death player_progression quest quest_lifecycle reputation spell_event starter_init xp
 - **benilla-srp** (lib.rs): vanilla_header
 - **benilla-ui** (lib.rs): bindings_xml civil framexml justify layout loader markup messages order script source status strings toc widget
 - **benilla-visual** (lib.rs): relight
@@ -576,7 +576,7 @@
 - `test-doc-links.py` — The doc-link gate must fail closed when rustdoc did not run successfully.""" import contextlib import importlib.util import io from pathlib import Pat…
 - `test-initial-hooks.py` — Authored area/proc capture cases only.
 - `test-native-starter.py` — Original synthetic rows only.
-- `test-package-player.py` — Fast packaging tests: fake binaries/source, no compiler or game data.""" import hashlib import importlib.util import io import json import os import s…
+- `test-package-player.py` — Packaging and resolved feature-graph tests: no app build or game data.""" import hashlib import importlib.util import io import json import os import …
 - `verify-source-retention.py` — Fail closed unless the uploaded source artifact outlives the player download.
 - `vplsum.py` — Read a `vpl`/`bub` overlay trace and say where the motion came from: projection, solve or snap.
 - `api-coverage.sh` — Addon-API coverage: how much of the 1.12.1 client's global surface benilla's UI VM presents.

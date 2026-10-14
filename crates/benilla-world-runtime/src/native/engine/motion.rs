@@ -145,7 +145,7 @@ impl<A: Authority> Frame<'_, A> {
                 accessible: facts.accessible,
                 line_of_sight: facts.line_of_sight,
             }),
-            can_initiate_attack: facts.can_initiate_attack && source.notify.can_aggro(),
+            can_initiate_attack: facts.can_initiate_attack && npc.events.can_aggro(),
             casting_non_melee: false,
             stationary_melee_refresh_eligible: source
                 .motion
@@ -159,7 +159,7 @@ impl<A: Authority> Frame<'_, A> {
         &mut self,
         npc: &Npc,
         owner: VisitorOwner,
-        clock: u64,
+        callback: &benilla_sim::event_processor::EventCallbackSnapshot,
     ) -> Result<bool, NativeError> {
         let source = npc
             .source_motion
@@ -167,7 +167,8 @@ impl<A: Authority> Frame<'_, A> {
             .ok_or(NativeError::InvalidState)?;
         let request = VisitorRequest {
             owner,
-            event_clock_ms: clock,
+            callback: callback.clone(),
+            event_clock_ms: callback.due.now_ms,
             now_ms: self.state.now_ms,
             radius: m::visitor_radius(
                 match owner {
@@ -187,7 +188,7 @@ impl<A: Authority> Frame<'_, A> {
             creature: npc.id,
             creature_pose: source.motion.pose(),
             creature_phase: npc.ai.phase(),
-            creature_can_aggro: source.notify.can_aggro(),
+            creature_can_aggro: npc.events.can_aggro(),
         };
         match self.ask(
             Some(npc.id),
@@ -236,7 +237,10 @@ impl<A: Authority> Frame<'_, A> {
         self.state.npcs.insert(id.spawn, npc);
         Ok(())
     }
-    pub(super) fn source_player_notify_callback(&mut self, clock: u64) -> Result<(), NativeError> {
+    pub(super) fn source_player_notify_callback(
+        &mut self,
+        callback: &benilla_sim::event_processor::EventCallbackSnapshot,
+    ) -> Result<(), NativeError> {
         if self.profile.source_motion.is_none() {
             return Err(NativeError::InvalidState);
         }
@@ -246,7 +250,7 @@ impl<A: Authority> Frame<'_, A> {
             .npcs
             .remove(&id)
             .ok_or(NativeError::InvalidState)?;
-        if self.source_visitor(&npc, VisitorOwner::Player, clock)? {
+        if self.source_visitor(&npc, VisitorOwner::Player, callback)? {
             let facts = self.source_facts(&npc, CombatPhase::Sight)?;
             let observation = self.source_observation(&npc, facts, None, Vec::new())?;
             let effects = npc.ai.source_sight_event(&observation)?;
@@ -273,7 +277,9 @@ impl<A: Authority> Frame<'_, A> {
             match event {
                 m::Event::Relocated {
                     notify_map: true, ..
-                } => source.notify.relocated(g.relocation_aggro_delay_ms)?,
+                } => npc
+                    .events
+                    .schedule_notify(g.relocation_aggro_delay_ms, false)?,
                 m::Event::HomeStarted { .. } => source.active = true,
                 m::Event::HomeReached { restore_inactive } => {
                     if restore_inactive {
@@ -300,7 +306,7 @@ impl<A: Authority> Frame<'_, A> {
             ai::Effect::CombatStarted { .. } => {
                 let source = npc.source_motion.as_mut().unwrap();
                 source.combat_start = Some(source.motion.pose());
-                source.notify.entered_combat();
+                npc.events.entered_combat()?;
                 self.enter_player_combat();
             }
             ai::Effect::Motion(command) => {
@@ -365,13 +371,14 @@ impl<A: Authority> Frame<'_, A> {
                     position: npc.ai.position(),
                     orientation: ai::Real::from_bits(g.npc_spawn_orientation.bits())?,
                 })?;
-                source.notify.relocated(g.relocation_aggro_delay_ms)?;
+                npc.events
+                    .schedule_notify(g.relocation_aggro_delay_ms, false)?;
             }
             ai::Effect::Respawned { .. } => {
                 let source = npc.source_motion.as_mut().unwrap();
                 source.active = g.npc_initial_active;
                 source.combat_start = None;
-                source.notify.respawned(g.creature_initial_aggro_delay_ms)?;
+                npc.events.respawned(g.creature_initial_aggro_delay_ms)?;
             }
             _ => {}
         }
@@ -389,6 +396,47 @@ impl<A: Authority> Frame<'_, A> {
             });
             self.source_ai_effect(npc, effect)?;
         }
+        Ok(())
+    }
+    pub(super) fn npc_event_update(&mut self, npc: &mut Npc) -> Result<(), NativeError> {
+        use benilla_sim::event_processor::{CallbackKind, EventKind};
+        if npc.ai.phase() == ai::Phase::Despawned {
+            npc.events.skipped_updates = npc
+                .events
+                .skipped_updates
+                .checked_add(1)
+                .ok_or(NativeError::Limit)?;
+            return Ok(());
+        }
+        // The enclosing Frame owns atomic world/RNG/output rollback. Only this
+        // transaction owns the mutable queue while callbacks borrow the NPC.
+        let mut queue = std::mem::take(&mut npc.events.queue);
+        let mut transaction = queue.begin_update(self.profile.tick_ms)?;
+        while let Some(due) = transaction.pop_due()? {
+            if due.kind != EventKind::AiNotify || npc.events.notify != Some(due.event_id) {
+                // No NPC SpellEvent is admitted without an actual NPC spell host.
+                return Err(NativeError::InvalidState);
+            }
+            let callback = transaction.callback_snapshot()?;
+            npc.events.callback = Some(callback.clone());
+            if due.callback == CallbackKind::Execute {
+                npc.events.can_aggro = npc.health > 0;
+                if self.source_visitor(npc, VisitorOwner::Creature(npc.id), &callback)? {
+                    let facts = self.source_facts(npc, CombatPhase::Sight)?;
+                    let observation = self.source_observation(npc, facts, None, Vec::new())?;
+                    let effects = npc.ai.source_sight_event(&observation)?;
+                    self.source_prefix_effects(npc, &effects)?;
+                }
+                transaction.finish_execute(true)?;
+            } else {
+                transaction.finish_abort(true)?;
+            }
+            // FinalizeAINotifyEvent is after the visitor, not before it.
+            npc.events.notify = None;
+            npc.events.callback = None;
+        }
+        transaction.commit()?;
+        npc.events.queue = queue;
         Ok(())
     }
     pub(super) fn prepare_source_receipts(
@@ -417,22 +465,7 @@ impl<A: Authority> Frame<'_, A> {
         let entered_alive =
             npc.health > 0 && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned);
         self.source_inside_alive_unit = entered_alive;
-        if npc.ai.phase() != ai::Phase::Despawned {
-            let source = npc
-                .source_motion
-                .as_mut()
-                .ok_or(NativeError::InvalidState)?;
-            let due = source
-                .notify
-                .advance_events(self.profile.tick_ms, npc.health > 0)?;
-            let clock = source.notify.snapshot().event_clock_ms;
-            if due && self.source_visitor(&npc, VisitorOwner::Creature(npc.id), clock)? {
-                let facts = self.source_facts(&npc, CombatPhase::Sight)?;
-                let observation = self.source_observation(&npc, facts, None, Vec::new())?;
-                let effects = npc.ai.source_sight_event(&observation)?;
-                self.source_prefix_effects(&mut npc, &effects)?;
-            }
-        }
+        self.npc_event_update(&mut npc)?;
         self.state.npcs.insert(id, npc);
         // Unit::_UpdateSpells follows m_events.Update and precedes spline/motion.
         // Its damage callbacks also execute synchronously before the receipt token.
@@ -546,6 +579,7 @@ impl<A: Authority> Frame<'_, A> {
                                         health: npc.health,
                                         ai: working_ai,
                                         motion: &source,
+                                        events: &npc.events,
                                     }),
                                 )?;
                             }

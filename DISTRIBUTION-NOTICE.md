@@ -25,6 +25,13 @@ G3D math. Its source scope, GPL and original G3D Modified BSD notices are linked
 `crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md`.
 This is not a full VMap/MMap/PathFinder port or native-content admission.
 
+The simulation's selected current-pose facing profile also translates GNU libc
+2.41's CORE-MATH-derived `e_atan2f.c`, under its original MIT grant, Copyright
+(c) 2022–2024 Alexei Sibidanov and Paul Zimmermann. Preserve its complete notice
+in `crates/benilla-sim/src/facing/MIT-NOTICE.txt`; exact sources and numeric scope
+are documented in `crates/benilla-sim/FACING.md`. The combined program remains
+GPL-3.0-or-later.
+
 The matching build source, locked dependency sources, license texts, build scripts,
 and build information are provided through the exact download and SHA-256 in
 `SOURCE-DOWNLOAD.txt`, or through an embedded `corresponding-source.tar.gz` in a

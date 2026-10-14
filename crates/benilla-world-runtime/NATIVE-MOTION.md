@@ -1,6 +1,6 @@
 # Transactional source NPC motion
 
-This optional native-format-11 component connects
+This optional native-format-13 component connects
 [`creature_motion`](../benilla-sim/CREATURE-MOTION.md) to the runtime, durable
 journal/reopening, and client/controller projection. It is a bounded intermediate
 toward full Classic, not a completed ordinary combat loop or production admission.
@@ -29,8 +29,8 @@ Classic. The current damage-only player actions cannot add player holders; any
 future holder-producing operation must apply the same guard until removal is ported. No raw-input compiler changes are included.
 
 `Npc.ai` is the sole authoritative victim/combat/death lifecycle. `Npc.source_motion`
-owns map pose/orientation, spline, lastMoveTime, active state, combat-start orientation
-and notify clock. Every current movement command is bound to the working AI. Opaque
+owns map pose/orientation, spline, lastMoveTime, active state and combat-start orientation.
+`Npc.events` owns the Unit EventProcessor, pending AI notify and CanAggro state. Every current movement command is bound to the working AI. Opaque
 kernel tokens commit completed source map relocations to AI; external authority cannot
 serialize or submit one. Checkpoints reconstruct tokens from validated source state
 and replies, and retain full path evidence and corrected launch origin.
@@ -112,8 +112,9 @@ Player notifications and SpellEvent now share the source EventProcessor queue,
 including equal-key insertion order, delayed callbacks, cancellation, current-slot
 references and retained finished spell objects. See [the player event contract](PLAYER-EVENTS.md)
 for the bounded host phases, durable owner/cast binding and explicit teardown.
-NPC notifications remain within the reviewed creature motion lifecycle; their local
-clock freezes in DEAD and survives respawn independently of visible generation IDs.
+NPC notifications use their own real per-Unit queue, with the same source ordering
+primitive. See [the NPC event contract](NPC-EVENTS.md) for callback ownership, DEAD
+clock suspension, generation guards and the explicitly pending NPC spell host.
 
 The explicitly selected [combat semantic host](COMBAT-AUTHORITY.md) supplies
 source-derived NPC and ordinary melee relationships/lifecycle/movement facts.
@@ -141,3 +142,7 @@ chronological incarnation ownership, and respawn requires a fresh GUID. SetInFro
 would not send. The existing renderer's create-spline API lacks exact per-segment timing
 and final-facing playback; it remains presentation only and cannot provide authoritative
 movement facts. Source event/state/replay bits remain independent of renderer interpolation.
+
+The optional [facing authority](FACING-AUTHORITY.md) derives source Bearing from
+the exact runtime request origin, including UpdateSplinePosition's old map pose.
+NearPoint, routes, colliders and FacingTarget object lookup remain external.

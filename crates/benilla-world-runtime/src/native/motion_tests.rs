@@ -26,12 +26,7 @@ fn source_notify_launch_progress_home_and_reopen_have_exact_clocks_and_poses() {
     let mut a = fixture::SyntheticMotionAuthority::default();
     step(&mut w, &mut a);
     assert_eq!(w.state().npcs[&2].ai.phase(), ai::Phase::Idle);
-    assert!(!w.state().npcs[&2]
-        .source_motion
-        .as_ref()
-        .unwrap()
-        .notify
-        .can_aggro());
+    assert!(!w.state().npcs[&2].events.can_aggro());
     step(&mut w, &mut a);
     assert_eq!(w.state().npcs[&2].ai.phase(), ai::Phase::Combat);
     let motion = &w.state().npcs[&2].source_motion.as_ref().unwrap().motion;
@@ -418,32 +413,12 @@ fn player_phase_and_dot_phase_zero_corpse_deaths_reopen_with_distinct_deferral()
             }
         }
         assert!(killed);
-        let frozen = w.state().npcs[&2]
-            .source_motion
-            .as_ref()
-            .unwrap()
-            .notify
-            .snapshot()
-            .event_clock_ms;
+        let frozen = w.state().npcs[&2].events.clock_ms();
         while w.state().npcs[&2].id.generation == 0 {
             step(&mut w, &mut a);
-            assert_eq!(
-                w.state().npcs[&2]
-                    .source_motion
-                    .as_ref()
-                    .unwrap()
-                    .notify
-                    .snapshot()
-                    .event_clock_ms,
-                frozen
-            );
+            assert_eq!(w.state().npcs[&2].events.clock_ms(), frozen);
         }
-        assert!(!w.state().npcs[&2]
-            .source_motion
-            .as_ref()
-            .unwrap()
-            .notify
-            .can_aggro());
+        assert!(!w.state().npcs[&2].events.can_aggro());
         let restored = NativeWorld::restore_synthetic_component_test(
             w.profile().clone(),
             w.checkpoint().unwrap(),
@@ -542,9 +517,9 @@ fn altered_checkpoint(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Valu
     let mut value = serde_json::to_value(&checkpoint.state).unwrap();
     mutate(&mut value);
     checkpoint.state = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v11\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v13\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v11\0",
+        b"benilla-native-checkpoint-v13\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint
@@ -565,7 +540,7 @@ fn source_restore_rejects_rehashed_phase_clock_flags_and_notify_claims() {
             1 => s["npcs"]["2"]["source_motion"]["motion"]["processed_map_clock_ms"] = 100.into(),
             2 => s["player_movement_flags"] = serde_json::Value::Null,
             3 => s["player_events"]["queue"]["clock_ms"] = 0.into(),
-            4 => s["npcs"]["2"]["source_motion"]["notify"]["pending_at_ms"] = 10_000.into(),
+            4 => s["npcs"]["2"]["events"]["notify"] = 10_000.into(),
             5 => s["player_events"]["notify"] = 10_000_000.into(),
             _ => unreachable!(),
         });

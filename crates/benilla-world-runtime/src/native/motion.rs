@@ -174,7 +174,6 @@ impl MotionPolicy {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NpcMotion {
     pub motion: motion::MotionState,
-    pub notify: motion::AggroNotify,
     pub active: bool,
     pub combat_start: Option<motion::Pose>,
 }
@@ -182,7 +181,6 @@ pub struct NpcMotion {
 #[serde(deny_unknown_fields)]
 pub struct NpcMotionSnapshot {
     pub motion: motion::MotionSnapshot,
-    pub notify: motion::AggroNotifySnapshot,
     pub active: bool,
     pub combat_start: Option<motion::Pose>,
 }
@@ -192,8 +190,6 @@ impl NpcMotion {
         let Some(g) = &profile.source_motion else {
             return Ok(None);
         };
-        let mut notify = motion::AggroNotify::new();
-        notify.added_to_world(g.creature_initial_aggro_delay_ms)?;
         Ok(Some(Self {
             motion: motion::MotionState::new(
                 motion::Identity {
@@ -209,7 +205,6 @@ impl NpcMotion {
                 profile.clock_origin_ms,
                 profile.clock_origin_ms,
             )?,
-            notify,
             active: g.npc_initial_active,
             combat_start: None,
         }))
@@ -217,7 +212,6 @@ impl NpcMotion {
     pub(super) fn snapshot(&self) -> NpcMotionSnapshot {
         NpcMotionSnapshot {
             motion: self.motion.snapshot(),
-            notify: self.notify.snapshot(),
             active: self.active,
             combat_start: self.combat_start,
         }
@@ -241,7 +235,6 @@ impl NpcMotion {
             || s.motion.now_ms != now
             || s.motion.processed_map_clock_ms != now
             || s.motion.map_pose.position != ai.position()
-            || s.notify.event_clock_ms > now.saturating_sub(profile.clock_origin_ms)
         {
             return Err(NativeError::InvalidCheckpoint);
         }
@@ -271,7 +264,6 @@ impl NpcMotion {
         }
         let result = Self {
             motion,
-            notify: motion::AggroNotify::restore(s.notify)?,
             active: s.active,
             combat_start: s.combat_start,
         };
@@ -285,21 +277,11 @@ impl NpcMotion {
                 if result
                     .combat_start
                     .is_none_or(|pose| pose.position != ai.combat_start_position())
-                    || !result.notify.can_aggro()
                     || (ai.phase() == ai::Phase::ReturningHome && !result.active) =>
             {
                 return Err(NativeError::InvalidCheckpoint);
             }
             _ => {}
-        }
-        if result.notify.snapshot().pending_at_ms.is_some_and(|at| {
-            at - result.notify.snapshot().event_clock_ms
-                > u64::from(
-                    g.creature_initial_aggro_delay_ms
-                        .max(g.relocation_aggro_delay_ms),
-                )
-        }) {
-            return Err(NativeError::InvalidCheckpoint);
         }
         Ok(result)
     }
@@ -351,6 +333,7 @@ pub enum VisitorOwner {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisitorRequest {
+    pub callback: benilla_sim::event_processor::EventCallbackSnapshot,
     pub owner: VisitorOwner,
     pub event_clock_ms: u64,
     pub now_ms: u64,

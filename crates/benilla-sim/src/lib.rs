@@ -47,6 +47,9 @@ pub mod reputation;
 /// Source-derived NPC chase/home spline motion with explicit spatial evidence.
 pub mod creature_motion;
 
+/// Pinned portable current-pose bearing and inclusive arc arithmetic.
+pub mod facing;
+
 /// Source-derived per-Unit event ordering with bounded transactional dispatch.
 pub mod event_processor;
 

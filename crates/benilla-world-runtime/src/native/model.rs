@@ -98,7 +98,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v11\0",
+            b"benilla-native-profile-v13\0",
             &(
                 NATIVE_POLICY,
                 RNG_POLICY,
@@ -261,6 +261,7 @@ pub struct Cast {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Npc {
+    pub events: NpcEvents,
     pub source_motion: Option<NpcMotion>,
     pub regen_elapsed_ms: u32,
     pub original_loot_recipient: Option<PlayerId>,

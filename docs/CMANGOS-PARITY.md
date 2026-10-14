@@ -45,6 +45,8 @@ exclusions are documented in:
 - [Loaded dry static VMap ray subset](../crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
 - [Conservative local geometry service](../crates/benilla-app/src/net/p2p/world/native_geometry/README.md)
 - [Bounded current-state spell authority](../crates/benilla-world-runtime/SPELL-AUTHORITY.md)
+- [Pinned portable bearing/arc arithmetic](../crates/benilla-sim/FACING.md)
+- [Current-pose facing authority and replay](../crates/benilla-world-runtime/FACING-AUTHORITY.md)
 - [Native runtime integration](../crates/benilla-world-runtime/src/native/README.md)
 - [Selected spell registry evidence](../scripts/classic_export/SPELL-REGISTRY-CONTRACT.md)
 
@@ -175,6 +177,18 @@ is meaningful without a bounded content/mechanics inventory.
   counter and acknowledgements; ghost/graveyard release and resurrection are absent.
   Creature initialization translates explicit raw classlevel/model/spawn inputs,
   with source loader preprocessing and no fabricated missing stats.
+  An explicitly selected current-pose numeric host derives both ordinary melee
+  front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
+  glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
+  visibility, navigation and raw-content dependencies remain open. This bounded
+  service uses experimental native checkpoint format 13, without changing the
+  separate character/profile save format or admitting production gameplay.
+  Each native NPC now owns a real source EventProcessor for AI notifications,
+  preserving corpse updates, DEAD clock suspension, forced respawn replacement,
+  generation-guarded handles and transactional replay/save/reopen. See the
+  [NPC event contract](../crates/benilla-world-runtime/NPC-EVENTS.md). Triggered
+  NPC-to-player spells, daze aura/speed effects and rear-melee admission remain
+  unimplemented; this queue infrastructure does not complete those mechanics.
 - **Dependencies:** derived stats, weapon skill and school, attack timers,
   deterministic random draws, armor/resistance, block/absorb, auras/procs,
   reach/facing/LOS, threat, loot credit, quests, corpses and resurrection.

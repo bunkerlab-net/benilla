@@ -1,0 +1,7 @@
+# SHA256 after CRLF-to-LF normalization only; all other bytes are preserved.
+# CMaNGOS mangos-classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b  src/game/Entities/Object.cpp
+bb5ff0741f5c78a295a96d708a0875da5881547386aea63ecfda9d30f66f05ad  src/game/Maps/MapManager.h
+5d07c692b1a729cf8e4045812c5633e096c8d47c81b2530c641b2ee4c0aefc32  src/shared/Common.h
+# glibc glibc-2.41 74f59e9271cbb4071671e5a474e7d4f1622b186f
+96f9c81b6e870c256cc0757f6d88f5290ed35db8d5b640b9e757d6feca96ae38  sysdeps/ieee754/flt-32/e_atan2f.c

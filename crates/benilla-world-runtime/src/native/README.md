@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v11 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v13 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -75,9 +75,10 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 11, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 13, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
-  exact mana timers, skills/reactive/combat clocks and checked equipment recipes
+  exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
+  [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
 - Live components do not deserialize. Inert DTO restore validates provenance and
   cross-state constraints; canonical bounded decode rejects old/malformed saves
 - Replay reissues bound requests, consumes saved read-only authority observations,
@@ -147,9 +148,11 @@ and durable/session boundaries are specified in [REPUTATION.md](REPUTATION.md).
 The explicitly selected [NPC and melee semantic host](../../COMBAT-AUTHORITY.md)
 derives current relationships, combat entry, lifecycle and movement from captured
 source metadata and the staged owner. Visibility, accessibility, LOS and victim
-front-angle remain separately typed spatial dependencies.
+front-angle remain separately typed spatial dependencies. The optional
+[facing authority](../../FACING-AUTHORITY.md) derives Bearing and the exact
+melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format11 changes experimental simulation checkpoints/records, not
+typed. Native format13 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.

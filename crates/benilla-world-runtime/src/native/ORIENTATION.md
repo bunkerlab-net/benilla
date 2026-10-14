@@ -1,6 +1,6 @@
 # Native player pose boundary
 
-Native format 11 binds an explicit `PlayerProfile.orientation` into the profile
+Native format 13 binds an explicit `PlayerProfile.orientation` into the profile
 identity. `State.orientation`, checkpoints, journals and state hashes retain it.
 There is no default inferred from the selected exploration character on restore.
 Prior format-8 state/records require a separate explicit migration; they cannot
@@ -35,9 +35,11 @@ The separation between location and orientation follows
 [Object.cpp:1198–1225](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Object.cpp#L1198).
 `Query::Spell.player_orientation` is the exact current pose at prepare, release or
 impact, including earlier inputs in that same tick. It is only a bound witness.
-This change does not implement `HasInArc`, spell facing gates, rear hits, rear daze,
-NPC orientation, turn-rate limits, transport-local motion or missing movement modes.
-Existing explicit exclusions remain in force. Production `NativeCapability` is
+The pose mechanism alone does not implement facing predicates. The separately
+selected [facing authority](../../FACING-AUTHORITY.md) derives source `HasInArc`
+checks from executing motion/combat/spell requests. Rear melee and daze,
+turn-rate limits, transport-local motion and missing movement modes remain
+unsupported; existing explicit exclusions stay in force. Production `NativeCapability` is
 still uninhabited, and compiler/admission producers are not changed.
 
 `Event::PlayerPose` carries both fields at that input boundary, so projection does

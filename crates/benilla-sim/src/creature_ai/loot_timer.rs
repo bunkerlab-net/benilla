@@ -42,6 +42,10 @@ impl SoloCreatureAi {
     pub fn corpse_expiration_ms(&self) -> u64 {
         self.corpse_at_ms
     }
+    /// Actual source corpse-removal update, before the DEAD branch starts skipping Unit time.
+    pub fn despawned_at_ms(&self) -> Option<u64> {
+        self.despawned_at_ms
+    }
     pub fn death_at_ms(&self) -> Option<u64> {
         self.death_at_ms
     }

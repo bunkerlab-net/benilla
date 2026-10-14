@@ -5,6 +5,8 @@ mod combat;
 mod loot;
 pub use loot::*;
 mod engine;
+mod npc_events;
+pub use npc_events::{NpcEventHandle, NpcEvents, NPC_EVENT_POLICY};
 mod player_events;
 pub use player_events::{
     FinishedSpellReason, PlayerEvents, SpellEventLifetime, PLAYER_EVENT_POLICY,
@@ -16,14 +18,15 @@ mod model;
 mod motion;
 pub use interactions::{
     CombatAuthorityCatalog, CombatFacts, CombatPhase, CombatQuery, CombatRequest, CombatWitness,
-    InteractionAudit, InteractionCatalog, InteractionControlSeed, InteractionEvidence,
-    InteractionFactionSource, InteractionInput, InteractionMoment, InteractionWitness,
-    MeleeCombatFacts, MeleeEntryFacts, NpcCombatAuthoritySource, NpcInteractionSource,
-    NpcSemanticFacts, NpcSpellSource, PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase,
-    SourceSpellQuery, SourceSpellRequest, SpellAuthorityCatalog, SpellAuthorityInput,
-    SpellAuthoritySource, SpellCastTimeSource, SpellDurationSource, SpellGroupSource,
-    SpellHookSources, SpellRangeResult, SpellRangeSource, SpellRankSource, SpellSessionSource,
-    SpellSourceRows, INTERACTION_POLICY, SPELL_AUTHORITY_POLICY,
+    FacingNumericPolicy, InteractionAudit, InteractionCatalog, InteractionControlSeed,
+    InteractionEvidence, InteractionFactionSource, InteractionInput, InteractionMoment,
+    InteractionWitness, MeleeCombatFacts, MeleeEntryFacts, NpcCombatAuthoritySource,
+    NpcInteractionSource, NpcSemanticFacts, NpcSpellSource, PlayerInteractionSource,
+    SourceSpellFacts, SourceSpellPhase, SourceSpellQuery, SourceSpellRequest,
+    SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource, SpellCastTimeSource,
+    SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult, SpellRangeSource,
+    SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
+    SPELL_AUTHORITY_POLICY,
 };
 pub use motion::*;
 #[cfg(test)]
@@ -40,8 +43,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 11;
-pub const NATIVE_POLICY: &str = "benilla-native-source-spell-authority-v11";
+pub const NATIVE_FORMAT_VERSION: u32 = 13;
+pub const NATIVE_POLICY: &str = "benilla-native-npc-events-v13";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -73,6 +76,7 @@ pub enum NativeError {
         dependency: &'static str,
         observed: InteractionEvidence,
     },
+    Facing(benilla_sim::facing::Error),
     InvalidProfile,
     InvalidInput,
     InvalidState,
@@ -144,6 +148,14 @@ impl NativeWorld {
             npcs.insert(
                 p.ai.creature_id,
                 Npc {
+                    events: NpcEvents::new(
+                        world,
+                        crate::NpcId {
+                            spawn: p.ai.creature_id,
+                            generation: 0,
+                        },
+                        &profile,
+                    )?,
                     source_motion: NpcMotion::new(&profile, p)?,
                     regen_elapsed_ms: 0,
                     id: crate::NpcId {
@@ -218,7 +230,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v11\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v13\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -358,3 +370,14 @@ pub mod synthetic_combat_fixture;
 mod spell_authority_tests;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_spell_fixture;
+
+impl From<benilla_sim::facing::Error> for NativeError {
+    fn from(error: benilla_sim::facing::Error) -> Self {
+        Self::Facing(error)
+    }
+}
+#[cfg(test)]
+mod facing_tests;
+
+#[cfg(test)]
+mod npc_event_tests;

@@ -5,6 +5,8 @@
 use super::*;
 use crate::NpcId;
 mod combat_authority;
+mod facing;
+pub use facing::FacingNumericPolicy;
 pub(in crate::native) mod spell_authority;
 use benilla_formats::FactionTemplate;
 use benilla_sim::classic_targets as relations;
@@ -175,6 +177,7 @@ pub struct InteractionInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct InteractionCatalog {
     policy: &'static str,
+    facing_authority: Option<FacingNumericPolicy>,
     combat_authority: Option<CombatAuthorityCatalog>,
     spell_authority: Option<SpellAuthorityCatalog>,
     player: PlayerInteractionSource,
@@ -202,6 +205,10 @@ impl Profile {
         }
         next.interactions = Some(InteractionCatalog {
             policy: INTERACTION_POLICY,
+            facing_authority: next
+                .interactions
+                .as_ref()
+                .and_then(|c| c.facing_authority.clone()),
             spell_authority: next
                 .interactions
                 .as_ref()
@@ -223,6 +230,9 @@ impl Profile {
 impl InteractionCatalog {
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         self.audit.validate()?;
+        if let Some(facing) = &self.facing_authority {
+            facing.validate(profile)?;
+        }
         if let Some(spells) = &self.spell_authority {
             spells.validate(profile)?;
         }

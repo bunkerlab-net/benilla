@@ -99,8 +99,11 @@ feed an internal quest-status, quest-interaction and loot-interaction host using
 current transactional state and ordered replay witnesses. A selected bounded
 ordinary-creature host now derives NPC and melee relationship/combat-entry decisions
 from the actual staged AI, health and motion state. Complete captured flag rows must
-agree with the initializer; visibility, accessibility, LOS and facing remain distinct
-spatial dependencies. See [combat authority](../crates/benilla-world-runtime/COMBAT-AUTHORITY.md).
+agree with the initializer; visibility, accessibility and LOS remain distinct
+spatial dependencies. A separately selected [facing policy](../crates/benilla-world-runtime/FACING-AUTHORITY.md)
+now derives source bearings, mutual melee front arcs and spell-facing checks from
+the actual phase-owned poses using pinned software arithmetic, and recomputes
+them on replay. Other spatial predicates retain their explicit dependencies. See [combat authority](../crates/benilla-world-runtime/COMBAT-AUTHORITY.md).
 A further selected spell host derives prepare/release/impact decisions and release
 hit/critical chances from raw source rows and current transactional state, with
 historical launch validation and source SpellGo publication. Its explicit ID133
@@ -110,7 +113,11 @@ Other spell and creature/control branches remain separate integration work.
 The source EventProcessor
 queue primitive and bounded per-player notification/SpellEvent integration now
 preserve due order, retained spell lifetimes, transactional rollback and durable
-reopening. General spell effects, NPC casts and the complete failed-attempt
+reopening. A [per-NPC source event queue](../crates/benilla-world-runtime/NPC-EVENTS.md)
+now owns AI notifications through corpse, DEAD and respawn phases, with
+generation-bound handles and durable retry. NPC spell callbacks and player
+aura/speed effects are still required before rear melee/daze can be admitted.
+General spell effects, NPC casts and the complete failed-attempt
 lifecycle remain incomplete. See [player events](../crates/benilla-world-runtime/PLAYER-EVENTS.md)
 and the
 [interaction host boundary](../crates/benilla-world-runtime/NATIVE-INTERACTIONS.md). State must be shared transactionally by all systems:

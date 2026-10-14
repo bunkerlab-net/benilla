@@ -33,8 +33,11 @@ source motion and sequenced player flags. Only source sight calls request spatia
 visibility/detectability, accessibility and LOS, through distinct typed queries.
 Visitor membership and route queries remain separate.
 
-Melee victim front-angle remains external: player `HasInArc(pi, creature)` is not
-the NPC's preceding `SetInFront(player)`. Before dice, the query binds both poses,
+Melee front-angle remains external unless the [facing authority](FACING-AUTHORITY.md)
+is selected. `CanDodgeInCombat` requires the victim's `HasInArc(pi, attacker)`
+followed by the attacker's `HasInArc(pi, victim)`, with source short circuit.
+The NPC's preceding `SetInFront(player)` does not replace either check.
+Before dice, the query binds both poses,
 retained AI target/phase, action, profile, generation, ordered frame witness and
 current source motion. `Unit::HandleDamageDealt`'s victim `CanAttack(dealer)` and both
 `CanEnterCombat` decisions are derived after surviving health modification, before
@@ -81,7 +84,7 @@ Mechanisms are derived from CMaNGOS Classic
 Upstream is GPL-2.0-or-later, copyright CMaNGOS contributors. Derived Rust is
 GPL-3.0-or-later. No game assets or third-party database rows are included.
 
-This still has no production admission, numeric front-angle proof, complete map
+This still has no production admission, complete map
 visitor/visibility/accessibility service, general auras/control/scripts, full
 combat parity or multiplayer semantics. `NativeCapability` remains uninhabited.
 The tests exercise authored rows through real runtime, replay, store and app
@@ -89,14 +92,14 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 11 and
-`benilla-native-source-spell-authority-v11`, with separate v11 profile, state,
-record, checkpoint and melee-action/chain hash domains. Published native formats 9 and 10
+This profile/receipt contract uses native format 13 and
+`benilla-native-npc-events-v13`, with separate v13 profile, state,
+record, checkpoint and melee-action/chain hash domains. Published native formats 9, 10 and 11
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source
 semantics. OriginalFixture format 2 is unchanged.
 
-The following [spell authority](SPELL-AUTHORITY.md) increment owns format 11.
+The [facing authority](FACING-AUTHORITY.md) binds the current numeric policy.
 This transition concerns experimental native simulation checkpoints and replay
 records only. It does not change the separate profile/character save format.
 Opening an incompatible native save fails without replacing or deleting its

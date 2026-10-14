@@ -330,3 +330,61 @@ fn generation_one_requires_actual_genesis_even_with_valid_checksum() {
     bytes[end..].copy_from_slice(&digest);
     assert!(Envelope::decode(&bytes).is_err());
 }
+
+#[test]
+fn format12_current_or_previous_is_refused_without_replacement_or_deletion() {
+    for incompatible in ["world.checkpoint", "world.previous"] {
+        let t = Temp::new();
+        let mut w = f::world();
+        let (mut store, _) = NativeStore::create(t.path(), &w).unwrap();
+        tick(&mut w);
+        store.checkpoint(&mut w).unwrap();
+        drop(store);
+        let path = t.path().join(incompatible);
+        let mut envelope = Envelope::decode(&fs::read(&path).unwrap()).unwrap();
+        let mut old = serde_json::to_value(&envelope.base).unwrap();
+        old["version"] = 12.into();
+        old["state"]["version"] = 12.into();
+        old["state"]["policy"] = "benilla-native-current-pose-facing-v12".into();
+        envelope.base = serde_json::from_value(old).unwrap();
+        fs::write(&path, envelope.encode().unwrap()).unwrap();
+        let current = fs::read(t.path().join("world.checkpoint")).unwrap();
+        let previous = fs::read(t.path().join("world.previous")).unwrap();
+        assert!(open(&t.path()).is_err());
+        assert!(NativeStore::create(t.path(), &f::world()).is_err());
+        assert_eq!(
+            fs::read(t.path().join("world.checkpoint")).unwrap(),
+            current
+        );
+        assert_eq!(fs::read(t.path().join("world.previous")).unwrap(), previous);
+    }
+}
+
+#[test]
+fn native_npc_queue_pending_notify_is_durable_and_replays_exactly() {
+    use benilla_world_runtime::native::synthetic_motion_fixture as motion;
+    let t = Temp::new();
+    let mut world = motion::world();
+    let profile = world.profile().clone();
+    let (mut store, _) = NativeStore::create(t.path(), &world).unwrap();
+    let mut authority = motion::SyntheticMotionAuthority {
+        visits: Some(false),
+        ..Default::default()
+    };
+    world.step(1, None, &mut authority).unwrap();
+    let expected = world.state().npcs[&2].events.clone();
+    let identity = Identity::of(&world.checkpoint().unwrap());
+    store.checkpoint(&mut world).unwrap();
+    drop(store);
+    let (_, mut restored) = NativeStore::open(t.path(), identity, |checkpoint| {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint)
+    })
+    .unwrap();
+    assert_eq!(restored.state().npcs[&2].events, expected);
+    assert!(expected.notify_handle().is_some());
+    restored.step(2, None, &mut authority).unwrap();
+    world.step(2, None, &mut authority).unwrap();
+    assert_eq!(restored.last_tick(), world.last_tick());
+    assert_eq!(restored.state_digest(), world.state_digest());
+    assert!(restored.state().npcs[&2].events.notify_handle().is_none());
+}

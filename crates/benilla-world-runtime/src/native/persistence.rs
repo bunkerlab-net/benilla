@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v11\0", self)
+        crate::digest(b"benilla-native-record-v13\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +34,7 @@ struct CastState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NpcState {
+    events: npc_events::NpcEventsSnapshot,
     source_motion: Option<NpcMotionSnapshot>,
     regen_elapsed_ms: u32,
     original_loot_recipient: Option<crate::PlayerId>,
@@ -146,10 +147,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v11\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v13\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v11\0",
+                    b"benilla-native-checkpoint-v13\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -191,6 +192,7 @@ pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> St
                 (
                     id,
                     NpcState {
+                        events: n.events.snapshot(),
                         source_motion: n.source_motion.as_ref().map(NpcMotion::snapshot),
                         regen_elapsed_ms: n.regen_elapsed_ms,
                         original_loot_recipient: n.original_loot_recipient,
@@ -251,7 +253,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v11\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v13\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -261,7 +263,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v11\0",
+            b"benilla-native-checkpoint-v13\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -284,10 +286,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v11\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v13\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v11\0",
+                    b"benilla-native-checkpoint-v13\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -477,6 +479,7 @@ impl NativeWorld {
             npcs.insert(
                 id,
                 Npc {
+                    events: NpcEvents::restore(n.events, s.world, n.id, &profile, &ai, s.tick)?,
                     source_motion,
                     regen_elapsed_ms: n.regen_elapsed_ms,
                     original_loot_recipient: n.original_loot_recipient,

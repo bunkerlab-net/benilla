@@ -152,6 +152,7 @@ pub(in crate::native) struct WorkingNpc<'a> {
     pub health: u32,
     pub ai: &'a ai::SoloCreatureAi,
     pub motion: &'a NpcMotion,
+    pub events: &'a NpcEvents,
 }
 impl<'a> WorkingNpc<'a> {
     pub(in crate::native) fn from_npc(npc: &'a Npc) -> Result<Self, NativeError> {
@@ -159,6 +160,7 @@ impl<'a> WorkingNpc<'a> {
             id: npc.id,
             health: npc.health,
             ai: &npc.ai,
+            events: &npc.events,
             motion: npc
                 .source_motion
                 .as_ref()
@@ -186,6 +188,7 @@ impl<'a> WorkingNpc<'a> {
                         self.health,
                         self.ai.checkpoint(),
                         self.motion.snapshot(),
+                        self.events.snapshot(),
                     ),
                 ),
             },
@@ -276,7 +279,7 @@ impl<'a> WorkingNpc<'a> {
                     unit_state: view.source.control.unit_state,
                     unit_flags: view.npc_unit_flags(),
                     force_attacking_capability: row.extra_flags & FORCE_ATTACKING_CAPABILITY != 0,
-                    can_aggro: self.motion.notify.can_aggro(),
+                    can_aggro: self.events.can_aggro(),
                 },
             ),
             stationary_melee_refresh_eligible: self
@@ -383,7 +386,8 @@ pub enum CombatQuery {
     NpcAccessibility(CombatRequest),
     /// creature->IsWithinLOSInMap(player, true), distinct from detectability.
     NpcLineOfSight(CombatRequest),
-    /// player victim's HasInArc(pi, creature attacker); NPC SetInFront is not this.
+    /// CanDodgeInCombat: victim HasInArc(pi, attacker), then attacker HasInArc(pi,
+    /// victim). Source short-circuits; NPC SetInFront does not replace either check.
     MeleeFront(CombatRequest),
     /// HandleDamageDealt after surviving health modification; no lethal callback.
     MeleeDamage(CombatRequest),

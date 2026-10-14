@@ -75,4 +75,6 @@ This remains the existing bounded non-triggered, non-item, non-channel player
 projectile model. It does not admit instant entry, multi-target offsets,
 reflection, arbitrary reference graphs, proc chains, NPC SpellEvents or general
 server map ordering. Neither these tests nor the source decision oracle provide
-client-asset, live-realm or complete Classic gameplay evidence.
+client-asset, live-realm or complete Classic gameplay evidence. The separate
+[NPC Unit queue](NPC-EVENTS.md) currently hosts AI notification only; it does not
+reuse this player-to-NPC spell adapter for NPC-to-player casts.

@@ -586,3 +586,14 @@ license apply. Exact unmodified source files are retained under
 `tools/event_processor_source/`; the shim, driver, synthetic commands and tests
 are authored GPL-3.0-or-later work. This queue alone does not implement the
 source SpellEvent scheduler or establish runtime notification/spell integration.
+
+## Portable current-pose facing profile
+
+[`facing`](FACING.md) ports CMaNGOS `WorldObject::GetAngleAt`, `HasInArcAt`
+and `MapManager::NormalizeOrientation` from the same pinned Classic source.
+Its selected glibc 2.41/CORE-MATH atan2f algorithm has a separately preserved
+MIT grant, not the VMap trig port's LGPL grant. Arithmetic uses software
+IEEE RNE including explicit source FMA; raw signed zeros/subnormals and the
+stricter runtime storage domain are documented separately. Full pinned hashes,
+licenses and independent source-extracted boundary/digest evidence are linked
+from the contract. This adds no content or production admission.
