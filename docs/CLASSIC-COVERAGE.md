@@ -1,0 +1,110 @@
+# Full Classic implementation roadmap
+
+The goal is the complete WoW 1.12.1 game, playable with one local peer and with
+friends sharing an agreed P2P world. A starter region, one class, or an ordinary
+creature/quest loop is an intermediate integration milestone, not the final
+product scope. The current fork does not yet provide that complete playable world.
+
+## What the reference supplies
+
+The implementation reference is [CMaNGOS Classic core
+8ec338a1](https://github.com/cmangos/mangos-classic/tree/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f).
+[Classic-DB](https://github.com/cmangos/classic-db) supplies the corresponding
+server world-content project. The client's Data directory supplies client assets
+and tables; it does not contain the complete server database or server behavior.
+The [local-data boundary](CLASSIC-WORLD-IMPORT.md) records pinned schemas,
+transitive dependencies, revision checks and redistribution limits. This project
+must not invent replacement world placements or quest text and call them Classic.
+
+Core, database updates and AI/script revisions must agree. The full database,
+updates and ACID EventAI data are separate from complex C++ scripted behavior.
+A populated SQL table alone does not implement the behavior that consumes it.
+
+## Current source coverage and gaps
+
+### Creatures and spawns
+
+`Creature.cpp`, `StatSystem.cpp`, the AI selector, ordinary UnitAI/CreatureAI,
+EventAI selection, combat and threat sources have been inspected. Bounded ports
+cover creature initialization, ordinary AI/combat decisions, corpse/respawn
+transitions and source-derived numeric behavior. See
+[creature initialization](../crates/benilla-sim/CREATURE-INIT.md) and
+[creature AI](../crates/benilla-sim/CREATURE-AI.md).
+
+Still required for a populated ordinary world: compatible local spawn/template
+closure, model/stat overrides, active spawn groups/pools/events, truthful unit
+lifecycle/aggro state, complete motion integration, health regeneration and the
+remaining AI/script behaviors. Unsupported records must not silently lose their
+behavior or become invented passive creatures.
+
+### Pathing and collision
+
+The pinned VMap parser/BIH traversal and Detour MMap loading/query implementations
+are present with authored serialized fixtures, bounded validation and native
+memory-safety tests. They are additional constraints on the existing conservative
+geometry proof. See the [VMap provenance](../crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
+and [Detour provenance](../crates/benilla-native-nav/PROVENANCE.md).
+
+`TargetedMovementGenerator.cpp`, `HomeMovementGenerator.cpp` and `PathFinder.cpp`
+have been inspected, but the complete owner-dependent pathfinder, chase/spline
+controller, waypoint/script execution, liquid accessibility, slopes and world
+streaming transitions are not implemented by a successful Detour query. Reachable,
+accessible, visible and line-of-sight are distinct source predicates.
+
+### Quests and progression
+
+Ports cover bounded `Player.cpp` eligibility, prerequisite/status transitions,
+accept/complete/reward flow, source XP/level calculations and item objective/reward
+callbacks, with runtime persistence and client packet projection. `QuestDef.cpp`,
+`QuestHandler.cpp` and loader relations are part of the source audit. See
+[simulation provenance](../crates/benilla-sim/PROVENANCE.md).
+
+Remaining coverage includes source-native reputation and its reward ordering,
+script/condition closure, gameobjects, timed/escort/exploration/cast objectives,
+other ordinary dependency branches and all relevant content. An authored quest
+fixture or source oracle is not evidence that real world quests are admitted.
+
+### Loot and items
+
+The reconstructed ordinary solo corpse implementation follows `LootMgr.cpp`,
+`LootHandler.cpp`, creature loot timers and `Player.cpp` inventory/quest-item
+callbacks. It stages rewards and durable state before client publication, with
+source-derived roll, money, stack/storage, release and reward-order tests.
+
+It does not establish complete table/reference/condition/script coverage, group
+loot policies, every item effect, equipment operation, trade, mail, auction,
+banking or profession behavior. Complete local item/loot dependencies and source
+order must be proven before admitting additional records.
+
+### Spells, units and the shared world
+
+Cast prepare/release/impact, selected resource/stat/training branches and ordinary
+melee are incremental source ports. Full classes, aura/proc/immunity/resistance
+semantics, source target relations, death/recovery and world services remain.
+State must be shared transactionally by all systems: orientation, movement,
+reputation, auras and lifecycle cannot be guessed from rendering or copied into an
+independent mutable authority mirror.
+
+## Integration order and evidence
+
+1. Close reusable current-state gaps: persisted pose, reputation, source target
+   relationships, rear-hit/daze behavior, motion/lifecycle and regeneration
+2. Resolve semantic decisions from the current transactional state at the exact
+   action phase; request only genuine geometry facts from spatial providers
+3. Complete and independently validate local content admission, with core/database
+   revision and dependency closure. Production native entry remains closed until
+   this boundary and all required providers are available
+4. Verify a real local accept → combat → loot → reward → level → next-quest loop,
+   including save/restart and failure rollback, then broaden content/classes and
+   mechanics systematically rather than treating that loop as full-game completion
+5. Extend the same world to peers with authenticated ownership, agreed content and
+   rules, consistent joins/leaves and explicit world-branch reconciliation. Solo
+   progression must not wait for configured but absent friends
+6. Cover remaining Classic systems: all classes and spell effects, gameobjects,
+   NPC services, professions, groups, instances/scripts, transports, battlegrounds,
+   social/world services and the corresponding content/dependency tests
+
+Every increment needs source provenance, authored oracle/regression coverage,
+durable replay tests and actual client integration. Full workspace CI and native
+platform tests remain gates. Real asset-backed visual/gameplay verification is a
+separate observation; a green headless suite alone cannot establish full parity.

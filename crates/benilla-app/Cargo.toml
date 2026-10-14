@@ -22,6 +22,7 @@ trace_chrome = ["bevy/trace_chrome"]
 bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
+benilla-native-nav = { path = "../benilla-native-nav" }
 benilla-sim = { path = "../benilla-sim" }
 benilla-config = { path = "../benilla-config" }
 benilla-world-client = { path = "../benilla-world-client" }

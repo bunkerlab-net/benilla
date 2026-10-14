@@ -103,6 +103,6 @@ unsupported support or participants remain unavailable.
 Linux x86-64 source-oracle comparison and the exact-code headless harness are separate
 from full Bevy compilation/linking, other platform math behavior, real lawful local
 Classic Data, and live visual/runtime tests. Real-asset validation has not been performed.
-No Northshire slope/navigation claim follows. Detour internal-reference validation/loading,
-actual owner-dependent PathFinder, sloped-body support, complete dynamic-participant audit,
+No Northshire slope/navigation claim follows. The separately bounded dry Detour reader
+adds a query veto; actual owner-dependent PathFinder, sloped-body support, complete dynamic-participant audit,
 authenticated local extraction and live source-epoch admission remain necessary.

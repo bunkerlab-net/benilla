@@ -105,13 +105,25 @@ impl ExcludedFields {
             required_source,
             required_source_count,
             required_spell,
-            reward_choice_item,
-            reward_choice_count,
-            reward_item,
-            reward_item_count,
             reward_rep_faction,
             reward_rep_value
         );
+        for (items, counts) in [
+            (&self.reward_choice_item[..], &self.reward_choice_count[..]),
+            (&self.reward_item[..], &self.reward_item_count[..]),
+        ] {
+            let mut ended = false;
+            for (&item, &count) in items.iter().zip(counts) {
+                if (item == 0) != (count == 0) || count > 10000 {
+                    return Err(Error::Invalid("reward_item_pair"));
+                }
+                if item == 0 {
+                    ended = true;
+                } else if ended {
+                    return Err(Error::Unsupported("sparse_reward_items"));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -203,7 +215,9 @@ impl Catalog {
             let mut flags = 0;
             let mut items = BTreeSet::new();
             for i in 0..OBJECTIVES {
-                if (q.required_item[i] == 0) != (q.required_item_count[i] == 0) {
+                if (q.required_item[i] == 0) != (q.required_item_count[i] == 0)
+                    || q.required_item_count[i] >= 64
+                {
                     return Err(Error::Invalid("item_objective"));
                 }
                 if q.required_item[i] != 0 {

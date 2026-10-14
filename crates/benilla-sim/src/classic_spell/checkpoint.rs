@@ -4,6 +4,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 
 pub const SPELL_CHECKPOINT_VERSION: u32 = 1;
+pub const CAST_CHECKPOINT_VERSION: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceCheckpoint {
@@ -69,6 +70,8 @@ impl CasterResources {
 #[serde(deny_unknown_fields)]
 pub struct CastCheckpoint {
     version: u32,
+    prepared_spec: MageProjectileSpec,
+    release: Option<MageProjectileReleaseContext>,
     caster_id: u64,
     target_id: u64,
     created_ms: u64,
@@ -83,7 +86,9 @@ pub struct CastCheckpoint {
 impl MageProjectileCast {
     pub fn checkpoint(&self) -> CastCheckpoint {
         CastCheckpoint {
-            version: SPELL_CHECKPOINT_VERSION,
+            version: CAST_CHECKPOINT_VERSION,
+            prepared_spec: self.spec.clone(),
+            release: self.release,
             caster_id: self.caster_id,
             target_id: self.target_id,
             created_ms: self.created_ms,
@@ -96,14 +101,31 @@ impl MageProjectileCast {
             launch: self.launch,
         }
     }
-    /// Restores live casts only. The payload is recomputed from saved exact launch draws.
+    /// Restores unchanged-context live casts. Changed release contexts require
+    /// an independent source binding through restore_with_release.
     pub fn restore(
         s: CastCheckpoint,
         spec: MageProjectileSpec,
         now_ms: u64,
     ) -> Result<Self, SpellError> {
+        let release = matches!(s.state, CastState::Traveling { .. })
+            .then(|| MageProjectileReleaseContext::unchanged(&spec));
+        Self::restore_with_release(s, spec, release, now_ms)
+    }
+    /// Deserialized witnesses are not authority. The caller independently derives
+    /// the exact prepare recipe and, for flight, the release context from source.
+    pub fn restore_with_release(
+        s: CastCheckpoint,
+        spec: MageProjectileSpec,
+        release: Option<MageProjectileReleaseContext>,
+        now_ms: u64,
+    ) -> Result<Self, SpellError> {
         spec.validate()?;
-        if s.version != SPELL_CHECKPOINT_VERSION
+        if s.prepared_spec != spec || s.release != release {
+            return Err(SpellError::State("cast checkpoint source bindings"));
+        }
+        let current = release.map(|context| context.apply(&spec)).transpose()?;
+        if s.version != CAST_CHECKPOINT_VERSION
             || s.caster_id == 0
             || s.target_id == 0
             || s.caster_id == s.target_id
@@ -136,6 +158,7 @@ impl MageProjectileCast {
                 if remaining_ms > 0
                     && remaining_ms <= spec.cast_ms
                     && s.launch.is_none()
+                    && release.is_none()
                     && s.casting_elapsed_ms == now_ms - s.created_ms
                     && u64::from(remaining_ms)
                         == u64::from(spec.cast_ms)
@@ -166,12 +189,18 @@ impl MageProjectileCast {
                 {
                     return Err(SpellError::State("travel checkpoint clock"));
                 }
-                Some(resolve_payload(&spec, launch)?)
+                Some(resolve_payload(
+                    current
+                        .as_ref()
+                        .ok_or(SpellError::State("missing checkpoint release"))?,
+                    launch,
+                )?)
             }
             _ => return Err(SpellError::State("non-live/invalid cast checkpoint")),
         };
         Ok(Self {
             spec,
+            release,
             caster_id: s.caster_id,
             target_id: s.target_id,
             created_ms: s.created_ms,
@@ -204,7 +233,8 @@ impl MageProjectileCast {
                         self.spec.projectile_speed,
                     )?))
                     .ok_or(SpellError::State("release time"))?;
-                if self.spec.mana_cost > 0
+                let release = self.release.ok_or(SpellError::State("travel release"))?;
+                if release.mana_cost > 0
                     && !resources.last_mana_use_ms.is_some_and(|t| t >= released)
                 {
                     return Err(SpellError::State("travel mana marker"));
@@ -239,6 +269,27 @@ impl MageProjectileCast {
         now_ms: u64,
     ) -> Option<CastFailure> {
         Self::check(&self.spec, resources, checks, now_ms, false)
+    }
+    /// Check release-current power before drawing launch dice. This does not
+    /// bind context or modify state; the host still gates on release_due.
+    pub fn release_failure_with_context(
+        &self,
+        resources: &CasterResources,
+        checks: CastChecks,
+        now_ms: u64,
+        context: MageProjectileReleaseContext,
+    ) -> Result<Option<CastFailure>, SpellError> {
+        if !matches!(self.state, CastState::Casting { .. }) {
+            return Err(SpellError::State("release check when not casting"));
+        }
+        if resources.mana > MAX_AMOUNT {
+            return Err(SpellError::Domain("mana"));
+        }
+        let current = context.apply(&self.spec)?;
+        Ok(Self::check(&current, resources, checks, now_ms, false))
+    }
+    pub fn release_context(&self) -> Option<MageProjectileReleaseContext> {
+        self.release
     }
     /// Stronger end-of-frame checks for continuously updated fixed-step worlds.
     pub fn validate_fixed_step(&self, origin: u64, tick_ms: u32) -> Result<(), SpellError> {

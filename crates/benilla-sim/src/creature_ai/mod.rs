@@ -16,7 +16,7 @@ pub use numeric::{
     within_interaction_distance, Point, Real,
 };
 
-pub const CREATURE_AI_POLICY_ID: &str = "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-v2";
+pub const CREATURE_AI_POLICY_ID: &str = "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-loot-v3";
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
 
@@ -310,6 +310,9 @@ pub struct SoloCreatureAi {
     combat_tick_ms: u32,
     unreachable_ms: u32,
     corpse_at_ms: u64,
+    corpse_timer_previous_ms: u64,
+    corpse_timer_last_ms: u64,
+    corpse_timer_calls: Vec<CorpseTimerCall>,
     death_at_ms: Option<u64>,
     despawned_at_ms: Option<u64>,
     respawn_at_ms: u64,
@@ -361,6 +364,9 @@ impl SoloCreatureAi {
             combat_tick_ms: COMBAT_TICK_MS,
             unreachable_ms: 0,
             corpse_at_ms: 0,
+            corpse_timer_previous_ms: 0,
+            corpse_timer_last_ms: 0,
+            corpse_timer_calls: vec![],
             death_at_ms: None,
             despawned_at_ms: None,
             respawn_at_ms: 0,
@@ -577,6 +583,9 @@ impl SoloCreatureAi {
                 if self.now_ms >= self.respawn_at_ms {
                     self.phase = Phase::Idle;
                     self.death_at_ms = None;
+                    self.corpse_timer_calls.clear();
+                    self.corpse_timer_previous_ms = 0;
+                    self.corpse_timer_last_ms = 0;
                     self.despawned_at_ms = None;
                     effects.push(Effect::Respawned {
                         position: self.position,
@@ -738,6 +747,9 @@ impl SoloCreatureAi {
                 return Err(AiError::Invalid("duplicate death"));
             }
             self.death_at_ms = Some(self.now_ms);
+            self.corpse_timer_calls.clear();
+            self.corpse_timer_previous_ms = 0;
+            self.corpse_timer_last_ms = self.now_ms;
             self.phase = Phase::Corpse;
             self.target = None;
             self.victim_detached_at_ms = None;
@@ -937,4 +949,6 @@ impl SoloCreatureAi {
 }
 
 mod checkpoint;
+mod loot_timer;
 pub use checkpoint::*;
+pub use loot_timer::{loot_interaction_distance, CorpseTimerCall};

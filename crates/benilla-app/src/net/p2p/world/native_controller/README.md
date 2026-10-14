@@ -44,9 +44,9 @@ Authority, mechanics, capacity, or projection failures cannot partially acknowle
 inputs. A runtime failure leaves every component, RNG draw, sequence and journal
 unchanged. Projection failure retains the committed batch without reapplying it.
 
-Native snapshot/journal schema, policy and digest domains are v4. Tick records contain
-`inputs: Vec<Input>` and source-ordered per-input outcomes. Version-3 native saves are
-rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
+The runtime versions its native snapshot/journal schema, policy and digest domains.
+Tick records contain `inputs: Vec<Input>` and source-ordered per-input outcomes.
+Older native saves are rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
 outer native envelope delegates the schema check to the runtime.
 
 Checkpoints run every ten simulated seconds or before native journal headroom is
@@ -77,8 +77,9 @@ and an admitted source compiler remain required before production entry can open
 
 Supported component-test inputs are exact-ID NPC casts, cancellation of the captured
 preparing cast, basic untransported movement, and explicit spirit-release refusal
-through the native runtime. Quest/loot/player melee and other unimplemented forms
-remain explicit unsupported requests. The app arms its PendingCast at send, so a
+through the native runtime, source-bound quest panels/accept/reward, ordinary corpse
+loot and item queries. Player melee and other unimplemented forms remain explicit
+unsupported requests. The app arms its PendingCast at send, so a
 cancel can arrive before the first SpellStart. It captures either an existing runtime
 instance or the matching earlier queued cast request. In the durable batch that
 request becomes an exact preceding input sequence. A rejected request cannot redirect
@@ -116,6 +117,39 @@ mask parity: the pinned CMaNGOS `Object.h` declares `MOVEFLAG_ROOT = 0x08000000`
 this client's `MoveMode::Root.flag()` and `creature_anim::move_flags::ROOT` use
 `0x00001000`. The discrepancy requires separate reference resolution; this controller
 does not change those constants or use the upstream bit to invalidate real app ACKs.
+
+## Inventory, corpse panels and ordinary quest rewards
+
+Inventory is projected from durable native item instances with stable per-instance
+GUIDs, owner/container fields, backpack pointers and exact stack changes. Item
+queries require audited gameplay metadata and exact client display bindings.
+Equipment copies retain separate identities; pickup/quest/equip bonding is applied
+only in the source-supported creation or starter-equipping path.
+
+GUID-less loot item/money commands capture the immutable corpse generation from the
+last successfully published `LootResponse`. A queued or retained pending open cannot
+authorize collection. Missing-slot and explicit release remove the source looter
+without a `LootReleaseResponse`; item-last automatic exhaustion sends one, while
+money-last exhaustion follows ordinary release. Published rights are retired from
+committed state as well as response/destruction packets. Restore materializes a saved
+target only with initial delivery: the fresh stock UI rejects its unsolicited response
+and releases the target before the next ordinary right-click opens a visible panel.
+
+Reward choice indices are bounded before giver lookup. Native choices 0..5 are
+admitted, including empty slots. Source storage refusal emits `InventoryFailure`
+then the callback-time offer; incomplete/already-rewarded/money refusals offer again
+without inventing an inventory error. Earlier refusal remains visible if a later
+same-batch choice succeeds. Required-stack destruction precedes reward creation and XP. Reward
+push flags are received/from-NPC, not created, hidden from acquisition chat, bag 255;
+slot selection compares the last stack count against the full grant. Completion
+reports only fixed template rewards, including a legitimately skipped later grant.
+Hidden rewards are suppressed in detail/template panels, but shown by the offer.
+
+Every enabled progression tick saves before publishing. Failed checkpoints retain
+already-computed item changes and the entire ordered outbox; retry saves and flushes
+that boundary without reapplying grants. Restored inventory sends descriptors, not
+reward notifications. These authored tests do not establish real client rendering
+or production native-content admission.
 
 ## Verification boundary
 

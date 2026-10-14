@@ -108,11 +108,11 @@ output. Linux generation is verified; other runtime platforms remain separate ga
 
 The optional [safe static VMap loader/query port](vmap/PROVENANCE.md) now implements
 hierarchy/reference validation and nearest static rays over immutable inventoried bytes.
-This inventory's own envelope pass still does not perform those checks. The next native
-navigation step is a separately bounded loader over the exact vendored Detour tree. It must validate all opaque counts,
-indices/references and allocation/work budgets before calling native loaders, then
-check actual per-product load results and complete model/navmesh closure before exposing
-any loaded-core handle. Only then can an owner-dependent PathFinder adapter and full-route
-consumer be developed. Stacked-floor/narrow-clearance/liquid/body/LOS and complete-route
+This inventory's own envelope pass still does not perform those checks. The optional
+[bounded native navigation reader](../../../../../../../benilla-native-nav/PROVENANCE.md)
+validates actual dry MMap sections, polygon/detail/BV references, topology and load/query
+budgets before the pinned Detour loader. Its bound nearest/corridor/funnel queries compose
+as an additional provider veto. This loaded subset does not establish complete navmesh
+coverage, an owner-dependent PathFinder adapter or full-route movement authority. Stacked-floor/narrow-clearance/liquid/body/LOS and complete-route
 oracles, live immutable source binding, participant admission and real local Data remain
 mandatory and independent. Point interpolation opens no existing slope or movement gate.

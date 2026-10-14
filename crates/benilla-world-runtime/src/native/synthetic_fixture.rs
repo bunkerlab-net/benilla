@@ -156,6 +156,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::LootInteraction { .. } => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "synthetic fixture has no loot facts",
+                ))
+            }
             Query::QuestInteraction { .. } | Query::QuestStatus { .. } => {
                 return Err(NativeError::AuthorityUnavailable(
                     "synthetic quest facts not supplied",

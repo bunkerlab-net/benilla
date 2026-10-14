@@ -33,3 +33,9 @@ pub mod player_death;
 
 /// Bounded source-derived player XP and level transitions with an audited host.
 pub mod player_progression;
+
+/// Source-derived ordinary solo corpse loot generation.
+pub mod loot;
+
+/// Bounded source-derived ordinary backpack storage.
+pub mod inventory;

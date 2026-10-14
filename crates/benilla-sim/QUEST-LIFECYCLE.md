@@ -3,7 +3,7 @@
 `benilla_sim::quest_lifecycle` translates ordinary, solo quest acceptance,
 kill/talk/collection credit, completion and reward orchestration from CMaNGOS
 Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The policy identity is
-`cmangos-8ec338a1-ordinary-quest-lifecycle-v1`. This is an independent simulation
+`cmangos-8ec338a1-ordinary-quest-lifecycle-v2`. This is an independent simulation
 reducer, not a native content compiler, complete inventory/level-up implementation,
 world-runtime integration, durable store, or claim that a real starter quest works.
 The authored world-runtime fixture is unrelated and is not evidence of Classic
@@ -26,7 +26,8 @@ map POI and emote/UI columns remain the presentation layer's responsibility.
 The admitted domain is ordinary method-2, nonrepeatable quests, creature questgivers,
 player levels 1..255 with explicit native min/max/class/race masks, up to four
 item and four positive-creature objectives, and signed money rewards/requirements.
-Creature objective counts are bounded to the six-bit quest-log counter range.
+Creature objective counts and admitted item requirements are bounded to 1–63,
+respecting the source log fields and item-credit packet assertion.
 The compiled rules and player identity must separately establish a legal native
 race/class combination. No particular starter quest or faction is assumed.
 
@@ -59,14 +60,15 @@ unsupported, so their all-member/branch/recursive rules are never approximated.
 The following also remain excluded: required skills/conditions/reputation;
 reputation objectives/rewards; timed, weekly, repeatable, auto-reward/auto-complete,
 exploration, escort, cast and GO objectives; group/raid/shared acceptance;
-source items/spells, source-drop rules, fixed/chosen reward items, reward spells,
+source items/spells, source-drop rules, reward spells,
 mail and all scripts. `SHARABLE` may be present as a flag, but only solo acceptance
 is implemented. Hidden-reward and no-money-from-XP flags retain their existing
 source meanings. Other flags fail. Required collection items must have explicitly
 resolved, inert deletion effects. Global/zone/area SpellArea effects and all selected
 giver/finisher ScriptDevAI hooks must be proven absent across permitted locations.
-Absent reward items are a deliberate bound, not unlimited inventory or an implied
-bag-space approval.
+Ordinary chosen/fixed item rewards require the audited inventory host; sparse
+reward arrays and unresolved/effectful templates reject. The six choice and four
+fixed pairs must form dense prefixes with counts at most 10,000.
 
 ## API and transactional contract
 
@@ -81,7 +83,8 @@ bag-space approval.
 
 A `Host` supplies explicit solo participation, native identity/configuration,
 carried/bank counts, actual source stack-removal steps, and audited staged
-`GiveXp`, `ModifyMoney`, and `DestroyCarriedStack` implementations. It must be a
+`GiveXp`, `ModifyMoney`, `DestroyCarriedStack` and `StoreRewardItem` implementations.
+`can_store_reward` preserves shared whole-position reservations across preflight. It must be a
 deep in-memory clone. Applying an effect must not publish packets, write storage,
 share mutable state with the original, or recursively run quest callbacks. The
 reducer calls the required quest callbacks itself. Host effects in `events` are
@@ -104,9 +107,10 @@ atomicity. A repeated sequence is rejected; a later sequence cannot reward an
 already rewarded quest. Rewarded records stay `Complete` after leaving the log.
 Dropping reward history or saving host/state separately breaks the contract.
 
-`ItemAdded` and `MoneyChanged` are callbacks after an external *staged* inventory
-or currency operation. Pass that staged host, then commit it together with the
-returned quest state. Do not commit the external mutation first. Loot acquisition,
+`ItemAdded` runs after item creation and BEFORE the staged inventory store, as in
+Player::StoreNewItem. Pass the pre-store host and atomically commit the resulting
+quest state with the final inventory. `MoneyChanged` observes the staged new money.
+Do not publish or persist either external mutation first. Loot acquisition,
 bag placement and item capacity admission belong to the inventory host. `RemoveItems`
 executes its audited destruction plan within this transaction. Source stack order
 and each pre-deletion count matter; aggregate collection deletion is not a valid
@@ -157,7 +161,8 @@ and existing required money, then preflights `quest::reward_quote`. In source or
 
 1. Destroy required items, including each stack's pre-removal quest callbacks.
    The rewarding quest can temporarily become incomplete here
-2. Remove timed-quest membership and call the proven-inert reputation reward hook
+2. Remove timed-quest membership, store the selected then fixed reward items with
+   their pre-store callbacks, and call the proven-inert reputation reward hook
 3. Clear the quest-log slot
 4. Below the actual configured cap, invoke `GiveXP`; at/above cap apply the separate
    XP-to-money conversion. XP itself is calculated by the existing software-binary32
@@ -244,3 +249,20 @@ and invalid/unknown dependencies. Linux amd64 is the verified platform; this doe
 not establish cross-platform replay, real starter rows, native UI or full-world
 playability. Native quest capability gates remain closed until the compiler,
 actual host, authoritative command admission and durable runtime are integrated.
+
+## Ordinary reward-item host
+
+`can_reward_choice` retains base gates, then reserves selected and fixed item
+positions in one shared destination vector before any requirement is removed.
+An empty in-range choice is legal; indices at least six reject. Actual RewardQuest
+removes requirements, removes timed registration, then replans/stores the selected
+item and each fixed reward against evolving inventory. A later legitimate storage
+refusal skips that grant and continues XP/completion. Internal host failures still
+roll back the complete transaction. Item-added callbacks occur before each store
+while the rewarded quest is still logged, including source recompletion behavior.
+
+See [INVENTORY.md](INVENTORY.md) for the actual backpack host and
+[../benilla-world-runtime/LOOT-INVENTORY.md](../benilla-world-runtime/LOOT-INVENTORY.md)
+for its source-ordered native durable integration. The original lifecycle oracle
+retains its explicit no-reward-item adapters; the separate reward-item oracle
+exercises the newly admitted storage/callback path. Neither admits real content.

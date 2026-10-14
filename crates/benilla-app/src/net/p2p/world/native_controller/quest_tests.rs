@@ -143,7 +143,7 @@ fn stock_quest_routes_are_read_only_until_accept_and_reward_are_committed() {
         c.receive(ClientCommand::QuestgiverChooseReward {
             npc,
             quest: 70001,
-            choice: 1
+            choice: 6
         }),
         Err(Error::UnsupportedCommand)
     ));
@@ -614,4 +614,155 @@ fn denied_status_uses_bound_generic_reactions_and_returns_none_without_mutation(
     assert_eq!(calls.len(), 1);
     assert!(matches!(calls[0].query, n::Query::QuestStatus { .. }));
     assert_eq!(calls[0].binding.tick, 0);
+}
+
+#[test]
+fn reward_during_prepare_waits_for_save_then_reopens_prepare_and_release() {
+    use benilla_sim::classic_spell::CastState;
+    let h = Harness::new();
+    let enter = |open| {
+        h.enter(
+            if open {
+                Entry::Open { world: [8; 16] }
+            } else {
+                Entry::Create {
+                    world: [8; 16],
+                    seed: 7,
+                }
+            },
+            quests::release_profile(false),
+            quests::QuestAuthority::default(),
+        )
+        .unwrap()
+    };
+    let mut c = enter(false);
+    assert!(accept(&mut c).pause.is_none());
+    kill(&mut c);
+    let target = c.projection.npc_guid(c.world.state().npcs[&4].id).unwrap();
+    c.receive(ClientCommand::CastSpell {
+        spell_id: 60001,
+        target: Some(target),
+    })
+    .unwrap();
+    let started = c.pump(c.tick_duration());
+    assert!(started.pause.is_none());
+    assert!(started.events.iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellStart {
+            spell_id: 60001,
+            cast_time_ms: 350,
+            ..
+        }
+    )));
+    let id = *c.world.state().casts.keys().next().unwrap();
+    let prepared = c.world.state().casts[&id].binding.clone();
+    inject(&h);
+    let withheld = reward(&mut c);
+    paused(&withheld);
+    assert_eq!(c.world.player_level(), 3);
+    assert_eq!(c.world.state().casts[&id].binding, prepared);
+    assert_eq!(
+        c.world.state().casts[&id].execution.state(),
+        CastState::Casting { remaining_ms: 250 }
+    );
+    let state = c.world.state_digest();
+    repair(&h);
+    let receipt = c.retry_checkpoint().unwrap();
+    assert_eq!(receipt.tick, c.tick());
+    let published = c.pump(Duration::ZERO);
+    assert_eq!(
+        published
+            .events
+            .iter()
+            .filter(|event| matches!(event, SessionEvent::QuestComplete(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        published
+            .events
+            .iter()
+            .filter(|event| matches!(event, SessionEvent::LevelUp(_)))
+            .count(),
+        1
+    );
+    assert!(!published.events.iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellGo { .. } | SessionEvent::SpellFailedOther { .. }
+    )));
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    drop(c);
+    let mut c = enter(true);
+    assert_eq!(c.world.state_digest(), state);
+    let initial = c.initial_events().unwrap();
+    no_rewards(&initial);
+    assert!(initial.iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellStart {
+            spell_id: 60001,
+            cast_time_ms: 250,
+            ..
+        }
+    )));
+    let mut launched = 0;
+    for _ in 0..10 {
+        let out = c.pump(c.tick_duration());
+        assert!(out.pause.is_none(), "{:?}", out.pause);
+        assert_eq!(out.saved.unwrap().tick, c.tick());
+        launched += out
+            .events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    SessionEvent::SpellGo {
+                        spell_id: 60001,
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert!(!out.events.iter().any(|event| matches!(
+            event,
+            SessionEvent::SpellGo {
+                spell_id: 60005,
+                ..
+            }
+        )));
+        if matches!(
+            c.world.state().casts[&id].execution.state(),
+            CastState::Traveling { .. }
+        ) {
+            break;
+        }
+    }
+    assert_eq!(launched, 1);
+    let cast = &c.world.state().casts[&id];
+    assert_eq!(cast.binding, prepared);
+    assert_eq!(
+        cast.release_binding.as_ref().unwrap().captured_ms - prepared.captured_ms,
+        400
+    );
+    let flight = c.world.state_digest();
+    drop(c);
+    let mut c = enter(true);
+    assert_eq!(c.world.state_digest(), flight);
+    assert!(!c.initial_events().unwrap().iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellStart { .. } | SessionEvent::SpellGo { .. }
+    )));
+    for _ in 0..20 {
+        if !c.world.state().casts.contains_key(&id) {
+            break;
+        }
+        let out = c.pump(c.tick_duration());
+        assert!(out.pause.is_none(), "{:?}", out.pause);
+        assert_eq!(out.saved.unwrap().tick, c.tick());
+        assert!(!out
+            .events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::SpellGo { .. })));
+    }
+    assert!(!c.world.state().casts.contains_key(&id));
+    assert_eq!(c.world.player_level(), 3);
 }

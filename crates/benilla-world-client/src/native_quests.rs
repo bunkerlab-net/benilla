@@ -400,6 +400,10 @@ impl NativeProjection {
         } else {
             quote(w, quest, u32::from(w.player_level()))?.reward_or_required_money
         };
+        if t.flags & p::quest_flags::HIDDEN_REWARDS != 0 {
+            t.choices = [(0, 0); 6];
+            t.rewards = [(0, 0); 4];
+        }
         if t.flags & u32::from(arithmetic::QUEST_FLAGS_NO_MONEY_FROM_XP) != 0 {
             t.money_max_level = 0;
         }
@@ -442,8 +446,16 @@ impl NativeProjection {
             details: crate::plain_ui_text(&t.details),
             objectives: crate::plain_ui_text(&t.objectives_text),
             auto_finish: 1,
-            choices: vec![],
-            rewards: vec![],
+            choices: if t.flags & p::quest_flags::HIDDEN_REWARDS != 0 {
+                vec![]
+            } else {
+                self.reward_items(&t.choices)?
+            },
+            rewards: if t.flags & p::quest_flags::HIDDEN_REWARDS != 0 {
+                vec![]
+            } else {
+                self.reward_items(&t.rewards)?
+            },
             money: if t.flags & p::quest_flags::HIDDEN_REWARDS != 0 {
                 0
             } else {
@@ -488,9 +500,11 @@ impl NativeProjection {
     ) -> Result<SessionEvent, Error> {
         let is_complete = self.quest_progress_complete(w, quest, giver)?;
         let m = self.metadata(quest)?;
-        // Every admitted quest has no required items. The source redirects both
-        // completable no-item quests and empty RequestItemsText immediately.
-        if is_complete || m.request_text.is_empty() {
+        // SendQuestGiverRequestItems retains the required-item panel even when
+        // complete, unless the source request text is empty.
+        if (is_complete && m.template.objectives.iter().all(|o| o.item_id == 0))
+            || m.request_text.is_empty()
+        {
             return self.quest_offer_packet(w, quest, giver);
         }
         let presentation = self
@@ -511,7 +525,27 @@ impl NativeProjection {
             close_on_cancel: u32::from(close_on_cancel),
             required_money: quote(w, quest, u32::from(w.player_level()))?
                 .money_required_before_reward,
-            required_items: vec![],
+            required_items: {
+                let row = genesis(w)?
+                    .quest(quest)
+                    .map_err(|_| Error::UnavailableQuest)?;
+                row.required_item
+                    .iter()
+                    .zip(&row.required_item_count)
+                    .filter(|(id, _)| **id != 0)
+                    .map(|(&item_id, &count)| {
+                        let info = self
+                            .loot_metadata
+                            .item(item_id)
+                            .ok_or(Error::MissingItemMetadata(item_id))?;
+                        Ok(p::QuestRequiredItem {
+                            item_id,
+                            count,
+                            display_id: info.display_info_id,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?
+            },
             is_complete,
         }))
     }
@@ -532,16 +566,41 @@ impl NativeProjection {
         quest: u32,
         giver: NpcHandle,
     ) -> Result<SessionEvent, Error> {
+        self.quest_offer_packet_at(w, quest, giver.id, w.player_level())
+    }
+    fn reward_items(&self, rows: &[(u32, u32)]) -> Result<Vec<p::QuestRewardItem>, Error> {
+        rows.iter()
+            .filter(|(id, _)| *id != 0)
+            .map(|&(item_id, count)| {
+                let info = self
+                    .loot_metadata
+                    .item(item_id)
+                    .ok_or(Error::MissingItemMetadata(item_id))?;
+                Ok(p::QuestRewardItem {
+                    item_id,
+                    count,
+                    display_id: info.display_info_id,
+                })
+            })
+            .collect()
+    }
+    fn quest_offer_packet_at(
+        &self,
+        w: &n::NativeWorld,
+        quest: u32,
+        giver: NpcId,
+        level: u8,
+    ) -> Result<SessionEvent, Error> {
         let m = self.metadata(quest)?;
         Ok(SessionEvent::QuestOffer(p::QuestOfferReward {
-            npc: npc_guid(w, giver.id)?,
+            npc: npc_guid(w, giver)?,
             quest_id: quest,
             title: crate::plain_ui_text(&m.template.title),
             offer_text: crate::plain_ui_text(&m.offer_text),
             auto_finish: 1,
-            choices: vec![],
-            rewards: vec![],
-            money: quote(w, quest, u32::from(w.player_level()))?.reward_or_required_money,
+            choices: self.reward_items(&m.template.choices)?,
+            rewards: self.reward_items(&m.template.rewards)?,
+            money: quote(w, quest, u32::from(level))?.reward_or_required_money,
             // The inherited DTO names this word quest_flags; pinned CMaNGOS
             // writes RewSpell here, followed by RewSpellCast. Both are admitted zero.
             quest_flags: 0,
@@ -851,9 +910,31 @@ impl NativeProjection {
         w: &n::NativeWorld,
         event: &n::QuestProgressionEvent,
         frame: &mut Frame,
+        inventory_frame: &mut loot::Frame,
     ) -> Result<Vec<SessionEvent>, Error> {
         let mut events = vec![];
         match event {
+            n::QuestProgressionEvent::RewardItem(stored) => {
+                events.extend(inventory_frame.reward_item(self, w, stored)?);
+            }
+            n::QuestProgressionEvent::RewardRefused {
+                quest,
+                giver,
+                level,
+                result,
+            } => {
+                if let Some(result) = result {
+                    events.push(SessionEvent::InventoryFailure {
+                        reason: result.protocol(),
+                        required_level: None,
+                        item_guid: 0,
+                        item2_guid: 0,
+                        bag_slot: 0,
+                    });
+                }
+                // This callback may precede a successful second request in the same frame.
+                events.push(self.quest_offer_packet_at(w, *quest, *giver, *level)?);
+            }
             n::QuestProgressionEvent::ChainDetails {
                 quest,
                 giver,
@@ -958,12 +1039,41 @@ impl NativeProjection {
                         quest_id: *quest,
                         xp: if cap_money.is_some() { 0 } else { *xp },
                         money,
-                        items: vec![],
+                        // SendQuestReward reports fixed template rows even if storage skipped
+                        // a later grant; selected choices never appear in this packet.
+                        items: self
+                            .metadata(*quest)?
+                            .template
+                            .rewards
+                            .iter()
+                            .copied()
+                            .filter(|(id, _)| *id != 0)
+                            .collect(),
                     }));
                 }
-                q::Event::ItemCredit { .. }
-                | q::Event::Host(q::HostEffect::DestroyCarriedStack { .. }) => {
-                    return Err(Error::UnsupportedCommand)
+                q::Event::ItemCredit {
+                    quest,
+                    objective,
+                    added,
+                    ..
+                } => {
+                    let row = genesis(w)?
+                        .quest(*quest)
+                        .map_err(|_| Error::UnavailableQuest)?;
+                    let item_id = *row
+                        .required_item
+                        .get(*objective)
+                        .ok_or(Error::Unrepresentable)?;
+                    if item_id == 0 || *added >= 64 {
+                        return Err(Error::Unrepresentable);
+                    }
+                    events.push(SessionEvent::QuestObjectiveItem {
+                        item_id,
+                        count: *added,
+                    });
+                }
+                q::Event::Host(q::HostEffect::DestroyCarriedStack { item, count }) => {
+                    events.extend(inventory_frame.remove_carried_stack(self, w, *item, *count)?);
                 }
                 _ => {}
             },
@@ -974,4 +1084,4 @@ impl NativeProjection {
 
 #[cfg(test)]
 #[path = "native_quests_tests.rs"]
-mod tests;
+pub(super) mod tests;

@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is reconstruction v5, quest genesis policy v2, and live training journal v2.
+is reconstruction v8, quest genesis policy v3, and live training journal v2.
 Older policies are rejected rather than silently migrated.
 
 Required caller inputs include actual level/XP/class rows, source skill order and
@@ -65,7 +65,7 @@ offline accrual or entered rest area. Reload does not claim CMaNGOS offline-rest
 parity. Positive-rest numerical kernels exist separately; no missing area/clock
 adapter is silently assumed.
 
-## Historical spell context and the remaining release boundary
+## Prepare, release, and impact source bindings
 
 Every preparing/traveling cast and applied aura carries a validated execution
 binding. Historical bindings prove the mandatory derived/training history prefix,
@@ -76,12 +76,25 @@ Newly learned abilities undergo the same ID, school, amplitude, raw pushback and
 cast recipe checks as genesis abilities. Damage cancellation reads their actual
 raw interrupt flags; pushback uses the cast's admitted binding.
 
-An unreleased cast whose admitted recipe would change across the attempted level
-transition still rejects the entire tick. It is neither silently cancelled nor
-allowed to consume a kill/reward while discarding XP. This bounded rejection can
-also occur when another effect kills a mob while such a cast is preparing. A
-separate source release-phase adapter is required to remove that limitation.
-Already launched casts and applied DoTs are supported across level transitions.
+Prepare captures the original spell ID, effect/basepoint metadata, timer, pushback
+budget, and GCD. A supported level transition during preparation commits normally:
+only source-evaluated rank and mana cost are rebound at release. A newly computed
+cast time does not restart or shorten the original timer, and a newly learned ID
+never substitutes for the prepared spell. Release rechecks power before drawing
+launch dice; insufficient mana fails that cast while retaining an earlier reward.
+Cancellation still removes only the prepare GCD. In-flight direct damage remains
+fixed; periodic values use current impact rank.
+
+Both prepare and successful-release witnesses independently replay their source
+training/stat histories. The cast checkpoint records the exact prepare recipe and
+release rank/cost, and restore also verifies the exact release timestamp against
+projectile travel. Unsupported next-level source context still rejects the whole
+transaction; true rank replacement and unsupported learning remain excluded.
+Native format 8 explicitly rejects prior schemas; cast checkpoints use version 2,
+while common resource/aura checkpoints remain version 1. No migration or production
+NativeCapability admission is added. The authored controller harness drives the
+actual stock command/projection/store path with save failures and pending/flight
+reopen checks; this is not proof of graphical or real-asset playability.
 
 ## Client contract and persistence
 
@@ -119,33 +132,27 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Explicit remaining native content blockers
 
-- Required/reward items, collection objectives, inventory conditions and native
-  nonempty loot/money remain unsupported. Actual source rows must prove this
-  domain; a typical wolf is not assumed lootless to fit the fixture.
-- Ordinary loot generation belongs to `Creature::PrepareBodyLootState` and
-  `Loot::FillLoot`/money generation, after Unit kill rewards and creature hooks.
-  The host must retain original-tap looter rights, death identity, corpse slots,
-  deterministic draw receipts, corpse state/decay and fake-empty-loot configuration.
-  Loot is stored on the corpse, never auto-awarded with XP.
-- Collection then needs the real `Player::CanStoreNewItem`/`StoreNewItem`,
-  `Loot::SendItem` and loot-handler money/removal pipeline, including source
-  capacity/stack limits, item properties and callbacks. Item-started quests,
-  conditional/reference loot and property/enchantment hooks require actual support
-  or explicit rejection. Sources are `Entities/Creature.cpp`, `Entities/Player.cpp`,
-  `Loot/LootMgr.cpp` and `Loot/LootHandler.cpp` in the pinned tree.
+- Ordinary backpack items, corpse loot/money, required-item destruction and fixed/
+  choice item rewards now use the source transaction host described in
+  [LOOT-INVENTORY.md](LOOT-INVENTORY.md). Conditional/reference/quest-only loot,
+  item-started/source quests, equipment mutation and property/script callbacks
+  remain explicit admission failures.
 - Audited private row closure, geometry/movement authority, graphical client
   evidence and capability review are still necessary. The blocked offline content
   compiler was neither inspected nor approved by this reconstruction.
 
 ## Fresh reconstruction verification
 
-On the reconstructed tree, the combined five-package test run passes 462 test
+On the preceding quest-only reconstruction baseline `b7cd8f5`, the combined
+five-package test run passed 462 test
 executions, including source-oracle fixture assertions and compile-fail capability
 checks. This includes 206 simulator tests/doctests, 46 client tests, 57 controller
 source-harness tests, 112 runtime tests plus its capability doctest, and 39 store
 tests plus the separately invoked lock child probe. The probe remains intentionally
 marked ignored in its parent test process. Strict all-target Clippy passes for all
-five packages, as do focused formatting and diff checks.
+five packages, as did focused formatting and diff checks. The later loot/item-reward
+slice has its own fresh verification manifest; these baseline counts are not
+inherited as proof of that changed tree.
 
 Pinned C++ source extraction/regeneration freshly reproduces 243 derived-stat,
 881 player-progression, 29,995 kill-XP and 4,472 quest-lifecycle vectors exactly.

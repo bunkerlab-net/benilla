@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Immutable generated-product inventory, not a loaded VMap/MMap engine or authority.
+//! Immutable generated-product inventory; optional validated readers never grant authority.
 //! Caller-supplied evidence is bound for consistency, not authenticated as provenance.
 //! Production entry and non-render participant admission remain independent and closed.
 #![expect(
@@ -7,6 +7,7 @@
     reason = "native production session admission remains closed"
 )]
 mod envelopes;
+pub(crate) mod navigation;
 mod terrain;
 pub(crate) mod vmap;
 use sha2::{Digest, Sha256};
@@ -216,7 +217,7 @@ struct Product {
 
 /// Successful construction says only that the exact declared file set is present,
 /// hash-bound and framed, and that terrain is decoded. Native model/nav references
-/// have NOT been validated or loaded. There is no conversion to Session/authority.
+/// are validated/loaded only by the optional separate readers. No conversion to authority.
 #[derive(Debug)]
 pub(crate) struct InventoriedProducts {
     map: u32,

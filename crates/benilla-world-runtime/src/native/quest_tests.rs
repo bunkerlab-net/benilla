@@ -348,11 +348,11 @@ fn applied_aura_keeps_source_rank_and_level_through_xp_rebase_and_restore() {
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(forged["state"].clone()).unwrap();
     forged["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v5\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v8\0", &state)).unwrap();
     let tip: crate::Digest = serde_json::from_value(forged["history_tip"].clone()).unwrap();
     let digest: crate::Digest = serde_json::from_value(forged["digest"].clone()).unwrap();
     forged["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v5\0",
+        b"benilla-native-checkpoint-v8\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -415,32 +415,144 @@ fn launched_payload_survives_reward_level_and_periodic_value_uses_impact_rank() 
     assert_eq!(restored.state_digest(), w.state_digest());
 }
 #[test]
-fn unreleased_recipe_change_rejects_whole_reward_instead_of_cancelling_cast_or_losing_xp() {
-    let mut w = historical_world();
+fn reward_levels_during_prepare_without_replacing_spell_or_original_timer() {
+    let mut w = release_world(false);
+    let genesis = w.checkpoint().unwrap();
     let mut a = QuestAuthority::default();
     accept(&mut w, &mut a);
     kill_target(&mut w, &mut a);
+    assert_eq!(w.player_level(), 2);
+    assert!(w.ability(60005).is_none());
     cast_other(&mut w, &mut a);
+    let prepared = w.state.casts.values().next().unwrap().clone();
+    assert_eq!(prepared.binding.spec().unwrap().cast_ms, 350);
+    assert_eq!(prepared.binding.spec().unwrap().mana_cost, 42);
+    reward(&mut w, &mut a).unwrap();
+    assert_eq!(w.player_level(), 3);
+    assert!(w.ability(60005).is_some());
+    let cast = &w.state.casts[&prepared.id];
+    assert_eq!(cast.binding, prepared.binding);
+    assert!(cast.release_binding.is_none());
+    assert_eq!(
+        cast.execution.state(),
+        spell::CastState::Casting { remaining_ms: 250 }
+    );
+    let mut resumed = restore(&w);
+    for _ in 0..10 {
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+        resumed.step(resumed.state.tick + 1, None, &mut a).unwrap();
+        assert_eq!(w.state_digest(), resumed.state_digest());
+        if matches!(
+            w.state.casts[&prepared.id].execution.state(),
+            spell::CastState::Traveling { .. }
+        ) {
+            break;
+        }
+    }
+    let cast = &w.state.casts[&prepared.id];
+    let released = cast.release_binding.as_ref().unwrap();
+    assert_eq!(cast.ability, 60001);
+    assert_eq!(cast.binding, prepared.binding);
+    assert_eq!(released.ability.id, 60001);
+    assert_eq!(released.spec().unwrap().spell_rank, 15);
+    assert_eq!(released.spec().unwrap().mana_cost, 45);
+    assert_eq!(released.spec().unwrap().cast_ms, 300);
+    assert_eq!(released.captured_ms - prepared.binding.captured_ms, 400);
     assert!(w
-        .state
-        .casts
-        .values()
-        .any(|c| matches!(c.execution.state(), spell::CastState::Casting { .. })));
-    let before = w.checkpoint().unwrap();
+        .last_tick()
+        .unwrap()
+        .draws
+        .iter()
+        .any(|d| d.cast_id == prepared.id
+            && d.purpose == DrawPurpose::Direct { slot: 0 }
+            && d.high == 10));
+    assert_eq!(restore(&w).state_digest(), w.state_digest());
+    let mut replay =
+        NativeWorld::restore_synthetic_component_test(w.profile.clone(), genesis).unwrap();
+    replay.replay(w.records()).unwrap();
+    assert_eq!(replay.state_digest(), w.state_digest());
+}
+fn release_world(expensive: bool) -> NativeWorld {
+    NativeWorld::synthetic_component_test(release_profile(expensive), [1; 16], player(), 42)
+        .unwrap()
+}
+fn restore(w: &NativeWorld) -> NativeWorld {
+    NativeWorld::restore_synthetic_component_test(
+        w.profile.clone(),
+        Checkpoint::decode(&w.checkpoint().unwrap().encode().unwrap()).unwrap(),
+    )
+    .unwrap()
+}
+fn reward(w: &mut NativeWorld, a: &mut QuestAuthority) -> Result<(), NativeError> {
     let i = command(
-        &w,
+        w,
         Command::TurnInQuest {
             quest: 70001,
             giver: w.state.npcs[&3].id,
         },
     );
-    assert_eq!(
-        w.step(w.state.tick + 1, Some(i), &mut a),
-        Err(NativeError::UnsupportedMechanic(
-            "level-up changes unreleased cast recipe"
-        ))
+    w.step(w.state.tick + 1, Some(i), a).map(|_| ())
+}
+#[test]
+fn release_no_power_keeps_committed_reward_and_gcd_without_cast_rng_or_cooldown() {
+    let mut w = release_world(true);
+    let mut a = QuestAuthority::default();
+    accept(&mut w, &mut a);
+    kill_target(&mut w, &mut a);
+    cast_other(&mut w, &mut a);
+    let id = *w.state.casts.keys().next().unwrap();
+    reward(&mut w, &mut a).unwrap();
+    assert_eq!(w.player_level(), 3);
+    assert!(
+        w.state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .quests
+            .progress(70001)
+            .unwrap()
+            .rewarded
     );
-    assert_eq!(w.checkpoint().unwrap(), before);
+    let mana = w.state.resources.caster.mana;
+    let gcd = w.state.resources.caster.global_ready_at(9);
+    let cooldown = w.state.resources.caster.spell_ready_at(60001);
+    assert!(mana < 445);
+    for _ in 0..10 {
+        if !w.state.casts.contains_key(&id) {
+            break;
+        }
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+        assert!(!w.last_tick().unwrap().draws.iter().any(|d| d.cast_id == id));
+    }
+    assert!(w.last_tick().unwrap().events.iter().any(|event| matches!(event, Event::Spell { cast_id, event: spell::SpellEvent::Failed(spell::CastFailure::NoPower), .. } if *cast_id == id)));
+    assert_eq!(w.state.resources.caster.mana, mana);
+    assert_eq!(w.state.resources.caster.global_ready_at(9), gcd);
+    assert_eq!(w.state.resources.caster.spell_ready_at(60001), cooldown);
+    assert_eq!(restore(&w).state_digest(), w.state_digest());
+}
+#[test]
+fn cancellation_after_level_uses_prepared_gcd_without_spend_or_dice() {
+    let mut w = release_world(false);
+    let mut a = QuestAuthority::default();
+    accept(&mut w, &mut a);
+    kill_target(&mut w, &mut a);
+    cast_other(&mut w, &mut a);
+    let id = *w.state.casts.keys().next().unwrap();
+    reward(&mut w, &mut a).unwrap();
+    let mana = w.state.resources.caster.mana;
+    let i = command(
+        &w,
+        Command::CancelCast {
+            spell_id: 60001,
+            target: CancelCastTarget::Instance(id),
+        },
+    );
+    w.step(w.state.tick + 1, Some(i), &mut a).unwrap();
+    assert!(w.state.casts.is_empty());
+    assert_eq!(w.state.resources.caster.mana, mana);
+    assert_eq!(w.state.resources.caster.global_ready_at(9), None);
+    assert!(!w.last_tick().unwrap().draws.iter().any(|d| d.cast_id == id));
+    assert_eq!(w.player_level(), 3);
 }
 #[test]
 fn restore_rejects_historical_binding_on_unreleased_cast() {
@@ -468,7 +580,7 @@ fn restore_rejects_historical_binding_on_unreleased_cast() {
     assert_ne!(old.ability, cast.binding.ability);
     old.captured_ms = cast.binding.captured_ms;
     cast.binding = old;
-    // Rechecksumming a valid old context must not bypass the live Casting guard.
+    // Rechecksumming a valid historical context cannot replace the exact prepare witness.
     let cp = Checkpoint::decode(&w.checkpoint().unwrap().encode().unwrap()).unwrap();
     assert_eq!(
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp).err(),
@@ -599,4 +711,150 @@ fn newly_learned_cast_uses_bound_pushback_and_raw_damage_interrupt_flags() {
         replay.replay(w.records()).unwrap();
         assert_eq!(replay.state_digest(), w.state_digest());
     }
+}
+
+#[test]
+fn phase_witness_tampering_and_valid_but_wrong_release_clock_reject() {
+    let mut w = release_world(false);
+    let mut a = QuestAuthority::default();
+    accept(&mut w, &mut a);
+    kill_target(&mut w, &mut a);
+    cast_other(&mut w, &mut a);
+    let id = *w.state.casts.keys().next().unwrap();
+    reward(&mut w, &mut a).unwrap();
+    let mut forged = w.clone();
+    let released = ExecutionBinding::capture(&w.profile, &w.state, 60001).unwrap();
+    forged.state.casts.get_mut(&id).unwrap().release_binding = Some(released);
+    assert!(NativeWorld::restore_synthetic_component_test(
+        forged.profile.clone(),
+        forged.checkpoint().unwrap()
+    )
+    .is_err());
+    for _ in 0..10 {
+        if matches!(
+            w.state.casts[&id].execution.state(),
+            spell::CastState::Traveling { .. }
+        ) {
+            break;
+        }
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+    }
+    assert!(matches!(
+        w.state.casts[&id].execution.state(),
+        spell::CastState::Traveling { .. }
+    ));
+    let reject = |world: NativeWorld| {
+        assert!(NativeWorld::restore_synthetic_component_test(
+            world.profile.clone(),
+            world.checkpoint().unwrap()
+        )
+        .is_err());
+    };
+    let mut forged = w.clone();
+    forged.state.casts.get_mut(&id).unwrap().release_binding = None;
+    reject(forged);
+    let mut forged = w.clone();
+    let cast = forged.state.casts.get_mut(&id).unwrap();
+    cast.release_binding = Some(cast.binding.clone());
+    reject(forged);
+    let mut forged = w.clone();
+    let cast = forged.state.casts.get_mut(&id).unwrap();
+    let released = cast.release_binding.as_mut().unwrap();
+    if let AbilityAdmission::Available(spec) = &mut released.ability.admission {
+        spec.mana_cost += 1;
+    }
+    reject(forged);
+    let mut forged = w.clone();
+    let cast = forged.state.casts.get_mut(&id).unwrap();
+    let released = cast.release_binding.as_mut().unwrap();
+    released.captured_ms -= 100;
+    // Both witnesses remain independently source-valid, and the pair is allowed.
+    // Only the exact release clock must detect this otherwise coherent forgery.
+    released
+        .validate(
+            &w.profile,
+            w.state.quest_progression.as_ref(),
+            w.state.now_ms,
+        )
+        .unwrap();
+    released.release_context(&cast.binding).unwrap();
+    reject(forged);
+}
+#[test]
+fn missing_level_source_during_prepare_rolls_back_reward_without_consuming_anything() {
+    let (mut p, input, mut data) = release_setup(false);
+    data.quests[0].reward.xp.reward_money_max_level = 6000;
+    p.initialize_quest_progression(&input, data).unwrap();
+    let mut w = NativeWorld::synthetic_component_test(p, [1; 16], player(), 42).unwrap();
+    let mut a = QuestAuthority::default();
+    accept(&mut w, &mut a);
+    kill_target(&mut w, &mut a);
+    cast_other(&mut w, &mut a);
+    let before = w.checkpoint().unwrap();
+    let records = w.records().to_vec();
+    assert!(reward(&mut w, &mut a).is_err());
+    assert_eq!(w.checkpoint().unwrap(), before);
+    assert_eq!(w.records(), records);
+}
+#[test]
+fn older_projectile_kill_levels_while_new_cast_still_prepares() {
+    let mut w = release_world(false);
+    let genesis = w.checkpoint().unwrap();
+    let mut a = QuestAuthority::default();
+    let input = command(
+        &w,
+        Command::Cast {
+            ability: 60001,
+            target: w.state.npcs[&2].id,
+        },
+    );
+    w.step(1, Some(input), &mut a).unwrap();
+    for _ in 0..10 {
+        if matches!(
+            w.state.casts[&1].execution.state(),
+            spell::CastState::Traveling { .. }
+        ) {
+            break;
+        }
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+    }
+    let spell::CastState::Traveling { impact_at_ms } = w.state.casts[&1].execution.state() else {
+        panic!("first projectile did not launch")
+    };
+    for _ in 0..10 {
+        if w.state.now_ms + 300 >= impact_at_ms {
+            break;
+        }
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+    }
+    cast_other(&mut w, &mut a);
+    let prepared = w.state.casts[&2].binding.clone();
+    assert_eq!(prepared.level, 1);
+    for _ in 0..10 {
+        if w.player_level() == 2 {
+            break;
+        }
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+    }
+    assert_eq!(w.player_level(), 2);
+    assert!(matches!(
+        w.state.casts[&2].execution.state(),
+        spell::CastState::Casting { .. }
+    ));
+    assert_eq!(w.state.casts[&2].binding, prepared);
+    assert_eq!(restore(&w).state_digest(), w.state_digest());
+    for _ in 0..10 {
+        if matches!(
+            w.state.casts[&2].execution.state(),
+            spell::CastState::Traveling { .. }
+        ) {
+            break;
+        }
+        w.step(w.state.tick + 1, None, &mut a).unwrap();
+    }
+    assert_eq!(w.state.casts[&2].release_binding.as_ref().unwrap().level, 2);
+    let mut replay =
+        NativeWorld::restore_synthetic_component_test(w.profile.clone(), genesis).unwrap();
+    replay.replay(w.records()).unwrap();
+    assert_eq!(replay.state_digest(), w.state_digest());
 }

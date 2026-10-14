@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Source-derived historical context for launched payloads and applied auras.
+//! Source-derived phase contexts for preparation, release and applied auras.
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +64,49 @@ impl ExecutionBinding {
             AbilityAdmission::Available(s) => Ok(s),
             _ => Err(NativeError::InvalidState),
         }
+    }
+    /// SpellEntry metadata stays fixed; only current GetSpellRank/CheckPower
+    /// values may differ. Both witnesses are separately source-validated on load.
+    pub(in crate::native) fn release_context(
+        &self,
+        prepared: &Self,
+    ) -> Result<spell::MageProjectileReleaseContext, NativeError> {
+        if self.ability.id != prepared.ability.id
+            || self.ability.school != prepared.ability.school
+            || self.captured_ms <= prepared.captured_ms
+            || self.level < prepared.level
+        {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+        match (&prepared.progression, &self.progression) {
+            (Some(a), Some(b)) => {
+                if !b.training.calls.starts_with(&a.training.calls)
+                    || !b.derived_calls.starts_with(&a.derived_calls)
+                    || a.player.skills.len() != b.player.skills.len()
+                    || a.player
+                        .skills
+                        .iter()
+                        .zip(&b.player.skills)
+                        .any(|(old, new)| {
+                            old.id != new.id
+                                || old.position != new.position
+                                || old.value > new.value
+                                || old.maximum > new.maximum
+                                || old.step != new.step
+                                || old.permanent_bonus != new.permanent_bonus
+                                || old.temporary_bonus != new.temporary_bonus
+                        })
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+            }
+            (None, None) => {}
+            _ => return Err(NativeError::InvalidCheckpoint),
+        }
+        Ok(spell::MageProjectileReleaseContext::from_specs(
+            prepared.spec()?,
+            self.spec()?,
+        )?)
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(in crate::native) fn validate(
@@ -176,5 +219,81 @@ mod tests {
                 world.state.now_ms
             )
             .is_err());
+    }
+
+    #[test]
+    fn release_cannot_reverse_independently_valid_same_level_item_break_history() {
+        let mut world = fixture::world();
+        let before = ExecutionBinding::capture(&world.profile, &world.state, 60001).unwrap();
+        let g = world.profile.quest_progression.as_ref().unwrap();
+        let before_combat = world.state.combat.as_ref().unwrap().clone();
+        let current = world.state.quest_progression.as_mut().unwrap();
+        let view = current.player.view();
+        let live = init::Resources {
+            health: view.numeric.health,
+            max_health: view.numeric.max_health,
+            mana: view.numeric.powers[0],
+            max_mana: view.numeric.max_powers[0],
+        };
+        let mut after_combat = before_combat.clone();
+        let recompute = after_combat.apply_item_break(4, live).unwrap();
+        current
+            .item_break(
+                g,
+                &before_combat,
+                &after_combat,
+                4,
+                &recompute,
+                live.health,
+                live.mana,
+            )
+            .unwrap();
+        world.state.combat = Some(after_combat);
+        world.state.now_ms += u64::from(world.profile.tick_ms);
+        let prepared = ExecutionBinding::capture(&world.profile, &world.state, 60001).unwrap();
+        assert_eq!(prepared.level, before.level);
+        assert_eq!(prepared.ability, before.ability);
+        let old = before.progression.as_ref().unwrap();
+        let new = prepared.progression.as_ref().unwrap();
+        assert_eq!(old.training, new.training);
+        assert_eq!(old.player.skills, new.player.skills);
+        assert_eq!(new.derived_calls.len(), old.derived_calls.len() + 1);
+        assert!(matches!(
+            new.derived_calls.last(),
+            Some(DerivedCall::ItemBreak { .. })
+        ));
+        prepared.release_context(&before).unwrap();
+
+        world.state.now_ms += u64::from(world.profile.tick_ms);
+        let mut stale_release = before;
+        stale_release.captured_ms = world.state.now_ms;
+        for binding in [&prepared, &stale_release] {
+            binding
+                .validate(
+                    &world.profile,
+                    world.state.quest_progression.as_ref(),
+                    world.state.now_ms,
+                )
+                .unwrap();
+        }
+        assert!(stale_release.captured_ms > prepared.captured_ms);
+        assert_eq!(
+            spell::MageProjectileReleaseContext::from_specs(
+                prepared.spec().unwrap(),
+                stale_release.spec().unwrap(),
+            )
+            .unwrap(),
+            spell::MageProjectileReleaseContext {
+                spell_rank: prepared.spec().unwrap().spell_rank,
+                mana_cost: prepared.spec().unwrap().mana_cost,
+            }
+        );
+        assert_eq!(
+            stale_release.release_context(&prepared).unwrap_err(),
+            NativeError::InvalidCheckpoint,
+        );
+        let mut current_release = prepared.clone();
+        current_release.captured_ms = world.state.now_ms;
+        current_release.release_context(&prepared).unwrap();
     }
 }

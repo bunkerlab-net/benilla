@@ -87,7 +87,11 @@ impl<A: Authority> Frame<'_, A> {
         quest: u32,
         giver: NpcId,
         reward: bool,
+        choice: u32,
     ) -> Result<Option<Rejection>, NativeError> {
+        if choice >= 6 {
+            return Ok(Some(Rejection::Quest(q::Gate::RewardChoice)));
+        }
         if let Some(rejected) = self.quest_interaction_gate(quest, giver, reward)? {
             return Ok(Some(rejected));
         }
@@ -116,6 +120,7 @@ impl<A: Authority> Frame<'_, A> {
                 quest,
                 giver: profile.entry,
                 announce: true,
+                choice,
             }
         } else {
             q::Command::Accept {
@@ -126,7 +131,27 @@ impl<A: Authority> Frame<'_, A> {
         let (next, events) = match current.reduce(g, combat, command) {
             Ok(tx) => tx,
             Err(NativeError::Quest(q::Error::Rejected(gate))) => {
-                return Ok(Some(Rejection::Quest(gate)))
+                let refusal = match gate {
+                    q::Gate::RewardStorage { result, .. } => Some(Some(result)),
+                    q::Gate::Items => {
+                        Some(Some(benilla_sim::inventory::InventoryResult::ItemNotFound))
+                    }
+                    q::Gate::NotComplete | q::Gate::AlreadyRewarded | q::Gate::Money => Some(None),
+                    _ => None,
+                };
+                // QuestHandler::HandleQuestgiverChooseRewardOpcode reoffers after
+                // every CanRewardQuest refusal, after any source equipment error.
+                if let Some(result) = refusal.filter(|_| reward) {
+                    self.events.push(Event::QuestProgression(
+                        QuestProgressionEvent::RewardRefused {
+                            quest,
+                            giver,
+                            level: current.player.view().level as u8,
+                            result,
+                        },
+                    ));
+                }
+                return Ok(Some(Rejection::Quest(gate)));
             }
             Err(e) => return Err(e),
         };
@@ -186,27 +211,29 @@ impl<A: Authority> Frame<'_, A> {
         &mut self,
         next: QuestProgressionState,
     ) -> Result<(), NativeError> {
-        let old = self
-            .state
-            .quest_progression
-            .as_ref()
-            .ok_or(NativeError::InvalidState)?;
-        // The kernel fixes cast duration at prepare. CheckPower and direct
-        // effects use current rank again at release in source; that transition
-        // still requires a release-context adapter. Already-launched payloads
-        // and applied auras retain their validated historical bindings.
-        for cast in self
+        if self.state.quest_progression.is_none() {
+            return Err(NativeError::InvalidState);
+        }
+        if self
             .state
             .casts
             .values()
-            .filter(|c| matches!(c.execution.state(), spell::CastState::Casting { .. }))
+            .any(|cast| matches!(cast.execution.state(), spell::CastState::Casting { .. }))
         {
-            if old.abilities.iter().find(|a| a.id == cast.ability)
-                != next.abilities.iter().find(|a| a.id == cast.ability)
+            let g = self
+                .profile
+                .quest_progression
+                .as_ref()
+                .ok_or(NativeError::InvalidState)?;
+            // Prepare retains SpellEntry and its timer. Preflight the original spell
+            // under the new source closure without changing any live cast witness.
+            for cast in self
+                .state
+                .casts
+                .values()
+                .filter(|c| matches!(c.execution.state(), spell::CastState::Casting { .. }))
             {
-                return Err(NativeError::UnsupportedMechanic(
-                    "level-up changes unreleased cast recipe",
-                ));
+                g.validate_prepare_transition(&next, &cast.binding)?;
             }
         }
         let view = next.player.view();
@@ -285,6 +312,9 @@ impl<A: Authority> Frame<'_, A> {
             .is_some_and(|q| q.credited_generations.get(&id.spawn) == Some(&id.generation))
         {
             return Ok(());
+        }
+        if self.state.npcs[&id.spawn].original_loot_recipient != Some(self.state.player) {
+            return Err(NativeError::InvalidState);
         }
         self.sync_quest_progression()?;
         let profile = self

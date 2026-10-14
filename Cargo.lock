@@ -723,6 +723,7 @@ dependencies = [
  "benilla-config",
  "benilla-encounter",
  "benilla-formats",
+ "benilla-native-nav",
  "benilla-p2p",
  "benilla-profile",
  "benilla-protocol",
@@ -882,10 +883,18 @@ name = "benilla-native-geometry-tests"
 version = "0.2.0"
 dependencies = [
  "benilla-formats",
+ "benilla-native-nav",
  "benilla-sim",
  "benilla-world-runtime",
  "crossbeam-channel",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "benilla-native-nav"
+version = "0.2.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

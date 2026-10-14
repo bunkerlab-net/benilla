@@ -1,5 +1,8 @@
 # Loot, item and quest interaction contract
 
+The original `World` adapter contract below remains separate from the source-bound
+`NativeProjection` extension described at the end.
+
 ## Metadata gate
 
 `ClientCatalog::item_metadata(entry)` must return a full externally validated
@@ -89,3 +92,35 @@ cast interruption, no group loot, no scripts, empty-slot retention and original
 quest/stat/XP policies remain deliberate deviations. Native numeric kernels in
 other crates do not remove these capability gates. Full Classic loot, item,
 quest or combat parity is not claimed.
+
+
+## Native inventory and item rewards
+
+`NativeProjection` uses the audited native inventory/loot catalog independently of
+OriginalFixture restrictions. It validates exact item gameplay fields, starter
+requirements/stats, and client display presence. Stable carried-instance GUIDs and
+starter-equipment GUIDs must not collide. Carried item creates include count, charges,
+binding and durability; backpack pointers always describe all sixteen slots.
+
+Source callbacks determine packet order: item credit before storage, stack destruction
+before reward creation, loot removal before its push, and quest items before XP.
+Explicit release, invalid/consumed slot release and money-last exhaustion unregister
+the looter before `SendReleaseForAll`, producing no release response. Item-last
+exhaustion uses `SendReleaseForAll` while registered and produces one response.
+Solo money emits clear-money, never `LootMoneyNotify`. The player looting flag follows
+the durable target. A restored target is reconciled through initial delivery without
+replaying item acquisition.
+
+Native `ChooseQuestReward` admits source choice indices 0..5; empty slots are legal.
+The original adapter explicitly refuses this native-only intent. Detail/template
+responses honor hidden rewards, while offers show ordinary choice/fixed items.
+Reward refusal preserves callback-time offer context, with an inventory error only
+when the source sends one. Reward pushes use from-NPC
+true, created false, chat false and bag 255; the slot is the last destination only
+when its post-count equals the full award count. Completion reports fixed template
+rows only, even if a later unique-item grant was legitimately skipped. Unsupported
+item use, bags, equipment mutation and source/reward spell effects remain excluded.
+
+The actual app controller owns durable publication and published-panel GUID-less
+binding; its [contract](../benilla-app/src/net/p2p/world/native_controller/README.md)
+and component tests exercise save/retry/reopen boundaries without Bevy linking.

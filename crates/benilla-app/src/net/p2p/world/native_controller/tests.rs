@@ -32,7 +32,7 @@ impl ClientCatalog for Catalog {
         false
     }
     fn contains_spell(&self, id: u32) -> bool {
-        matches!(id, 60001 | 60002)
+        matches!(id, 60001 | 60002 | 60004 | 60005)
     }
     fn player_power_type(&self, _: PlayerId) -> Option<u8> {
         Some(0)
@@ -943,3 +943,6 @@ fn full_batch_checkpoint_retry_and_reopen_never_repeat_any_input() {
 
 #[path = "quest_tests.rs"]
 mod quest_tests;
+
+#[path = "loot_tests.rs"]
+mod loot_tests;

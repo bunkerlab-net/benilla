@@ -2,6 +2,8 @@
 //! Versioned integration of native-mechanic components. Production admission is closed.
 //! OriginalFixture `World` v2 remains distinct. This module is not a full Classic server.
 mod combat;
+mod loot;
+pub use loot::*;
 mod engine;
 pub mod equipment;
 pub use combat::*;
@@ -16,8 +18,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 5;
-pub const NATIVE_POLICY: &str = "benilla-native-quest-progression-reconstruction-v5";
+pub const NATIVE_FORMAT_VERSION: u32 = 8;
+pub const NATIVE_POLICY: &str = "benilla-native-cast-phases-reconstruction-v8";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -38,6 +40,8 @@ pub enum NativeCapability {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeError {
+    Inventory(benilla_sim::inventory::Error),
+    Loot(benilla_sim::loot::Error),
     Quest(benilla_sim::quest_lifecycle::Error),
     Progression(benilla_sim::player_progression::Error),
     InvalidProfile,
@@ -112,6 +116,8 @@ impl NativeWorld {
                         spawn: p.ai.creature_id,
                         generation: 0,
                     },
+                    original_loot_recipient: None,
+                    corpse_loot: None,
                     health: p.max_health,
                     ai: ai::SoloCreatureAi::new(p.ai.clone())?,
                     auras: BTreeMap::new(),
@@ -168,7 +174,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v5\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v8\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -253,3 +259,11 @@ impl NativeWorld {
 mod quest_tests;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_quest_fixture;
+
+#[cfg(test)]
+mod loot_tests;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_loot_fixture;
+
+#[cfg(test)]
+mod quest_reward_tests;

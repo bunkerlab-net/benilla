@@ -123,10 +123,11 @@ commits nothing; the controller must retain the exact tick/input for retry or pa
 from private staging into immutable owned bytes. It validates canonical identities,
 versions/ABI declarations, lengths, hashes, framing and direct VMap model-name edges.
 Its pinned dry `GridMap` point-height reader has 6,272 source-oracle vectors. Caller
-provenance declarations, opaque VMap/Detour internals and expected tile coverage do not
-become audited proofs. No native core is loaded and no geometry query consumes this set.
-[The exact boundary, source and oracle](products/PROVENANCE.md) describe the remaining
-native loading step. Terrain interpolation does not enable slopes or production entry.
+provenance declarations and expected tile coverage do not become audited proofs. The
+optional VMap and dry MMap readers separately validate the inventory's opaque internals
+before loading/querying them, as additional vetoes described below.
+[The exact inventory boundary](products/PROVENANCE.md) remains distinct from these
+readers. Terrain interpolation does not enable slopes or production entry.
 
 ## Next local extraction and navigation step
 
@@ -172,3 +173,15 @@ and adds a static-ray obstacle veto only after the existing positive corridor pr
 It inherits the mailbox's absolute frame/request deadline. Service replacement revokes
 pending and buffered old-authority replies. Production source/participant admission,
 Detour/PathFinder and sloped-body support remain closed.
+
+
+## Optional loaded dry MMap veto
+
+`InventoriedProducts::load_navigation` validates actual dry MMap/Detour sections and
+references before native loading. Its exact pinned C++ nearest/corridor/funnel queries
+preserve source binary32 semantics and echo map/content/epoch/inventory/policy binding.
+`install_with_navigation` composes this after the existing raw corridor and static VMap
+veto. Endpoints must not snap and the funnel must remain direct; a successful route
+cannot supply any missing body, support, slope, participant or admission proof.
+[Source, ownership, ABI, limits and differential evidence](../../../../../../benilla-native-nav/PROVENANCE.md)
+include native node-exhaustion/truncation, alignment and allocation-failure tests.

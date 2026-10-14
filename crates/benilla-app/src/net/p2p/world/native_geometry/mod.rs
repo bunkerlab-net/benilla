@@ -7,6 +7,7 @@
 )]
 mod core;
 mod products;
+mod source_navigation;
 mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
 use self::core::{Corridor, Mailbox};
@@ -26,19 +27,28 @@ pub(crate) fn static_vmap_geometry_revision(
     source_vmap::geometry_revision(raw_geometry, snapshot.binding())
 }
 
+pub(crate) fn navigation_geometry_revision(
+    raw_geometry: [u8; 32],
+    vmap: &products::vmap::VmapSnapshot,
+    navigation: &products::navigation::NavigationSnapshot,
+) -> [u8; 32] {
+    source_navigation::geometry_revision(raw_geometry, vmap.binding(), navigation.binding())
+}
+
 /// Installed as a NonSend resource only by future audited native entry. Replacing/dropping
 /// it closes the old queue; no renderer or explorer session silently becomes authority.
 struct Service {
     mailbox: Mailbox,
     budget: core::FrameBudget,
     vmap: Option<source_vmap::SourceVmapProvider>,
+    navigation: Option<source_navigation::SourceNavigationProvider>,
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct GeometryQueries;
 
 pub(crate) fn install(world: &mut World, session: Session) -> Result<LocalAuthority, Failure> {
-    install_products(world, session, None)
+    install_products(world, session, None, None)
 }
 
 /// Optional loaded static geometry can only add a veto to the existing authority.
@@ -50,18 +60,37 @@ pub(crate) fn install_with_static_vmap(
     raw_geometry: [u8; 32],
 ) -> Result<LocalAuthority, Failure> {
     let provider = source_vmap::SourceVmapProvider::bind(&session, snapshot, raw_geometry)?;
-    install_products(world, session, Some(provider))
+    install_products(world, session, Some(provider), None)
+}
+/// Additional dry navigation veto after raw support and static VMap. No slope or
+/// owner PathFinder proof and no native session admission is introduced here.
+pub(crate) fn install_with_navigation(
+    world: &mut World,
+    session: Session,
+    vmap: products::vmap::VmapSnapshot,
+    navigation: products::navigation::NavigationSnapshot,
+    raw_geometry: [u8; 32],
+) -> Result<LocalAuthority, Failure> {
+    let provider = source_navigation::SourceNavigationProvider::bind(
+        &session,
+        vmap,
+        navigation,
+        raw_geometry,
+    )?;
+    install_products(world, session, None, Some(provider))
 }
 fn install_products(
     world: &mut World,
     session: Session,
     vmap: Option<source_vmap::SourceVmapProvider>,
+    navigation: Option<source_navigation::SourceNavigationProvider>,
 ) -> Result<LocalAuthority, Failure> {
     let (authority, mailbox) = core::mailbox(session)?;
     world.insert_non_send_resource(Service {
         mailbox,
         budget: default(),
         vmap,
+        navigation,
     });
     Ok(authority)
 }
@@ -116,11 +145,16 @@ fn process(
                     spatial: &spatial,
                     map: session.map,
                     revision: service
-                        .vmap
+                        .navigation
                         .as_ref()
-                        .map_or(session.geometry, |vmap| vmap.raw_geometry()),
+                        .map(|nav| nav.raw_geometry())
+                        .or_else(|| service.vmap.as_ref().map(|vmap| vmap.raw_geometry()))
+                        .unwrap_or(session.geometry),
                 };
-                if let Some(provider) = service.vmap.as_ref() {
+                if let Some(provider) = service.navigation.as_ref() {
+                    let mut corridor = provider.corridor(session, request, corridor, deadline)?;
+                    resolve_query(session, request, body, &mut corridor)
+                } else if let Some(provider) = service.vmap.as_ref() {
                     let mut corridor = provider.corridor(session, request, corridor, deadline)?;
                     resolve_query(session, request, body, &mut corridor)
                 } else {

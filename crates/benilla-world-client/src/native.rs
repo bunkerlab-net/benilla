@@ -6,6 +6,8 @@ use benilla_protocol::{messages as p, EntityKind, ObjectFields, SessionEvent};
 use benilla_sim::{classic_spell as spell, creature_ai as ai};
 use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "native_loot.rs"]
+mod loot;
 #[path = "native_quests.rs"]
 mod quests;
 
@@ -41,6 +43,7 @@ pub struct NativeProjection {
     previous_digest: Digest,
     npcs: BTreeMap<NpcId, u64>,
     quest_metadata: quests::Metadata,
+    loot_metadata: loot::Metadata,
 }
 fn point(p: ai::Point) -> [f32; 3] {
     [p.x.as_f32(), p.y.as_f32(), p.z.as_f32()]
@@ -97,6 +100,7 @@ impl NativeProjection {
             previous_digest: w.state_digest(),
             npcs: BTreeMap::new(),
             quest_metadata: quests::Metadata::load(w, catalog)?,
+            loot_metadata: loot::Metadata::load(w, catalog)?,
         };
         out.npcs = out.guids(w)?;
         Ok(out)
@@ -113,6 +117,17 @@ impl NativeProjection {
     fn guids(&self, w: &n::NativeWorld) -> Result<BTreeMap<NpcId, u64>, Error> {
         let mut seen = BTreeSet::from([self.player_guid]);
         let mut npcs = BTreeMap::new();
+        for guid in loot::guids(w).chain(
+            w.state()
+                .combat
+                .iter()
+                .flat_map(|c| c.equipment.items())
+                .map(|i| equipment_guid(w, i.slot, i.item_id)),
+        ) {
+            if !seen.insert(guid) {
+                return Err(Error::GuidCollision);
+            }
+        }
         for npc in w
             .state()
             .npcs
@@ -157,6 +172,22 @@ impl NativeProjection {
                 quest,
                 giver: giver.id,
             },
+            UiRequest::ChooseQuestReward {
+                quest,
+                giver,
+                choice,
+            } => n::Command::ChooseQuestReward {
+                quest,
+                giver: giver.id,
+                choice,
+            },
+            UiRequest::OpenLoot(target) => n::Command::OpenLoot { corpse: target.id },
+            UiRequest::TakeLootMoney(target) => n::Command::LootMoney { corpse: target.id },
+            UiRequest::TakeLootItem { target, slot } => n::Command::LootItem {
+                corpse: target.id,
+                slot,
+            },
+            UiRequest::ReleaseLoot(target) => n::Command::ReleaseLoot { corpse: target.id },
             _ => return Err(Error::UnsupportedCommand),
         };
         Ok(self.input(w, command))
@@ -213,8 +244,17 @@ impl NativeProjection {
             (34, u32::from(w.player_level())),
         ];
         if let Some(c) = &w.state().combat {
+            // Loot::SetPlayerIsLooting/NotLooting maintains UNIT_FLAG_LOOTING.
+            let looting = w
+                .state()
+                .quest_progression
+                .as_ref()
+                .is_some_and(|q| q.loot_target.is_some());
             pairs.extend([
-                (46, 8 | if c.in_combat { 0x80000 } else { 0 }),
+                (
+                    46,
+                    8 | if c.in_combat { 0x80000 } else { 0 } | if looting { 0x400 } else { 0 },
+                ),
                 (125, u32::from(c.defense_reactive_ms > 0)),
                 (138, u32::from(!c.standing)),
             ]);
@@ -266,6 +306,7 @@ impl NativeProjection {
             }
         }
         pairs.extend(quests::player_pairs(w, &self.quest_metadata));
+        pairs.extend(loot::player_pairs(w));
         SessionEvent::ObjectValues {
             guid: self.player_guid,
             fields: ObjectFields::from_pairs(&pairs),
@@ -299,6 +340,12 @@ impl NativeProjection {
                             (8, self.player_guid as u32),
                             (9, (self.player_guid >> 32) as u32),
                             (14, 1),
+                            (
+                                21,
+                                self.loot_metadata
+                                    .item(item.item_id)
+                                    .map_or(0, |p| u32::from(matches!(p.bonding, 1 | 2 | 4))),
+                            ),
                             (46, item.current_durability),
                             (47, item.max_durability),
                         ])
@@ -345,6 +392,18 @@ impl NativeProjection {
             (130, profile.ai.combat_reach.bits()),
             (131, profile.display_id),
             (132, profile.display_id),
+            (
+                143,
+                if npc.original_loot_recipient == Some(self.player) {
+                    0x4 | 0x8
+                } else {
+                    0
+                } | u32::from(
+                    npc.corpse_loot
+                        .as_ref()
+                        .is_some_and(|l| l.owner == self.player && l.lootable()),
+                ),
+            ),
         ];
         if let Some(flags) = w
             .profile()
@@ -451,7 +510,9 @@ impl NativeProjection {
             events.extend(self.create(w, npc)?);
         }
         events.extend(self.equipment_events(w, true)?);
+        events.extend(self.initial_inventory(w));
         events.push(self.player_values(w));
+        events.extend(self.initial_loot_window(w)?);
         if w.state()
             .combat
             .as_ref()
@@ -573,6 +634,7 @@ impl NativeProjection {
         }
         events.extend(self.equipment_events(w, false)?);
         let mut quest_frame = quests::Frame::new(&self.previous);
+        let mut loot_frame = loot::Frame::new(&self.previous);
         // AttackStop(false) already cleared melee-attacking state during death cleanup.
         // The visible target may remain until ordinary evade, which must not emit a
         // second stop in this frame or the next one.
@@ -584,6 +646,7 @@ impl NativeProjection {
             .map(|npc| npc.id)
             .collect::<BTreeSet<_>>();
         let mut accepted_quest_pending_close = false;
+        let mut reward_refusal_presented = false;
         for event in &record.events {
             // HandleQuestgiverAcceptQuest closes gossip after AddQuest and
             // CompleteQuest callbacks, before the next input or world update.
@@ -604,6 +667,7 @@ impl NativeProjection {
             };
             match event {
                 n::Event::InputResult { sequence, accepted } => {
+                    reward_refusal_presented = false;
                     let input = record.inputs.iter().find(|input| input.sequence == *sequence)
                         .ok_or(Error::StaleProjection)?;
                     accepted_quest_pending_close = *accepted && matches!(input.command, n::Command::AcceptQuest { .. });
@@ -616,7 +680,11 @@ impl NativeProjection {
                         });
                     }
                 }
-                n::Event::QuestProgression(event) => events.extend(self.quest_progression_event(w, event, &mut quest_frame)?),
+                n::Event::QuestProgression(event) => {
+                    reward_refusal_presented |= matches!(event, n::QuestProgressionEvent::RewardRefused { .. });
+                    events.extend(self.quest_progression_event(w, event, &mut quest_frame, &mut loot_frame)?);
+                },
+                n::Event::Loot(event) => events.extend(self.loot_event(w, event, &mut loot_frame)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::RootMovement) => events.push(root_order(self.player_guid, orders)?),
                 n::Event::Death(benilla_sim::player_death::DeathAction::SendDurabilityDamageDeath) => events.push(SessionEvent::DurabilityDamageDeath),
                 n::Event::Death(benilla_sim::player_death::DeathAction::ReleaseUnavailable { .. }) => events.push(SessionEvent::Notification { text: "Spirit release is unavailable: corpse, ghost and graveyard traversal are not implemented".into() }),
@@ -626,6 +694,11 @@ impl NativeProjection {
                         emote_id: 34,
                     })
                 }
+                n::Event::Rejected(n::Rejection::Loot { corpse, reason }) => events.push(SessionEvent::LootError { guid: npc_guid(w, *corpse)?, error: *reason }),
+                // RewardRefused already carries the source error and callback-time offer.
+                n::Event::Rejected(n::Rejection::Quest(_)) if reward_refusal_presented => {
+                    reward_refusal_presented = false;
+                },
                 n::Event::Rejected(r) => events.push(SessionEvent::Notification {
                     text: format!("Native action rejected: {r:?}"),
                 }),
@@ -788,6 +861,8 @@ impl NativeProjection {
             events.push(SessionEvent::GossipComplete);
         }
         quest_frame.finish(w)?;
+        loot_frame.validate_final(w)?;
+        events.extend(loot_frame.finish(self, w));
         events.push(self.player_values(w));
         self.previous = w.state().clone();
         self.previous_digest = record.after;

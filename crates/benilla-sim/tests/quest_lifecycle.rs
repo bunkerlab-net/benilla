@@ -168,8 +168,19 @@ impl Host for Ledger {
             vec![count]
         })
     }
+    fn can_store_reward(
+        &self,
+        _: u32,
+        _: u32,
+        _: &mut Vec<benilla_sim::inventory::Destination>,
+    ) -> Result<benilla_sim::inventory::InventoryResult, Error> {
+        Err(Error::Unsupported("fixture reward items"))
+    }
     fn apply(&mut self, effect: &HostEffect) -> Result<(), Error> {
         match *effect {
+            HostEffect::StoreRewardItem { .. } => {
+                return Err(Error::Unsupported("fixture reward items"))
+            }
             HostEffect::DestroyCarriedStack { item, count } => {
                 *self.carried.get_mut(&item).ok_or(Error::Host("item"))? -= count
             }
@@ -209,6 +220,7 @@ fn event(e: &Event) -> String {
         Event::Host(HostEffect::DestroyCarriedStack { item, count }) => {
             format!("destroy:{item}:{count}")
         }
+        Event::Host(HostEffect::StoreRewardItem { item, count }) => format!("item:{item}:{count}"),
         Event::Host(HostEffect::GiveXp(xp)) => format!("xp:{xp}"),
         Event::Host(HostEffect::ModifyMoney(d)) => format!("money:{d}"),
         Event::RewardAnnouncement { quest, xp } => format!("announce:{quest}:{xp}"),
@@ -249,6 +261,7 @@ fn reward(c: &Catalog, s: &mut State, h: &mut Ledger, id: u32) -> Vec<Event> {
         s,
         h,
         Command::Reward {
+            choice: 0,
             quest: id,
             giver: 900,
             announce: true,
@@ -374,6 +387,7 @@ fn reward_is_atomic_and_exactly_once_across_restore() {
         &h,
         s.next_sequence(),
         Command::Reward {
+            choice: 0,
             quest: 1,
             giver: 900,
             announce: true
@@ -394,6 +408,7 @@ fn reward_is_atomic_and_exactly_once_across_restore() {
             &h,
             sequence,
             Command::Reward {
+                choice: 0,
                 quest: 1,
                 giver: 900,
                 announce: true
@@ -409,6 +424,7 @@ fn reward_is_atomic_and_exactly_once_across_restore() {
             &h,
             s.next_sequence(),
             Command::Reward {
+                choice: 0,
                 quest: 1,
                 giver: 900,
                 announce: true
@@ -439,6 +455,7 @@ fn bank_completion_cannot_pay_carried_turnin() {
         &h,
         s.next_sequence(),
         Command::Reward {
+            choice: 0,
             quest: 1,
             giver: 900,
             announce: true
@@ -723,6 +740,7 @@ fn source_surplus_removal_and_shared_reward_preserve_over_requirement_counters()
         accept(&c, &mut s, &mut h, 2);
         let command = if is_reward {
             Command::Reward {
+                choice: 0,
                 quest: 1,
                 giver: 900,
                 announce: true,

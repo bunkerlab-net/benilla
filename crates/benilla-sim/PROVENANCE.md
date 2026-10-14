@@ -408,3 +408,99 @@ does not itself implement a native world adapter, resting-area/offline clocks,
 honor/reputation rewards, group XP, or production capability admission. The same
 upstream GPL-2.0-or-later grant and retained notices apply; this translation and
 its synthetic oracle are GPL-3.0-or-later.
+
+## Ordinary backpack inventory
+
+`src/inventory.rs` translates bounded ordinary backpack planning, creation,
+cloning, merging and carried requirement removal from the same pinned CMaNGOS
+Classic revision. Existing CMaNGOS Project authorship, GPL-2.0-or-later grant and
+preserved notices apply; the Rust translation and synthetic source-oracle adapter
+are GPL-3.0-or-later, by 2026 Benilla fork contributors. No item/database rows or
+client assets are distributed. [INVENTORY.md](INVENTORY.md) describes exact domain,
+source order, callback/transaction obligations and independent fixture coverage.
+
+The generator checks full-file SHA-256 identities for the already recorded
+`Player.cpp`, `Player.h` and `ObjectMgr.cpp`, plus:
+
+- `src/game/Entities/Item.cpp`:
+  `5e401746527531beb521d3eeaa6bc0b55fceaa0d4aef1e780d4f429a545f72e4`;
+  `Create`, `CreateItem`, `CloneItem`, `CanBeMergedPartlyWith`
+- `src/game/Entities/Item.h`:
+  `a884fd9b01da289e3fd556979a6070091f4588400c29b84851d5e88e193bf414`;
+  exact native `InventoryResult` constants
+- `src/game/Entities/ItemPrototype.h`:
+  `64768cb942d73c17ce00fe76f953a3d7ca3e5e617a5f4c798cb5d259bf931756`;
+  template field types, stack limits, item classes, binding and flags
+
+Player source supplies full planning/storage methods, unique-count checks and
+position membership. Its header's extracted `ItemPosCount` retains the exact
+uint8 count and constructor. ObjectMgr's loader resolves Stackable into 1–255;
+the bounded interface requires already-normalized values rather than silently
+changing native inputs. `tools/generate_inventory_fixture.py` extracts these
+unchanged bodies/declarations into `tools/inventory_oracle.cpp`, then executes
+1,577 planning and 515 creation/callback/metadata cases under UBSan. The source
+oracle uses authored deterministic object adapters and inputs, not a second Rust
+translation. No complete server or native-world capability is asserted.
+
+## Ordinary corpse loot, timer callbacks and quest item rewards (reconstruction)
+
+The 2026-10-14 Rust inventory/loot/runtime/client integration is a new reconstruction;
+the original patch was unavailable. None of its old test claims are inherited.
+CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f` remains the source.
+CMaNGOS contributors retain their copyright and GPL-2.0-or-later notice, without
+warranty. These translations and authored test adapters are GPL-3.0-or-later.
+The fixtures contain synthetic inputs and results, no client assets or private DB.
+
+Additional complete-file SHA-256 witnesses:
+
+- `src/game/Loot/LootMgr.cpp`: `7ffc34395011773310f944cfd7f1c59c23ae3043d0c8634d7665c0bbb5752cce`
+- `src/game/Loot/LootMgr.h`: `932f10d264919235639bb78ad726988f79f0ab4f3bfa3c144b885e6e40f17a20`
+- `src/game/Loot/LootHandler.cpp`: `1bd49276ce292e5991bf7a4f4fd3ac572d00b5230e229c3dd2bcb98c7c686232`
+- `src/game/Quests/QuestHandler.cpp`: `00844a75c11d7532475eb8ae2ed9118a249bf51aa07b06ce4ad3979e80c1b768`
+- `src/shared/Util/Util.h`: `1f53eafa77ab89935c905f331d9ee7e5e2fabf1fca7f812e2e913f19243c5878`
+- `src/shared/Util/Util.cpp`: `f408c8a466a183cabdf96b0f7c18907b8cbb2144d73b0b2e8b81fdf421b43133`
+- `src/game/Entities/Creature.cpp`: `27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302`
+- `src/game/Entities/Player.cpp`: `d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`
+
+`tools/generate_loot_fixture.py` extracts unchanged Roll (LootMgr.cpp 374–391),
+LootItem construction (397–437), AddItem (930–941), GenerateMoneyLoot (1173–1185),
+corpse generation (1711–1731), group and template processing (2397–2477,
+2504–2544, 2606–2670), and Util's source float chance comparison. Its 1,536 UBSan
+vectors substitute explicit distribution outcomes/permutations. They do not prove
+C++ MT engine words or a particular standard library's shuffle implementation.
+
+`tools/generate_loot_timer_fixture.py` extracts Creature's InspectingLoot (2805),
+ReduceCorpseDecayTimer (2818) and SetLootStatus (2831) for 800 UBSan vectors.
+The runtime additionally preserves JUST_DIED's later full expiry assignment and
+source no-op repeated LOOTED transitions, tested at same-tick removal boundaries.
+
+`tools/generate_quest_reward_items_fixture.py` extracts Player's CanRewardQuest
+(12378, 12414), RewardQuest (12611–12766), ItemAddedQuestCheck (13444) and removed
+item callback, combined with exact inventory planning/creation. Its 1,024 vectors
+cover 477 refusals, 1,049 grants and eight later skipped grants in seven cases.
+The backpack-only DestroyItemCount traversal adapter is authored; callback bodies
+and storage planning/creation are extracted. Do not claim the complete server
+DestroyItemCount implementation is executed by that oracle.
+
+Runtime/client packet order is checked against LootMgr's ShowContentTo
+(1467–1515), SendItem (1999–2090), SendGold (2257 onward) and Release (1234–1463):
+Release first unregisters its caller, so a later SendReleaseForAll cannot emit a
+solo response to that caller. Explicit release, missing-slot error then release,
+and money-last release therefore differ from item-last automatic SendReleaseForAll.
+LootHandler 169–178 resolves an explicit release GUID independently of the current
+player loot GUID, so an already queued explicit release after item-last still
+performs the first LOOTED transition; repeated LOOTED is a no-op.
+An exhausted original nonempty item list fails CanLoot on reopen and receives
+SendReleaseFor before registration/InspectingLoot. An originally empty item list
+may still open an empty window. QuestHandler 347–381 checks choice and interaction,
+then calls CanRewardQuest; any reward refusal reopens OfferReward, after an item
+error only when the failed source check sends one. Tests distinguish state changes
+from response packets and durable publication from execution.
+
+Source StoreNewItem reserves its original ID before ItemAddedQuestCheck. Ordinary
+loot uses this callback boundary directly. Reward reduction stages the quest
+callback before invoking its cloned inventory storage host: under the admitted
+host the callback cannot observe instance/allocator IDs or creation hooks, and any
+allocation failure discards the whole tick, making the ordering observationally
+equivalent. Future observable allocation/creation callbacks require explicit
+allocator staging before expanding that domain.

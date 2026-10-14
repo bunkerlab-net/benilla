@@ -2,7 +2,7 @@
 //! Checked AI checkpoints, separate from live non-deserializable authority state.
 use super::*;
 use serde::{Deserialize, Serialize};
-pub const AI_CHECKPOINT_VERSION: u32 = 2;
+pub const AI_CHECKPOINT_VERSION: u32 = 3;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiCheckpoint {
@@ -26,6 +26,9 @@ pub struct AiCheckpoint {
     combat_tick_ms: u32,
     unreachable_ms: u32,
     corpse_at_ms: u64,
+    corpse_timer_previous_ms: u64,
+    corpse_timer_last_ms: u64,
+    corpse_timer_calls: Vec<CorpseTimerCall>,
     respawn_at_ms: u64,
     death_at_ms: Option<u64>,
     despawned_at_ms: Option<u64>,
@@ -53,6 +56,9 @@ impl SoloCreatureAi {
             combat_tick_ms: self.combat_tick_ms,
             unreachable_ms: self.unreachable_ms,
             corpse_at_ms: self.corpse_at_ms,
+            corpse_timer_previous_ms: self.corpse_timer_previous_ms,
+            corpse_timer_last_ms: self.corpse_timer_last_ms,
+            corpse_timer_calls: self.corpse_timer_calls.clone(),
             respawn_at_ms: self.respawn_at_ms,
             death_at_ms: self.death_at_ms,
             despawned_at_ms: self.despawned_at_ms,
@@ -100,7 +106,7 @@ impl SoloCreatureAi {
         if let Some(death) = s.death_at_ms {
             if death > now_ms
                 || death < profile.clock_origin_ms
-                || death.checked_add(u64::from(profile.corpse_decay_ms)) != Some(s.corpse_at_ms)
+                || !s.valid_loot_timer(death, &profile)
                 || (death / 1000)
                     .checked_add(u64::from(profile.respawn_delay_seconds))
                     .and_then(|x| x.checked_mul(1000))
@@ -109,7 +115,11 @@ impl SoloCreatureAi {
             {
                 return Err(AiError::Invalid("AI checkpoint death timers"));
             }
-        } else if matches!(s.phase, Phase::Corpse | Phase::Despawned) {
+        } else if matches!(s.phase, Phase::Corpse | Phase::Despawned)
+            || !s.corpse_timer_calls.is_empty()
+            || s.corpse_timer_last_ms != 0
+            || s.corpse_timer_previous_ms != 0
+        {
             return Err(AiError::Invalid("AI checkpoint missing death instant"));
         }
         if let Some(at) = s.despawned_at_ms {
@@ -181,6 +191,9 @@ impl SoloCreatureAi {
             combat_tick_ms: s.combat_tick_ms,
             unreachable_ms: s.unreachable_ms,
             corpse_at_ms: s.corpse_at_ms,
+            corpse_timer_previous_ms: s.corpse_timer_previous_ms,
+            corpse_timer_last_ms: s.corpse_timer_last_ms,
+            corpse_timer_calls: s.corpse_timer_calls,
             respawn_at_ms: s.respawn_at_ms,
             death_at_ms: s.death_at_ms,
             despawned_at_ms: s.despawned_at_ms,
@@ -245,5 +258,40 @@ impl SoloCreatureAi {
     }
     pub fn last_movement_request_id(&self) -> u64 {
         self.movement_request_id
+    }
+}
+
+impl AiCheckpoint {
+    fn valid_loot_timer(&self, death: u64, profile: &Profile) -> bool {
+        if self.corpse_timer_calls.len() > 1
+            || self.corpse_timer_last_ms < death
+            || self.corpse_timer_last_ms > self.now_ms
+            || self
+                .despawned_at_ms
+                .is_some_and(|at| self.corpse_timer_last_ms > at)
+        {
+            return false;
+        }
+        let Some(call) = self.corpse_timer_calls.first() else {
+            return self.corpse_timer_previous_ms == 0
+                && death.checked_add(u64::from(profile.corpse_decay_ms))
+                    == Some(self.corpse_at_ms);
+        };
+        if call.delay_ms == 0
+            || call.at_ms < death
+            || call.at_ms > self.corpse_timer_last_ms
+            || self.corpse_timer_previous_ms < death
+        {
+            return false;
+        }
+        let Some(until) = call.at_ms.checked_add(u64::from(call.delay_ms)) else {
+            return false;
+        };
+        let expected = if call.inspecting {
+            self.corpse_timer_previous_ms.max(until)
+        } else {
+            self.corpse_timer_previous_ms.min(until)
+        };
+        expected == self.corpse_at_ms && expected != self.corpse_timer_previous_ms
     }
 }

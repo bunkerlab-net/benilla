@@ -177,6 +177,7 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
         quest: 70001,
     };
     let data = QuestProgressionInput {
+        loot: None,
         dialog_rules: QuestDialogRules {
             always_show_quest_greeting: true,
             low_level_hide_diff: 5,
@@ -396,4 +397,62 @@ pub fn learned_setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
     }
     profile.initialize_player(&input, float(100.0), 1).unwrap();
     (profile, input, data)
+}
+
+/// Authored phase-sensitive recipe, shared by runtime/projection/controller tests.
+/// The learned successor-like ID is distinct and must never replace a pending cast.
+pub fn release_setup(expensive: bool) -> (Profile, init::StarterInput, QuestProgressionInput) {
+    let (mut profile, mut input, mut data) = learned_setup();
+    let init::Rows::Complete(links) = &mut input.skill_abilities else {
+        unreachable!()
+    };
+    for row in links
+        .iter_mut()
+        .filter(|row| row.spell == 60005 || row.spell == 60004)
+    {
+        row.required_value = 11;
+    }
+    let raw = input.spells.iter_mut().find(|row| row.id == 60001).unwrap();
+    raw.words[32] = if expensive { 45 } else { 39 };
+    raw.words[33] = if expensive { 200 } else { 3 };
+    let mut other = profile.npcs[0].clone();
+    other.ai.creature_id = 4;
+    other.entry = 60004;
+    other.max_health = 3000;
+    other.ai.spawn = point(2.0);
+    profile.npcs.push(other);
+    let mut row = data.kill.creatures[0].clone();
+    row.entry = 60004;
+    row.reputation = kill::ReputationAdmission::ProvenAbsentOnKillRow { entry: 60004 };
+    data.kill.creatures.push(row);
+    for ability in [&mut profile.abilities[0], &mut data.abilities[0].ability] {
+        let AbilityAdmission::Available(spec) = &mut ability.admission else {
+            unreachable!()
+        };
+        spec.cast_ms = super::spell::cast_time(400, -50, 100, spec.spell_rank, 1).unwrap();
+        spec.mana_cost =
+            super::spell::mana_cost(raw.words[32], raw.words[33], 0, 59, spec.spell_rank, 1)
+                .unwrap();
+        if let super::spell::MageEffect::SchoolDamage(value) = &mut spec.effects[0] {
+            value.points_per_level = float(50.0);
+            value.dice_per_level = float(5.0);
+            value.die_sides = 0;
+        }
+        if let super::spell::MageEffect::PeriodicDamage { value, .. } = &mut spec.effects[1] {
+            value.points_per_level = float(10.0);
+        }
+    }
+    data.abilities[0].cast_time = Some(CastTimeRow {
+        id: 77,
+        base_ms: 400,
+        per_level_ms: -50,
+        minimum_ms: 100,
+    });
+    profile.initialize_player(&input, float(100.0), 1).unwrap();
+    (profile, input, data)
+}
+pub fn release_profile(expensive: bool) -> Profile {
+    let (mut profile, input, data) = release_setup(expensive);
+    profile.initialize_quest_progression(&input, data).unwrap();
+    profile
 }

@@ -1100,3 +1100,25 @@ fn next_tick_from_an_independently_progressed_world_is_not_projected() {
     assert!(matches!(pa.tick(&b), Err(Error::StaleProjection)));
     step(&mut a, &mut pa, None);
 }
+
+#[test]
+fn original_adapter_refuses_native_reward_choice_without_mutation() {
+    let w = world();
+    let p = projection(&w);
+    let giver = npc(&p, &w, 1);
+    let before = w.snapshot_bytes().unwrap();
+    for choice in [0, 5, 6] {
+        assert!(matches!(
+            p.commands().local(
+                &w,
+                UiRequest::ChooseQuestReward {
+                    quest: 1,
+                    giver,
+                    choice
+                }
+            ),
+            Err(Error::UnsupportedCommand)
+        ));
+    }
+    assert_eq!(w.snapshot_bytes().unwrap(), before);
+}

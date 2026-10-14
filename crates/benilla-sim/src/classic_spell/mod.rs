@@ -14,7 +14,7 @@ pub use numeric::{
 };
 use std::collections::BTreeMap;
 
-pub const SPELL_EXECUTION_POLICY_ID: &str = "cmangos-8ec338a1-mage-projectile-periodic-binary32-v1";
+pub const SPELL_EXECUTION_POLICY_ID: &str = "cmangos-8ec338a1-mage-projectile-periodic-binary32-v2";
 const MAX_AMOUNT: u32 = 1_000_000;
 const MAX_TIME: u32 = 3_600_000;
 
@@ -123,6 +123,52 @@ impl MageProjectileSpec {
             ));
         }
         Ok(())
+    }
+}
+/// Current source-authorized skill rank and power cost for the original spell.
+/// Spell::CheckPower and launch effects re-evaluate these at release; Prepare's
+/// SpellEntry, timer, GCD, pushback and effect metadata stay captured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MageProjectileReleaseContext {
+    pub spell_rank: u16,
+    pub mana_cost: u32,
+}
+impl MageProjectileReleaseContext {
+    /// Both recipes must be independently resolved from source-authoritative
+    /// context. A changed newly computed cast time is ignored for this cast.
+    pub fn from_specs(
+        prepared: &MageProjectileSpec,
+        current: &MageProjectileSpec,
+    ) -> Result<Self, SpellError> {
+        prepared.validate()?;
+        current.validate()?;
+        let mut immutable = current.clone();
+        immutable.cast_ms = prepared.cast_ms;
+        immutable.spell_rank = prepared.spell_rank;
+        immutable.mana_cost = prepared.mana_cost;
+        if immutable != *prepared {
+            return Err(SpellError::Unsupported(
+                "release changes prepared spell metadata",
+            ));
+        }
+        Ok(Self {
+            spell_rank: current.spell_rank,
+            mana_cost: current.mana_cost,
+        })
+    }
+    fn apply(self, prepared: &MageProjectileSpec) -> Result<MageProjectileSpec, SpellError> {
+        let mut current = prepared.clone();
+        current.spell_rank = self.spell_rank;
+        current.mana_cost = self.mana_cost;
+        current.validate()?;
+        Ok(current)
+    }
+    fn unchanged(prepared: &MageProjectileSpec) -> Self {
+        Self {
+            spell_rank: prepared.spell_rank,
+            mana_cost: prepared.mana_cost,
+        }
     }
 }
 /// Isolated mutable state; persistence needs a separate adapter. Milliseconds are simulation
@@ -364,6 +410,7 @@ pub struct PeriodicDamageAura {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MageProjectileCast {
     spec: MageProjectileSpec,
+    release: Option<MageProjectileReleaseContext>,
     caster_id: u64,
     target_id: u64,
     created_ms: u64,
@@ -425,6 +472,7 @@ impl MageProjectileCast {
         Ok((
             Self {
                 spec,
+                release: None,
                 caster_id,
                 target_id,
                 created_ms: now_ms,
@@ -524,9 +572,36 @@ impl MageProjectileCast {
         checks: CastChecks,
         launch: Option<LaunchContext>,
     ) -> Result<Vec<SpellEvent>, SpellError> {
+        self.update_with_release(now_ms, diff_ms, resources, checks, launch, None)
+    }
+    /// Bind release-current rank/cost only on a release-due update. Context on
+    /// an early, creation, traveling or finished update is an atomic error.
+    /// Failed release checks consume no launch dice and retain no context.
+    pub fn update_with_release(
+        &mut self,
+        now_ms: u64,
+        diff_ms: u32,
+        resources: &mut CasterResources,
+        checks: CastChecks,
+        launch: Option<LaunchContext>,
+        release: Option<MageProjectileReleaseContext>,
+    ) -> Result<Vec<SpellEvent>, SpellError> {
+        if release.is_some() && !self.release_due(now_ms, diff_ms) {
+            return Err(SpellError::State("release context outside release update"));
+        }
+        let current = release
+            .unwrap_or_else(|| MageProjectileReleaseContext::unchanged(&self.spec))
+            .apply(&self.spec)?;
         let mut next = self.clone();
         let mut next_resources = resources.clone();
-        let events = next.update_inner(now_ms, diff_ms, &mut next_resources, checks, launch)?;
+        let events = next.update_inner(
+            now_ms,
+            diff_ms,
+            &mut next_resources,
+            checks,
+            launch,
+            &current,
+        )?;
         *self = next;
         *resources = next_resources;
         Ok(events)
@@ -538,6 +613,7 @@ impl MageProjectileCast {
         resources: &mut CasterResources,
         checks: CastChecks,
         launch: Option<LaunchContext>,
+        current: &MageProjectileSpec,
     ) -> Result<Vec<SpellEvent>, SpellError> {
         if now_ms < self.last_update_ms || diff_ms > MAX_TIME {
             return Err(SpellError::Domain("cast time progression"));
@@ -600,7 +676,7 @@ impl MageProjectileCast {
             }
             return Ok(Vec::new());
         }
-        if let Some(failure) = Self::check(&self.spec, resources, checks, now_ms, false) {
+        if let Some(failure) = Self::check(current, resources, checks, now_ms, false) {
             if launch.is_some() {
                 return Err(SpellError::Roll("launch dice on failed release check"));
             }
@@ -609,7 +685,7 @@ impl MageProjectileCast {
             return Ok(vec![SpellEvent::Failed(failure)]);
         }
         let launch = launch.ok_or(SpellError::State("launch context required"))?;
-        let payload = resolve_payload(&self.spec, launch)?;
+        let payload = resolve_payload(current, launch)?;
         let delay = projectile_delay(launch.distance_squared, self.spec.projectile_speed)?;
         let impact_at_ms = now_ms
             .checked_add(u64::from(delay))
@@ -628,16 +704,17 @@ impl MageProjectileCast {
                 .categories
                 .insert(self.spec.category, category_until);
         }
-        resources.mana -= self.spec.mana_cost;
-        if self.spec.mana_cost > 0 {
+        resources.mana -= current.mana_cost;
+        if current.mana_cost > 0 {
             resources.last_mana_use_ms = Some(now_ms);
         }
         self.payload = Some(payload);
         self.launch = Some(launch);
+        self.release = Some(MageProjectileReleaseContext::unchanged(current));
         self.state = CastState::Traveling { impact_at_ms };
         Ok(vec![
             SpellEvent::CooldownStarted,
-            SpellEvent::ManaSpent(self.spec.mana_cost),
+            SpellEvent::ManaSpent(current.mana_cost),
             SpellEvent::Launched { impact_at_ms },
         ])
     }
@@ -645,6 +722,8 @@ impl MageProjectileCast {
     /// immunity path. Unsupported mechanics are not modeled by `allowed`.
     /// Apply aura first, then accumulated direct damage; lethal hits remove aura.
     /// Only the same spell+caster can replace an existing nonstacking aura.
+    /// Uses release rank, assuming no post-release rank change; otherwise callers
+    /// must supply the current source-derived rank to impact_at_rank.
     pub fn impact(
         &mut self,
         now_ms: u64,
@@ -654,7 +733,7 @@ impl MageProjectileCast {
         aura_rolls: [Option<i32>; 3],
     ) -> Result<Vec<SpellEvent>, SpellError> {
         self.impact_at_rank(
-            self.spec.spell_rank,
+            self.release.map_or(self.spec.spell_rank, |r| r.spell_rank),
             now_ms,
             target,
             allowed,

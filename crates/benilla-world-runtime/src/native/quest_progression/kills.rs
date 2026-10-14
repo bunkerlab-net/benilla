@@ -42,8 +42,19 @@ pub struct NativeKillPolicy {
     pub creatures: Vec<KillCreatureRow>,
 }
 impl NativeKillPolicy {
-    pub(in crate::native) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
+    pub(in crate::native) fn validate(
+        &self,
+        profile: &Profile,
+        loot_present: bool,
+    ) -> Result<(), NativeError> {
         self.rules.validate()?;
+        if self.audit.native_loot_or_money == pg::Evidence::Unknown
+            || (!loot_present && self.audit.native_loot_or_money != pg::Evidence::Absent)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "native loot/money host required",
+            ));
+        }
         if self.creatures.len() > 4096
             || self.creatures.windows(2).any(|w| w[0].entry >= w[1].entry)
             || self.clock.offline_intervals != pg::Evidence::Absent
@@ -53,7 +64,6 @@ impl NativeKillPolicy {
                 &self.audit.kill_scripts,
                 &self.audit.other_damage_sources,
                 &self.audit.tap_overrides,
-                &self.audit.native_loot_or_money,
             ]
             .iter()
             .any(|e| **e != pg::Evidence::Absent)
@@ -212,6 +222,9 @@ impl QuestProgressionState {
         )?;
         let abilities = g.resolve_abilities(&tx.host.progression.training, tx.state.view())?;
         let mut next = Self {
+            inventory: self.inventory.clone(),
+            inventory_receipts: self.inventory_receipts.clone(),
+            loot_target: self.loot_target,
             quests: self.quests.clone(),
             player: tx.state,
             training: tx.host.progression.training.snapshot(),

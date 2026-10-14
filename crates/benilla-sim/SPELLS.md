@@ -91,6 +91,61 @@ unchanged; the caller must reject the unsupported world transaction rather than
 keep advancing or fabricate a result. A future native adapter must preflight
 its world domain and preserve the enclosing committed state on such errors.
 
+## Prepare, release and impact contexts
+
+`MageProjectileCast` keeps its exact prepared `MageProjectileSpec` immutable.
+The pinned `Spell.cpp` constructor (389–425) captures `m_spellInfo` and effect
+base point slots; `Spell::Prepare` (3022–3096) computes the cast time once,
+resets its timer and adds GCD. A later level/skill change does not replace the
+prepared spell identity, effect metadata, timer, pushback cap, movement flags,
+projectile speed or cooldown metadata. In particular, learning another spell
+never substitutes that spell for an already preparing spell.
+
+`MageProjectileReleaseContext::from_specs` accepts two independently resolved
+source recipes only when all fields match except evaluated skill rank, mana
+cost and newly computed cast time. The new cast time is deliberately ignored.
+`update_with_release` accepts that rank/cost context only on a release-due
+update, and binds it only after a successful launch. Existing `update` binds
+the unchanged prepare rank/cost, for hosts that exclude intervening changes.
+Current source rank means `GetSpellRank`, not replacement of the spell entry.
+
+`Spell::cast` calls `CheckCast(false)` (3160 onward), which invokes `CheckPower`
+(5153). `CheckPower` and `CalculatePowerCost` (6311–6401) use current skill rank
+and create mana. A valid intervening reward can therefore be followed by a
+NoPower release failure: no launch dice, mana spend or new cooldowns, while the
+prepare GCD remains. `release_failure_with_context` lets hosts check this before
+consuming any RNG. It does not bind context, and hosts must separately gate it
+on `release_due`. Cancellation before release still resets the prepare GCD.
+`TakePower` (4379–4405) marks last mana use only for a positive release cost.
+
+The direct payload/crit is fixed by `HandleImmediateEffectExecution`
+(1612–1652) at launch. `HandleEffect` (4579 onward) evaluates effects through
+`Object.cpp::CalculateSpellEffectValue` (2916 onward), so ordinary periodic
+amounts use current impact rank. Convenience `impact` defaults to the stored
+release rank and assumes there was no subsequent change; `impact_at_rank`
+explicitly supplies current source-derived impact rank. Neither changes the
+already launched direct payload.
+
+## Persistence compatibility
+
+`CAST_CHECKPOINT_VERSION` is 2; resource and aura
+`SPELL_CHECKPOINT_VERSION` remains 1. Cast checkpoints include the exact
+`prepared_spec` and an optional release context. Deserialized values are only
+witnesses: restore requires an independently reconstructed prepare recipe that
+exactly equals the saved recipe. Casting requires no release context; Traveling
+requires one, and payload reconstruction uses its rank while timer/pushback
+validation uses the prepared recipe. Mana-marker validation uses release cost.
+
+`restore_with_release` also requires the independently source-derived release
+context to exactly match the saved context. The convenience `restore` can only
+authorize unchanged-context casts. Missing, forged or substituted witnesses
+fail; a checkpoint cannot authorize its own new rank or cost. Version-1 cast
+checkpoints are rejected rather than silently migrated. The native runtime is
+the workspace consumer of these cast checkpoints; the separate authored-world,
+encounter/session and exploration persistence do not use this DTO. Hosts must
+bind both histories and release clocks independently and include the bumped
+spell execution policy in compatibility checks.
+
 ## Numeric and RNG contract
 
 Include `SPELL_EXECUTION_POLICY_ID` in any future world/rules compatibility hash.
@@ -185,3 +240,21 @@ sequences for cast/cost/cooldown/travel/direct/periodic damage, cancellation,
 release recheck, pushback, immunity, death, aura replacement, unknown effects,
 roll misuse, cross-caster refusal and atomic errors. These are bounded component
 proofs, not whole-server trace parity or a live player/client acceptance test.
+
+`tools/generate_spell_release_fixture.py` additionally verifies exact SHA-256
+for `Spell.cpp`, `Spell.h`, `SpellMgr.cpp` and `Object.cpp`, reusing the numeric
+extractor helpers. It inserts the unchanged contiguous prepare timer block,
+inline `ReSetTimer`, casting-update branch, full `CheckPower` and `TakePower`,
+and bounded cost/cast/effect arithmetic into an authored C++ adapter. The
+adapter does not execute full `Prepare`, `Spell::cast`, `CheckCast`, target
+selection or launch/impact machinery. Those orchestration boundaries require
+the source audit above and host regression tests.
+
+The release oracle emits 72 original rows: prepare ranks 5/10/15, release ranks
+5/10/20, release create mana 100/250 and available mana 0/10/30/100, with impact
+rank 25. Eight unchanged-rank rows isolate the percentage-cost floor changing
+from 1 to 2. `tests/classic_spell_release.rs` matches every row and exercises
+immutable metadata, prepared timer/pushback/GCD, changed-context replay,
+independent witness validation, zero/positive mana marker changes, early/flight
+rebinding refusal, bad dice and no-RNG failed release. The fixture is newly
+regenerated evidence, not byte-for-byte recovery of a historical fixture.

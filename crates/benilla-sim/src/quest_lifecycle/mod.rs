@@ -9,7 +9,7 @@ mod model;
 use crate::quest::{self, QuestPlayerIdentity, RewardContext};
 pub use model::*;
 
-pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v1";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-ordinary-quest-lifecycle-v2";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     Unsupported(&'static str),
@@ -46,6 +46,11 @@ pub enum Gate {
     Items,
     Money,
     Giver,
+    RewardChoice,
+    RewardStorage {
+        item: u32,
+        result: crate::inventory::InventoryResult,
+    },
 }
 
 /// Explicit execution context; group and unknown contexts are outside this reducer.
@@ -67,6 +72,12 @@ pub trait Host: Clone {
     fn item_count(&self, item: u32, include_bank: bool) -> Result<u32, Error>;
     /// Exact source DestroyItemCount stack traversal, each step in deletion order.
     fn removal_steps(&self, item: u32, count: u32) -> Result<Vec<u32>, Error>;
+    fn can_store_reward(
+        &self,
+        item: u32,
+        count: u32,
+        destinations: &mut Vec<crate::inventory::Destination>,
+    ) -> Result<crate::inventory::InventoryResult, Error>;
     /// Apply only the staged host mutation, without recursively invoking quest
     /// callbacks; this reducer performs those at their exact source positions.
     fn apply(&mut self, effect: &HostEffect) -> Result<(), Error>;
@@ -75,6 +86,7 @@ pub trait Host: Clone {
 #[serde(deny_unknown_fields)]
 pub enum HostEffect {
     DestroyCarriedStack { item: u32, count: u32 },
+    StoreRewardItem { item: u32, count: u32 },
     GiveXp(u32),
     ModifyMoney(i32),
 }
@@ -137,7 +149,7 @@ pub enum Command {
         entry: u32,
         guid: u64,
     },
-    /// Source ItemAddedQuestCheck after the caller's staged inventory addition.
+    /// Source ItemAddedQuestCheck after creation and BEFORE the staged inventory store.
     /// The supplied host and returned state must be committed in the SAME transaction.
     ItemAdded {
         item: u32,
@@ -157,6 +169,7 @@ pub enum Command {
         quest: u32,
         giver: u32,
         announce: bool,
+        choice: u32,
     },
 }
 #[derive(Clone, Debug)]
@@ -331,7 +344,91 @@ pub fn can_reward(
     if host.money() < money_required(q, host)? {
         return Err(Error::Rejected(Gate::Money));
     }
-    // No choice/fixed reward items: their complete storage/equip/random-property rules are excluded.
+    Ok(())
+}
+pub fn reward_items(row: &QuestRow, choice: u32) -> Result<Vec<(u32, u32)>, Error> {
+    if choice >= 6 {
+        return Err(Error::Rejected(Gate::RewardChoice));
+    }
+    Ok(std::iter::once((
+        row.excluded.reward_choice_item[choice as usize],
+        row.excluded.reward_choice_count[choice as usize],
+    ))
+    .chain(
+        row.excluded
+            .reward_item
+            .into_iter()
+            .zip(row.excluded.reward_item_count),
+    )
+    .filter(|(item, _)| *item != 0)
+    .collect())
+}
+pub fn can_reward_choice(
+    catalog: &Catalog,
+    state: &State,
+    host: &impl Host,
+    id: u32,
+    choice: u32,
+) -> Result<(), Error> {
+    can_reward(catalog, state, host, id)?;
+    let mut destinations = vec![];
+    for (item, count) in reward_items(catalog.row(id)?, choice)? {
+        let result = host.can_store_reward(item, count, &mut destinations)?;
+        if result != crate::inventory::InventoryResult::Ok {
+            return Err(Error::Rejected(Gate::RewardStorage { item, result }));
+        }
+    }
+    Ok(())
+}
+fn item_added(
+    catalog: &Catalog,
+    state: &mut State,
+    host: &impl Host,
+    item: u32,
+    count: u32,
+    events: &mut Vec<Event>,
+) -> Result<(), Error> {
+    if item == 0 || count == 0 {
+        return Err(Error::Invalid("item_addition"));
+    }
+    for id in state.snapshot.log.into_iter().flatten() {
+        let q = catalog.row(id)?;
+        if state.progress(id).expect("log").status != Status::Incomplete {
+            continue;
+        }
+        for i in 0..OBJECTIVES {
+            if q.required_item[i] != item {
+                continue;
+            }
+            let p = state.snapshot.records.get_mut(&id).expect("log");
+            let previous = p.items[i];
+            let required = q.required_item_count[i];
+            if previous < required {
+                // Exclude source wraparound rather than invent a saturated amount.
+                let sum = previous
+                    .checked_add(count)
+                    .ok_or(Error::Invalid("item_add_overflow"))?;
+                let added = if sum <= required {
+                    count
+                } else {
+                    required - previous
+                };
+                p.items[i] += added;
+                events.push(Event::ItemCredit {
+                    quest: id,
+                    objective: i,
+                    previous,
+                    added,
+                });
+            }
+            if !maybe_complete(catalog, state, host, id, events)?
+                && state.progress(id).expect("log").items[i] == required
+            {
+                events.push(Event::WorldObjects { view: state.view() });
+            }
+        }
+    }
+
     Ok(())
 }
 fn set_status(state: &mut State, id: u32, status: Status, events: &mut Vec<Event>) {
@@ -556,46 +653,7 @@ pub fn reduce<H: Host>(
             }
         }
         Command::ItemAdded { item, count } => {
-            if item == 0 || count == 0 || host.item_count(item, false)? < count {
-                return Err(Error::Invalid("item_addition"));
-            }
-            for id in state.snapshot.log.into_iter().flatten() {
-                let q = catalog.row(id)?;
-                if state.progress(id).expect("log").status != Status::Incomplete {
-                    continue;
-                }
-                for i in 0..OBJECTIVES {
-                    if q.required_item[i] != item {
-                        continue;
-                    }
-                    let p = state.snapshot.records.get_mut(&id).expect("log");
-                    let previous = p.items[i];
-                    let required = q.required_item_count[i];
-                    if previous < required {
-                        // Exclude source wraparound rather than invent a saturated amount.
-                        let sum = previous
-                            .checked_add(count)
-                            .ok_or(Error::Invalid("item_add_overflow"))?;
-                        let added = if sum <= required {
-                            count
-                        } else {
-                            required - previous
-                        };
-                        p.items[i] += added;
-                        events.push(Event::ItemCredit {
-                            quest: id,
-                            objective: i,
-                            previous,
-                            added,
-                        });
-                    }
-                    if !maybe_complete(catalog, &mut state, &host, id, &mut events)?
-                        && state.progress(id).expect("log").items[i] == required
-                    {
-                        events.push(Event::WorldObjects { view: state.view() });
-                    }
-                }
-            }
+            item_added(catalog, &mut state, &host, item, count, &mut events)?
         }
         Command::RemoveItems { item, count } => {
             if item == 0 {
@@ -613,6 +671,7 @@ pub fn reduce<H: Host>(
             quest: id,
             giver,
             announce,
+            choice,
         } => {
             if !catalog
                 .relations
@@ -624,7 +683,7 @@ pub fn reduce<H: Host>(
             {
                 return Err(Error::Rejected(Gate::Giver));
             }
-            can_reward(catalog, &state, &host, id)?;
+            can_reward_choice(catalog, &state, &host, id, choice)?;
             let q = catalog.row(id)?;
             let quote = quest::reward_quote(q.reward, host.reward_context())?;
             // Preflight the complete numerical block before mutation.
@@ -646,6 +705,18 @@ pub fn reduce<H: Host>(
                 }
             }
             events.push(Event::RemoveTimedQuest(id));
+            for (item, count) in reward_items(q, choice)? {
+                // Source makes a fresh plan after requirement removal. A legitimate
+                // later unique/capacity refusal skips only this grant.
+                if host.can_store_reward(item, count, &mut vec![])?
+                    == crate::inventory::InventoryResult::Ok
+                {
+                    item_added(catalog, &mut state, &host, item, count, &mut events)?;
+                    let effect = HostEffect::StoreRewardItem { item, count };
+                    host.apply(&effect)?;
+                    events.push(Event::Host(effect));
+                }
+            }
             events.push(Event::RewardReputation(id)); // Proven no-op by row admission.
             if let Some(slot) = logged(&state, id) {
                 state.snapshot.log[slot] = None;

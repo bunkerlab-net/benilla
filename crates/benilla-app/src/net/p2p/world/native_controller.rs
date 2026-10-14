@@ -42,6 +42,11 @@ enum Intent {
     Command { ticket: u64, command: n::Command },
     CancelCast { spell_id: u32, target: CancelTarget },
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PublishedLoot {
+    guid: u64,
+    corpse: NpcHandle,
+}
 struct PendingTick {
     inputs: Vec<n::OwnedInput>,
     moving: bool,
@@ -107,6 +112,7 @@ pub(crate) struct NativeController {
     selected: Selection,
     authority: LocalAuthority,
     orders: MovementOrders,
+    loot_window: Option<PublishedLoot>,
     initial: Option<Vec<SessionEvent>>,
     initial_fields: benilla_protocol::ObjectFields,
     actions: VecDeque<Intent>,
@@ -200,6 +206,7 @@ impl NativeController {
             selected,
             authority: LocalAuthority(Box::new(authority)),
             orders,
+            loot_window: None,
             initial: Some(initial),
             initial_fields,
             actions: VecDeque::new(),
@@ -231,6 +238,87 @@ impl NativeController {
             return Err(benilla_world_client::Error::UnavailableQuest.into());
         }
         Ok(())
+    }
+    fn published(&mut self, events: &[SessionEvent]) {
+        self.orders.emitted(events);
+        for event in events {
+            match event {
+                SessionEvent::LootResponse { guid, .. } => {
+                    // Stock item/money packets have no GUID. Only the actual published panel
+                    // binds their corpse; a queued open or restored target grants no panel.
+                    self.loot_window =
+                        self.projection
+                            .capture_npc(*guid)
+                            .ok()
+                            .map(|corpse| PublishedLoot {
+                                guid: *guid,
+                                corpse,
+                            });
+                }
+                SessionEvent::LootReleaseResponse { guid, result } if *result != 0 => {
+                    if self.loot_window.is_some_and(|window| window.guid == *guid) {
+                        self.loot_window = None;
+                    }
+                }
+                SessionEvent::ObjectDestroyed(guid)
+                    if self.loot_window.is_some_and(|window| window.guid == *guid) =>
+                {
+                    self.loot_window = None;
+                }
+                _ => {}
+            }
+        }
+        // Explicit/missing-slot Release removes the looter before SendReleaseForAll,
+        // so no response packet exists. Retire these rights only at publication.
+        if self.loot_window.is_some_and(|window| {
+            self.world
+                .state()
+                .quest_progression
+                .as_ref()
+                .and_then(|q| q.loot_target)
+                != Some(window.corpse.id)
+        }) {
+            self.loot_window = None;
+        }
+    }
+    fn ensure_no_pending_loot_open(&self) -> Result<(), Error> {
+        // An open already in flight may replace the published old panel before a
+        // GUID-less click executes. Reject that ambiguity instead of guessing its source.
+        if self.actions.iter().any(|intent| {
+            matches!(
+                intent,
+                Intent::Command {
+                    command: n::Command::OpenLoot { .. },
+                    ..
+                }
+            )
+        }) || self.pending.as_ref().is_some_and(|pending| {
+            pending
+                .inputs
+                .iter()
+                .any(|input| matches!(input.input.command, n::Command::OpenLoot { .. }))
+        }) {
+            return Err(Error::Backpressure);
+        }
+        Ok(())
+    }
+    fn capture_loot_window(&self) -> Result<PublishedLoot, Error> {
+        self.ensure_no_pending_loot_open()?;
+        let window = self
+            .loot_window
+            .ok_or(benilla_world_client::Error::LootNotOpen)?;
+        if self
+            .world
+            .state()
+            .quest_progression
+            .as_ref()
+            .and_then(|p| p.loot_target)
+            != Some(window.corpse.id)
+            || self.projection.capture_npc(window.guid).ok() != Some(window.corpse)
+        {
+            return Err(benilla_world_client::Error::LootNotOpen.into());
+        }
+        Ok(window)
     }
     fn tick_duration(&self) -> Duration {
         Duration::from_millis(u64::from(self.world.profile().tick_ms))
@@ -372,7 +460,7 @@ impl NativeController {
             out.saved = Some(self.checkpoint()?);
             self.publish_pending(&mut out.events);
         } else {
-            self.orders.emitted(&projected);
+            self.published(&projected);
             out.events.extend(projected);
         }
         Ok(())
@@ -386,7 +474,7 @@ impl NativeController {
             .is_some_and(|batch| batch.saved.is_some())
         {
             let batch = self.outbox.take().expect("durable pending events");
-            self.orders.emitted(&batch.events);
+            self.published(&batch.events);
             events.extend(batch.events);
         }
     }
@@ -428,7 +516,9 @@ impl NativeController {
 }
 impl Driven for NativeController {
     fn initial_events(&mut self) -> Result<Vec<SessionEvent>, Error> {
-        self.initial.take().ok_or(Error::Closed)
+        let events = self.initial.take().ok_or(Error::Closed)?;
+        self.published(&events);
+        Ok(events)
     }
     fn initial_player_fields(&self) -> Result<benilla_protocol::ObjectFields, Error> {
         Ok(self.initial_fields.clone())
@@ -586,16 +676,59 @@ impl Driven for NativeController {
                     .local(&self.world, UiRequest::AcceptQuest { quest, giver })?;
                 self.queue(input.input.command)?;
             }
-            ClientCommand::QuestgiverChooseReward {
-                npc,
-                quest,
-                choice: 0,
-            } => {
+            ClientCommand::QuestgiverChooseReward { npc, quest, choice } => {
+                // HandleQuestgiverChooseRewardOpcode checks bounds before giver lookup.
+                if choice >= 6 {
+                    return Err(Error::UnsupportedCommand);
+                }
                 let giver = self.projection.capture_npc(npc)?;
+                let input = self.projection.local(
+                    &self.world,
+                    UiRequest::ChooseQuestReward {
+                        quest,
+                        giver,
+                        choice,
+                    },
+                )?;
+                self.queue(input.input.command)?;
+            }
+            ClientCommand::Loot { guid } => {
+                self.ensure_no_pending_loot_open()?;
+                let corpse = self.projection.capture_npc(guid)?;
                 let input = self
                     .projection
-                    .local(&self.world, UiRequest::TurnInQuest { quest, giver })?;
+                    .local(&self.world, UiRequest::OpenLoot(corpse))?;
                 self.queue(input.input.command)?;
+            }
+            ClientCommand::AutostoreLootItem { slot } => {
+                let target = self.capture_loot_window()?.corpse;
+                let input = self
+                    .projection
+                    .local(&self.world, UiRequest::TakeLootItem { target, slot })?;
+                self.queue(input.input.command)?;
+            }
+            ClientCommand::LootMoney => {
+                let target = self.capture_loot_window()?.corpse;
+                let input = self
+                    .projection
+                    .local(&self.world, UiRequest::TakeLootMoney(target))?;
+                self.queue(input.input.command)?;
+            }
+            ClientCommand::LootRelease { guid } => {
+                let window = self.capture_loot_window()?;
+                if window.guid != guid {
+                    return Err(benilla_world_client::Error::LootNotOpen.into());
+                }
+                let input = self
+                    .projection
+                    .local(&self.world, UiRequest::ReleaseLoot(window.corpse))?;
+                self.queue(input.input.command)?;
+                // The client closes immediately when it sends release. Later GUID-less
+                // clicks cannot attach to this panel or to a pending replacement panel.
+                self.loot_window = None;
+            }
+            ClientCommand::ItemQuery { entry, .. } => {
+                events.push(self.projection.item_query(&self.world, entry)?);
             }
             ClientCommand::QuestQuery { quest } => {
                 events.push(self.projection.quest_template(&self.world, quest)?);

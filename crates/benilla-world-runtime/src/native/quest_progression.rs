@@ -3,7 +3,8 @@
 //! Genesis requires actual rows and complete absence proofs; it grants no native capability.
 use super::*;
 use benilla_sim::{
-    player_progression as pg, quest as arithmetic, quest_lifecycle as q, starter_init as init,
+    inventory as inv, player_progression as pg, quest as arithmetic, quest_lifecycle as q,
+    starter_init as init,
 };
 use pg::{
     derived::{DerivedAudit, DerivedInputs, DerivedStats},
@@ -19,7 +20,7 @@ pub use derived::DerivedCall;
 pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillPolicy};
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-progression-reconstruction-v2";
+    "benilla-native-ordinary-quest-progression-reconstruction-v3";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -50,6 +51,7 @@ pub struct QuestDialogRules {
 }
 #[derive(Clone, Debug)]
 pub struct QuestProgressionInput {
+    pub loot: Option<NativeLootInput>,
     pub quests: Vec<q::QuestRow>,
     pub relations: q::QuestRelations,
     pub quest_audit: q::DependencyAudit,
@@ -68,6 +70,8 @@ pub struct QuestProgressionInput {
 }
 #[derive(Clone, Debug)]
 pub struct QuestProgressionGenesis {
+    pub loot: Option<NativeLootGenesis>,
+    loot_identity: Option<crate::Digest>,
     identity: crate::Digest,
     tick_ms: u32,
     quests: q::Catalog,
@@ -135,18 +139,45 @@ impl QuestProgressionGenesis {
             || rows.abilities.len() > 64
             || !(-1..=100).contains(&rows.dialog_rules.low_level_hide_diff)
             || !(-1..=100).contains(&rows.dialog_rules.high_level_hide_diff)
-            || rows.quests.iter().any(|r| {
-                r.required_item.iter().any(|v| *v != 0)
-                    || r.required_item_count.iter().any(|v| *v != 0)
-            })
         {
             return Err(NativeError::UnsupportedMechanic(
                 "ordinary bounded quest progression input",
             ));
         }
         rows.derived_audit.validate()?;
-        rows.kill.validate(profile)?;
+        rows.kill.validate(profile, rows.loot.is_some())?;
         let mage = init::initialize_mage(input)?;
+        let loot = rows
+            .loot
+            .map(|r| NativeLootGenesis::build(profile, input, &mage, r))
+            .transpose()?;
+        if loot.is_none() && !mage.inventory.is_empty() {
+            return Err(NativeError::UnsupportedMechanic(
+                "starter carried items require inventory host",
+            ));
+        }
+        for row in &rows.quests {
+            for item in row
+                .required_item
+                .into_iter()
+                .chain(row.excluded.reward_choice_item)
+                .chain(row.excluded.reward_item)
+                .filter(|i| *i != 0)
+            {
+                let l = loot.as_ref().ok_or(NativeError::UnsupportedMechanic(
+                    "quest items require inventory host",
+                ))?;
+                l.inventory.item(item)?;
+            }
+            if row.required_item.iter().any(|item| {
+                loot.as_ref()
+                    .is_some_and(|l| l.initial_inventory.equipped.contains_key(item))
+            }) {
+                return Err(NativeError::UnsupportedMechanic(
+                    "quest removes equipped starter item",
+                ));
+            }
+        }
         let training = init::LiveTraining::from_initializer(input, &mage)?;
         let mut verified = profile.clone();
         verified.quest_progression = None;
@@ -242,6 +273,8 @@ impl QuestProgressionGenesis {
         }
         let initial_derived_inputs = derived::initial_inputs(&initial_combat, rows.derived_audit);
         let mut out = Self {
+            loot_identity: loot.as_ref().map(NativeLootGenesis::identity),
+            loot,
             identity: [0; 32],
             tick_ms: profile.tick_ms,
             quests,
@@ -283,7 +316,7 @@ impl QuestProgressionGenesis {
             host = tx.host;
         }
         out.identity = crate::digest(
-            b"benilla-native-quest-progression-genesis-v2\0",
+            b"benilla-native-quest-progression-genesis-v3\0",
             &(
                 (
                     QUEST_PROGRESSION_POLICY,
@@ -319,6 +352,7 @@ impl QuestProgressionGenesis {
                 &out.kill,
                 &out.dialog_rules,
                 &out.initial_combat,
+                &out.loot,
             ),
         );
         Ok(out)
@@ -376,7 +410,13 @@ impl QuestProgressionGenesis {
         {
             return Err(NativeError::InvalidProfile);
         }
-        self.kill.validate(profile)
+        if self.loot.as_ref().map(NativeLootGenesis::identity) != self.loot_identity {
+            return Err(NativeError::InvalidProfile);
+        }
+        if let Some(l) = &self.loot {
+            l.validate_immutable(self.training.input())?;
+        }
+        self.kill.validate(profile, self.loot.is_some())
     }
     pub fn quest_catalog(&self) -> &q::Catalog {
         &self.quests
@@ -468,6 +508,27 @@ impl QuestProgressionGenesis {
         view: &pg::Snapshot,
     ) -> Result<Vec<Ability>, NativeError> {
         self.resolve_ability_set(training, view, None)
+    }
+    pub(super) fn validate_prepare_transition(
+        &self,
+        next: &QuestProgressionState,
+        prepared: &ExecutionBinding,
+    ) -> Result<(), NativeError> {
+        let training = init::LiveTraining::restore_authoritative(
+            &self.training,
+            &next.training,
+            next.player.view(),
+        )?;
+        let ability =
+            self.resolve_execution_ability(&training, next.player.view(), prepared.ability.id)?;
+        let AbilityAdmission::Available(spec) = &ability.admission else {
+            return Err(NativeError::UnsupportedAbility(prepared.ability.id));
+        };
+        if ability.id != prepared.ability.id || ability.school != prepared.ability.school {
+            return Err(NativeError::InvalidState);
+        }
+        spell::MageProjectileReleaseContext::from_specs(prepared.spec()?, spec)?;
+        Ok(())
     }
     fn resolve_execution_ability(
         &self,
@@ -595,6 +656,13 @@ impl QuestProgressionGenesis {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum QuestProgressionEvent {
+    RewardItem(Box<inv::Stored>),
+    RewardRefused {
+        quest: u32,
+        giver: crate::NpcId,
+        level: u8,
+        result: Option<inv::InventoryResult>,
+    },
     Quest {
         event: q::Event,
         level: u8,
@@ -613,6 +681,9 @@ pub enum QuestProgressionEvent {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestProgressionState {
+    pub inventory: Option<inv::State>,
+    pub inventory_receipts: BTreeMap<u64, ItemReceipt>,
+    pub loot_target: Option<crate::NpcId>,
     pub quests: q::State,
     pub player: pg::State,
     pub training: init::TrainingSnapshot,
@@ -630,6 +701,9 @@ pub struct QuestProgressionState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::native) struct QuestProgressionSnapshot {
+    inventory: Option<inv::State>,
+    inventory_receipts: BTreeMap<u64, ItemReceipt>,
+    loot_target: Option<crate::NpcId>,
     policy: String,
     genesis: crate::Digest,
     quests: q::Snapshot,
@@ -673,11 +747,12 @@ impl pg::Host for ProgressionHost {
 }
 #[derive(Clone)]
 struct QuestHost<'a> {
+    inventory: Option<inv::State>,
     genesis: &'a QuestProgressionGenesis,
     player: pg::State,
     progression: ProgressionHost,
     money: u32,
-    calls: VecDeque<(q::HostEffect, Vec<pg::Observation>, u8, u32)>,
+    calls: VecDeque<(q::HostEffect, Vec<QuestProgressionEvent>, u8, u32)>,
 }
 impl q::Host for QuestHost<'_> {
     fn participation(&self) -> q::Participation {
@@ -697,11 +772,45 @@ impl q::Host for QuestHost<'_> {
     fn money(&self) -> u32 {
         self.money
     }
-    fn item_count(&self, _: u32, _: bool) -> Result<u32, q::Error> {
-        Err(q::Error::Unsupported("native inventory host"))
+    fn item_count(&self, item: u32, _include_bank: bool) -> Result<u32, q::Error> {
+        self.inventory
+            .as_ref()
+            .ok_or(q::Error::Unsupported("native inventory host"))?
+            .item_count(item)
+            .map_err(|_| q::Error::Host("inventory count"))
     }
-    fn removal_steps(&self, _: u32, _: u32) -> Result<Vec<u32>, q::Error> {
-        Err(q::Error::Unsupported("native inventory host"))
+    fn removal_steps(&self, item: u32, count: u32) -> Result<Vec<u32>, q::Error> {
+        let catalog = &self
+            .genesis
+            .loot
+            .as_ref()
+            .ok_or(q::Error::Unsupported("native inventory host"))?
+            .inventory;
+        self.inventory
+            .as_ref()
+            .ok_or(q::Error::Unsupported("native inventory host"))?
+            .removal_steps(catalog, item, count)
+            .map_err(|_| q::Error::Host("inventory removal"))
+    }
+    fn can_store_reward(
+        &self,
+        item: u32,
+        count: u32,
+        destinations: &mut Vec<inv::Destination>,
+    ) -> Result<inv::InventoryResult, q::Error> {
+        let catalog = &self
+            .genesis
+            .loot
+            .as_ref()
+            .ok_or(q::Error::Unsupported("native inventory host"))?
+            .inventory;
+        Ok(self
+            .inventory
+            .as_ref()
+            .ok_or(q::Error::Unsupported("native inventory host"))?
+            .can_store_with_destinations(catalog, item, count, destinations)
+            .map_err(|_| q::Error::Host("reward storage plan"))?
+            .result)
     }
     fn apply(&mut self, effect: &q::HostEffect) -> Result<(), q::Error> {
         let events = match effect {
@@ -711,14 +820,43 @@ impl q::Host for QuestHost<'_> {
                 self.player = tx.state;
                 self.progression = tx.host;
                 tx.events
+                    .into_iter()
+                    .map(|e| QuestProgressionEvent::Progression(Box::new(e)))
+                    .collect()
             }
             q::HostEffect::ModifyMoney(value) => {
                 self.money = (i64::from(self.money) + i64::from(*value))
                     .clamp(0, i64::from(q::MAX_MONEY)) as u32;
                 vec![]
             }
-            q::HostEffect::DestroyCarriedStack { .. } => {
-                return Err(q::Error::Unsupported("native inventory host"))
+            q::HostEffect::DestroyCarriedStack { item, count } => {
+                let catalog = &self
+                    .genesis
+                    .loot
+                    .as_ref()
+                    .ok_or(q::Error::Unsupported("native inventory host"))?
+                    .inventory;
+                self.inventory
+                    .as_mut()
+                    .ok_or(q::Error::Unsupported("native inventory host"))?
+                    .remove_first_stack(catalog, *item, *count)
+                    .map_err(|_| q::Error::Host("inventory removal"))?;
+                vec![]
+            }
+            q::HostEffect::StoreRewardItem { item, count } => {
+                let catalog = &self
+                    .genesis
+                    .loot
+                    .as_ref()
+                    .ok_or(q::Error::Unsupported("native inventory host"))?
+                    .inventory;
+                let stored = self
+                    .inventory
+                    .as_mut()
+                    .ok_or(q::Error::Unsupported("native inventory host"))?
+                    .store_new(catalog, *item, *count, |_, _, _| Ok(()))
+                    .map_err(|_| q::Error::Host("source reward store"))?;
+                vec![QuestProgressionEvent::RewardItem(Box::new(stored))]
             }
         };
         self.calls.push_back((
@@ -737,6 +875,11 @@ impl QuestProgressionState {
         now_ms: u64,
     ) -> Result<Self, NativeError> {
         Ok(Self {
+            inventory: g.loot.as_ref().map(|l| l.initial_inventory.clone()),
+            inventory_receipts: g.loot.as_ref().map_or_else(BTreeMap::new, |l| {
+                loot::initial_inventory_receipts(&l.initial_inventory)
+            }),
+            loot_target: None,
             quests: q::State::new(&g.quests),
             player: g.initial.clone(),
             training: g.training.snapshot(),
@@ -754,6 +897,9 @@ impl QuestProgressionState {
     }
     pub(in crate::native) fn snapshot(&self) -> QuestProgressionSnapshot {
         QuestProgressionSnapshot {
+            inventory: self.inventory.clone(),
+            inventory_receipts: self.inventory_receipts.clone(),
+            loot_target: self.loot_target,
             policy: QUEST_PROGRESSION_POLICY.into(),
             genesis: self.genesis,
             quests: self.quests.snapshot(),
@@ -797,6 +943,9 @@ impl QuestProgressionState {
             return Err(NativeError::InvalidCheckpoint);
         }
         let out = Self {
+            inventory: s.inventory,
+            inventory_receipts: s.inventory_receipts,
+            loot_target: s.loot_target,
             quests: q::State::restore(&g.quests, s.quests)?,
             player,
             training: s.training,
@@ -811,6 +960,25 @@ impl QuestProgressionState {
             played_time_total: s.played_time_total,
             genesis: s.genesis,
         };
+        match (&g.loot, &out.inventory) {
+            (Some(l), Some(i)) => {
+                // Immutable equipment binding precedes every item count calculation.
+                if i.equipped != l.initial_inventory.equipped
+                    || i.next_item < l.initial_inventory.next_item
+                    || out.inventory_receipts.len() != i.slots.len()
+                    || i.slots.iter().any(|(&slot, item)| {
+                        out.inventory_receipts
+                            .get(&item.id)
+                            .is_none_or(|r| !r.validates(slot, item))
+                    })
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                i.validate(&l.inventory)?;
+            }
+            (None, None) if out.inventory_receipts.is_empty() && out.loot_target.is_none() => {}
+            _ => return Err(NativeError::InvalidCheckpoint),
+        }
         out.validate_derived(g, c)?;
         let mut check = out.clone();
         check.synchronize(g, c, health, mana)?;
@@ -888,6 +1056,7 @@ impl QuestProgressionState {
             self.player.view(),
         )?;
         let host = QuestHost {
+            inventory: self.inventory.clone(),
             genesis: g,
             player: self.player.clone(),
             money: self.money,
@@ -916,11 +1085,7 @@ impl QuestProgressionState {
                 if *effect != expected {
                     return Err(NativeError::InvalidState);
                 }
-                events.extend(
-                    nested
-                        .into_iter()
-                        .map(|e| QuestProgressionEvent::Progression(Box::new(e))),
-                );
+                events.extend(nested);
                 level = l;
                 money = m;
             }
@@ -941,6 +1106,14 @@ impl QuestProgressionState {
         next.derived = tx.host.progression.derived;
         next.derived_calls = tx.host.progression.derived_calls;
         next.money = tx.host.money;
+        next.inventory = tx.host.inventory;
+        if next.inventory != self.inventory {
+            let reason = crate::digest(
+                b"benilla-native-quest-item-mutation-v1\0",
+                &(self.quests.next_sequence(), &events),
+            );
+            loot::update_inventory_receipts(&mut next, reason)?;
+        }
         Ok((next, events))
     }
 }

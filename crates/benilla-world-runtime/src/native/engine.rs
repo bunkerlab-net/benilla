@@ -2,6 +2,7 @@
 use super::*;
 use crate::NpcId;
 mod death;
+mod loot;
 mod quests;
 use ai::movement::{
     GeometryAuthority, MovementOutcome, MovementPurpose, MovementRequest, Revision,
@@ -153,7 +154,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v5\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v8\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -272,6 +273,18 @@ impl<A: Authority> Frame<'_, A> {
         events: Vec<spell::SpellEvent>,
     ) -> Result<(), NativeError> {
         for event in events {
+            if matches!(&event,spell::SpellEvent::DirectDamage{effective,..}|spell::SpellEvent::PeriodicDamage{effective,..} if *effective>0)
+            {
+                let n = self
+                    .state
+                    .npcs
+                    .get_mut(&target.spawn)
+                    .filter(|n| n.id == target)
+                    .ok_or(NativeError::InvalidState)?;
+                if n.original_loot_recipient.is_none() {
+                    n.original_loot_recipient = Some(self.state.player);
+                }
+            }
             // ThreatManager::addThreat (pinned 8ec338a1, lines 446-463) rejects
             // a dead threat owner or dead hated caster; DOT damage itself persists.
             let can_add_threat = self.state.health > 0
@@ -322,6 +335,7 @@ impl<A: Authority> Frame<'_, A> {
             });
             if killed {
                 self.native_kill_rewards(target)?;
+                self.prepare_body_loot(target)?;
             }
         }
         Ok(())
@@ -347,8 +361,19 @@ impl<A: Authority> Frame<'_, A> {
     }
     fn command(&mut self, command: &Command) -> Result<(), NativeError> {
         let rejection = match command {
-            Command::AcceptQuest { quest, giver } => self.quest_command(*quest, *giver, false)?,
-            Command::TurnInQuest { quest, giver } => self.quest_command(*quest, *giver, true)?,
+            Command::ChooseQuestReward {
+                quest,
+                giver,
+                choice,
+            } => self.quest_command(*quest, *giver, true, *choice)?,
+            Command::OpenLoot { corpse } => self.open_loot(*corpse)?,
+            Command::LootItem { corpse, slot } => self.collect_item(*corpse, *slot)?,
+            Command::LootMoney { corpse } => self.collect_money(*corpse)?,
+            Command::ReleaseLoot { corpse } => self.release_loot(*corpse)?,
+            Command::AcceptQuest { quest, giver } => {
+                self.quest_command(*quest, *giver, false, 0)?
+            }
+            Command::TurnInQuest { quest, giver } => self.quest_command(*quest, *giver, true, 0)?,
             Command::ReleaseSpirit => Some(Rejection::SpiritReleaseUnavailable {
                 phase: self
                     .state
@@ -424,6 +449,7 @@ impl<A: Authority> Frame<'_, A> {
                             id,
                             Cast {
                                 binding,
+                                release_binding: None,
                                 id,
                                 ability: *ability,
                                 target: *target,
@@ -557,6 +583,8 @@ impl<A: Authority> Frame<'_, A> {
                 position_changed: moved,
                 other_failure: None,
             };
+            let mut release_binding = None;
+            let mut release_context = None;
             let launch = if c
                 .execution
                 .release_due(self.state.now_ms, self.profile.tick_ms)
@@ -564,10 +592,19 @@ impl<A: Authority> Frame<'_, A> {
                 && alive
                 && !(moved && spec.movement_interrupts)
             {
+                let binding = ExecutionBinding::capture(self.profile, self.state, c.ability)?;
+                let context = binding.release_context(&c.binding)?;
                 let facts = self.facts(id, c.ability, c.target, CastPhase::Release)?;
                 checks.other_failure = facts.other_failure;
-                if c.execution
-                    .release_failure(&self.state.resources.caster, checks, self.state.now_ms)
+                release_context = Some(context);
+                let launch = if c
+                    .execution
+                    .release_failure_with_context(
+                        &self.state.resources.caster,
+                        checks,
+                        self.state.now_ms,
+                        context,
+                    )?
                     .is_none()
                 {
                     let distance = self
@@ -578,21 +615,30 @@ impl<A: Authority> Frame<'_, A> {
                         distance_squared: spell::SpellFloat::from_bits(distance.bits())?,
                         resist_chance: facts.resist_chance,
                         critical_chance: facts.critical_chance,
-                        rolls: self.rolls(id, &spec, &facts)?,
+                        rolls: self.rolls(id, binding.spec()?, &facts)?,
                     })
                 } else {
                     None
-                }
+                };
+                release_binding = Some(binding);
+                launch
             } else {
                 None
             };
-            let events = c.execution.update(
+            let events = c.execution.update_with_release(
                 self.state.now_ms,
                 self.profile.tick_ms,
                 &mut self.state.resources.caster,
                 checks,
                 launch,
+                release_context,
             )?;
+            if events
+                .iter()
+                .any(|event| matches!(event, spell::SpellEvent::Launched { .. }))
+            {
+                c.release_binding = Some(release_binding.ok_or(NativeError::InvalidState)?);
+            }
             self.spell_events(id, c.ability, c.target, events)?;
             if matches!(c.execution.state(),spell::CastState::Traveling{impact_at_ms} if impact_at_ms<=self.state.now_ms)
             {
@@ -848,6 +894,8 @@ impl<A: Authority> Frame<'_, A> {
                         swings.push(npc.id)
                     }
                     ai::Effect::EvadeStarted(_) => {
+                        npc.original_loot_recipient = None;
+                        npc.corpse_loot = None;
                         for ability in npc.auras.keys() {
                             self.events.push(Event::Spell {
                                 cast_id: 0,
@@ -859,7 +907,24 @@ impl<A: Authority> Frame<'_, A> {
                         npc.auras.clear();
                         npc.aura_bindings.clear();
                     }
+                    ai::Effect::CorpseRemoved => {
+                        if self
+                            .state
+                            .quest_progression
+                            .as_ref()
+                            .is_some_and(|q| q.loot_target == Some(npc.id))
+                        {
+                            self.state.quest_progression.as_mut().unwrap().loot_target = None;
+                            self.events.push(Event::Loot(LootEvent::Released {
+                                corpse: npc.id,
+                                send_response: true,
+                            }));
+                        }
+                        npc.corpse_loot = None;
+                    }
                     ai::Effect::Respawned { .. } => {
+                        npc.original_loot_recipient = None;
+                        npc.corpse_loot = None;
                         npc.id.generation =
                             npc.id.generation.checked_add(1).ok_or(NativeError::Limit)?;
                         npc.health = p.max_health;
@@ -1018,7 +1083,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v5\0",
+            b"benilla-native-melee-action-v8\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1255,7 +1320,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v5\0",
+            b"benilla-native-melee-chain-v8\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

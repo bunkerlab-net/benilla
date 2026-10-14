@@ -20,12 +20,38 @@ impl SourceVmapProvider {
         snapshot: VmapSnapshot,
         raw_geometry: [u8; 32],
     ) -> Result<Self, Failure> {
+        let expected = geometry_revision(raw_geometry, snapshot.binding());
+        Self::bind_revision(session, snapshot, raw_geometry, expected)
+    }
+    pub(super) fn bind_with_navigation(
+        session: &Session,
+        snapshot: VmapSnapshot,
+        raw_geometry: [u8; 32],
+        navigation: super::products::navigation::SnapshotBinding,
+    ) -> Result<Self, Failure> {
+        let b = snapshot.binding();
+        if b.map != navigation.map
+            || b.content != navigation.content
+            || b.source_epoch != navigation.source_epoch
+            || b.inventory != navigation.inventory
+        {
+            return Err(Failure::Binding);
+        }
+        let expected = super::source_navigation::geometry_revision(raw_geometry, b, navigation);
+        Self::bind_revision(session, snapshot, raw_geometry, expected)
+    }
+    fn bind_revision(
+        session: &Session,
+        snapshot: VmapSnapshot,
+        raw_geometry: [u8; 32],
+        expected: [u8; 32],
+    ) -> Result<Self, Failure> {
         let b = snapshot.binding();
         if b.map != session.map
             || b.content != session.content
             || b.source_epoch == [0; 32]
             || raw_geometry == [0; 32]
-            || session.geometry != geometry_revision(raw_geometry, b)
+            || session.geometry != expected
         {
             return Err(Failure::Binding);
         }

@@ -3,7 +3,7 @@
 use super::*;
 use n::synthetic_quest_fixture as fixture;
 
-struct Catalog {
+pub(in crate::native) struct Catalog {
     quests: BTreeMap<u32, crate::QuestMetadata>,
     bytes: Option<u32>,
     greeting: bool,
@@ -11,7 +11,7 @@ struct Catalog {
     presentation: Option<crate::NativeQuestPresentation>,
 }
 impl Catalog {
-    fn new(w: &n::NativeWorld) -> Self {
+    pub(in crate::native) fn new(w: &n::NativeWorld) -> Self {
         let g = genesis(w).unwrap();
         let quests = g
             .quest_ids()
@@ -34,8 +34,18 @@ impl Catalog {
                             reward_spell: 0,
                             src_item_id: 0,
                             flags: u32::from(row.reward.quest_flags),
-                            rewards: [(0, 0); 4],
-                            choices: [(0, 0); 6],
+                            rewards: std::array::from_fn(|i| {
+                                (
+                                    row.excluded.reward_item[i],
+                                    row.excluded.reward_item_count[i],
+                                )
+                            }),
+                            choices: std::array::from_fn(|i| {
+                                (
+                                    row.excluded.reward_choice_item[i],
+                                    row.excluded.reward_choice_count[i],
+                                )
+                            }),
                             point_map_id: w.profile().map_id,
                             point_x: 0.0,
                             point_y: 0.0,
@@ -309,9 +319,15 @@ fn native_ui_accept_kill_level_complete_reward_and_resume_project_stock_state() 
     assert!(!duplicate
         .iter()
         .any(|e| matches!(e, SessionEvent::QuestComplete(_) | SessionEvent::XpGain(_))));
+    // CanRewardQuest silently refuses a completed nonrepeatable quest, then
+    // HandleQuestgiverChooseRewardOpcode sends the ordinary offer again.
     assert!(duplicate
         .iter()
-        .any(|e| matches!(e,SessionEvent::Notification{text} if text.contains("AlreadyRewarded"))));
+        .any(|e| matches!(e, SessionEvent::QuestOffer(offer) if offer.quest_id == 70001)));
+    assert!(!duplicate.iter().any(|e| matches!(
+        e,
+        SessionEvent::InventoryFailure { .. } | SessionEvent::Notification { .. }
+    )));
     let restored = n::NativeWorld::restore_synthetic_component_test(
         w.profile().clone(),
         w.checkpoint().unwrap(),
@@ -496,7 +512,12 @@ fn reward_announcement_uses_callback_level_not_final_world_level() {
         money: 18,
     };
     let events = projection
-        .quest_progression_event(&w, &event, &mut Frame::new(w.state()))
+        .quest_progression_event(
+            &w,
+            &event,
+            &mut Frame::new(w.state()),
+            &mut loot::Frame::new(w.state()),
+        )
         .unwrap();
     assert!(matches!(&events[..], [SessionEvent::QuestComplete(t)] if t.xp == 0 && t.money == 67));
     // The packet is a source display quote; the immutable final currency snapshot is not rewritten.
@@ -613,7 +634,12 @@ fn world_objects_callbacks_emit_no_creature_status_packets() {
     // Pinned Player::UpdateForQuestWorldObjects touches only dynamic GO fields.
     // This creature-only profile must not fabricate an NPC status response.
     assert!(projection
-        .quest_progression_event(&w, &event, &mut Frame::new(w.state()))
+        .quest_progression_event(
+            &w,
+            &event,
+            &mut Frame::new(w.state()),
+            &mut loot::Frame::new(w.state())
+        )
         .unwrap()
         .is_empty());
 }
@@ -985,4 +1011,96 @@ fn private_spell_closure_requires_client_rows_without_an_execution_recipe() {
         NativeProjection::new(&w, w.state().player, &Catalog::new(&w)),
         Err(Error::UnboundSpell(60006))
     ));
+}
+
+#[test]
+fn reward_during_prepare_projects_original_start_and_delayed_source_release() {
+    let mut w = n::NativeWorld::synthetic_component_test(
+        fixture::release_profile(false),
+        [1; 16],
+        n::synthetic_fixture::player(),
+        42,
+    )
+    .unwrap();
+    let mut p = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    let mut a = fixture::QuestAuthority::default();
+    let giver = giver(&w);
+    step(
+        &mut w,
+        &mut p,
+        &mut a,
+        Some(UiRequest::AcceptQuest {
+            quest: 70001,
+            giver,
+        }),
+    );
+    kill(&mut w, &mut p, &mut a);
+    let target = NpcHandle {
+        id: w.state().npcs[&4].id,
+    };
+    let started = step(
+        &mut w,
+        &mut p,
+        &mut a,
+        Some(UiRequest::CastAtNpc {
+            ability: 60001,
+            target,
+        }),
+    );
+    assert!(started.iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellStart {
+            spell_id: 60001,
+            cast_time_ms: 350,
+            ..
+        }
+    )));
+    let id = *w.state().casts.keys().next().unwrap();
+    let rewarded = step(
+        &mut w,
+        &mut p,
+        &mut a,
+        Some(UiRequest::TurnInQuest {
+            quest: 70001,
+            giver,
+        }),
+    );
+    assert!(rewarded
+        .iter()
+        .any(|event| matches!(event, SessionEvent::LevelUp(_))));
+    assert!(!rewarded.iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellGo { .. } | SessionEvent::SpellFailedOther { .. }
+    )));
+    assert_eq!(
+        w.state().casts[&id].execution.state(),
+        spell::CastState::Casting { remaining_ms: 250 }
+    );
+    let mut go = 0;
+    for _ in 0..10 {
+        let events = step(&mut w, &mut p, &mut a, None);
+        go += events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    SessionEvent::SpellGo {
+                        spell_id: 60001,
+                        ..
+                    }
+                )
+            })
+            .count();
+        if matches!(
+            w.state().casts[&id].execution.state(),
+            spell::CastState::Traveling { .. }
+        ) {
+            break;
+        }
+    }
+    assert_eq!(go, 1);
+    assert_eq!(
+        w.state().casts[&id].release_binding.as_ref().unwrap().level,
+        3
+    );
 }

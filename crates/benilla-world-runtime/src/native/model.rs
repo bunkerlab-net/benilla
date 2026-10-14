@@ -94,7 +94,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v5\0",
+            b"benilla-native-profile-v8\0",
             &(
                 NATIVE_POLICY,
                 RNG_POLICY,
@@ -237,7 +237,9 @@ impl Profile {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cast {
+    /// Immutable prepare-time source witness, including the original spell ID.
     pub binding: ExecutionBinding,
+    pub release_binding: Option<ExecutionBinding>,
     pub id: u64,
     pub ability: u32,
     pub target: NpcId,
@@ -246,6 +248,8 @@ pub struct Cast {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Npc {
+    pub original_loot_recipient: Option<PlayerId>,
+    pub corpse_loot: Option<CorpseLoot>,
     pub aura_bindings: BTreeMap<u32, ExecutionBinding>,
     pub id: NpcId,
     pub health: u32,
@@ -274,6 +278,24 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    ChooseQuestReward {
+        quest: u32,
+        giver: NpcId,
+        choice: u32,
+    },
+    OpenLoot {
+        corpse: NpcId,
+    },
+    LootItem {
+        corpse: NpcId,
+        slot: u8,
+    },
+    LootMoney {
+        corpse: NpcId,
+    },
+    ReleaseLoot {
+        corpse: NpcId,
+    },
     AcceptQuest {
         quest: u32,
         giver: NpcId,
@@ -321,6 +343,10 @@ pub struct OwnedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Rejection {
+    Loot {
+        corpse: NpcId,
+        reason: u8,
+    },
     Quest(benilla_sim::quest_lifecycle::Gate),
     QuestInteraction,
     UnknownAbility,
@@ -341,6 +367,7 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    Loot(LootEvent),
     QuestProgression(QuestProgressionEvent),
     InputResult {
         sequence: u64,
@@ -391,6 +418,10 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    LootInteraction {
+        player_position: ai::Point,
+        npc_position: ai::Point,
+    },
     QuestInteraction {
         quest: u32,
         reward: bool,
@@ -489,6 +520,10 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    LootInteraction {
+        player_in_world: bool,
+        player_stunned: bool,
+    },
     QuestInteraction(QuestInteractionFacts),
     QuestStatus {
         player_reaction: u8,

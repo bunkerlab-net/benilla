@@ -17,13 +17,14 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v5\0", self)
+        crate::digest(b"benilla-native-record-v8\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CastState {
     binding: ExecutionBinding,
+    release_binding: Option<ExecutionBinding>,
     id: u64,
     ability: u32,
     target: crate::NpcId,
@@ -33,6 +34,8 @@ struct CastState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NpcState {
+    original_loot_recipient: Option<crate::PlayerId>,
+    corpse_loot: Option<CorpseLoot>,
     aura_bindings: BTreeMap<u32, ExecutionBinding>,
     id: crate::NpcId,
     health: u32,
@@ -138,10 +141,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v5\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v8\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v5\0",
+                    b"benilla-native-checkpoint-v8\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -181,6 +184,8 @@ impl NativeWorld {
                     (
                         id,
                         NpcState {
+                            original_loot_recipient: n.original_loot_recipient,
+                            corpse_loot: n.corpse_loot.clone(),
                             aura_bindings: n.aura_bindings.clone(),
                             id: n.id,
                             health: n.health,
@@ -206,6 +211,7 @@ impl NativeWorld {
                         id,
                         CastState {
                             binding: c.binding.clone(),
+                            release_binding: c.release_binding.clone(),
                             id: c.id,
                             ability: c.ability,
                             target: c.target,
@@ -232,7 +238,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v5\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v8\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -242,7 +248,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v5\0",
+            b"benilla-native-checkpoint-v8\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -265,10 +271,10 @@ impl NativeWorld {
     ) -> Result<Self, NativeError> {
         profile.validate()?;
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v5\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v8\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v5\0",
+                    b"benilla-native-checkpoint-v8\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -441,6 +447,8 @@ impl NativeWorld {
             npcs.insert(
                 id,
                 Npc {
+                    original_loot_recipient: n.original_loot_recipient,
+                    corpse_loot: n.corpse_loot,
                     id: n.id,
                     health: n.health,
                     ai,
@@ -494,12 +502,34 @@ impl NativeWorld {
                 return Err(NativeError::InvalidCheckpoint);
             }
             c.origin.distance_squared(c.origin)?;
-            let execution =
-                spell::MageProjectileCast::restore(c.execution, spec.clone(), s.now_ms)?;
-            if matches!(execution.state(), spell::CastState::Casting { .. })
-                && abilities.iter().find(|a| a.id == c.ability) != Some(&c.binding.ability)
-            {
-                return Err(NativeError::InvalidCheckpoint);
+            let release_context = c
+                .release_binding
+                .as_ref()
+                .map(|released| {
+                    released.validate(&profile, quest_progression.as_ref(), s.now_ms)?;
+                    released.release_context(&c.binding)
+                })
+                .transpose()?;
+            let execution = spell::MageProjectileCast::restore_with_release(
+                c.execution,
+                spec.clone(),
+                release_context,
+                s.now_ms,
+            )
+            .map_err(|_| NativeError::InvalidCheckpoint)?;
+            match (execution.state(), &c.release_binding) {
+                (spell::CastState::Casting { .. }, None) => {}
+                (spell::CastState::Traveling { impact_at_ms }, Some(released)) => {
+                    let launch = execution
+                        .launch_context()
+                        .ok_or(NativeError::InvalidCheckpoint)?;
+                    let delay =
+                        spell::projectile_delay(launch.distance_squared, spec.projectile_speed)?;
+                    if impact_at_ms.checked_sub(u64::from(delay)) != Some(released.captured_ms) {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
+                }
+                _ => return Err(NativeError::InvalidCheckpoint),
             }
             if c.binding.captured_ms != execution.created_ms() {
                 return Err(NativeError::InvalidCheckpoint);
@@ -518,6 +548,7 @@ impl NativeWorld {
                 id,
                 Cast {
                     binding: c.binding,
+                    release_binding: c.release_binding,
                     id,
                     ability: c.ability,
                     target: c.target,
@@ -589,6 +620,7 @@ impl NativeWorld {
             journal_bytes: 2,
             journal_tip: checkpoint.history_tip,
         };
+        result.validate_loot_state()?;
         if result.state_digest() != checkpoint.digest {
             return Err(NativeError::InvalidCheckpoint);
         }

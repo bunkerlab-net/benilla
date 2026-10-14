@@ -729,3 +729,143 @@ fn service_cancellation_wins_even_if_an_old_reply_is_buffered() {
         Err(NativeError::AuthorityUnavailable(_))
     ));
 }
+
+#[test]
+fn loaded_navigation_composes_all_previous_gates_and_cannot_grant_support() {
+    use super::super::{
+        products::navigation::tests::products,
+        source_navigation::{geometry_revision, SourceNavigationProvider},
+    };
+    let p = products();
+    if !benilla_native_nav::SUPPORTED_ABI {
+        assert!(matches!(
+            p.load_navigation(),
+            Err(super::super::products::Error::Unsupported)
+        ));
+        return;
+    }
+    let nav = p.load_navigation().unwrap();
+    let vmap = p.load_static_vmap().unwrap();
+    let mut s = session();
+    let raw = s.geometry;
+    s.content = nav.binding().content;
+    s.participants = Some(NonRenderParticipants::authored_fixture(s.content, s.map));
+    s.geometry = geometry_revision(raw, vmap.binding(), nav.binding());
+    let mut request = request();
+    request.binding.geometry = s.geometry;
+    if let Query::Movement(m) = &mut request.query {
+        m.content_revision = Revision(s.content);
+        m.geometry_revision = Revision(s.geometry);
+    }
+    let provider = SourceNavigationProvider::bind(&s, vmap, nav, raw).unwrap();
+    assert_eq!(provider.raw_geometry(), raw);
+    let from = [-400., -400., 0.];
+    let to = [-400., -395., 0.];
+    let deadline = Instant::now() + Duration::from_secs(2);
+    assert_eq!(
+        provider
+            .corridor(&s, &request, Proof(Ok(())), deadline)
+            .unwrap()
+            .certify(from, to, body()),
+        Ok(())
+    );
+    for failure in [
+        Failure::UnsupportedGround,
+        Failure::Water,
+        Failure::UnprovenParticipants,
+        Failure::Obstacle,
+    ] {
+        assert_eq!(
+            provider
+                .corridor(&s, &request, Proof(Err(failure)), deadline)
+                .unwrap()
+                .certify(from, to, body()),
+            Err(failure)
+        );
+    }
+    // A route query can project to a nav surface; this direct-segment provider cannot.
+    assert_eq!(
+        provider
+            .corridor(&s, &request, Proof(Ok(())), deadline)
+            .unwrap()
+            .certify([-400., -400., 1.], [-400., -395., 1.], body()),
+        Err(Failure::UnsupportedNavigation)
+    );
+    assert_eq!(
+        provider
+            .corridor(&s, &request, Proof(Ok(())), Instant::now())
+            .unwrap()
+            .certify(from, to, body()),
+        Err(Failure::MissingGeometry)
+    );
+    let mut changed = s.clone();
+    changed.participants = None;
+    assert!(matches!(
+        provider.corridor(&changed, &request, Proof(Ok(())), deadline),
+        Err(Failure::UnprovenParticipants)
+    ));
+    let mut changed = request.clone();
+    changed.binding.tick = 0;
+    assert!(matches!(
+        provider.corridor(&s, &changed, Proof(Ok(())), deadline),
+        Err(Failure::Binding)
+    ));
+    let mut changed = s.clone();
+    changed.geometry = raw;
+    assert!(matches!(
+        provider.corridor(&changed, &request, Proof(Ok(())), deadline),
+        Err(Failure::Binding)
+    ));
+    let mut enlarged = s.clone();
+    enlarged.bodies.get_mut(&3).unwrap().radius = ai::Real::new(0.6).unwrap();
+    assert!(matches!(
+        provider.corridor(&enlarged, &request, Proof(Ok(())), deadline),
+        Err(Failure::UnresolvedBody)
+    ));
+}
+
+#[test]
+fn navigation_revision_binds_every_snapshot_field_and_raw_support() {
+    use super::super::{
+        products::navigation::tests::products,
+        source_navigation::{geometry_revision, SourceNavigationProvider},
+    };
+    let p = products();
+    if !benilla_native_nav::SUPPORTED_ABI {
+        assert!(matches!(
+            p.load_navigation(),
+            Err(super::super::products::Error::Unsupported)
+        ));
+        return;
+    }
+    let nav = p.load_navigation().unwrap();
+    let vmap = p.load_static_vmap().unwrap();
+    let mut s = session();
+    s.content = nav.binding().content;
+    let raw = s.geometry;
+    let a = vmap.binding();
+    let b = nav.binding();
+    assert!(matches!(
+        SourceNavigationProvider::bind(&s, vmap, nav, raw),
+        Err(Failure::Binding)
+    ));
+    let original = geometry_revision(raw, a, b);
+    for i in 0..5 {
+        let mut changed = b;
+        match i {
+            0 => changed.map += 1,
+            1 => changed.content = [99; 32],
+            2 => changed.source_epoch = [99; 32],
+            3 => changed.inventory = [99; 32],
+            _ => changed.policy = [99; 32],
+        };
+        assert_ne!(geometry_revision(raw, a, changed), original);
+    }
+    assert_ne!(geometry_revision([99; 32], a, b), original);
+    // A VMap snapshot from another inventory cannot be paired with these navigation bytes.
+    let unrelated = super::super::products::vmap::tests::snapshot();
+    assert!(matches!(
+        SourceNavigationProvider::bind(&s, unrelated, p.load_navigation().unwrap(), raw),
+        Err(Failure::Binding)
+    ));
+}

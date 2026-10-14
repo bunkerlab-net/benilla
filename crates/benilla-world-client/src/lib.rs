@@ -149,13 +149,32 @@ pub struct NpcHandle {
 pub enum UiRequest {
     MoveDelta([i32; 3]),
     MeleeOnce(NpcHandle),
-    CastAtNpc { ability: u32, target: NpcHandle },
-    CastSelf { ability: u32 },
-    AcceptQuest { quest: u32, giver: NpcHandle },
-    TurnInQuest { quest: u32, giver: NpcHandle },
+    CastAtNpc {
+        ability: u32,
+        target: NpcHandle,
+    },
+    CastSelf {
+        ability: u32,
+    },
+    AcceptQuest {
+        quest: u32,
+        giver: NpcHandle,
+    },
+    TurnInQuest {
+        quest: u32,
+        giver: NpcHandle,
+    },
+    ChooseQuestReward {
+        quest: u32,
+        giver: NpcHandle,
+        choice: u32,
+    },
     OpenLoot(NpcHandle),
     TakeLootMoney(NpcHandle),
-    TakeLootItem { target: NpcHandle, slot: u8 },
+    TakeLootItem {
+        target: NpcHandle,
+        slot: u8,
+    },
     ReleaseLoot(NpcHandle),
     Revive,
 }
@@ -234,6 +253,7 @@ impl CommandAdapter {
                 quest,
                 giver: giver.id,
             },
+            UiRequest::ChooseQuestReward { .. } => return Err(Error::UnsupportedCommand),
             UiRequest::OpenLoot(target) => runtime::Command::OpenLoot { target: target.id },
             UiRequest::TakeLootMoney(target) => {
                 if self.capture_loot(world)? != target {

@@ -1,5 +1,9 @@
 # CMaNGOS Classic local-data integration boundary
 
+The overall goal and current implementation gaps are tracked in the
+[full Classic roadmap](CLASSIC-COVERAGE.md). Bounded profiles below are
+intermediate validation milestones, not a permanent starter-only scope.
+
 ## Decision and legal boundary
 
 Use the player's existing, separately obtained local client data and local world
