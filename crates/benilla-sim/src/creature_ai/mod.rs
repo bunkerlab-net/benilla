@@ -661,6 +661,16 @@ impl SoloCreatureAi {
         token: ReceiptStep,
         hook: &mut impl FnMut(OrderedHook) -> Result<MainhandResult, AiError>,
     ) -> Result<Vec<Effect>, AiError> {
+        self.finish_receipts_with_current(o, token, &mut |event, _current| hook(event))
+    }
+    /// Borrow the actual staged AI at the ordered callback, after movement and
+    /// victim selection. The borrow cannot be retained or mutate a second owner.
+    pub fn finish_receipts_with_current(
+        &mut self,
+        o: Observation,
+        token: ReceiptStep,
+        hook: &mut impl FnMut(OrderedHook, &Self) -> Result<MainhandResult, AiError>,
+    ) -> Result<Vec<Effect>, AiError> {
         self.validate_observation(&o)?;
         if token.geometry_revision != o.geometry_revision
             || (!o.receipts.is_empty() && o.receipts != token.receipts)
@@ -715,7 +725,7 @@ impl SoloCreatureAi {
         &mut self,
         o: Observation,
         token: ReceiptStep,
-        hook: &mut impl FnMut(OrderedHook) -> Result<MainhandResult, AiError>,
+        hook: &mut impl FnMut(OrderedHook, &Self) -> Result<MainhandResult, AiError>,
     ) -> Result<Vec<Effect>, AiError> {
         self.now_ms = token.now_ms;
         self.sequence = o.sequence;
@@ -783,10 +793,13 @@ impl SoloCreatureAi {
             return Ok(effects);
         };
         // SelectHostileTarget faces the current victim before UpdateMeleeAttackingState.
-        hook(OrderedHook::FaceTarget {
-            target: t.id,
-            position: self.position,
-        })?;
+        hook(
+            OrderedHook::FaceTarget {
+                target: t.id,
+                position: self.position,
+            },
+            self,
+        )?;
         effects.push(Effect::FaceTarget { target: t.id });
         match reachability {
             Some(false) if self.unreachable_ms == 0 => self.unreachable_ms = UNREACHABLE_MS,
@@ -823,13 +836,16 @@ impl SoloCreatureAi {
                 }
                 self.mainhand_ms = self.profile.mainhand_interval_ms;
                 effects.push(Effect::MainhandSwing { target: t.id });
-                let result = hook(OrderedHook::Mainhand {
-                    target: t.id,
-                    position: self.position,
-                    combat_started: effects
-                        .iter()
-                        .any(|e| matches!(e, Effect::CombatStarted { .. })),
-                })?;
+                let result = hook(
+                    OrderedHook::Mainhand {
+                        target: t.id,
+                        position: self.position,
+                        combat_started: effects
+                            .iter()
+                            .any(|e| matches!(e, Effect::CombatStarted { .. })),
+                    },
+                    self,
+                )?;
                 if result == MainhandResult::TargetDied {
                     self.detach_dead_victim(t.id, self.now_ms)?;
                 }

@@ -1,6 +1,6 @@
 # Transactional source NPC motion
 
-This optional native-format-9 component connects
+This optional native-format-10 component connects
 [`creature_motion`](../benilla-sim/CREATURE-MOTION.md) to the runtime, durable
 journal/reopening, and client/controller projection. It is a bounded intermediate
 toward full Classic, not a completed ordinary combat loop or production admission.
@@ -114,6 +114,10 @@ references and retained finished spell objects. See [the player event contract](
 for the bounded host phases, durable owner/cast binding and explicit teardown.
 NPC notifications remain within the reviewed creature motion lifecycle; their local
 clock freezes in DEAD and survives respawn independently of visible generation IDs.
+
+The explicitly selected [combat semantic host](COMBAT-AUTHORITY.md) supplies
+source-derived NPC and ordinary melee relationships/lifecycle/movement facts.
+Unselected synthetic profiles retain the older authored semantic replies.
 
 ## Geometry and projection limits
 

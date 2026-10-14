@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::NpcId;
+mod combat_authority;
 mod death;
 mod event_scheduler;
 mod hostile_spell;
@@ -166,7 +167,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v9\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v10\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -1026,7 +1027,7 @@ impl<A: Authority> Frame<'_, A> {
                         if started {
                             self.enter_player_combat();
                         }
-                        match self.native_melee(npc_id, position, health, None) {
+                        match self.native_melee(npc_id, position, health, None, None) {
                             Ok(()) => Ok(if self.state.health == 0 {
                                 ai::MainhandResult::TargetDied
                             } else {
@@ -1267,6 +1268,7 @@ impl<A: Authority> Frame<'_, A> {
         position: ai::Point,
         npc_health: u32,
         npc_orientation: Option<Orientation>,
+        working: Option<&interactions::WorkingNpc<'_>>,
     ) -> Result<(), NativeError> {
         use benilla_sim::{npc_melee as m, starter_init as init};
         let p = self
@@ -1295,7 +1297,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v9\0",
+            b"benilla-native-melee-action-v10\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1314,19 +1316,29 @@ impl<A: Authority> Frame<'_, A> {
                 cast_states,
             ),
         );
-        let Facts::NativeMelee(facts) = self.ask(
-            Some(id),
-            Query::NativeMelee {
-                npc_orientation,
-                action,
-                state_binding: binding,
-                player_in_combat: c.in_combat,
-                player_position: self.state.position,
-                npc_position: position,
-            },
-        )?
-        else {
-            return Err(NativeError::AuthorityBinding);
+        let legacy = if self.profile.source_combat_authority() {
+            None
+        } else {
+            let Facts::NativeMelee(facts) = self.ask(
+                Some(id),
+                Query::NativeMelee {
+                    npc_orientation,
+                    action,
+                    state_binding: binding,
+                    player_in_combat: c.in_combat,
+                    player_position: self.state.position,
+                    npc_position: position,
+                },
+            )?
+            else {
+                return Err(NativeError::AuthorityBinding);
+            };
+            Some(facts)
+        };
+        let front_facing = if let Some(facts) = &legacy {
+            facts.front_facing
+        } else {
+            self.source_melee_front(working.ok_or(NativeError::InvalidState)?, action)?
         };
         let c = self.state.combat.as_ref().unwrap();
         let defense = c.skills.get(&combat::DEFENSE_SKILL);
@@ -1348,7 +1360,7 @@ impl<A: Authority> Frame<'_, A> {
                 has_auto_repeat_spell: c.has_auto_repeat_spell,
             },
             health: self.state.health,
-            front_facing: facts.front_facing,
+            front_facing,
         })?;
         let skill = defense.map(|s| m::DefenseSkill {
             value: s.value,
@@ -1414,12 +1426,24 @@ impl<A: Authority> Frame<'_, A> {
         } else {
             m::apply_health(&mut self.state.health, result)?;
         }
-        if callbacks.surviving_damage_combat
-            && facts.player_can_attack_npc
-            && facts.player_can_enter_combat
-            && facts.npc_can_enter_combat
-        {
-            self.enter_player_combat();
+        if callbacks.surviving_damage_combat {
+            // Unit::HandleDamageDealt tests these after ModifyHealth. Lethal
+            // damage takes Unit::Kill and never executes this predicate callback.
+            let facts = if let Some(facts) = &legacy {
+                MeleeCombatFacts {
+                    player_can_attack_npc: facts.player_can_attack_npc,
+                    player_can_enter_combat: facts.player_can_enter_combat,
+                    npc_can_enter_combat: facts.npc_can_enter_combat,
+                }
+            } else {
+                self.source_melee_combat(working.ok_or(NativeError::InvalidState)?, action)?
+            };
+            if facts.player_can_attack_npc
+                && facts.player_can_enter_combat
+                && facts.npc_can_enter_combat
+            {
+                self.enter_player_combat();
+            }
         }
         if callbacks.durability_hit_attempt {
             // Source rand_chance runs even when configured chance is exactly zero.
@@ -1485,11 +1509,18 @@ impl<A: Authority> Frame<'_, A> {
             self.native_spell_damage()?;
         }
         // Post-health CanEnterCombat/AttackedBy applies even when the outcome was miss.
-        let engage = callbacks.attacked_by_and_combat
-            && facts.player_can_enter_combat
-            && facts.npc_can_enter_combat;
-        if engage {
-            self.enter_player_combat();
+        if callbacks.attacked_by_and_combat {
+            let facts = if let Some(facts) = &legacy {
+                MeleeEntryFacts {
+                    player_can_enter_combat: facts.player_can_enter_combat,
+                    npc_can_enter_combat: facts.npc_can_enter_combat,
+                }
+            } else {
+                self.source_melee_entry(working.ok_or(NativeError::InvalidState)?, action)?
+            };
+            if facts.player_can_enter_combat && facts.npc_can_enter_combat {
+                self.enter_player_combat();
+            }
         }
         if callbacks.defense_skill_attempt {
             if let Some(skill) = skill {
@@ -1535,7 +1566,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v9\0",
+            b"benilla-native-melee-chain-v10\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

@@ -109,6 +109,25 @@ impl Authority for SyntheticMotionAuthority {
             ));
         }
         let facts = match query {
+            MotionQuery::Combat(query) => MotionFacts::Combat(match query {
+                CombatQuery::NpcVisibility(_) => {
+                    CombatFacts::NpcVisibility(ai::movement::Check::Passed)
+                }
+                CombatQuery::NpcAccessibility(_) => {
+                    CombatFacts::NpcAccessibility(ai::movement::Check::Passed)
+                }
+                CombatQuery::NpcLineOfSight(_) => {
+                    CombatFacts::NpcLineOfSight(ai::movement::Check::Passed)
+                }
+                CombatQuery::MeleeFront(_) => CombatFacts::MeleeFront(ai::movement::Check::Passed),
+                CombatQuery::NpcSemantics(_)
+                | CombatQuery::MeleeDamage(_)
+                | CombatQuery::MeleeCombatEntry(_) => {
+                    return Err(NativeError::AuthorityUnavailable(
+                        "runtime-owned combat semantics escaped",
+                    ))
+                }
+            }),
             MotionQuery::HostileSpellRelation(_) => MotionFacts::HostileSpellRelation(
                 self.hostile_relation.unwrap_or(ai::movement::Check::Passed),
             ),

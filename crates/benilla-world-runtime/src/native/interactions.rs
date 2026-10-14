@@ -3,8 +3,12 @@
 // LootHandler.cpp; upstream GPL-2.0-or-later, Copyright CMaNGOS contributors.
 //! Private exact-draft semantic host. Source rows are inputs, never an admission token.
 use super::*;
+use crate::NpcId;
+mod combat_authority;
 use benilla_formats::FactionTemplate;
 use benilla_sim::classic_targets as relations;
+pub(in crate::native) use combat_authority::WorkingNpc;
+pub use combat_authority::*;
 use relations::unit_flags;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -169,6 +173,7 @@ pub struct InteractionInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct InteractionCatalog {
     policy: &'static str,
+    combat_authority: Option<CombatAuthorityCatalog>,
     player: PlayerInteractionSource,
     npcs: BTreeMap<u32, NpcInteractionSource>,
     factions: BTreeMap<u32, InteractionFactionSource>,
@@ -194,6 +199,10 @@ impl Profile {
         }
         next.interactions = Some(InteractionCatalog {
             policy: INTERACTION_POLICY,
+            combat_authority: next
+                .interactions
+                .as_ref()
+                .and_then(|c| c.combat_authority.clone()),
             player: input.player,
             npcs,
             factions,
@@ -207,6 +216,9 @@ impl Profile {
 impl InteractionCatalog {
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         self.audit.validate()?;
+        if let Some(combat) = &self.combat_authority {
+            combat.validate(profile)?;
+        }
         self.player.control.validate()?;
         // Player::Create sets PLAYER_CONTROLLED. Logout, taxis, forms, mounts,
         // charm and ghost release have no admitted native transition here.
@@ -385,15 +397,30 @@ pub(super) fn witness(
 }
 
 /// Borrowed only from the executing frame or a read-only NativeWorld preview.
-/// These interactions run outside NPC stepping. A future Npc/Spell/Melee host
-/// must supply the temporarily removed working NPC and post-movement overlay;
-/// it must not reinterpret this complete scene as that future callback view.
+/// Interaction callers use the complete scene. The separate combat host takes
+/// its current NPC fields from a private borrow of the removed staged owner,
+/// including the live AI callback and its post-movement source pose.
 struct CurrentView<'a> {
     profile: &'a Profile,
     state: &'a State,
     catalog: &'a InteractionCatalog,
-    npc: &'a Npc,
+    npc: CurrentNpc,
     source: &'a NpcInteractionSource,
+}
+#[derive(Clone, Copy)]
+struct CurrentNpc {
+    id: NpcId,
+    health: u32,
+    phase: ai::Phase,
+}
+impl From<&Npc> for CurrentNpc {
+    fn from(npc: &Npc) -> Self {
+        Self {
+            id: npc.id,
+            health: npc.health,
+            phase: npc.ai.phase(),
+        }
+    }
 }
 impl CurrentView<'_> {
     fn npc_flags(&self) -> u32 {
@@ -405,7 +432,7 @@ impl CurrentView<'_> {
     }
     fn npc_unit_flags(&self) -> u32 {
         self.source.unit_flags
-            | if self.npc.ai.phase() == ai::Phase::Combat {
+            | if self.npc.phase == ai::Phase::Combat {
                 unit_flags::IN_COMBAT
             } else {
                 0
@@ -592,7 +619,7 @@ pub(super) fn resolve(
         profile,
         state,
         catalog,
-        npc,
+        npc: npc.into(),
         source,
     };
     let facts = match &request.query {

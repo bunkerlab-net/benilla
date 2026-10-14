@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v9 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v10 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -143,3 +143,8 @@ the client publishes the committed unit-health value. Checkpoint/replay and
 client tests use authored fixtures only; production admission remains closed.
 Source quest reputation state, synchronous objective callbacks, client packet ordering
 and durable/session boundaries are specified in [REPUTATION.md](REPUTATION.md).
+
+The explicitly selected [NPC and melee semantic host](../../COMBAT-AUTHORITY.md)
+derives current relationships, combat entry, lifecycle and movement from captured
+source metadata and the staged owner. Visibility, accessibility, LOS and victim
+front-angle remain separately typed spatial dependencies.

@@ -244,7 +244,7 @@ fn replay_commands(commands: &[String], reopen_after_every_command: bool) -> Str
 }
 #[test]
 fn exact_pinned_cpp_differential_and_snapshot_replay() {
-    let expected = include_str!("fixtures/event_processor_cmangos.tsv");
+    let expected = oracle_text(include_str!("fixtures/event_processor_cmangos.tsv"));
     let commands: Vec<String> = expected
         .lines()
         .filter_map(|line| line.strip_prefix('>'))
@@ -252,6 +252,33 @@ fn exact_pinned_cpp_differential_and_snapshot_replay() {
         .collect();
     assert_eq!(replay_commands(&commands, false), expected);
     assert_eq!(replay_commands(&commands, true), expected);
+}
+// Git may check textual oracle fixtures out with CRLF on Windows. Canonicalize
+// only that transport spelling; keep every row byte and final newline exact.
+fn oracle_text(input: &str) -> String {
+    let canonical = input.replace("\r\n", "\n");
+    assert!(!canonical.contains('\r'), "bare CR in oracle fixture");
+    canonical
+}
+#[test]
+fn exact_source_oracle_accepts_crlf_checkout_without_changing_rows() {
+    let lf = oracle_text(include_str!("fixtures/event_processor_cmangos.tsv"));
+    let crlf = lf.replace('\n', "\r\n");
+    assert_eq!(oracle_text(&crlf), lf);
+    let commands: Vec<String> = crlf
+        .lines()
+        .filter_map(|line| line.strip_prefix('>'))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(replay_commands(&commands, false), oracle_text(&crlf));
+    assert_eq!(replay_commands(&commands, true), oracle_text(&crlf));
+    assert_ne!(oracle_text("Q 1 5\r\n"), oracle_text("Q 1  5\r\n"));
+    assert_ne!(oracle_text("Q 1 5\r\n"), oracle_text("Q 1 5"));
+}
+#[test]
+#[should_panic(expected = "bare CR in oracle fixture")]
+fn exact_source_oracle_rejects_bare_cr() {
+    oracle_text("Q 1\r5\n");
 }
 fn generated_commands(seed: u32) -> Vec<String> {
     let mut commands = vec!["P".to_owned()];

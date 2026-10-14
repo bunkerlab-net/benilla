@@ -96,8 +96,13 @@ semantics, source target relations, death/recovery and world services remain.
 Player orientation now follows sequenced transactional pose updates and durable
 client publication. Source reputation and tracked player/NPC relation predicates
 feed an internal quest-status, quest-interaction and loot-interaction host using
-current transactional state and ordered replay witnesses. Spell, melee and NPC
-semantic authority remain separate integration work. The source EventProcessor
+current transactional state and ordered replay witnesses. A selected bounded
+ordinary-creature host now derives NPC and melee relationship/combat-entry decisions
+from the actual staged AI, health and motion state. Complete captured flag rows must
+agree with the initializer; visibility, accessibility, LOS and facing remain distinct
+spatial dependencies. See [combat authority](../crates/benilla-world-runtime/COMBAT-AUTHORITY.md).
+Spell semantic authority and the remaining creature/control branches are still
+separate integration work. The source EventProcessor
 queue primitive and bounded per-player notification/SpellEvent integration now
 preserve due order, retained spell lifetimes, transactional rollback and durable
 reopening. General spell effects, NPC casts and the complete failed-attempt

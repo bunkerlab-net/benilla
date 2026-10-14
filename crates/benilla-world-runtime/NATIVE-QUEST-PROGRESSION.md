@@ -90,7 +90,7 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 9 explicitly rejects prior schemas; cast checkpoints use version 2,
+Native format 10 explicitly rejects prior schemas; cast checkpoints use version 2,
 while common resource/aura checkpoints remain version 1. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight

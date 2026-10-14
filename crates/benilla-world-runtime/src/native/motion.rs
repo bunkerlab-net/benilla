@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Transactional source-motion integration. This is an explicitly bounded solo
-//! component domain; no native geometry, current-state or visitor producer is supplied.
+//! component domain; no native geometry or visitor producer is supplied. The
+//! explicitly selected combat host derives current semantic state internally.
 use super::*;
 use benilla_sim::creature_motion as motion;
 use serde::{Deserialize, Serialize};
@@ -377,6 +378,7 @@ pub enum VisitorFacts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum MotionQuery {
+    Combat(CombatQuery),
     HostileSpellRelation(HostileSpellRequest),
     HostileSpellVisibility(HostileSpellRequest),
     Spatial(motion::Query),
@@ -385,6 +387,7 @@ pub enum MotionQuery {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum MotionFacts {
+    Combat(CombatFacts),
     HostileSpellRelation(ai::movement::Check),
     HostileSpellVisibility(ai::movement::Check),
     Spatial(Box<motion::Reply>),

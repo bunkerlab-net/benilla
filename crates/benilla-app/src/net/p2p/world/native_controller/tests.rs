@@ -973,3 +973,6 @@ mod motion_tests;
 
 #[path = "event_scheduler_tests.rs"]
 mod event_scheduler_tests;
+
+#[path = "combat_authority_tests.rs"]
+mod combat_authority_tests;

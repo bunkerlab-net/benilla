@@ -87,7 +87,10 @@ impl<A: Authority> Frame<'_, A> {
         input.validate()?;
         Ok(input)
     }
-    fn source_facts(&mut self, npc: &Npc) -> Result<NpcFacts, NativeError> {
+    fn source_facts(&mut self, npc: &Npc, phase: CombatPhase) -> Result<NpcFacts, NativeError> {
+        if self.profile.source_combat_authority() {
+            return self.source_npc_facts(npc, phase);
+        }
         let position = npc
             .source_motion
             .as_ref()
@@ -224,7 +227,7 @@ impl<A: Authority> Frame<'_, A> {
                 .ok_or(NativeError::Limit)?,
             event,
         };
-        let facts = self.source_facts(&npc)?;
+        let facts = self.source_facts(&npc, CombatPhase::CombatReceipt)?;
         let observation = self.source_observation(&npc, facts, None, vec![receipt])?;
         let effects = npc
             .ai
@@ -244,7 +247,7 @@ impl<A: Authority> Frame<'_, A> {
             .remove(&id)
             .ok_or(NativeError::InvalidState)?;
         if self.source_visitor(&npc, VisitorOwner::Player, clock)? {
-            let facts = self.source_facts(&npc)?;
+            let facts = self.source_facts(&npc, CombatPhase::Sight)?;
             let observation = self.source_observation(&npc, facts, None, Vec::new())?;
             let effects = npc.ai.source_sight_event(&observation)?;
             self.source_prefix_effects(&mut npc, &effects)?;
@@ -424,7 +427,7 @@ impl<A: Authority> Frame<'_, A> {
                 .advance_events(self.profile.tick_ms, npc.health > 0)?;
             let clock = source.notify.snapshot().event_clock_ms;
             if due && self.source_visitor(&npc, VisitorOwner::Creature(npc.id), clock)? {
-                let facts = self.source_facts(&npc)?;
+                let facts = self.source_facts(&npc, CombatPhase::Sight)?;
                 let observation = self.source_observation(&npc, facts, None, Vec::new())?;
                 let effects = npc.ai.source_sight_event(&observation)?;
                 self.source_prefix_effects(&mut npc, &effects)?;
@@ -440,7 +443,7 @@ impl<A: Authority> Frame<'_, A> {
             .remove(&id)
             .ok_or(NativeError::InvalidState)?;
         let prior = npc.ai.motion().cloned();
-        let facts = self.source_facts(&npc)?;
+        let facts = self.source_facts(&npc, CombatPhase::UnitPrelude)?;
         let observation = self.source_observation(&npc, facts, None, Vec::new())?;
         let token = npc
             .ai
@@ -496,62 +499,68 @@ impl<A: Authority> Frame<'_, A> {
             None
         };
         npc.source_motion = Some(source);
-        let facts = self.source_facts(npc)?;
+        let facts = self.source_facts(npc, CombatPhase::AfterMovement)?;
         let observation = self.source_observation(npc, facts, movement, Vec::new())?;
         let prefix = token.effects().len();
         let start = self.events.len();
         let mut source = npc.source_motion.take().unwrap();
         let mut failure = None;
-        let result = npc
-            .ai
-            .finish_receipts_with_hooks(observation, token, &mut |hook| {
-                let action: Result<ai::MainhandResult, NativeError> = (|| match hook {
-                    ai::OrderedHook::FaceTarget {
-                        target: id,
-                        position,
-                    } => {
-                        if id != SOLO_UNIT || position != source.motion.pose().position {
-                            return Err(NativeError::InvalidState);
+        let result =
+            npc.ai
+                .finish_receipts_with_current(observation, token, &mut |hook, working_ai| {
+                    let action: Result<ai::MainhandResult, NativeError> = (|| match hook {
+                        ai::OrderedHook::FaceTarget {
+                            target: id,
+                            position,
+                        } => {
+                            if id != SOLO_UNIT || position != source.motion.pose().position {
+                                return Err(NativeError::InvalidState);
+                            }
+                            let event = self.source_spatial(npc.id, |a| {
+                                source.motion.face_target(player_position, a)
+                            })?;
+                            self.events.push(Event::NpcMotion { id: npc.id, event });
+                            Ok(ai::MainhandResult::Unchanged)
                         }
-                        let event = self.source_spatial(npc.id, |a| {
-                            source.motion.face_target(player_position, a)
-                        })?;
-                        self.events.push(Event::NpcMotion { id: npc.id, event });
-                        Ok(ai::MainhandResult::Unchanged)
-                    }
-                    ai::OrderedHook::Mainhand {
-                        target: id,
-                        position,
-                        combat_started,
-                    } => {
-                        if id != SOLO_UNIT {
-                            return Err(NativeError::InvalidState);
+                        ai::OrderedHook::Mainhand {
+                            target: id,
+                            position,
+                            combat_started,
+                        } => {
+                            if id != SOLO_UNIT {
+                                return Err(NativeError::InvalidState);
+                            }
+                            if combat_started {
+                                self.enter_player_combat();
+                            }
+                            if self.state.combat.is_some() {
+                                self.native_melee(
+                                    npc.id,
+                                    position,
+                                    npc.health,
+                                    Some(Orientation::from_bits(
+                                        source.motion.pose().orientation.bits(),
+                                    )?),
+                                    Some(&interactions::WorkingNpc {
+                                        id: npc.id,
+                                        health: npc.health,
+                                        ai: working_ai,
+                                        motion: &source,
+                                    }),
+                                )?;
+                            }
+                            Ok(if self.state.health == 0 {
+                                ai::MainhandResult::TargetDied
+                            } else {
+                                ai::MainhandResult::Unchanged
+                            })
                         }
-                        if combat_started {
-                            self.enter_player_combat();
-                        }
-                        if self.state.combat.is_some() {
-                            self.native_melee(
-                                npc.id,
-                                position,
-                                npc.health,
-                                Some(Orientation::from_bits(
-                                    source.motion.pose().orientation.bits(),
-                                )?),
-                            )?;
-                        }
-                        Ok(if self.state.health == 0 {
-                            ai::MainhandResult::TargetDied
-                        } else {
-                            ai::MainhandResult::Unchanged
-                        })
-                    }
-                })();
-                action.map_err(|error| {
-                    failure = Some(error);
-                    ai::AiError::Invalid("source native AI hook")
-                })
-            });
+                    })();
+                    action.map_err(|error| {
+                        failure = Some(error);
+                        ai::AiError::Invalid("source native AI hook")
+                    })
+                });
         npc.source_motion = Some(source);
         if let Some(error) = failure {
             return Err(error);
