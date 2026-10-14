@@ -28,6 +28,7 @@ use tokio::{
     time::{self, timeout},
 };
 use zeroize::Zeroizing;
+pub mod discovery;
 mod identity;
 mod internet;
 mod rejection;

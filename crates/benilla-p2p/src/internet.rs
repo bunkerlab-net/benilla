@@ -70,7 +70,7 @@ impl InternetConfig {
         self.tickets(&self.relays()?).map(|_| ())
     }
 }
-fn parse_ticket(ticket: &str) -> Result<EndpointAddr, Error> {
+pub(super) fn parse_ticket(ticket: &str) -> Result<EndpointAddr, Error> {
     if ticket.len() > MAX_TICKET {
         return Err(Error::Protocol("endpoint ticket too long"));
     }
