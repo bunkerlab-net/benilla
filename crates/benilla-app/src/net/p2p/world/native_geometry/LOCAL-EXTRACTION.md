@@ -187,7 +187,9 @@ owner-dependent filters cannot be reconstructed by checking ADT face normals alo
 
 The [generated-product prerequisite](products/PROVENANCE.md) implements bounded immutable
 inventory, native serialization framing and an oracle-checked dry GridMap point reader.
-It does not load VMap/Detour cores or validate their internal references; caller-provided
+The optional [safe static VMap port](products/vmap/PROVENANCE.md) now loads validated
+hierarchies/models and supplies bounded source-derived nearest rays as an additional
+provider veto. Detour internal references/loading remain unimplemented; caller-provided
 source/tool hashes are consistency declarations, not extraction or participant proofs.
 The rest of this adapter remains an implementation contract, not a product availability claim:
 

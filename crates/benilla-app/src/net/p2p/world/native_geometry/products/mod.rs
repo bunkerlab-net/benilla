@@ -8,6 +8,7 @@
 )]
 mod envelopes;
 mod terrain;
+pub(crate) mod vmap;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -220,6 +221,8 @@ struct Product {
 pub(crate) struct InventoriedProducts {
     map: u32,
     revision: Hash,
+    content: Hash,
+    source_epoch: Hash,
     products: BTreeMap<ProductId, Product>,
 }
 impl InventoriedProducts {
@@ -328,6 +331,8 @@ impl InventoriedProducts {
         }
         Ok(Self {
             map: spec.map,
+            content: spec.binding.content,
+            source_epoch: spec.binding.source_epoch,
             revision: revision.finalize().into(),
             products,
         })

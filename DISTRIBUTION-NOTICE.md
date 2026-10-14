@@ -20,6 +20,11 @@ this combination uses GPL version 3 or later. Consult
 and license documents in `crates/benilla-sim/licenses/`. The synthetic encounter
 harness is not a port of full Classic combat or a claim of full gameplay parity.
 
+The app's bounded dry static VMap ray port derives from the same CMaNGOS revision and
+G3D math. Its source scope, GPL and original G3D Modified BSD notices are linked in
+`crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md`.
+This is not a full VMap/MMap/PathFinder port or native-content admission.
+
 The matching build source, locked dependency sources, license texts, build scripts,
 and build information are provided through the exact download and SHA-256 in
 `SOURCE-DOWNLOAD.txt`, or through an embedded `corresponding-source.tar.gz` in a

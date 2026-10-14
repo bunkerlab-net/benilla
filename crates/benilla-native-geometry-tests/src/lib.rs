@@ -6,6 +6,8 @@ mod core;
 mod planar;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/products/mod.rs"]
 mod products;
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_vmap.rs"]
+mod source_vmap;
 
 #[path = "../../benilla-world/src/terrain_stream/native_coverage/static_mesh.rs"]
 mod static_mesh;

@@ -7,6 +7,7 @@
 )]
 mod core;
 mod products;
+mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
 use self::core::{Corridor, Mailbox};
 use avian3d::prelude::{Collider, ColliderAabb, PhysicsSystems, ShapeCastConfig, SpatialQuery};
@@ -18,22 +19,49 @@ use benilla_world::{
 };
 use benilla_world_runtime::native::{Facts, Query};
 use bevy::{diagnostic::FrameCount, prelude::*, transform::TransformSystems};
+pub(crate) fn static_vmap_geometry_revision(
+    raw_geometry: [u8; 32],
+    snapshot: &products::vmap::VmapSnapshot,
+) -> [u8; 32] {
+    source_vmap::geometry_revision(raw_geometry, snapshot.binding())
+}
 
 /// Installed as a NonSend resource only by future audited native entry. Replacing/dropping
 /// it closes the old queue; no renderer or explorer session silently becomes authority.
 struct Service {
     mailbox: Mailbox,
     budget: core::FrameBudget,
+    vmap: Option<source_vmap::SourceVmapProvider>,
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct GeometryQueries;
 
 pub(crate) fn install(world: &mut World, session: Session) -> Result<LocalAuthority, Failure> {
+    install_products(world, session, None)
+}
+
+/// Optional loaded static geometry can only add a veto to the existing authority.
+/// Loading belongs off-thread. This neither opens admission nor replaces source-epoch proof.
+pub(crate) fn install_with_static_vmap(
+    world: &mut World,
+    session: Session,
+    snapshot: products::vmap::VmapSnapshot,
+    raw_geometry: [u8; 32],
+) -> Result<LocalAuthority, Failure> {
+    let provider = source_vmap::SourceVmapProvider::bind(&session, snapshot, raw_geometry)?;
+    install_products(world, session, Some(provider))
+}
+fn install_products(
+    world: &mut World,
+    session: Session,
+    vmap: Option<source_vmap::SourceVmapProvider>,
+) -> Result<LocalAuthority, Failure> {
     let (authority, mailbox) = core::mailbox(session)?;
     world.insert_non_send_resource(Service {
         mailbox,
         budget: default(),
+        vmap,
     });
     Ok(authority)
 }
@@ -75,30 +103,48 @@ fn process(
     if allowance == 0 {
         return;
     }
-    let used = service
-        .mailbox
-        .serve_queries(allowance, |session, request, body| {
-            if !live.0 {
-                return Err(Failure::MissingGeometry);
-            }
-            let mut corridor = LocalCorridor {
-                terrain: &terrain,
-                collision: &collision,
-                spatial: &spatial,
-                map: session.map,
-                revision: session.geometry,
-            };
-            match &request.query {
-                Query::Movement(m) => core::solve(m, body, &mut corridor).map(Facts::Movement),
-                Query::PlayerMovement { .. } => core::solve_player(
-                    &request.query,
-                    session.player.ok_or(Failure::UnresolvedBody)?,
-                    &mut corridor,
-                ),
-                _ => Err(Failure::UnsupportedQuery),
-            }
-        });
+    let used =
+        service
+            .mailbox
+            .serve_queries_until(allowance, |session, request, body, deadline| {
+                if !live.0 {
+                    return Err(Failure::MissingGeometry);
+                }
+                let mut corridor = LocalCorridor {
+                    terrain: &terrain,
+                    collision: &collision,
+                    spatial: &spatial,
+                    map: session.map,
+                    revision: service
+                        .vmap
+                        .as_ref()
+                        .map_or(session.geometry, |vmap| vmap.raw_geometry()),
+                };
+                if let Some(provider) = service.vmap.as_ref() {
+                    let mut corridor = provider.corridor(session, request, corridor, deadline)?;
+                    resolve_query(session, request, body, &mut corridor)
+                } else {
+                    resolve_query(session, request, body, &mut corridor)
+                }
+            });
     service.budget.spend(used);
+}
+
+fn resolve_query(
+    session: &Session,
+    request: &benilla_world_runtime::native::AuthorityRequest,
+    body: Body,
+    corridor: &mut impl Corridor,
+) -> Result<Facts, Failure> {
+    match &request.query {
+        Query::Movement(m) => core::solve(m, body, corridor).map(Facts::Movement),
+        Query::PlayerMovement { .. } => core::solve_player(
+            &request.query,
+            session.player.ok_or(Failure::UnresolvedBody)?,
+            corridor,
+        ),
+        _ => Err(Failure::UnsupportedQuery),
+    }
 }
 
 struct LocalCorridor<'a, 'w, 's> {

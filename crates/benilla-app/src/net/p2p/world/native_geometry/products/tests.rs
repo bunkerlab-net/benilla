@@ -144,7 +144,7 @@ fn binding() -> SourceBinding {
         build_configuration: [11; 32],
     }
 }
-fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
+pub(super) fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     let tiles = vec![
         TileId { x: 31, y: 30 },
         TileId { x: 32, y: 30 },
@@ -193,7 +193,7 @@ fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
         files,
     )
 }
-fn load(
+pub(super) fn load(
     spec: InventorySpec,
     files: &BTreeMap<String, Vec<u8>>,
 ) -> Result<InventoriedProducts, Error> {
@@ -204,7 +204,7 @@ fn load(
 fn result(spec: InventorySpec, files: &BTreeMap<String, Vec<u8>>) -> Result<(), Error> {
     load(spec, files).map(|_| ())
 }
-fn mutate(
+pub(super) fn mutate(
     spec: &mut InventorySpec,
     files: &mut BTreeMap<String, Vec<u8>>,
     id: &ProductId,

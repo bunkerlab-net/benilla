@@ -1,9 +1,11 @@
-# Generated-product inventory and dry GridMap point reader
+# Generated-product inventory, dry GridMap points and optional static VMap loading
 
 This is a source-bound prerequisite, not native geometry admission. `InventoriedProducts`
 owns a bounded exact declared file set, validates hashes and serialization framing, and
 contains decoded dry terrain. It cannot construct `Session`, `NonRenderParticipants`, a
-path, an LOS result, or a body-support certificate. No existing geometry query consumes it.
+path, an LOS result, or a body-support certificate. The optional
+[source-derived VMap loader](vmap/PROVENANCE.md) separately validates actual hierarchy and
+model references and supplies static-ray queries to the current provider as an extra veto.
 
 ## Source and license
 
@@ -36,7 +38,8 @@ Detour tile indices are origin-relative and are not assumed equal to either file
 
 Detour's format declarations are by Mikko Mononen, copyright 2009-2010, under its zlib
 license. The preserved notice is [DETOUR-NOTICE.txt](DETOUR-NOTICE.txt). No Detour native
-implementation or generic replacement library is linked here.
+implementation or generic replacement library is linked here. The optional static VMap
+port also preserves the G3D notice, as documented in its [provenance](vmap/PROVENANCE.md).
 
 ## Consistency is not provenance authorization
 
@@ -103,8 +106,10 @@ This oracle covers point-height selection only; it does not test stacks, clearan
 VMap composite height, native pathfinding, or gameplay. The fixture is original numeric
 output. Linux generation is verified; other runtime platforms remain separate gates.
 
-The next concrete step is a separately bounded isolated native loader over the exact
-vendored Detour tree and VMap implementation. It must validate all opaque counts,
+The optional [safe static VMap loader/query port](vmap/PROVENANCE.md) now implements
+hierarchy/reference validation and nearest static rays over immutable inventoried bytes.
+This inventory's own envelope pass still does not perform those checks. The next native
+navigation step is a separately bounded loader over the exact vendored Detour tree. It must validate all opaque counts,
 indices/references and allocation/work budgets before calling native loaders, then
 check actual per-product load results and complete model/navmesh closure before exposing
 any loaded-core handle. Only then can an owner-dependent PathFinder adapter and full-route

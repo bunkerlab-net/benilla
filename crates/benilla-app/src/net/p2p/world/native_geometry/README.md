@@ -160,3 +160,15 @@ sampling; genuine sloped movement is still rejected.
 Full Bevy type/runtime checks, real installed Data, Windows behavior and live native play
 remain separate validation gates. Headless parser/collider fixtures do not establish a
 working native starter scene.
+
+## Optional loaded static VMap veto
+
+`InventoriedProducts::load_static_vmap` loads bounded source-generated map/model/triangle
+hierarchies and transformed dry collision geometry. Its source-derived nearest-ray query
+has exact C++ differential fixtures, malformed-input/reference validation and explicit
+missing-primitive errors. [Scope, source grants and evidence](products/vmap/PROVENANCE.md).
+The optional provider combines the raw and VMap revisions, checks exact request binding,
+and adds a static-ray obstacle veto only after the existing positive corridor proof.
+It inherits the mailbox's absolute frame/request deadline. Service replacement revokes
+pending and buffered old-authority replies. Production source/participant admission,
+Detour/PathFinder and sloped-body support remain closed.

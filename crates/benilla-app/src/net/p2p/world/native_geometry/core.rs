@@ -9,6 +9,10 @@ use benilla_world_runtime::{
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use std::{
     collections::BTreeMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -84,7 +88,7 @@ pub(crate) struct Session {
     pub participants: Option<NonRenderParticipants>,
 }
 impl Session {
-    fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
+    pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
         self.check_participants()?;
         let b = &request.binding;
         if b.world != self.world
@@ -211,10 +215,27 @@ pub(crate) struct LocalAuthority {
     session: Session,
     tx: Sender<Work>,
     ticket: u64,
+    active: Arc<AtomicBool>,
+    cancelled: Receiver<()>,
 }
 pub(super) struct Mailbox {
     session: Session,
     rx: Receiver<Work>,
+    active: Arc<AtomicBool>,
+    _cancellation: Sender<()>,
+}
+impl Drop for Mailbox {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Release);
+        // Crossbeam keeps queued values alive while a sender exists. Release old
+        // reply endpoints now; the separate cancellation channel also covers a
+        // producer racing this bounded drain before receiver destruction.
+        for _ in 0..QUEUE_CAPACITY {
+            if self.rx.try_recv().is_err() {
+                break;
+            }
+        }
+    }
 }
 pub(super) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Failure> {
     session.check_participants()?;
@@ -222,17 +243,27 @@ pub(super) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
         return Err(Failure::Invalid);
     }
     let (tx, rx) = bounded(QUEUE_CAPACITY);
+    let active = Arc::new(AtomicBool::new(true));
+    let (cancellation, cancelled) = bounded(0);
     Ok((
         LocalAuthority {
             session: session.clone(),
             tx,
             ticket: 0,
+            active: active.clone(),
+            cancelled,
         },
-        Mailbox { session, rx },
+        Mailbox {
+            session,
+            rx,
+            active,
+            _cancellation: cancellation,
+        },
     ))
 }
 impl Authority for LocalAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+        self.check_active()?;
         self.session.body(request).map_err(Failure::native)?;
         self.ticket = self.ticket.checked_add(1).ok_or(NativeError::Limit)?;
         let (tx, rx) = bounded(1);
@@ -252,12 +283,32 @@ impl Authority for LocalAuthority {
                     NativeError::AuthorityUnavailable("local geometry service closed")
                 }
             })?;
-        let reply = receive_reply_until(&rx, deadline)?;
+        let reply = receive_reply_until(&rx, &self.cancelled, deadline)?;
+        self.finish_reply(request, reply)
+    }
+}
+impl LocalAuthority {
+    fn check_active(&self) -> Result<(), NativeError> {
+        if self.active.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(NativeError::AuthorityUnavailable(
+                "local geometry snapshot replaced",
+            ))
+        }
+    }
+    fn finish_reply(
+        &self,
+        request: &AuthorityRequest,
+        reply: Reply,
+    ) -> Result<AuthorityReply, NativeError> {
+        self.check_active()?;
         if reply.ticket != self.ticket || reply.request != *request {
             return Err(NativeError::AuthorityBinding);
         }
         let facts = reply.result.map_err(Failure::native)?;
         validate_facts(&self.session, request, &facts).map_err(Failure::native)?;
+        self.check_active()?;
         Ok(AuthorityReply {
             request: request.clone(),
             facts,
@@ -265,9 +316,18 @@ impl Authority for LocalAuthority {
     }
 }
 
-fn receive_reply_until(rx: &Receiver<Reply>, deadline: Instant) -> Result<Reply, NativeError> {
+fn receive_reply_until(
+    rx: &Receiver<Reply>,
+    cancelled: &Receiver<()>,
+    deadline: Instant,
+) -> Result<Reply, NativeError> {
     let unavailable = || NativeError::AuthorityUnavailable("local geometry reply unavailable");
-    let reply = rx.recv_deadline(deadline).map_err(|_| unavailable())?;
+    let timeout = crossbeam_channel::at(deadline);
+    let reply = crossbeam_channel::select_biased! {
+        recv(cancelled) -> _ => return Err(unavailable()),
+        recv(rx) -> result => result.map_err(|_| unavailable())?,
+        recv(timeout) -> _ => return Err(unavailable()),
+    };
     // Channel receives may return an already-buffered reply after their deadline. A driver
     // descheduled after enqueue must not renew the request's authority window when it resumes.
     if Instant::now() >= deadline {
@@ -297,6 +357,16 @@ impl Mailbox {
         limit: usize,
         mut geometry: impl FnMut(&Session, &AuthorityRequest, Body) -> Result<Facts, Failure>,
     ) -> usize {
+        self.serve_queries_until(limit, |session, request, body, _| {
+            geometry(session, request, body)
+        })
+    }
+    /// Product-backed queries inherit the original job and frame deadlines, never renew them.
+    pub(super) fn serve_queries_until(
+        &self,
+        limit: usize,
+        mut geometry: impl FnMut(&Session, &AuthorityRequest, Body, Instant) -> Result<Facts, Failure>,
+    ) -> usize {
         let deadline = Instant::now() + Duration::from_millis(2);
         let mut count = 0;
         while count < limit.min(PER_FRAME) {
@@ -309,7 +379,12 @@ impl Mailbox {
                 continue;
             }
             let result = self.session.body(&work.request).and_then(|body| {
-                let facts = geometry(&self.session, &work.request, body)?;
+                let facts = geometry(
+                    &self.session,
+                    &work.request,
+                    body,
+                    work.deadline.min(deadline),
+                )?;
                 validate_facts(&self.session, &work.request, &facts)?;
                 Ok(facts)
             });

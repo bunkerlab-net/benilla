@@ -320,7 +320,7 @@ fn buffered_reply_cannot_extend_the_absolute_request_deadline() {
     .unwrap();
     // Deterministic past deadline: no sleep or scheduler timing makes the test pass.
     assert!(matches!(
-        receive_reply_until(&rx, Instant::now() - WAIT),
+        receive_reply_until(&rx, &crossbeam_channel::never(), Instant::now() - WAIT),
         Err(NativeError::AuthorityUnavailable(_))
     ));
 }
@@ -551,4 +551,181 @@ fn oversized_player_path_is_rejected_before_transport_enqueue() {
     r.query = player_query(&vec![[0.0, 0.0, 5.0]; 64], [0.0, 0.0, 5.0]);
     assert_eq!(worker.resolve(&r), Err(NativeError::InvalidInput));
     assert!(service.rx.is_empty());
+}
+
+#[test]
+fn loaded_vmap_is_an_additional_bound_corridor_veto_never_a_support_proof() {
+    use super::super::{
+        products::vmap::tests::snapshot,
+        source_vmap::{geometry_revision, SourceVmapProvider},
+    };
+    let snapshot = snapshot();
+    let mut s = session();
+    let raw = s.geometry;
+    s.content = snapshot.binding().content;
+    s.participants = Some(NonRenderParticipants::authored_fixture(s.content, s.map));
+    s.geometry = geometry_revision(raw, snapshot.binding());
+    let mut request = request();
+    request.binding.geometry = s.geometry;
+    if let Query::Movement(m) = &mut request.query {
+        m.content_revision = Revision(s.content);
+        m.geometry_revision = Revision(s.geometry);
+    }
+    let provider = SourceVmapProvider::bind(&s, snapshot, raw).unwrap();
+    assert_eq!(provider.raw_geometry(), raw);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let world = |p: [f32; 3]| [17066.666f32 - p[0], 17066.666f32 - p[1], p[2]];
+    // Authored VMap has a vertical wall at internal x=40, z=0..8.
+    let a = world([35., 0., 2.]);
+    let b = world([45., 0., 2.]);
+    let mut corridor = provider
+        .corridor(&s, &request, Proof(Ok(())), deadline)
+        .unwrap();
+    assert_eq!(corridor.certify(a, b, body()), Err(Failure::Obstacle));
+    let mut corridor = provider
+        .corridor(
+            &s,
+            &request,
+            Proof(Err(Failure::UnsupportedGround)),
+            deadline,
+        )
+        .unwrap();
+    assert_eq!(
+        corridor.certify(a, b, body()),
+        Err(Failure::UnsupportedGround)
+    );
+    let mut corridor = provider
+        .corridor(&s, &request, Proof(Ok(())), deadline)
+        .unwrap();
+    assert_eq!(
+        corridor.certify(world([35., 0., 12.]), world([45., 0., 12.]), body()),
+        Ok(())
+    );
+    let mut no_participants = s.clone();
+    no_participants.participants = None;
+    assert!(matches!(
+        provider.corridor(&no_participants, &request, Proof(Ok(())), deadline),
+        Err(Failure::UnprovenParticipants)
+    ));
+    let mut changed = request.clone();
+    changed.binding.tick = 0;
+    assert!(matches!(
+        provider.corridor(&s, &changed, Proof(Ok(())), deadline),
+        Err(Failure::Binding)
+    ));
+    let mut changed = s.clone();
+    changed.geometry = raw;
+    assert!(matches!(
+        provider.corridor(&changed, &request, Proof(Ok(())), deadline),
+        Err(Failure::Binding)
+    ));
+    let mut corridor = provider
+        .corridor(&s, &request, Proof(Ok(())), Instant::now())
+        .unwrap();
+    assert_eq!(
+        corridor.certify(a, b, body()),
+        Err(Failure::MissingGeometry)
+    );
+}
+
+#[test]
+fn loaded_vmap_cannot_reuse_an_unbound_session_or_changed_epoch_revision() {
+    use super::super::{
+        products::vmap::tests::snapshot,
+        source_vmap::{geometry_revision, SourceVmapProvider},
+    };
+    let mut s = session();
+    let snapshot = snapshot();
+    s.content = snapshot.binding().content;
+    let raw = s.geometry;
+    let b = snapshot.binding();
+    assert!(matches!(
+        SourceVmapProvider::bind(&s, snapshot, raw),
+        Err(Failure::Binding)
+    ));
+    let original = geometry_revision(raw, b);
+    for field in 0..6 {
+        let mut changed = b;
+        match field {
+            0 => changed.map += 1,
+            1 => changed.content = [99; 32],
+            2 => changed.source_epoch = [99; 32],
+            3 => changed.inventory = [99; 32],
+            4 => changed.policy = [99; 32],
+            _ => {
+                assert_ne!(original, geometry_revision([99; 32], b));
+                continue;
+            }
+        }
+        assert_ne!(original, geometry_revision(raw, changed));
+    }
+}
+
+#[test]
+fn replacing_service_invalidates_even_an_already_buffered_old_snapshot_reply() {
+    let (mut authority, mailbox) = mailbox(session()).unwrap();
+    authority.ticket = 1;
+    let request = request();
+    let result = solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement);
+    let reply = Reply {
+        ticket: 1,
+        request: request.clone(),
+        result,
+    };
+    drop(mailbox); // Same drop as uninstall or World resource replacement.
+    assert!(matches!(
+        authority.finish_reply(&request, reply),
+        Err(NativeError::AuthorityUnavailable(_))
+    ));
+    assert!(matches!(
+        authority.resolve(&request),
+        Err(NativeError::AuthorityUnavailable(_))
+    ));
+}
+
+#[test]
+fn replacing_service_immediately_cancels_a_queued_live_reply_channel() {
+    let (authority, service) = mailbox(session()).unwrap();
+    let (reply, receive) = bounded(1);
+    authority
+        .tx
+        .try_send(Work {
+            ticket: 1,
+            request: request(),
+            deadline: Instant::now() + WAIT,
+            reply,
+        })
+        .unwrap();
+    assert!(!service.rx.is_empty());
+    assert!(matches!(
+        receive.try_recv(),
+        Err(crossbeam_channel::TryRecvError::Empty)
+    ));
+    drop(service);
+    assert!(matches!(
+        receive.try_recv(),
+        Err(crossbeam_channel::TryRecvError::Disconnected)
+    ));
+    assert!(matches!(
+        authority.check_active(),
+        Err(NativeError::AuthorityUnavailable(_))
+    ));
+}
+
+#[test]
+fn service_cancellation_wins_even_if_an_old_reply_is_buffered() {
+    let (reply, receive) = bounded(1);
+    reply
+        .try_send(Reply {
+            ticket: 1,
+            request: request(),
+            result: solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement),
+        })
+        .unwrap();
+    let (cancel, cancelled) = bounded::<()>(0);
+    drop(cancel);
+    assert!(matches!(
+        receive_reply_until(&receive, &cancelled, Instant::now() + WAIT),
+        Err(NativeError::AuthorityUnavailable(_))
+    ));
 }
