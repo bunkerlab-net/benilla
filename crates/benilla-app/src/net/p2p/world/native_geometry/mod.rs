@@ -459,6 +459,15 @@ pub(crate) use source_route_point_path::{
 };
 
 #[cfg(test)]
+pub(crate) use source_route_straight_path::{
+    geometry_revision as authored_straight_path_revision, SourceRouteStraightPathProvider,
+    StraightPathConfiguration, StraightPathDependency, StraightPathRequest,
+};
+
+#[cfg(test)]
+pub(crate) use products::navigation::tests::straight_ground_products as authored_route_straight_ground;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -499,12 +508,3 @@ mod tests {
         assert_eq!(app.world().resource::<Order>().0, [1, 2, 3]);
     }
 }
-
-#[cfg(test)]
-pub(crate) use source_route_straight_path::{
-    geometry_revision as authored_straight_path_revision, SourceRouteStraightPathProvider,
-    StraightPathConfiguration, StraightPathDependency, StraightPathRequest,
-};
-
-#[cfg(test)]
-pub(crate) use products::navigation::tests::straight_ground_products as authored_route_straight_ground;
