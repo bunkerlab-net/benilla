@@ -7,6 +7,7 @@
     reason = "native production session admission remains closed"
 )]
 mod envelopes;
+pub(crate) mod height;
 pub(crate) mod liquid;
 pub(crate) mod navigation;
 mod terrain;

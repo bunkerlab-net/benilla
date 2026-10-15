@@ -302,3 +302,65 @@ profile metadata are emitted beside the numbers; the Rust consumer reconstructs
 actual native AREA/MLIQ and both DBC files before querying the reader. This tests
 source branch parity rather than a copied Rust oracle, while retaining the same
 explicit exclusion of composite TerrainInfo and cached player state.
+
+## Loaded static TerrainInfo height prerequisite
+
+`load_static_height` builds an immutable `StaticHeightSnapshot` from actual terrain
+and a completely resolved dry VMap. It implements the pinned
+`TerrainInfo::GetHeightStatic` branch with both `useVmaps` and VMap height calculation
+enabled. That explicit profile is included in the policy digest; it is not evidence
+that a running source configuration enabled height calculations. The source manager
+constructor, world configuration fallback and distributed config have different
+defaults, so production configuration admission remains independent.
+
+Each query binds map, content, source epoch, full inventory/policy, ticket, exact
+position and signed search-distance bits. Raw GridMap height is read from the
+covered tile; a real float hole translates to source -200000, while a missing tile
+returns an error. Source valid-height comparisons use the separate -100000 threshold.
+
+VMap height uses the exact source world/internal coordinate conversion and a unit
+vertical ray, downward for nonnegative search (including negative zero), upward for
+negative search. It uses nearest intersection with M2 included, source strict
+triangle endpoints and source miss/sentinel conversion. It never reconstructs a
+height from the normalized segment API or its 4096-unit cap. One bounded work budget
+and absolute deadline cover the entire composite selection.
+
+The exact selector first searches from z+2 and extends the requested range to
+z+2-mapHeight+1 when source requires. On invalid height it tries 10000 downward,
+then conditionally searches upward, then conditionally searches from mapHeight+2
+with the source default range 10. Final selection uses the original z, not z+2,
+and source strict comparisons. The raw selected value is not a support certificate.
+
+The admitted ray profile requires finite poses within ±100000 and absolute search
+range ≤10000, including every source-derived probe. Consequently some bounded
+external inputs still return Unsupported: for example z=20000 over map height7
+requires an initial range above10000, and z=99999 produces a ray origin100001.
+These probes are rejected without clamping, splitting, returning a no-height
+sentinel or publishing a partial result. The source selector itself has no such
+clamp; its arithmetic oracle also covers larger derived ranges. Unknown VMap slots,
+unsupported WMO liquid products, expired budgets and malformed geometry remain
+errors. No native capability, participant, movement or accessibility gate changes.
+
+This is deliberately not `TerrainInfo::getLiquidStatus`. Even a dry VMap can change
+its reference ground argument: `VMapManager2::GetLiquidLevel` writes the successful
+`GetLocationInfo` floor before a dry group returns false. That location floor can
+differ from GetHeightStatic's floor. Composite liquid therefore still needs exact
+location/group/floor selection (and later actual VMap LIQU handling), not merely
+this static height and the existing GridMap liquid result. Surviving map liquid
+would retain raw GridMap depth data; it must not be silently replaced with a static
+or location floor. Cached player water state and creature capabilities remain
+separate prerequisites after those spatial operations.
+
+Two distinct source comparisons cover this prerequisite. The
+[loaded VMap height oracle](../../../../../../../benilla-native-geometry-tests/tools/scopedheight_README.md)
+executes original VMapManager2/StaticMapTree height methods over authored native
+geometry, verifies 1,018 exact height results and reproduces the existing native
+product bytes unchanged. The
+[static selection oracle](../../../../../../../benilla-native-geometry-tests/tools/generate_static_height_fixture.py)
+executes the full original GetHeightStatic method and flat GridMap dispatch, with
+242 explicitly scripted VMap-response vectors checking every ordered probe and
+returned height bit. Those scripts prove selector arithmetic/order only, not real
+geometry. Separate integration tests combine the actual decoded GridMap/VMap bytes
+through the production snapshot for initial-down, 10000 fallback, upward and
+near-map searches, map/VMap selection and a verified raw terrain hole. Failure
+injection proves callback errors never become a selected height or later probe.

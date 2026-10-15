@@ -188,8 +188,9 @@ owner-dependent filters cannot be reconstructed by checking ADT face normals alo
 The [generated-product prerequisite](products/PROVENANCE.md) implements bounded immutable
 inventory, native serialization framing, oracle-checked GridMap point heights and
 bounded GridMap liquid queries over actual MLIQ/LiquidType/optional AreaTable bytes.
-GridMap area/parent overrides are source-backed; composite TerrainInfo liquid
-selection and player environment-state integration remain unsupported.
+GridMap area/parent overrides and the enabled TerrainInfo static-height selector
+are source-backed. Composite liquid still needs GetLocationInfo's floor side effect;
+player environment-state integration also remains unsupported.
 The optional [safe static VMap port](products/vmap/PROVENANCE.md) now loads validated
 hierarchies/models and supplies bounded source-derived nearest rays as an additional
 provider veto. Detour internal references/loading remain unimplemented; caller-provided

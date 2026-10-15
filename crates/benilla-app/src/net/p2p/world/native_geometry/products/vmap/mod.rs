@@ -3,6 +3,7 @@
 //! Every product is already inventoried; all hierarchy/model references are validated
 //! before publication. No untrusted bytes are passed to native code. See PROVENANCE.md.
 mod bih;
+mod height;
 mod math;
 mod trig;
 use self::{bih::Bih, math::*};
@@ -45,6 +46,22 @@ pub(crate) enum StaticRay {
 pub(crate) struct RayReply {
     pub request: RayRequest,
     pub result: StaticRay,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HeightRequest {
+    pub snapshot: SnapshotBinding,
+    pub ticket: u64,
+    /// Exact world-coordinate binary32 bits, before source coordinate conversion.
+    pub position: [u32; 3],
+    /// Signed search distance bits: nonnegative searches down, negative searches up.
+    pub max_search: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HeightReply {
+    pub request: HeightRequest,
+    /// Source height bits, including VMAP_INVALID_HEIGHT_VALUE on a proven miss.
+    pub height: u32,
 }
 
 #[derive(Debug)]
@@ -268,6 +285,20 @@ pub(super) struct QueryBudget {
     deadline: Instant,
 }
 impl QueryBudget {
+    /// Share one absolute deadline and work allowance across a composite query's rays.
+    pub(super) fn new(deadline: Instant) -> Self {
+        Self {
+            remaining: MAX_QUERY_WORK,
+            deadline,
+        }
+    }
+    /// A completed last work step never renews the caller's absolute deadline.
+    pub(super) fn complete(&self) -> Result<(), Error> {
+        if Instant::now() >= self.deadline {
+            return Err(Error::Budget);
+        }
+        Ok(())
+    }
     fn take(&mut self) -> Result<(), Error> {
         if self.remaining == 0 || Instant::now() >= self.deadline {
             return Err(Error::Budget);

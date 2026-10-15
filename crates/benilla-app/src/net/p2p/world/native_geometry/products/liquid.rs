@@ -112,7 +112,7 @@ impl DryLiquidSnapshot {
         })
     }
 }
-fn world_tile(x: f32, y: f32) -> Result<TileId, Error> {
+pub(super) fn world_tile(x: f32, y: f32) -> Result<TileId, Error> {
     // TerrainInfo::GetGrid, GridMap.cpp:1224–1226: source binary32 division and
     // subtraction, then truncation. Reject out-of-grid coordinates before conversion; this is not player map-coordinate validation.
     let axis = |v| {
