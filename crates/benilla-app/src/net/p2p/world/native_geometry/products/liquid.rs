@@ -147,6 +147,7 @@ pub(crate) struct GridLiquidSnapshot<'a> {
     binding: SnapshotBinding,
     products: &'a InventoriedProducts,
     types: super::terrain::LiquidTypes,
+    areas: Option<super::terrain::AreaTable>,
 }
 impl InventoriedProducts {
     /// LiquidType.dbc is supplied as complete actual WDBC bytes, never a caller-made
@@ -156,7 +157,27 @@ impl InventoriedProducts {
         &self,
         liquid_type_dbc: &[u8],
     ) -> Result<GridLiquidSnapshot<'_>, Error> {
-        let types = super::terrain::LiquidTypes::decode(liquid_type_dbc)?;
+        self.grid_liquid_snapshot(super::terrain::LiquidTypes::decode(liquid_type_dbc)?, None)
+    }
+
+    /// Optional complete AreaTable bytes enable the exact GridMap override branch.
+    /// Absence of this argument is unsupported when needed, not an empty table.
+    pub(crate) fn load_grid_liquid_with_areas(
+        &self,
+        liquid_type_dbc: &[u8],
+        area_table_dbc: &[u8],
+    ) -> Result<GridLiquidSnapshot<'_>, Error> {
+        self.grid_liquid_snapshot(
+            super::terrain::LiquidTypes::decode(liquid_type_dbc)?,
+            Some(super::terrain::AreaTable::decode(area_table_dbc)?),
+        )
+    }
+
+    fn grid_liquid_snapshot(
+        &self,
+        types: super::terrain::LiquidTypes,
+        areas: Option<super::terrain::AreaTable>,
+    ) -> Result<GridLiquidSnapshot<'_>, Error> {
         // Keep unresolved slots and WMO LIQU outside this bounded slice. This does
         // not turn a GridMap answer into a composite TerrainInfo result.
         let vmap = self.load_static_vmap()?;
@@ -170,7 +191,13 @@ impl InventoriedProducts {
         }
         let source = vmap.binding();
         let mut digest = Sha256::new();
-        digest.update(b"cmangos-8ec338a1-gridmap-liquid-v1");
+        if let Some(areas) = &areas {
+            digest.update(b"cmangos-8ec338a1-gridmap-area-liquid-v1");
+            digest.update(areas.digest());
+        } else {
+            // Preserve the no-area profile binding and its unsupported dependency.
+            digest.update(b"cmangos-8ec338a1-gridmap-liquid-v1");
+        }
         digest.update(source.policy);
         digest.update(types.digest());
         Ok(GridLiquidSnapshot {
@@ -183,6 +210,7 @@ impl InventoriedProducts {
             },
             products: self,
             types,
+            areas,
         })
     }
 }
@@ -208,13 +236,16 @@ impl GridLiquidSnapshot<'_> {
         let tile = self
             .products
             .terrain(self.binding.map, world_tile(p[0], p[1])?)?;
-        let result = tile.grid_liquid_status(
+        let result = tile.grid_liquid_status_with_stores(
             p[0],
             p[1],
             p[2],
             request.required_type,
             f32::from_bits(request.collision_height),
-            &self.types,
+            super::terrain::LiquidStores {
+                types: &self.types,
+                areas: self.areas.as_ref(),
+            },
         )?;
         if Instant::now() >= deadline {
             return Err(Error::Budget);

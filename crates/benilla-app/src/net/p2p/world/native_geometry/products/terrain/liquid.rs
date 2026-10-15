@@ -2,7 +2,9 @@
 //! Pinned GridMap::loadGridMapLiquidData/getLiquidStatus, not TerrainInfo selection.
 //! Source: CMaNGOS 8ec338a1 GridMap.cpp and DBCStructure.h/DBCfmt.h (niii).
 use super::super::Hash;
-use super::{height_number, u16_at, u32_at, Error, PointHeight, TerrainTile, MAX_HEIGHT};
+use super::{
+    height_number, u16_at, u32_at, AreaTable, Error, PointHeight, TerrainTile, MAX_HEIGHT,
+};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -69,6 +71,13 @@ impl LiquidTypes {
     pub(crate) fn digest(&self) -> Hash {
         self.digest
     }
+}
+
+/// Complete decoded stores needed by the bounded GridMap query, never admission proof.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LiquidStores<'a> {
+    pub types: &'a LiquidTypes,
+    pub areas: Option<&'a AreaTable>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,8 +214,7 @@ impl GridLiquid {
 }
 
 impl TerrainTile {
-    /// Bounded GridMap query only. AreaTable overrides for matched entries <21
-    /// remain unsupported; no VMap selection, cached player water state or authority.
+    /// Compatibility entry point without AreaTable data; matched entries <21 need it.
     pub(crate) fn grid_liquid_status(
         &self,
         x: f32,
@@ -215,6 +223,27 @@ impl TerrainTile {
         required_mask: u8,
         collision_height: f32,
         types: &LiquidTypes,
+    ) -> Result<GridLiquidResult, Error> {
+        self.grid_liquid_status_with_stores(
+            x,
+            y,
+            z,
+            required_mask,
+            collision_height,
+            LiquidStores { types, areas: None },
+        )
+    }
+
+    /// Pinned GridMap query only, including exact area/one-parent liquid overrides.
+    /// No VMap selection, cached player water state, or gameplay authority.
+    pub(crate) fn grid_liquid_status_with_stores(
+        &self,
+        x: f32,
+        y: f32,
+        z: f32,
+        required_mask: u8,
+        collision_height: f32,
+        stores: LiquidStores<'_>,
     ) -> Result<GridLiquidResult, Error> {
         // Local input guards are independent of the source branch ordering below.
         if !z.is_finite()
@@ -232,16 +261,35 @@ impl TerrainTile {
             return Ok(GridLiquidResult::no_water());
         }
         let idx = (x_int >> 3) * 16 + (y_int >> 3);
-        let (entry, mut kind) = match &liquid.cell_types {
+        let (mut entry, mut kind) = match &liquid.cell_types {
             Some(cells) => (cells.entries[idx], cells.flags[idx]),
             None => (liquid.entry, liquid.flags),
         };
-        if let Some(liq_type_idx) = types.entries.get(&entry) {
-            // The real query consults area/zone overrides before even a zero/mask exit.
-            if entry < 21 {
-                return Err(Error::Unsupported);
-            }
+        if let Some(&source_type) = stores.types.entries.get(&entry) {
             kind &= DEEP_WATER;
+            let mut liq_type_idx = source_type;
+            // The source uses getArea's raw key as an AreaTable ID, not exploreFlag.
+            // Its area lookup precedes zero/mask/rectangle exits and follows one parent.
+            if entry < 21 {
+                let areas = stores.areas.ok_or(Error::Unsupported)?;
+                if let Some(area) = areas.entries.get(&u32::from(self.areas.get(x, y))) {
+                    let mut override_liquid = area.liquid_override;
+                    if override_liquid == 0 && area.zone != 0 {
+                        if let Some(parent) = areas.entries.get(&area.zone) {
+                            override_liquid = parent.liquid_override;
+                        }
+                    }
+                    // Zero is a real lookup, including after a missing parent. A value
+                    // outside the decoded LiquidType ID domain is genuinely absent.
+                    if let Some((override_id, override_type)) = u16::try_from(override_liquid)
+                        .ok()
+                        .and_then(|id| stores.types.entries.get(&id).map(|kind| (id, *kind)))
+                    {
+                        entry = override_id;
+                        liq_type_idx = override_type;
+                    }
+                }
+            }
             kind |= (1 << liq_type_idx) | (kind & DEEP_WATER);
         }
         if kind == 0 || (required_mask != 0 && required_mask & kind == 0) {
@@ -296,3 +344,6 @@ mod tests;
 
 #[cfg(test)]
 mod oracle_tests;
+
+#[cfg(test)]
+mod area_oracle_tests;

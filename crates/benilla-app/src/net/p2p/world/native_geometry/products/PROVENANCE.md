@@ -26,6 +26,8 @@ Full-file SHA-256 for the point-height port and generated format layout:
 - `src/game/Maps/GridMap.h`: `accbf9ecc6f436b952d3d38ee2e506fe3d331a7367c048745334160705760c4d`
 - `src/game/Maps/GridMap.cpp`: `52c6d22fbe9f275196a44bf4f9b39da527071e3c81f7460a4ac03a3c9107b85d`
 - `src/game/Server/DBCStructure.h`: `354013c7508d7891f19a1856cd7bbafda19f18388bc20671f5692efa57ebdf50`
+- `src/shared/Database/DBCFileLoader.cpp`: `13f8c7c07c4644a7ec3c0c0a1fd32fc5a1775a6416f0c0ba3b1118b6466ea2fd`
+- `src/game/Server/DBCStores.cpp`: `5f1bef967c9ad0ecc8779f679e6e734f068994979917323d507eb95663895109`
 - `src/game/Server/DBCfmt.h`: `8232159a33cd63fe473457f19ae9343aaf2c81a0e9a0c3ba0c3294e1637358e4`
 - `src/game/Maps/GridMapDefines.h`: `3a901f22b6d65edae74a93b5cd2be793ebc5c3884eb2c0aa06a37265ef53e54e`
 - `src/game/Maps/GridDefines.h`: `5f5413657f84c5f5964f2a69d342874d8d1f7f5ed2bab969e1d78b0650141d82`
@@ -64,7 +66,7 @@ boundary. No claiming that source provenance was authenticated follows from this
 
 Limits are checked before reads/decoding: one map ID 0..999, 1..64 declared grid tiles,
 4,096 products, 16,384 dependency edges, 16 MiB/file and 64 MiB total input. Decoded terrain
-adds at most 64 × (132,100 height bytes + 67,332 liquid bytes) plus fixed hole/header fields. Filesystem reads stop at the
+adds at most 64 × (132,100 height bytes + 67,332 liquid bytes) plus fixed hole/header fields and optional 512-byte AREA arrays. Filesystem reads stop at the
 expected length plus one byte; no streaming native engine or lazy input handle remains.
 The inventory always requires terrain, VMap tile and MMap tile products for every declared
 tile plus the VMap tree and MMap parameters. Direct VMap spawn model names must match the
@@ -211,9 +213,10 @@ fields (ID, LiquidID, Type, SpellID). The accepted complete-file profile is boun
 65,536 rows, IDs ≤65,535, Type 0..3 and a 1-MiB string block. Duplicate IDs and wrong
 layout/framing reject. A genuinely absent row preserves the raw liquid entry and
 flags exactly as source; a matched row preserves only DEEP_WATER and derives the
-basic flag from Type. Matched IDs below 21 reject as unsupported because source
-then consults `AreaTable` and possibly its parent zone. An omitted AreaTable is
-never interpreted as an empty or no-override table.
+basic flag from Type. Matched IDs below 21 require `AreaTable` and possibly its parent zone. The
+no-area loader still rejects this dependency; the separate complete-area loader
+below resolves it from actual bytes. An omitted AreaTable is never interpreted
+as an empty or no-override table.
 
 The query preserves source order: DBC resolution, requested-mask filter, rectangle
 coverage, liquid-versus-ground and ground-minus-two checks, then strict delta
@@ -225,7 +228,7 @@ ticket and snapshot binding are echoed; stale identities, invalid floats, missin
 tiles, unsupported area dependencies and expired budgets return errors.
 
 Remaining prerequisites include source-authenticated DBC extraction/epoch lifecycle,
-exact AreaTable/zone resolution, VMap liquid selection and composite static ground,
+TerrainInfo-specific map-aware area resolution, VMap liquid selection and composite static ground,
 player environment caching/timers/transitions/restoration, creature movement
 capabilities, and independent production/participant admission. This subset neither
 loads a real continent nor establishes that current inventory caps cover one.
@@ -243,3 +246,59 @@ terrain holes and malformed inputs; this oracle's ground is explicitly flat.
 Original notices are retained in temporary translations, and `--check` requires an
 exact match with no silent missing-compiler skip. No upstream source or installation
 products are generated into the repository.
+
+
+## Exact GridMap AreaTable/zone overrides
+
+`load_grid_liquid_with_areas` accepts complete actual `AreaTable.dbc` bytes alongside
+`LiquidType.dbc`; this profile binds the entire additional file digest under a
+separate policy domain. The original no-area loader retains its old binding and
+unsupported behavior when a matched liquid ID below 21 needs AreaTable. Supplied
+empty tables and omitted inputs are distinct; only a complete decoded table can
+prove that a row is missing. Neither profile authenticates the supplied provenance.
+
+The source `AreaTableEntryfmt` is `niiiixxxxxissssssssxixxxi`: 25 four-byte fields,
+100-byte records. ID, parent zone and override are uint32 fields 0, 2 and 24.
+The bounded parser preserves full-width keys/references, rejects duplicate IDs and
+record ID UINT32_MAX (the source loader's max-ID increment overflows for that ID),
+rejects wrong layouts, caps rows at 65,536 and strings at 1 MiB, and validates all eight
+name offsets against a byte block with initial/final NULs without imposing UTF-8
+or string-boundary assumptions. Parent/override references retain all uint32 values;
+only record keys exclude the source-invalid maximum. All bytes, including unused fields and strings, affect the
+policy digest. Duplicate rejection is narrower than the source's last-row-wins
+index loader, not a change to the admitted source query semantics.
+
+`TerrainTile` retains the actual AREA header value or 256 uint16 cell values.
+Selection uses the pinned `GridMap::getArea` binary32 expression order at scale 16,
+truncation and row-major masking. The liquid query then looks up that exact numeric
+value as an AreaTable ID. It does not substitute exploreFlag matching, filter by map,
+or reinterpret the extractor's AREA representation. This is the literal pinned
+GridMap branch; TerrainInfo's VMap branch uses different area selection.
+
+For an initial matched liquid ID below 21, an existing area supplies its override.
+Only a zero override with nonzero parent requests one parent lookup. The resulting
+override, including zero, is looked up in LiquidType. A found row replaces liquid
+entry/type; a missing row keeps the initial selection. A missing initial area skips
+override lookup, while a missing parent still permits lookup of override zero.
+Nonzero but missing overrides suppress parent fallback. Parent cycles, grandparent
+chains and overrides below 21 do not recurse. DEEP_WATER survives the initial type
+resolution and any override, while other raw flags do not. Requested-mask and
+rectangle/height/status checks retain their original ordering afterward.
+
+This closes only the GridMap area dependency. Complete dry VMap loading, missing
+slot rejection, immutable pose/map/content/epoch/inventory binding, deadlines, dry
+navigation restrictions and all runtime/participant admission checks remain in
+place. Composite ground/VMap water selection and cached player environment state
+are still prerequisites to a genuine accessibility answer.
+
+The [area override oracle](../../../../../../../benilla-native-geometry-tests/tools/generate_area_liquid_fixture.py)
+extracts the complete pinned `getArea`, `getLiquidStatus` and `GetAreaEntryByAreaID`
+bodies plus original flat-height dispatch, declarations, constants and DBC formats.
+Seven full-file hashes guard the input. Its 1,931 authored cases cover global/cell
+AREA selection, two tiles and adjacent-float cell boundaries, missing/present zero
+rows, direct/one-parent overrides, full-width references, cycles/no-grandparent
+semantics, masks, DEEP_WATER and status thresholds. Complete authored WDBC rows and
+profile metadata are emitted beside the numbers; the Rust consumer reconstructs
+actual native AREA/MLIQ and both DBC files before querying the reader. This tests
+source branch parity rather than a copied Rust oracle, while retaining the same
+explicit exclusion of composite TerrainInfo and cached player state.

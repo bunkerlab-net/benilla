@@ -3,10 +3,12 @@
 //! This is not TerrainInfo/Map height selection, support, collision, or movement.
 //! Upstream authors, grants and exact source hashes: PROVENANCE.md.
 use super::{u16_at, u32_at, Error, PointHeight, TileId};
+mod area;
 mod liquid;
+pub(crate) use area::AreaTable;
 #[cfg(test)]
 pub(crate) use liquid::{GridLiquidData, GridLiquidStatus};
-pub(crate) use liquid::{GridLiquidResult, LiquidTypes};
+pub(crate) use liquid::{GridLiquidResult, LiquidStores, LiquidTypes};
 
 const HEADER: usize = 40;
 const V9: usize = 129 * 129;
@@ -25,6 +27,7 @@ enum Heights {
 pub(crate) struct TerrainTile {
     id: TileId,
     heights: Heights,
+    areas: area::GridAreas,
     holes: [u16; 256],
     liquid: Option<liquid::GridLiquid>,
 }
@@ -62,16 +65,7 @@ impl TerrainTile {
         {
             return Err(Error::Framing);
         }
-        let area = &bytes[area_offset..height_offset];
-        if &area[..4] != b"AREA" {
-            return Err(Error::Format);
-        }
-        match u16_at(area, 4)? {
-            0 if area_len == 520 => {}
-            1 if area_len == 8 => {}
-            0 | 1 => return Err(Error::Framing),
-            _ => return Err(Error::Unsupported),
-        }
+        let areas = area::GridAreas::decode(&bytes[area_offset..height_offset])?;
         let height = &bytes[height_offset..height_end];
         if &height[..4] != b"MHGT" {
             return Err(Error::Format);
@@ -120,6 +114,7 @@ impl TerrainTile {
         Ok(Self {
             id,
             heights,
+            areas,
             holes,
             liquid,
         })

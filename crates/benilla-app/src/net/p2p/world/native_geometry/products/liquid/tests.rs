@@ -500,3 +500,149 @@ fn existing_valid_dry_navigation_rejects_newly_decodable_wet_terrain() {
     assert!(wet.terrain(wet.map, tile).unwrap().has_liquid());
     assert!(matches!(wet.load_navigation(), Err(Error::Unsupported)));
 }
+
+fn area_dbc(rows: &[(u32, u32, u32)]) -> Vec<u8> {
+    let mut bytes = b"WDBC".to_vec();
+    for word in [rows.len() as u32, 25, 100, 1] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    for &(id, zone, liquid_override) in rows {
+        let mut row = [0u32; 25];
+        row[0] = id;
+        row[1] = 999; // Source GridMap lookup does not filter by map ID.
+        row[2] = zone;
+        row[3] = id + 100; // Nor does it look up this exploreFlag.
+        row[24] = liquid_override;
+        for word in row {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+    bytes.push(0);
+    bytes
+}
+fn area_liquid_dbc() -> Vec<u8> {
+    let mut bytes = b"WDBC".to_vec();
+    for word in [3u32, 4, 16, 1] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    for row in [[1u32, 23, 3, 0], [22, 35, 0, 0], [23, 41, 2, 0]] {
+        for word in row {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+    bytes.push(0);
+    bytes
+}
+fn area_products(raw_area: u16) -> InventoriedProducts {
+    let (mut spec, mut files) = vmap::fixture();
+    products::mutate(
+        &mut spec,
+        &mut files,
+        &ProductId::Terrain(TileId { x: 32, y: 30 }),
+        |bytes| {
+            wet_terrain(bytes, 1);
+            bytes[46..48].copy_from_slice(&raw_area.to_le_bytes());
+        },
+    );
+    products::load(spec, &files).unwrap()
+}
+#[test]
+fn actual_area_bytes_enable_only_the_source_gridmap_override_branch() {
+    let products = area_products(5);
+    let liquid = area_liquid_dbc();
+    let without = products.load_grid_liquid(&liquid).unwrap();
+    assert_eq!(
+        without.query(grid_request(&without), deadline()),
+        Err(Error::Unsupported)
+    );
+    // Complete empty table proves a lookup miss; omitted table does not.
+    let empty = products
+        .load_grid_liquid_with_areas(&liquid, &area_dbc(&[]))
+        .unwrap();
+    let result = empty
+        .query(grid_request(&empty), deadline())
+        .unwrap()
+        .result;
+    assert_eq!(
+        (result.data.unwrap().entry, result.data.unwrap().type_flags),
+        (1, 8)
+    );
+    for (rows, expected) in [
+        (vec![(5, 9, 0), (9, 0, 22)], (22, 1)),
+        (vec![(5, 9, 23), (9, 0, 22)], (23, 4)),
+        (vec![(105, 0, 22)], (1, 8)),
+    ] {
+        let snapshot = products
+            .load_grid_liquid_with_areas(&liquid, &area_dbc(&rows))
+            .unwrap();
+        let mut request = grid_request(&snapshot);
+        request.required_type = 0;
+        let reply = snapshot.query(request, deadline()).unwrap();
+        assert_eq!(reply.request, request);
+        let data = reply.result.data.unwrap();
+        assert_eq!((data.entry, data.type_flags), expected);
+        assert_eq!(data.level, 10f32.to_bits());
+        assert_eq!(data.depth_level, 7f32.to_bits());
+    }
+}
+#[test]
+fn changed_area_bytes_and_raw_area_geometry_cannot_relabel_old_replies() {
+    let products = area_products(5);
+    let liquid = area_liquid_dbc();
+    let areas = area_dbc(&[(5, 9, 0), (9, 0, 22)]);
+    let old = products
+        .load_grid_liquid_with_areas(&liquid, &areas)
+        .unwrap();
+    let mut request = grid_request(&old);
+    request.required_type = 0;
+    let reply = old.query(request, deadline()).unwrap();
+    let changed = products
+        .load_grid_liquid_with_areas(&liquid, &area_dbc(&[(5, 0, 23)]))
+        .unwrap();
+    assert_ne!(old.binding().policy, changed.binding().policy);
+    assert_eq!(changed.query(request, deadline()), Err(Error::Identity));
+    assert_eq!(old.query(request, deadline()).unwrap(), reply);
+    let changed_products = area_products(9);
+    let new_geometry = changed_products
+        .load_grid_liquid_with_areas(&liquid, &areas)
+        .unwrap();
+    assert_ne!(old.binding().inventory, new_geometry.binding().inventory);
+    assert_eq!(
+        new_geometry.query(request, deadline()),
+        Err(Error::Identity)
+    );
+    // Hash even fields unused by this liquid query, not only a projection of rows.
+    let mut unused_changed = areas.clone();
+    unused_changed[24..28].copy_from_slice(&123u32.to_le_bytes());
+    let changed = products
+        .load_grid_liquid_with_areas(&liquid, &unused_changed)
+        .unwrap();
+    assert_ne!(old.binding().policy, changed.binding().policy);
+    assert_eq!(changed.query(request, deadline()), Err(Error::Identity));
+    let no_areas = products.load_grid_liquid(&liquid).unwrap();
+    assert_ne!(old.binding().policy, no_areas.binding().policy);
+    assert_eq!(no_areas.query(request, deadline()), Err(Error::Identity));
+}
+#[test]
+fn corrupt_or_missing_area_bytes_fail_without_publishing_a_snapshot() {
+    let products = area_products(5);
+    let liquid = area_liquid_dbc();
+    let areas = area_dbc(&[(5, 0, 22)]);
+    for end in 0..areas.len() {
+        assert!(products
+            .load_grid_liquid_with_areas(&liquid, &areas[..end])
+            .is_err());
+    }
+    let old = products
+        .load_grid_liquid_with_areas(&liquid, &areas)
+        .unwrap();
+    let mut request = grid_request(&old);
+    request.required_type = 0;
+    let expected = old.query(request, deadline()).unwrap();
+    let mut corrupt = areas;
+    corrupt[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(products
+        .load_grid_liquid_with_areas(&liquid, &corrupt)
+        .is_err());
+    assert_eq!(old.query(request, deadline()).unwrap(), expected);
+}
