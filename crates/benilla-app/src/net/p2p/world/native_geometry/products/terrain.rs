@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded translation of pinned CMaNGOS GridMap's dry float/flat point-height reader.
+//! Bounded translation of pinned CMaNGOS GridMap's float/flat height and liquid readers.
 //! This is not TerrainInfo/Map height selection, support, collision, or movement.
 //! Upstream authors, grants and exact source hashes: PROVENANCE.md.
 use super::{u16_at, u32_at, Error, PointHeight, TileId};
+mod liquid;
+#[cfg(test)]
+pub(crate) use liquid::{GridLiquidData, GridLiquidStatus};
+pub(crate) use liquid::{GridLiquidResult, LiquidTypes};
 
 const HEADER: usize = 40;
 const V9: usize = 129 * 129;
@@ -22,6 +26,7 @@ pub(crate) struct TerrainTile {
     id: TileId,
     heights: Heights,
     holes: [u16; 256],
+    liquid: Option<liquid::GridLiquid>,
 }
 
 impl TerrainTile {
@@ -30,24 +35,30 @@ impl TerrainTile {
         if bytes.get(..8) != Some(b"MAPSz1.4") {
             return Err(Error::Format);
         }
-        // The pinned -f 0 writer emits packed consecutive AREA, MHGT, holes sections.
-        // No offset gaps/aliases, absent area/heights/holes, trailing data or liquid payload.
+        // The pinned -f 0 writer emits consecutive AREA, MHGT, optional MLIQ, holes.
+        // No offset gaps/aliases, absent area/heights/holes, or trailing data.
         let area_offset = u32_at(bytes, 8)? as usize;
         let area_len = u32_at(bytes, 12)? as usize;
         let height_offset = u32_at(bytes, 16)? as usize;
         let height_len = u32_at(bytes, 20)? as usize;
+        let liquid_offset = u32_at(bytes, 24)? as usize;
+        let liquid_len = u32_at(bytes, 28)? as usize;
         let holes_offset = u32_at(bytes, 32)? as usize;
         let holes_len = u32_at(bytes, 36)? as usize;
-        if u32_at(bytes, 24)? != 0 || u32_at(bytes, 28)? != 0 {
-            return Err(Error::Unsupported);
-        }
+        let height_end = height_offset
+            .checked_add(height_len)
+            .ok_or(Error::Framing)?;
+        let liquid_end = height_end.checked_add(liquid_len).ok_or(Error::Framing)?;
+        let file_end = holes_offset.checked_add(holes_len).ok_or(Error::Framing)?;
         if area_offset != HEADER
             || !matches!(area_len, 8 | 520)
             || height_offset != HEADER + area_len
             || !matches!(height_len, 16 | 132116)
-            || holes_offset != height_offset + height_len
+            || !matches!((liquid_offset, liquid_len), (0, 0))
+                && (liquid_offset != height_end || liquid_len == 0)
+            || holes_offset != liquid_end
             || holes_len != 512
-            || bytes.len() != holes_offset + holes_len
+            || bytes.len() != file_end
         {
             return Err(Error::Framing);
         }
@@ -61,7 +72,7 @@ impl TerrainTile {
             0 | 1 => return Err(Error::Framing),
             _ => return Err(Error::Unsupported),
         }
-        let height = &bytes[height_offset..holes_offset];
+        let height = &bytes[height_offset..height_end];
         if &height[..4] != b"MHGT" {
             return Err(Error::Format);
         }
@@ -99,7 +110,24 @@ impl TerrainTile {
         for (i, hole) in holes.iter_mut().enumerate() {
             *hole = u16_at(bytes, holes_offset + i * 2)?;
         }
-        Ok(Self { id, heights, holes })
+        let liquid = if liquid_len == 0 {
+            None
+        } else {
+            Some(liquid::GridLiquid::decode(
+                &bytes[liquid_offset..liquid_end],
+            )?)
+        };
+        Ok(Self {
+            id,
+            heights,
+            holes,
+            liquid,
+        })
+    }
+
+    /// Section presence, not a claim that every cell contains water.
+    pub(crate) fn has_liquid(&self) -> bool {
+        self.liquid.is_some()
     }
 
     /// Exact pinned float-operation order, guarded against wrong tile/NaN/overflow.

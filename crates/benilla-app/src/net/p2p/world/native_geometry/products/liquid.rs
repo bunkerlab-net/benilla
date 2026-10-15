@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Exact no-liquid branch of pinned TerrainInfo, derived from validated native products.
+//! Bounded GridMap liquid queries and the separate exact dry TerrainInfo proof.
 //! Not player environment state, accessibility, source authenticity or session admission.
 use super::{terrain::GRID_SIZE, Error, Hash, InventoriedProducts, ProductId, TileId};
 use sha2::{Digest, Sha256};
@@ -49,9 +49,11 @@ impl InventoriedProducts {
         let mut tiles = BTreeSet::new();
         for (id, product) in &self.products {
             if let ProductId::Terrain(tile) = id {
-                // TerrainTile::decode requires actual liquid offset AND size == zero.
-                // An absent/undecoded file is never an empty-water observation.
-                product.terrain.as_ref().ok_or(Error::Missing)?;
+                // A decoded wet tile is not a proof of absent water, even when its liquid
+                // rectangle does not cover this query. Keep the stronger dry contract.
+                if product.terrain.as_ref().ok_or(Error::Missing)?.has_liquid() {
+                    return Err(Error::Unsupported);
+                }
                 tiles.insert(*tile);
             }
         }
@@ -124,6 +126,101 @@ fn world_tile(x: f32, y: f32) -> Result<TileId, Error> {
         x: axis(x)?,
         y: axis(y)?,
     })
+}
+
+/// A raw GridMap result, not TerrainInfo's VMap/static-ground selection or cached
+/// Player environment state. Every numeric input, including collision height/mask,
+/// is echoed and bound; no caller boolean can provide a liquid observation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GridLiquidRequest {
+    pub query: LiquidRequest,
+    pub required_type: u8,
+    pub collision_height: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GridLiquidReply {
+    pub request: GridLiquidRequest,
+    pub result: super::terrain::GridLiquidResult,
+}
+#[derive(Debug)]
+pub(crate) struct GridLiquidSnapshot<'a> {
+    binding: SnapshotBinding,
+    products: &'a InventoriedProducts,
+    types: super::terrain::LiquidTypes,
+}
+impl InventoriedProducts {
+    /// LiquidType.dbc is supplied as complete actual WDBC bytes, never a caller-made
+    /// row resolver. Its hash is part of this snapshot policy. This checks consistency,
+    /// not authenticity or a live source lease; it cannot create runtime admission.
+    pub(crate) fn load_grid_liquid(
+        &self,
+        liquid_type_dbc: &[u8],
+    ) -> Result<GridLiquidSnapshot<'_>, Error> {
+        let types = super::terrain::LiquidTypes::decode(liquid_type_dbc)?;
+        // Keep unresolved slots and WMO LIQU outside this bounded slice. This does
+        // not turn a GridMap answer into a composite TerrainInfo result.
+        let vmap = self.load_static_vmap()?;
+        vmap.require_complete_dry_map()?;
+        if !self
+            .products
+            .keys()
+            .any(|id| matches!(id, ProductId::Terrain(_)))
+        {
+            return Err(Error::Missing);
+        }
+        let source = vmap.binding();
+        let mut digest = Sha256::new();
+        digest.update(b"cmangos-8ec338a1-gridmap-liquid-v1");
+        digest.update(source.policy);
+        digest.update(types.digest());
+        Ok(GridLiquidSnapshot {
+            binding: SnapshotBinding {
+                map: source.map,
+                content: source.content,
+                source_epoch: source.source_epoch,
+                inventory: source.inventory,
+                policy: digest.finalize().into(),
+            },
+            products: self,
+            types,
+        })
+    }
+}
+impl GridLiquidSnapshot<'_> {
+    pub(crate) fn binding(&self) -> SnapshotBinding {
+        self.binding
+    }
+    pub(crate) fn query(
+        &self,
+        request: GridLiquidRequest,
+        deadline: Instant,
+    ) -> Result<GridLiquidReply, Error> {
+        if request.query.snapshot != self.binding || request.query.ticket == 0 {
+            return Err(Error::Identity);
+        }
+        if Instant::now() >= deadline {
+            return Err(Error::Budget);
+        }
+        let p = request.query.position.map(f32::from_bits);
+        if p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
+            return Err(Error::Format);
+        }
+        let tile = self
+            .products
+            .terrain(self.binding.map, world_tile(p[0], p[1])?)?;
+        let result = tile.grid_liquid_status(
+            p[0],
+            p[1],
+            p[2],
+            request.required_type,
+            f32::from_bits(request.collision_height),
+            &self.types,
+        )?;
+        if Instant::now() >= deadline {
+            return Err(Error::Budget);
+        }
+        Ok(GridLiquidReply { request, result })
+    }
 }
 
 #[cfg(test)]

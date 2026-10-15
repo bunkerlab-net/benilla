@@ -186,7 +186,9 @@ owner-dependent filters cannot be reconstructed by checking ADT face normals alo
 ## Minimal faithful next adapter
 
 The [generated-product prerequisite](products/PROVENANCE.md) implements bounded immutable
-inventory, native serialization framing and an oracle-checked dry GridMap point reader.
+inventory, native serialization framing, oracle-checked GridMap point heights and
+bounded GridMap liquid queries over actual MLIQ/LiquidType bytes. Area overrides,
+composite liquid selection and player environment-state integration remain unsupported.
 The optional [safe static VMap port](products/vmap/PROVENANCE.md) now loads validated
 hierarchies/models and supplies bounded source-derived nearest rays as an additional
 provider veto. Detour internal references/loading remain unimplemented; caller-provided

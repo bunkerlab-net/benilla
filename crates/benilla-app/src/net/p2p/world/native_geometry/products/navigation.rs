@@ -30,6 +30,16 @@ pub(crate) struct NavigationSnapshot {
 }
 impl InventoriedProducts {
     pub(crate) fn load_navigation(&self) -> Result<NavigationSnapshot, Error> {
+        // Preserve this dry-only adapter's domain now that the independent terrain
+        // reader can decode wet products. A dry MMap is not dry terrain evidence.
+        if self
+            .products
+            .values()
+            .filter_map(|p| p.terrain.as_ref())
+            .any(|t| t.has_liquid())
+        {
+            return Err(Error::Unsupported);
+        }
         let params = self.inventoried_bytes(self.map, &ProductId::MmapParams)?;
         let mut tiles = Vec::new();
         for (id, p) in &self.products {
@@ -93,11 +103,18 @@ impl NavigationSnapshot {
 }
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::super::{tests::load, vmap::tests::fixture, TileId};
+    use super::super::{tests::load, vmap::tests::fixture as vmap_fixture, TileId};
     use super::*;
     use std::{collections::BTreeMap, time::Duration};
     pub(crate) fn products() -> InventoriedProducts {
-        let (mut spec, files) = fixture();
+        let (spec, files) = fixture();
+        load(spec, &files).unwrap()
+    }
+    pub(crate) fn fixture() -> (
+        super::super::InventorySpec,
+        std::collections::BTreeMap<String, Vec<u8>>,
+    ) {
+        let (mut spec, files) = vmap_fixture();
         let old = spec.tiles[0];
         let wanted = [TileId { x: 32, y: 31 }, TileId { x: 32, y: 32 }];
         let mut newfiles = BTreeMap::new();
@@ -161,7 +178,7 @@ pub(crate) mod tests {
         }
         spec.tiles = wanted.to_vec();
         spec.products = specs;
-        load(spec, &newfiles).unwrap()
+        (spec, newfiles)
     }
     #[test]
     fn inventoried_navigation_echoes_binding_and_preserves_failed_requests() {

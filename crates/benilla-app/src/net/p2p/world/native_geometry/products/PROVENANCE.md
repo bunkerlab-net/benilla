@@ -1,8 +1,8 @@
-# Generated-product inventory, dry GridMap points and optional static VMap loading
+# Generated-product inventory, GridMap points/liquids and optional static VMap loading
 
 This is a source-bound prerequisite, not native geometry admission. `InventoriedProducts`
 owns a bounded exact declared file set, validates hashes and serialization framing, and
-contains decoded dry terrain. It cannot construct `Session`, `NonRenderParticipants`, a
+contains decoded terrain. It cannot construct `Session`, `NonRenderParticipants`, a
 path, an LOS result, or a body-support certificate. The optional
 [source-derived VMap loader](vmap/PROVENANCE.md) separately validates actual hierarchy and
 model references and supplies static-ray queries to the current provider as an extra veto.
@@ -23,7 +23,10 @@ No installation assets, database rows or generated game products are included.
 
 Full-file SHA-256 for the point-height port and generated format layout:
 
+- `src/game/Maps/GridMap.h`: `accbf9ecc6f436b952d3d38ee2e506fe3d331a7367c048745334160705760c4d`
 - `src/game/Maps/GridMap.cpp`: `52c6d22fbe9f275196a44bf4f9b39da527071e3c81f7460a4ac03a3c9107b85d`
+- `src/game/Server/DBCStructure.h`: `354013c7508d7891f19a1856cd7bbafda19f18388bc20671f5692efa57ebdf50`
+- `src/game/Server/DBCfmt.h`: `8232159a33cd63fe473457f19ae9343aaf2c81a0e9a0c3ba0c3294e1637358e4`
 - `src/game/Maps/GridMapDefines.h`: `3a901f22b6d65edae74a93b5cd2be793ebc5c3884eb2c0aa06a37265ef53e54e`
 - `src/game/Maps/GridDefines.h`: `5f5413657f84c5f5964f2a69d342874d8d1f7f5ed2bab969e1d78b0650141d82`
 - `src/game/MotionGenerators/MoveMapSharedDefines.h`: `7994c9cbb53c81bc30b92b71201e17081040e5988c0e54d9425e0746dec7fd16`
@@ -61,7 +64,7 @@ boundary. No claiming that source provenance was authenticated follows from this
 
 Limits are checked before reads/decoding: one map ID 0..999, 1..64 declared grid tiles,
 4,096 products, 16,384 dependency edges, 16 MiB/file and 64 MiB total input. Decoded terrain
-adds at most 64 × 132,100 bytes plus fixed hole arrays. Filesystem reads stop at the
+adds at most 64 × (132,100 height bytes + 67,332 liquid bytes) plus fixed hole/header fields. Filesystem reads stop at the
 expected length plus one byte; no streaming native engine or lazy input handle remains.
 The inventory always requires terrain, VMap tile and MMap tile products for every declared
 tile plus the VMap tree and MMap parameters. Direct VMap spawn model names must match the
@@ -70,9 +73,9 @@ this list does not prove all polygons of any route have been covered.
 
 ## Exact implemented subset
 
-- `MAPS` / `z1.4`: exact 40-byte header and contiguous AREA/MHGT/hole sections from the
+- `MAPS` / `z1.4`: exact 40-byte header and contiguous AREA/MHGT/optional MLIQ/hole sections from the
   pinned `ad -f 0` writer; flat or float heights only; finite heights bounded to ±1,000,000;
-  unknown flags, packed heights, liquids, offset aliases, gaps and extra bytes rejected
+  unknown flags, packed heights, offset aliases, gaps and extra bytes rejected
 - Point height: pinned binary32 expression order, tile ownership and four center-fan
   triangles; float mode checks the source hole mask. Pinned flat dispatch bypasses holes
   and is deliberately preserved. `Height(-100000)` remains a raw height in flat mode,
@@ -124,7 +127,9 @@ mandatory and independent. Point interpolation opens no existing slope or moveme
 existing dry VMap reader and requires every map-tree primitive slot to be resolved.
 A successful ordinary ray load can leave unrelated slots unknown and is therefore
 insufficient. The retained terrain tile set comes only from fully decoded
-`TerrainTile` products, which require both liquid-section offset and size to be zero.
+`TerrainTile` products and explicitly requires both liquid-section offset and size to
+be zero. The general terrain decoder may accept wet products; this stronger dry
+proof never treats a decoded liquid section as absent water.
 No caller-provided dry flag, successful path, missing file, or renderer observation
 can construct this result.
 
@@ -175,3 +180,66 @@ The immutable snapshot survives file changes under its old binding; it does not
 establish a live source lease. Whole-map dry closure is deliberately restrictive
 and may reject real continent products, including those exceeding existing caps.
 No real client assets or playable-world claim accompanies this prerequisite.
+
+
+## Bounded wet GridMap queries
+
+`InventoriedProducts::load_grid_liquid` separately accepts complete `LiquidType.dbc`
+WDBC bytes and constructs a borrowed immutable `GridLiquidSnapshot`. Full-file
+DBC hashing joins the inventory/source epoch and policy binding. This proves only
+consistency of the supplied bytes, not their extraction provenance or a live source
+lease. There is no caller-authored liquid-row callback. The snapshot still requires
+all static VMap slots to resolve and every model to be dry; unsupported WMO liquid,
+worldspawn or incomplete static geometry cannot silently become a water answer.
+
+This result is explicitly `GridMap::getLiquidStatus`, not the composite
+`TerrainInfo::getLiquidStatus`. The latter separately selects VMap liquids and
+requires a map liquid level above its composite static ground. A complete dry VMap
+does not remove that ground comparison for wet GridMap results. The independent dry-navigation loader rejects wet terrain to preserve its previous
+accepted domain. No snapshot here
+is routed into player environment, accessibility, navigation or runtime admission.
+
+The native reader decodes actual packed `MLIQ` headers, optional 16×16 entry/flag
+arrays and optional bounded liquid-height rectangles, with source-swapped offset
+axes and nearest height samples. Header lengths, flags, finite heights, rectangle
+bounds and full section framing validate before allocation/indexing. Flat and float
+terrain heights retain their existing exact source behavior. Missing liquid sections
+are distinguished from noncovering rectangles and from missing terrain tiles.
+
+`LiquidType.dbc` uses pinned `DBCfmt.h`'s `niii` layout and `DBCStructure.h`'s four
+fields (ID, LiquidID, Type, SpellID). The accepted complete-file profile is bounded to
+65,536 rows, IDs ≤65,535, Type 0..3 and a 1-MiB string block. Duplicate IDs and wrong
+layout/framing reject. A genuinely absent row preserves the raw liquid entry and
+flags exactly as source; a matched row preserves only DEEP_WATER and derives the
+basic flag from Type. Matched IDs below 21 reject as unsupported because source
+then consults `AreaTable` and possibly its parent zone. An omitted AreaTable is
+never interpreted as an empty or no-override table.
+
+The query preserves source order: DBC resolution, requested-mask filter, rectangle
+coverage, liquid-versus-ground and ground-minus-two checks, then strict delta
+thresholds `> collisionHeight`, `> 0`, and `> -1`. Above-water results still contain
+liquid data; no-water results do not. Float terrain holes use the exact source
+-200000 height sentinel for this raw query, while flat dispatch bypasses holes;
+neither behavior establishes body support. Exact query pose, mask, collision-height bits,
+ticket and snapshot binding are echoed; stale identities, invalid floats, missing
+tiles, unsupported area dependencies and expired budgets return errors.
+
+Remaining prerequisites include source-authenticated DBC extraction/epoch lifecycle,
+exact AreaTable/zone resolution, VMap liquid selection and composite static ground,
+player environment caching/timers/transitions/restoration, creature movement
+capabilities, and independent production/participant admission. This subset neither
+loads a real continent nor establishes that current inventory caps cover one.
+
+The [wet status oracle](../../../../../../../benilla-native-geometry-tests/tools/generate_wet_liquid_fixture.py)
+hash-checks the original GridMap methods, declarations, constants and DBC layout,
+then compiles the complete upstream status method and its real flat-height dispatch.
+Its 2,953 authored numeric cases span ten explicitly described profiles, table/global
+types, flat/sampled liquid heights, asymmetric rectangles, masks, absent DBC rows,
+DEEP_WATER preservation, ground comparisons and adjacent-float status thresholds.
+Area lookup aborts rather than supplying invented overrides. The Rust consumer
+reconstructs actual MLIQ and complete WDBC bytes from the fixture profiles and
+compares decoded query status/data bit-for-bit. Separate reader tests cover float
+terrain holes and malformed inputs; this oracle's ground is explicitly flat.
+Original notices are retained in temporary translations, and `--check` requires an
+exact match with no silent missing-compiler skip. No upstream source or installation
+products are generated into the repository.

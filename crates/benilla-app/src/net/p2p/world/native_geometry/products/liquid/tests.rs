@@ -41,17 +41,13 @@ fn real_decoded_native_products_prove_only_the_exact_covered_dry_tile() {
 #[test]
 fn liquid_payloads_and_noncovering_unloaded_vmap_slots_never_mean_dry() {
     let (mut spec, mut files) = vmap::fixture();
-    // Nonzero native liquid section metadata explicitly rejects, even outside the query
-    // point. This profile has no wet/noncovering-liquid branch or liquid-type guessing.
+    // An aliased liquid section is malformed, never an observation of no water.
     let id = ProductId::Terrain(spec.tiles[0]);
     products::mutate(&mut spec, &mut files, &id, |bytes| {
         bytes[24..28].copy_from_slice(&48u32.to_le_bytes());
         bytes[28..32].copy_from_slice(&16u32.to_le_bytes());
     });
-    assert!(matches!(
-        products::load(spec, &files),
-        Err(Error::Unsupported)
-    ));
+    assert!(matches!(products::load(spec, &files), Err(Error::Framing)));
     let (mut spec, mut files) = vmap::fixture();
     let id = ProductId::VmapModel("ramp.wmo.vmo".into());
     products::mutate(&mut spec, &mut files, &id, |bytes| {
@@ -298,4 +294,209 @@ fn slopes_and_holes_do_not_turn_a_liquid_fact_into_a_support_fact() {
             LiquidStatus::NoWater
         );
     }
+}
+
+// Authored native product/DBC bytes, not installed assets.
+fn dbc(entry: u32, kind: u32) -> Vec<u8> {
+    let mut b = b"WDBC".to_vec();
+    for v in [1u32, 4, 16, 1, entry, 23, kind, 0] {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.push(0);
+    b
+}
+fn wet_terrain(bytes: &mut Vec<u8>, entry: u16) {
+    let at = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+    let mut liquid = b"MLIQ".to_vec();
+    liquid.extend_from_slice(&[3, 8]); // global type, flat liquid height
+    liquid.extend_from_slice(&entry.to_le_bytes());
+    liquid.extend_from_slice(&[0, 0, 129, 129]);
+    liquid.extend_from_slice(&10f32.to_le_bytes());
+    bytes.splice(at..at, liquid);
+    bytes[24..28].copy_from_slice(&(at as u32).to_le_bytes());
+    bytes[28..32].copy_from_slice(&16u32.to_le_bytes());
+    bytes[32..36].copy_from_slice(&((at + 16) as u32).to_le_bytes());
+}
+fn wet_products(entry: u16) -> InventoriedProducts {
+    let (mut spec, mut files) = vmap::fixture();
+    products::mutate(
+        &mut spec,
+        &mut files,
+        &ProductId::Terrain(TileId { x: 32, y: 30 }),
+        |b| wet_terrain(b, entry),
+    );
+    products::load(spec, &files).unwrap()
+}
+fn grid_request(snapshot: &GridLiquidSnapshot<'_>) -> GridLiquidRequest {
+    GridLiquidRequest {
+        query: LiquidRequest {
+            snapshot: snapshot.binding(),
+            ticket: 7,
+            position: [0f32, 800., 9.].map(f32::to_bits),
+        },
+        required_type: 8,
+        collision_height: 2f32.to_bits(),
+    }
+}
+#[test]
+fn actual_wet_product_and_dbc_bytes_produce_bound_gridmap_status_only() {
+    use super::super::terrain::{GridLiquidData, GridLiquidStatus};
+    let products = wet_products(21);
+    assert!(matches!(
+        products.load_dry_liquid(),
+        Err(Error::Unsupported)
+    ));
+    assert!(matches!(
+        products.load_navigation(),
+        Err(Error::Unsupported)
+    ));
+    assert!(products.load_static_vmap().is_ok());
+    let snapshot = products.load_grid_liquid(&dbc(21, 3)).unwrap();
+    let request = grid_request(&snapshot);
+    let reply = snapshot.query(request, deadline()).unwrap();
+    assert_eq!(reply.request, request);
+    assert_eq!(reply.result.status, GridLiquidStatus::InWater);
+    assert_eq!(
+        reply.result.data,
+        Some(GridLiquidData {
+            entry: 21,
+            type_flags: 8,
+            level: 10f32.to_bits(),
+            depth_level: 7f32.to_bits()
+        })
+    );
+    let mut query = request;
+    query.query.position[2] = 7f32.to_bits();
+    assert_eq!(
+        snapshot.query(query, deadline()).unwrap().result.status,
+        GridLiquidStatus::UnderWater
+    );
+    query.query.position[2] = 10f32.to_bits();
+    assert_eq!(
+        snapshot.query(query, deadline()).unwrap().result.status,
+        GridLiquidStatus::WaterWalk
+    );
+    query.query.position[2] = 11f32.to_bits();
+    assert_eq!(
+        snapshot.query(query, deadline()).unwrap().result.status,
+        GridLiquidStatus::AboveWater
+    );
+    query.required_type = 1;
+    assert_eq!(
+        snapshot.query(query, deadline()).unwrap().result.status,
+        GridLiquidStatus::NoWater
+    );
+}
+#[test]
+fn gridmap_replies_bind_all_geometry_dbc_identity_pose_and_query_inputs() {
+    let products = wet_products(21);
+    let snapshot = products.load_grid_liquid(&dbc(21, 3)).unwrap();
+    let request = grid_request(&snapshot);
+    let changed = products.load_grid_liquid(&dbc(21, 2)).unwrap();
+    assert_ne!(snapshot.binding(), changed.binding());
+    assert_eq!(changed.query(request, deadline()), Err(Error::Identity));
+    for i in 0..5 {
+        let mut query = request;
+        match i {
+            0 => query.query.snapshot.map += 1,
+            1 => query.query.snapshot.content[0] ^= 1,
+            2 => query.query.snapshot.source_epoch[0] ^= 1,
+            3 => query.query.snapshot.inventory[0] ^= 1,
+            _ => query.query.snapshot.policy[0] ^= 1,
+        }
+        assert_eq!(snapshot.query(query, deadline()), Err(Error::Identity));
+    }
+    let mut query = request;
+    query.query.ticket = 0;
+    assert_eq!(snapshot.query(query, deadline()), Err(Error::Identity));
+    assert_eq!(snapshot.query(request, Instant::now()), Err(Error::Budget));
+    query = request;
+    query.query.position[0] = (-0f32).to_bits();
+    query.collision_height = 0f32.to_bits();
+    query.required_type = 0;
+    assert_eq!(snapshot.query(query, deadline()).unwrap().request, query);
+    query.query.position = [0f32, 0., 9.].map(f32::to_bits);
+    assert_eq!(snapshot.query(query, deadline()), Err(Error::Missing));
+    for value in [f32::NAN, f32::INFINITY] {
+        query = request;
+        query.collision_height = value.to_bits();
+        assert_eq!(snapshot.query(query, deadline()), Err(Error::Format));
+        query = request;
+        query.query.position[2] = value.to_bits();
+        assert_eq!(snapshot.query(query, deadline()), Err(Error::Format));
+    }
+}
+#[test]
+fn gridmap_area_dependencies_and_unresolved_vmap_never_become_liquid_answers() {
+    let products = wet_products(1);
+    let snapshot = products.load_grid_liquid(&dbc(1, 3)).unwrap();
+    let request = grid_request(&snapshot);
+    assert_eq!(snapshot.query(request, deadline()), Err(Error::Unsupported));
+    // A true missing row from a complete decoded table follows source raw type flags.
+    let snapshot = products.load_grid_liquid(&dbc(21, 3)).unwrap();
+    assert!(snapshot.query(grid_request(&snapshot), deadline()).is_ok());
+    let (mut spec, mut files) = vmap::fixture();
+    for tile in spec.tiles.clone() {
+        products::mutate(&mut spec, &mut files, &ProductId::VmapTile(tile), |b| {
+            b.truncate(12);
+            b[8..12].copy_from_slice(&0u32.to_le_bytes());
+        });
+        spec.products
+            .iter_mut()
+            .find(|p| p.id == ProductId::VmapTile(tile))
+            .unwrap()
+            .dependencies = vec![ProductId::VmapTree];
+    }
+    spec.products
+        .retain(|p| !matches!(p.id, ProductId::VmapModel(_)));
+    let products = products::load(spec, &files).unwrap();
+    assert!(matches!(
+        products.load_grid_liquid(&dbc(21, 3)),
+        Err(Error::Missing)
+    ));
+}
+#[test]
+fn changed_real_product_bytes_cannot_relabel_a_published_gridmap_reply() {
+    let original = wet_products(21);
+    let old = original.load_grid_liquid(&dbc(21, 3)).unwrap();
+    let query = grid_request(&old);
+    let before = old.query(query, deadline()).unwrap();
+    let (mut spec, mut files) = vmap::fixture();
+    products::mutate(
+        &mut spec,
+        &mut files,
+        &ProductId::Terrain(TileId { x: 32, y: 30 }),
+        |b| {
+            wet_terrain(b, 21);
+            let at = u32::from_le_bytes(b[24..28].try_into().unwrap()) as usize;
+            b[at + 12..at + 16].copy_from_slice(&20f32.to_le_bytes());
+        },
+    );
+    spec.binding.source_epoch[0] ^= 1;
+    let changed_products = products::load(spec, &files).unwrap();
+    let changed = changed_products.load_grid_liquid(&dbc(21, 3)).unwrap();
+    assert_ne!(old.binding().inventory, changed.binding().inventory);
+    assert_eq!(changed.query(query, deadline()), Err(Error::Identity));
+    assert_eq!(old.query(query, deadline()).unwrap(), before);
+    let new_query = grid_request(&changed);
+    assert_ne!(
+        changed.query(new_query, deadline()).unwrap().result,
+        before.result
+    );
+}
+
+#[test]
+fn existing_valid_dry_navigation_rejects_newly_decodable_wet_terrain() {
+    use super::super::navigation::tests as navigation;
+    if benilla_native_nav::SUPPORTED_ABI {
+        assert!(navigation::products().load_navigation().is_ok());
+    }
+    let (mut spec, mut files) = navigation::fixture();
+    let tile = spec.tiles[0];
+    products::mutate(&mut spec, &mut files, &ProductId::Terrain(tile), |b| {
+        wet_terrain(b, 21)
+    });
+    let wet = products::load(spec, &files).unwrap();
+    assert!(wet.terrain(wet.map, tile).unwrap().has_liquid());
+    assert!(matches!(wet.load_navigation(), Err(Error::Unsupported)));
 }
