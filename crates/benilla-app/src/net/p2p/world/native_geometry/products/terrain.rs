@@ -7,8 +7,8 @@ mod area;
 mod liquid;
 pub(super) use area::AreaEntry;
 pub(crate) use area::AreaTable;
-#[cfg(test)]
 pub(crate) use liquid::GridLiquidData;
+pub(super) use liquid::{liquid_status, source_type_flag};
 pub(crate) use liquid::{GridLiquidResult, GridLiquidStatus, LiquidStores, LiquidTypes};
 
 const HEADER: usize = 40;

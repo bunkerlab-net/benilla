@@ -227,10 +227,11 @@ neither behavior establishes body support. Exact query pose, mask, collision-hei
 ticket and snapshot binding are echoed; stale identities, invalid floats, missing
 tiles, unsupported area dependencies and expired budgets return errors.
 
-Remaining prerequisites include source-authenticated DBC extraction/epoch lifecycle,
-TerrainInfo-specific map-aware WMO area resolution and wet VMap liquid selection,
-player environment caching/timers/transitions/restoration, creature movement
-capabilities, and independent production/participant admission. This subset neither
+This raw GridMap profile does not perform the separate TerrainInfo-specific
+map-aware area and wet VMap composition described below. Remaining gameplay
+prerequisites include source-authenticated DBC extraction/epoch lifecycle, player
+environment caching/timers/transitions/restoration, creature movement capabilities,
+and independent production/participant admission. This subset neither
 loads a real continent nor establishes that current inventory caps cover one.
 
 The [wet status oracle](../../../../../../../benilla-native-geometry-tests/tools/generate_wet_liquid_fixture.py)
@@ -461,10 +462,11 @@ mask and collision-height bits. Replacing files or DBC bytes cannot relabel a pr
 reply. An exhausted intermediate phase cannot publish a selected floor, partial
 liquid answer or no-water shortcut.
 
-This closes the dry-VMap composite spatial dependency only. Wet VMap LIQU and its
-map-aware WMO area overrides, source-authenticated extraction/epoch lifecycle,
-player cached water transitions/timers/restoration, creature movement capabilities,
-Detour path/support and independent content/participant admission remain separate.
+This profile closes the dry-VMap composite spatial dependency only; the separate
+wet profile below adds LIQU and map-aware WMO overrides. Source-authenticated
+extraction/epoch lifecycle, player cached water transitions/timers/restoration,
+creature movement capabilities, Detour path/support and independent
+content/participant admission remain separate.
 No composite reply is routed into runtime accessibility or character entry.
 
 The [composite source oracle](../../../../../../../benilla-native-geometry-tests/tools/terrain_liquid_README.md)
@@ -490,8 +492,9 @@ proving why substituting static ground or replacing the returned depth is wrong.
 ## Separate raw VMap liquid-level prerequisite
 
 `VmapLiquidProducts::load` is an explicitly separate inventory reader for native
-WMO LIQU bytes. It has its own inventory policy and exposes only
-`load_vmap_liquid`, producing a privately owned `vmap::liquid::LiquidSnapshot`.
+WMO LIQU bytes. It has its own inventory policy; its raw `load_vmap_liquid` reader
+produces a privately owned `vmap::liquid::LiquidSnapshot`. The separately bound
+area and wet TerrainInfo readers below also use this opt-in inventory.
 There is no conversion into `InventoriedProducts` and no public access to its
 internal geometry. Existing inventory, static ray/height/location, dry liquid and TerrainInfo
 dry-VMap composite readers retain their nonempty-LIQU rejection. Navigation
@@ -543,9 +546,9 @@ replacement cannot relabel an existing immutable reply. Missing geometry or any
 budget/profile failure publishes neither partial floor/type nor a liquid result.
 
 This provides raw static WMO liquid levels only. Existing dry readers still refuse
-wet geometry, and the separate TerrainInfo composite remains dry-VMap-only. Actual
-wet TerrainInfo status additionally needs map-aware WMO area selection and overrides;
-source-authenticated extraction, player water-state transitions and creature movement
+wet geometry. The separately opted-in wet TerrainInfo composition below supplies
+map-aware WMO area selection and overrides; the raw reader alone does not.
+Source-authenticated extraction, player water-state transitions, creature movement
 capabilities, path/support and participant/content admission remain unresolved.
 
 The [wet VMap source oracle](../../../../../../../benilla-native-geometry-tests/tools/scopedliquid_README.md)
@@ -583,12 +586,11 @@ and selection policies; map/content/source epoch, inventory bytes, ticket and ex
 pose bits are carried by the query/reply identity. Errors publish no partial area
 metadata and cannot mutate a previously owned snapshot.
 
-This removes only the raw area-traversal dependency of wet TerrainInfo. That later
-path must still apply the source terrain-between-point-and-WMO-floor rejection,
-complete WMOAreaTable triple lookup, AreaTable map/explore-flag ordering and Map DBC
-linked-zone fallback before liquid override selection. Missing product inventories
-remain errors, never invented source fallback states. Existing conservative readers,
-wet TerrainInfo availability, accessibility and production admission are unchanged.
+This supplies only the raw area-traversal dependency of wet TerrainInfo. The
+separate terrain-area and wet-liquid profiles below add terrain rejection, complete
+WMOAreaTable/AreaTable/Map resolution and liquid override selection. Missing product
+inventories remain errors, never invented source fallback states. Raw area results
+do not change conservative-reader, accessibility or production admission contracts.
 
 The [raw area source oracle](../../../../../../../benilla-native-geometry-tests/tools/scopedarea_README.md)
 executes the original manager, area callbacks, model/instance queries and BIH/G3D
@@ -635,8 +637,9 @@ binds full DBC digests, native inventory, map/content/source epoch and constitue
 geometry/query policies. The exact request pose and ticket remain
 in its reply, and geometry traversal plus store work share one cumulative deadline
 and work budget. Failures publish no partial resolution. These results establish
-area selection only; wet liquid-status composition, player environment state,
-movement capabilities and production admission remain separate prerequisites.
+area selection only; the separate wet liquid-status composition below consumes
+them. Player environment state, movement capabilities and production admission
+remain separate prerequisites.
 
 The [terrain-area source oracle](../../../../../../../benilla-native-geometry-tests/tools/terrain_area_README.md)
 uses original native VMap readers, GridMap loading, DBCFileLoader/DBCStorage and
@@ -649,3 +652,71 @@ grid. Coverage includes strict terrain rejection, duplicate triples, sparse/reve
 record IDs, wrong-map matches, row-zero and linked-zone fallbacks, uint16 truncation
 and independently sourced overlapping-WMO metadata. All 54 prior source products
 are regenerated byte-identically; fixtures contain only authored numeric data.
+
+
+## Bound wet/dry TerrainInfo liquid composition
+
+`VmapLiquidProducts::load_terrain_wet_liquid` composes loaded native static height,
+raw VMap liquid, terrain/WMO area resolution and raw GridMap liquid into the pinned
+`TerrainInfo::getLiquidStatus` query. This separate opt-in profile requires complete
+LiquidType, AreaTable, WMOAreaTable and Map WDBC bytes and models the non-null data
+output contract. Status-only source calls omit wet DBC/area work and are not exposed
+by this API. Conservative dry-only readers retain their prior policies and limits.
+
+The source static-height query with search distance 50 runs first. A raw VMap
+location can overwrite its floor even when mask rejection, dry geometry or an
+unavailable liquid cell returns false. Only that false return permits GridMap
+fallback, whose retained output includes its original raw terrain depth. A true
+VMap liquid result suppresses fallback even if its level/floor or point/floor checks
+fail. Wet acceptance uses strict `level > floor && z > floor - 2`; raw GridMap has
+its distinct source comparisons and outer strict level/floor filter.
+
+Wet output starts with the raw uint32 liquid ID. An absent base LiquidType row
+uses type index zero. Raw IDs 1 through 20 resolve the source area even without a
+base type row, follow at most one parent only when the area override is zero, and
+look up the final override including ID zero. An override is not filtered again
+against the requested mask. Wet entry and flags remain uint32; raw GridMap flags
+still narrow through their original uint8 accumulator. The new complete type
+profile preserves full uint32 fields while the old decoder retains its conservative
+ID/type limits. A reached shift index 32 or greater is unsupported rather than
+executing undefined C++; C++17 index 31 yields the defined uint32 high bit. A type
+that is replaced before the shift does not cause an invented rejection.
+
+Status comparisons retain source binary32 ordering: delta above collision height,
+above zero, above minus one, otherwise above-water. NoWater leaves output untouched,
+represented by absent data. All actual bytes, constituent policies, map/content/source
+epoch and exact pose/mask/collision-height/ticket are bound to the immutable reply.
+One cumulative deadline/work allowance spans height retries, location/liquid, area
+and DBC selection, and fallback; failures publish no partial result. Missing terrain,
+geometry or supplied DBC bytes remain unavailable, never fabricated dry/empty data.
+
+This closes the bounded static spatial liquid query, not entity environment state.
+Player cached water flags, movement-triggered refresh/timing, liquid spell effects,
+creature movement capabilities and production participant/content admission remain
+separate. It does not authorize native startup or establish real-install coverage.
+
+The next runtime dependency is not another point query. In the pinned source,
+`Player::SetPosition` refreshes cached terrain environment only when its position
+status timer is zero, then arms 100 ms; player update decrements the timer but does
+not itself sample terrain. `Unit::IsInAccessiblePlaceFor` uses that cached player
+water state with the actor's effective CanSwim/CanWalk/CanFly predicates. Current
+native runtime types do not carry the effective creature InhabitType/capability
+state or the player's water timer/last-liquid state. Captured creature source rows
+contain InhabitType, and complete LiquidType bytes contain SpellId, but these facts
+have no runtime consumer path here. Supplying a geometry boolean or default
+capabilities cannot replace that feed. A future integration must also preserve
+source callback effects, persistence/replay and durable-before-publication behavior;
+this spatial reader neither adds that consumer nor opens admission.
+
+The [wet TerrainInfo source oracle](../../../../../../../benilla-native-geometry-tests/tools/terrain_wet_liquid_README.md)
+executes original native VMap, GridMap and WDBC readers and the complete pinned
+liquid/height/area query chain. It records 27,566 authored cases: 25,836 admitted
+data-present queries, 235 admitted source-only status-without-data observations,
+and 1,495 outer-edge cases that explicitly assert the existing OutsideTile refusal.
+The source truncates small negative grid coordinates toward zero; this bounded
+profile does not admit those coordinates or widen its prior terrain bounds.
+Coverage includes all masks/statuses, successful-wet rejection suppressing nonzero
+GridMap water, missing base types, bit-31 wet flags, full-width fallback override
+IDs, preserved raw depth, area occlusion and mixed WMO metadata. Normal and
+shift/float-cast-overflow-sanitized regeneration are byte-identical; all 93 prior
+source products remain unchanged. These fixtures contain no installation assets.

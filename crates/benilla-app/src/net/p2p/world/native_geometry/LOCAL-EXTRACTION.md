@@ -193,8 +193,9 @@ are source-backed, as are the dry VMap location/group/floor query and their boun
 TerrainInfo liquid combination. A separately opted-in native reader supplies raw
 WMO liquid levels and the separate raw VMap area-information query. A bound
 terrain-area reader adds terrain occlusion and complete WMOAreaTable/AreaTable/Map
-resolution; combining these into wet TerrainInfo liquid status remains pending. Player environment-state integration and movement capabilities remain
-unsupported. Existing conservative readers continue to reject wet VMap products.
+resolution; a separate complete-DBC profile composes wet/dry TerrainInfo liquid
+status with source-ordered fallback and output side effects. Player environment-state
+integration and movement capabilities remain unsupported. Existing conservative readers continue to reject wet VMap products.
 The optional [safe static VMap port](products/vmap/PROVENANCE.md) now loads validated
 hierarchies/models and supplies bounded source-derived nearest rays as an additional
 provider veto. Detour internal references/loading remain unimplemented; caller-provided

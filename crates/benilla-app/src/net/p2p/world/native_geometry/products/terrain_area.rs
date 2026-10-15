@@ -152,7 +152,35 @@ impl TerrainAreaSnapshot<'_> {
             return Err(Error::Identity);
         }
         budget.take()?;
-        let position = request.position.map(f32::from_bits);
+        let result = self.resolve(request.position.map(f32::from_bits), true, budget)?;
+        Ok(TerrainAreaReply { request, result })
+    }
+
+    /// Wet liquid needs only the resolved area; parent lookup is conditional on
+    /// override==0 and must not be moved before that source branch.
+    pub(super) fn liquid_area(
+        &self,
+        position: [f32; 3],
+        budget: &mut QueryBudget,
+    ) -> Result<Option<ResolvedArea>, Error> {
+        budget.take()?;
+        Ok(self.resolve(position, false, budget)?.area)
+    }
+
+    pub(super) fn area_by_id(&self, id: u32) -> Option<ResolvedArea> {
+        self.areas.entry(id).map(Into::into)
+    }
+
+    pub(super) fn areas(&self) -> &AreaTable {
+        &self.areas
+    }
+
+    fn resolve(
+        &self,
+        position: [f32; 3],
+        include_parent: bool,
+        budget: &mut QueryBudget,
+    ) -> Result<TerrainAreaResult, Error> {
         let raw_area = self.raw.area(position, budget)?;
         budget.take()?;
         // A missing inventoried tile is not source GetGrid's null-grid state. Never
@@ -204,22 +232,19 @@ impl TerrainAreaSnapshot<'_> {
             None => tile.area_flag(position[0], position[1])?,
         };
         let area = self.resolve_flag(area_flag, budget)?;
-        let parent_area = if let Some(area) = area.filter(|area| area.zone != 0) {
+        let parent_area = if let Some(area) = area.filter(|area| include_parent && area.zone != 0) {
             budget.take()?;
             self.areas.entry(area.zone)
         } else {
             None
         };
         budget.complete()?;
-        Ok(TerrainAreaReply {
-            request,
-            result: TerrainAreaResult {
-                raw_area,
-                area_info,
-                area_flag,
-                area: area.map(Into::into),
-                parent_area: parent_area.map(Into::into),
-            },
+        Ok(TerrainAreaResult {
+            raw_area,
+            area_info,
+            area_flag,
+            area: area.map(Into::into),
+            parent_area: parent_area.map(Into::into),
         })
     }
 

@@ -20,11 +20,21 @@ const MAX_STRINGS: usize = 1024 * 1024;
 /// bytes, not guessed from an authored subset; loading establishes no source provenance.
 #[derive(Debug)]
 pub(crate) struct LiquidTypes {
-    entries: BTreeMap<u16, u8>,
+    entries: BTreeMap<u32, u32>,
     digest: Hash,
 }
 impl LiquidTypes {
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        Self::decode_profile(bytes, false)
+    }
+
+    /// Opt-in TerrainInfo store: source IDs and Type are uint32. Unsupported
+    /// shifts are rejected only if the selected query branch executes them.
+    pub(in super::super) fn decode_complete(bytes: &[u8]) -> Result<Self, Error> {
+        Self::decode_profile(bytes, true)
+    }
+
+    fn decode_profile(bytes: &[u8], complete: bool) -> Result<Self, Error> {
         if bytes.get(..4) != Some(b"WDBC") {
             return Err(Error::Format);
         }
@@ -55,10 +65,10 @@ impl LiquidTypes {
             let id = u32_at(bytes, at)?;
             // niii: Id, LiquidId, Type, SpellId. Only Id and Type affect this query.
             let kind = u32_at(bytes, at + 8)?;
-            if id > u16::MAX as u32 || kind > 3 {
+            if id == u32::MAX || (!complete && (id > u16::MAX as u32 || kind > 3)) {
                 return Err(Error::Unsupported);
             }
-            if entries.insert(id as u16, kind as u8).is_some() {
+            if entries.insert(id, kind).is_some() {
                 return Err(Error::Duplicate);
             }
         }
@@ -66,6 +76,10 @@ impl LiquidTypes {
             entries,
             digest: Sha256::digest(bytes).into(),
         })
+    }
+
+    pub(in super::super) fn kind(&self, id: u32) -> Option<u32> {
+        self.entries.get(&id).copied()
     }
 
     pub(crate) fn digest(&self) -> Hash {
@@ -105,7 +119,7 @@ pub(crate) struct GridLiquidResult {
     pub data: Option<GridLiquidData>,
 }
 impl GridLiquidResult {
-    fn no_water() -> Self {
+    pub(in super::super) fn no_water() -> Self {
         Self {
             status: GridLiquidStatus::NoWater,
             data: None,
@@ -245,6 +259,39 @@ impl TerrainTile {
         collision_height: f32,
         stores: LiquidStores<'_>,
     ) -> Result<GridLiquidResult, Error> {
+        self.grid_liquid_status_impl(
+            [x, y, z],
+            required_mask,
+            collision_height,
+            stores,
+            || Ok(()),
+        )
+    }
+
+    /// Composite-only entry shares the caller's absolute deadline and work allowance.
+    pub(in super::super) fn grid_liquid_status_with_budget(
+        &self,
+        position: [f32; 3],
+        required_mask: u8,
+        collision_height: f32,
+        stores: LiquidStores<'_>,
+        budget: &mut super::super::vmap::QueryBudget,
+    ) -> Result<GridLiquidResult, Error> {
+        self.grid_liquid_status_impl(position, required_mask, collision_height, stores, || {
+            budget.take()
+        })
+    }
+
+    fn grid_liquid_status_impl(
+        &self,
+        position: [f32; 3],
+        required_mask: u8,
+        collision_height: f32,
+        stores: LiquidStores<'_>,
+        mut take: impl FnMut() -> Result<(), Error>,
+    ) -> Result<GridLiquidResult, Error> {
+        take()?;
+        let [x, y, z] = position;
         // Local input guards are independent of the source branch ordering below.
         if !z.is_finite()
             || z.abs() > MAX_HEIGHT
@@ -262,35 +309,36 @@ impl TerrainTile {
         }
         let idx = (x_int >> 3) * 16 + (y_int >> 3);
         let (mut entry, mut kind) = match &liquid.cell_types {
-            Some(cells) => (cells.entries[idx], cells.flags[idx]),
-            None => (liquid.entry, liquid.flags),
+            Some(cells) => (u32::from(cells.entries[idx]), cells.flags[idx]),
+            None => (u32::from(liquid.entry), liquid.flags),
         };
-        if let Some(&source_type) = stores.types.entries.get(&entry) {
+        take()?;
+        if let Some(source_type) = stores.types.kind(entry) {
             kind &= DEEP_WATER;
             let mut liq_type_idx = source_type;
             // The source uses getArea's raw key as an AreaTable ID, not exploreFlag.
             // Its area lookup precedes zero/mask/rectangle exits and follows one parent.
             if entry < 21 {
+                take()?;
                 let areas = stores.areas.ok_or(Error::Unsupported)?;
                 if let Some(area) = areas.entries.get(&u32::from(self.areas.get(x, y))) {
                     let mut override_liquid = area.liquid_override;
                     if override_liquid == 0 && area.zone != 0 {
+                        take()?;
                         if let Some(parent) = areas.entries.get(&area.zone) {
                             override_liquid = parent.liquid_override;
                         }
                     }
-                    // Zero is a real lookup, including after a missing parent. A value
-                    // outside the decoded LiquidType ID domain is genuinely absent.
-                    if let Some((override_id, override_type)) = u16::try_from(override_liquid)
-                        .ok()
-                        .and_then(|id| stores.types.entries.get(&id).map(|kind| (id, *kind)))
-                    {
-                        entry = override_id;
+                    // Zero and full uint32 overrides are real lookups; the old
+                    // conservative decoder still excludes IDs above uint16.
+                    take()?;
+                    if let Some(override_type) = stores.types.kind(override_liquid) {
+                        entry = override_liquid;
                         liq_type_idx = override_type;
                     }
                 }
             }
-            kind |= (1 << liq_type_idx) | (kind & DEEP_WATER);
+            kind |= source_type_flag(liq_type_idx)? as u8;
         }
         if kind == 0 || (required_mask != 0 && required_mask & kind == 0) {
             return Ok(GridLiquidResult::no_water());
@@ -305,6 +353,7 @@ impl TerrainTile {
         if lx >= usize::from(liquid.height) || ly >= usize::from(liquid.width) {
             return Ok(GridLiquidResult::no_water());
         }
+        take()?;
         let liquid_level = match &liquid.levels {
             Some(levels) => levels[lx * usize::from(liquid.width) + ly],
             None => liquid.level,
@@ -317,25 +366,39 @@ impl TerrainTile {
             return Ok(GridLiquidResult::no_water());
         }
         let data = GridLiquidData {
-            entry: u32::from(entry),
+            entry,
             type_flags: u32::from(kind),
             level: liquid_level.to_bits(),
             depth_level: ground_level.to_bits(),
         };
-        let delta = liquid_level - z;
-        let status = if delta > collision_height {
-            GridLiquidStatus::UnderWater
-        } else if delta > 0.0 {
-            GridLiquidStatus::InWater
-        } else if delta > -1.0 {
-            GridLiquidStatus::WaterWalk
-        } else {
-            GridLiquidStatus::AboveWater
-        };
+        take()?;
+        let status = liquid_status(liquid_level, z, collision_height);
         Ok(GridLiquidResult {
             status,
             data: Some(data),
         })
+    }
+}
+
+/// C++17 signed 1 << 31 has the defined uint32 result 0x80000000; >=32 is UB.
+pub(in super::super) fn source_type_flag(kind: u32) -> Result<u32, Error> {
+    1u32.checked_shl(kind).ok_or(Error::Unsupported)
+}
+
+pub(in super::super) fn liquid_status(
+    level: f32,
+    z: f32,
+    collision_height: f32,
+) -> GridLiquidStatus {
+    let delta = level - z;
+    if delta > collision_height {
+        GridLiquidStatus::UnderWater
+    } else if delta > 0.0 {
+        GridLiquidStatus::InWater
+    } else if delta > -1.0 {
+        GridLiquidStatus::WaterWalk
+    } else {
+        GridLiquidStatus::AboveWater
     }
 }
 

@@ -66,6 +66,17 @@ impl VmapLiquidProducts {
     }
 }
 impl LiquidSnapshot {
+    /// Internal composition only; never returns or exposes the wet geometry reader.
+    pub(in super::super) fn static_height(
+        &self,
+        products: &super::super::InventoriedProducts,
+        position: Vector,
+        search: f32,
+        budget: &mut QueryBudget,
+    ) -> Result<f32, Error> {
+        super::super::height::height(products, &self.geometry, position, search, budget)
+    }
+
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
     }
@@ -88,7 +99,7 @@ impl LiquidSnapshot {
         Ok(LiquidReply { request, result })
     }
 
-    fn liquid(
+    pub(in super::super) fn liquid(
         &self,
         position: Vector,
         required_mask: u8,
