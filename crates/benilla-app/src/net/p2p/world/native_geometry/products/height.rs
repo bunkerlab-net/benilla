@@ -3,7 +3,7 @@
 //! Actual decoded terrain and static geometry only; not composite liquid or support.
 use super::{liquid::world_tile, vmap, Error, Hash, InventoriedProducts, PointHeight};
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{ops::Deref, sync::Arc, time::Instant};
 
 const INVALID_HEIGHT: f32 = -100_000.0;
 const INVALID_HEIGHT_VALUE: f32 = -200_000.0;
@@ -34,20 +34,49 @@ pub(crate) struct HeightReply {
 #[derive(Debug)]
 pub(crate) struct StaticHeightSnapshot<'a> {
     binding: SnapshotBinding,
-    products: &'a InventoriedProducts,
+    products: Products<'a>,
     vmap: vmap::VmapSnapshot,
+}
+
+#[derive(Debug)]
+enum Products<'a> {
+    Borrowed(&'a InventoriedProducts),
+    Owned(Arc<InventoriedProducts>),
+}
+impl Deref for Products<'_> {
+    type Target = InventoriedProducts;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(products) => products,
+            Self::Owned(products) => products,
+        }
+    }
 }
 impl InventoriedProducts {
     /// Bounded query profile, not a claim about the effective running source config.
     /// Source configuration/provenance and non-render participant admission are separate.
     pub(crate) fn load_static_height(&self) -> Result<StaticHeightSnapshot<'_>, Error> {
-        let vmap = self.load_static_vmap()?;
+        StaticHeightSnapshot::load(Products::Borrowed(self))
+    }
+
+    /// Retain the immutable inventory and decode VMap once for an owned reader.
+    /// The same bounded profile and independent admission requirements still apply.
+    pub(crate) fn load_static_height_owned(
+        self: Arc<Self>,
+    ) -> Result<StaticHeightSnapshot<'static>, Error> {
+        StaticHeightSnapshot::load(Products::Owned(self))
+    }
+}
+impl<'a> StaticHeightSnapshot<'a> {
+    fn load(products: Products<'a>) -> Result<Self, Error> {
+        let vmap = products.load_static_vmap()?;
         vmap.require_complete_dry_map()?;
         let source = vmap.binding();
         let mut policy = Sha256::new();
         policy.update(POLICY);
         policy.update(source.policy);
-        Ok(StaticHeightSnapshot {
+        Ok(Self {
             binding: SnapshotBinding {
                 map: source.map,
                 content: source.content,
@@ -55,30 +84,38 @@ impl InventoriedProducts {
                 inventory: source.inventory,
                 policy: policy.finalize().into(),
             },
-            products: self,
+            products,
             vmap,
         })
     }
-}
-impl StaticHeightSnapshot<'_> {
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
+    }
+    /// The exact decoded static geometry retained by this height reader.
+    pub(crate) fn static_vmap(&self) -> &vmap::VmapSnapshot {
+        &self.vmap
     }
     pub(crate) fn query(
         &self,
         request: HeightRequest,
         deadline: Instant,
     ) -> Result<HeightReply, Error> {
+        self.query_with_budget(request, &mut vmap::QueryBudget::new(deadline))
+    }
+    pub(crate) fn query_with_budget(
+        &self,
+        request: HeightRequest,
+        budget: &mut vmap::QueryBudget,
+    ) -> Result<HeightReply, Error> {
         if request.snapshot != self.binding || request.ticket == 0 {
             return Err(Error::Identity);
         }
-        let mut budget = vmap::QueryBudget::new(deadline);
         let height = height(
-            self.products,
+            &self.products,
             &self.vmap,
             request.position.map(f32::from_bits),
             f32::from_bits(request.max_search),
-            &mut budget,
+            budget,
         )?;
         Ok(HeightReply {
             request,

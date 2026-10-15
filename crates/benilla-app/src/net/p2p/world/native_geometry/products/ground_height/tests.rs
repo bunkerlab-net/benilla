@@ -30,6 +30,109 @@ fn request(snapshot: &MapHeightSnapshot<'_>, z: f32) -> MapHeightRequest {
 }
 
 #[test]
+fn owned_and_borrowed_map_height_readers_retain_the_same_binding_and_configuration() {
+    fn assert_send_static<T: Send + 'static>() {}
+    assert_send_static::<MapHeightSnapshot<'static>>();
+
+    let (spec, files) = fixture();
+    let products = Arc::new(products::load(spec, &files).unwrap());
+    let proof = NonRenderParticipants::authored_fixture(products.content, products.map);
+    let configuration = config(&products);
+    let borrowed = products
+        .load_map_height(configuration, Some(&proof))
+        .unwrap();
+    let owned = Arc::clone(&products)
+        .load_map_height_owned(configuration, Some(&proof))
+        .unwrap();
+    assert_eq!(borrowed.binding(), owned.binding());
+    assert_eq!(borrowed.configuration(), configuration);
+    assert_eq!(owned.configuration(), configuration);
+    assert_eq!(
+        borrowed.static_vmap().binding(),
+        owned.static_vmap().binding()
+    );
+    assert!(std::ptr::eq(
+        owned.static_vmap(),
+        owned.height.static_vmap()
+    ));
+    for (z, expected) in [(10f32, 9f32), (6., 6.), (7., 7.), (8., 9.), (-10., 6.)] {
+        for swim in [false, true] {
+            let query = MapHeightRequest {
+                swim,
+                ..request(&borrowed, z)
+            };
+            let reply = MapHeightReply {
+                request: query,
+                height: expected.to_bits(),
+            };
+            assert_eq!(borrowed.query(query, deadline()), Ok(reply));
+            assert_eq!(owned.query(query, deadline()), Ok(reply));
+        }
+    }
+    for snapshot in [&borrowed, &owned] {
+        let query = request(snapshot, 10.);
+        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+        let mut bad = query;
+        bad.position = [0f32, 0., 10.].map(f32::to_bits);
+        assert_eq!(snapshot.query(bad, deadline()), Err(Error::Missing));
+        bad = query;
+        bad.snapshot.source_epoch[0] ^= 1;
+        assert_eq!(snapshot.query(bad, deadline()), Err(Error::Identity));
+        bad = query;
+        bad.position[2] = f32::NAN.to_bits();
+        assert_eq!(snapshot.query(bad, deadline()), Err(Error::Format));
+        bad.position[2] = 20_000f32.to_bits();
+        assert_eq!(snapshot.query(bad, deadline()), Err(Error::Unsupported));
+    }
+}
+
+#[test]
+fn owned_map_height_survives_dropped_inventory_and_participant_handles() {
+    let (spec, mut files) = fixture();
+    let products = Arc::new(products::load(spec.clone(), &files).unwrap());
+    let configuration = config(&products);
+    let source = Arc::downgrade(&products);
+    let snapshot = {
+        let proof = NonRenderParticipants::authored_fixture(products.content, products.map);
+        products
+            .load_map_height_owned(configuration, Some(&proof))
+            .unwrap()
+    };
+    let query = request(&snapshot, 10.);
+    assert_eq!(source.strong_count(), 1);
+    for change in 0..3 {
+        let mut spec = spec.clone();
+        let mut files = files.clone();
+        match change {
+            0 => spec.binding.source_epoch[0] ^= 1,
+            1 => spec.binding.effective_config[0] ^= 1,
+            _ => products::mutate(
+                &mut spec,
+                &mut files,
+                &ProductId::Terrain(TileId { x: 0, y: 0 }),
+                |b| {
+                    b[56..60].copy_from_slice(&20f32.to_le_bytes());
+                    b[60..64].copy_from_slice(&20f32.to_le_bytes());
+                },
+            ),
+        }
+        let changed = Arc::new(products::load(spec, &files).unwrap());
+        let proof = NonRenderParticipants::authored_fixture(changed.content, changed.map);
+        let config = config(&changed);
+        let newer = changed.load_map_height_owned(config, Some(&proof)).unwrap();
+        assert_eq!(newer.query(query, deadline()), Err(Error::Identity));
+    }
+    files.clear();
+    assert_eq!(snapshot.configuration(), configuration);
+    assert_eq!(
+        snapshot.query(query, deadline()).unwrap().height,
+        9f32.to_bits()
+    );
+    drop(snapshot);
+    assert!(source.upgrade().is_none());
+}
+
+#[test]
 fn loaded_static_products_and_positive_empty_dynamic_proof_supply_source_map_height() {
     let (spec, files) = fixture();
     let products = products::load(spec, &files).unwrap();
@@ -57,10 +160,14 @@ fn loaded_static_products_and_positive_empty_dynamic_proof_supply_source_map_hei
 #[test]
 fn effective_config_and_independent_participant_proof_cannot_be_invented_from_geometry() {
     let (spec, files) = fixture();
-    let products = products::load(spec, &files).unwrap();
+    let products = Arc::new(products::load(spec, &files).unwrap());
     let proof = NonRenderParticipants::authored_fixture(products.content, products.map);
     assert!(matches!(
         products.load_map_height(config(&products), None),
+        Err(Error::Profile)
+    ));
+    assert!(matches!(
+        Arc::clone(&products).load_map_height_owned(config(&products), None),
         Err(Error::Profile)
     ));
     for wrong in [
@@ -69,6 +176,10 @@ fn effective_config_and_independent_participant_proof_cannot_be_invented_from_ge
     ] {
         assert!(matches!(
             products.load_map_height(config(&products), Some(&wrong)),
+            Err(Error::Profile)
+        ));
+        assert!(matches!(
+            Arc::clone(&products).load_map_height_owned(config(&products), Some(&wrong)),
             Err(Error::Profile)
         ));
     }
@@ -81,7 +192,21 @@ fn effective_config_and_independent_participant_proof_cannot_be_invented_from_ge
             3 => config.effective_config[0] ^= 1,
             _ => config.vmap_height_enabled = false,
         }
-        assert!(products.load_map_height(config, Some(&proof)).is_err());
+        let error = if field == 4 {
+            Error::Unsupported
+        } else {
+            Error::Identity
+        };
+        assert_eq!(
+            products.load_map_height(config, Some(&proof)).map(|_| ()),
+            Err(error)
+        );
+        assert_eq!(
+            Arc::clone(&products)
+                .load_map_height_owned(config, Some(&proof))
+                .map(|_| ()),
+            Err(error)
+        );
     }
 }
 

@@ -315,6 +315,16 @@ that a running source configuration enabled height calculations. The source mana
 constructor, world configuration fallback and distributed config have different
 defaults, so production configuration admission remains independent.
 
+`load_static_height_owned` retains an `Arc<InventoriedProducts>` alongside the same
+decoded VMap representation. Borrowed and owned readers share validation and
+binding construction; ownership does not change policy or establish provenance.
+The owned reader remains valid after the caller drops its inventory handle, without
+leaks, lifetime promotion, filesystem rereads or per-query geometry decoding.
+`load_map_height_owned` applies the same configuration and participant checks as
+the borrowed Map height reader, retains the exact validated configuration, and
+owns its static reader and cloned independent participant proof. Read-only access
+to the retained VMap lets a composed ray use that exact loaded geometry.
+
 Each query binds map, content, source epoch, full inventory/policy, ticket, exact
 position and signed search-distance bits. Raw GridMap height is read from the
 covered tile; a real float hole translates to source -200000, while a missing tile
@@ -326,6 +336,11 @@ negative search. It uses nearest intersection with M2 included, source strict
 triangle endpoints and source miss/sentinel conversion. It never reconstructs a
 height from the normalized segment API or its 4096-unit cap. One bounded work budget
 and absolute deadline cover the entire composite selection.
+The static-height, Map-height and segment-ray readers also accept one caller-owned
+`QueryBudget` so a height-then-ray composition shares the original work allowance
+and absolute deadline. Their deadline-based entry points create a fresh bounded
+budget and use the same query paths. These paths never reset a shared allowance or
+extend its deadline.
 
 The exact selector first searches from z+2 and extends the requested range to
 z+2-mapHeight+1 when source requires. On invalid height it tries 10000 downward,
@@ -367,6 +382,10 @@ geometry. Separate integration tests combine the actual decoded GridMap/VMap byt
 through the production snapshot for initial-down, 10000 fallback, upward and
 near-map searches, map/VMap selection and a verified raw terrain hole. Failure
 injection proves callback errors never become a selected height or later probe.
+Borrowed/owned comparisons additionally check exact replies and bindings, retained
+configuration, stale epochs and immutable answers after source handles are dropped.
+Cumulative budget tests measure actual decoded height/ray work and require the
+combined allowance, including rejection at one unit below it.
 
 ## Loaded dry VMap location floor prerequisite
 

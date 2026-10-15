@@ -63,6 +63,113 @@ fn budget() -> QueryBudget {
         deadline: Instant::now() + Duration::from_secs(10),
     }
 }
+
+#[test]
+fn static_and_map_height_then_ray_share_one_cumulative_work_allowance() {
+    use super::super::super::core::NonRenderParticipants;
+    use super::super::{ground_height, height};
+    use std::sync::Arc;
+
+    let (spec, files) = height::tests::fixture();
+    let products = Arc::new(product_tests::load(spec, &files).unwrap());
+    let proof = NonRenderParticipants::authored_fixture(products.content, products.map);
+    let config = ground_height::tests::config(&products);
+    let static_height = Arc::clone(&products).load_static_height_owned().unwrap();
+    let map_height = products
+        .load_map_height_owned(config, Some(&proof))
+        .unwrap();
+    let mid = 0.5f32 * (64.0 * super::super::terrain::GRID_SIZE);
+    let position = [mid - 21., mid - 1., 10.].map(f32::to_bits);
+    let static_request = height::HeightRequest {
+        snapshot: static_height.binding(),
+        ticket: 1,
+        position,
+        max_search: 10f32.to_bits(),
+    };
+    let map_request = ground_height::MapHeightRequest {
+        snapshot: map_height.binding(),
+        ticket: 1,
+        position,
+        swim: false,
+    };
+    let ray_request = RayRequest {
+        snapshot: map_height.static_vmap().binding(),
+        ticket: 1,
+        from: position,
+        to: [mid - 21., mid - 1., -10.].map(f32::to_bits),
+        ignore_m2: false,
+    };
+    let mut measured = budget();
+    let static_reply = static_height
+        .query_with_budget(static_request, &mut measured)
+        .unwrap();
+    let height_work = MAX_QUERY_WORK - measured.remaining;
+    assert!(height_work > 0);
+    let mut measured = budget();
+    let map_reply = map_height
+        .query_with_budget(map_request, &mut measured)
+        .unwrap();
+    assert_eq!(MAX_QUERY_WORK - measured.remaining, height_work);
+    assert_eq!(static_reply.height, 9f32.to_bits());
+    assert_eq!(map_reply.height, static_reply.height);
+    let mut measured = budget();
+    let ray_reply = map_height
+        .static_vmap()
+        .query_with_budget(ray_request, &mut measured)
+        .unwrap();
+    let ray_work = MAX_QUERY_WORK - measured.remaining;
+    assert!(ray_work > 0);
+    assert!(matches!(ray_reply.result, StaticRay::Hit { .. }));
+
+    for map in [false, true] {
+        for allowance in [height_work + ray_work - 1, height_work + ray_work] {
+            let mut shared = QueryBudget {
+                remaining: allowance,
+                ..budget()
+            };
+            let geometry = if map {
+                assert_eq!(
+                    map_height.query_with_budget(map_request, &mut shared),
+                    Ok(map_reply)
+                );
+                map_height.static_vmap()
+            } else {
+                assert_eq!(
+                    static_height.query_with_budget(static_request, &mut shared),
+                    Ok(static_reply)
+                );
+                static_height.static_vmap()
+            };
+            let ray = geometry.query_with_budget(ray_request, &mut shared);
+            if allowance == height_work + ray_work {
+                assert_eq!(ray, Ok(ray_reply));
+            } else {
+                assert_eq!(ray, Err(Error::Budget));
+            }
+            assert_eq!(shared.remaining, 0);
+        }
+        let mut shared = budget();
+        let geometry = if map {
+            map_height
+                .query_with_budget(map_request, &mut shared)
+                .unwrap();
+            map_height.static_vmap()
+        } else {
+            static_height
+                .query_with_budget(static_request, &mut shared)
+                .unwrap();
+            static_height.static_vmap()
+        };
+        let remaining = shared.remaining;
+        shared.deadline = Instant::now();
+        assert_eq!(
+            geometry.query_with_budget(ray_request, &mut shared),
+            Err(Error::Budget)
+        );
+        assert_eq!(shared.remaining, remaining);
+    }
+}
+
 fn f(s: &str) -> f32 {
     f32::from_bits(u32::from_str_radix(s, 16).unwrap())
 }

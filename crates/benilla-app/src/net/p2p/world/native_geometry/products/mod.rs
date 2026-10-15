@@ -639,3 +639,25 @@ pub(crate) fn authored_ground_height() -> (
     let config = ground_height::tests::config(&products);
     (products, config)
 }
+
+/// Authored covered GridMap holes, distinct from unavailable geometry.
+#[cfg(test)]
+pub(crate) fn authored_hole_ground_height() -> (
+    InventoriedProducts,
+    ground_height::SourceHeightConfiguration,
+) {
+    let (mut spec, mut files) = height::tests::fixture();
+    let tile = spec.tiles[0];
+    tests::mutate(&mut spec, &mut files, &ProductId::Terrain(tile), |bytes| {
+        // Source flat-height maps intentionally bypass hole checks. Use an actual
+        // authored float-height block, whose selected reader consults these holes.
+        *bytes = tests::terrain_bytes(1);
+        let offset = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+        let length = u32::from_le_bytes(bytes[36..40].try_into().unwrap()) as usize;
+        assert_eq!(length, 512);
+        bytes[offset..offset + length].fill(0xff);
+    });
+    let products = tests::load(spec, &files).unwrap();
+    let config = ground_height::tests::config(&products);
+    (products, config)
+}

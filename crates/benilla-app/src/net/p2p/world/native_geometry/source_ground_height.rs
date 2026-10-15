@@ -51,6 +51,24 @@ impl<'products> SourceGroundHeightProvider<'products> {
         profile: &Profile,
         snapshot: MapHeightSnapshot<'products>,
     ) -> Result<Self, Failure> {
+        let expected = geometry_revision(snapshot.binding());
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+    pub(super) fn bind_with_primary(
+        session: &Session,
+        profile: &Profile,
+        snapshot: MapHeightSnapshot<'products>,
+        config: super::source_near_point::SourceNearPointConfiguration,
+    ) -> Result<Self, Failure> {
+        let expected = super::source_near_point::geometry_revision(&snapshot, config)?;
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+    fn bind_revision(
+        session: &Session,
+        profile: &Profile,
+        snapshot: MapHeightSnapshot<'products>,
+        expected: [u8; 32],
+    ) -> Result<Self, Failure> {
         profile.validate().map_err(|_| Failure::Binding)?;
         let b = snapshot.binding();
         if session.world == [0; 16]
@@ -59,7 +77,7 @@ impl<'products> SourceGroundHeightProvider<'products> {
             || session.map != profile.map_id
             || session.content != profile.content_digest
             || session.geometry != profile.geometry_revision
-            || session.geometry != geometry_revision(b)
+            || session.geometry != expected
             || b.map != session.map
             || b.content != session.content
         {
@@ -83,6 +101,9 @@ impl<'products> SourceGroundHeightProvider<'products> {
     }
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.snapshot.binding()
+    }
+    pub(super) fn static_vmap(&self) -> &super::products::vmap::VmapSnapshot {
+        self.snapshot.static_vmap()
     }
     /// Freeze one actual authority request before querying any candidate. The runtime
     /// constructs and checks its witness from staged owned state during resolution;
@@ -198,6 +219,16 @@ impl BoundGroundHeightQuery<'_, '_> {
         request: GroundHeightRequest,
         deadline: Instant,
     ) -> Result<GroundHeightReply, Failure> {
+        self.query_initial_candidate_with_budget(
+            request,
+            &mut super::products::vmap::QueryBudget::new(deadline),
+        )
+    }
+    pub(super) fn query_initial_candidate_with_budget(
+        &self,
+        request: GroundHeightRequest,
+        budget: &mut super::products::vmap::QueryBudget,
+    ) -> Result<GroundHeightReply, Failure> {
         if request.context != self.context
             || request.snapshot != self.provider.binding()
             || request.ticket == 0
@@ -219,7 +250,7 @@ impl BoundGroundHeightQuery<'_, '_> {
         let reply = self
             .provider
             .snapshot
-            .query(query, deadline)
+            .query_with_budget(query, budget)
             .map_err(|_| Failure::MissingGeometry)?;
         if reply.request != query {
             return Err(Failure::Binding);

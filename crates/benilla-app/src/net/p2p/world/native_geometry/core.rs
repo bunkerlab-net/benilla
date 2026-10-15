@@ -258,6 +258,8 @@ pub(crate) enum Failure {
     UnprovenParticipants,
     UnsupportedQuery,
     UnsupportedNavigation,
+    UnsupportedNearPointFallback,
+    UnsupportedPointRepresentation,
     MissingGeometry,
     Obstacle,
     Water,
@@ -280,6 +282,12 @@ impl Failure {
             Self::MissingGeometry => {
                 NativeError::AuthorityUnavailable("local geometry coverage incomplete")
             }
+            Self::UnsupportedNearPointFallback => NativeError::AuthorityUnavailable(
+                "source near-point fallback is required but not implemented",
+            ),
+            Self::UnsupportedPointRepresentation => NativeError::AuthorityUnavailable(
+                "source near-point coordinates cannot be represented exactly",
+            ),
             Self::UnsupportedNavigation => {
                 NativeError::AuthorityUnavailable("outside local planar navigation domain")
             }

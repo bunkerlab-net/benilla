@@ -9,6 +9,7 @@ pub(super) mod core;
 mod products;
 mod source_ground_height;
 mod source_navigation;
+mod source_near_point;
 mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
 use self::core::{Corridor, Mailbox};
@@ -345,6 +346,14 @@ fn coverage_failure(error: CoverageError) -> Failure {
         | CoverageError::ColliderUnavailable => Failure::MissingGeometry,
     }
 }
+
+#[cfg(test)]
+pub(crate) use products::authored_ground_height;
+#[cfg(test)]
+pub(crate) use source_near_point::{
+    geometry_revision as authored_near_point_revision, SourceNearPointConfiguration,
+    SourceNearPointProvider,
+};
 
 #[cfg(test)]
 pub(crate) use products::authored_vmap;

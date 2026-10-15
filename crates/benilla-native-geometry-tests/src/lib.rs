@@ -115,3 +115,6 @@ fn parsed_authored_adt_drives_actual_movement_solver() {
         Err(core::Failure::MissingGeometry)
     );
 }
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_near_point.rs"]
+mod source_near_point;

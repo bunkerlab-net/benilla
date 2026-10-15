@@ -47,6 +47,83 @@ fn request(snapshot: &StaticHeightSnapshot<'_>, z: f32) -> HeightRequest {
         max_search: 50f32.to_bits(),
     }
 }
+
+#[test]
+fn owned_and_borrowed_readers_bind_and_reply_identically() {
+    fn assert_send_static<T: Send + 'static>() {}
+    assert_send_static::<StaticHeightSnapshot<'static>>();
+
+    let (spec, files) = fixture();
+    let products = Arc::new(products::load(spec, &files).unwrap());
+    let borrowed = products.load_static_height().unwrap();
+    let owned = Arc::clone(&products).load_static_height_owned().unwrap();
+    assert_eq!(borrowed.binding(), owned.binding());
+    assert_eq!(
+        borrowed.static_vmap().binding(),
+        owned.static_vmap().binding()
+    );
+    assert!(std::ptr::eq(owned.static_vmap(), &owned.vmap));
+    for (z, expected) in [(10f32, 9f32), (6., 6.), (7., 7.), (8., 9.), (-10., 6.)] {
+        let query = request(&borrowed, z);
+        let reply = HeightReply {
+            request: query,
+            height: expected.to_bits(),
+        };
+        assert_eq!(borrowed.query(query, deadline()), Ok(reply));
+        assert_eq!(owned.query(query, deadline()), Ok(reply));
+    }
+    let query = request(&borrowed, 10.);
+    for snapshot in [&borrowed, &owned] {
+        for field in 0..6 {
+            let mut bad = query;
+            match field {
+                0 => bad.snapshot.map += 1,
+                1 => bad.snapshot.content[0] ^= 1,
+                2 => bad.snapshot.source_epoch[0] ^= 1,
+                3 => bad.snapshot.inventory[0] ^= 1,
+                4 => bad.snapshot.policy[0] ^= 1,
+                _ => bad.ticket = 0,
+            }
+            assert_eq!(snapshot.query(bad, deadline()), Err(Error::Identity));
+        }
+        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+        let mut bad = query;
+        bad.position = [0f32, 0., 10.].map(f32::to_bits);
+        assert_eq!(snapshot.query(bad, deadline()), Err(Error::Missing));
+        bad = query;
+        bad.max_search = f32::NAN.to_bits();
+        assert_eq!(snapshot.query(bad, deadline()), Err(Error::Format));
+        bad.max_search = 10_001f32.to_bits();
+        assert_eq!(snapshot.query(bad, deadline()), Err(Error::Unsupported));
+    }
+}
+
+#[test]
+fn owned_reader_retains_frozen_products_after_source_handles_are_dropped() {
+    let (spec, mut files) = fixture();
+    let products = Arc::new(products::load(spec.clone(), &files).unwrap());
+    let source = Arc::downgrade(&products);
+    let snapshot = products.load_static_height_owned().unwrap();
+    let binding = snapshot.binding();
+    let query = request(&snapshot, 10.);
+    assert_eq!(source.strong_count(), 1);
+
+    let mut changed_spec = spec;
+    changed_spec.binding.source_epoch[0] ^= 1;
+    let changed = Arc::new(products::load(changed_spec, &files).unwrap())
+        .load_static_height_owned()
+        .unwrap();
+    assert_eq!(changed.query(query, deadline()), Err(Error::Identity));
+    files.clear();
+    assert_eq!(snapshot.binding(), binding);
+    assert_eq!(
+        snapshot.query(query, deadline()).unwrap().height,
+        9f32.to_bits()
+    );
+    drop(snapshot);
+    assert!(source.upgrade().is_none());
+}
+
 #[test]
 fn actual_gridmap_and_stacked_vmap_bytes_select_source_static_ground() {
     let (spec, files) = fixture();
@@ -181,8 +258,10 @@ fn incomplete_static_map_and_wmo_liquid_remain_unavailable() {
     }
     spec.products
         .retain(|p| !matches!(p.id, ProductId::VmapModel(_)));
+    let products = Arc::new(products::load(spec, &files).unwrap());
+    assert!(matches!(products.load_static_height(), Err(Error::Missing)));
     assert!(matches!(
-        products::load(spec, &files).unwrap().load_static_height(),
+        products.load_static_height_owned(),
         Err(Error::Missing)
     ));
     let (mut spec, mut files) = fixture();
@@ -195,9 +274,14 @@ fn incomplete_static_map_and_wmo_liquid_remain_unavailable() {
             b[offset + 4..offset + 8].copy_from_slice(&1u32.to_le_bytes());
         },
     );
-    assert!(products::load(spec, &files)
+    let borrowed = products::load(spec.clone(), &files)
         .and_then(|p| p.load_static_height().map(|_| ()))
-        .is_err());
+        .unwrap_err();
+    assert_eq!(
+        products::load(spec, &files)
+            .and_then(|p| Arc::new(p).load_static_height_owned().map(|_| ())),
+        Err(borrowed)
+    );
 }
 #[test]
 fn real_float_hole_is_invalid_map_height_not_a_missing_tile_or_dry_fact() {

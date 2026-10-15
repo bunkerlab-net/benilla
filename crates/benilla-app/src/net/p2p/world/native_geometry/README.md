@@ -296,3 +296,49 @@ complete chase/replan routing and production startup remain separate work. Reque
 consistency is not live-state authentication: the eventual owner must evaluate and
 accept the witness inside the current staged transaction and revoke replaced source
 sessions. Authored test inputs establish no installed world data or admission.
+
+## Bounded primary NearPoint acceptance
+
+`SourceNearPointProvider` owns immutable loaded products and their already-decoded
+VMap through the new Arc-owned height reader. Borrowed reader APIs remain available.
+It accepts only explicit, mutually consistent effective declarations with
+`DetectPosCollision`, `vmap.enableHeight`, and `vmap.enableLOS` all enabled. These
+are source-config consistency contracts, not authenticated extraction or defaults.
+The new composite spatial revision binds the retained config, height/VMap identity,
+candidate arithmetic and pinned acceptance source hashes. Existing independent
+non-render participant exclusion remains mandatory.
+
+The provider executes the pinned source's first-return path:
+
+1. Validate the full owned-capability NearPoint request and derive its initial XY
+2. Apply actual loaded Map height and the selected source ground-only allowed-Z
+3. Test strict `abs(initial_z - adjusted_z) < ((distance + owner_radius) + target_radius)`
+4. Only if that passes, ray-test target eye to candidate feet, with `ignoreM2=false`
+5. Return the exact source NearPoint reply only if LOS is clear and every XYZ bit
+   round-trips through the existing persistent Point representation
+
+The fresh source selector has empty used-area lists because this revision comments
+out its only nearby-position visitor. Its original-angle check is therefore true;
+no invented crowd exclusion is added. Invalid ground can leave Z unchanged and
+still satisfy source acceptance, so a successful NearPoint fact is not a body-support
+proof. Both the target-eye origin and unraised feet endpoint differ from the existing
+spell/NPC-sight wrapper. Source M2 geometry is included in this caller's ray.
+
+Height and LOS consume one cumulative work allowance and one absolute deadline.
+An obstructed or vertically rejected first point requires unsupported fallback and
+returns unavailable authority, never a negative movement fact or guessed destination.
+Signed-zero/subnormal outputs unsupported by persistent Point also fail explicitly.
+No mutable snapshot, per-query VMap reload, leaked lifetime or ownership bypass is used.
+
+The callable owned provider is exercised through the actual native controller,
+durable store, projection and encoded receipt replay. Those component tests use real
+loaded authored bytes for NearPoint and explicitly authored authorities for other
+queries. Existing production entry and participant constructors remain closed. This
+checkpoint does not install the provider into the main-thread geometry mailbox,
+complete fallback/selector search, supply OwnerPathFinder routes, or activate a
+populated world. The original candidate-only API remains a separate partial witness.
+
+[Exact first-path source oracle](../../../../../../benilla-native-geometry-tests/tools/near_point_primary_README.md)
+observes source callback order and boundary arithmetic. Its scalar callbacks are not
+terrain, LOS, world-content or participant evidence; loaded-product/controller tests
+supply the separate bounded integration evidence.

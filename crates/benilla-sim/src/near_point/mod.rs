@@ -87,3 +87,6 @@ pub fn candidate_bits(target_xy: [u32; 2], distance: u32, angle: u32) -> Result<
     let y = target[1] + dy;
     Ok([normalize_coordinate(x).raw(), normalize_coordinate(y).raw()])
 }
+
+/// Source original-candidate acceptance arithmetic; actual geometry is separate.
+pub mod primary;

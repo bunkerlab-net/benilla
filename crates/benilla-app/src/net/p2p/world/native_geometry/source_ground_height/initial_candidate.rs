@@ -39,6 +39,16 @@ impl BoundGroundHeightQuery<'_, '_> {
         ticket: u64,
         deadline: Instant,
     ) -> Result<InitialCandidateReply, Failure> {
+        self.derive_initial_candidate_with_budget(
+            ticket,
+            &mut super::super::products::vmap::QueryBudget::new(deadline),
+        )
+    }
+    pub(crate) fn derive_initial_candidate_with_budget(
+        &self,
+        ticket: u64,
+        budget: &mut super::super::products::vmap::QueryBudget,
+    ) -> Result<InitialCandidateReply, Failure> {
         if ticket == 0 {
             return Err(Failure::Binding);
         }
@@ -46,14 +56,14 @@ impl BoundGroundHeightQuery<'_, '_> {
             return Err(Failure::UnsupportedQuery);
         };
         let (angle, position) = initial_position(&near.request)?;
-        let ground = self.query_initial_candidate(
+        let ground = self.query_initial_candidate_with_budget(
             GroundHeightRequest {
                 snapshot: self.provider.binding(),
                 context: self.context.clone(),
                 ticket,
                 position,
             },
-            deadline,
+            budget,
         )?;
         Ok(InitialCandidateReply {
             policy: policy_digest(),

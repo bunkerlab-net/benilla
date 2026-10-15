@@ -249,6 +249,13 @@ impl VmapSnapshot {
     /// CMaNGOS world coordinates, converted once with VMapManager2's exact expression.
     /// Expired, missing and over-budget inputs never become a clear ray.
     pub(crate) fn query(&self, request: RayRequest, deadline: Instant) -> Result<RayReply, Error> {
+        self.query_with_budget(request, &mut QueryBudget::new(deadline))
+    }
+    pub(crate) fn query_with_budget(
+        &self,
+        request: RayRequest,
+        budget: &mut QueryBudget,
+    ) -> Result<RayReply, Error> {
         if request.snapshot != self.binding || request.ticket == 0 {
             return Err(Error::Identity);
         }
@@ -263,12 +270,9 @@ impl VmapSnapshot {
             to_internal(from),
             to_internal(to),
             request.ignore_m2,
-            &mut QueryBudget {
-                remaining: MAX_QUERY_WORK,
-                deadline,
-            },
+            budget,
         )?;
-        complete_query(request, result, deadline)
+        complete_query(request, result, budget.deadline)
     }
     fn segment_internal(
         &self,
@@ -332,24 +336,27 @@ fn complete_query(
     Ok(RayReply { request, result })
 }
 
-pub(super) struct QueryBudget {
+pub(crate) struct QueryBudget {
     remaining: usize,
     deadline: Instant,
 }
 impl QueryBudget {
     /// Share one absolute deadline and work allowance across a composite query's rays.
-    pub(super) fn new(deadline: Instant) -> Self {
+    pub(crate) fn new(deadline: Instant) -> Self {
         Self {
             remaining: MAX_QUERY_WORK,
             deadline,
         }
     }
     /// A completed last work step never renews the caller's absolute deadline.
-    pub(super) fn complete(&self) -> Result<(), Error> {
+    pub(crate) fn complete(&self) -> Result<(), Error> {
         if Instant::now() >= self.deadline {
             return Err(Error::Budget);
         }
         Ok(())
+    }
+    pub(super) fn deadline(&self) -> Instant {
+        self.deadline
     }
     pub(super) fn take(&mut self) -> Result<(), Error> {
         if self.remaining == 0 || Instant::now() >= self.deadline {

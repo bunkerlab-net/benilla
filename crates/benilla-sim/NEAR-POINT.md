@@ -84,3 +84,23 @@ between the admitted input bound and source output clamp.
 
 These bounded numeric fixtures establish no native-content readiness, complete
 near-point search, real-map coverage, live gameplay or host-libm equivalence.
+
+## Original-candidate acceptance arithmetic
+
+`near_point::primary` provides only the strict vertical comparison and target-eye
+addition used by the pinned original-candidate return. Both use software binary32
+RNE; radius addition is left-associated, and a vertical equality fails. It does not
+reject an invalid source ground height itself: the source allowed-Z operation can
+retain initial Z, after which the ordinary comparison still applies.
+
+Actual LOS, configuration, independent dynamic-participant exclusion, persistent
+coordinate representation and fallback ownership remain consumer responsibilities.
+The app's bounded provider uses the actual loaded VMap with target eye to candidate
+feet and `ignoreM2=false`. It does not substitute the spell LOS wrapper or infer that
+collision detection is disabled. The fresh selector's empty lists are a real quirk
+of this source revision, whose position-population visitor is commented out.
+
+The [first-path oracle](../benilla-native-geometry-tests/tools/near_point_primary_README.md)
+retains exact source methods and detects fallback entry without implementing it.
+Its host constructor atan result is unobserved by the selected empty-list path;
+no full selector or platform-libm parity is claimed.
