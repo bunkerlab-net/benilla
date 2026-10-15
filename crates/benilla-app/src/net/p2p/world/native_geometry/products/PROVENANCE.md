@@ -699,12 +699,13 @@ The next runtime dependency is not another point query. In the pinned source,
 `Player::SetPosition` refreshes cached terrain environment only when its position
 status timer is zero, then arms 100 ms; player update decrements the timer but does
 not itself sample terrain. `Unit::IsInAccessiblePlaceFor` uses that cached player
-water state with the actor's effective CanSwim/CanWalk/CanFly predicates. Current
-native runtime types do not carry the effective creature InhabitType/capability
-state or the player's water timer/last-liquid state. Captured creature source rows
-contain InhabitType, and complete LiquidType bytes contain SpellId, but these facts
-have no runtime consumer path here. Supplying a geometry boolean or default
-capabilities cannot replace that feed. A future integration must also preserve
+water state with the actor's effective CanSwim/CanWalk/CanFly predicates. The explicitly selected native creature capability host now retains effective raw
+InhabitType and privately owned capability-relevant movement bits for the bounded
+ground domain, binding them to reachable NearPoint requests. This geometry reader
+still does not implement that NearPoint provider or consume the player's cached
+water timer/last-liquid state. Complete LiquidType bytes retain SpellId, while
+player environment callbacks and accessibility remain separate dependencies.
+Supplying a geometry boolean or default capabilities cannot replace those feeds. A future integration must also preserve
 source callback effects, persistence/replay and durable-before-publication behavior;
 this spatial reader neither adds that consumer nor opens admission.
 

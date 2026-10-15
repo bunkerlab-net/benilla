@@ -9,3 +9,6 @@ crates/benilla-sim/tools/spell_event_source/UniqueTrackablePtr.h text eol=lf
 crates/benilla-sim/tools/spell_event_source/source_manifest.json text eol=lf
 crates/benilla-sim/tests/fixtures/relations_reputation_cmangos.sha256 text eol=lf
 crates/benilla-sim/tests/fixtures/lifecycle_reputation_cmangos.sha256 text eol=lf
+crates/benilla-sim/tools/creature_capabilities_source/*.inc text eol=lf
+crates/benilla-sim/tools/creature_capabilities_source/source_manifest.json text eol=lf
+crates/benilla-sim/tests/fixtures/creature_capabilities_cmangos.test-fixture text eol=lf

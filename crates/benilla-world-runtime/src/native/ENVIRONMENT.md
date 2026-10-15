@@ -30,7 +30,10 @@ identity, provenance, a native-content compiler, or gameplay admission.
 `LiquidCatalog` and the geometry reader share one bounded WDBC parser. All four
 niii columns and the complete-file digest survive; an absent row is distinct
 from row zero and a present zero-spell row. No selected-row constructor,
-default SpellId, Deserialize catalog, NPC capability or InhabitType feed exists.
+default SpellId or Deserialize catalog exists. The separate explicitly selected
+[creature capability host](../../CREATURE-CAPABILITIES.md) retains raw InhabitType
+and current capability bits for bounded ground-creature NearPoint requests; it
+does not provide this component's player environment or accessibility feed.
 
 ## Source behavior
 

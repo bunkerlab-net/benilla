@@ -78,6 +78,50 @@ pub fn profile() -> Profile {
 pub fn world() -> NativeWorld {
     NativeWorld::synthetic_component_test(profile(), [8; 16], f::player(), 1234).unwrap()
 }
+/// Authored source rows only. No data lookup, default-row inference or production
+/// completeness/admission claim is made by this test fixture.
+pub fn creature_capability_sources(
+    p: &Profile,
+) -> CreatureCapabilityRows<CreatureCapabilitySource> {
+    CreatureCapabilityRows::Complete(
+        p.npcs
+            .iter()
+            .map(|npc| CreatureCapabilitySource {
+                spawn_id: npc.ai.creature_id,
+                spawn_entry: npc.entry,
+                requested_spawn_template_entry: 0,
+                templates: CreatureCapabilityRows::Complete(vec![
+                    CreatureCapabilityTemplateSource {
+                        entry: npc.entry,
+                        inhabit_type: 1,
+                    },
+                ]),
+                spawn_templates: CreatureCapabilityRows::Complete(vec![
+                    CreatureCapabilitySpawnTemplateSource {
+                        entry: 0,
+                        spawn_flags: 1,
+                        relay_id: 0,
+                        string_id: 0,
+                    },
+                ]),
+                external_features: CreatureCapabilityRows::Complete(vec![]),
+            })
+            .collect(),
+    )
+}
+fn synthetic_near_point(q: &m::NearPointRequest) -> Result<m::Fact, NativeError> {
+    let angle = match q.angle {
+        m::NearPointAngle::Absolute(a) => a.as_f32(),
+        m::NearPointAngle::CurrentTargetToOwner => (q.owner.position.y.as_f32()
+            - q.target.pose.position.y.as_f32())
+        .atan2(q.owner.position.x.as_f32() - q.target.pose.position.x.as_f32()),
+    };
+    Ok(m::Fact::NearPoint(ai::Point::new(
+        q.target.pose.position.x.as_f32() + q.distance.as_f32() * angle.cos(),
+        q.target.pose.position.y.as_f32() + q.distance.as_f32() * angle.sin(),
+        q.target.pose.position.z.as_f32(),
+    )?))
+}
 #[derive(Default)]
 pub struct SyntheticMotionAuthority {
     pub legacy: f::SyntheticAuthority,
@@ -109,6 +153,17 @@ impl Authority for SyntheticMotionAuthority {
             ));
         }
         let facts = match query {
+            MotionQuery::NearPoint(query) => {
+                if query.searcher.allowed_position_z_branch()? != AllowedPositionZBranch::Ground {
+                    return Err(NativeError::UnsupportedMechanic(
+                        "synthetic near-point capability branch",
+                    ));
+                }
+                MotionFacts::Spatial(Box::new(m::Reply {
+                    request: m::Query::NearPoint(query.request.clone()),
+                    fact: synthetic_near_point(&query.request)?,
+                }))
+            }
             MotionQuery::Combat(query) => MotionFacts::Combat(match query {
                 CombatQuery::NpcVisibility(_) => {
                     CombatFacts::NpcVisibility(ai::movement::Check::Passed)
@@ -141,23 +196,7 @@ impl Authority for SyntheticMotionAuthority {
             }),
             MotionQuery::Spatial(query) => {
                 let fact = match query {
-                    m::Query::NearPoint(q) => {
-                        let angle = match q.angle {
-                            m::NearPointAngle::Absolute(a) => a.as_f32(),
-                            m::NearPointAngle::CurrentTargetToOwner => {
-                                (q.owner.position.y.as_f32() - q.target.pose.position.y.as_f32())
-                                    .atan2(
-                                        q.owner.position.x.as_f32()
-                                            - q.target.pose.position.x.as_f32(),
-                                    )
-                            }
-                        };
-                        m::Fact::NearPoint(ai::Point::new(
-                            q.target.pose.position.x.as_f32() + q.distance.as_f32() * angle.cos(),
-                            q.target.pose.position.y.as_f32() + q.distance.as_f32() * angle.sin(),
-                            q.target.pose.position.z.as_f32(),
-                        )?)
-                    }
+                    m::Query::NearPoint(q) => synthetic_near_point(q)?,
                     m::Query::Bearing(q) => {
                         let a = (q.toward.y.as_f32() - q.origin.y.as_f32())
                             .atan2(q.toward.x.as_f32() - q.origin.x.as_f32());

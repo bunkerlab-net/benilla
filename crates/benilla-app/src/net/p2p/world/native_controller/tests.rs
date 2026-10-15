@@ -971,6 +971,9 @@ mod interaction_tests;
 #[path = "motion_tests.rs"]
 mod motion_tests;
 
+#[path = "creature_capability_tests.rs"]
+mod creature_capability_tests;
+
 #[path = "event_scheduler_tests.rs"]
 mod event_scheduler_tests;
 

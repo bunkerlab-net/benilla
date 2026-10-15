@@ -16,6 +16,9 @@ pub mod quest_lifecycle;
 pub mod creature_init;
 pub mod creature_regeneration;
 
+/// Source-derived creature movement capabilities; runtime admission is separate.
+pub mod creature_capabilities;
+
 pub mod classic_targets;
 
 pub mod classic_spell;

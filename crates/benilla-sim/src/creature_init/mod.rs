@@ -150,7 +150,7 @@ pub struct Rates {
 }
 /// Known applicable feature that changes this bounded fresh, living, uncontrolled,
 /// outdoor, unmounted, no-equipment/no-aura creation path. All are unsupported.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum ExternalFeature {
     PetSummonOrControl,
     InstanceOrBattleground,

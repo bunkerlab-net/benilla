@@ -365,6 +365,8 @@ pub enum MotionQuery {
     HostileSpellRelation(HostileSpellRequest),
     HostileSpellVisibility(HostileSpellRequest),
     Spatial(motion::Query),
+    /// Selected source host supplies a bound current capability witness.
+    NearPoint(CreatureNearPointRequest),
     Visitor(VisitorRequest),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

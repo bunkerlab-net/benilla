@@ -121,7 +121,7 @@ item spell records (including raw PPM bits), item sets, StartQuest and ScriptId 
 pretending item use or equip effects work. Random properties, timed items, scripts
 and other unclosed dependencies remain visible with explicit grant blockers.
 
-Native format 20 rejects earlier experimental saves instead of migrating item schemas or externally supplied spell-range receipts.
+Native format 21 rejects earlier experimental saves instead of migrating item schemas, externally supplied spell-range receipts or missing creature capability ownership.
 The existing controller/store path withholds acquisition packets and UI receipts
 until the authoritative checkpoint is durably published. Exact retries and reopen
 reconciliation do not repeat allocation, quest credit, self-unbinding or item-push

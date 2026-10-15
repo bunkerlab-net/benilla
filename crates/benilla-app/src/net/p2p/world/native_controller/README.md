@@ -47,9 +47,10 @@ unchanged. Projection failure retains the committed batch without reapplying it.
 The runtime versions its native snapshot/journal schema, policy and digest domains.
 Tick records contain `inputs: Vec<Input>` and source-ordered per-input outcomes.
 Older native saves are rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
-outer native envelope delegates the schema check to the runtime. Format 20 includes
-runtime-derived source spell range receipts, backpack movement receipts and
-per-NPC event queues through durable publication, retry and reopen. Tests verify a
+outer native envelope delegates the schema check to the runtime. Format 21 includes
+runtime-owned creature capability source bindings alongside source spell range
+receipts, backpack movement receipts and per-NPC event queues through durable
+publication, retry and reopen. Tests verify a
 due NPC notification is not dispatched again after a checkpoint failure.
 
 Checkpoints run every ten simulated seconds or before native journal headroom is
@@ -78,6 +79,40 @@ raw range row, both combat reaches, current staged poses and executing cast phas
 NPC visibility/accessibility, spell impact visibility, melee and other spatial
 facts remain unavailable. Service installation and an admitted source compiler
 remain required before production entry can open.
+
+## Creature capability requests
+
+An explicitly selected source capability catalog binds each spawn to its raw
+effective creature entry, actual `InhabitType`, requested/effective spawn-template
+row and complete source exclusions. Missing rows or exclusions cannot become
+empty/default lookups. The bounded runtime accepts actual habitat `1` and the
+supported RUN spawn flag, with no addon, script, control, entry-substitution or
+other capability mutation. Habitat `3` still has source `CanWalk`, but also permits
+swimming and is rejected by this ground-only execution boundary. Habitat `1` does
+not establish dry terrain at the creature's current position.
+
+The runtime owns only the capability-relevant current movement bits and derives
+`CanWalk`, `CanSwim`, `CanFly` and the allowed-position-Z branch from those bits
+and the retained raw habitat. Callers cannot set these predicates independently.
+An actual source chase and moving-target replan wrap the original NearPoint query
+with the current spawn generation and source-bound capability witness. The outer
+authority receipt retains the profile, world, tick and geometry bindings; the
+inner spatial receipt must still echo the original query exactly. Unselected
+component fixtures keep their previous request path.
+
+Controller tests answer these requests with an explicitly authored spatial
+authority. They do not supply a product-backed NearPoint, height, liquid, collision
+configuration or LOS provider. Source capability evidence is a prerequisite for
+that later provider, not a substitute for its missing spatial facts or native
+content admission.
+
+Tests cover exact-request replay, movement/replan, failed-authority rollback,
+non-retryable mismatched echoes, failed-save publication followed by one retry,
+and reopen. Missing/mismatched catalogs or water-capable rows cannot create a
+world; changed or removed selected catalogs cannot reopen or rewrite its durable
+save. Source spell death, corpse removal and respawn retain the catalog binding
+while rebinding the runtime witness to the new creature generation, including
+corpse and respawn reopen boundaries.
 
 ## Commands and movement orders
 

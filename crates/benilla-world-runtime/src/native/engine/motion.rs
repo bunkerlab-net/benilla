@@ -5,14 +5,33 @@ use benilla_sim::creature_motion as m;
 struct Spatial<'a, 'b, A: Authority> {
     frame: &'a mut Frame<'b, A>,
     npc: NpcId,
+    capabilities: Option<CreatureCapabilityWitness>,
     failure: Option<NativeError>,
 }
 impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
     fn resolve(&mut self, query: &m::Query) -> Result<m::Reply, m::MotionError> {
-        match self.frame.ask(
-            Some(self.npc),
-            Query::SourceMotion(MotionQuery::Spatial(query.clone())),
-        ) {
+        let query = match (query, &self.capabilities) {
+            (m::Query::NearPoint(request), Some(searcher)) => {
+                if request.binding.identity.creature != self.npc.spawn
+                    || request.binding.identity.map != self.frame.profile.map_id
+                    || request.binding.identity.content.0 != self.frame.profile.content_digest
+                    || request.binding.identity.geometry.0 != self.frame.profile.geometry_revision
+                    || request.binding.now_ms != self.frame.state.now_ms
+                    || searcher.npc() != self.npc
+                {
+                    self.failure = Some(NativeError::AuthorityBinding);
+                    return Err(m::MotionError::Invalid(
+                        "creature capability request binding",
+                    ));
+                }
+                MotionQuery::NearPoint(CreatureNearPointRequest {
+                    request: request.clone(),
+                    searcher: searcher.clone(),
+                })
+            }
+            _ => MotionQuery::Spatial(query.clone()),
+        };
+        match self.frame.ask(Some(self.npc), Query::SourceMotion(query)) {
             Ok(Facts::SourceMotion(MotionFacts::Spatial(reply))) => Ok(*reply),
             Ok(_) => Err(m::MotionError::Invalid("native motion reply kind")),
             Err(error) => {
@@ -26,11 +45,19 @@ impl<A: Authority> Frame<'_, A> {
     fn source_spatial<T>(
         &mut self,
         id: NpcId,
+        capabilities: Option<&CreatureCapabilityState>,
         f: impl FnOnce(&mut Spatial<'_, '_, A>) -> Result<T, m::MotionError>,
     ) -> Result<T, NativeError> {
+        if capabilities.is_some() != self.profile.creature_capabilities.is_some() {
+            return Err(NativeError::InvalidState);
+        }
+        if let Some(capabilities) = capabilities {
+            capabilities.validate(self.profile, id)?;
+        }
         let mut adapter = Spatial {
             frame: self,
             npc: id,
+            capabilities: capabilities.map(|state| state.witness().clone()),
             failure: None,
         };
         let result = f(&mut adapter);
@@ -321,7 +348,7 @@ impl<A: Authority> Frame<'_, A> {
                     MovementPurpose::Chase { target: id }
                         if npc.ai.target() == Some(id) && id == target.id =>
                     {
-                        self.source_spatial(npc.id, |a| {
+                        self.source_spatial(npc.id, npc.source_capabilities.as_ref(), |a| {
                             source.motion.start_chase(target, g.chase_walking, input, a)
                         })?
                     }
@@ -333,7 +360,7 @@ impl<A: Authority> Frame<'_, A> {
                         if command.home != Some(destination.position) {
                             return Err(NativeError::InvalidState);
                         }
-                        self.source_spatial(npc.id, |a| {
+                        self.source_spatial(npc.id, npc.source_capabilities.as_ref(), |a| {
                             source.motion.start_home(
                                 destination,
                                 g.home_walking,
@@ -525,27 +552,29 @@ impl<A: Authority> Frame<'_, A> {
             let input = self.source_input(npc)?;
             source = npc.source_motion.take().unwrap();
             if let Some(command) = npc.ai.motion() {
-                let update = self.source_spatial(npc.id, |a| {
-                    source.motion.advance_for_command(
-                        command,
-                        npc.ai
-                            .last_movement_request_id()
-                            .checked_add(1)
-                            .ok_or(m::MotionError::Invalid("movement request identity"))?,
-                        diff,
-                        Some(target),
-                        input,
-                        a,
-                    )
-                })?;
+                let update =
+                    self.source_spatial(npc.id, npc.source_capabilities.as_ref(), |a| {
+                        source.motion.advance_for_command(
+                            command,
+                            npc.ai
+                                .last_movement_request_id()
+                                .checked_add(1)
+                                .ok_or(m::MotionError::Invalid("movement request identity"))?,
+                            diff,
+                            Some(target),
+                            input,
+                            a,
+                        )
+                    })?;
                 npc.source_motion = Some(source);
                 self.source_motion_events(npc, update.events)?;
                 source = npc.source_motion.take().unwrap();
                 Some(update.movement)
             } else {
-                let events = self.source_spatial(npc.id, |a| {
-                    source.motion.advance(diff, Some(target), input, a)
-                })?;
+                let events =
+                    self.source_spatial(npc.id, npc.source_capabilities.as_ref(), |a| {
+                        source.motion.advance(diff, Some(target), input, a)
+                    })?;
                 npc.source_motion = Some(source);
                 self.source_motion_events(npc, events)?;
                 source = npc.source_motion.take().unwrap();
@@ -573,9 +602,11 @@ impl<A: Authority> Frame<'_, A> {
                             if id != SOLO_UNIT || position != source.motion.pose().position {
                                 return Err(NativeError::InvalidState);
                             }
-                            let event = self.source_spatial(npc.id, |a| {
-                                source.motion.face_target(player_position, a)
-                            })?;
+                            let event = self.source_spatial(
+                                npc.id,
+                                npc.source_capabilities.as_ref(),
+                                |a| source.motion.face_target(player_position, a),
+                            )?;
                             self.events.push(Event::NpcMotion { id: npc.id, event });
                             Ok(ai::MainhandResult::Unchanged)
                         }
