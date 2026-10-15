@@ -390,3 +390,85 @@ reuse after cancellation. The production interface has compile-fail checks again
 construction and the test-only authored-state constructor. These tests do not establish
 initial owner-cache production, serialized rehydration, full PathFinder, final path_type or
 complete Route authority.
+
+## Warm smooth-calculation terminal dependency
+
+`Mesh::loaded_source_warm_point_path` (policy 1) consumes an immutable, opaque
+`LoadedSourceWarmCache` proposal on its exact original `Mesh` instance. It does not consume
+public raw point lists or ref snapshots. Mesh lineage is checked before any smoothing work;
+a new mesh loaded from identical bytes is not the same authority. The warm input is reusable
+and unchanged on success, rejection, deadline expiry or budget exhaustion. The returned
+`LoadedSourceWarmPointPath` owns fallibly copied warm diagnostics and a separate terminal
+cache proposal. Neither this object nor its raw `path_type` is a Route fact, owner capability,
+movement admission, persisted owner path or proof of complete `PathFinder` dispatch.
+
+The explicit `SourcePointPathConfig` carries optimize-path, normalize-Z,
+ignore-normalization, force-destination and the previous source path-type bits. Unknown
+path-type bits reject. `normalize_z && !ignore_normalization` rejects before work: owner
+height correction, liquids, transport coordinate transforms and world callbacks are absent.
+The API represents only non-playerbots, non-dungeon, non-transport smooth calculations with
+the existing dry-ground filter and source limit 74. Straight-line/raycast and straight-funnel
+calculations are not represented by this API. In particular, source Chase first tries a
+separate straight-line/raycast calculation when its distance, elevation, line-of-sight and
+dry-state conditions allow (`TargetedMovementGenerator.cpp` 501-540). This terminal smooth
+calculation is not that dispatch decision. Source Home creates a fresh PathFinder; the
+force-destination arithmetic below is a raw supported calculation dependency, not proof of a
+warm Home producer. The app separately restricts owner contexts and binds their configuration.
+
+SamePolygon follows source `BuildPolyPath` 506-522: `BuildShortcut` yields the two original
+world endpoints, then slot zero and active polygon length one are reinstalled and type is
+NORMAL in the admitted endpoint-distance-at-most-seven domain. It does not invoke the
+smoother, optimizer or force-destination branch, even if the incoming type has INCOMPLETE.
+For Cut and Replacement, source 786-789 first classifies NORMAL only when the retained last
+polygon equals the selected end ref and the prior type lacks INCOMPLETE; otherwise it
+classifies INCOMPLETE. The selected active prefix and original positions then feed the same
+private raw smoothing engine used by the fresh-corridor dependency. A private input/result
+factorization keeps those wrappers separate: no nearest query, direct re-search, fabricated
+`Nearest` metadata or public raw-ref constructor is used. The smoother's repaired local
+corridor is never substituted for retained `m_pathPolyRefs` storage.
+
+`native/source_point_path.cpp` is a marked GPL-3.0-or-later adaptation retaining the source
+CMaNGOS GPL-2.0-or-later notice. It implements the supported smooth branch of
+`PathFinder::BuildPointPath` (795-986), `BuildShortcut` (1005-1021), `inRange` and `dist3DSqr`
+(1446-1455), from the same pinned PathFinder files and SHA256s listed above. Its binary32
+expressions retain original operation order and strict comparisons, under the existing
+no-fast-math/no-FMA build flags. The source G3D `Vector3` component subtraction,
+`squaredMagnitude` and zero-initialized default constructor are in
+`dep/g3dlite/G3D/Vector3.h` (SHA256
+`75b8fa263ade1337c4a06d5e6918aa0a7d28bcb107ed405487e62235838125e2`); no G3D runtime is added to the production build.
+
+The helper converts Detour YZX values to owner XYZ before optimization. OptimizePath uses
+LINE_FAULT 0.5f and SKIP_POINT_LIMIT 6, marking a removed point as zero immediately. Thus the
+next iteration reads the **mutated** previous point, rather than the last retained point or
+an unchanged original neighbor. Original all-zero input points (including signed zeros)
+when optimization executes with more than two points are explicitly unsupported. Source's
+zero sentinel can skip those points while `m_pathPoints.resize` retains prior vector slots
+on Cut; the warm cache does not retain that previous point vector. This is a defined
+unsupported state, not an undefined-behavior claim, and it is rejected rather than repaired
+with invented zero history. When optimization is off or count is at most two, zero points
+remain representable.
+
+Optimization precedes source failure classification. A raw failure or optimized count below
+two invokes BuildShortcut, clears only the active polygon length and sets NOPATH. Raw failure
+at the source point limit is not rescued by an optimizer reducing the count. Only after that
+check, optimized count exactly equal to limit invokes BuildShortcut and sets SHORT. All
+backing polygon slots, inactive refs and searchable tail survive terminal clear. On the
+remaining branch, actual-end is assigned from the final optimized point before normalization.
+Force-destination retains source's strict horizontal/elevation one-unit tests and strict
+`dist3DSqr(actual,end) < 0.3f * dist3DSqr(start,end)` decision. The near branch replaces only
+the final point/actual-end and preserves active cache; the other branch clears active cache
+through BuildShortcut. Both set NORMAL|NOT_USING_PATH. NoSteerTarget source success with at
+least two points can retain NORMAL even when actual end differs from requested destination;
+this raw source result is not upgraded to a complete route.
+
+The new result exposes original warm selection, full terminal backing storage/active count,
+XYZ point bits, pre-normalization actual-end, terminal type, raw smoother points/status/stop
+and operational diagnostics. SamePolygon reports no smoother invocation. Smoothing remains
+bounded by at most 256 native primitives, checked individually against the same absolute
+caller deadline. Postprocessing charges at most 221 work units: 74 conversions, 72 optimizer
+decisions, 74 compaction slots and one terminal decision (SamePolygon costs one). The native
+helper performs those bounded loops in one non-preemptible call, with deadline checks before
+and after, and uses only fixed stack arrays. Rust copies use fallible reservations; all
+publication paths recheck the deadline. Outputs must remain finite and within the existing
+100000-unit coordinate bound. This is finite-work control, not a hard scheduler wall-clock
+guarantee. The native-boundary sanitizer runner includes the new arithmetic helper.

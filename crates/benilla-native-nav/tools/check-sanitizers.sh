@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 build=$(mktemp -d "${TMPDIR:-/tmp}/benilla-detour-boundary.XXXXXX")
 trap 'rm -rf "$build"' EXIT
-sources=("$root/native/bridge.cpp" "$root/native/source_smoothing.cpp" "$root/native/source_direct.cpp" "$root/native/source_warm_cache.cpp")
+sources=("$root/native/bridge.cpp" "$root/native/source_smoothing.cpp" "$root/native/source_direct.cpp" "$root/native/source_warm_cache.cpp" "$root/native/source_point_path.cpp")
 for name in DetourAlloc DetourAssert DetourCommon DetourNavMesh DetourNavMeshQuery DetourNode; do sources+=("$root/native/Detour/Source/$name.cpp"); done
 for source in "${sources[@]}"; do
   "${CXX:-c++}" -std=c++20 -O1 -g -DDT_POLYREF64=1 -fno-fast-math -ffp-contract=off \

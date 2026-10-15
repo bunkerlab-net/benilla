@@ -4,8 +4,10 @@
 mod smoothing;
 mod validate;
 mod warm_cache;
+mod warm_point_path;
 pub use smoothing::*;
 pub use warm_cache::*;
+pub use warm_point_path::*;
 /// Selected ABI builds; source differential evidence is still platform-specific.
 pub const SUPPORTED_ABI: bool = cfg!(benilla_native_detour);
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc, time::Instant};
@@ -437,3 +439,6 @@ mod direct_corridor_tests;
 
 #[cfg(all(test, benilla_native_detour))]
 mod warm_cache_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod warm_point_path_tests;

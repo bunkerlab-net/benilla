@@ -103,6 +103,35 @@ impl SourceRouteWarmCacheProvider {
             configuration,
         })
     }
+    pub(super) fn bind_with_point_path(
+        session: &Session,
+        profile: &Profile,
+        liquid: DryLiquidSnapshot,
+        navigation: NavigationSnapshot,
+        lineage: WarmCacheLineage,
+        configuration: super::source_route_point_path::PointPathConfiguration,
+    ) -> Result<Self, Failure> {
+        if lineage.binding() != navigation.binding() {
+            return Err(Failure::Binding);
+        }
+        let filter = SourceRouteFilterProvider::bind_with_point_path(
+            session,
+            profile,
+            liquid,
+            navigation.binding(),
+            configuration,
+        )?;
+        Ok(Self {
+            filter,
+            navigation,
+            lineage,
+            configuration: configuration.warm,
+        })
+    }
+    pub(super) fn navigation(&self) -> &NavigationSnapshot {
+        &self.navigation
+    }
+
     pub(crate) fn binding(&self) -> WarmCacheBinding {
         WarmCacheBinding {
             liquid: self.filter.binding(),

@@ -661,3 +661,6 @@ mod route_smoothing_tests;
 
 #[path = "route_warm_cache_tests.rs"]
 mod route_warm_cache_tests;
+
+#[path = "route_point_path_tests.rs"]
+mod route_point_path_tests;

@@ -71,3 +71,32 @@ lifecycle and a complete supported owner calculation remain necessary. The
 existing conservative route-evidence contract must also be reconciled explicitly
 with source semantics. Production admission and participant requirements remain
 unchanged; there is no populated-world feed or game activation in this checkpoint.
+
+## Terminal smooth-calculation dependency
+
+`native_geometry/source_route_point_path.rs` continues the same loaded warm
+proposal through its selected active polygon prefix, without another nearest or
+path search. Source SamePolygon takes its own shortcut path; Cut/Replacement
+use the original smoother and source-ordered point conversion, optional
+optimization, failure/limit classification and pre-normalization actual endpoint.
+Successful smoothing never substitutes scratch polygon refs for the retained
+cache. A terminal shortcut clears active length while preserving backing storage.
+
+Optimization and normalization settings are explicit query inputs bound into
+geometry policy, not assumed server defaults. The ordinary Chase dependency
+admits NormalizeZ=false and ignoreNormalization=false. Active normalization
+needs actual per-point allowed-Z/transport observations. Prior terminal path type
+comes from the frozen runtime cache and preserves the source INCOMPLETE bit where
+required. Original all-zero points in an optimized path are rejected: source's
+zero sentinel can preserve old point-vector slots on a cut, and that defined
+retained-point dependency is not represented here.
+
+This is a terminal **smooth-calculation** proposal, not complete Chase dispatch.
+Pinned Chase first attempts a straight-line/raycast calculation under its own
+distance, vertical, LOS and liquid conditions before conditional smooth fallback.
+Home creates a fresh temporary PathFinder and is rejected by this warm provider.
+The native primitive separately tests force-destination arithmetic but does not
+provide a Home producer. A source NORMAL result may end early after NoSteerTarget;
+it does not satisfy or replace the existing CompleteRoute segment/endpoint proof.
+Source initial cold policy, full dispatch, normalized points, loaded checkpoint
+rehydration and production gameplay admission remain separate dependencies.

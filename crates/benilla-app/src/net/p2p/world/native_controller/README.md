@@ -283,3 +283,10 @@ proposal still cannot publish a complete route. Exact retries and failed binding
 preserve the staged world, input, store and projection. Source-owned checkpoint
 rehydration and initial cold calculation remain unavailable; see
 `benilla-world-runtime/src/native/PATHFINDER-CACHE.md` for the format-23 boundary.
+
+The terminal smooth-calculation tests extend that owner-thread path through the
+actual selected warm polygon prefix, source smoother and point postprocessing.
+They retain the explicit synthetic initial state and refuse a full Route after a
+successful loaded dependency. Source straight-line-first Chase dispatch and fresh
+Home creation are separate boundaries; supported point output does not bypass
+endpoint/segment evidence or production admission.

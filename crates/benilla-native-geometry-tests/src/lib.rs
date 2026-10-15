@@ -125,6 +125,8 @@ mod source_near_point_empty;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_filter.rs"]
 mod source_route_filter;
 
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_point_path.rs"]
+mod source_route_point_path;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_smoothing.rs"]
 mod source_route_smoothing;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_warm_cache.rs"]

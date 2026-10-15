@@ -34,6 +34,26 @@ pub struct WarmCache {
     active_len: usize,
 }
 impl WarmCache {
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn check_mesh(&self, mesh: &Mesh) -> Result<(), Error> {
+        if self.mesh_id != mesh.instance_id {
+            return Err(Error::Identity);
+        }
+        Ok(())
+    }
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn try_copy(&self) -> Result<Self, Error> {
+        Ok(Self {
+            mesh_id: self.mesh_id,
+            filter: self.filter,
+            storage: copy_storage(&self.storage)?,
+            active_len: self.active_len,
+        })
+    }
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn clear_active(&mut self) {
+        self.active_len = 0;
+    }
     pub fn storage(&self) -> &[u64] {
         &self.storage
     }
@@ -203,6 +223,24 @@ pub struct LoadedSourceWarmCache {
     trace: Vec<SourceWarmTrace>,
 }
 impl LoadedSourceWarmCache {
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn try_copy(&self) -> Result<Self, Error> {
+        let mut trace = Vec::new();
+        trace
+            .try_reserve_exact(self.trace.len())
+            .map_err(|_| Error::Budget)?;
+        trace.extend_from_slice(&self.trace);
+        Ok(Self {
+            from: self.from,
+            to: self.to,
+            after: self.after.try_copy()?,
+            start: self.start,
+            end: self.end,
+            phase: self.phase,
+            direct_status: self.direct_status,
+            trace,
+        })
+    }
     pub fn from(&self) -> [u32; 3] {
         self.from
     }

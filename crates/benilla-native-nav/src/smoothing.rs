@@ -158,7 +158,30 @@ impl LoadedSourceCorridor<'_> {
     pub fn smooth(self) -> Result<LoadedSourceSmooth, SourceSmoothingError> {
         #[cfg(benilla_native_detour)]
         {
-            native::smooth(self)
+            let raw = native::smooth(SmoothingInput {
+                mesh: self.mesh,
+                from: self.from,
+                to: self.to,
+                filter: self.filter,
+                point_limit: self.point_limit,
+                smoothing_primitives: self.budget.smoothing_primitives,
+                until: self.until,
+                polygons: &self.polygons,
+            })?;
+            Ok(LoadedSourceSmooth {
+                from: self.from,
+                to: self.to,
+                filter: self.filter,
+                point_limit: self.point_limit,
+                start: self.start,
+                end: self.end,
+                polygons: self.polygons,
+                final_polygons: raw.final_polygons,
+                points: raw.points,
+                status: raw.status,
+                stop: raw.stop,
+                diagnostics: raw.diagnostics,
+            })
         }
         #[cfg(not(benilla_native_detour))]
         {
@@ -166,6 +189,51 @@ impl LoadedSourceCorridor<'_> {
             Err(Error::Unsupported.into())
         }
     }
+}
+
+#[cfg(benilla_native_detour)]
+struct SmoothingInput<'a> {
+    mesh: &'a Mesh,
+    from: [u32; 3],
+    to: [u32; 3],
+    filter: SourceOwnerFilter,
+    point_limit: usize,
+    smoothing_primitives: usize,
+    until: Instant,
+    polygons: &'a [u64],
+}
+
+/// Private raw engine output; never construct fresh-corridor nearest metadata for warm refs.
+#[cfg(benilla_native_detour)]
+pub(crate) struct RawSourceSmooth {
+    pub(crate) points: Vec<[u32; 3]>,
+    pub(crate) final_polygons: Vec<u64>,
+    pub(crate) status: u32,
+    pub(crate) stop: SourceSmoothStop,
+    pub(crate) diagnostics: SourceSmoothingDiagnostics,
+}
+
+#[cfg(benilla_native_detour)]
+pub(crate) fn smooth_warm(
+    mesh: &Mesh,
+    warm: &crate::LoadedSourceWarmCache,
+    smoothing_primitives: usize,
+    until: Instant,
+) -> Result<RawSourceSmooth, SourceSmoothingError> {
+    warm.after().check_mesh(mesh)?;
+    if smoothing_primitives > SOURCE_SMOOTHING_MAX_PRIMITIVES {
+        return Err(Error::Budget.into());
+    }
+    native::smooth(SmoothingInput {
+        mesh,
+        from: warm.from(),
+        to: warm.to(),
+        filter: warm.after().filter(),
+        point_limit: warm.after().point_limit(),
+        smoothing_primitives,
+        until,
+        polygons: &warm.after().storage()[..warm.after().active_len()],
+    })
 }
 impl Mesh {
     /// Bounded nearest-poly lookup and the original direct findPath loop with ORIGINAL
@@ -450,9 +518,7 @@ mod native {
             unsafe { benilla_source_free(self.0.as_ptr()) }
         }
     }
-    pub(super) fn smooth(
-        c: LoadedSourceCorridor<'_>,
-    ) -> Result<LoadedSourceSmooth, SourceSmoothingError> {
+    pub(super) fn smooth(c: SmoothingInput<'_>) -> Result<RawSourceSmooth, SourceSmoothingError> {
         let mut diagnostics = SourceSmoothingDiagnostics::default();
         let run = |diagnostics: &mut SourceSmoothingDiagnostics| -> Result<_, Error> {
             deadline(c.until)?;
@@ -478,7 +544,7 @@ mod native {
             deadline(c.until)?;
             let terminal = loop {
                 deadline(c.until)?;
-                if diagnostics.primitive_calls >= c.budget.smoothing_primitives {
+                if diagnostics.primitive_calls >= c.smoothing_primitives {
                     return Err(Error::Budget);
                 }
                 let mut step = Step::default();
@@ -572,14 +638,7 @@ mod native {
             error,
             diagnostics: diagnostics.clone(),
         })?;
-        Ok(LoadedSourceSmooth {
-            from: c.from,
-            to: c.to,
-            filter: c.filter,
-            point_limit: c.point_limit,
-            start: c.start,
-            end: c.end,
-            polygons: c.polygons,
+        Ok(RawSourceSmooth {
             final_polygons,
             points,
             status,

@@ -110,6 +110,22 @@ impl SourceRouteFilterProvider {
         Self::bind_revision(session, profile, snapshot, expected)
     }
 
+    /// The terminal smooth-calculation policy is explicit and typed, never a supplied hash.
+    pub(super) fn bind_with_point_path(
+        session: &Session,
+        profile: &Profile,
+        snapshot: DryLiquidSnapshot,
+        navigation: super::products::navigation::SnapshotBinding,
+        configuration: super::source_route_point_path::PointPathConfiguration,
+    ) -> Result<Self, Failure> {
+        let expected = super::source_route_point_path::geometry_revision(
+            snapshot.binding(),
+            navigation,
+            configuration,
+        )?;
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+
     fn bind_revision(
         session: &Session,
         profile: &Profile,

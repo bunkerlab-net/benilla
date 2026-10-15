@@ -12,6 +12,7 @@ mod source_navigation;
 mod source_near_point;
 mod source_near_point_empty;
 mod source_route_filter;
+mod source_route_point_path;
 mod source_route_smoothing;
 mod source_route_warm_cache;
 mod source_vmap;
@@ -448,6 +449,12 @@ pub(crate) use products::navigation::SourceSmoothRequest;
 pub(crate) use source_route_warm_cache::{
     geometry_revision as authored_warm_cache_revision, SourceRouteWarmCacheProvider,
     WarmCacheConfiguration, WarmCacheRequest,
+};
+
+#[cfg(test)]
+pub(crate) use source_route_point_path::{
+    geometry_revision as authored_point_path_revision, PointPathConfiguration, PointPathRequest,
+    SourceRoutePointPathProvider,
 };
 
 #[cfg(test)]

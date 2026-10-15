@@ -103,6 +103,33 @@ pub(crate) enum SourceWarmError {
     Seed(benilla_native_nav::SourceSmoothingError),
     Boundary(benilla_native_nav::Error),
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SourcePointRequest {
+    pub warm: SourceWarmRequest,
+    pub ticket: u64,
+    pub configuration: benilla_native_nav::SourcePointPathConfig,
+    pub budget: benilla_native_nav::SourcePointPathBudget,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SourcePointReply {
+    request: SourcePointRequest,
+    result: benilla_native_nav::LoadedSourceWarmPointPath,
+}
+impl SourcePointReply {
+    pub(crate) fn request(&self) -> SourcePointRequest {
+        self.request
+    }
+    pub(crate) fn result(&self) -> &benilla_native_nav::LoadedSourceWarmPointPath {
+        &self.result
+    }
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SourcePointError {
+    Identity,
+    Unavailable,
+    Deadline,
+    Native(benilla_native_nav::SourcePointPathError),
+}
 pub(crate) struct NavigationSnapshot {
     binding: SnapshotBinding,
     mesh: RefCell<Mesh>,
@@ -251,6 +278,39 @@ impl NavigationSnapshot {
             return Err(SourceWarmError::Identity);
         }
         Ok(SourceWarmReply { request, result })
+    }
+
+    pub(crate) fn source_point_path(
+        &self,
+        warm: &SourceWarmReply,
+        request: SourcePointRequest,
+        deadline: Instant,
+    ) -> Result<SourcePointReply, SourcePointError> {
+        if request.warm != warm.request
+            || request.warm.snapshot != self.binding
+            || request.ticket == 0
+            || request.warm.ticket.checked_add(1) != Some(request.ticket)
+        {
+            return Err(SourcePointError::Identity);
+        }
+        if Instant::now() >= deadline {
+            return Err(SourcePointError::Deadline);
+        }
+        let result = self
+            .mesh
+            .try_borrow_mut()
+            .map_err(|_| SourcePointError::Unavailable)?
+            .loaded_source_warm_point_path(
+                &warm.result,
+                request.configuration,
+                request.budget,
+                deadline,
+            )
+            .map_err(SourcePointError::Native)?;
+        if Instant::now() >= deadline {
+            return Err(SourcePointError::Deadline);
+        }
+        Ok(SourcePointReply { request, result })
     }
 
     pub(crate) fn source_smooth(
