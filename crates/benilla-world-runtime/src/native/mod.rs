@@ -7,6 +7,7 @@ mod combat;
 mod loot;
 pub use loot::*;
 mod engine;
+pub mod environment;
 mod npc_events;
 mod npc_spell;
 pub use npc_events::{NpcEventHandle, NpcEvents, NPC_EVENT_POLICY};

@@ -20,6 +20,8 @@ use super::{
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
+mod environment;
+
 const DEFAULT_WATER_SEARCH: f32 = 50.0;
 const POLICY: &[u8] = b"cmangos-8ec338a1-terrain-wet-liquid-complete-dbc-data-present-u32-v1";
 

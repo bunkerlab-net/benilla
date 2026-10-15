@@ -2,88 +2,57 @@
 //! Pinned GridMap::loadGridMapLiquidData/getLiquidStatus, not TerrainInfo selection.
 //! Source: CMaNGOS 8ec338a1 GridMap.cpp and DBCStructure.h/DBCfmt.h (niii).
 use super::super::Hash;
-use super::{
-    height_number, u16_at, u32_at, AreaTable, Error, PointHeight, TerrainTile, MAX_HEIGHT,
-};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use super::{height_number, u16_at, AreaTable, Error, PointHeight, TerrainTile, MAX_HEIGHT};
+use benilla_world_runtime::native::environment::{LiquidCatalog, LiquidCatalogError};
 
 const NO_TYPE: u8 = 1;
 const NO_HEIGHT: u8 = 2;
 const DEEP_WATER: u8 = 0x10;
 const KNOWN_TYPES: u8 = 0x3f;
 const INVALID_HEIGHT_VALUE: f32 = -200_000.0;
-const MAX_ROWS: usize = 65_536; // Local resource limits, not DBC or game rules.
-const MAX_STRINGS: usize = 1024 * 1024;
 
 /// A complete, bounded LiquidType.dbc table. Missing IDs are absent from these exact
 /// bytes, not guessed from an authored subset; loading establishes no source provenance.
 #[derive(Debug)]
 pub(crate) struct LiquidTypes {
-    entries: BTreeMap<u32, u32>,
-    digest: Hash,
+    catalog: LiquidCatalog,
 }
 impl LiquidTypes {
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        Self::decode_profile(bytes, false)
+        LiquidCatalog::from_legacy_wdbc(bytes)
+            .map(|catalog| Self { catalog })
+            .map_err(catalog_error)
     }
 
     /// Opt-in TerrainInfo store: source IDs and Type are uint32. Unsupported
     /// shifts are rejected only if the selected query branch executes them.
     pub(in super::super) fn decode_complete(bytes: &[u8]) -> Result<Self, Error> {
-        Self::decode_profile(bytes, true)
-    }
-
-    fn decode_profile(bytes: &[u8], complete: bool) -> Result<Self, Error> {
-        if bytes.get(..4) != Some(b"WDBC") {
-            return Err(Error::Format);
-        }
-        let rows = u32_at(bytes, 4)? as usize;
-        let fields = u32_at(bytes, 8)?;
-        let stride = u32_at(bytes, 12)?;
-        let strings = u32_at(bytes, 16)? as usize;
-        if rows > MAX_ROWS || strings > MAX_STRINGS {
-            return Err(Error::Budget);
-        }
-        if fields != 4 || stride != 16 {
-            return Err(Error::Unsupported);
-        }
-        let strings_at = rows
-            .checked_mul(16)
-            .and_then(|n| n.checked_add(20))
-            .ok_or(Error::Framing)?;
-        if strings == 0
-            || strings_at.checked_add(strings) != Some(bytes.len())
-            || bytes.get(strings_at) != Some(&0)
-            || bytes.last() != Some(&0)
-        {
-            return Err(Error::Framing);
-        }
-        let mut entries = BTreeMap::new();
-        for i in 0..rows {
-            let at = 20 + i * 16;
-            let id = u32_at(bytes, at)?;
-            // niii: Id, LiquidId, Type, SpellId. Only Id and Type affect this query.
-            let kind = u32_at(bytes, at + 8)?;
-            if id == u32::MAX || (!complete && (id > u16::MAX as u32 || kind > 3)) {
-                return Err(Error::Unsupported);
-            }
-            if entries.insert(id, kind).is_some() {
-                return Err(Error::Duplicate);
-            }
-        }
-        Ok(Self {
-            entries,
-            digest: Sha256::digest(bytes).into(),
-        })
+        LiquidCatalog::from_wdbc(bytes)
+            .map(|catalog| Self { catalog })
+            .map_err(catalog_error)
     }
 
     pub(in super::super) fn kind(&self, id: u32) -> Option<u32> {
-        self.entries.get(&id).copied()
+        self.catalog.get(id).map(|row| row.kind)
     }
 
     pub(crate) fn digest(&self) -> Hash {
-        self.digest
+        self.catalog.digest()
+    }
+
+    /// Same complete decoded bytes and retained SpellId; never source admission proof.
+    pub(crate) fn environment_catalog(&self) -> &LiquidCatalog {
+        &self.catalog
+    }
+}
+
+fn catalog_error(error: LiquidCatalogError) -> Error {
+    match error {
+        LiquidCatalogError::Format => Error::Format,
+        LiquidCatalogError::Framing => Error::Framing,
+        LiquidCatalogError::Budget => Error::Budget,
+        LiquidCatalogError::Unsupported => Error::Unsupported,
+        LiquidCatalogError::Duplicate => Error::Duplicate,
     }
 }
 

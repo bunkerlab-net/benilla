@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Authored serialization fixtures only; no install assets or production DBC rows.
 use super::super::super::{tests::terrain_bytes, TileId};
-use super::super::GRID_SIZE;
+use super::super::{u32_at, GRID_SIZE};
 use super::*;
+use sha2::{Digest, Sha256};
 
 fn word(bytes: &mut Vec<u8>, value: u32) {
     bytes.extend(value.to_le_bytes());
@@ -78,8 +79,8 @@ fn complete_niii_table_checks_framing_duplicates_limits_and_hashes_all_bytes() {
     let bytes = dbc(&[(22, 0), (33, 1), (44, 2), (55, 3)]);
     let table = LiquidTypes::decode(&bytes).unwrap();
     assert_eq!(table.digest(), Hash::from(Sha256::digest(&bytes)));
-    assert_eq!(table.entries.get(&22), Some(&0));
-    assert_eq!(table.entries.get(&54), None);
+    assert_eq!(table.kind(22), Some(0));
+    assert_eq!(table.kind(54), None);
     for end in 0..bytes.len() {
         assert!(LiquidTypes::decode(&bytes[..end]).is_err(), "prefix {end}");
     }
@@ -112,6 +113,50 @@ fn complete_niii_table_checks_framing_duplicates_limits_and_hashes_all_bytes() {
         table.digest(),
         LiquidTypes::decode(&changed_unused_field).unwrap().digest()
     );
+}
+
+#[test]
+fn retained_spell_ids_bind_catalog_bytes_without_changing_raw_grid_queries() {
+    let bytes = dbc(&[(0, 0), (22, 3)]);
+    let table = LiquidTypes::decode_complete(&bytes).unwrap();
+    let catalog = table.environment_catalog();
+    assert!(catalog.is_complete());
+    assert_eq!(catalog.digest(), table.digest());
+    assert_eq!(catalog.get(0).unwrap().spell_id, 456);
+    assert_eq!(catalog.get(21), None);
+    let terrain = tile(0, &section(3, 22, 0x3f, [0, 0, 129, 129], 10.0));
+    for spell_id in [0, 789, u32::MAX] {
+        let mut changed = bytes.clone();
+        replace(&mut changed, 20 + 16 + 12, spell_id);
+        for changed_table in [
+            LiquidTypes::decode(&changed).unwrap(),
+            LiquidTypes::decode_complete(&changed).unwrap(),
+        ] {
+            assert_eq!(
+                changed_table
+                    .environment_catalog()
+                    .get(22)
+                    .unwrap()
+                    .spell_id,
+                spell_id
+            );
+            assert_ne!(changed_table.digest(), table.digest());
+            assert_eq!(changed_table.digest(), Hash::from(Sha256::digest(&changed)));
+            for (z, status) in [
+                (5.0, GridLiquidStatus::UnderWater),
+                (9.0, GridLiquidStatus::InWater),
+                (10.0, GridLiquidStatus::WaterWalk),
+                (11.0, GridLiquidStatus::AboveWater),
+            ] {
+                let original = query(&terrain, 2.5, 3.5, z, 0, &table).unwrap();
+                assert_eq!(original.status, status);
+                assert_eq!(
+                    query(&terrain, 2.5, 3.5, z, 0, &changed_table).unwrap(),
+                    original
+                );
+            }
+        }
+    }
 }
 
 #[test]
