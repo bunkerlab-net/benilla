@@ -118,7 +118,7 @@ guessed config or dry fallback is supplied.
 
 ## Persistence and checks
 
-Native format 22 (`benilla-native-route-owner-v22`) binds the typed route owner
+Native format 23 (`benilla-native-warm-route-cache-v23`) binds the typed route owner
 transcript through profile, state, record, checkpoint and source-action digest
 domains. Format 21 and earlier saves/records are rejected rather than rewriting
 `Spatial(Route)` receipts or inventing an owner witness. The original fixture

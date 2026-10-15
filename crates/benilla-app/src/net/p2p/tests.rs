@@ -1006,4 +1006,43 @@ fn a_late_joiner_receives_current_loop_and_posture_without_replayed_text() {
         &b,
         |e| matches!(e, SessionEvent::ObjectValues { guid, fields } if *guid == actor && fields.unit_stand_state() == 0 && fields.unit_emote_state() == 8002),
     );
+    // Accepted movement cancels the persistent loop for the actor and its current peers.
+    a.commands
+        .send(ClientCommand::Move {
+            kind: super::super::MoveKind::StartForward,
+            flags: 1,
+            pos: SPAWN,
+            orientation: 0.0,
+            pitch: 0.0,
+            fall_time: 0,
+            jump: None,
+            transport: None,
+        })
+        .unwrap();
+    for handles in [&a, &b] {
+        next_matching(handles, |e| {
+            matches!(e,
+            SessionEvent::ObjectValues { guid, fields }
+            if *guid == actor && fields.unit_emote_state() == 0)
+        });
+    }
+    next_matching(&b, |e| {
+        matches!(e,
+        SessionEvent::UnitMove { guid, flags: 1, .. } if *guid == actor)
+    });
+    // A third peer joining after cancellation receives the cleared state, not the old dance.
+    let third = Temp::new();
+    let (c, _c_start) = open_with_emote(&third.profile(), settings(free_endpoint(), &[endpoint]));
+    let late = create(&c, "Latecomer", 1, 1, 0);
+    enter(&c, late);
+    next_matching(
+        &c,
+        |e| matches!(e, SessionEvent::ObjectCreate { guid, .. } if *guid == actor),
+    );
+    let snapshot = next_matching(&c, |e| {
+        matches!(e,
+        SessionEvent::ObjectValues { guid, .. } | SessionEvent::TextEmote { guid, .. } if *guid == actor)
+    });
+    assert!(matches!(snapshot, SessionEvent::ObjectValues { fields, .. }
+        if fields.unit_emote_state() == 0 && fields.unit_stand_state() == 0));
 }

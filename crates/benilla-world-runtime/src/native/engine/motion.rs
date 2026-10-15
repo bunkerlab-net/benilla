@@ -10,6 +10,14 @@ struct Spatial<'a, 'b, A: Authority> {
 }
 impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
     fn resolve(&mut self, query: &m::Query) -> Result<m::Reply, m::MotionError> {
+        if let m::Query::Route(request) = query {
+            if let Some(cache) = &request.prior_cache {
+                if let Err(error) = self.validate_cache_owner(cache) {
+                    self.failure = Some(error);
+                    return Err(m::MotionError::Invalid("native pathfinder cache owner"));
+                }
+            }
+        }
         let capability_binding = match query {
             m::Query::NearPoint(request) => Some(request.binding),
             m::Query::Route(request) => Some(request.binding),
@@ -46,13 +54,39 @@ impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
             _ => MotionQuery::Spatial(query.clone()),
         };
         match self.frame.ask(Some(self.npc), Query::SourceMotion(query)) {
-            Ok(Facts::SourceMotion(MotionFacts::Spatial(reply))) => Ok(*reply),
+            Ok(Facts::SourceMotion(MotionFacts::Spatial(reply))) => {
+                if let m::Fact::RouteCalculation(calculation) = &reply.fact {
+                    if let Err(error) = self.validate_cache_owner(&calculation.after_cache) {
+                        self.failure = Some(error);
+                        return Err(m::MotionError::Invalid("native pathfinder cache owner"));
+                    }
+                }
+                Ok(*reply)
+            }
             Ok(_) => Err(m::MotionError::Invalid("native motion reply kind")),
             Err(error) => {
                 self.failure = Some(error);
                 Err(m::MotionError::Missing("native source spatial authority"))
             }
         }
+    }
+}
+impl<A: Authority> Spatial<'_, '_, A> {
+    fn validate_cache_owner(&self, cache: &m::PathFinderCache) -> Result<(), NativeError> {
+        let owner = self
+            .capabilities
+            .as_ref()
+            .ok_or(NativeError::AuthorityBinding)?;
+        owner.validate_for(self.frame.profile, self.npc)?;
+        if cache.binding.owner_generation != self.npc.generation
+            || cache.binding.identity.creature != self.npc.spawn
+            || cache.binding.identity.map != self.frame.profile.map_id
+            || cache.binding.identity.content.0 != self.frame.profile.content_digest
+            || cache.binding.identity.geometry.0 != self.frame.profile.geometry_revision
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(())
     }
 }
 impl<A: Authority> Frame<'_, A> {

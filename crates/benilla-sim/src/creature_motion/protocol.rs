@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Original trusted-authority boundary. It does not implement owner PathFinder,
 //! GetNearPoint, VMAP LOS, liquids or cell visitors. Missing facts stay missing.
-use super::{GroundMovementFlags, MotionError, Point, Real, MAX_PATH_POINTS};
+use super::{
+    GroundMovementFlags, MotionError, PathFinderCache, Point, Real, RouteCalculation,
+    MAX_PATH_POINTS,
+};
 use crate::creature_ai::movement::{Check, Revision, SegmentChecks};
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +104,8 @@ pub struct RouteRequest {
     pub owner_collision_height: Real,
     /// Exact bounded request cap; a full producer result beyond it is not truncated.
     pub point_limit: u16,
+    /// Exact retained state of this generator before this calculation.
+    pub prior_cache: Option<Box<PathFinderCache>>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,6 +182,7 @@ pub enum Fact {
     ObjectPosition(Option<Point>),
     NearPoint(Point),
     Route(RouteOutcome),
+    RouteCalculation(Box<RouteCalculation>),
     Bearing(Real),
     Collider(Option<u64>),
     Missing,

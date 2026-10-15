@@ -188,6 +188,31 @@ mod tests {
     }
 
     #[test]
+    fn navigation_away_closes_options_and_drops_pending_reopen() {
+        let mut world = World::new();
+        world.insert_resource(State::new(crate::char_select::ClientState::CharSelect));
+        let original = UiScript::new().unwrap();
+        let session = original.session();
+        world.insert_non_send_resource(ParkedLoginVm(original));
+        let options = UiScript::new().unwrap();
+        options
+            .run("CreateFrame('Frame', 'BenillaOptionsFrame')")
+            .unwrap();
+        world.insert_non_send_resource(options);
+        world.insert_resource(LoginOptions {
+            active: true,
+            requested: true,
+            error: None,
+        });
+        drive(&mut world);
+        assert!(!world.resource::<LoginOptions>().active);
+        assert!(!world.resource::<LoginOptions>().requested);
+        assert_eq!(world.non_send_resource::<UiScript>().session(), session);
+        drive(&mut world);
+        assert_eq!(world.non_send_resource::<UiScript>().session(), session);
+    }
+
+    #[test]
     fn actual_options_bootstrap_opens_every_category_without_a_player_session() {
         let _data = benilla_formats::wow_data_or_skip!();
         let mut world = World::new();

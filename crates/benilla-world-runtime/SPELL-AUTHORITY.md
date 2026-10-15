@@ -122,7 +122,7 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 22, `benilla-native-route-owner-v22`, with v22 profile/state/
+format 23, `benilla-native-warm-route-cache-v23`, with v23 profile/state/
 record/checkpoint/action hash domains. Published formats 10 through 19 reject without an
 implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace

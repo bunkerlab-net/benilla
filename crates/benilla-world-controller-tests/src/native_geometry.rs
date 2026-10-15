@@ -50,3 +50,24 @@ pub(crate) use source_route_filter::{
     geometry_revision as authored_route_filter_revision, RouteFilterRequest,
     SourceRouteFilterProvider,
 };
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_smoothing.rs"]
+mod source_route_smoothing;
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_warm_cache.rs"]
+mod source_route_warm_cache;
+
+#[cfg(test)]
+pub(crate) use products::authored_route_smoothing;
+#[cfg(test)]
+pub(crate) use source_route_smoothing::{
+    geometry_revision as authored_route_smoothing_revision, RouteSmoothingRequest,
+    SourceRouteSmoothingConfiguration, SourceRouteSmoothingProvider, SourceRouteSmoothingStage,
+};
+
+#[cfg(test)]
+pub(crate) use products::navigation::SourceSmoothRequest;
+#[cfg(test)]
+pub(crate) use source_route_warm_cache::{
+    geometry_revision as authored_warm_cache_revision, SourceRouteWarmCacheProvider,
+    WarmCacheConfiguration, WarmCacheRequest,
+};

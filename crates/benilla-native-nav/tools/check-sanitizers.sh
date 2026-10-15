@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 build=$(mktemp -d "${TMPDIR:-/tmp}/benilla-detour-boundary.XXXXXX")
 trap 'rm -rf "$build"' EXIT
-sources=("$root/native/bridge.cpp")
+sources=("$root/native/bridge.cpp" "$root/native/source_smoothing.cpp" "$root/native/source_direct.cpp" "$root/native/source_warm_cache.cpp")
 for name in DetourAlloc DetourAssert DetourCommon DetourNavMesh DetourNavMeshQuery DetourNode; do sources+=("$root/native/Detour/Source/$name.cpp"); done
 for source in "${sources[@]}"; do
   "${CXX:-c++}" -std=c++20 -O1 -g -DDT_POLYREF64=1 -fno-fast-math -ffp-contract=off \
@@ -12,6 +12,12 @@ for source in "${sources[@]}"; do
     -c "$source" -o "$build/$(basename "$source").o"
 done
 ar crs "$build/libnav_sanitized.a" "$build"/*.o
+# Fault-injection overrides are confined to this independent native executable.
+"${CXX:-c++}" -std=c++20 -O1 -g -DDT_POLYREF64=1 -fno-fast-math -ffp-contract=off \
+  -fsanitize=address,undefined -fno-omit-frame-pointer -I"$root/native/Detour/Include" \
+  -I"$root/native" "$root/tools/direct_corridor_allocation_test.cpp" \
+  "$build/libnav_sanitized.a" -o "$build/direct-allocation"
+ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}" "$build/direct-allocation" "$root/tools/fixtures"
 rustc --edition 2021 --test --cfg benilla_native_detour "$root/src/lib.rs" -L "$build" \
   -l static=nav_sanitized -l stdc++ -l asan -l ubsan -o "$build/tests"
 # Rust itself is not sanitizer-instrumented; every native source/bridge access is.

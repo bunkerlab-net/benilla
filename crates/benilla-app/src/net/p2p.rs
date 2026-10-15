@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
 mod character_actions;
+mod emote_motion;
 mod emotes;
 mod encounter;
 #[path = "p2p/world/native_geometry/mod.rs"]
@@ -1021,6 +1022,26 @@ fn run_exploration_character(
                             continue;
                         }
                         validate_pose(&pos, facing)?;
+                        if emote_motion::cancel_loop(&mut state_emote, flags) {
+                            // Clear both the local descriptor and peers before forwarding motion;
+                            // future admission snapshots read the same cleared state.
+                            emotes::emit_presentation(
+                                events,
+                                character,
+                                stand_state,
+                                state_emote,
+                                catalog,
+                            )?;
+                            network
+                                .try_send(Command::Broadcast(
+                                    Frame::Presentation {
+                                        stand_state,
+                                        state_emote,
+                                    }
+                                    .encode()?,
+                                ))
+                                .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
+                        }
                         position = pos;
                         orientation = facing;
                         character.position.position = position;

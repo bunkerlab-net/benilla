@@ -29,6 +29,17 @@ fn shell() -> UiScript {
             fill:SetAllPoints()
             fill:SetTexture(1, 1, 1, 1)
         end
+        local scroll = CreateFrame("ScrollFrame", "OptionsScroll", BenillaOptionsFrame)
+        scroll:SetPoint("TOPLEFT", BenillaOptionsFrame, "TOPLEFT", 20, -80)
+        scroll:SetWidth(300); scroll:SetHeight(150)
+        local body = CreateFrame("Frame", "OptionsScrollBody", scroll)
+        body:SetWidth(300); body:SetHeight(500)
+        scroll:SetScrollChild(body)
+        local row = CreateFrame("Button", "OptionsOverflowRow", body)
+        row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -200)
+        row:SetWidth(200); row:SetHeight(30); row:EnableMouse(true)
+        local fill = row:CreateTexture(nil, "ARTWORK")
+        fill:SetAllPoints(); fill:SetTexture(1, 0, 0, 1)
         function BenillaOptionsFrame_UpdateScale() end
         function BenillaOptionsRow_Set(row, value) row.saved = value end
         function BenillaOptionsRow_SetEnabled(row, enabled)
@@ -219,4 +230,30 @@ fn login_reparent_preserves_descendant_strata_and_levels() {
         );
     }
     assert!(s.errors().is_empty(), "{:?}", s.errors());
+}
+
+#[test]
+fn login_reparent_keeps_scrollback_draw_and_hit_clips_on_reopen_and_scroll() {
+    let mut s = shell();
+    for _ in 0..3 {
+        s.run("BenillaOptionsFrame:Show(); OptionsScroll:SetVerticalScroll(0)")
+            .unwrap();
+        s.resolve();
+        let scroll = drawn_frame(&s, "OptionsScroll").rect.unwrap();
+        let row = drawn_frame(&s, "OptionsOverflowRow");
+        assert_eq!(
+            row.clip,
+            Some(scroll),
+            "reparent must preserve the viewport"
+        );
+        let r = row.rect.unwrap();
+        assert!(r.top < scroll.bottom, "test row must be below the viewport");
+        s.run("OptionsOverflowRow:SetScript('OnEnter', function() OverflowEntered = true end); OverflowEntered = false").unwrap();
+        s.mouse_move((r.left + r.right) / 2.0, (r.top + r.bottom) / 2.0);
+        assert!(!s.eval::<bool>("return OverflowEntered").unwrap());
+        s.run("OptionsScroll:SetVerticalScroll(180)").unwrap();
+        s.resolve();
+        assert_eq!(drawn_frame(&s, "OptionsOverflowRow").clip, Some(scroll));
+        s.run("BenillaOptionsFrame:Hide()").unwrap();
+    }
 }

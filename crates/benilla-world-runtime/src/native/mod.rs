@@ -59,8 +59,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 22;
-pub const NATIVE_POLICY: &str = "benilla-native-route-owner-v22";
+pub const NATIVE_FORMAT_VERSION: u32 = 23;
+pub const NATIVE_POLICY: &str = "benilla-native-warm-route-cache-v23";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -265,7 +265,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v22\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v23\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

@@ -912,6 +912,53 @@ pub(crate) mod schedule_tests {
         );
     }
 
+    #[test]
+    fn wheel_ownership_is_published_before_camera_bindings() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !graph
+            .systems
+            .values()
+            .any(|s| s.name.contains("benilla_app::"))
+        {
+            return; // Player builds omit Bevy's debug type names.
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        for (producer, consumer) in [
+            (
+                "::ui_script::input::feed_ui_input",
+                "::ui_script::arbitrate_pointer_over_ui",
+            ),
+            (
+                "::ui_script::arbitrate_pointer_over_ui",
+                "::bindings::latch_and_dispatch",
+            ),
+        ] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&key(consumer)),
+                "{producer} must precede {consumer}"
+            );
+        }
+    }
+
     /// P2P zone publication observes both the resolved app zone and the service
     /// selected by this frame's login action; Present alone orders neither writer.
     #[test]

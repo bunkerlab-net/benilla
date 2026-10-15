@@ -189,10 +189,13 @@ unsupported random fanning branch.
 ### Ordinary slopes are supported by Classic
 
 The spline itself supports arbitrary bounded 3D segments, including dry slopes;
-the fixture includes rising and descending paths. Source normalizes each path
-vertex through `UpdateAllowedPositionZ`, uses the owner navigation filter and
-terrain/VMAP height/liquid queries, and retries straight-line generation when
-its source checks fail. Ordinary sloped ground is not a universal rejection.
+the fixture includes rising and descending paths. When the explicitly selected
+source NormalizeZ configuration is enabled, source normalizes each path vertex
+through `UpdateAllowedPositionZ`; the pinned default is disabled. Source uses
+the owner navigation filter and terrain/VMAP height/liquid queries, and retries
+straight-line generation when its source checks fail. Path optimization is a
+separate configuration whose pinned default is enabled; neither default is proof
+of the current world configuration. Ordinary sloped ground is not a universal rejection.
 
 Our existing raw-terrain/body provider's flat-only and dry-only vetoes are
 validation gaps. Supporting ordinary sloped dry routes needs source-compatible

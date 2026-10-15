@@ -430,3 +430,38 @@ checks initial filter flags, exact liquid masks and short-circuit ordering. Its
 scalar callbacks do not establish loaded coverage; provider tests obtain those
 observations from the independent product reader. This initial result also does
 not replace `calculate`'s later filter update or persistent wet-to-dry history.
+
+## Loaded ground source-smoothing prerequisite
+
+`SourceRouteSmoothingProvider` composes the bound route-owner filter with a
+navigation snapshot from the same exact inventory, map, content and source epoch.
+Its explicit configuration selects a source-stage point limit and separate work
+budgets. These declarations do not infer map/dungeon settings, source defaults or
+an authentic world configuration. The original absolute deadline spans both liquid
+observations, bounded corridor preparation and all smoothing primitives.
+
+The new native stage keeps original endpoints instead of passing the existing
+funnel reader's nearest-surface endpoints into source smoothing. It supplies the
+actual decoded owner filter and loaded corridor to the pinned `findSmoothPath`
+semantics. Raw completion, a source point-limit failure and a successful early stop
+remain distinct; none is a complete route or segment certificate. Output precedes
+source optimization and conditional Z normalization. `SourceNavigationProvider`
+and its older direct-segment veto remain unchanged.
+
+Fresh corridor preparation uses the pinned direct `findPath` search semantics with
+its 1024-node pool, resumed one original expansion at a time under the shared work
+budget and deadline. It preserves direct-search cross-side node keys, parent
+handling, queue ordering and exact-capacity status behavior. The older conservative
+reader still uses its separate 512-node sliced query. Source-stage nearest-poly
+preparation remains an explicitly bounded dependency, not the owner's cache lookup.
+The original C++ source's cold-cache uninitialized-distance read is not executed,
+repaired silently or assigned guessed deterministic behavior by this stage.
+Persistent Chase cache/reuse, Home lifecycle, configuration branches and complete
+movement evidence still require separate integration.
+
+Controller tests use a clearly test-only channel to construct and retain the
+non-Send native mesh on its query-owner thread. They reach the actual runtime Route
+request, obtain loaded liquid and smoothing dependencies, then deliberately leave
+route production unavailable. They verify exact retry and no runtime/store/
+projection publication. The production mailbox still rejects Route; these tests do
+not activate that mailbox or populated-world entry.

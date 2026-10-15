@@ -640,6 +640,22 @@ pub(crate) fn authored_ground_height() -> (
     (products, config)
 }
 
+/// One decoded authored inventory supplies both dry-liquid and MMap dependencies.
+/// Repeated VMap tile references resolve to the same complete authored tree slots.
+#[cfg(test)]
+pub(crate) fn authored_route_smoothing() -> InventoriedProducts {
+    navigation::tests::products()
+}
+
+#[cfg(test)]
+pub(crate) fn authored_route_smoothing_with_source(
+    change: impl FnOnce(&mut SourceBinding),
+) -> InventoriedProducts {
+    let (mut spec, files) = navigation::tests::fixture();
+    change(&mut spec.binding);
+    tests::load(spec, &files).unwrap()
+}
+
 /// Authored covered GridMap holes, distinct from unavailable geometry.
 #[cfg(test)]
 pub(crate) fn authored_hole_ground_height() -> (

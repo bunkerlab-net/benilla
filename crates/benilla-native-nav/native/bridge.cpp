@@ -3,6 +3,9 @@
 #include "DetourNavMesh.h"
 #include "DetourNavMeshQuery.h"
 #include "DetourAlloc.h"
+#include "source_smoothing.h"
+#include "source_direct.h"
+#include "source_warm_cache.h"
 #include <climits>
 #include <cstddef>
 #include <cstring>
@@ -23,6 +26,9 @@ static_assert(alignof(dtLink)==8 && alignof(dtMeshHeader)==4 && alignof(dtPoly)=
 static_assert(alignof(dtPolyDetail)==4 && alignof(dtBVNode)==4 && alignof(float)==4, "alignment");
 static_assert(offsetof(dtPoly, flags)==28 && offsetof(dtPolyDetail, triBase)==4, "ABI");
 static_assert(DT_NAVMESH_VERSION==7 && DT_VERTS_PER_POLYGON==6, "version");
+static_assert(sizeof(BenillaWarmScan)==16 && alignof(BenillaWarmScan)==8 &&
+    offsetof(BenillaWarmScan, minimumSquared)==8 && offsetof(BenillaWarmScan, distance)==12,
+    "warm scan ABI");
 struct BenillaNav {
     dtNavMesh* mesh;
     dtNavMeshQuery* query;
@@ -94,4 +100,42 @@ unsigned benilla_nav_straight(void* raw,const float* start,const float* end,
     return static_cast<BenillaNav*>(raw)->query->findStraightPath(start,end,path,count,
                                                                points,flags,refs,npoints,256,0);
 }
+unsigned benilla_nav_source_nearest(void* raw,const float* point,const float* extents,
+    unsigned short include,unsigned short exclude,dtPolyRef* ref,float* nearest,unsigned char* over) {
+    BenillaNav* nav=static_cast<BenillaNav*>(raw);
+    dtQueryFilter filter;
+    filter.setIncludeFlags(include); filter.setExcludeFlags(exclude);
+    bool isOver=false;
+    const dtStatus status=nav->query->findNearestPoly(point,extents,&filter,ref,nearest,&isOver);
+    *over=isOver?1:0;
+    return status;
+}
+BenillaSourceDirect* benilla_nav_source_direct_create(void* raw,dtPolyRef from,dtPolyRef to,
+    const float* start,const float* end,unsigned short include,unsigned short exclude,dtStatus* status) {
+    if (!raw) {
+        if (status) *status=DT_FAILURE|DT_INVALID_PARAM;
+        return nullptr;
+    }
+    return benilla_source_direct_create(static_cast<BenillaNav*>(raw)->mesh,
+        from,to,start,end,include,exclude,status);
+}
+BenillaSourceSmoothing* benilla_nav_source_create(void* raw,const float* start,const float* end,
+    const dtPolyRef* path,unsigned count,unsigned limit,unsigned short include,unsigned short exclude) {
+    return benilla_source_create(static_cast<BenillaNav*>(raw)->query,start,end,path,count,limit,include,exclude);
+}
+void benilla_nav_warm_scan_reset(BenillaWarmScan* scan) {
+    benilla_source_warm_scan_reset(scan);
+}
+unsigned benilla_nav_warm_scan(void* raw,dtPolyRef reference,const float* point,BenillaWarmScan* scan) {
+    return benilla_source_warm_scan(static_cast<BenillaNav*>(raw)->query,reference,point,scan);
+}
+unsigned benilla_nav_warm_nearest(void* raw,const float* point,float extent,
+    unsigned short include,unsigned short exclude,dtPolyRef* reference,float* distance) {
+    return benilla_source_warm_nearest(static_cast<BenillaNav*>(raw)->query,point,extent,
+        include,exclude,reference,distance);
+}
+unsigned char benilla_nav_warm_valid_ref(void* raw,dtPolyRef reference) {
+    return static_cast<BenillaNav*>(raw)->mesh->isValidPolyRef(reference) ? 1 : 0;
+}
+
 }

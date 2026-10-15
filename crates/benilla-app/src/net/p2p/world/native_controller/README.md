@@ -47,7 +47,7 @@ unchanged. Projection failure retains the committed batch without reapplying it.
 The runtime versions its native snapshot/journal schema, policy and digest domains.
 Tick records contain `inputs: Vec<Input>` and source-ordered per-input outcomes.
 Older native saves are rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
-outer native envelope delegates the schema check to the runtime. Format 22 includes
+outer native envelope delegates the schema check to the runtime. Format 23 includes
 runtime-owned route owner/position/capability requests and creature capability source bindings alongside source spell range
 receipts, backpack movement receipts and per-NPC event queues through durable
 publication, retry and reopen. Tests verify a
@@ -275,3 +275,11 @@ A successful initial filter still pauses as unavailable route production; no
 staged world, durable store or projection changes escape. Binding faults remain
 terminal simulation failures, while coverage/deadline failures retain exact retry.
 Separate successful-route replay/reopen checks use explicitly synthetic routes.
+
+The warm-cache component tests distinguish an explicitly SyntheticFixture initial
+calculation from later actual loaded polygon dependencies. Retained cache state
+travels in the real runtime Route request and durable replay, while a loaded warm
+proposal still cannot publish a complete route. Exact retries and failed bindings
+preserve the staged world, input, store and projection. Source-owned checkpoint
+rehydration and initial cold calculation remain unavailable; see
+`benilla-world-runtime/src/native/PATHFINDER-CACHE.md` for the format-23 boundary.

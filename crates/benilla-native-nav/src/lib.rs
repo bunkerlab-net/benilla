@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Private, bounded MMap/Detour reader. Queries describe only the loaded ground mesh;
 //! they never authorize body movement, sloped support, source epochs or live sessions.
+mod smoothing;
 mod validate;
+mod warm_cache;
+pub use smoothing::*;
+pub use warm_cache::*;
 /// Selected ABI builds; source differential evidence is still platform-specific.
 pub const SUPPORTED_ABI: bool = cfg!(benilla_native_detour);
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc, time::Instant};
@@ -42,6 +46,8 @@ pub struct Route {
 /// Never Send/Sync: pinned query state is mutable and sliced searches retain a filter pointer.
 pub struct Mesh {
     raw: NonNull<std::ffi::c_void>,
+    // Allocation addresses can be reused; retained dependencies require a never-reused ID.
+    instance_id: u64,
     origin: [f32; 3],
     agent: [f32; 3],
     _single_thread: PhantomData<Rc<()>>,
@@ -186,11 +192,20 @@ impl Mesh {
         }
         // This performs the complete validation of every tile before even native init.
         let valid = validate::Validated::decode(params, tiles)?;
+        static NEXT_MESH_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let instance_id = NEXT_MESH_ID
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |id| id.checked_add(1),
+            )
+            .map_err(|_| Error::Budget)?;
         // SAFETY: exactly 28 validated bytes, copied into an aligned native params object.
         let raw = NonNull::new(unsafe { ffi::benilla_nav_create(valid.params.as_ptr()) })
             .ok_or(Error::Budget)?;
         let mesh = Self {
             raw,
+            instance_id,
             origin: valid.origin,
             agent: valid.agent,
             _single_thread: PhantomData,
@@ -413,3 +428,12 @@ fn unsupported_profile_never_constructs_a_native_mesh() {
     assert!(!SUPPORTED_ABI);
     assert!(matches!(Mesh::load(&[], &[]), Err(Error::Unsupported)));
 }
+
+#[cfg(all(test, benilla_native_detour))]
+mod smoothing_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod direct_corridor_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod warm_cache_tests;

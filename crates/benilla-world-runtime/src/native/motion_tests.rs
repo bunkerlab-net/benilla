@@ -517,9 +517,9 @@ fn altered_checkpoint(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Valu
     let mut value = serde_json::to_value(&checkpoint.state).unwrap();
     mutate(&mut value);
     checkpoint.state = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v22\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v23\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v22\0",
+        b"benilla-native-checkpoint-v23\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

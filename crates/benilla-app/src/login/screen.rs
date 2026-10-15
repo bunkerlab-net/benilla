@@ -706,7 +706,9 @@ pub(super) fn refresh_options_visibility(
     mut commands: Commands,
     roots: Query<Entity, With<LoginUi>>,
 ) {
-    let hidden = options.as_ref().is_some_and(|o| o.active || o.requested);
+    // A request opens the VM in the next PreUpdate. Keep the already-rendered landing
+    // scene and chrome until the replacement is active, including failed opens.
+    let hidden = options.as_ref().is_some_and(|o| o.active);
     for entity in &roots {
         commands.entity(entity).insert(if hidden {
             Visibility::Hidden
@@ -721,5 +723,44 @@ fn p2p_start_label(settings: &crate::net::P2pSettings) -> &'static str {
         "Start encounter test"
     } else {
         "Create / select character"
+    }
+}
+
+#[cfg(test)]
+mod options_visibility_tests {
+    use super::*;
+    use crate::ui_script::login_options::LoginOptions;
+
+    #[test]
+    fn pending_and_failed_options_keep_landing_visible_until_active() {
+        let mut app = App::new();
+        app.init_resource::<LoginOptions>()
+            .add_systems(Update, refresh_options_visibility);
+        let root = app
+            .world_mut()
+            .spawn((
+                LoginUi {
+                    with_art: true,
+                    s: 1.0,
+                },
+                Visibility::Inherited,
+            ))
+            .id();
+        for _ in 0..3 {
+            for (requested, active, expected) in [
+                (false, false, Visibility::Inherited),
+                (true, false, Visibility::Inherited),
+                (false, false, Visibility::Inherited), // failed or abandoned request
+                (true, false, Visibility::Inherited),
+                (false, true, Visibility::Hidden),
+                (false, false, Visibility::Inherited), // Close/Escape/navigation restores login
+            ] {
+                let mut options = app.world_mut().resource_mut::<LoginOptions>();
+                options.requested = requested;
+                options.active = active;
+                app.update();
+                assert_eq!(*app.world().get::<Visibility>(root).unwrap(), expected);
+            }
+        }
     }
 }

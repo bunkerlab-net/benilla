@@ -12,6 +12,8 @@ mod source_navigation;
 mod source_near_point;
 mod source_near_point_empty;
 mod source_route_filter;
+mod source_route_smoothing;
+mod source_route_warm_cache;
 mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
 use self::core::{Corridor, Mailbox};
@@ -430,6 +432,22 @@ pub(crate) use source_near_point_empty::{
 pub(crate) use source_route_filter::{
     geometry_revision as authored_route_filter_revision, RouteFilterRequest,
     SourceRouteFilterProvider,
+};
+
+#[cfg(test)]
+pub(crate) use products::authored_route_smoothing;
+#[cfg(test)]
+pub(crate) use source_route_smoothing::{
+    geometry_revision as authored_route_smoothing_revision, RouteSmoothingRequest,
+    SourceRouteSmoothingConfiguration, SourceRouteSmoothingProvider, SourceRouteSmoothingStage,
+};
+
+#[cfg(test)]
+pub(crate) use products::navigation::SourceSmoothRequest;
+#[cfg(test)]
+pub(crate) use source_route_warm_cache::{
+    geometry_revision as authored_warm_cache_revision, SourceRouteWarmCacheProvider,
+    WarmCacheConfiguration, WarmCacheRequest,
 };
 
 #[cfg(test)]

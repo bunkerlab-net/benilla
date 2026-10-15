@@ -73,6 +73,49 @@ impl SourceRouteFilterProvider {
         profile: &Profile,
         snapshot: DryLiquidSnapshot,
     ) -> Result<Self, Failure> {
+        let expected = geometry_revision(snapshot.binding());
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+
+    /// Only this typed source-stage composition may select the combined policy.
+    /// Callers cannot substitute an arbitrary expected geometry hash.
+    pub(super) fn bind_with_smoothing(
+        session: &Session,
+        profile: &Profile,
+        snapshot: DryLiquidSnapshot,
+        navigation: super::products::navigation::SnapshotBinding,
+        configuration: super::source_route_smoothing::SourceRouteSmoothingConfiguration,
+    ) -> Result<Self, Failure> {
+        let expected = super::source_route_smoothing::geometry_revision(
+            snapshot.binding(),
+            navigation,
+            configuration,
+        )?;
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+
+    /// Typed warm-cache composition retains every original owner/participant guard.
+    pub(super) fn bind_with_warm_cache(
+        session: &Session,
+        profile: &Profile,
+        snapshot: DryLiquidSnapshot,
+        navigation: super::products::navigation::SnapshotBinding,
+        configuration: super::source_route_warm_cache::WarmCacheConfiguration,
+    ) -> Result<Self, Failure> {
+        let expected = super::source_route_warm_cache::geometry_revision(
+            snapshot.binding(),
+            navigation,
+            configuration,
+        )?;
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+
+    fn bind_revision(
+        session: &Session,
+        profile: &Profile,
+        snapshot: DryLiquidSnapshot,
+        expected: [u8; 32],
+    ) -> Result<Self, Failure> {
         profile.validate().map_err(|_| Failure::Binding)?;
         let b = snapshot.binding();
         if session.world == [0; 16]
@@ -81,7 +124,7 @@ impl SourceRouteFilterProvider {
             || session.map != profile.map_id
             || session.content != profile.content_digest
             || session.geometry != profile.geometry_revision
-            || session.geometry != geometry_revision(b)
+            || session.geometry != expected
             || b.map != session.map
             || b.content != session.content
         {

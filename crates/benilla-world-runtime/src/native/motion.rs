@@ -222,6 +222,7 @@ impl NpcMotion {
         profile: &Profile,
         ai: &ai::SoloCreatureAi,
         now: u64,
+        npc: crate::NpcId,
     ) -> Result<Self, NativeError> {
         let Some(g) = &profile.source_motion else {
             return Err(NativeError::InvalidCheckpoint);
@@ -237,6 +238,26 @@ impl NpcMotion {
             || s.motion.map_pose.position != ai.position()
         {
             return Err(NativeError::InvalidCheckpoint);
+        }
+        // Runtime alone knows owner generation. These consistency checks do not
+        // authenticate source refs or supply a production rehydration path.
+        let prior_cache = s
+            .motion
+            .spline
+            .as_ref()
+            .and_then(|s| s.route_request.prior_cache.as_ref());
+        let current_cache = match &s.motion.generator {
+            motion::Generator::Chase(chase) => chase.pathfinder_cache.as_ref(),
+            _ => None,
+        };
+        for cache in prior_cache.into_iter().chain(current_cache) {
+            if cache.binding.owner_generation != npc.generation
+                || cache.binding.identity.creature != npc.spawn
+                || cache.source != motion::RouteSource::SyntheticFixture
+                || CreatureCapabilityState::new(profile, npc)?.is_none()
+            {
+                return Err(NativeError::InvalidCheckpoint);
+            }
         }
         if let Some(p) = s.combat_start {
             p.validate()?;
@@ -271,7 +292,7 @@ impl NpcMotion {
             ai::Phase::Idle
                 if result.combat_start.is_some() || result.active != g.npc_initial_active =>
             {
-                return Err(NativeError::InvalidCheckpoint)
+                return Err(NativeError::InvalidCheckpoint);
             }
             ai::Phase::Combat | ai::Phase::ReturningHome
                 if result
@@ -312,12 +333,12 @@ impl HomeAudit {
                 motion::Evidence::Present => {
                     return Err(NativeError::UnsupportedMechanic(
                         "source Home callbacks/reset override",
-                    ))
+                    ));
                 }
                 motion::Evidence::Unknown => {
                     return Err(NativeError::AuthorityUnavailable(
                         "captured source Home lifecycle evidence",
-                    ))
+                    ));
                 }
             }
         }
@@ -385,3 +406,7 @@ impl From<motion::MotionError> for NativeError {
         Self::Motion(value)
     }
 }
+
+#[cfg(test)]
+#[path = "route_cache_tests.rs"]
+mod route_cache_tests;

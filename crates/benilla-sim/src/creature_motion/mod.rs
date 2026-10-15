@@ -30,6 +30,11 @@ impl std::fmt::Display for MotionError {
     }
 }
 impl std::error::Error for MotionError {}
+mod pathfinder_cache;
+pub use pathfinder_cache::{
+    PathFinderCache, PathFinderCacheBinding, RouteCalculation, MAX_PATHFINDER_CACHE_REFS,
+    PATHFINDER_CACHE_POINT_LIMIT,
+};
 mod protocol;
 pub use protocol::{
     Authority, BearingRequest, CollisionRequest, CompleteRoute, Facing, FacingTargetRequest, Fact,
@@ -46,3 +51,6 @@ pub use notify::{visitor_radius, AggroNotify, AggroNotifySnapshot};
 
 mod flags;
 pub use flags::GroundMovementFlags;
+
+#[cfg(test)]
+mod pathfinder_cache_tests;

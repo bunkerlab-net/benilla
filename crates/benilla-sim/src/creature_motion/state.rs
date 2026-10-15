@@ -151,6 +151,7 @@ pub struct ChaseSnapshot {
     pub closeness_expired: bool,
     pub mode: ChaseMode,
     pub requested_goal: Option<Point>,
+    pub pathfinder_cache: Option<Box<PathFinderCache>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -283,6 +284,21 @@ impl MotionState {
         if let Some(s) = &state.spline {
             LinearSpline::restore(s.spline.clone())?;
             validate_route(&s.route_request, &s.route)?;
+            if s.route.source == RouteSource::OwnerPathFinder
+                && s.route_request.prior_cache.is_none()
+            {
+                return Err(MotionError::Invalid(
+                    "saved source route without retained prior",
+                ));
+            }
+            if let Some(cache) = &s.route_request.prior_cache {
+                cache.validate_for(state.identity)?;
+                if cache.revision >= s.route_request.binding.query_id
+                    || cache.source != s.route.source
+                {
+                    return Err(MotionError::Invalid("saved route prior cache sequence"));
+                }
+            }
             let mut corrected = s.route.points.clone();
             corrected[0] = s.route_request.launch_origin;
             if s.route_request.binding.identity != state.identity
@@ -318,6 +334,42 @@ impl MotionState {
                 }
                 if let Some(p) = c.requested_goal {
                     p.validate()?;
+                }
+                if c.pathfinder_cache.is_none()
+                    && state
+                        .spline
+                        .as_ref()
+                        .is_some_and(|s| s.route_request.prior_cache.is_some())
+                {
+                    return Err(MotionError::Invalid("saved chase lost retained cache"));
+                }
+                if let Some(cache) = &c.pathfinder_cache {
+                    cache.validate_for(state.identity)?;
+                    if let Some(prior) = state
+                        .spline
+                        .as_ref()
+                        .and_then(|s| s.route_request.prior_cache.as_ref())
+                    {
+                        if prior.binding != cache.binding
+                            || (prior.revision.checked_add(1) == Some(cache.revision)
+                                && (cache.path_type != 1
+                                    || cache.active_len == 0
+                                    || cache.requested_end
+                                        != state.spline.as_ref().unwrap().route_request.goal))
+                            || prior.source != cache.source
+                            || prior.revision >= cache.revision
+                            || prior.poly_refs.len() > cache.poly_refs.len()
+                        {
+                            return Err(MotionError::Invalid("saved pathfinder cache lineage"));
+                        }
+                    }
+                    if cache.revision > state.query_id
+                        || Some(cache.requested_end) != c.requested_goal
+                    {
+                        return Err(MotionError::Invalid(
+                            "saved pathfinder cache sequence/endpoint",
+                        ));
+                    }
                 }
             }
             Generator::Home { destination, .. } => {
@@ -560,6 +612,7 @@ impl MotionState {
     fn dispatch(
         &mut self,
         goal: Point,
+        cache: &mut Option<Box<PathFinderCache>>,
         kind: RouteKind,
         walking: bool,
         facing: Facing,
@@ -588,10 +641,30 @@ impl MotionState {
             target,
             owner_collision_height: input.settings.collision_height,
             point_limit: MAX_PATH_POINTS as u16,
+            prior_cache: cache.clone(),
         };
-        let Fact::Route(result) = ask(authority, Query::Route(request.clone()))? else {
-            return Err(MotionError::Invalid("route fact kind"));
+        if let Some(prior) = cache.as_ref() {
+            prior.validate_for(request.binding.identity)?;
+        }
+        let (result, after_cache) = match ask(authority, Query::Route(request.clone()))? {
+            Fact::RouteCalculation(calculation) => {
+                calculation.validate_for(&request)?;
+                (calculation.outcome, Some(Box::new(calculation.after_cache)))
+            }
+            // Legacy authored fixtures remain cache-free. They cannot erase a cache.
+            Fact::Route(result) if cache.is_none() => {
+                if matches!(&result, RouteOutcome::Complete(path)
+                    if path.source == RouteSource::OwnerPathFinder)
+                {
+                    return Err(MotionError::Missing("source pathfinder calculation state"));
+                }
+                (result, None)
+            }
+            _ => return Err(MotionError::Invalid("route fact kind/cache")),
         };
+        // The surrounding MotionState/native frame transaction owns rollback,
+        // including failures after a valid calculation but before frame completion.
+        *cache = after_cache;
         let path = match result {
             RouteOutcome::Complete(path) => path,
             RouteOutcome::NoPath if kind != RouteKind::HomeForceDestination => {
@@ -719,6 +792,7 @@ impl MotionState {
             closeness_expired: false,
             mode: ChaseMode::Normal,
             requested_goal: None,
+            pathfinder_cache: None,
         };
         if staged.requires_position(target, staged.pose().position, input)? {
             let distance =
@@ -731,21 +805,18 @@ impl MotionState {
                 input,
                 authority,
             )?;
-            if matches!(
-                staged.dispatch(
-                    goal,
-                    RouteKind::ChaseInitial,
-                    walking,
-                    Facing::Target(target.id),
-                    Some(target),
-                    input,
-                    authority,
-                    &mut events,
-                )?,
-                Dispatch::Launched
-            ) {
-                chase.requested_goal = Some(goal);
-            }
+            staged.dispatch(
+                goal,
+                &mut chase.pathfinder_cache,
+                RouteKind::ChaseInitial,
+                walking,
+                Facing::Target(target.id),
+                Some(target),
+                input,
+                authority,
+                &mut events,
+            )?;
+            chase.requested_goal = Some(goal);
         }
         staged.state.generator = Generator::Chase(chase);
         *self = staged;
@@ -787,8 +858,11 @@ impl MotionState {
             ));
         }
         let mut events = vec![Event::HomeStarted { was_active }];
+        // Home owns a fresh stack-local PathFinder and discards it after launch.
+        let mut home_cache = None;
         staged.dispatch(
             destination.position,
+            &mut home_cache,
             RouteKind::HomeForceDestination,
             walking,
             Facing::Angle(destination.orientation),
@@ -953,8 +1027,9 @@ impl MotionState {
                     .square_distance(goal, true)?
                     .greater(Real::constant(0x3e99_999a))
                 {
-                    match self.dispatch(
+                    let result = self.dispatch(
                         goal,
+                        &mut chase.pathfinder_cache,
                         RouteKind::ChaseReplan,
                         chase.walking,
                         Facing::Target(target.id),
@@ -962,9 +1037,10 @@ impl MotionState {
                         input,
                         authority,
                         events,
-                    )? {
+                    )?;
+                    chase.requested_goal = Some(goal);
+                    match result {
                         Dispatch::Launched => {
-                            chase.requested_goal = Some(goal);
                             chase.reached = false;
                             chase.speed_changed = false;
                             chase.last_target = target.pose.position;
@@ -1092,24 +1168,23 @@ impl MotionState {
                 input,
                 authority,
             )?;
-            if matches!(
-                self.dispatch(
-                    goal,
-                    RouteKind::Backpedal,
-                    true,
-                    Facing::Tangent,
-                    Some(target),
-                    input,
-                    authority,
-                    events,
-                )?,
-                Dispatch::Launched
-            ) {
+            let result = self.dispatch(
+                goal,
+                &mut chase.pathfinder_cache,
+                RouteKind::Backpedal,
+                true,
+                Facing::Tangent,
+                Some(target),
+                input,
+                authority,
+                events,
+            )?;
+            chase.requested_goal = Some(goal);
+            if matches!(result, Dispatch::Launched) {
                 chase.reached = false;
                 chase.mode = ChaseMode::Backpedal;
                 chase.speed_changed = false;
                 chase.closeness_ms = 0;
-                chase.requested_goal = Some(goal);
             }
         } else if input.settings.fanning_enabled {
             let query = Query::Collider(CollisionRequest {

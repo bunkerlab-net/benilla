@@ -548,7 +548,7 @@ fn explicitly_synthetic_successful_routes_roundtrip_replay_and_reopen_typed_owne
     let events = pump_to(&mut c, 2);
     let records = n::decode_records(&n::encode_records(c.world.records()).unwrap()).unwrap();
     assert_eq!(records, c.world.records());
-    assert!(records.iter().all(|record| record.version == 22));
+    assert!(records.iter().all(|record| record.version == 23));
     let reply = route_reply(&records);
     let route = route_query(&reply.request).unwrap();
     assert_eq!(route.owner_position, data.npcs[0].ai.spawn);
@@ -620,7 +620,7 @@ fn explicitly_synthetic_successful_routes_roundtrip_replay_and_reopen_typed_owne
         );
     }
     let mut old_format = records.clone();
-    old_format[0].version = 21;
+    old_format[0].version = 22;
     assert!(n::decode_records(&n::encode_records(&old_format).unwrap()).is_err());
     let digest = c.world.state_digest();
     let owner = route.owner.clone();
@@ -655,3 +655,9 @@ fn explicitly_synthetic_successful_routes_roundtrip_replay_and_reopen_typed_owne
         &owner
     );
 }
+
+#[path = "route_smoothing_tests.rs"]
+mod route_smoothing_tests;
+
+#[path = "route_warm_cache_tests.rs"]
+mod route_warm_cache_tests;

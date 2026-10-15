@@ -38,6 +38,9 @@ fn main() {
     }
     build
         .file("native/bridge.cpp")
+        .file("native/source_smoothing.cpp")
+        .file("native/source_direct.cpp")
+        .file("native/source_warm_cache.cpp")
         .compile("benilla_pinned_detour");
     println!("cargo:rustc-cfg=benilla_native_detour");
 }

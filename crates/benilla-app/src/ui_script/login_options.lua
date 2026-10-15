@@ -15,9 +15,12 @@ scene:EnableMouse(false)
 -- SetParent inherits strata and level; restore parent-first because both setters can
 -- propagate into children. Keep the original Options and stock overlay draw ordering.
 local function reparent(frame)
-    local order = {}
+    local order, scrolls = {}, {}
     local function remember(child)
         table.insert(order, {child, child:GetFrameStrata(), child:GetFrameLevel()})
+        if child.GetScrollChild and child:GetScrollChild() then
+            table.insert(scrolls, {child, child:GetScrollChild()})
+        end
         for _, descendant in ipairs({child:GetChildren()}) do remember(descendant) end
     end
     remember(frame)
@@ -26,6 +29,9 @@ local function reparent(frame)
         saved[1]:SetFrameStrata(saved[2])
         saved[1]:SetFrameLevel(saved[3])
     end
+    -- SetParent clears scroll membership throughout the moved subtree. Re-seat each
+    -- existing scroll child parent-first so its draw and hit clips survive the move.
+    for _, saved in ipairs(scrolls) do saved[1]:SetScrollChild(saved[2]) end
 end
 reparent(BenillaOptionsFrame)
 BenillaOptionsFrame:ClearAllPoints()
