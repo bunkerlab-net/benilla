@@ -393,3 +393,22 @@ fn recovery_full_roster_refuses_without_replacing_characters() {
     assert!(store.character(id).is_none());
     assert_eq!(store.archived_characters().len(), 1);
 }
+
+// This harness compiles the action implementation, but not the Bevy profile worker.
+// Guard its production dispatch too: testing the isolated action alone missed E0425.
+#[test]
+fn profile_worker_routes_recovery_to_the_compiled_recovery_module() {
+    let worker = include_str!("../../benilla-app/src/net/p2p/profile.rs");
+    let arm = worker
+        .split_once("super::super::CharRequest::Recover(request) => {")
+        .expect("profile worker must handle character recovery")
+        .1
+        .split_once("// Rename remains unsupported")
+        .expect("recovery arm must precede rename handling")
+        .0;
+    assert!(
+        arm.contains("super::recovery_actions::recover(&mut store, request,"),
+        "production recovery must call the same recovery_actions module compiled by this harness"
+    );
+    assert!(!arm.contains("character_actions::recover"));
+}

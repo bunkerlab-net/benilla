@@ -334,7 +334,7 @@ pub(super) fn browse(
                     |saved| roster(saved, events, RosterCause::Changed, generation),
                 )?,
                 super::super::CharRequest::Recover(request) => {
-                    character_actions::recover(&mut store, request, |saved| {
+                    super::recovery_actions::recover(&mut store, request, |saved| {
                         roster(saved, events, RosterCause::Changed, generation)
                     })?
                 }
