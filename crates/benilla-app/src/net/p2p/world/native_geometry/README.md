@@ -465,3 +465,32 @@ request, obtain loaded liquid and smoothing dependencies, then deliberately leav
 route production unavailable. They verify exact retry and no runtime/store/
 projection publication. The production mailbox still rejects Route; these tests do
 not activate that mailbox or populated-world entry.
+
+## Runtime-width-bound warm straight calculation
+
+`SourceRouteStraightPathProvider` is a loaded calculation dependency for an existing
+runtime-owned warm Chase request. Its session, profile, map/content, source epoch,
+configuration, prior cache revision and full authority request are bound together.
+The collision width comes from `CreatureRouteRequest::require_collision_width`:
+the selected native model's loaded DBC width and initializer scale, retained by the
+runtime for that owner generation. Bounding radius and rendering scale are not
+substitutes. Missing width, including after respawn without fresh model selection,
+remains unavailable.
+
+The first calculation updates the retained dry-ground filter from fresh loaded
+liquid observations and passes the immutable loaded cache lineage, original
+endpoints and exact width bits into the native straight calculation. A returned
+NOPATH or INCOMPLETE result can continue privately through a second filter update,
+fresh warm lookup and terminal smooth calculation. The continuation uses the
+straight result's complete terminal backing storage, inactive tail and path type;
+it restores the original requested goal rather than using the clipped straight
+endpoint. A bridge error or unsupported source domain is not a source path result
+and does not authorize a successful fallback. Neither attempt commits a runtime
+cache revision or publishes a Route fact.
+
+This dependency does not choose whether Chase may attempt straight movement. That
+source decision still needs its exact reach-expanded distance and vertical tests,
+owner-eye line of sight including M2 geometry, owner water and target water, in
+source order. Active allowed-Z normalization, transports, Home's fresh owner,
+cold-cache initialization and complete movement evidence remain separate. The
+production mailbox and native entry admission remain unchanged.

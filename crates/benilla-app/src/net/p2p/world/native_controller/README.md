@@ -290,3 +290,21 @@ They retain the explicit synthetic initial state and refuse a full Route after a
 successful loaded dependency. Source straight-line-first Chase dispatch and fresh
 Home creation are separate boundaries; supported point output does not bypass
 endpoint/segment evidence or production admission.
+
+The warm straight-calculation tests initialize collision width through Plan's
+opaque initial-model receipt and authored MPQ/DBC loading, then consume the exact
+runtime Route witness on the loaded navigation owner thread. Width is the source
+object-scale times raw field14, with no radius, display-scale or render-scale
+substitution. Native format 24 retains that witness in the explicitly synthetic
+initial route's replay and reopen; the real loaded dependencies never enter the
+accepted authority journal.
+
+Loaded straight rejection and clipping feed a typed continuation using the first
+terminal cache, terminal path type and original requested goal, with fresh ordered
+owner-liquid observations. Tests cover unchanged repeated requests, SHORT without
+fallback, deadline/work-budget refusal and forged width, generation, content or
+cache bindings. A successful dependency still pauses without committing or
+publishing changes to the world, checkpoint, journal, durable store, projection,
+delivered pose or pending input. Initial route/cache and surrounding NearPoint/player movement remain
+explicitly synthetic. Complete source Route production, cold initial-owner policy,
+checkpoint cache rehydration and production entry remain unavailable.

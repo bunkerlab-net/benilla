@@ -79,3 +79,15 @@ pub(crate) use source_route_point_path::{
     geometry_revision as authored_point_path_revision, PointPathConfiguration, PointPathRequest,
     SourceRoutePointPathProvider,
 };
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_straight_path.rs"]
+mod source_route_straight_path;
+
+#[cfg(test)]
+pub(crate) use source_route_straight_path::{
+    geometry_revision as authored_straight_path_revision, SourceRouteStraightPathProvider,
+    StraightPathConfiguration, StraightPathDependency, StraightPathRequest,
+};
+
+#[cfg(test)]
+pub(crate) use products::navigation::tests::straight_ground_products as authored_route_straight_ground;

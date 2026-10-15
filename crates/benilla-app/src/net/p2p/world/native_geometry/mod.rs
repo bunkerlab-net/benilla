@@ -14,6 +14,7 @@ mod source_near_point_empty;
 mod source_route_filter;
 mod source_route_point_path;
 mod source_route_smoothing;
+mod source_route_straight_path;
 mod source_route_warm_cache;
 mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
@@ -498,3 +499,12 @@ mod tests {
         assert_eq!(app.world().resource::<Order>().0, [1, 2, 3]);
     }
 }
+
+#[cfg(test)]
+pub(crate) use source_route_straight_path::{
+    geometry_revision as authored_straight_path_revision, SourceRouteStraightPathProvider,
+    StraightPathConfiguration, StraightPathDependency, StraightPathRequest,
+};
+
+#[cfg(test)]
+pub(crate) use products::navigation::tests::straight_ground_products as authored_route_straight_ground;

@@ -131,3 +131,6 @@ mod source_route_point_path;
 mod source_route_smoothing;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_warm_cache.rs"]
 mod source_route_warm_cache;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_straight_path.rs"]
+mod source_route_straight_path;

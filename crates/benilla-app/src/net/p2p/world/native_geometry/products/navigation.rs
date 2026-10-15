@@ -130,6 +130,53 @@ pub(crate) enum SourcePointError {
     Deadline,
     Native(benilla_native_nav::SourcePointPathError),
 }
+/// Explicit loaded straight calculation; no Chase branch-selection claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SourceStraightRequest {
+    pub snapshot: SnapshotBinding,
+    pub ticket: u64,
+    pub from: [u32; 3],
+    pub to: [u32; 3],
+    pub collision_width_bits: u32,
+    pub configuration: benilla_native_nav::SourcePointPathConfig,
+    pub budget: benilla_native_nav::SourceStraightPathBudget,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SourceStraightReply {
+    request: SourceStraightRequest,
+    result: benilla_native_nav::LoadedSourceWarmStraightPath,
+}
+impl SourceStraightReply {
+    pub(crate) fn request(&self) -> SourceStraightRequest {
+        self.request
+    }
+    pub(crate) fn result(&self) -> &benilla_native_nav::LoadedSourceWarmStraightPath {
+        &self.result
+    }
+}
+/// Only a fresh lookup from the straight terminal cache can mint this continuation.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SourceStraightWarmReply {
+    before: benilla_native_nav::WarmCache,
+    straight: SourceStraightRequest,
+    previous_path_type: u32,
+    warm: SourceWarmReply,
+}
+impl SourceStraightWarmReply {
+    pub(crate) fn before(&self) -> &benilla_native_nav::WarmCache {
+        &self.before
+    }
+    pub(crate) fn warm(&self) -> &SourceWarmReply {
+        &self.warm
+    }
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SourceStraightError {
+    Identity,
+    Unavailable,
+    Deadline,
+    Native(benilla_native_nav::SourceStraightPathError),
+}
 pub(crate) struct NavigationSnapshot {
     binding: SnapshotBinding,
     mesh: RefCell<Mesh>,
@@ -280,6 +327,94 @@ impl NavigationSnapshot {
         Ok(SourceWarmReply { request, result })
     }
 
+    pub(crate) fn source_straight_path(
+        &self,
+        lineage: &WarmCacheLineage,
+        request: SourceStraightRequest,
+        deadline: Instant,
+    ) -> Result<SourceStraightReply, SourceStraightError> {
+        if request.snapshot != self.binding
+            || lineage.snapshot != self.binding
+            || request.ticket == 0
+        {
+            return Err(SourceStraightError::Identity);
+        }
+        if Instant::now() >= deadline {
+            return Err(SourceStraightError::Deadline);
+        }
+        let result = self
+            .mesh
+            .try_borrow_mut()
+            .map_err(|_| SourceStraightError::Unavailable)?
+            .loaded_source_warm_straight_path(
+                &lineage.cache,
+                request.from,
+                request.to,
+                request.collision_width_bits,
+                request.configuration,
+                request.budget,
+                deadline,
+            )
+            .map_err(SourceStraightError::Native)?;
+        if Instant::now() >= deadline {
+            return Err(SourceStraightError::Deadline);
+        }
+        if result.from() != request.from
+            || result.requested_end() != request.to
+            || result.collision_width_bits() != request.collision_width_bits
+            || result.config() != request.configuration
+        {
+            return Err(SourceStraightError::Identity);
+        }
+        Ok(SourceStraightReply { request, result })
+    }
+
+    /// TargetedMovementGenerator.cpp:536-538 restores the original goal for the
+    /// second calculate. Preserve the entire terminal backing, including tails.
+    pub(crate) fn source_straight_warm(
+        &self,
+        straight: &SourceStraightReply,
+        request: SourceWarmRequest,
+        deadline: Instant,
+    ) -> Result<SourceStraightWarmReply, SourceWarmError> {
+        if straight.request.snapshot != self.binding
+            || request.snapshot != self.binding
+            || straight.request.ticket.checked_add(3) != Some(request.ticket)
+            || request.from != straight.request.from
+            || request.to != straight.request.to
+            || straight.result.path_type() & (8 | 4) == 0
+        {
+            return Err(SourceWarmError::Identity);
+        }
+        let lineage = WarmCacheLineage {
+            snapshot: self.binding,
+            cache: straight.result.after().clone(),
+        };
+        let warm = self.source_warm(&lineage, request, deadline)?;
+        Ok(SourceStraightWarmReply {
+            before: lineage.cache,
+            straight: straight.request,
+            previous_path_type: straight.result.path_type(),
+            warm,
+        })
+    }
+
+    pub(crate) fn source_straight_point_path(
+        &self,
+        continuation: &SourceStraightWarmReply,
+        request: SourcePointRequest,
+        deadline: Instant,
+    ) -> Result<SourcePointReply, SourcePointError> {
+        let configuration = benilla_native_nav::SourcePointPathConfig {
+            previous_path_type: continuation.previous_path_type,
+            ..continuation.straight.configuration
+        };
+        if request.configuration != configuration {
+            return Err(SourcePointError::Identity);
+        }
+        self.source_point_path(&continuation.warm, request, deadline)
+    }
+
     pub(crate) fn source_point_path(
         &self,
         warm: &SourceWarmReply,
@@ -356,6 +491,30 @@ pub(crate) mod tests {
         let (spec, files) = fixture();
         load(spec, &files).unwrap()
     }
+    /// Existing authored snake mesh, with the original complete dry-product envelope.
+    pub(crate) fn straight_ground_products() -> InventoriedProducts {
+        let (mut spec, mut files) = fixture();
+        let keep = TileId { x: 32, y: 32 };
+        spec.tiles = vec![keep];
+        spec.products.retain(|p| match p.id {
+            ProductId::Terrain(t) | ProductId::VmapTile(t) | ProductId::MmapTile(t) => t == keep,
+            _ => true,
+        });
+        for (id, bytes) in [
+            (ProductId::MmapParams, include_bytes!(
+                "../../../../../../../benilla-native-nav/tools/fixtures/smoothing/params.test-fixture"
+            ).as_slice()),
+            (ProductId::MmapTile(keep), include_bytes!(
+                "../../../../../../../benilla-native-nav/tools/fixtures/smoothing/ground.test-fixture"
+            ).as_slice()),
+        ] {
+            let product = spec.products.iter_mut().find(|p| p.id == id).unwrap();
+            product.bytes = bytes.len() as u64;
+            product.sha256 = Sha256::digest(bytes).into();
+            files.insert(id.filename(spec.map).unwrap(), bytes.to_vec());
+        }
+        load(spec, &files).unwrap()
+    }
     pub(crate) fn fixture() -> (
         super::super::InventorySpec,
         std::collections::BTreeMap<String, Vec<u8>>,
@@ -370,7 +529,7 @@ pub(crate) mod tests {
                 ProductId::Terrain(t) | ProductId::VmapTile(t) | ProductId::MmapTile(t)
                     if t != old =>
                 {
-                    continue
+                    continue;
                 }
                 _ => {}
             }

@@ -62,6 +62,34 @@ impl RouteFilterDependency {
     }
 }
 
+/// Exact dry updateFilter evidence: retained filter bits plus fresh ordered queries.
+/// It cannot be substituted for a source target-water gate or a newly created filter.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RouteFilterUpdateDependency {
+    request: RouteFilterRequest,
+    owner_position: [u32; 3],
+    liquid: [RouteLiquidObservation; 2],
+    retained: benilla_native_nav::SourceOwnerFilter,
+    continued_from_ticket: Option<u64>,
+}
+impl RouteFilterUpdateDependency {
+    pub(crate) fn request(&self) -> &RouteFilterRequest {
+        &self.request
+    }
+    pub(crate) fn owner_position(&self) -> [u32; 3] {
+        self.owner_position
+    }
+    pub(crate) fn liquid_observations(&self) -> &[RouteLiquidObservation; 2] {
+        &self.liquid
+    }
+    pub(crate) fn filter(&self) -> benilla_native_nav::SourceOwnerFilter {
+        self.retained
+    }
+    pub(crate) fn continued_from_ticket(&self) -> Option<u64> {
+        self.continued_from_ticket
+    }
+}
+
 pub(crate) struct BoundRouteFilterQuery<'a> {
     provider: &'a SourceRouteFilterProvider,
     context: AuthorityRequest,
@@ -119,6 +147,21 @@ impl SourceRouteFilterProvider {
         configuration: super::source_route_point_path::PointPathConfiguration,
     ) -> Result<Self, Failure> {
         let expected = super::source_route_point_path::geometry_revision(
+            snapshot.binding(),
+            navigation,
+            configuration,
+        )?;
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+
+    pub(super) fn bind_with_straight_path(
+        session: &Session,
+        profile: &Profile,
+        snapshot: DryLiquidSnapshot,
+        navigation: super::products::navigation::SnapshotBinding,
+        configuration: super::source_route_straight_path::StraightPathConfiguration,
+    ) -> Result<Self, Failure> {
+        let expected = super::source_route_straight_path::geometry_revision(
             snapshot.binding(),
             navigation,
             configuration,
@@ -266,6 +309,81 @@ impl SourceRouteFilterProvider {
 }
 
 impl BoundRouteFilterQuery<'_> {
+    /// PathFinder.cpp:1092-1104: in the loaded ground/dry domain both predicates
+    /// are false, so updateFilter does not write or recreate the retained filter.
+    pub(super) fn query_retained_update(
+        &self,
+        request: RouteFilterRequest,
+        retained: benilla_native_nav::SourceOwnerFilter,
+        previous: Option<&RouteFilterUpdateDependency>,
+        deadline: Instant,
+    ) -> Result<RouteFilterUpdateDependency, Failure> {
+        if request.context != self.context
+            || request.snapshot != self.provider.binding()
+            || request.first_ticket == 0
+            || retained.include_flags != route_filter::NAV_GROUND
+            || retained.exclude_flags != 0
+        {
+            return Err(Failure::Binding);
+        }
+        let second_ticket = request
+            .first_ticket
+            .checked_add(1)
+            .ok_or(Failure::Invalid)?;
+        if let Some(previous) = previous {
+            if previous.request.context != request.context
+                || previous.request.snapshot != request.snapshot
+                || previous.request.first_ticket.checked_add(3) != Some(request.first_ticket)
+                || previous.retained != retained
+            {
+                return Err(Failure::Binding);
+            }
+        }
+        let Query::SourceMotion(MotionQuery::Route(route)) = &self.context.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        let point = route.owner_position;
+        let position = [point.x.bits(), point.y.bits(), point.z.bits()];
+        let mut observations = Vec::with_capacity(2);
+        for (mask, ticket) in [
+            (route_filter::LiquidMask::AllLiquids, request.first_ticket),
+            (route_filter::LiquidMask::WaterOrOcean, second_ticket),
+        ] {
+            if Instant::now() >= deadline {
+                return Err(Failure::MissingGeometry);
+            }
+            let query = LiquidRequest {
+                snapshot: request.snapshot,
+                ticket,
+                position,
+            };
+            let reply = self
+                .provider
+                .snapshot
+                .query(query, deadline)
+                .map_err(|_| Failure::MissingGeometry)?;
+            if reply.request != query {
+                return Err(Failure::Binding);
+            }
+            // Actual loaded dry GridMap provides CanCheckLiquidLevel and NO_WATER
+            // for each mask. No getNavTerrain call or include-flags assignment occurs.
+            match reply.status {
+                LiquidStatus::NoWater => (),
+            }
+            observations.push(RouteLiquidObservation { mask, reply });
+        }
+        if Instant::now() >= deadline {
+            return Err(Failure::MissingGeometry);
+        }
+        Ok(RouteFilterUpdateDependency {
+            request,
+            owner_position: position,
+            liquid: observations.try_into().map_err(|_| Failure::Binding)?,
+            retained,
+            continued_from_ticket: previous.map(|p| p.request.first_ticket),
+        })
+    }
+
     pub(crate) fn query(
         &self,
         request: RouteFilterRequest,
