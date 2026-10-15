@@ -26,18 +26,22 @@ jobs:
           - platform: linux-amd64
             runner: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
+            cargo_jobs: 3
             archive: tar.gz
           - platform: linux-arm64
             runner: ubuntu-26.04-arm
             target: aarch64-unknown-linux-gnu
+            cargo_jobs: 3
             archive: tar.gz
           - platform: macos-arm64
             runner: macos-26
             target: aarch64-apple-darwin
+            cargo_jobs: 2
             archive: tar.gz
           - platform: windows-amd64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
+            cargo_jobs: 3
             archive: zip
     defaults:
       run:
@@ -45,7 +49,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
-      CARGO_BUILD_JOBS: 2
+      CARGO_BUILD_JOBS: ${{ matrix.cargo_jobs }}
       WOW_DATA: ""
       BUILD_TARGET: ${{ matrix.target }}
       BUILD_PLATFORM: ${{ matrix.platform }}
