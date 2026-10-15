@@ -61,7 +61,7 @@ pub struct GrantReceipt {
     pub zero_before: Option<State>,
 }
 impl Catalog {
-    fn storage_dependencies_ready(&self) -> Result<(), Error> {
+    pub(super) fn storage_dependencies_ready(&self) -> Result<(), Error> {
         for evidence in [
             self.audit.item_creation_and_loot_scripts,
             self.audit.equipped_bags,

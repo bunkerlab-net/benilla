@@ -1134,3 +1134,114 @@ fn admin_catalog_label_escapes_imported_pipe_markup() {
         Some("Item ||cff00ff00color||r".into())
     );
 }
+
+#[test]
+fn movement_receipt_rejects_stale_before_and_tampered_after_without_changing_frame() {
+    let w = build(&[2], 0);
+    let p = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    let catalog = &w
+        .profile()
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .loot
+        .as_ref()
+        .unwrap()
+        .inventory;
+    let mut before = inventory(w.state()).unwrap().clone();
+    before
+        .store_new(catalog, 70001, 2, |_, _, _| Ok(()))
+        .unwrap();
+    let mut after = before.clone();
+    let moved = after.swap_backpack(catalog, 23, 38, true).unwrap();
+    let mut frame = Frame {
+        slots: before.slots.clone(),
+        pending_push: None,
+    };
+    let mut tampered = moved.clone();
+    tampered.after.slots.get_mut(&38).unwrap().count += 1;
+    assert!(matches!(
+        p.inventory_moved(&w, &tampered, &mut frame),
+        Err(Error::StaleProjection)
+    ));
+    assert_eq!(frame.slots, before.slots);
+    assert!(frame.pending_push.is_none());
+    let events = p.inventory_moved(&w, &moved, &mut frame).unwrap();
+    assert_eq!(frame.slots, moved.after.slots);
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        SessionEvent::ItemPushResult(_) | SessionEvent::ItemCreate { .. }
+    )));
+    assert!(matches!(
+        p.inventory_moved(&w, &moved, &mut frame),
+        Err(Error::StaleProjection)
+    ));
+    assert_eq!(frame.slots, moved.after.slots);
+}
+
+#[test]
+fn pickup_and_quest_bonding_move_project_same_instance_flags_without_item_push() {
+    for bonding in [1, 4] {
+        let (mut profile, input, mut data) = fixture::setup();
+        let loot = data.loot.as_mut().unwrap();
+        let items = loot
+            .inventory
+            .items()
+            .cloned()
+            .map(|mut item| {
+                if item.entry == 70001 {
+                    item.bonding = bonding;
+                }
+                item
+            })
+            .collect();
+        loot.inventory = fixture::inventory_catalog(items);
+        profile.initialize_quest_progression(&input, data).unwrap();
+        let w = n::NativeWorld::synthetic_component_test(
+            profile,
+            [8; 16],
+            n::synthetic_fixture::player(),
+            42,
+        )
+        .unwrap();
+        let p = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+        let catalog = &w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .loot
+            .as_ref()
+            .unwrap()
+            .inventory;
+        let mut state = inventory(w.state()).unwrap().clone();
+        state
+            .grant_item(
+                catalog,
+                70001,
+                2,
+                inv::GrantTarget::SelfPlayer,
+                |_, _, _| Ok(()),
+            )
+            .unwrap();
+        let id = state.slots[&23].id;
+        assert!(!state.slots[&23].bound);
+        let mut frame = Frame {
+            slots: state.slots.clone(),
+            pending_push: None,
+        };
+        let receipt = state.swap_backpack(catalog, 23, 38, true).unwrap();
+        let events = p.inventory_moved(&w, &receipt, &mut frame).unwrap();
+        assert!(frame.slots[&38].bound);
+        assert_eq!(frame.slots[&38].id, id);
+        assert!(events.iter().any(|e| matches!(e,
+            SessionEvent::ObjectValues { guid: changed, fields }
+            if *changed == guid(&w, id) && fields.item_flags() == Some(1))));
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            SessionEvent::ItemPushResult(_)
+                | SessionEvent::ItemCreate { .. }
+                | SessionEvent::QuestObjectiveItem { .. }
+        )));
+    }
+}

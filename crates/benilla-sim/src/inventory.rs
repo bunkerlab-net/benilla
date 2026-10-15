@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Derived from CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f.
 // CMaNGOS Project contributors; upstream GPL-2.0-or-later, translation GPL-3.0-or-later.
-//! Ordinary backpack CanStoreNewItem/StoreNewItem. See ../INVENTORY.md.
+//! Bounded backpack creation, removal and SwapItem. See ../INVENTORY.md.
 //! The caller commits inventory and staged quest callbacks in the same transaction.
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v3";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v4";
 mod grants;
 pub use grants::*;
+mod movement;
+pub use movement::*;
 pub const BACKPACK_START: u8 = 23;
 pub const BACKPACK_END: u8 = 39;
 pub const FIRST_SLOT: u8 = BACKPACK_START;
@@ -45,6 +47,8 @@ pub struct Audit {
     pub equipped_bags: Evidence,
     pub bank_and_keyring_items: Evidence,
     pub trade_or_temporary_item_loot: Evidence,
+    /// Mutations beyond this policy's named storage, grant, requirement-removal
+    /// and backpack SwapItem paths. Equip, use, split and bag contents stay absent.
     pub additional_item_mutations: Evidence,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,6 +228,7 @@ pub enum InventoryResult {
     Ok = 0,
     CantCarryMoreOfThis = 17,
     ItemNotFound = 23,
+    YouAreDead = 38,
     InventoryFull = 50,
 }
 impl InventoryResult {

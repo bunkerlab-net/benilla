@@ -496,6 +496,39 @@ errors and UBSan. Unsupported script, random-property, duration and keyring
 routes abort. Bag dispatch is inventory type, not item class, and slots above 36
 fail in source creation. The Rust gate checks such a row before starting a grant.
 
+## Backpack movement, occupied swaps and stack merging
+
+`src/inventory/movement.rs` translates the backpack-only `Player::SwapItem`
+branches and the packet same-position guard at the same pinned CMaNGOS Classic
+revision. CMaNGOS Project contributors retain their copyright and
+GPL-2.0-or-later grant; the Rust translation, authored adapter and synthetic
+fixtures are GPL-3.0-or-later. No client or database assets are included.
+
+`tools/generate_inventory_movement_fixture.py` verifies complete-file hashes,
+including the previously recorded Player/Item/Bag files and:
+
+- `src/game/Entities/ItemHandler.cpp`:
+  `833cd58e5cba491d72f11b12d5a48f7c0fa36b0310adbccc04442101b3b6edd7`
+
+It extracts unchanged complete `SwapItem`, `HandleSwapInvItemOpcode`,
+`CanStoreItem`, `_CanStoreItem_InSpecificSlot`, `GetItemCount`, `RemoveItem`,
+`AutoUnequipOffhandIfNeed`, all inventory/equipment/bank/bag/valid-position
+guards and existing creation/storage/merge dependencies. The 2,880-case oracle
+compares moves, real swaps, complete and partial merges, packet/source no-ops,
+dead refusal code/GUIDs, binding, unchanged allocator and complete metadata.
+The existing inventory/planning/grant source fixtures are unchanged.
+
+Real-swap's final `AutoUnequipOffhandIfNeed` is inert only when its mainhand
+two-handed weapon or its offhand item is absent. `Player.h`'s `IsTwoHandUsed`
+and `Player.cpp`'s `ViableEquipSlots` establish the inventory-type dependency.
+Entry-count-only equipment snapshots cannot locate slots, so the Rust primitive
+conservatively rejects type17 plus offhand-compatible type13/14/22/23 and multiple
+type17 units before mutation. This is a supported-domain restriction rather
+than a source error result. Counts still require separately validated immutable
+equipment genesis. The source-extracted routine executes in the oracle; its
+offhand/two-handed dependency has an abort probe. No arbitrary equipped-loadout
+parity is asserted. Exact branches and obligations are in [INVENTORY.md](INVENTORY.md).
+
 ## Ordinary corpse loot, timer callbacks and quest item rewards (reconstruction)
 
 The 2026-10-14 Rust inventory/loot/runtime/client integration is a new reconstruction;

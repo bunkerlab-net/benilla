@@ -11,6 +11,7 @@ mod npc_spell;
 mod player_slow;
 mod spell_authority;
 use spell_authority::SpellHistory;
+mod inventory;
 mod loot;
 mod motion;
 mod quests;
@@ -189,7 +190,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v18\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v19\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -469,6 +470,7 @@ impl<A: Authority> Frame<'_, A> {
     }
     fn command(&mut self, command: &Command) -> Result<(), NativeError> {
         let rejection = match command {
+            Command::InventoryMove(request) => self.inventory_move(request)?,
             Command::Admin(request) => self.admin_command(request)?,
             Command::AcknowledgeInitialReputations => {
                 let g = self
@@ -1382,7 +1384,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v18\0",
+            b"benilla-native-melee-action-v19\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1651,7 +1653,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v18\0",
+            b"benilla-native-melee-chain-v19\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

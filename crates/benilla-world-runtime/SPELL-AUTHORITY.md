@@ -121,7 +121,7 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 18, `benilla-native-item-grants-v18`, with v18 profile/state/
+format 19, `benilla-native-backpack-movement-v19`, with v19 profile/state/
 record/checkpoint/action hash domains. Published formats 10 and 11 reject without an
 implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace

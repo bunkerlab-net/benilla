@@ -55,6 +55,7 @@ fn main() {
         "AutostoreLootItem",
         "LootMoney",
         "LootRelease",
+        "SwapInvItem",
         "ItemQuery",
         "QuestQuery",
         "NpcTextQuery",

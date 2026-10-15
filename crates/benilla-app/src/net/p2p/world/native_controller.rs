@@ -949,6 +949,26 @@ impl Driven for NativeController {
                     .local(&self.world, UiRequest::OpenLoot(corpse))?;
                 self.queue(input.input.command)?;
             }
+            ClientCommand::SwapInvItem { src_slot, dst_slot } => {
+                use benilla_sim::inventory as inv;
+                if !(inv::FIRST_SLOT..inv::END_SLOT).contains(&src_slot)
+                    || !(inv::FIRST_SLOT..inv::END_SLOT).contains(&dst_slot)
+                    || self
+                        .world
+                        .state()
+                        .quest_progression
+                        .as_ref()
+                        .and_then(|state| state.inventory.as_ref())
+                        .is_none()
+                {
+                    return Err(Error::UnsupportedCommand);
+                }
+                // CMSG_SWAP_INV_ITEM names positions; earlier inputs resolve first.
+                self.queue(n::Command::InventoryMove(n::InventoryMoveRequest {
+                    source: src_slot,
+                    destination: dst_slot,
+                }))?;
+            }
             ClientCommand::AutostoreLootItem { slot } => {
                 let target = self.capture_loot_window()?.corpse;
                 let input = self

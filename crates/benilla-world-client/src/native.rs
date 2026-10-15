@@ -775,6 +775,7 @@ impl NativeProjection {
                 },
                 n::Event::Loot(event) => events.extend(self.loot_event(w, event, &mut loot_frame)?),
                 n::Event::InventoryStored(stored) => events.extend(self.inventory_stored(w, stored, &mut loot_frame)?),
+                n::Event::InventoryMoved(moved) => events.extend(self.inventory_moved(w, moved, &mut loot_frame)?),
                 n::Event::ItemAcquired(source) => events.push(self.item_acquired(*source, &mut loot_frame)?),
                 n::Event::NpcSpell(_) => {}, // Internal Unit lifetime, not a client cast bar.
                 n::Event::PlayerSlow(event) => events.extend(slow_frame.project(event, self.player_guid, orders)?),
@@ -788,6 +789,8 @@ impl NativeProjection {
                     })
                 }
                 n::Event::Rejected(n::Rejection::Loot { corpse, reason }) => events.push(SessionEvent::LootError { guid: npc_guid(w, *corpse)?, error: *reason }),
+                // The movement receipt carries the callback-time item identities and error.
+                n::Event::Rejected(n::Rejection::Inventory { .. }) => {},
                 // RewardRefused already carries the source error and callback-time offer.
                 n::Event::Rejected(n::Rejection::Quest(_)) if reward_refusal_presented => {
                     reward_refusal_presented = false;

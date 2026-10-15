@@ -125,7 +125,7 @@
 - **benilla-mpq** (lib.rs): crypto
 - **benilla-native-geometry-tests** (lib.rs): core planar products source_navigation source_vmap static_mesh
 - **benilla-native-nav** (lib.rs): tests validate
-- **benilla-p2p** (lib.rs): identity internet
+- **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery storage tests world_setup
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
 - **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_init creature_motion creature_regeneration encounter event_processor facing inventory loot mage_resource npc_melee player_death player_progression player_slow quest quest_lifecycle reputation spell_event starter_init xp

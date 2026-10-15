@@ -499,3 +499,65 @@ fn incomplete_and_already_rewarded_choices_offer_without_invented_inventory_erro
     )));
     assert_eq!(inventory(&c).item_count(70003).unwrap(), 1);
 }
+
+#[test]
+fn backpack_complete_merge_after_reward_removal_destroys_source_without_acquisition() {
+    let h = Harness::new();
+    let profile = data(7, 3, &[], &[], false, false);
+    let mut c = enter_reward(&h, profile.clone(), false);
+    c.initial_events().unwrap();
+    let source_guid = c.initial_fields.player_pack_slot(0).unwrap();
+    let destination_guid = c.initial_fields.player_pack_slot(1).unwrap();
+    let destination_id = inventory(&c).slots[&24].id;
+    let allocator = inventory(&c).next_item;
+    accept(&mut c);
+    // Required-item removal leaves two stacks of 2; the following input merges them.
+    choose(&mut c, 0);
+    c.receive(ClientCommand::SwapInvItem {
+        src_slot: 23,
+        dst_slot: 24,
+    })
+    .unwrap();
+    let out = step(&mut c);
+    assert!(!inventory(&c).slots.contains_key(&23));
+    assert_eq!(
+        (inventory(&c).slots[&24].id, inventory(&c).slots[&24].count),
+        (destination_id, 4)
+    );
+    assert_eq!(inventory(&c).next_item, allocator);
+    assert_eq!(
+        out.events
+            .iter()
+            .filter(|e| matches!(e, SessionEvent::ObjectDestroyed(guid) if *guid == source_guid))
+            .count(),
+        1
+    );
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ObjectValues { guid, fields }
+        if *guid == destination_guid && fields.item_stack_count() == Some(4))));
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ObjectValues { guid, fields }
+        if *guid == c.player_guid() && fields.player_pack_slot(0) == Some(0))));
+    assert!(pushes(&out.events).is_empty());
+    assert!(!out
+        .events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ItemCreate { .. })));
+    let state = c.world.state_digest();
+    drop(c);
+    let mut reopened = enter_reward(&h, profile, true);
+    assert_eq!(reopened.world.state_digest(), state);
+    let initial = reopened.initial_events().unwrap();
+    assert!(pushes(&initial).is_empty());
+    assert!(!initial
+        .iter()
+        .any(|e| matches!(e, SessionEvent::ItemCreate { guid, .. } if *guid == source_guid)));
+    assert!(initial.iter().any(
+        |e| matches!(e, SessionEvent::ItemCreate { guid, fields, .. }
+        if *guid == destination_guid && fields.item_stack_count() == Some(4))
+    ));
+}

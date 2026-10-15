@@ -258,6 +258,9 @@ is meaningful without a bounded content/mechanics inventory.
   positive `CmangosAddItemV1` admin policy have synthetic differential and durable
   component coverage. Admin grants allow exact partial capacity/unique results,
   self-unbinding, retained spell/set/quest metadata and real empty carried Bags.
+  Backpack-only positional move/swap/merge now has a source policy, transactional
+  runtime command and existing stock-UI command/protocol integration. It does not
+  enable production inventory. See the [movement boundary](../crates/benilla-world-runtime/src/native/INVENTORY-MOVEMENT.md).
   Random properties, scripts and timers remain explicit blockers. Empty carried
   bags do not establish usable equipped containers, item use or equipment/stat
   application. The complete native catalog and production admission are not yet

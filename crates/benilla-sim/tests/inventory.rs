@@ -589,3 +589,6 @@ fn catalog_hash_is_canonical_across_row_order_and_serialized_roundtrip() {
 
 #[path = "inventory/grants.rs"]
 mod grants;
+
+#[path = "inventory/movement.rs"]
+mod movement;

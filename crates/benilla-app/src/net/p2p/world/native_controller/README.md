@@ -47,9 +47,10 @@ unchanged. Projection failure retains the committed batch without reapplying it.
 The runtime versions its native snapshot/journal schema, policy and digest domains.
 Tick records contain `inputs: Vec<Input>` and source-ordered per-input outcomes.
 Older native saves are rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
-outer native envelope delegates the schema check to the runtime. Format 13 retains
-per-NPC event queues through durable publication, retry and reopen. Tests verify a
-due NPC notification is not dispatched again after a checkpoint failure.
+outer native envelope delegates the schema check to the runtime. Format 19 includes
+backpack movement receipts and retains per-NPC event queues through durable
+publication, retry and reopen. Tests verify a due NPC notification is not dispatched
+again after a checkpoint failure.
 
 Checkpoints run every ten simulated seconds or before native journal headroom is
 exhausted. `NativeError::JournalFull` means only uncommitted journal-capacity refusal;
@@ -80,7 +81,7 @@ and an admitted source compiler remain required before production entry can open
 Supported component-test inputs are exact-ID NPC casts, cancellation of the captured
 preparing cast, basic untransported movement, and explicit spirit-release refusal
 through the native runtime, source-bound quest panels/accept/reward, ordinary corpse
-loot and item queries. Player melee and other unimplemented forms remain explicit
+loot, item queries and backpack-only `SwapInvItem`. Player melee and other unimplemented forms remain explicit
 unsupported requests. The app arms its PendingCast at send, so a
 cancel can arrive before the first SpellStart. It captures either an existing runtime
 instance or the matching earlier queued cast request. In the durable batch that
@@ -143,8 +144,18 @@ orientation. See [the runtime contract](../../../../../../benilla-world-runtime/
 Inventory is projected from durable native item instances with stable per-instance
 GUIDs, owner/container fields, backpack pointers and exact stack changes. Item
 queries require audited gameplay metadata and exact client display bindings.
-Equipment copies retain separate identities; pickup/quest/equip bonding is applied
-only in the source-supported creation or starter-equipping path.
+Equipment copies retain separate identities. Pickup/quest bonding also follows the
+source `_StoreItem` path on whole-stack movement, swaps and complete merges; a
+partial merge changes counts without rebinding. Backpack movement never equip-binds.
+
+`SwapInvItem` accepts only backpack positions 23..38. Each queued positional input
+resolves after earlier loot, quest and movement inputs in the same bounded FIFO.
+Source receipts witness the exact before/after inventory; projection validates the
+receipt before emitting stable-GUID slot pointers, stack changes and consumed-source
+destruction. Moves, swaps and merges emit no item-acquisition push or quest credit.
+Same-slot and empty-source inputs are silent; dead-player refusal emits one
+`InventoryFailure` naming both callback-time item GUIDs. Equipment, equipped-bag,
+bag-content, bank, split-stack and item-use commands remain outside this route.
 
 GUID-less loot item/money commands capture the immutable corpse generation from the
 last successfully published `LootResponse`. A queued or retained pending open cannot
@@ -180,4 +191,8 @@ Authored placeholder catalogs and source-shaped synthetic runtime fixtures test
 identity, clock debt, flat-batch pressure, pre-pump/short-cast cancellation, per-input
 projection, native movement interruption, real ACK handling,
 dead-state reload, checkpoint replay, fault/retry and final-save lock retention.
+Backpack tests also run the real Lua cursor verbs, verify the pending item lock
+through failed save, and apply projected descriptors to an item cache across retry
+and reopen. They verify the slot/count changes consumed by the app's lock watcher;
+this no-Bevy harness does not execute that watcher or establish live UI rendering.
 Full app compilation and live user-local asset/rendering checks remain separate gates.

@@ -1228,3 +1228,6 @@ fn admin_partial_unique_and_merged_stack_push_report_actual_award_only() {
         .any(|e| matches!(e, SessionEvent::ItemPushResult(_))));
     assert!(b.poll(&r.id).is_some());
 }
+
+#[path = "inventory_move_tests.rs"]
+mod inventory_move_tests;

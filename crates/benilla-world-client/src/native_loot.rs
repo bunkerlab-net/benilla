@@ -451,6 +451,47 @@ impl NativeProjection {
             .item(entry)
             .map(|i| crate::plain_ui_text(&i.name))
     }
+    pub(super) fn inventory_moved(
+        &self,
+        w: &n::NativeWorld,
+        moved: &inv::MovementReceipt,
+        frame: &mut Frame,
+    ) -> Result<Vec<SessionEvent>, Error> {
+        frame.validate_complete()?;
+        if frame.slots != moved.before.slots {
+            return Err(Error::StaleProjection);
+        }
+        let catalog = &w
+            .profile()
+            .quest_progression
+            .as_ref()
+            .and_then(|state| state.loot.as_ref())
+            .ok_or(Error::StaleProjection)?
+            .inventory;
+        moved
+            .validate(catalog)
+            .map_err(|_| Error::StaleProjection)?;
+        // Player::SwapItem moves existing instances without SendNewItem or quest credit.
+        let mut events = frame.project(self, w, &moved.after.slots);
+        if moved.result != inv::InventoryResult::Ok {
+            events.push(SessionEvent::InventoryFailure {
+                reason: moved.result.protocol(),
+                required_level: None,
+                item_guid: moved
+                    .before
+                    .slots
+                    .get(&moved.source)
+                    .map_or(0, |i| guid(w, i.id)),
+                item2_guid: moved
+                    .before
+                    .slots
+                    .get(&moved.destination)
+                    .map_or(0, |i| guid(w, i.id)),
+                bag_slot: 0,
+            });
+        }
+        Ok(events)
+    }
     pub(super) fn inventory_stored(
         &self,
         w: &n::NativeWorld,

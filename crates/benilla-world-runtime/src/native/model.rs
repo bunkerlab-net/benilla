@@ -100,7 +100,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v18\0",
+            b"benilla-native-profile-v19\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -313,6 +313,7 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
+    InventoryMove(InventoryMoveRequest),
     Admin(AdminRequest),
     MovementPose {
         destination: ai::Point,
@@ -366,6 +367,13 @@ pub enum Command {
         orientation: Orientation,
     },
 }
+/// Source positional intent; each sequenced input resolves against its phase-owned inventory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryMoveRequest {
+    pub source: u8,
+    pub destination: u8,
+}
 /// An exact preparing instance, or the cast created by an earlier input in this frame.
 /// PriorInput never falls back to whichever cast happens to be active after a rejection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -392,6 +400,11 @@ pub struct OwnedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Rejection {
+    Inventory {
+        reason: u8,
+        source: u8,
+        destination: u8,
+    },
     Admin(AdminRejection),
     Loot {
         corpse: NpcId,
@@ -433,6 +446,7 @@ pub enum Event {
     },
     Loot(LootEvent),
     InventoryStored(Box<benilla_sim::inventory::Stored>),
+    InventoryMoved(Box<benilla_sim::inventory::MovementReceipt>),
     ItemAcquired(ItemAcquisition),
     QuestProgression(QuestProgressionEvent),
     InputResult {

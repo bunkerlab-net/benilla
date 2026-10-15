@@ -1,10 +1,11 @@
-# Ordinary backpack storage
+# Ordinary backpack storage and movement
 
 `inventory` is a bounded GPL-3.0-or-later translation of ordinary
-`CanStoreNewItem(NULL_BAG, NULL_SLOT)` and `StoreNewItem` from CMaNGOS Classic
+`CanStoreNewItem(NULL_BAG, NULL_SLOT)`, `StoreNewItem` and inventory-only
+`SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v3`.
+`cmangos-8ec338a1-carried-items-v4`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -59,7 +60,10 @@ executes an equip/use effect merely because an item is stored. Equip and use
 readiness remain explicit failures; they are not inferred from grant success.
 
 Storage requires evidence that creation/loot scripts, equipped bags, bank/keyring
-items, trade/temporary loot and additional mutations are absent. Unknown or present
+items, trade/temporary loot and additional mutations are absent. The last audit
+means mutations beyond the policy's explicitly named storage, positive grant,
+requirement-removal and backpack-swap paths; it does not admit split, equip, use,
+equipped containers or arbitrary item editing. Unknown or present
 evidence blocks the operation without hiding the catalog row. Nonzero ScriptId,
 random properties, duration, area/map lifecycle restrictions and unreviewed flags
 remain explicit grant blockers. BagFamily is the Classic enum, not a bitmask;
@@ -140,3 +144,77 @@ Separate regressions cover exact 255+1 splitting, two independent unique reward
 preflights, malformed/restored inputs, excluded dependencies, allocator exhaustion,
 callback rollback and ordered requirement removal. No native database rows,
 client assets, networking or playable-world claims are included.
+
+## Backpack move, swap and merge
+
+`State::swap_backpack` translates the bounded `Player::SwapItem` branches for
+source and destination slots 23–38 in bag 255, including the same-position guard
+from `HandleSwapInvItemOpcode` and `HandleSwapItem`. The separately typed policy
+is `MovementPolicy::CmangosBackpackSwapV1`. Unsupported positions and invalid
+state fail before any mutation; they are not invented source inventory errors.
+All existing catalog, lifecycle and mutation-audit gates remain in force even
+for an empty inventory or a request that would otherwise be ignored.
+
+- Same-position input is ignored before calling `SwapItem`. An empty source is
+  ignored before the alive check. An existing source on a dead player returns
+  source `EQUIP_ERR_YOU_ARE_DEAD` (38), with both original item pointers available
+  for the error packet. These outcomes leave all inventory unchanged.
+- Moving into an empty slot preserves the original instance and count. Occupied
+  different-item slots swap both instances. Matching ordinary items first attempt
+  merge only when the destination is not full. A full destination takes the real
+  swap branch, even if entry and stack counts match.
+- A complete merge destroys the source instance identity and preserves the
+  destination identity. A partial fill retains both identities: destination fills
+  to Stackable and the remainder stays at the original source position. It never
+  distributes the remainder into other positions, even though `CanStoreItem`
+  preflights a complete placement. The original source slot supplies enough
+  capacity because planning ignores the moving source object.
+- `MaxCount` checks ignore the moving source while including the remaining
+  backpack and immutable equipped counts. No acquisition or removal quest callback
+  runs: total item counts are unchanged. Movement never advances the allocator,
+  so even the maximum continuation identity can still move existing items.
+- `_StoreItem` binds bonding 1/4 on empty-slot moves, both halves of real swaps,
+  and complete merges. This can rebind previously self-granted admin items.
+  Partial fill only changes counts and preserves both binding values. Binding 2
+  does not bind in backpack slots. All other per-instance metadata is preserved.
+- Real empty carried Bag objects participate in moves and swaps, never merges.
+  Their contents remain empty and they provide no usable slots. Equipped bags,
+  storing bag contents, equipment, bank, keyring, split and use remain unsupported.
+
+The source real-swap branch ends in `AutoUnequipOffhandIfNeed`. Its active branch
+requires both a mainhand InventoryType 17 item and a nonempty offhand. The
+entry-count-only `equipped` map cannot locate actual slots, so the primitive
+conservatively rejects an equipped type17 together with any offhand-compatible
+type13/14/22/23, and rejects a total type17 count above one. This gate follows
+`Player::IsTwoHandUsed` and `ViableEquipSlots` at the pinned revision. It returns
+`Unsupported("backpack_movement_offhand_dependency")` atomically before source
+execution, not an invented source error code. It may reject a harmless real
+loadout whose slot evidence is unavailable. Equipment counts must still come
+from a separately validated immutable loadout; this primitive does not authenticate
+equipment genesis. The native initializer additionally excludes offhand slot16.
+The extracted oracle routine runs on real swaps and its offhand/two-handed
+dependent route has a dedicated abort probe.
+
+Every `MovementReceipt` records the exact request/alive input, source result,
+typed outcome and complete before/after `State`, including ignored and rejected
+input. `validate` recomputes the entire transition. This proves local semantics,
+not external authority: the host must bind the pre-state and alive value to its
+authenticated character, phase and journal/checkpoint ancestry. The host executes
+FIFO positional requests against the state at command execution time.
+
+The independent movement oracle runs separately:
+
+    python3 crates/benilla-sim/tools/generate_inventory_movement_fixture.py UPSTREAM --check
+
+The generator verifies complete-file identities before extracting the entire
+`SwapItem`, packet handler, specific-slot planning, `GetItemCount`, `RemoveItem`,
+`AutoUnequipOffhandIfNeed`, existing store/merge methods and exact position guards.
+Its 2,880 synthetic fixture cases compare complete input/output instances,
+allocator, source result codes and error source/destination GUIDs. C++ adapters
+also assert zero acquisition callbacks/notifications and exact slot, owner,
+contained and root-GUID consistency. Compilation uses warnings as errors and
+UBSan. Clone allocation, scripts, duration, equipment, bank, equipped-bag and offhand
+probes must abort, rather than return an invented successful result.
+Focused Rust tests also cover all sixteen-by-sixteen position
+pairs, immutable equipment, allocation exhaustion without allocation, filled
+backpacks, metadata/receipt tampering, excluded topology and strict audit failure.
