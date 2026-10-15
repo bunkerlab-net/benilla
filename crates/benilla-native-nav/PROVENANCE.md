@@ -472,3 +472,94 @@ and after, and uses only fixed stack arrays. Rust copies use fallible reservatio
 publication paths recheck the deadline. Outputs must remain finite and within the existing
 100000-unit coordinate bound. This is finite-work control, not a hard scheduler wall-clock
 guarantee. The native-boundary sanitizer runner includes the new arithmetic helper.
+
+## Bounded warm straight-calculation dependency
+
+`Mesh::loaded_source_warm_straight_path` (policy 1) accepts an opaque `WarmCache`
+on its exact originating loaded mesh, explicit XYZ endpoints, full collision-width
+bits, `SourcePointPathConfig`, bounded work budgets and one absolute deadline.
+The caller supplies the nonnegative finite full-width dependency; this API does not
+compute owner width or prove that an owner may move. An identical-byte replacement
+mesh cannot consume the handle. Input storage is immutable; every successful result
+owns a separate terminal proposal and failures publish no candidate. Public snapshots,
+serialized data and reference lists cannot mint this loaded result.
+
+The implementation represents the dry, non-playerbots, fixed-limit-74 straight branch
+of the pinned source. Sequential original warm selection is reused, with all retained
+backing slots and append ordering preserved. This particular boundary additionally
+requires nonzero active refs, and retains the existing valid-ref, at-most-seven endpoint
+distance and undefined-cold-distance exclusions. SamePolygon executes the original
+shortcut/type/cache order and does not sample or raycast. Cut performs the original
+active-prefix cut and samples directly, without introducing a ray test. Replacement
+clears only active length before raycast; only the visited prefix overwrites storage.
+
+`native/source_straight_path.cpp` is an explicitly marked GPL-3.0-or-later adaptation
+retaining original CMaNGOS and Detour notices. It implements the pinned PathFinder.cpp
+673-850 and 942-986 straight/hit/terminal expressions and G3D Vector3 arithmetic. Its
+ray traversal adapts original `dtNavMeshQuery::raycast` with options zero, separated
+only at polygon-iteration boundaries for budgeting. The exact default filter expression
+is copied through public include/exclude getters, as in the existing direct boundary;
+virtual filters are excluded. No production G3D runtime or owner callback is added.
+
+A ray continues traversing after its 74-ref output buffer fills. Its raw
+SUCCESS|BUFFER_TOO_SMALL status, active prefix, hit fraction and normal are retained;
+truncation does not turn the ray into a failed calculation or terminate traversal early.
+A FLT_MAX no-hit does not consult width. On a finite hit the source subtracts the full
+width directly from the fraction, rejects strictly below 0.1f, and interpolates the hit
+using the adjusted value. Original warm lookup may append a retained tail during hit
+selection. getPolyHeight status is observed but ignored when its input height is already
+initialized; failure retains those exact bits. The source comparison remains squared
+3D distance strictly greater than the double literal 0.01. A hit branch finally assigns
+INCOMPLETE after BuildPointPath, even when its internal force handling assigned another
+type. Requested end, clipped end and actual end are separately observable.
+
+Straight sampling retains source path length greater than 0.1f, four-unit steps,
+integer truncation and the less-than-0.3f remainder merge. Every next sample advances
+from the previous height-mutated vector. Original warm lookup and height queries happen
+on that same candidate, so sampling can grow the retained tail. The optimizer flag is
+bound in the configuration but is ignored on this branch. Active NormalizeZ remains
+unsupported; disabled/ignored normalization performs no owner or world query.
+
+The native plan validates finite arithmetic and length at most 4096 before converting
+float step count to an unsigned integer. Its max-points argument is explicitly bounded
+by 1026; capacity is checked against the actual post-merge generated count. These are
+operational limits, separate from the source terminal test: only count exactly equal
+to 74 invokes the SHORT shortcut. Counts above 74 are not silently truncated or declared
+SHORT. BuildShortcut clears only active length, preserving inactive and tail storage.
+Prior INCOMPLETE, source force-destination decisions and final type ordering remain
+observable, without upgrading the result to a complete Route.
+
+Ray polygons, lookup primitives, sampled points and native primitives have separately
+bounded budgets with deadline checks around native calls, allocation and publication.
+Each ray state is privately RAII-owned and freed on success or any exit; candidate point
+and diagnostic allocations are fallible. Cancellation leaves the prior available for
+reuse. The maximum ray traversal is 4096 polygons, straight native primitives 4096,
+retained cache slots 4096 and generated point storage 1026. The limits do not promise
+preemption inside a native primitive or hard scheduler wall-clock deadlines.
+
+The returned terminal cache can be explicitly passed into the existing warm smooth
+calculation dependency with its prior path type. This preserves the same-object source
+cache/type dependence needed for a later smooth calculation. It does not itself perform
+Chase's distance, elevation, line-of-sight, owner-state or fallback dispatch. No cold
+producer, owner normalization, swimming/flying, transport, dungeon limit, gameplay
+movement admission, persisted cache authority or complete PathFinder is established.
+
+[The independent straight source observer](tools/straight_path_README.md) documents the
+exact unchanged-source boundary, helper-only controls and original object-lifetime
+caveat. Its four independent lanes use original versus default-constructor-only-repaired
+dtMeshTile and normal versus UBSan/float-cast-overflow compilation, all with actual
+original G3D and Detour and without the production bridge. The corpus has 35 straight
+cases, 5 same-object smooth continuations, 1568 primitive traces and 10 non-invoked
+rejected domains. Every fixture byte is independently regenerated; original unused
+height-status code is preserved under an exact single-diagnostic warning guard.
+Source hash drift, schema/state/trace drift and actual CRLF checkout round trips are
+covered by [generator guard tests](tools/straight_path_test_generate.py).
+
+The production standalone sanitizer runner includes the new ray/scalar dependency and
+bounded allocation/cancellation cases, jointly instrumented with ASan, UBSan and
+float-cast-overflow. The independent original-source lanes above use UBSan plus
+float-cast-overflow without ASan. LeakSanitizer cannot execute under the sandbox ptrace
+environment, so it is disabled there; explicit
+release/allocation checks are narrower evidence, not a claim of a LeakSanitizer pass.
+These standalone/source checks do not establish Rust consumer tests, full workspace
+gates, other build targets or live game behavior.

@@ -42,6 +42,7 @@ fn main() {
         .file("native/source_direct.cpp")
         .file("native/source_warm_cache.cpp")
         .file("native/source_point_path.cpp")
+        .file("native/source_straight_path.cpp")
         .compile("benilla_pinned_detour");
     println!("cargo:rustc-cfg=benilla_native_detour");
 }

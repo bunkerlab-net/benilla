@@ -124,7 +124,7 @@
 - **benilla-m2** (lib.rs): error model skin tests track
 - **benilla-mpq** (lib.rs): crypto
 - **benilla-native-geometry-tests** (lib.rs): core planar products source_ground_height source_navigation source_near_point source_near_point_empty source_route_filter source_route_point_path source_route_smoothing source_route_warm_cache source_vmap static_mesh
-- **benilla-native-nav** (lib.rs): direct_corridor_tests smoothing smoothing_tests tests validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests
+- **benilla-native-nav** (lib.rs): direct_corridor_tests smoothing smoothing_tests tests validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery storage tests world_setup
 - **benilla-protocol** (lib.rs): auth events guid messages wire world

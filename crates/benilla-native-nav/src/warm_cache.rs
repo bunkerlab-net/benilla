@@ -54,6 +54,15 @@ impl WarmCache {
     pub(crate) fn clear_active(&mut self) {
         self.active_len = 0;
     }
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn install_prefix(&mut self, refs: &[u64]) -> Result<(), Error> {
+        if refs.len() > SOURCE_WARM_CACHE_POINT_LIMIT {
+            return Err(Error::Format);
+        }
+        self.storage[..refs.len()].copy_from_slice(refs);
+        self.active_len = refs.len();
+        Ok(())
+    }
     pub fn storage(&self) -> &[u64] {
         &self.storage
     }
@@ -215,7 +224,7 @@ pub struct SourceWarmTrace {
 pub struct LoadedSourceWarmCache {
     from: [u32; 3],
     to: [u32; 3],
-    after: WarmCache,
+    pub(crate) after: WarmCache,
     start: SourceWarmLookup,
     end: SourceWarmLookup,
     phase: SourceWarmPolyPhase,
@@ -295,7 +304,7 @@ impl Mesh {
 }
 
 #[cfg(benilla_native_detour)]
-mod native {
+pub(crate) mod native {
     use super::*;
     use crate::{detour, validate, PROGRESS, SUCCESS};
     use std::{ffi::c_void, ptr::NonNull};
@@ -349,7 +358,7 @@ mod native {
         // SAFETY: read-only validation against the live immutable loaded mesh.
         unsafe { benilla_nav_warm_valid_ref(mesh.raw.as_ptr(), reference) == 1 }
     }
-    struct Work {
+    pub(crate) struct Work {
         budget: SourceWarmCacheBudget,
         until: Instant,
         lookups: usize,
@@ -445,7 +454,7 @@ mod native {
         }
         Ok(())
     }
-    fn lookup(
+    pub(crate) fn lookup(
         mesh: &Mesh,
         candidate: &mut WarmCache,
         point: &[f32; 3],
@@ -634,14 +643,14 @@ mod native {
         deadline(work.until)?;
         Ok(status)
     }
-    pub(super) fn query(
+    pub(crate) fn prepare(
         mesh: &mut Mesh,
         before: &WarmCache,
         from: [u32; 3],
         to: [u32; 3],
         budget: SourceWarmCacheBudget,
         until: Instant,
-    ) -> Result<LoadedSourceWarmCache, SourceWarmCacheError> {
+    ) -> Result<(LoadedSourceWarmCache, Work), SourceWarmCacheError> {
         deadline(until)?;
         if before.mesh_id != mesh.instance_id {
             return Err(Error::Identity.into());
@@ -712,20 +721,50 @@ mod native {
                 candidate.storage.copy_within(path_start..=path_end, 0);
                 (SourceWarmPolyPhase::Cut, None)
             } else {
-                let status = replace(mesh, &mut candidate, start, end, &a, &b, &mut work)?;
-                (SourceWarmPolyPhase::Replacement, Some(status))
+                candidate.clear_active();
+                (SourceWarmPolyPhase::Replacement, None)
             }
         };
         deadline(until)?;
-        Ok(LoadedSourceWarmCache {
-            from,
-            to,
-            after: candidate,
-            start,
-            end,
-            phase,
-            direct_status,
-            trace: work.trace,
-        })
+        Ok((
+            LoadedSourceWarmCache {
+                from,
+                to,
+                after: candidate,
+                start,
+                end,
+                phase,
+                direct_status,
+                trace: Vec::new(),
+            },
+            work,
+        ))
+    }
+    pub(super) fn query(
+        mesh: &mut Mesh,
+        before: &WarmCache,
+        from: [u32; 3],
+        to: [u32; 3],
+        budget: SourceWarmCacheBudget,
+        until: Instant,
+    ) -> Result<LoadedSourceWarmCache, SourceWarmCacheError> {
+        let (mut selected, mut work) = prepare(mesh, before, from, to, budget, until)?;
+        if selected.phase == SourceWarmPolyPhase::Replacement {
+            selected.direct_status = Some(replace(
+                mesh,
+                &mut selected.after,
+                selected.start,
+                selected.end,
+                &detour(from)?,
+                &detour(to)?,
+                &mut work,
+            )?);
+        }
+        selected.trace = work.trace;
+        deadline(until)?;
+        Ok(selected)
+    }
+    pub(crate) fn finish_trace(selected: &mut LoadedSourceWarmCache, work: Work) {
+        selected.trace = work.trace;
     }
 }

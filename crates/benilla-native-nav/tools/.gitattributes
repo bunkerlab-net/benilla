@@ -29,3 +29,10 @@ point_path_README.md text eol=lf
 point_path_*.sha256 text eol=lf
 point_path_source_fragments.test-fixture text eol=lf -whitespace
 fixtures/point-path/*.test-fixture text eol=lf
+# Original warm straight-line ray/sampling observer, exact LF source and products.
+straight_path_*.py text eol=lf
+straight_path_*.cpp text eol=lf
+straight_path_README.md text eol=lf
+straight_path_*.sha256 text eol=lf
+straight_path_source_fragments.test-fixture text eol=lf -whitespace
+fixtures/straight-path/*.test-fixture text eol=lf

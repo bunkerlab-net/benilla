@@ -6,6 +6,7 @@
 #include "source_smoothing.h"
 #include "source_direct.h"
 #include "source_warm_cache.h"
+#include "source_straight_path.h"
 #include <climits>
 #include <cstddef>
 #include <cstring>
@@ -29,6 +30,10 @@ static_assert(DT_NAVMESH_VERSION==7 && DT_VERTS_PER_POLYGON==6, "version");
 static_assert(sizeof(BenillaWarmScan)==16 && alignof(BenillaWarmScan)==8 &&
     offsetof(BenillaWarmScan, minimumSquared)==8 && offsetof(BenillaWarmScan, distance)==12,
     "warm scan ABI");
+static_assert(sizeof(BenillaSourceRayResult)==616 && alignof(BenillaSourceRayResult)==8 &&
+    offsetof(BenillaSourceRayResult, hit)==592 && offsetof(BenillaSourceRayResult, normal)==596 &&
+    offsetof(BenillaSourceRayResult, count)==608 && offsetof(BenillaSourceRayResult, status)==612,
+    "straight ray ABI");
 struct BenillaNav {
     dtNavMesh* mesh;
     dtNavMeshQuery* query;
@@ -136,6 +141,17 @@ unsigned benilla_nav_warm_nearest(void* raw,const float* point,float extent,
 }
 unsigned char benilla_nav_warm_valid_ref(void* raw,dtPolyRef reference) {
     return static_cast<BenillaNav*>(raw)->mesh->isValidPolyRef(reference) ? 1 : 0;
+}
+
+BenillaSourceRay* benilla_nav_source_ray_create(void* raw, dtPolyRef start,
+    const float* from, const float* to, unsigned short include, unsigned short exclude) {
+    if (!raw) return nullptr;
+    return benilla_source_ray_create(static_cast<BenillaNav*>(raw)->mesh, start,
+        from, to, include, exclude);
+}
+unsigned benilla_nav_straight_height(void* raw, dtPolyRef reference,
+    const float* point, float* height) {
+    return static_cast<BenillaNav*>(raw)->query->getPolyHeight(reference, point, height);
 }
 
 }
