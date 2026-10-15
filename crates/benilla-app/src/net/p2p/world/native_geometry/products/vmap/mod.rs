@@ -4,6 +4,7 @@
 //! before publication. No untrusted bytes are passed to native code. See PROVENANCE.md.
 mod bih;
 mod height;
+pub(crate) mod liquid;
 mod location;
 mod math;
 mod trig;
@@ -112,6 +113,10 @@ impl InventoriedProducts {
 }
 impl VmapSnapshot {
     fn load(products: &InventoriedProducts) -> Result<Self, Error> {
+        Self::load_profile(products, false)
+    }
+
+    fn load_profile(products: &InventoriedProducts, allow_liquid: bool) -> Result<Self, Error> {
         let mut bytes = 0usize;
         for (id, p) in &products.products {
             if matches!(
@@ -135,7 +140,7 @@ impl VmapSnapshot {
         let mut groups = 0usize;
         for (id, p) in &products.products {
             if let ProductId::VmapModel(name) = id {
-                let model = Model::decode(&p.bytes)?;
+                let model = Model::decode_profile(&p.bytes, allow_liquid)?;
                 groups = groups
                     .checked_add(model.groups.len())
                     .ok_or(Error::Budget)?;
@@ -198,7 +203,11 @@ impl VmapSnapshot {
         tree.validate_bounds(&bounds)?;
         let inventory = products.revision();
         let mut h = Sha256::new();
-        h.update(POLICY);
+        h.update(if allow_liquid {
+            b"benilla-static-vmap-liquid-geometry-v1-glibc-2.41-bounded-trig".as_slice()
+        } else {
+            POLICY
+        });
         h.update(inventory);
         Ok(Self {
             binding: SnapshotBinding {
@@ -214,9 +223,17 @@ impl VmapSnapshot {
         })
     }
     /// A ray may ignore unrelated unloaded slots; a map-wide absence-of-liquid proof
-    /// may not. Every accepted group has absent liquid bytes (including explicit empty
-    /// groups), but that fact says nothing about any unresolved map primitive.
+    /// may not. Recheck liquid absence even though conservative loading rejects it;
+    /// the separate liquid reader also uses this private geometry representation.
     pub(super) fn require_complete_dry_map(&self) -> Result<(), Error> {
+        if self
+            .models
+            .iter()
+            .flat_map(|model| &model.groups)
+            .any(|group| group.liquid.is_some())
+        {
+            return Err(Error::Unsupported);
+        }
         if self.spawns.iter().any(Option::is_none) {
             return Err(Error::Missing);
         }
@@ -376,9 +393,10 @@ struct Group {
     vertices: Vec<Vector>,
     triangles: Vec<[u32; 3]>,
     tree: Option<Bih>,
+    liquid: Option<liquid::WmoLiquid>,
 }
 impl Group {
-    fn decode(c: &mut Cursor<'_>) -> Result<Self, Error> {
+    fn decode(c: &mut Cursor<'_>, allow_liquid: bool) -> Result<Self, Error> {
         let bounds = c.bounds()?;
         let flags = c.word()?;
         let id = c.word()?;
@@ -405,6 +423,7 @@ impl Group {
                 vertices,
                 triangles: vec![],
                 tree: None,
+                liquid: None,
             });
         }
         c.magic(b"TRIM")?;
@@ -428,9 +447,15 @@ impl Group {
         let tree = Bih::decode(c)?;
         tree.validate_bounds(&triangle_bounds)?;
         c.magic(b"LIQU")?;
-        if c.word()? != 0 {
-            return Err(Error::Unsupported);
-        }
+        let length = c.word()? as usize;
+        let liquid = if length == 0 {
+            None
+        } else {
+            if !allow_liquid {
+                return Err(Error::Unsupported);
+            }
+            Some(liquid::WmoLiquid::decode(c, length)?)
+        };
         Ok(Self {
             bounds,
             flags,
@@ -438,6 +463,7 @@ impl Group {
             vertices,
             triangles,
             tree: Some(tree),
+            liquid,
         })
     }
     fn intersect(
@@ -474,6 +500,10 @@ struct Model {
 }
 impl Model {
     fn decode(data: &[u8]) -> Result<Self, Error> {
+        Self::decode_profile(data, false)
+    }
+
+    fn decode_profile(data: &[u8], allow_liquid: bool) -> Result<Self, Error> {
         let mut c = Cursor::new(data);
         c.magic(b"VMAP_7.0WMOD")?;
         if c.word()? != 8 {
@@ -495,7 +525,7 @@ impl Model {
         }
         let mut groups = allocate(count)?;
         for _ in 0..count {
-            groups.push(Group::decode(&mut c)?);
+            groups.push(Group::decode(&mut c, allow_liquid)?);
         }
         c.magic(b"GBIH")?;
         let tree = Bih::decode(&mut c)?;

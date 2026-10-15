@@ -485,3 +485,75 @@ output pointer. The source asserts that suppressed/null-output calls leave its
 output sentinels unchanged and surviving data copies raw GridMap data exactly.
 The original floor4/static6/water5 case yields WaterWalk with raw depth0, directly
 proving why substituting static ground or replacing the returned depth is wrong.
+
+
+## Separate raw VMap liquid-level prerequisite
+
+`VmapLiquidProducts::load` is an explicitly separate inventory reader for native
+WMO LIQU bytes. It has its own inventory policy and exposes only
+`load_vmap_liquid`, producing a privately owned `vmap::liquid::LiquidSnapshot`.
+There is no conversion into `InventoriedProducts` and no public access to its
+internal geometry. Existing inventory, static ray/height/location, dry liquid and TerrainInfo
+dry-VMap composite readers retain their nonempty-LIQU rejection. Navigation
+continues to rely on conservative inventory; an explicit private profile check
+also prevents the opt-in inventory from feeding that reader internally. The
+new wrapper exposes no navigation route and relaxes no admission gate.
+
+The reader handles the pinned writer's real serialization quirk. A nonempty LIQU
+header declares `20 + 4*(width+1)*(height+1) + width*height` bytes, but its payload
+contains four additional bytes for the uint32 liquid type. The original
+`WmoLiquid::GetFileSize` omits that word while `writeToFile` emits it. Both the
+declared size and actual consumed framing are checked; neither the header length
+nor an inferred empty liquid substitutes for validating all arrays. Checked
+arithmetic, bounded element counts, finite bounded coordinates/heights and total
+inventory/VMap byte budgets precede allocation and indexing. Raw liquid types
+retain all uint32 bits; they are not narrowed to the separate LiquidType DBC profile.
+
+The bound query implements `VMapManager2::GetLiquidLevel`, not TerrainInfo liquid
+status. Exact loaded location selection chooses one spawn/group. The result
+separates no location (source leaves all output references unchanged) from selected
+location with floor/type and an optional level. Mask rejection, a dry selected
+group, an outside rectangle or a disabled cell retain the selected floor/type but
+no level. There is no fallback search for another wet group. The source mask table
+uses Classic's literal bits: 1/41/61 water (0x08), 2 ocean (0x02), 3 magma
+(0x01), 4/21 slime (0x04), all other types zero; an
+unfiltered mask can still return a height for an unknown raw liquid type.
+
+Local liquid coordinates use `533.333f/128.f`, deliberately distinct from the
+GridMap grid-size constant. The low nibble equal to 0xF disables a cell; other flag
+bits do not. Original binary32 arithmetic chooses the first triangle only when
+`dx > dy`; equality uses the second. Corner Z does not affect local interpolation.
+Instance conversion retains the original `(localLevel-localPose.z)*scale+worldZ`
+formula even for tilted WMOs, rather than replacing it with a geometric rotation.
+A returned raw level may be below the selected floor; TerrainInfo's wet checks are
+not implemented by this result.
+
+The source casts each floating tile coordinate to uint32 before its negative and
+rectangle checks. The admitted query profile therefore excludes undefined C++
+conversions: each reached coordinate must be finite, greater than -1 and less than
+2^32. Out-of-domain values return Unsupported, never a fabricated absent level.
+Safely fractional negative values truncate to zero and follow the original negative
+exit. X exits precede evaluation of Y, and mask/dry exits precede interpolation;
+an unexecuted conversion cannot create an error. External pose bounds remain finite
+±100000, with complete map-slot resolution and one cumulative work/deadline budget.
+
+Request/reply identity includes map, content, source epoch, the complete inventory
+and query policies, ticket, exact world-position bits and requested mask. File
+replacement cannot relabel an existing immutable reply. Missing geometry or any
+budget/profile failure publishes neither partial floor/type nor a liquid result.
+
+This provides raw static WMO liquid levels only. Existing dry readers still refuse
+wet geometry, and the separate TerrainInfo composite remains dry-VMap-only. Actual
+wet TerrainInfo status additionally needs map-aware WMO area selection and overrides;
+source-authenticated extraction, player water-state transitions and creature movement
+capabilities, path/support and participant/content admission remain unresolved.
+
+The [wet VMap source oracle](../../../../../../../benilla-native-geometry-tests/tools/scopedliquid_README.md)
+executes unchanged, hash-guarded pinned C++ over authored numeric geometry and
+original serializers: 5,511 manager queries, 1,372 direct liquid/group pairs and
+19 serialized-size/type-mask cases. Coverage includes all 256 masks, asymmetric
+cells, both triangles, disabled cells, zero-cell grids, dry/wet occlusion, M2
+exclusion, transformed/scaled instances and raw level/floor side effects. Normal
+and float-cast-overflow-sanitized regeneration are byte-identical; deliberately
+undefined conversions are tested only as Rust profile rejections, never oracle
+answers. These fixtures contain no client installation assets.

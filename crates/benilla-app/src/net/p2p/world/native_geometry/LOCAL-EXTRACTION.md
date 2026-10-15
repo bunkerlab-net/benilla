@@ -190,8 +190,10 @@ inventory, native serialization framing, oracle-checked GridMap point heights an
 bounded GridMap liquid queries over actual MLIQ/LiquidType/optional AreaTable bytes.
 GridMap area/parent overrides and the enabled TerrainInfo static-height selector
 are source-backed, as are the dry VMap location/group/floor query and their bounded
-TerrainInfo liquid combination. Wet VMap LIQU and map-aware WMO area handling,
-player environment-state integration and movement capabilities remain unsupported.
+TerrainInfo liquid combination. A separately opted-in native reader supplies raw
+WMO liquid levels; full wet TerrainInfo selection still needs map-aware WMO area
+handling. Player environment-state integration and movement capabilities remain
+unsupported. Existing conservative readers continue to reject wet VMap products.
 The optional [safe static VMap port](products/vmap/PROVENANCE.md) now loads validated
 hierarchies/models and supplies bounded source-derived nearest rays as an additional
 provider veto. Detour internal references/loading remain unimplemented; caller-provided

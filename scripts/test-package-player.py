@@ -102,6 +102,36 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
                                  f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
 
+    def test_authored_terrain_fixtures_survive_source_packaging(self):
+        repository = Path(__file__).resolve().parents[1]
+        relative = Path("crates/benilla-native-geometry-tests/tools/fixtures/terrain-liquid")
+        products = sorted((repository / relative).iterdir())
+        expected = {f"{i}.map.test-fixture" for i in range(29)} | {
+            "LiquidType.dbc.test-fixture", "AreaTable.dbc.test-fixture"}
+        self.assertEqual({path.name for path in products}, expected)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, source = self.fixture(root)
+            for product in products:
+                destination = source / relative / product.name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(product.read_bytes())
+            self.seal(source)
+            archive = packager.package_source(root, "linux-amd64", SHA)
+            with tarfile.open(archive) as output:
+                for product in products:
+                    name = f"benilla-source-{SHA}/{relative.as_posix()}/{product.name}"
+                    self.assertEqual(output.extractfile(name).read(), product.read_bytes())
+
+    def test_game_asset_extensions_still_fail_even_in_fixture_directory(self):
+        fixture = "crates/benilla-native-geometry-tests/tools/fixtures/terrain-liquid"
+        for directory in ["data", fixture, "vendor/example-1.0"]:
+            for extension in ["mpq", "blp", "m2", "adt", "wdt", "wmo", "dbc"]:
+                for suffix in [extension, extension.upper()]:
+                    name = f"{directory}/game.{suffix}"
+                    with self.subTest(name=name), self.assertRaisesRegex(ValueError, "forbidden source input"):
+                        packager.safe_path(name)
+
     def test_separate_source_all_platforms(self):
         url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
         for platform in packager.TARGETS:
@@ -332,6 +362,9 @@ class PackagingTests(unittest.TestCase):
                     info = tarfile.TarInfo(name)
                     info.size = 7
                     archive.addfile(info, io.BytesIO(b"fixture"))
+                fixtures = Path(__file__).resolve().parents[1] / "crates/benilla-native-geometry-tests/tools/fixtures/terrain-liquid"
+                for product in sorted(fixtures.iterdir()):
+                    archive.add(product, arcname="crates/benilla-native-geometry-tests/tools/fixtures/terrain-liquid/" + product.name)
             commands = []
             def fake_run(cwd, *args):
                 commands.append(args)
@@ -351,6 +384,9 @@ class PackagingTests(unittest.TestCase):
             with patch.object(packager, "run", side_effect=fake_run):
                 source = packager.prepare_source(root, SHA)
             packager.validate_source(source, SHA)
+            for product in fixtures.iterdir():
+                staged = source / "crates/benilla-native-geometry-tests/tools/fixtures/terrain-liquid" / product.name
+                self.assertEqual(staged.read_bytes(), product.read_bytes())
             self.assertIn(("cargo", "vendor", "--locked", "--versioned-dirs", "vendor"), commands)
             self.assertIn(("cargo", "--config", ".cargo/vendor-config.toml", "metadata", "--offline", "--locked", "--format-version", "1"), commands)
 

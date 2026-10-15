@@ -546,9 +546,9 @@ fn source_flat_dispatch_ignores_holes_but_float_dispatch_rejects_them() {
     }
 }
 
-struct Stage(std::path::PathBuf);
+pub(super) struct Stage(pub(super) std::path::PathBuf);
 impl Stage {
-    fn new(files: &BTreeMap<String, Vec<u8>>) -> Self {
+    pub(super) fn new(files: &BTreeMap<String, Vec<u8>>) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "benilla-authored-native-{}-{}",

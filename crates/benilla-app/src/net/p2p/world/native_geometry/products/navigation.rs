@@ -30,6 +30,11 @@ pub(crate) struct NavigationSnapshot {
 }
 impl InventoriedProducts {
     pub(crate) fn load_navigation(&self) -> Result<NavigationSnapshot, Error> {
+        // The separate WMO-liquid envelope cannot enter this conservative adapter,
+        // including through a future internal caller reaching its private inventory.
+        if self.vmap_liquid_profile {
+            return Err(Error::Unsupported);
+        }
         // Preserve this dry-only adapter's domain now that the independent terrain
         // reader can decode wet products. A dry MMap is not dry terrain evidence.
         if self

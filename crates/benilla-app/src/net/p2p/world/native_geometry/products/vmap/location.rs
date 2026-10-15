@@ -11,6 +11,12 @@ use std::time::Instant;
 
 const POLICY: &[u8] = b"benilla-dry-static-vmap-location-v1-glibc-2.41-bounded-trig";
 
+pub(super) struct SelectedLocation {
+    pub floor: LocationFloor,
+    pub spawn: usize,
+    pub group: usize,
+}
+
 impl VmapSnapshot {
     /// Location selection has its own policy identity; ray/height replies cannot
     /// be substituted even when all inventoried bytes and input position agree.
@@ -45,6 +51,19 @@ impl VmapSnapshot {
         position: Vector,
         budget: &mut QueryBudget,
     ) -> Result<StaticLocation, Error> {
+        Ok(match self.select_location(position, budget)? {
+            Some(selected) => StaticLocation::Floor(selected.floor),
+            None => StaticLocation::None,
+        })
+    }
+
+    /// Private selected indices keep liquid lookup tied to the exact winning group.
+    /// Wet snapshots do not expose the conservative location or ray APIs.
+    pub(super) fn select_location(
+        &self,
+        position: Vector,
+        budget: &mut QueryBudget,
+    ) -> Result<Option<SelectedLocation>, Error> {
         if position.iter().any(|value| !value.is_finite()) {
             return Err(Error::Format);
         }
@@ -53,7 +72,6 @@ impl VmapSnapshot {
         }
         budget.take()?;
         // Charge every slot, including unrelated ones, before any absence proof.
-        // Model decoding rejects every nonempty LIQU payload before publication.
         for spawn in &self.spawns {
             budget.take()?;
             if spawn.is_none() {
@@ -62,18 +80,22 @@ impl VmapSnapshot {
         }
         let position = to_internal(position);
         let mut floor = f32::NEG_INFINITY; // LocationInfo constructor, MapTree.h.
-        let mut result = StaticLocation::None;
+        let mut result = None;
         self.tree.intersect_point(position, budget, |id, budget| {
             let spawn = self
                 .spawns
                 .get(id as usize)
                 .and_then(Option::as_ref)
                 .ok_or(Error::Missing)?;
-            if let Some(candidate) =
+            if let Some((candidate, group)) =
                 spawn.location(&self.models[spawn.model], position, floor, budget)?
             {
                 floor = f32::from_bits(candidate.floor);
-                result = StaticLocation::Floor(candidate);
+                result = Some(SelectedLocation {
+                    floor: candidate,
+                    spawn: id as usize,
+                    group,
+                });
             }
             Ok(())
         })?;
@@ -91,7 +113,7 @@ impl Spawn {
         position: Vector,
         floor: f32,
         budget: &mut QueryBudget,
-    ) -> Result<Option<LocationFloor>, Error> {
+    ) -> Result<Option<(LocationFloor, usize)>, Error> {
         budget.take()?;
         if self.flags & 1 != 0 || !self.bounds.contains(position) {
             return Ok(None);
@@ -117,15 +139,19 @@ impl Spawn {
             return Err(Error::Format);
         }
         if floor < world_z {
+            let group_index = group;
             let group = &model.groups[group];
-            Ok(Some(LocationFloor {
-                floor: world_z.to_bits(),
-                root_id: model.root_id,
-                group_id: group.id,
-                group_flags: group.flags,
-                spawn_id: self.id,
-                adt_id: self.adt,
-            }))
+            Ok(Some((
+                LocationFloor {
+                    floor: world_z.to_bits(),
+                    root_id: model.root_id,
+                    group_id: group.id,
+                    group_flags: group.flags,
+                    spawn_id: self.id,
+                    adt_id: self.adt,
+                },
+                group_index,
+            )))
         } else {
             Ok(None)
         }

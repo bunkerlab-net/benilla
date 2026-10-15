@@ -1,6 +1,6 @@
 # Full exact-source TerrainInfo::getLiquidStatus/GetHeightStatic/GetGrid + GridMap liquid/float/flat/AREA; CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
 # Original loaded scopedlocation VMap geometry; actual GetLocationInfo/GetLiquidLevel floor side effects; all WMO models dry
-# Authored raw MAPS/WDBC products in terrain-liquid/; profile ID selects ID.map at map0/tile0,0; complete DBC stores
+# Authored raw MAPS/WDBC products in terrain-liquid/; profile ID selects ID.map.test-fixture at map0/tile0,0; complete DBC stores
 # LiquidType format: niii; AreaTable format: niiiixxxxxissssssssxixxxi
 # Every float column is hexadecimal binary32; other numbers decimal. Output untouched sentinels: entry=3735928559 flags=3737844653 level=4a123456 depth=ca654321
 # No wet-WMO or admission claim; unimplemented wet-only area helpers throw if called; no unloaded-grid equivalence cases

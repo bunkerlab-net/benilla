@@ -215,8 +215,8 @@ static void setupStores(const std::filesystem::path& root) {
         for (size_t i = 0; i < 8; ++i) row.area_name[i] = DBC_STRINGS + words[11 + i];
         sAreaStore.rows.push_back(row);
     }
-    serializeDbc(root / "LiquidType.dbc", liquids);
-    serializeDbc(root / "AreaTable.dbc", areas);
+    serializeDbc(root / "LiquidType.dbc.test-fixture", liquids);
+    serializeDbc(root / "AreaTable.dbc.test-fixture", areas);
 }
 static GridMapLiquidData sentinel() { return {0xdecafbad, 0xdeadbeef, fromBits(0x4a123456), fromBits(0xca654321)}; }
 static bool sameData(const GridMapLiquidData& a, const GridMapLiquidData& b) {
@@ -233,7 +233,7 @@ static void terrainLiquidQueries(const std::filesystem::path& output, VMAP::Stat
     out << "# Full exact-source TerrainInfo::getLiquidStatus/GetHeightStatic/GetGrid + GridMap liquid/float/flat/AREA; CMaNGOS "
            "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f\n"
         << "# Original loaded scopedlocation VMap geometry; actual GetLocationInfo/GetLiquidLevel floor side effects; all WMO models dry\n"
-        << "# Authored raw MAPS/WDBC products in terrain-liquid/; profile ID selects ID.map at map0/tile0,0; complete DBC stores\n"
+        << "# Authored raw MAPS/WDBC products in terrain-liquid/; profile ID selects ID.map.test-fixture at map0/tile0,0; complete DBC stores\n"
         << "# LiquidType format: " << LiquidTypefmt << "; AreaTable format: " << AreaTableEntryfmt << '\n'
         << "# Every float column is hexadecimal binary32; other numbers decimal. Output untouched sentinels: entry=3735928559 flags=3737844653 level=4a123456 depth=ca654321\n"
         << "# No wet-WMO or admission claim; unimplemented wet-only area helpers throw if called; no unloaded-grid equivalence cases\n"
@@ -243,7 +243,7 @@ static void terrainLiquidQueries(const std::filesystem::path& output, VMAP::Stat
     for (unsigned id = 0; id < PROFILE_COUNT; ++id) {
         auto p = profile(id);
         auto g = grid(p);
-        serializeMap(root / (std::to_string(id) + ".map"), p, g);
+        serializeMap(root / (std::to_string(id) + ".map.test-fixture"), p, g);
         TerrainInfo terrain{&manager};
         terrain.m_GridMaps[0][0] = &g;
         auto sample = [&](const std::string& name, Vector3 internal, float collision = 2.f,

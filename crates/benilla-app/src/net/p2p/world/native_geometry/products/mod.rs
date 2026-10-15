@@ -228,12 +228,37 @@ pub(crate) struct InventoriedProducts {
     content: Hash,
     source_epoch: Hash,
     products: BTreeMap<ProductId, Product>,
+    // Private parser-profile marker, never a caller-authored water/authority claim.
+    vmap_liquid_profile: bool,
 }
+/// Explicit opt-in envelope for bounded WMO liquid bytes. It deliberately exposes no
+/// dry, ray, composite-height, terrain-status or navigation reader, nor a conversion
+/// into the conservative inventory. Exact bytes remain owned and immutable.
+#[derive(Debug)]
+pub(crate) struct VmapLiquidProducts {
+    inventory: InventoriedProducts,
+}
+impl VmapLiquidProducts {
+    pub(crate) fn load(root: &Path, spec: InventorySpec) -> Result<Self, Error> {
+        Ok(Self {
+            inventory: InventoriedProducts::load_profile(root, spec, true)?,
+        })
+    }
+}
+
 impl InventoriedProducts {
     /// Read-only off-thread loader for a curated private staging root, outside the install.
     /// No lazy reads: later file deletion/replacement cannot mutate this owned snapshot.
     /// Filesystem checks are hygiene, not protection against a hostile local filesystem.
     pub(crate) fn load(root: &Path, spec: InventorySpec) -> Result<Self, Error> {
+        Self::load_profile(root, spec, false)
+    }
+
+    fn load_profile(
+        root: &Path,
+        spec: InventorySpec,
+        allow_vmap_liquid: bool,
+    ) -> Result<Self, Error> {
         let expected = validate_spec(&spec)?;
         if !root.is_absolute()
             || fs::canonicalize(root).map_err(|_| Error::Io)? != root
@@ -242,7 +267,7 @@ impl InventoriedProducts {
             return Err(Error::Identity);
         }
         check_directory(root, &expected)?;
-        Self::materialize(spec, |name, bytes| {
+        Self::materialize_profile(spec, allow_vmap_liquid, |name, bytes| {
             let path = root.join(name);
             let meta = fs::symlink_metadata(&path).map_err(|_| Error::Missing)?;
             if !meta.is_file() || meta.len() != bytes {
@@ -268,12 +293,24 @@ impl InventoriedProducts {
 
     fn materialize(
         spec: InventorySpec,
+        read: impl FnMut(&str, u64) -> Result<Vec<u8>, Error>,
+    ) -> Result<Self, Error> {
+        Self::materialize_profile(spec, false, read)
+    }
+
+    fn materialize_profile(
+        spec: InventorySpec,
+        allow_vmap_liquid: bool,
         mut read: impl FnMut(&str, u64) -> Result<Vec<u8>, Error>,
     ) -> Result<Self, Error> {
         // Validate ALL identities, lengths, budgets and declared closure before any read.
         validate_spec(&spec)?;
         let mut revision = Sha256::new();
-        revision.update(POLICY);
+        revision.update(if allow_vmap_liquid {
+            b"benilla-native-product-inventory-vmap-liquid-v1".as_slice()
+        } else {
+            POLICY
+        });
         revision.update(SOURCE_PIN);
         revision.update(DETOUR_TREE);
         revision.update(spec.map.to_le_bytes());
@@ -304,7 +341,11 @@ impl InventoriedProducts {
             let terrain = match id {
                 ProductId::Terrain(tile) => Some(TerrainTile::decode(tile, &data)?),
                 _ => {
-                    let models = envelopes::validate(&id, &data)?;
+                    let models = if allow_vmap_liquid {
+                        envelopes::validate_with_vmap_liquid(&id, &data)?
+                    } else {
+                        envelopes::validate(&id, &data)?
+                    };
                     let declared: BTreeSet<_> = item
                         .dependencies
                         .iter()
@@ -339,6 +380,7 @@ impl InventoriedProducts {
             source_epoch: spec.binding.source_epoch,
             revision: revision.finalize().into(),
             products,
+            vmap_liquid_profile: allow_vmap_liquid,
         })
     }
 

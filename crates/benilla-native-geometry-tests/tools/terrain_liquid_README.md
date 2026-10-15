@@ -70,9 +70,12 @@ static height, and 1,463 location misses. Every source status occurs. These are
 observed source counts, not proof of broader coverage.
 
 [terrain-liquid/](fixtures/terrain-liquid) contains 29 authored native MAPS
-products, `0.map` through `28.map`, and complete `LiquidType.dbc` and
-`AreaTable.dbc` files. They contain numeric test data only, not installation
-assets or extracted game rows. A profile ID selects the corresponding map.
+products, `0.map.test-fixture` through `28.map.test-fixture`, and complete
+`LiquidType.dbc.test-fixture` and `AreaTable.dbc.test-fixture` files. They contain
+numeric test data only, not installation assets or extracted game rows. The explicit `.test-fixture` suffix distinguishes
+these reproducible authored products from installation assets; the source
+packager still rejects ordinary game-asset extensions, including `.dbc`, without
+a fixture-directory exception. A profile ID selects the corresponding map.
 
 - Profiles 0–3 distinguish water level 5, level 4 equal to the location floor,
   and the adjacent binary32 levels below and above 4

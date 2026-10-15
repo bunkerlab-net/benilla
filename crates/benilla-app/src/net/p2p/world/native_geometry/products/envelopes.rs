@@ -7,6 +7,21 @@ use std::collections::BTreeSet;
 const MAX_ELEMENTS: usize = 262_144;
 
 pub(super) fn validate(id: &ProductId, bytes: &[u8]) -> Result<BTreeSet<ProductId>, Error> {
+    validate_profile(id, bytes, false)
+}
+
+pub(super) fn validate_with_vmap_liquid(
+    id: &ProductId,
+    bytes: &[u8],
+) -> Result<BTreeSet<ProductId>, Error> {
+    validate_profile(id, bytes, true)
+}
+
+fn validate_profile(
+    id: &ProductId,
+    bytes: &[u8],
+    allow_vmap_liquid: bool,
+) -> Result<BTreeSet<ProductId>, Error> {
     let mut models = BTreeSet::new();
     let mut c = Cursor { bytes, at: 0 };
     match id {
@@ -83,7 +98,7 @@ pub(super) fn validate(id: &ProductId, bytes: &[u8]) -> Result<BTreeSet<ProductI
                     return Err(Error::Budget);
                 }
                 for _ in 0..groups {
-                    vmap_group(&mut c)?;
+                    vmap_group(&mut c, allow_vmap_liquid)?;
                 }
                 c.magic(b"GBIH")?;
                 c.bih()?;
@@ -96,7 +111,7 @@ pub(super) fn validate(id: &ProductId, bytes: &[u8]) -> Result<BTreeSet<ProductI
     Ok(models)
 }
 
-fn vmap_group(c: &mut Cursor<'_>) -> Result<(), Error> {
+fn vmap_group(c: &mut Cursor<'_>, allow_vmap_liquid: bool) -> Result<(), Error> {
     c.bounds()?;
     // These source model flags/IDs are deliberately opaque: no collision mask is certified.
     c.word()?;
@@ -125,10 +140,48 @@ fn vmap_group(c: &mut Cursor<'_>) -> Result<(), Error> {
     c.magic(b"MBIH")?;
     c.bih()?;
     c.magic(b"LIQU")?;
-    if c.word()? != 0 {
-        return Err(Error::Unsupported);
+    let length = c.word()? as usize;
+    if length != 0 {
+        if !allow_vmap_liquid {
+            return Err(Error::Unsupported);
+        }
+        let width = c.word()?;
+        let height = c.word()?;
+        let (heights, flags) = liquid_dimensions(width, height, length)?;
+        // The source size omits the serialized type word; require actual payload.
+        let required = 16 + heights * 4 + flags;
+        if c.bytes.len() - c.at < required {
+            return Err(Error::Framing);
+        }
+        c.floats(3)?;
+        c.word()?; // raw liquid type is preserved, including unknown IDs
+        c.floats(heights)?;
+        c.take(flags)?;
     }
     Ok(())
+}
+
+/// WorldModel.cpp::GetFileSize omits iType although writeToFile writes it.
+/// Counts and arithmetic are bounded before any allocation or array iteration.
+pub(super) fn liquid_dimensions(
+    width: u32,
+    height: u32,
+    declared: usize,
+) -> Result<(usize, usize), Error> {
+    let width = width as usize;
+    let height = height as usize;
+    let heights = width
+        .checked_add(1)
+        .and_then(|x| height.checked_add(1).and_then(|y| x.checked_mul(y)))
+        .ok_or(Error::Budget)?;
+    let flags = width.checked_mul(height).ok_or(Error::Budget)?;
+    if heights > MAX_ELEMENTS || flags > MAX_ELEMENTS {
+        return Err(Error::Budget);
+    }
+    if declared != 20 + heights * 4 + flags {
+        return Err(Error::Framing);
+    }
+    Ok((heights, flags))
 }
 
 fn mmap_tile(c: &mut Cursor<'_>) -> Result<(), Error> {
