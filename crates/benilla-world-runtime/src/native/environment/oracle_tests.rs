@@ -46,6 +46,7 @@ fn exact_pinned_source_reducer_timer_and_callback_order_corpus() {
         // Arbitrary uint8 flags and uint32 timers deliberately exercise the raw
         // source reducer, including states not admitted by production checkpoints.
         let mut state = EnvironmentState {
+            mirrors: initial_mirrors(),
             flags: number(row[14]) as u8,
             timer_ms: number(row[15]),
             last_liquid: last(row[16]),

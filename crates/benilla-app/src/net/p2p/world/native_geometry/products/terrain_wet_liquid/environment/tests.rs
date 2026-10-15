@@ -193,3 +193,80 @@ fn changed_snapshot_and_changed_pose_cannot_commit() {
     assert_eq!(before, machine.checkpoint().to_bytes().unwrap());
     assert!(machine.records().is_empty());
 }
+
+#[test]
+fn loaded_deep_water_cells_mutate_owned_fatigue_scale_and_replay() {
+    use super::super::super::{tests::mutate, ProductId};
+    use benilla_world_runtime::native::environment::EnvironmentMirror;
+    let (mut spec, mut files) = fixture();
+    mutate(
+        &mut spec,
+        &mut files,
+        &ProductId::Terrain(TileId { x: 0, y: 0 }),
+        |bytes| {
+            let at = u32::from_le_bytes(bytes[24..28].try_into().unwrap()) as usize;
+            bytes[at + 4] = 2; // actual MLIQ cell entry/type arrays, constant height
+            let mut cells = vec![];
+            for _ in 0..256 {
+                cells.extend_from_slice(&1u16.to_le_bytes());
+            }
+            cells.extend_from_slice(&[8; 256]);
+            cells[512] = 8 | 0x10; // only first 8x8 subcell has the source deep-water bit
+            bytes.splice(at + 16..at + 16, cells);
+            bytes[28..32].copy_from_slice(&784u32.to_le_bytes());
+            bytes[32..36].copy_from_slice(&((at + 784) as u32).to_le_bytes());
+        },
+    );
+    let (spec, files) = remap(spec, files, TileId { x: 32, y: 32 });
+    let stage = Stage::new(&files);
+    let products = VmapLiquidProducts::load(&stage.0, spec).unwrap();
+    drop(stage);
+    let snapshot = snapshot(&products, 0);
+    let mut machine = machine(&snapshot);
+    let deep = pose(31.0);
+    let shallow = EnvironmentPose {
+        position: [(-40f32).to_bits(), 0, 31f32.to_bits()],
+        ..deep
+    };
+    for (pose, expected_flags, expected_scale) in [(deep, 0x48, -1), (shallow, 0x40, 10)] {
+        let query = machine.query_for_position(pose).unwrap().unwrap();
+        let result = snapshot.query_environment(query, deadline()).unwrap();
+        assert_eq!(result.status, LiquidStatus::AboveWater);
+        assert_eq!(
+            result.data.unwrap().type_flags & 0x10 != 0,
+            expected_flags == 0x48
+        );
+        machine.set_position_phase(pose, Some(result)).unwrap();
+        assert_eq!(machine.state().flags(), expected_flags);
+        assert_eq!(
+            machine.state().mirror(EnvironmentMirror::Fatigue).scale(),
+            expected_scale
+        );
+        machine.update_phase(100).unwrap();
+    }
+    let checkpoint = machine.checkpoint();
+    let mut restored = EnvironmentMachine::restore(
+        snapshot.environment_binding(),
+        [1; 16],
+        player(),
+        snapshot.environment_catalog().clone(),
+        &checkpoint.to_bytes().unwrap(),
+    )
+    .unwrap();
+    machine.discard_records(&checkpoint).unwrap();
+    let query = machine.query_for_position(deep).unwrap().unwrap();
+    machine
+        .set_position_phase(
+            deep,
+            Some(snapshot.query_environment(query, deadline()).unwrap()),
+        )
+        .unwrap();
+    restored
+        .replay_bytes(&machine.records_to_bytes().unwrap())
+        .unwrap();
+    assert_eq!(restored.state_digest(), machine.state_digest());
+    assert_eq!(
+        restored.state().mirror(EnvironmentMirror::Fatigue).scale(),
+        -1
+    );
+}

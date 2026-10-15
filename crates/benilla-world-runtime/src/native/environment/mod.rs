@@ -3,14 +3,16 @@
 //! CMaNGOS Classic 8ec338a1 Player.cpp:1105–1140,1483–1489,6069–6075,19113–19175,
 //! copyright CMaNGOS contributors, upstream GPL-2.0-or-later.
 //! This is the environment phase AFTER accepted relocation, not full SetPosition.
-//! No NativeWorld/Engine producer, gameplay admission, or production callback executor.
+//! No NativeWorld/Engine producer or gameplay admission. Only owned mirror scaling executes.
 mod catalog;
+pub mod mirror;
 mod persistence;
 pub use catalog::{LiquidCatalog, LiquidCatalogError, LiquidTypeRow};
+use mirror::{MirrorTimer, MirrorTimerType};
 pub use persistence::{EnvironmentCheckpoint, EnvironmentRecord};
 use serde::{Deserialize, Serialize};
 
-pub const ENVIRONMENT_POLICY: &str = "cmangos-8ec338a1-player-environment-component-v1";
+pub const ENVIRONMENT_POLICY: &str = "cmangos-8ec338a1-player-environment-component-mirror-v2";
 pub const MAX_ENVIRONMENT_RECORDS: usize = 2048;
 pub const MAX_ENVIRONMENT_BYTES: usize = 4 * 1024 * 1024;
 const REFRESH_MS: u32 = 100;
@@ -188,10 +190,17 @@ trait Callbacks {
     fn has_aura(&mut self, spell_id: u32) -> Result<bool, EnvironmentError>;
     fn breathing_interval(&mut self) -> Result<u32, EnvironmentError>;
 }
-struct UnavailableCallbacks;
-impl Callbacks for UnavailableCallbacks {
+struct OwnedMirrorCallbacks<'a> {
+    timers: &'a mut [MirrorTimer; 4],
+}
+impl Callbacks for OwnedMirrorCallbacks<'_> {
     fn effect(&mut self, intent: EnvironmentCallback, _: u8) -> Result<(), EnvironmentError> {
-        Err(EnvironmentError::CallbacksUnavailable(intent))
+        if let EnvironmentCallback::SetMirrorScale { timer, scale } = intent {
+            self.timers[mirror_index(timer)].set_scale(scale);
+            Ok(())
+        } else {
+            Err(EnvironmentError::CallbacksUnavailable(intent))
+        }
     }
     fn has_aura(&mut self, spell_id: u32) -> Result<bool, EnvironmentError> {
         Err(EnvironmentError::CallbacksUnavailable(
@@ -213,8 +222,30 @@ pub struct EnvironmentState {
     last_liquid: Option<u32>,
     last_position: Option<EnvironmentPose>,
     cached_query: Option<EnvironmentQuery>,
+    mirrors: [MirrorTimer; 4],
+}
+fn initial_mirrors() -> [MirrorTimer; 4] {
+    [
+        MirrorTimerType::Fatigue,
+        MirrorTimerType::Breath,
+        MirrorTimerType::FeignDeath,
+        MirrorTimerType::Environmental,
+    ]
+    .map(MirrorTimer::new)
+}
+fn mirror_index(timer: EnvironmentMirror) -> usize {
+    match timer {
+        EnvironmentMirror::Fatigue => 0,
+        EnvironmentMirror::Breath => 1,
+        EnvironmentMirror::Environmental => 3,
+    }
 }
 impl EnvironmentState {
+    /// Actual owned source timer states. This component only mutates their scale;
+    /// starting/ticking timers and consuming expiration still need the player lifecycle.
+    pub fn mirror(&self, timer: EnvironmentMirror) -> &MirrorTimer {
+        &self.mirrors[mirror_index(timer)]
+    }
     pub fn flags(&self) -> u8 {
         self.flags
     }
@@ -412,7 +443,7 @@ impl EnvironmentState {
 }
 
 /// Owned standalone environment state and journal, explicitly unconnected to NativeWorld.
-/// Production transitions with required callbacks fail atomically; logging is no executor.
+/// Owned mirror scaling executes; other required callbacks fail atomically.
 #[derive(Clone, Debug)]
 pub struct EnvironmentMachine {
     snapshot: EnvironmentSnapshotBinding,
@@ -446,6 +477,7 @@ impl EnvironmentMachine {
                 last_liquid: None,
                 last_position: None,
                 cached_query: None,
+                mirrors: initial_mirrors(),
             },
             sequence: 0,
             tip: [0; 32],
@@ -519,7 +551,15 @@ impl EnvironmentMachine {
                     (None, None) => {}
                     (Some(expected), Some(reply)) => {
                         reply.validate(expected)?;
-                        next.refresh_if_due(reply, &self.catalog, &mut UnavailableCallbacks)?;
+                        let mut mirrors = next.mirrors.clone();
+                        next.refresh_if_due(
+                            reply,
+                            &self.catalog,
+                            &mut OwnedMirrorCallbacks {
+                                timers: &mut mirrors,
+                            },
+                        )?;
+                        next.mirrors = mirrors;
                     }
                     _ => return Err(EnvironmentError::Binding),
                 }

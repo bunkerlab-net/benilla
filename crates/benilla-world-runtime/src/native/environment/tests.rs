@@ -538,3 +538,28 @@ fn invalid_numeric_observation_and_missing_interval_executor_do_not_commit() {
     );
     assert_eq!(m.checkpoint(), before);
 }
+
+#[test]
+fn real_owned_mirror_mutation_is_rolled_back_if_later_aura_callback_is_unavailable() {
+    let mut m = machine();
+    for kind in [0x10, 0] {
+        let sample = reply(&m, LiquidStatus::AboveWater, 0, kind);
+        m.set_position_phase(pose(), Some(sample)).unwrap();
+        m.update_phase(100).unwrap();
+    }
+    assert_eq!(m.state().mirror(EnvironmentMirror::Fatigue).scale(), 10);
+    let checkpoint = m.checkpoint().to_bytes().unwrap();
+    let records = m.records_to_bytes().unwrap();
+    // Authored reducer input deliberately selects mirror scaling before the later
+    // HIGH_LIQUID aura interrupt. It is not an actual TerrainInfo query proof.
+    let sample = reply(&m, LiquidStatus::InWater, 0, 0x10);
+    assert_eq!(
+        m.set_position_phase(pose(), Some(sample)),
+        Err(EnvironmentError::CallbacksUnavailable(
+            EnvironmentCallback::RemoveInterruptAuras { mask: 0x80 }
+        ))
+    );
+    assert_eq!(m.checkpoint().to_bytes().unwrap(), checkpoint);
+    assert_eq!(m.records_to_bytes().unwrap(), records);
+    assert_eq!(m.state().mirror(EnvironmentMirror::Fatigue).scale(), 10);
+}

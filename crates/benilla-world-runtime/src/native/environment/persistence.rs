@@ -2,7 +2,7 @@
 //! Independent component checkpoint/journal. These are not NativeWorld save files,
 //! admission receipts, authenticated histories, or proof that external effects ran.
 use super::*;
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,6 +23,7 @@ struct StoredState {
     last_liquid: Option<u32>,
     last_position: Option<EnvironmentPose>,
     cached_query: Option<EnvironmentQuery>,
+    mirrors: [mirror::MirrorTimerSnapshot; 4],
 }
 impl From<&EnvironmentState> for StoredState {
     fn from(s: &EnvironmentState) -> Self {
@@ -32,6 +33,7 @@ impl From<&EnvironmentState> for StoredState {
             last_liquid: s.last_liquid,
             last_position: s.last_position,
             cached_query: s.cached_query,
+            mirrors: s.mirrors.each_ref().map(MirrorTimer::snapshot),
         }
     }
 }
@@ -41,9 +43,9 @@ impl StoredState {
         machine: &EnvironmentMachine,
         sequence: u64,
     ) -> Result<EnvironmentState, EnvironmentError> {
-        // No production callback executor exists: only NONE/LIQUID flags and
-        // zero-spell remembered rows can arise on this component's committed path.
-        if !matches!(self.flags, 0 | LIQUID)
+        // Only owned mirror-scale effects execute. Wet/hazard/aura/threat branches
+        // remain unavailable; no started/ticking mirror timers can be imported here.
+        if ![0, LIQUID, LIQUID | HIGH_SEA].contains(&self.flags)
             || self.timer_ms > REFRESH_MS
             || self.last_liquid.is_some_and(|id| {
                 id == 0 || machine.catalog.get(id).is_none_or(|r| r.spell_id != 0)
@@ -73,13 +75,36 @@ impl StoredState {
                 }
                 .validate()
                 .map_err(|_| EnvironmentError::InvalidCheckpoint)?;
-                if self.flags == 0 && self.last_liquid.is_some() {
+                if (self.flags == 0 && self.last_liquid.is_some())
+                    || (q.ticket == sequence
+                        && (self.timer_ms != REFRESH_MS
+                            || self.last_position
+                                != Some(EnvironmentPose {
+                                    position: q.position,
+                                    collision_height: q.collision_height,
+                                })))
+                {
                     return Err(EnvironmentError::InvalidCheckpoint);
                 }
             }
             _ => return Err(EnvironmentError::InvalidCheckpoint),
         }
+        let mut mirrors = initial_mirrors();
+        if self.flags == LIQUID {
+            let mut regenerated = initial_mirrors();
+            regenerated[0].set_scale(10);
+            if self.mirrors == regenerated.each_ref().map(MirrorTimer::snapshot) {
+                if self.cached_query.is_none_or(|q| q.ticket < 3) {
+                    return Err(EnvironmentError::InvalidCheckpoint);
+                }
+                mirrors = regenerated;
+            }
+        }
+        if self.mirrors != mirrors.each_ref().map(MirrorTimer::snapshot) {
+            return Err(EnvironmentError::InvalidCheckpoint);
+        }
         Ok(EnvironmentState {
+            mirrors,
             flags: self.flags,
             timer_ms: self.timer_ms,
             last_liquid: self.last_liquid,
@@ -125,7 +150,7 @@ impl EnvironmentRecord {
         }
     }
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-environment-record-v1\0", self)
+        crate::digest(b"benilla-environment-record-v2\0", self)
     }
     pub fn sequence(&self) -> u64 {
         self.sequence
@@ -150,7 +175,7 @@ impl EnvironmentCheckpoint {
     fn checksum(&self) -> crate::Digest {
         let mut body = self.clone();
         body.checksum = [0; 32];
-        crate::digest(b"benilla-environment-checkpoint-v1\0", &body)
+        crate::digest(b"benilla-environment-checkpoint-v2\0", &body)
     }
     pub fn to_bytes(&self) -> Result<Vec<u8>, EnvironmentError> {
         let bytes = serde_json::to_vec(self).map_err(|_| EnvironmentError::InvalidCheckpoint)?;
@@ -163,7 +188,7 @@ impl EnvironmentCheckpoint {
 impl EnvironmentMachine {
     fn digest_state(&self, sequence: u64, state: &EnvironmentState) -> crate::Digest {
         crate::digest(
-            b"benilla-environment-state-v1\0",
+            b"benilla-environment-state-v2\0",
             &(
                 ENVIRONMENT_POLICY,
                 self.world,
@@ -287,5 +312,77 @@ impl EnvironmentMachine {
         }
         *self = staged;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_restore_cannot_import_started_or_unrelated_timer_state() {
+        let m = super::super::tests::machine();
+        for timer in 0..4 {
+            let mut changed = m.clone();
+            changed.state.mirrors[timer].start(1000, 7);
+            let bytes = changed.checkpoint().to_bytes().unwrap();
+            assert!(EnvironmentMachine::restore(
+                m.snapshot,
+                m.world,
+                m.player,
+                m.catalog.clone(),
+                &bytes
+            )
+            .is_err());
+        }
+        let mut changed = m.clone();
+        changed.state.mirrors[0].set_scale(10);
+        // Scale 10 alone is a valid source timer state, but cannot be the initial
+        // environment component state before any HIGH_SEA transition.
+        assert!(EnvironmentMachine::restore(
+            m.snapshot,
+            m.world,
+            m.player,
+            m.catalog.clone(),
+            &changed.checkpoint().to_bytes().unwrap()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn rehashed_latest_phase_pose_or_timer_inconsistency_is_rejected() {
+        let mut m = super::super::tests::machine();
+        let pose = super::super::tests::pose();
+        let sample = super::super::tests::reply(&m, LiquidStatus::NoWater, 0, 0);
+        m.set_position_phase(pose, Some(sample)).unwrap();
+        for change_pose in [false, true] {
+            let mut checkpoint = m.checkpoint();
+            if change_pose {
+                checkpoint.state.last_position.as_mut().unwrap().position[0] = 1f32.to_bits();
+            } else {
+                checkpoint.state.timer_ms = 99;
+            }
+            // Recompute all integrity hashes: rejection must be semantic, not checksum-only.
+            checkpoint.state_digest = crate::digest(
+                b"benilla-environment-state-v2\0",
+                &(
+                    ENVIRONMENT_POLICY,
+                    m.world,
+                    m.player,
+                    m.snapshot,
+                    m.sequence,
+                    &checkpoint.state,
+                ),
+            );
+            checkpoint.checksum = checkpoint.checksum();
+            assert!(EnvironmentMachine::restore(
+                m.snapshot,
+                m.world,
+                m.player,
+                m.catalog.clone(),
+                &checkpoint.to_bytes().unwrap()
+            )
+            .is_err());
+        }
     }
 }

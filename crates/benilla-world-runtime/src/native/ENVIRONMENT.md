@@ -64,17 +64,24 @@ there is no intervening binary32 rounding.
 
 The exact reducer represents ordered threat updates, interrupt/spell aura
 removals, mirror scaling, HasAura/interval reads and self-triggered spell casts.
-**No production callback executor is installed in this slice.** Every such
-operation returns its typed `CallbacksUnavailable` intent. A staged transition
-is then discarded without changing flags, timer, last liquid, cache, sequence,
-history tip or journal. Merely recording a callback never applies its effect.
+The private production callback host executes `SetMirrorScale` against actual
+owned source MirrorTimer states. Every other operation returns its typed
+`CallbacksUnavailable` intent. A staged transition that encounters an unavailable callback is discarded without changing flags,
+refresh timer, last liquid, cache, mirror states, sequence, history tip or journal.
+Merely recording a callback never applies its effect.
 The private callback interface cannot be implemented by external callers; no
 generic clone-based host promises rollback for shared external state.
 
-Callback-free initial dry and above-water zero-spell observations, cached calls
-and timer phases do commit. A dry exit after LIQUID was set requires the combined
-callback sequence and refuses. This intentionally bounded production domain
-cannot import arbitrary wet state or spell-bearing remembered rows through a
+Initial dry and above-water zero-spell observations, cached calls and refresh
+timer phases do commit. Above-water deep-water transitions also execute the
+source fatigue scale mutation, including restoring scale 10 when HIGH_SEA clears.
+The loaded-product test obtains both observations from actual authored GridMap
+cell arrays through the existing TerrainInfo query. It does not fabricate a
+water predicate. The mirror states remain inactive until a future player timer
+lifecycle starts them; scale mutation alone does not start fatigue or cause damage.
+A dry exit after LIQUID was set requires the combined callback sequence and refuses.
+This intentionally bounded production domain cannot import arbitrary wet state,
+spell-bearing remembered rows, or active mirror states through an environment
 checkpoint. A private `cfg(test)` fully owned synthetic host exercises the wider
 reducer and staged host rollback; it is not the game's effect implementation.
 
@@ -87,20 +94,25 @@ follow-on engineering work, not implicitly denied permission. Concrete seams:
   water/land accessibility, not guessed CanSwim/CanWalk or InhabitType
 - Aura interrupts/removal/HasAura need the real ordered holder lifecycle and
   complete interrupt/spell metadata; removal must affect later same-spell queries
-- Mirror scaling needs persistent MirrorTimer state and full breathing config,
-  multiplier/aura lifecycle and timer ownership
+- Mirror scaling now mutates owned persistent source timer state. Starting/ticking
+  those timers in the player lifecycle still needs actual breathing configuration,
+  multiplier/aura lifecycle, timer ownership and expiration-effect handling
 - Triggered self-casts need genuine spell catalog and the source spell/event
   lifecycle; an emitted cast intent cannot substitute for execution
 
 ## Independent persistence and evidence
 
 Component checkpoint/journal formats have their own version/policy and do not
-change native world saves. Checkpoints retain the exact timer and cached query,
+change native world saves. Environment component v2 deliberately rejects v1
+component checkpoints/journals rather than inventing missing mirror states.
+Checkpoints retain exact owned mirror states, the refresh timer and cached query,
 last observed pose, last-liquid ID resolved against the selected complete
 catalog, selected world/player/snapshot identity, sequence and history tip.
-Restore checks bounded canonical bytes, compatible identity, valid committed
-state, state digest and checksum. A trusted filesystem or separately pinned
-digest is still needed: an attacker who can rewrite and re-hash an entire
+Restore checks bounded canonical bytes, compatible identity, structurally
+supported state, state digest and checksum. These checks do not prove that every
+historical transition occurred. The immediate query/sequence correlation and
+permitted mirror-state combinations are validated; full history still requires
+trusted storage and replay. An attacker who can rewrite and re-hash an entire
 checkpoint can invent self-consistent state. These are integrity checks, not
 history authentication or proof of source data provenance.
 
@@ -123,3 +135,12 @@ order, not actual aura/threat/mirror/spell effects. The private owned-host test
 separately exercises same-spell removal feedback and transactional failure.
 Raw source-only cases include arbitrary uint8 flags and uint32 timers that
 public production checkpoint admission intentionally cannot restore.
+
+## Standalone mirror state machine
+
+The independent [mirror component](MIRROR_TIMER.md) implements actual
+source MirrorTimer state mutation, including start/stop, remaining/duration,
+freeze/scale, pulse/regeneration and fetched-status reset. Its checkpoint/journal
+is separate from the environment component. A returned expiration/pulse does not
+execute damage, resurrect, cancel an aura, or send a packet. No Engine routing or
+production admission changes accompany either component.
