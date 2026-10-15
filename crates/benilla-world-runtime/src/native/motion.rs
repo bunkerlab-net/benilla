@@ -367,6 +367,8 @@ pub enum MotionQuery {
     Spatial(motion::Query),
     /// Selected source host supplies a bound current capability witness.
     NearPoint(CreatureNearPointRequest),
+    /// Selected source host binds PathFinder's current owner and map position.
+    Route(CreatureRouteRequest),
     Visitor(VisitorRequest),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

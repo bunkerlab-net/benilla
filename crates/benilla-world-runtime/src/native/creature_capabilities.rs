@@ -304,6 +304,16 @@ pub struct CreatureNearPointRequest {
     pub searcher: CreatureCapabilityWitness,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreatureRouteRequest {
+    pub request: benilla_sim::creature_motion::RouteRequest,
+    pub owner: CreatureCapabilityWitness,
+    /// Current Unit map position used by PathFinder::updateFilter, distinct from
+    /// Home's potentially newer computed spline launch position.
+    pub owner_position: ai::Point,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreatureCapabilityState {
     witness: CreatureCapabilityWitness,

@@ -977,6 +977,9 @@ mod creature_capability_tests;
 #[path = "near_point_primary_tests.rs"]
 mod near_point_primary_tests;
 
+#[path = "route_filter_tests.rs"]
+mod route_filter_tests;
+
 #[path = "event_scheduler_tests.rs"]
 mod event_scheduler_tests;
 

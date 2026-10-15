@@ -122,6 +122,24 @@ fn synthetic_near_point(q: &m::NearPointRequest) -> Result<m::Fact, NativeError>
         q.target.pose.position.z.as_f32(),
     )?))
 }
+fn synthetic_route(q: &m::RouteRequest, truncated: bool) -> m::Fact {
+    m::Fact::Route(if truncated {
+        m::RouteOutcome::Truncated
+    } else {
+        m::RouteOutcome::Complete(m::CompleteRoute {
+            source: m::RouteSource::SyntheticFixture,
+            path_identity: [7; 32],
+            points: vec![q.origin, q.goal],
+            segments: vec![ai::movement::SegmentChecks {
+                loaded_coverage: ai::movement::Check::Passed,
+                line_of_sight: ai::movement::Check::Passed,
+                body_sweep: ai::movement::Check::Passed,
+                continuous_ground_support: ai::movement::Check::Passed,
+                dry_ground: ai::movement::Check::Passed,
+            }],
+        })
+    })
+}
 #[derive(Default)]
 pub struct SyntheticMotionAuthority {
     pub legacy: f::SyntheticAuthority,
@@ -162,6 +180,20 @@ impl Authority for SyntheticMotionAuthority {
                 MotionFacts::Spatial(Box::new(m::Reply {
                     request: m::Query::NearPoint(query.request.clone()),
                     fact: synthetic_near_point(&query.request)?,
+                }))
+            }
+            MotionQuery::Route(query) => {
+                if query.owner.allowed_position_z_branch()? != AllowedPositionZBranch::Ground {
+                    return Err(NativeError::UnsupportedMechanic(
+                        "synthetic route capability branch",
+                    ));
+                }
+                if query.owner_position != query.request.origin {
+                    return Err(NativeError::AuthorityBinding);
+                }
+                MotionFacts::Spatial(Box::new(m::Reply {
+                    request: m::Query::Route(query.request.clone()),
+                    fact: synthetic_route(&query.request, self.truncated),
                 }))
             }
             MotionQuery::Combat(query) => MotionFacts::Combat(match query {
@@ -208,22 +240,7 @@ impl Authority for SyntheticMotionAuthority {
                     }
                     m::Query::Collider(_) => m::Fact::Collider(None),
                     m::Query::FacingTarget(_) => m::Fact::ObjectPosition(None),
-                    m::Query::Route(q) => m::Fact::Route(if self.truncated {
-                        m::RouteOutcome::Truncated
-                    } else {
-                        m::RouteOutcome::Complete(m::CompleteRoute {
-                            source: m::RouteSource::SyntheticFixture,
-                            path_identity: [7; 32],
-                            points: vec![q.origin, q.goal],
-                            segments: vec![ai::movement::SegmentChecks {
-                                loaded_coverage: ai::movement::Check::Passed,
-                                line_of_sight: ai::movement::Check::Passed,
-                                body_sweep: ai::movement::Check::Passed,
-                                continuous_ground_support: ai::movement::Check::Passed,
-                                dry_ground: ai::movement::Check::Passed,
-                            }],
-                        })
-                    }),
+                    m::Query::Route(q) => synthetic_route(q, self.truncated),
                 };
                 MotionFacts::Spatial(Box::new(m::Reply {
                     request: query.clone(),

@@ -2,7 +2,7 @@
 
 The optional native creature capability host retains raw source inputs, owns the
 current capability-relevant movement flag projection, and binds the result into
-reachable source-motion `NearPoint` requests. This is not a height/LOS provider,
+reachable source-motion `NearPoint` and `Route` requests. This is not a height/LOS provider,
 raw-content compiler, playable-world claim or native admission token. The
 uninhabited `NativeCapability` and unselected component path remain unchanged.
 
@@ -75,15 +75,30 @@ catalog and generation, and carries its witness into the adapter. It never
 looks up a stale map copy or substitutes a template default.
 
 For selected source hosts, actual chase NearPoint calls become
-`MotionQuery::NearPoint(CreatureNearPointRequest)`. The wrapper includes the
+`MotionQuery::NearPoint(CreatureNearPointRequest)` and route calls become
+`MotionQuery::Route(CreatureRouteRequest)`. Both wrappers include the
 unchanged original simulation request and the read-only current source witness.
 Identity, map, content, geometry and clock bind to the executing frame; the outer
 authority receipt additionally binds profile, world, tick and NPC generation.
 Returned `motion::Reply.request` still must equal the original simulation query.
 Replay compares the full wrapper and witness in the ordinary receipt stream.
-Unselected source-motion fixtures retain `Spatial(NearPoint)` without invented
-source rows. Synthetic fixture geometry explicitly handles the new wrapper and
+Unselected source-motion fixtures retain `Spatial(NearPoint)` and `Spatial(Route)`
+without invented source rows. Synthetic fixture geometry explicitly handles the wrappers and
 remains authored host-trig test geometry.
+
+`CreatureRouteRequest.owner_position` is the executing Unit's map position for
+`PathFinder::updateFilter`, not a supplied liquid flag or the computed spline
+launch position. The simulation's trusted `dispatch` constructs `RouteRequest.origin`
+directly from its staged `map_pose.position` at the moment of the route query.
+The wrapper binds that value explicitly as `owner_position`. A moving chase
+dispatch first relocates to the computed spline position; Home does not force
+that relocation and can retain a different `launch_origin`. A pre-call pose
+copied from the runtime map would be stale during an in-call replan. The source
+contract test guards this construction and an actual Home transition proves
+different map and launch positions. Geometry must retain this distinction and
+bind the full typed request, including the owner generation and capability
+source, rather than accepting habitat as evidence of a physically dry location.
+The wrapper supplies no route, liquid or path-result fact by itself.
 
 The witness derives the exact source predicates and
 `Unit::UpdateAllowedPositionZ` capability branch. GROUND with zero capability bits
@@ -103,16 +118,20 @@ guessed config or dry fallback is supplied.
 
 ## Persistence and checks
 
-Native format 21 (`benilla-native-creature-capabilities-v21`) changes profile,
-state, record, checkpoint and source-action digest domains. Older saves/records
-are rejected; there is no migration that invents missing source state. Source
+Native format 22 (`benilla-native-route-owner-v22`) binds the typed route owner
+transcript through profile, state, record, checkpoint and source-action digest
+domains. Format 21 and earlier saves/records are rejected rather than rewriting
+`Spatial(Route)` receipts or inventing an owner witness. The original fixture
+format 2, equipment format and character/profile file schemas are unchanged. Source
 policy IDs and all five hashes are retained in the catalog/profile and each source
 witness binding. Hashes are integrity/version bindings, not source authenticity.
 
 Focused runtime tests cover valid/invalid habitat, requested/effective-row linkage,
-all existing exclusions, contradictory catalogs, real chase request binding,
-unselected compatibility, replay/reopen, rehashed state/receipt forgery and whole
-frame rollback when the provider is missing. Controller tests additionally cover
+all existing exclusions, contradictory catalogs, real chase NearPoint-to-Route
+request binding, Home map/spline origin distinction, current respawn generation,
+unselected compatibility, canonical persistence/replay/reopen, rehashed
+state/receipt forgery and whole-frame rollback/retry when the provider is missing,
+returns an altered inner request, or returns an unsupported/partial route. Controller tests additionally cover
 durable replay, append/publication failures and death/despawn/respawn generation.
 The scalar oracle remains independent evidence for the predicates, not proof of
 real-install geometry or constructor/lifecycle parity.

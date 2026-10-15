@@ -47,8 +47,8 @@ unchanged. Projection failure retains the committed batch without reapplying it.
 The runtime versions its native snapshot/journal schema, policy and digest domains.
 Tick records contain `inputs: Vec<Input>` and source-ordered per-input outcomes.
 Older native saves are rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
-outer native envelope delegates the schema check to the runtime. Format 21 includes
-runtime-owned creature capability source bindings alongside source spell range
+outer native envelope delegates the schema check to the runtime. Format 22 includes
+runtime-owned route owner/position/capability requests and creature capability source bindings alongside source spell range
 receipts, backpack movement receipts and per-NPC event queues through durable
 publication, retry and reopen. Tests verify a
 due NPC notification is not dispatched again after a checkpoint failure.
@@ -268,3 +268,10 @@ policy and geometry revision cannot be confused with the primary-only provider.
 The resulting source point is not a route-validity certificate: remaining source
 path and combat authorities in these component tests are explicitly synthetic.
 No character-entry or production admission path is enabled by this composition.
+
+The route-owner/filter component tests reach the actual typed Route request after
+NearPoint and read actual authored dry products at the current owner map position.
+A successful initial filter still pauses as unavailable route production; no
+staged world, durable store or projection changes escape. Binding faults remain
+terminal simulation failures, while coverage/deadline failures retain exact retry.
+Separate successful-route replay/reopen checks use explicitly synthetic routes.

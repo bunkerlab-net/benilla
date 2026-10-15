@@ -41,3 +41,12 @@ mod source_near_point_empty;
 pub(crate) use source_near_point_empty::{
     geometry_revision as authored_empty_near_point_revision, SourceEmptySelectorNearPointProvider,
 };
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_filter.rs"]
+mod source_route_filter;
+
+#[cfg(test)]
+pub(crate) use source_route_filter::{
+    geometry_revision as authored_route_filter_revision, RouteFilterRequest,
+    SourceRouteFilterProvider,
+};

@@ -10,25 +10,39 @@ struct Spatial<'a, 'b, A: Authority> {
 }
 impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
     fn resolve(&mut self, query: &m::Query) -> Result<m::Reply, m::MotionError> {
+        let capability_binding = match query {
+            m::Query::NearPoint(request) => Some(request.binding),
+            m::Query::Route(request) => Some(request.binding),
+            _ => None,
+        };
+        if let (Some(binding), Some(owner)) = (capability_binding, &self.capabilities) {
+            if binding.identity.creature != self.npc.spawn
+                || binding.identity.map != self.frame.profile.map_id
+                || binding.identity.content.0 != self.frame.profile.content_digest
+                || binding.identity.geometry.0 != self.frame.profile.geometry_revision
+                || binding.now_ms != self.frame.state.now_ms
+                || owner.npc() != self.npc
+            {
+                self.failure = Some(NativeError::AuthorityBinding);
+                return Err(m::MotionError::Invalid(
+                    "creature capability request binding",
+                ));
+            }
+        }
         let query = match (query, &self.capabilities) {
             (m::Query::NearPoint(request), Some(searcher)) => {
-                if request.binding.identity.creature != self.npc.spawn
-                    || request.binding.identity.map != self.frame.profile.map_id
-                    || request.binding.identity.content.0 != self.frame.profile.content_digest
-                    || request.binding.identity.geometry.0 != self.frame.profile.geometry_revision
-                    || request.binding.now_ms != self.frame.state.now_ms
-                    || searcher.npc() != self.npc
-                {
-                    self.failure = Some(NativeError::AuthorityBinding);
-                    return Err(m::MotionError::Invalid(
-                        "creature capability request binding",
-                    ));
-                }
                 MotionQuery::NearPoint(CreatureNearPointRequest {
                     request: request.clone(),
                     searcher: searcher.clone(),
                 })
             }
+            (m::Query::Route(request), Some(owner)) => MotionQuery::Route(CreatureRouteRequest {
+                request: request.clone(),
+                owner: owner.clone(),
+                // Motion dispatch builds origin from its executing map_pose after
+                // any forced relocation; Home alone may have a different launch_origin.
+                owner_position: request.origin,
+            }),
             _ => MotionQuery::Spatial(query.clone()),
         };
         match self.frame.ask(Some(self.npc), Query::SourceMotion(query)) {

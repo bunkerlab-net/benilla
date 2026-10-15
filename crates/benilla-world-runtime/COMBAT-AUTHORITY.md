@@ -92,8 +92,8 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 21 and
-`benilla-native-creature-capabilities-v21`, with separate v21 profile, state,
+This profile/receipt contract uses native format 22 and
+`benilla-native-route-owner-v22`, with separate v22 profile, state,
 record, checkpoint and melee-action/chain hash domains. Published native formats 9, 10 and 11
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source

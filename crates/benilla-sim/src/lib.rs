@@ -73,3 +73,6 @@ pub mod source_atan;
 
 /// Initial source near-point XY candidate only; no collision search or admission.
 pub mod near_point;
+
+/// Ground-only dry source filter prerequisite; no routing or movement admission.
+pub mod route_filter;

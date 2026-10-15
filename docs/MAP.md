@@ -123,12 +123,12 @@
 - **benilla-formats** (lib.rs): anim_data area_poi area_sound area_table area_trigger auction_house bank_bag_slot_prices camera_shakes cfg_categories cfg_configs chain characters chat_channels chr_classes cinematics creature_families creature_sound creature_types creatures dbc death_thud durability elevators emit_timing emote_text emotes environmental_damage exhaustion factions footsteps game_tips gameobjects garble gm_ticket_category ground_effects install item_random_properties item_sounds item_visuals itembagfamily itemclass items itemsets itemsubclass languages light liquid loading_screen lock lock_type macro_icons maps material minimap_translate models npc_greeting packages page_text_material particles pet_stats quest_headers quest_info race_creature_type race_pvp_team race_sound ribbons server_messages sheathe skill_lines sound_entries sound_provider sound_water spell_focus spell_mechanic spell_visual spells stable_slot_prices stationery talents taxi taxi_nodes taxi_path terrain text_filter_lists tga transport_period transports unit_blood value_track vocal_ui_sounds wdl weapon_impact weapon_swing wmo_area world_map_area world_map_continent world_map_overlay world_state_ui wow_ini zone_map
 - **benilla-m2** (lib.rs): error model skin tests track
 - **benilla-mpq** (lib.rs): crypto
-- **benilla-native-geometry-tests** (lib.rs): core planar products source_ground_height source_navigation source_near_point source_near_point_empty source_vmap static_mesh
+- **benilla-native-geometry-tests** (lib.rs): core planar products source_ground_height source_navigation source_near_point source_near_point_empty source_route_filter source_vmap static_mesh
 - **benilla-native-nav** (lib.rs): tests validate
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery storage tests world_setup
 - **benilla-protocol** (lib.rs): auth events guid messages wire world
-- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_capabilities creature_init creature_motion creature_regeneration encounter event_processor facing inventory loot mage_resource near_point npc_melee player_death player_progression player_slow quest quest_lifecycle reputation source_atan source_trig spell_event spell_range starter_init xp
+- **benilla-sim** (lib.rs): classic classic_spell classic_targets creature_ai creature_capabilities creature_init creature_motion creature_regeneration encounter event_processor facing inventory loot mage_resource near_point npc_melee player_death player_progression player_slow quest quest_lifecycle reputation route_filter source_atan source_trig spell_event spell_range starter_init xp
 - **benilla-srp** (lib.rs): vanilla_header
 - **benilla-ui** (lib.rs): bindings_xml civil framexml justify layout loader markup messages order script source status strings toc widget
 - **benilla-visual** (lib.rs): relight

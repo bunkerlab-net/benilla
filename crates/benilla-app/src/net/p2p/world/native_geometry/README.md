@@ -398,3 +398,35 @@ Direct exhaustive reader tests use a longer deadline to inspect every source
 probe. Controller tests separately use the unchanged 2 ms mailbox allowance;
 neither establishes that worst-case search always fits a production frame.
 Deadline or work exhaustion rejects the entire fact without publication.
+
+## Route owner and initial ground filter prerequisite
+
+`SourceRouteFilterProvider` consumes the runtime-owned `CreatureRouteRequest`
+with its exact source capability witness and current map position. Motion dispatch
+constructs that position from the executing creature state after any forced
+relocation; Home's independently computed spline `launch_origin` is not the
+position queried by `PathFinder::updateFilter`.
+
+This separately bound prerequisite owns an actual decoded `DryLiquidSnapshot`.
+It queries that snapshot at the owned position in source order for `IsInWater`
+(all liquids), then `IsUnderwater` (water/ocean). Loaded terrain coverage establishes
+`CanCheckLiquidLevel` through the source's `GetGrid` branch. Missing coverage is
+an unavailable dependency, never a false water predicate. The supported snapshot
+proves exact `NO_WATER`; even an above-water nonzero status cannot be treated as dry.
+The ground capability and observations produce the initial non-playerbot source
+filter (`NAV_GROUND`, no exclusions). All context, pose, inventory, epoch and
+geometry revision bindings remain attached to the internal result.
+
+This result supplies only the initial filter dependency. It does not implement
+persistent chase filters/corridor reuse, normal source smoothing, allowed-Z path
+normalization, route endpoint adaptation or a complete route fact. There is no
+mailbox route admission or character-entry installer for this prerequisite.
+Controller tests deliberately stop at unavailable route production and verify
+that no staged gameplay, store or projection mutation escapes that failure.
+Synthetic successful-route replay tests are labelled separately.
+
+The [full-method source oracle](../../../../../../benilla-native-geometry-tests/tools/route_filter_README.md)
+checks initial filter flags, exact liquid masks and short-circuit ordering. Its
+scalar callbacks do not establish loaded coverage; provider tests obtain those
+observations from the independent product reader. This initial result also does
+not replace `calculate`'s later filter update or persistent wet-to-dry history.

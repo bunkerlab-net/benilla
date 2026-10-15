@@ -11,6 +11,7 @@ mod source_ground_height;
 mod source_navigation;
 mod source_near_point;
 mod source_near_point_empty;
+mod source_route_filter;
 mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
 use self::core::{Corridor, Mailbox};
@@ -423,6 +424,12 @@ pub(crate) use source_vmap::{geometry_revision as authored_vmap_revision, Source
 #[cfg(test)]
 pub(crate) use source_near_point_empty::{
     geometry_revision as authored_empty_near_point_revision, SourceEmptySelectorNearPointProvider,
+};
+
+#[cfg(test)]
+pub(crate) use source_route_filter::{
+    geometry_revision as authored_route_filter_revision, RouteFilterRequest,
+    SourceRouteFilterProvider,
 };
 
 #[cfg(test)]
