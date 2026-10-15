@@ -42,6 +42,30 @@ fn root_order(guid: u64, next: &mut Option<u32>) -> Result<SessionEvent, Error> 
         apply: true,
     })
 }
+fn prepare_range_failure(events: &[n::Event], input: &n::Input) -> Option<(u64, u8)> {
+    let n::Command::Cast { ability, target } = &input.command else {
+        return None;
+    };
+    // Frame::command records a failed prepare immediately before its rejection;
+    // bind this input's callback, never another cast of the same spell in the tick.
+    match events {
+        [n::Event::Spell {
+            cast_id,
+            ability: failed_ability,
+            target: failed_target,
+            event: spell::SpellEvent::Failed(spell::CastFailure::Rejected(reason @ (0x59 | 0x76))),
+        }, n::Event::Rejected(n::Rejection::CastFailed(spell::CastFailure::Rejected(
+            rejected_reason,
+        ))), ..]
+            if ability == failed_ability
+                && target == failed_target
+                && reason == rejected_reason =>
+        {
+            Some((*cast_id, *reason as u8))
+        }
+        _ => None,
+    }
+}
 pub struct NativeProjection {
     player: PlayerId,
     player_guid: u64,
@@ -738,7 +762,9 @@ impl NativeProjection {
             .collect::<BTreeSet<_>>();
         let mut accepted_quest_pending_close = false;
         let mut reward_refusal_presented = false;
-        for event in &record.events {
+        let mut prepare_range_cast = None;
+        let mut range_refusal_presented_at = None;
+        for (event_index, event) in record.events.iter().enumerate() {
             // HandleQuestgiverAcceptQuest closes gossip after AddQuest and
             // CompleteQuest callbacks, before the next input or world update.
             if accepted_quest_pending_close && !matches!(event, n::Event::QuestProgression(_)) {
@@ -761,10 +787,17 @@ impl NativeProjection {
                         .ok_or(Error::StaleProjection)?;
                     accepted_quest_pending_close = *accepted && matches!(input.command, n::Command::AcceptQuest { .. });
                     if let n::Command::Cast { ability, .. } = input.command {
+                        let range_failure = (!*accepted && w.profile().has_source_spell_authority())
+                            .then(|| prepare_range_failure(&record.events[event_index + 1..], input))
+                            .flatten();
+                        if let Some((cast_id, _)) = range_failure {
+                            prepare_range_cast = Some(cast_id);
+                            range_refusal_presented_at = Some(event_index + 2);
+                        }
                         events.push(SessionEvent::CastResult {
                             spell_id: ability,
                             success: *accepted,
-                            reason: None,
+                            reason: range_failure.map(|(_, reason)| reason),
                             arg: None,
                         });
                     }
@@ -794,6 +827,10 @@ impl NativeProjection {
                 // RewardRefused already carries the source error and callback-time offer.
                 n::Event::Rejected(n::Rejection::Quest(_)) if reward_refusal_presented => {
                     reward_refusal_presented = false;
+                },
+                // SpellStart's failed precheck sends CastResult alone (pinned Spell.cpp:3011).
+                n::Event::Rejected(n::Rejection::CastFailed(_)) if range_refusal_presented_at == Some(event_index) => {
+                    range_refusal_presented_at = None;
                 },
                 n::Event::Rejected(r) => events.push(SessionEvent::Notification {
                     text: format!("Native action rejected: {r:?}"),
@@ -874,6 +911,24 @@ impl NativeProjection {
                                 ammo_display_id: None,
                                 item_caster: None,
                             });
+                        }
+                        spell::SpellEvent::Failed(spell::CastFailure::Rejected(reason @ (0x59 | 0x76)))
+                            if w.profile().has_source_spell_authority() => {
+                            if prepare_range_cast == Some(*cast_id) {
+                                prepare_range_cast = None;
+                            } else {
+                                // StopCast sends CastResult before SendInterrupted (Spell.cpp:7857).
+                                events.push(SessionEvent::CastResult {
+                                    spell_id: *ability,
+                                    success: false,
+                                    reason: Some(*reason as u8),
+                                    arg: None,
+                                });
+                                events.push(SessionEvent::SpellFailedOther {
+                                    caster: self.player_guid,
+                                    spell_id: *ability,
+                                });
+                            }
                         }
                         spell::SpellEvent::Failed(_) => {
                             events.push(SessionEvent::SpellFailedOther {
@@ -1630,6 +1685,10 @@ mod source_spell_tests {
 #[cfg(test)]
 #[path = "native_player_slow_tests.rs"]
 mod player_slow_tests;
+
+#[cfg(test)]
+#[path = "native_cast_tests.rs"]
+mod cast_tests;
 
 #[cfg(test)]
 #[path = "native_level_sixty_tests.rs"]

@@ -137,9 +137,18 @@ authority. Failed derived receipt observation rolls back the exact tick/input,
 and failed store publication retains the range failure and pose until one retry.
 Publication retry and reopen preserve the bound pose without reapplying the input,
 dice or cost; journal replay re-derives the same source range receipts.
-The runtime record retains source errors `0x59`/`0x76`; the existing client
-projection still emits generic `SpellFailedOther` and `CastResult` without the
-specific reason. These tests do not claim a precise player-visible range message.
+The client projection preserves source range errors `0x59`/`0x76` in one failed
+`CastResult`. Prepare failure emits only that result, matching pinned CMaNGOS
+[Spell.cpp:3011–3016](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/Spell.cpp#L3011).
+Release failure emits the result before `SpellFailedOther`, following
+[StopCast](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/Spell.cpp#L7857)
+and [SendInterrupted](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Spells/Spell.cpp#L4130).
+There is no duplicate generic result or rejection notification for that failure.
+Same-tick casts of one spell retain distinct reasons and a later valid start across
+failed publication, retry and replay; reopen does not repeat delivered failures.
+The existing successful input-acceptance acknowledgement timing is unchanged;
+this covers failure messages only. These tests establish typed client events, not
+live stock-UI rendering.
 
 Position and orientation enter as one sequenced `Pose`, with initial orientation
 explicitly bound by the native profile. Neither queued input nor blocked/dead

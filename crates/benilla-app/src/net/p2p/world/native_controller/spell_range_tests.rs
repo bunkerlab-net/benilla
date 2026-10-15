@@ -95,6 +95,40 @@ fn failures(events: &[SessionEvent]) -> usize {
         .filter(|e| matches!(e, SessionEvent::SpellFailedOther { spell_id: 133, .. }))
         .count()
 }
+#[derive(Debug, PartialEq, Eq)]
+enum CastProjection {
+    Result(bool, Option<u8>),
+    Start,
+    Go,
+    FailedOther,
+}
+fn cast_projection(events: &[SessionEvent]) -> Vec<CastProjection> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            SessionEvent::CastResult {
+                spell_id: 133,
+                success,
+                reason,
+                arg,
+            } => {
+                assert_eq!(*arg, None);
+                Some(CastProjection::Result(*success, *reason))
+            }
+            SessionEvent::SpellStart { spell_id: 133, .. } => Some(CastProjection::Start),
+            SessionEvent::SpellGo { spell_id: 133, .. } => Some(CastProjection::Go),
+            SessionEvent::SpellFailedOther { spell_id: 133, .. } => {
+                Some(CastProjection::FailedOther)
+            }
+            _ => None,
+        })
+        .collect()
+}
+fn no_rejection_notification(events: &[SessionEvent]) {
+    assert!(!events.iter().any(|event| matches!(event,
+        SessionEvent::Notification { text } if text.starts_with("Native action rejected:")
+    )));
+}
 fn no_projected_damage(events: &[SessionEvent]) {
     assert!(!events.iter().any(|e| matches!(
         e,
@@ -173,15 +207,29 @@ fn source_range_prepare_bounds_preserve_los_range_facing_and_power_precedence() 
         assert_eq!(c.world.state().npcs[&2].health, health);
         assert!(c.world.last_tick().unwrap().draws.is_empty());
         no_projected_damage(&out.events);
-        assert_eq!(failures(&out.events), usize::from(error.is_some()));
-        assert!(out.events.iter().any(|e| matches!(
-            e,
-            SessionEvent::CastResult {
-                spell_id: 133,
-                reason: None,
-                ..
-            }
-        )));
+        if matches!(error, Some(0x59 | 0x76)) {
+            // Pinned Spell.cpp SpellStart: failed prepare only sends SendCastResult.
+            assert_eq!(
+                cast_projection(&out.events),
+                vec![CastProjection::Result(
+                    false,
+                    error.map(|code: u32| u8::try_from(code).unwrap()),
+                )]
+            );
+            no_rejection_notification(&out.events);
+        } else {
+            // Other rejection presentation remains outside the range-only boundary.
+            assert_eq!(failures(&out.events), usize::from(error.is_some()));
+            assert!(out.events.iter().any(|e| matches!(
+                e,
+                SessionEvent::CastResult {
+                    spell_id: 133,
+                    success,
+                    reason: None,
+                    arg: None,
+                } if *success == error.is_none()
+            )));
+        }
         if let Some(code) = error {
             assert!(c.world.last_tick().unwrap().events.iter().any(|e| matches!(
                 e,
@@ -262,12 +310,27 @@ fn source_range_release_uses_current_pose_and_capped_or_proportional_tolerance()
         let health = c.world.state().npcs[&2].health;
         c.receive(cast_command(&c)).unwrap();
         let start = pump_to(&mut c, 2);
-        assert_eq!(failures(&start), 0);
+        assert_eq!(
+            cast_projection(&start),
+            vec![CastProjection::Result(true, None), CastProjection::Start]
+        );
         c.receive(move_to([moved, 0.0, 0.0])).unwrap();
         let out = c.pump(c.tick_duration());
         assert!(out.pause.is_none(), "{:?}", out.pause);
         assert!(out.saved.is_some());
         assert_eq!(failures(&out.events), usize::from(!within));
+        assert_eq!(
+            cast_projection(&out.events),
+            match range {
+                Within => vec![CastProjection::Go],
+                TooFar | TooClose => vec![
+                    CastProjection::Result(false, Some(if range == TooFar { 0x59 } else { 0x76 })),
+                    CastProjection::FailedOther,
+                ],
+                _ => unreachable!(),
+            }
+        );
+        no_rejection_notification(&out.events);
         assert_eq!(
             out.events
                 .iter()
@@ -323,8 +386,14 @@ fn source_range_release_uses_current_pose_and_capped_or_proportional_tolerance()
 
 #[test]
 fn source_range_receipt_and_publication_faults_preserve_pose_journal_and_once_only_failure() {
+    for (target, moved, code) in [(33.0, -3.000_004, 0x59), (10.0, 2.000_001, 0x76)] {
+        release_failure_retries(target, moved, code);
+    }
+}
+
+fn release_failure_retries(target: f32, moved: f32, code: u8) {
     let h = Harness::new();
-    let data = profile(5.0, 30.0, 33.0, 10);
+    let data = profile(5.0, 30.0, target, 10);
     let observed = Arc::new(Mutex::new(Observed::default()));
     let fail = Arc::new(AtomicBool::new(false));
     let mut a = authority(observed.clone());
@@ -341,12 +410,13 @@ fn source_range_receipt_and_publication_faults_preserve_pose_journal_and_once_on
         .unwrap();
     c.initial_events().unwrap();
     let mut replay = c.world.clone();
+    let mut replay_projection =
+        NativeProjection::new(&replay, replay.state().player, &Catalog).unwrap();
     let generation = c.store.generation();
     let mana = c.world.state().resources.caster.mana;
     let health = c.world.state().npcs[&2].health;
     c.receive(cast_command(&c)).unwrap();
     pump_to(&mut c, 2);
-    let moved = -3.000_004;
     c.receive(move_to([moved, 0.0, 0.0])).unwrap();
     let before = c.world.checkpoint().unwrap();
     let records_before = c.world.records().to_vec();
@@ -401,26 +471,50 @@ fn source_range_receipt_and_publication_faults_preserve_pose_journal_and_once_on
                 e,
                 n::Event::Spell {
                     ability: 133,
-                    event: spell::SpellEvent::Failed(spell::CastFailure::Rejected(0x59)),
+                    event: spell::SpellEvent::Failed(spell::CastFailure::Rejected(value)),
                     ..
-                }
+                } if *value == u32::from(code)
             ))
             .count(),
         1
     );
     let records = c.world.records().to_vec();
-    replay.replay(&records).unwrap();
+    let mut replay_events = Vec::new();
+    for record in &records {
+        replay.replay(std::slice::from_ref(record)).unwrap();
+        replay_events.extend(replay_projection.advance(&replay).unwrap());
+    }
+    assert_eq!(
+        cast_projection(&replay_events),
+        vec![
+            CastProjection::Result(true, None),
+            CastProjection::Start,
+            CastProjection::Result(false, Some(code)),
+            CastProjection::FailedOther,
+        ]
+    );
+    no_rejection_notification(&replay_events);
     let digest = c.world.state_digest();
     assert_eq!(replay.state_digest(), digest);
     let observations = observed.lock().unwrap().derived.len();
     fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
-    c.retry_checkpoint().unwrap();
+    let saved = c.retry_checkpoint().unwrap();
+    assert_eq!(saved.tick, 3);
+    assert_eq!(saved.generation, generation + 1);
     assert_eq!(c.store.generation(), generation + 1);
     assert_eq!(c.world.state_digest(), digest);
     assert_eq!(c.position_xyz(), [0.0; 3]);
     let out = c.pump(Duration::ZERO);
     assert_eq!(out.ticks, 0);
-    assert_eq!(failures(&out.events), 1);
+    // Pinned Spell.cpp StopCast sends CastResult before SendInterrupted's FailedOther.
+    assert_eq!(
+        cast_projection(&out.events),
+        vec![
+            CastProjection::Result(false, Some(code)),
+            CastProjection::FailedOther,
+        ]
+    );
+    no_rejection_notification(&out.events);
     no_projected_damage(&out.events);
     assert!(!out
         .events
@@ -442,13 +536,209 @@ fn source_range_receipt_and_publication_faults_preserve_pose_journal_and_once_on
     assert_eq!(reopened.world.state_digest(), digest);
     assert_eq!(reopened.position_xyz(), [moved, 0.0, 0.0]);
     assert_eq!(reopened.facing(), 0.75);
-    assert_eq!(failures(&reopened.initial_events().unwrap()), 0);
+    assert!(cast_projection(&reopened.initial_events().unwrap()).is_empty());
     let out = pump_to(&mut reopened, 4);
-    assert_eq!(failures(&out), 0);
+    assert!(cast_projection(&out).is_empty());
     no_projected_damage(&out);
     assert!(!out
         .iter()
         .any(|e| matches!(e, SessionEvent::SpellGo { .. })));
     replay.step(4, None, &mut source::spatial_only()).unwrap();
     assert_eq!(reopened.world.state_digest(), replay.state_digest());
+}
+
+#[test]
+fn same_tick_range_failures_keep_each_reason_and_later_start_across_retry_replay_and_reopen() {
+    let h = Harness::new();
+    let data = profile(5.0, 30.0, 33.0, 10);
+    let observed = Arc::new(Mutex::new(Observed::default()));
+    let mut c = h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7,
+            },
+            data.clone(),
+            authority(observed.clone()),
+        )
+        .unwrap();
+    c.initial_events().unwrap();
+    let mut replay = c.world.clone();
+    let mut replay_projection =
+        NativeProjection::new(&replay, replay.state().player, &Catalog).unwrap();
+    let mana = c.world.state().resources.caster.mana;
+    let health = c.world.state().npcs[&2].health;
+    let generation = c.store.generation();
+    // One spell ID, three different executing casts: too far, too close, then valid.
+    for position in [-1.0, 26.0, 1.0] {
+        c.receive(move_to([position, 0.0, 0.0])).unwrap();
+        c.receive(cast_command(&c)).unwrap();
+    }
+    fs::write(
+        h.path().join(".world-checkpoint.pending"),
+        b"authored prepare range save fault",
+    )
+    .unwrap();
+    let out = c.pump(c.tick_duration());
+    assert_eq!(out.ticks, 1);
+    assert!(out.events.is_empty());
+    assert!(out.saved.is_none());
+    assert!(matches!(
+        out.pause.unwrap().kind,
+        PauseKind::Checkpoint {
+            requires_reopen: false
+        }
+    ));
+    assert_eq!(c.world.state().next_sequence, 6);
+    assert_eq!(c.world.state().next_cast_id, 4);
+    assert_eq!(c.world.state().casts.len(), 1);
+    assert!(c.world.state().casts.contains_key(&3));
+    assert_eq!(c.world.state().resources.caster.mana, mana);
+    assert_eq!(c.world.state().resources.caster.last_mana_use_ms, None);
+    assert_eq!(c.world.state().npcs[&2].health, health);
+    assert!(c.world.last_tick().unwrap().draws.is_empty());
+    assert_eq!(c.world.state().position, fixture::point(1.0));
+    assert_eq!(c.position_xyz(), [0.0; 3]);
+    assert_eq!(c.facing(), 0.0);
+    assert_eq!(c.store.generation(), generation);
+    {
+        let observed = observed.lock().unwrap();
+        assert_eq!(
+            range_receipts(&observed)
+                .iter()
+                .map(|(context, result)| (context.cast_id, context.phase, *result))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, n::SourceSpellPhase::Prepare, n::SpellRangeResult::TooFar),
+                (
+                    2,
+                    n::SourceSpellPhase::Prepare,
+                    n::SpellRangeResult::TooClose
+                ),
+                (3, n::SourceSpellPhase::Prepare, n::SpellRangeResult::Within),
+            ]
+        );
+    }
+    let expected = vec![
+        CastProjection::Result(false, Some(0x59)),
+        CastProjection::Result(false, Some(0x76)),
+        CastProjection::Result(true, None),
+        CastProjection::Start,
+    ];
+    replay.replay(c.world.records()).unwrap();
+    let replay_events = replay_projection.advance(&replay).unwrap();
+    assert_eq!(cast_projection(&replay_events), expected);
+    no_rejection_notification(&replay_events);
+    let digest = c.world.state_digest();
+    assert_eq!(replay.state_digest(), digest);
+    let observations = observed.lock().unwrap().derived.len();
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    let saved = c.retry_checkpoint().unwrap();
+    assert_eq!(saved.tick, 1);
+    assert_eq!(saved.generation, generation + 1);
+    assert_eq!(c.store.generation(), generation + 1);
+    assert_eq!(c.world.state_digest(), digest);
+    assert_eq!(c.position_xyz(), [0.0; 3]);
+    let out = c.pump(Duration::ZERO);
+    assert_eq!(out.ticks, 0);
+    assert!(out.pause.is_none());
+    assert!(out.saved.is_none());
+    assert_eq!(cast_projection(&out.events), expected);
+    no_rejection_notification(&out.events);
+    no_projected_damage(&out.events);
+    assert_eq!(
+        out.events
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::ObjectMove { guid, position, .. } if *guid == c.player_guid() => {
+                    Some(*position)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        vec![[-1.0, 0.0, 0.0], [26.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
+    );
+    assert_eq!(c.position_xyz(), [1.0, 0.0, 0.0]);
+    assert_eq!(c.facing(), 0.75);
+    assert_eq!(observed.lock().unwrap().derived.len(), observations);
+    assert!(c.world.records().is_empty());
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    drop(c);
+    let mut reopened = h
+        .enter(Entry::Open { world: [8; 16] }, data, authority(observed))
+        .unwrap();
+    assert_eq!(reopened.world.state_digest(), digest);
+    assert_eq!(reopened.position_xyz(), [1.0, 0.0, 0.0]);
+    assert_eq!(
+        cast_projection(&reopened.initial_events().unwrap()),
+        vec![CastProjection::Start]
+    );
+    let out = pump_to(&mut reopened, 3);
+    assert_eq!(cast_projection(&out), vec![CastProjection::Go]);
+    no_rejection_notification(&out);
+    no_projected_damage(&out);
+    assert_eq!(reopened.world.state().resources.caster.mana, mana - 10);
+    assert_eq!(reopened.world.state().next_sequence, 6);
+    for tick in 2..=3 {
+        replay
+            .step(tick, None, &mut source::spatial_only())
+            .unwrap();
+    }
+    assert_eq!(reopened.world.state_digest(), replay.state_digest());
+}
+
+#[test]
+fn final_same_spell_input_rejection_does_not_steal_previous_cast_release_reason() {
+    let h = Harness::new();
+    let observed = Arc::new(Mutex::new(Observed::default()));
+    let mut c = h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7,
+            },
+            profile(5.0, 30.0, 33.0, 10),
+            authority(observed.clone()),
+        )
+        .unwrap();
+    c.initial_events().unwrap();
+    let mana = c.world.state().resources.caster.mana;
+    c.receive(cast_command(&c)).unwrap();
+    pump_to(&mut c, 2);
+    c.receive(move_to([-3.000_004, 0.0, 0.0])).unwrap();
+    c.receive(cast_command(&c)).unwrap();
+    let out = c.pump(c.tick_duration());
+    assert!(out.pause.is_none(), "{:?}", out.pause);
+    // The final input is rejected before the scheduler releases the older cast.
+    assert_eq!(
+        cast_projection(&out.events),
+        vec![
+            CastProjection::Result(false, None),
+            CastProjection::Result(false, Some(0x59)),
+            CastProjection::FailedOther,
+        ]
+    );
+    assert_eq!(
+        out.events
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::Notification { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        vec!["Native action rejected: AlreadyCasting"]
+    );
+    no_projected_damage(&out.events);
+    assert_eq!(c.world.state().next_sequence, 3);
+    assert_eq!(c.world.state().next_cast_id, 2);
+    assert_eq!(c.world.state().resources.caster.mana, mana);
+    assert!(c.world.state().casts.is_empty());
+    let observed = observed.lock().unwrap();
+    let receipts = range_receipts(&observed);
+    assert_eq!(receipts.len(), 2);
+    assert_eq!(receipts[1].0.cast_id, 1);
+    assert_eq!(receipts[1].0.phase, n::SourceSpellPhase::ReleaseCheck);
+    assert_eq!(receipts[1].1, n::SpellRangeResult::TooFar);
+    drop(observed);
+    assert!(c.pump(Duration::ZERO).events.is_empty());
 }
