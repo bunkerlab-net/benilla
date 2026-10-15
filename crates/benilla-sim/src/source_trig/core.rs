@@ -49,7 +49,8 @@ pub(super) fn sin_cos<A: Arithmetic>(radians: u32) -> Result<[u32; 2], Error> {
             polynomial::<A>(x, x * x, 1, false),
         ]);
     }
-    // The public finite |radians| <= float(2*pi) bound is well below 120.
+    // Both public domains fit source reduce_fast: the widest magnitude is
+    // 0x4116cbe4 (9.424777984619140625), whose abstop12 0x411 is below 0x42f (120).
     // Source TOINT_INTRINSICS=0: truncate toward zero, then signed arithmetic shift.
     let n = (A::truncate(x * A::binary64(HPI_INV)).ok_or(Error::Reduction)? + 0x80_0000) >> 24;
     let x = x - A::integer(n) * A::binary64(HPI);

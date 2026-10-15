@@ -699,3 +699,21 @@ same pinned CMaNGOS revision. Its software IEEE RNE products and additions are
 separate, its angle is raw normalized source bits, and its source clamp follows
 the coordinate sums. It supplies no collision search, ground proof, runtime
 activation or production admission.
+
+
+## Binary64 atan and empty-list selector prerequisite
+
+[`source_atan`](SOURCE-ATAN.md) translates the bounded nonnegative-widened-binary32
+branch of GNU libc 2.41 binary64 atan, including its IBM Accurate Mathematical
+Library coefficient table and non-FMA double-length macros. The core/table retain
+LGPL-2.1-or-later, Copyright (C) 2001–2025 Free Software Foundation, Inc. Its
+original notices/license, five full-file hashes, exact software arithmetic and
+independent original-C oracle are linked in the contract.
+
+[`near_point::selector`](NEAR-POINT-SELECTOR.md) translates the pinned CMaNGOS
+`ObjectPosSelector` constructor and empty-list stepping behavior, including the
+source double `0.01` literal and plus-side tie order. A separately named fallback
+XY/trig profile accepts raw angles from -PI through binary32(TAU+PI), without
+changing existing initial-candidate or VMap policies. These are numerical
+prerequisites only; sequential loaded-height/LOS fallback composition, complete
+OwnerPathFinder behavior and production admission remain separate.

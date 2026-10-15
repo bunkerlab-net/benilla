@@ -33,12 +33,21 @@ are documented in `crates/benilla-sim/FACING.md`. The combined program remains
 GPL-3.0-or-later.
 
 The shared bounded sinf/cosf core used by VMap Euler transforms and initial
-near-point arithmetic derives from GNU libc 2.41, Copyright (C) 2018–2025 Free
+and separately bounded fallback near-point arithmetic derives from GNU libc 2.41, Copyright (C) 2018–2025 Free
 Software Foundation, Inc., under LGPL-2.1-or-later. Preserve the complete notice
 and license in `crates/benilla-sim/src/source_trig/GLIBC-NOTICE.txt` and
 `crates/benilla-sim/src/source_trig/GLIBC-LICENSE.txt`. Exact sources and bounded
 native/software profiles are documented in `crates/benilla-sim/SOURCE-TRIG.md`.
 The original VMap copies of the notice and license remain available too.
+
+The selected binary64 atan core and coefficient table derive from GNU libc 2.41's
+IBM Accurate Mathematical Library, Copyright (C) 2001–2025 Free Software
+Foundation, Inc., under LGPL-2.1-or-later. Preserve the notice and license in
+`crates/benilla-sim/src/source_atan/GLIBC-NOTICE.txt` and
+`crates/benilla-sim/src/source_atan/GLIBC-LICENSE.txt`. Its bounded software profile
+and source identities are documented in `crates/benilla-sim/SOURCE-ATAN.md`.
+The CMaNGOS empty-list near-point selector uses that numeric dependency; this
+arithmetic prerequisite does not establish full fallback or pathfinding integration.
 
 The matching build source, locked dependency sources, license texts, build scripts,
 and build information are provided through the exact download and SHA-256 in

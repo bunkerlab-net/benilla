@@ -39,6 +39,10 @@ struct WorldObject {
 static bool finite(uint32_t word) { return (word & 0x7f800000u) != 0x7f800000u; }
 static bool positive(uint32_t word) { return !(word >> 31) || word == 0x80000000u; }
 static bool signed_angle(uint32_t word) { return finite(word) && (word & 0x7fffffffu) <= 0x40c90fdbu; }
+static bool fallback_angle(uint32_t word) {
+    const uint32_t limit = word >> 31 ? 0x40490fdbu : 0x4116cbe4u;
+    return finite(word) && (word & 0x7fffffffu) <= limit;
+}
 static bool coordinate(uint32_t word) { return finite(word) && (word & 0x7fffffffu) <= 0x46fff000u; }
 static bool output(uint32_t word) {
     uint8_t bytes[4] = {uint8_t(word), uint8_t(word >> 8), uint8_t(word >> 16), uint8_t(word >> 24)};
@@ -46,8 +50,11 @@ static bool output(uint32_t word) {
 }
 int main(int argc, char** argv) {
     if (argc != 2) return 1;
-    const bool trig = std::strcmp(argv[1], "trig") == 0;
-    if (!trig && std::strcmp(argv[1], "candidate") != 0) return 1;
+    const bool fallback = std::strcmp(argv[1], "fallback-trig") == 0 ||
+                          std::strcmp(argv[1], "fallback-candidate") == 0;
+    const bool trig = std::strcmp(argv[1], "trig") == 0 ||
+                      std::strcmp(argv[1], "fallback-trig") == 0;
+    if (!trig && !fallback && std::strcmp(argv[1], "candidate") != 0) return 1;
     if (std::fesetround(FE_TONEAREST) != 0 || std::fegetround() != FE_TONEAREST) return 2;
     volatile float subnormal = value(1), one = 1.0f;
     if (bits(subnormal * one) != 1 || bits(float(MAP_HALFSIZE - 0.5)) != 0x46855455u) return 2;
@@ -62,12 +69,13 @@ int main(int argc, char** argv) {
             words[i] = uint32_t(bytes[i * 4]) | uint32_t(bytes[i * 4 + 1]) << 8 |
                        uint32_t(bytes[i * 4 + 2]) << 16 | uint32_t(bytes[i * 4 + 3]) << 24;
         if (trig) {
-            if (!signed_angle(words[0])) return 3;
+            if (!(fallback ? fallback_angle(words[0]) : signed_angle(words[0]))) return 3;
             if (!output(words[0]) || !output(bits(source_sin(value(words[0])))) ||
                 !output(bits(source_cos(value(words[0]))))) return 5;
         } else {
             if (!coordinate(words[0]) || !coordinate(words[1]) || !finite(words[2]) ||
-                !positive(words[2]) || !signed_angle(words[3]) || !positive(words[3])) return 4;
+                !positive(words[2]) || !(fallback ? fallback_angle(words[3]) :
+                signed_angle(words[3]) && positive(words[3]))) return 4;
             float x, y;
             WorldObject::GetNearPoint2dAt(value(words[0]), value(words[1]), x, y, value(words[2]), value(words[3]));
             for (uint32_t word : words) if (!output(word)) return 5;

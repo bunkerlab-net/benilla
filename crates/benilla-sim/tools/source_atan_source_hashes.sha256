@@ -1,0 +1,13 @@
+# Full-file SHA-256 after CRLF-to-LF normalization only.
+786f7cf3abc44135498c253da678569247f40a13e7158886b9ad065185e7ca5f  glibc/sysdeps/ieee754/dbl-64/s_atan.c
+f06aa3a847e7fdbb1e9f0969a8a3d32ce8cb33165612e8434aadb1f3ee3a9f6e  glibc/sysdeps/ieee754/dbl-64/dla.h
+7d8a1e3c8a0769ca4e778704fc32f0517207ec7ce79cc494217927933fdef9c5  glibc/sysdeps/ieee754/dbl-64/mydefs.h
+dcc2d24c0e5c83de489cae4143e4753f73702b04ed905b183c0da493647bf4ab  glibc/sysdeps/ieee754/dbl-64/uatan.tbl
+a4c3b10f0b81fbf902f636801f871b53763c5f3b0e5df6c68334dd3197c162de  glibc/sysdeps/ieee754/dbl-64/atnat.h
+81835bbb0a0239385fbb294167ecadb5c8fb1b8f3fe47493b1a33a24a288c90e  glibc/math/math-underflow.h
+8c8a09741ae237e51daf514b5ae8fa47ed105aa3f85b3c01244ebdba37acbfcc  glibc/sysdeps/generic/math-barriers.h
+dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551  glibc/COPYING.LIB
+e4d85d02d78f975e5bf1912bb1a9d7677b5920ecee9fdf9c5928e4f6a5458b8b  cmangos/src/game/Maps/ObjectPosSelector.cpp
+777f09cec2af7a5222383de444740a6c594fc5af4140362489d2556bef1b02f7  cmangos/src/game/Maps/ObjectPosSelector.h
+8a5433945cf1a8016afa7ce9618cd0b2140721961acf05c44dee2b47cbff3491  cmangos/src/game/Entities/ObjectDefines.h
+5d07c692b1a729cf8e4045812c5633e096c8d47c81b2530c641b2ee4c0aefc32  cmangos/src/shared/Common.h

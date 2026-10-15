@@ -8,7 +8,12 @@ mod software;
 
 pub const NATIVE_POLICY: &str = "glibc-2.41-bounded-sincos-native-unfused-rne-v1";
 pub const SOFT_POLICY: &str = "glibc-2.41-bounded-sincos-soft-unfused-rne-v1";
+pub const FALLBACK_SOFT_POLICY: &str = "glibc-2.41-near-point-fallback-sincos-soft-unfused-rne-v1";
 pub const TAU_BITS: u32 = 0x40c9_0fdb;
+/// Inclusive raw fallback-angle lower bound: -binary32 PI.
+pub const FALLBACK_MIN_ANGLE_BITS: u32 = 0xc049_0fdb;
+/// Inclusive raw fallback-angle upper bound: RNE32(binary32 TAU + binary32 PI).
+pub const FALLBACK_MAX_ANGLE_BITS: u32 = 0x4116_cbe4;
 /// Pinned s_cosf.c, s_sincosf.h, s_sincosf_data.c, s_sinf.c, sincosf_poly.h.
 pub const SOURCE_SHA256: [&str; 5] = [
     "a6e8c6c2da36b0b859bd83d4c6725667f55ca2d23488dcafb803c23023e55694",
@@ -55,5 +60,26 @@ pub fn sin_cos_radians_bits_native(angle: u32) -> Result<[u32; 2], Error> {
 /// The bounded source reducer truncates to integer toward zero, as C requires.
 pub fn sin_cos_radians_bits_soft(angle: u32) -> Result<[u32; 2], Error> {
     validate(angle)?;
+    core::sin_cos::<software::Software>(angle)
+}
+
+/// Software RNE [sine, cosine] for the source near-point fallback's raw angle.
+/// Accepts exactly [-binary32 PI, RNE32(binary32 TAU + binary32 PI)], including
+/// signed zero and subnormals. The caller supplies the already-rounded source
+/// base-angle plus selector-offset sum; this function never normalizes it.
+/// Existing ±TAU APIs retain their separate, unchanged admission policies.
+pub fn sin_cos_fallback_radians_bits_soft(angle: u32) -> Result<[u32; 2], Error> {
+    let magnitude = angle & 0x7fff_ffff;
+    if magnitude >= 0x7f80_0000 {
+        return Err(Error::NonFinite);
+    }
+    let limit = if angle & 0x8000_0000 != 0 {
+        FALLBACK_MIN_ANGLE_BITS & 0x7fff_ffff
+    } else {
+        FALLBACK_MAX_ANGLE_BITS
+    };
+    if magnitude > limit {
+        return Err(Error::Angle);
+    }
     core::sin_cos::<software::Software>(angle)
 }

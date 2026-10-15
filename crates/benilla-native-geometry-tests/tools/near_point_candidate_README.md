@@ -99,3 +99,57 @@ fixtures and digests. `--receipt-dir PATH` optionally saves compiler versions,
 the compiled CMaNGOS harness, symbol lists and disassembly. The existing VMap
 202-case and 1,292,314-sample degree-trig fixtures and digest are untouched;
 the Python tests pin their original fixture-file hashes.
+
+## Separate raw fallback-angle numeric experiment
+
+The same original source bodies also supply separately named `fallback-trig`
+and `fallback-candidate` modes. They observe only numeric trig and
+`GetNearPoint2dAt`; they do not execute a selector or the `GetNearPointAt` fallback
+search. The source method and glibc source package are unchanged, and the six
+original fixture files retain their previous byte hashes. The original `trig`
+and `candidate` wrapper domains remain unchanged.
+
+Both new modes admit raw finite radians in the asymmetric inclusive interval
+`[-binary32 PI, RNE32(binary32 TAU + binary32 PI)]`, numeric endpoints
+`0xc0490fdb` and `0x4116cbe4`. This is the final angle domain for a normalized base
+plus an offset in ±binary32 PI. No normalization or modulo is applied. The
+candidate's XY and distance limits are identical to the initial experiment.
+These domain checks are authored wrapper restrictions, not new behavior inserted
+into the unchanged source method.
+
+The upper endpoint is exactly 9.424777984619140625, less than 10, and has
+`abstop12 == 0x411 < 0x42f == abstop12(120.0f)`. The scaled source 2/PI coefficient
+is below `2^24`, making `abs(x * coefficient) < 10 * 2^24`; integer truncation
+and the subsequent `+0x800000` are strictly within signed int32 bounds. Thus
+the admitted domain is wholly within the original fast-reducer branch. The
+Python guard tests check the exact dyadic endpoint sum, source top-bit threshold
+and integer bounds. Exception flags and arbitrary libm inputs remain out of scope.
+
+Additional files in `fixtures/near_point_candidate/`:
+
+- `fallback-trig-cases`: 251 vectors, columns raw angle, sine, cosine
+- `fallback-candidate-cases`: 7,200 vectors, columns target X/Y, distance, raw
+  angle, candidate X/Y
+- `fallback-trig-rejections`: 11 rejected raw angles
+- `fallback-candidate-rejections`: 38 rejected X/Y, distance, raw-angle tuples
+- `fallback-trig-grid`: 84,602 records, count and SHA-256 of little-endian
+  `u32(raw_angle,sine,cosine)`
+- `fallback-candidate-grid`: 32,768 records, seed and SHA-256 of little-endian
+  `u32(x,y,distance,raw_angle,candidate_x,candidate_y)`
+
+For the trig digest, emit the positive domain first: unsigned words from zero
+through `0x4116cbe4` with step 65521, then binary32 `step / 4096` for steps 0
+through 38603, then the upper endpoint. Next emit the negative domain with sign
+bit set: unsigned magnitudes from zero through `0x40490fdb` with step 65521, then
+binary32 `step / 4096` for steps 0 through 12867, then the lower endpoint. Do not
+deduplicate. For the candidate digest, use the same four-word xorshift32 draw
+order and coordinate/distance mapping as the initial experiment, but seed
+`0x4e504642`. Preserve the angle draw's sign; its magnitude is modulo
+`0x40490fdc` for negative draws and `0x4116cbe5` otherwise.
+
+The upper raw endpoint emits sine `0xb2ccde2e` and cosine `0xbf800000`.
+Subtracting binary32 TAU first yields angle `0x40490fda` and different sine bits.
+A negative minimum-subnormal raw angle with maximum distance at zero XY emits
+`46855455,b4ffffff`. These witnesses prevent silently normalizing or discarding
+raw tiny angles. The normal and sanitizer commands above check both original
+and fallback numeric fixtures, with no skipped compilation or source checks.

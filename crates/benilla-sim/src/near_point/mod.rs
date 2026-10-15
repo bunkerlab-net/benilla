@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic Object.cpp/GridDefines.h, Copyright CMaNGOS contributors,
 // GPL-2.0-or-later, revision 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f.
-//! Initial WorldObject::GetNearPoint2dAt candidate under a bounded numeric profile.
+//! WorldObject::GetNearPoint2dAt candidates under separate bounded numeric profiles.
 //! No collision search, radii, height, LOS, visibility, PathFinder or admission.
-//! The caller supplies raw normalized radians, never an angle inferred from Real.
+//! The caller supplies the actual raw radians, never an angle inferred from Real.
 use crate::{facing::soft::S, source_trig};
 
 pub const POLICY: &str = "cmangos-8ec338a1-initial-near-point-glibc-2.41-soft-rne-v1";
+pub const FALLBACK_POLICY: &str = "cmangos-8ec338a1-fallback-near-point-glibc-2.41-soft-rne-v1";
 /// LF-normalized pinned Object.cpp and GridDefines.h, respectively.
 pub const SOURCE_SHA256: [&str; 2] = [
     "410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b",
@@ -80,13 +81,46 @@ pub fn candidate_bits(target_xy: [u32; 2], distance: u32, angle: u32) -> Result<
         return Err(Error::Angle);
     }
     let [sin, cos] = source_trig::sin_cos_radians_bits_soft(angle).map_err(Error::Trig)?;
+    Ok(candidate_from_trig(target, distance, [sin, cos]))
+}
+
+/// Fallback near-point XY candidate from the already-rounded raw source angle.
+/// XY and distance have exactly the same domains as [`candidate_bits`]. The
+/// finite angle domain is [-binary32 PI, RNE32(binary32 TAU + binary32 PI)].
+/// The caller must supply source RNE32(base-angle + selector-offset) directly;
+/// there is no modulo, normalization, clamping or angle reconstruction here.
+/// This numeric helper does not select an offset or implement fallback search.
+pub fn fallback_candidate_bits(
+    target_xy: [u32; 2],
+    distance: u32,
+    angle: u32,
+) -> Result<[u32; 2], Error> {
+    let target = [coordinate(target_xy[0])?, coordinate(target_xy[1])?];
+    let distance = finite(distance)?;
+    if distance < S::ZERO {
+        return Err(Error::Distance);
+    }
+    let angle_value = finite(angle)?;
+    if angle_value < S::bits(source_trig::FALLBACK_MIN_ANGLE_BITS)
+        || angle_value > S::bits(source_trig::FALLBACK_MAX_ANGLE_BITS)
+    {
+        return Err(Error::Angle);
+    }
+    let trig = source_trig::sin_cos_fallback_radians_bits_soft(angle).map_err(Error::Trig)?;
+    Ok(candidate_from_trig(target, distance, trig))
+}
+
+fn candidate_from_trig(target: [S; 2], distance: S, [sin, cos]: [u32; 2]) -> [u32; 2] {
     // Object.cpp::GetNearPoint2dAt: x = posX + (distance2d * cosf(absAngle)).
     let dx = distance * S::bits(cos);
     let x = target[0] + dx;
     let dy = distance * S::bits(sin);
     let y = target[1] + dy;
-    Ok([normalize_coordinate(x).raw(), normalize_coordinate(y).raw()])
+    [normalize_coordinate(x).raw(), normalize_coordinate(y).raw()]
 }
 
 /// Source original-candidate acceptance arithmetic; actual geometry is separate.
 pub mod primary;
+
+/// Bounded source selector arithmetic; actual candidate geometry is separate.
+pub mod selector;

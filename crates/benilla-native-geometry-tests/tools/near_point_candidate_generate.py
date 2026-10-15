@@ -30,6 +30,13 @@ DYADIC_DENOMINATOR = 16384
 DYADIC_STEPS = 102943  # floor(binary32 TAU * 16384)
 SEED = 0x4E504341
 CANDIDATE_SAMPLES = 32768
+FALLBACK_MIN = 0xC0490FDB
+FALLBACK_MAX = 0x4116CBE4
+FALLBACK_GRID_STEP = 65521
+FALLBACK_DYADIC_DENOMINATOR = 4096
+FALLBACK_DYADIC_MIN_STEPS = 12867
+FALLBACK_DYADIC_MAX_STEPS = 38603
+FALLBACK_SEED = 0x4E504642
 GLIBC_NAMES = ('sincosf_poly.h', 's_sincosf.h', 's_sincosf_data.c', 's_sinf.c', 's_cosf.c')
 
 
@@ -285,6 +292,111 @@ def rejected_inputs():
     return trig, candidate
 
 
+
+def fallback_angle(word):
+    return (word & ~SIGN) <= (FALLBACK_MIN & ~SIGN if word & SIGN else FALLBACK_MAX)
+
+
+def fallback_trig_edges():
+    centers = [0, 1, 0x007FFFFF, 0x00800000, 0x39800000, 0x3F400000]
+    centers += [bits(n * float.fromhex('0x1.921fb54442d18p1') / 4) for n in range(1, 13)]
+    centers += [bits(v) for v in (1e-20, 1e-10, 0.1, 1.0, 3.0, 6.0, 8.0, 9.0)]
+    centers += [FALLBACK_MIN & ~SIGN, FALLBACK_MAX]
+    return sorted({(center + delta) | sign for center in centers for delta in range(-3, 4)
+                   for sign in (0, SIGN) if center + delta >= 0
+                   and fallback_angle((center + delta) | sign)})
+
+
+def fallback_trig_grid():
+    # Separate asymmetric domains; do not normalize or deduplicate records.
+    rows = []
+    for sign, limit, steps in ((0, FALLBACK_MAX, FALLBACK_DYADIC_MAX_STEPS),
+                              (SIGN, FALLBACK_MIN & ~SIGN, FALLBACK_DYADIC_MIN_STEPS)):
+        rows += [word | sign for word in range(0, limit + 1, FALLBACK_GRID_STEP)]
+        rows += [bits(step / FALLBACK_DYADIC_DENOMINATOR) | sign for step in range(steps + 1)]
+        rows += [limit | sign]
+    return rows
+
+
+def fallback_candidate_inputs(trig_rows):
+    rows = []
+    for angle, sine, cosine in trig_rows:
+        for x, y in ((0, 0), (SIGN, SIGN), (COORD, COORD | SIGN),
+                     (CLAMP + 1, (CLAMP + 1) | SIGN)):
+            for distance in (0, SIGN, 1, bits(1), bits(10000), 0x7F7FFFFF):
+                rows.append((x, y, distance, angle))
+        for distance in (bits(1.0000001192092896), bits(3.25), bits(12345)):
+            x, y = bits(-value(distance) * value(cosine)), bits(-value(distance) * value(sine))
+            if (x & ~SIGN) <= COORD and (y & ~SIGN) <= COORD:
+                rows.append((x, y, distance, angle))
+    for sign in (0, SIGN):
+        for x in range(CLAMP - 3, CLAMP + 4):
+            for distance in (0, SIGN, 1, bits(0.0009765625), bits(1), 0x7F7FFFFF):
+                for angle in (FALLBACK_MIN, 0, SIGN, TAU + 1, FALLBACK_MAX):
+                    rows.append((x | sign, x | (sign ^ SIGN), distance, angle))
+    # Preserve distinct raw vs normalized sums: ±minsub and the upper endpoint.
+    rows += [(0, 0, 0x7F7FFFFF, SIGN | 1),
+             (0, 0, bits(1), FALLBACK_MAX),
+             (bits(-20000), 0, bits(20000), 0)]
+    return rows
+
+
+def fallback_candidate_grid():
+    state = FALLBACK_SEED
+    def next_word():
+        nonlocal state
+        state ^= (state << 13) & 0xFFFFFFFF
+        state ^= state >> 17
+        state ^= (state << 5) & 0xFFFFFFFF
+        return state
+    rows = []
+    for _ in range(CANDIDATE_SAMPLES):
+        x, y, distance, angle = (next_word() for _ in range(4))
+        limit = FALLBACK_MIN & ~SIGN if angle & SIGN else FALLBACK_MAX
+        rows.append(((x & SIGN) | ((x & ~SIGN) % (COORD + 1)),
+                     (y & SIGN) | ((y & ~SIGN) % (COORD + 1)),
+                     (distance & ~SIGN) % 0x7F800000,
+                     (angle & SIGN) | ((angle & ~SIGN) % (limit + 1))))
+    return rows
+
+
+def fallback_rejected_inputs():
+    nonfinite = [0x7F800000, 0xFF800000, 0x7FC00000, 0x7F800001, 0xFFC01234]
+    trig = nonfinite + [FALLBACK_MIN + 1, FALLBACK_MAX + 1, TAU | SIGN,
+                       FALLBACK_MAX | SIGN, 0x7F7FFFFF, 0xFF7FFFFF]
+    _, initial = rejected_inputs()
+    candidate = [row for row in initial if row[3] == 0]
+    candidate += [(0, 0, bits(1), angle) for angle in trig]
+    return trig, candidate
+
+
+def fallback_fixture_contents(binary):
+    trig_rows, _ = observe(binary, 'fallback-trig', [(w,) for w in fallback_trig_edges()], 3)
+    _, trig_sample = observe(binary, 'fallback-trig', [(w,) for w in fallback_trig_grid()], 3)
+    candidate_rows, _ = observe(binary, 'fallback-candidate', fallback_candidate_inputs(trig_rows), 6)
+    _, candidate_sample = observe(binary, 'fallback-candidate', fallback_candidate_grid(), 6)
+    trig_bad, candidate_bad = fallback_rejected_inputs()
+    for mode, rows, status in (('fallback-trig', [(w,) for w in trig_bad], 3),
+                               ('fallback-candidate', candidate_bad, 4)):
+        for row in rows:
+            result = subprocess.run([str(binary), mode], input=encode([row]), capture_output=True)
+            if result.returncode != status or result.stdout or result.stderr:
+                raise SystemExit(f'Rejection failed: {mode} {row}: {result}')
+        partial = subprocess.run([str(binary), mode], input=b'\x00', capture_output=True)
+        if partial.returncode != 6 or partial.stdout or partial.stderr:
+            raise SystemExit(f'Partial input was not rejected: {mode}')
+    return {
+        'fallback-trig-cases.test-fixture': format_rows('raw_angle_bits\tsine_bits\tcosine_bits', trig_rows),
+        'fallback-candidate-cases.test-fixture': format_rows('target_x_bits\ttarget_y_bits\tdistance_bits\traw_angle_bits\tx_bits\ty_bits', candidate_rows),
+        'fallback-trig-grid.test-fixture': '# count\tsha256(le_u32 raw_angle,sin,cos); bounded sample, not exhaustive\n'
+            + f'{len(fallback_trig_grid())}\t{hashlib.sha256(trig_sample).hexdigest()}\n',
+        'fallback-candidate-grid.test-fixture': '# count\txorshift32_seed\tsha256(le_u32 x,y,distance,raw_angle,result_x,result_y)\n'
+            + f'{CANDIDATE_SAMPLES}\t{FALLBACK_SEED:08x}\t{hashlib.sha256(candidate_sample).hexdigest()}\n',
+        'fallback-trig-rejections.test-fixture': format_rows('raw_angle_bits; wrapper-domain rejections', [(w,) for w in trig_bad]),
+        'fallback-candidate-rejections.test-fixture': format_rows('target_x_bits\ttarget_y_bits\tdistance_bits\traw_angle_bits; wrapper-domain rejections', candidate_bad),
+    }
+
+
 def encode(rows):
     return b''.join(struct.pack('<' + 'I' * len(row), *row) for row in rows)
 
@@ -354,6 +466,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='near-point-candidate-oracle-') as temporary:
         binary = compile_oracle(source, pathlib.Path(temporary), args.sanitize, args.receipt_dir)
         fixtures = fixture_contents(binary)
+        fixtures.update(fallback_fixture_contents(binary))
     for name, content in fixtures.items():
         target = FIXTURES / name
         if args.check and target.read_text() != content:

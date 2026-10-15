@@ -68,5 +68,8 @@ pub mod spell_range;
 /// Bounded shared source-profile sine/cosine with native and software adapters.
 pub mod source_trig;
 
+/// Pinned binary64 atan of widened nonnegative binary32 source ratios.
+pub mod source_atan;
+
 /// Initial source near-point XY candidate only; no collision search or admission.
 pub mod near_point;

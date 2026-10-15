@@ -104,3 +104,39 @@ The [first-path oracle](../benilla-native-geometry-tests/tools/near_point_primar
 retains exact source methods and detects fallback entry without implementing it.
 Its host constructor atan result is unobserved by the selected empty-list path;
 no full selector or platform-libm parity is claimed.
+
+## Separately bounded fallback-angle XY candidate
+
+`near_point::fallback_candidate_bits(target_xy, distance, raw_angle)` exposes
+only the same source `GetNearPoint2dAt` arithmetic on a separately named angle
+domain. Its policy is
+`cmangos-8ec338a1-fallback-near-point-glibc-2.41-soft-rne-v1`, together with
+`source_trig::FALLBACK_SOFT_POLICY`. The initial `candidate_bits`, its normalized
+angle admission and its existing policy identity are unchanged.
+
+The fallback numeric angle must be the actual source binary32
+`RNE32(base_angle + selector_offset)` from `GetNearPointAt`, without normalization.
+For base angle in `[0, binary32 TAU]` and offset in ±binary32 PI, monotonic
+round-to-nearest gives the inclusive final domain
+`[-binary32 PI, RNE32(binary32 TAU + binary32 PI)]`, exactly `0xc0490fdb` through
+`0x4116cbe4` in numeric order. These are final angle bounds, not offset bounds.
+The numeric helper validates that final raw angle but does not compute a base
+angle, choose an offset, or perform a selector iteration.
+
+Coordinate and distance domains, signed zeros, subnormals, validation-before-
+evaluation, separately rounded products/additions and final source map clamp
+are identical to the initial candidate. Both candidates share that private
+arithmetic body; the fallback trig calls the same original shared glibc core
+under its separately bounded API. In particular, negative subnormal radians
+remain observable and the largest raw angle is not wrapped to PI. The bound's
+source fast-reducer and int32-conversion safety are documented in
+[SOURCE-TRIG.md](SOURCE-TRIG.md).
+
+The independent original-source oracle supplies 7,200 additional candidate
+vectors, a 32,768-record asymmetric candidate digest, 38 candidate rejection
+vectors, and the fallback trig vectors/digest. All original candidate/trig
+fixture bytes and the verbatim source package remain unchanged. The new numeric
+fixtures include both raw endpoints, source-branch and quadrant neighbors,
+negative tiny angles, non-fused cancellation, extreme distances, clamp neighbors
+and origins outside the output clamp. No fallback provider integration, height,
+LOS, PathFinder or gameplay admission is established by this numeric API.

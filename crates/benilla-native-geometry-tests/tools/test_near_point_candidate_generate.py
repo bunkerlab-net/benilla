@@ -197,6 +197,86 @@ class NearPointOracleTests(unittest.TestCase):
         self.assertEqual(oracle.DYADIC_STEPS, int(oracle.value(oracle.TAU) * oracle.DYADIC_DENOMINATOR))
         self.assertTrue(all(path.suffix == '.test-fixture' for path in oracle.FIXTURES.iterdir()))
 
+    def test_fallback_raw_domain_has_exact_endpoint_sum_and_fast_reducer_bound(self):
+        pi = oracle.value(oracle.FALLBACK_MIN & ~oracle.SIGN)
+        tau = oracle.value(oracle.TAU)
+        upper = oracle.value(oracle.FALLBACK_MAX)
+        self.assertEqual(oracle.bits(tau + pi), oracle.FALLBACK_MAX)
+        # Binary32 endpoints are exact dyadics; IEEE RNE is monotone, so all
+        # base in [0,TAU] plus offset in [-PI,PI] round inside these endpoints.
+        self.assertEqual(Fraction.from_float(tau + pi),
+                         Fraction.from_float(upper) +
+                         (Fraction.from_float(oracle.value(oracle.FALLBACK_MAX + 1)) -
+                          Fraction.from_float(upper)) / 4)
+        self.assertEqual((oracle.FALLBACK_MAX >> 20) & 0x7FF, 0x411)
+        self.assertLess(0x411, (oracle.bits(120.0) >> 20) & 0x7FF)
+        # abs(x)<10 and hpi_inv<2^24 imply abs(product)<10*2^24;
+        # truncate plus 0x800000 therefore cannot overflow signed int32.
+        self.assertLess(upper, 10)
+        self.assertLess(float.fromhex('0x1.45F306DC9C883p+23'), 2**24)
+        self.assertLess(10 * 2**24 + 0x800000, 2**31)
+        self.assertTrue(oracle.fallback_angle(oracle.FALLBACK_MIN))
+        self.assertTrue(oracle.fallback_angle(oracle.FALLBACK_MAX))
+        self.assertFalse(oracle.fallback_angle(oracle.FALLBACK_MIN + 1))
+        self.assertFalse(oracle.fallback_angle(oracle.FALLBACK_MAX + 1))
+        self.assertFalse(oracle.fallback_angle(oracle.TAU | oracle.SIGN))
+
+    def test_fallback_fixtures_cover_asymmetric_boundaries_and_raw_normalization_witness(self):
+        trig = {a: (s, c) for a, s, c in rows('fallback-trig-cases.test-fixture')}
+        candidate = rows('fallback-candidate-cases.test-fixture')
+        self.assertEqual((len(trig), len(candidate)), (251, 7200))
+        for endpoint in (oracle.FALLBACK_MIN, oracle.FALLBACK_MAX):
+            for delta in range(-3, 1):
+                self.assertIn(endpoint + delta, trig)
+        for sign in (0, oracle.SIGN):
+            for center in (0x39800000, 0x3F400000, 0x3FC90FDB):
+                for delta in range(-3, 4):
+                    self.assertIn((center + delta) | sign, trig)
+            for word in (0, 1, 0x007FFFFF, 0x00800000):
+                self.assertEqual(trig[word | sign], (word | sign, 0x3F800000))
+        raw = oracle.FALLBACK_MAX
+        normalized = oracle.bits(oracle.value(raw) - oracle.value(oracle.TAU))
+        self.assertEqual(normalized, 0x40490FDA)
+        self.assertNotEqual(trig[raw], trig[normalized])
+        self.assertIn((0, 0, oracle.bits(1), raw, 0xBF800000, 0xB2CCDE2E), candidate)
+        self.assertIn((0, 0, 0x7F7FFFFF, oracle.SIGN | 1,
+                       oracle.CLAMP, 0xB4FFFFFF), candidate)
+        self.assertIn((oracle.bits(-20000), 0, oracle.bits(20000), 0, 0, 0), candidate)
+        for x, y, distance, angle, out_x, out_y in candidate:
+            self.assertTrue(oracle.fallback_angle(angle))
+            self.assertLessEqual(out_x & ~oracle.SIGN, oracle.CLAMP)
+            self.assertLessEqual(out_y & ~oracle.SIGN, oracle.CLAMP)
+
+    def test_fallback_rejections_and_sample_sequences_are_separate(self):
+        trig, candidate = oracle.fallback_rejected_inputs()
+        self.assertEqual(rows('fallback-trig-rejections.test-fixture'), [(w,) for w in trig])
+        self.assertEqual(rows('fallback-candidate-rejections.test-fixture'), candidate)
+        self.assertEqual((len(trig), len(candidate)), (11, 38))
+        self.assertTrue(all(not oracle.fallback_angle(word) for word in trig))
+        grid = oracle.fallback_trig_grid()
+        self.assertEqual(len(grid), 84602)
+        self.assertEqual(grid[:2], [0, oracle.FALLBACK_GRID_STEP])
+        self.assertEqual(grid[-1], oracle.FALLBACK_MIN)
+        self.assertEqual(oracle.FALLBACK_DYADIC_MIN_STEPS,
+                         int(oracle.value(oracle.FALLBACK_MIN & ~oracle.SIGN) * oracle.FALLBACK_DYADIC_DENOMINATOR))
+        self.assertEqual(oracle.FALLBACK_DYADIC_MAX_STEPS,
+                         int(oracle.value(oracle.FALLBACK_MAX) * oracle.FALLBACK_DYADIC_DENOMINATOR))
+        self.assertTrue(all(oracle.fallback_angle(word) for word in grid))
+        self.assertEqual(len(oracle.fallback_candidate_grid()), 32768)
+        self.assertTrue(all(oracle.fallback_angle(row[3]) for row in oracle.fallback_candidate_grid()))
+
+    def test_initial_fixture_files_and_verbatim_source_package_are_unchanged(self):
+        for name, expected in (
+            ('trig-cases.test-fixture', '64eaefd07ecca1b8ca0768b201e550e7fd2b97f041566cf4a48655bde678d28b'),
+            ('candidate-cases.test-fixture', '2f9b63ef0d468f03935ba5d8c477ca776a9c80f6713d0727e038f86852d0d7c3'),
+            ('trig-grid.test-fixture', '3b0cd5885ff2d45faaa7a2f45b784a1b00a142bee338f119557c99cd5912ec7a'),
+            ('candidate-grid.test-fixture', '6126ed21507b6df6456486bf850afea0344ca2eebe486d90f40d077f307615bd'),
+            ('trig-rejections.test-fixture', '554ae637a2d1e4c4d6e81a11a21bb452f4cf9607b6c488d8369a699a4d1fb169'),
+            ('candidate-rejections.test-fixture', 'be484f581b401c4c588d42b3b57c55df653309bea875decb5bb9d75ad1bde8ae'),
+        ):
+            self.assertEqual(hashlib.sha256((oracle.FIXTURES / name).read_bytes()).hexdigest(), expected)
+        self.assertEqual(oracle.source_fragments(self.source)[3], oracle.PACKAGE.read_text(encoding='latin1'))
+
     def test_existing_vmap_202_case_and_sample_digest_are_unchanged(self):
         for name, expected in (
             ('trig-cases.tsv', 'dffff37c6f1685d7c8fa884bde910684add025bc1001eb7fb45eb9ffe1cd86de'),

@@ -2,17 +2,18 @@
 
 `source_trig` supplies one private statically generic reducer and polynomial,
 with a native arithmetic adapter and a software arithmetic adapter. It is a
-selected numeric profile for finite binary32 radians within inclusive ±TAU
-(`0x40c90fdb`), not a general libm or a claim that native platform libraries agree.
-Both public functions return raw `[sine, cosine]` binary32 bits:
+selected numeric profile, not a general libm or a claim that native platform
+libraries agree. The two original APIs accept finite binary32 radians within
+inclusive ±TAU (`0x40c90fdb`) and return raw `[sine, cosine]` binary32 bits:
 
 - `sin_cos_radians_bits_native` retains the existing VMap unfused native
   binary64 expression order under native IEEE RNE/gradual-underflow assumptions
 - `sin_cos_radians_bits_soft` uses software IEEE round-to-nearest/ties-even,
   gradual underflow and explicitly rounded binary32 conversions throughout
 
-Both accept signed zero and subnormal inputs, reject nonfinite/out-of-range
-inputs before evaluation, and never call host sine or cosine. The native
+Both original APIs accept signed zero and subnormal inputs, reject
+nonfinite/out-of-range inputs before evaluation, and never call host sine or
+cosine. The separately bounded fallback API is described below. The native
 adapter does not set or inspect the host floating-point environment. The
 software adapter uses the existing `facing::soft` arithmetic through a narrow
 crate-private boundary and is independent of host floating-point arithmetic.
@@ -76,3 +77,32 @@ Tests compare both adapters with those exact bits, separately exercise domain
 rejection and integer truncation, and retain signed-zero/subnormal behavior.
 Differential samples are not exhaustive proofs over every binary32 angle, and
 no host-libm parity, cross-platform execution or gameplay admission follows.
+
+## Separately bounded fallback-angle profile
+
+`sin_cos_fallback_radians_bits_soft` selects the independently named
+`FALLBACK_SOFT_POLICY`,
+`glibc-2.41-near-point-fallback-sincos-soft-unfused-rne-v1`. It accepts the raw
+binary32 angle domain `[-binary32 PI, RNE32(binary32 TAU + binary32 PI)]`,
+inclusive bits `0xc0490fdb` through `0x4116cbe4` in numeric order. These are the
+possible bounds of a normalized base angle plus a selector offset in ±binary32
+PI. The caller supplies that already-rounded sum. There is no normalization,
+modulo reduction before the source algorithm, or extension of the existing
+native/software ±TAU contracts or their policy identities.
+
+The largest admitted magnitude is exactly 9.424777984619140625. Its source
+`abstop12` is `0x411`, strictly below `abstop12(120.0f) == 0x42f`, so every admitted
+non-small input takes the original fast reducer. Integer conversion is also
+bounded: `abs(x) < 10` and the scaled 2/PI coefficient is less than `2^24`, hence
+the product magnitude is below `10 * 2^24`; adding `0x800000` after truncation
+cannot overflow signed int32. The same private core and software adapter are
+used unchanged. Nonfinite and asymmetric out-of-range inputs reject before the
+core, including negative TAU even though the older ±TAU profile admits it.
+
+The independently compiled original source oracle additionally supplies 251
+fallback-domain trig vectors and an 84,602-record asymmetric digest, alongside
+negative-zero/subnormal, both endpoint-neighbor and rejection tests. At the
+upper endpoint the source sine is `0xb2ccde2e`; subtracting binary32 TAU first
+produces a different angle and sine, so wrapping is observably incorrect for
+this selected raw-angle profile. These are bounded numeric observations, not
+an exhaustive proof or a complete near-point search.
