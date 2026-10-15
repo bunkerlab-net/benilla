@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Checked BIH serialization and nearest-hit traversal from the pinned CMaNGOS
+//! Checked BIH serialization, point and nearest-hit traversal from pinned CMaNGOS
 //! `src/game/vmap/BIH.{h,cpp}`; see the products CMANGOS-NOTICE and PROVENANCE.
-use super::{Bounds, Cursor, Error, QueryBudget, Ray};
+use super::{Bounds, Cursor, Error, QueryBudget, Ray, Vector};
 
 const MAX_ELEMENTS: usize = 262_144;
 const OFFSET_MASK: u32 = 0x1fff_ffff;
@@ -180,6 +180,71 @@ impl Bih {
         Ok(())
     }
 
+    /// BIH::intersectPoint: inclusive clips, left before right on overlaps, and
+    /// serialized leaf order. A callback cannot terminate traversal after a hit.
+    pub(super) fn intersect_point(
+        &self,
+        position: Vector,
+        budget: &mut QueryBudget,
+        mut callback: impl FnMut(u32, &mut QueryBudget) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        budget.take()?;
+        if position.iter().any(|value| !value.is_finite()) {
+            return Err(Error::Format);
+        }
+        if !self.bounds.contains(position) {
+            return Ok(());
+        }
+        let mut pending = [0usize; MAX_DEPTH + 1];
+        let mut length = 0;
+        let mut node = 0;
+        loop {
+            loop {
+                budget.take()?;
+                let word = self.tree[node];
+                let axis = (word >> 30) as usize;
+                let offset = (word & OFFSET_MASK) as usize;
+                if axis == 3 {
+                    let end = offset + self.tree[node + 1] as usize;
+                    for &primitive in &self.objects[offset..end] {
+                        budget.take()?;
+                        callback(primitive, budget)?;
+                    }
+                    break;
+                }
+                let left = f32::from_bits(self.tree[node + 1]);
+                let right = f32::from_bits(self.tree[node + 2]);
+                let value = position[axis];
+                if word & BVH2 != 0 {
+                    node = offset;
+                    if left > value || right < value {
+                        break;
+                    }
+                } else {
+                    if left < value && right > value {
+                        break;
+                    }
+                    node = offset + 3;
+                    if left < value {
+                        continue;
+                    }
+                    node = offset;
+                    if right > value {
+                        continue;
+                    }
+                    // Structural validation limits the maximum saved-right depth.
+                    pending[length] = offset + 3;
+                    length += 1;
+                }
+            }
+            if length == 0 {
+                return Ok(());
+            }
+            length -= 1;
+            node = pending[length];
+        }
+    }
+
     /// BIH::intersectRay with stopAtFirst=false. Explicit comparisons preserve
     /// source signed-zero ordering and its NaN choices at a parallel clip plane.
     pub(super) fn intersect(
@@ -187,9 +252,24 @@ impl Bih {
         ray: Ray,
         distance: &mut f32,
         budget: &mut QueryBudget,
+        callback: impl FnMut(u32, &mut f32, &mut QueryBudget) -> Result<bool, Error>,
+    ) -> Result<bool, Error> {
+        if !distance.is_finite() {
+            return Err(Error::Format);
+        }
+        self.intersect_with_limit(ray, distance, budget, callback)
+    }
+
+    /// GroupModel::IsInsideObject starts at positive infinity. This internal
+    /// traversal keeps that source bound without relaxing public finite searches.
+    pub(super) fn intersect_with_limit(
+        &self,
+        ray: Ray,
+        distance: &mut f32,
+        budget: &mut QueryBudget,
         mut callback: impl FnMut(u32, &mut f32, &mut QueryBudget) -> Result<bool, Error>,
     ) -> Result<bool, Error> {
-        if !distance.is_finite()
+        if distance.is_nan()
             || *distance < 0.0
             || ray.origin.into_iter().any(|v| !v.is_finite())
             || ray.direction.into_iter().any(|v| !v.is_finite())
@@ -732,6 +812,152 @@ mod tests {
             )),
             Err(Error::Format)
         );
+    }
+
+    fn point_visits(tree: &Bih, position: Vector) -> Vec<u32> {
+        let mut seen = Vec::new();
+        tree.intersect_point(position, &mut budget(1000), |id, _| {
+            seen.push(id);
+            Ok(())
+        })
+        .unwrap();
+        seen
+    }
+
+    #[test]
+    fn point_traversal_preserves_inclusive_clips_overlap_order_and_empty_children() {
+        let overlap = decode(&split(0.5, -0.5), &[1, 0]).unwrap();
+        for x in [-0.5, 0.0, -0.0, 0.5] {
+            assert_eq!(point_visits(&overlap, [x, 0.0, 0.0]), [1, 0]);
+        }
+        assert_eq!(point_visits(&overlap, [-0.500_001, 0.0, 0.0]), [1]);
+        assert_eq!(point_visits(&overlap, [0.500_001, 0.0, 0.0]), [0]);
+        let gap = decode(&split(-0.5, 0.5), &[1, 0]).unwrap();
+        assert!(point_visits(&gap, [0.0; 3]).is_empty());
+        assert_eq!(point_visits(&gap, [-0.5, 0.0, 0.0]), [1]);
+        assert_eq!(point_visits(&gap, [0.5, 0.0, 0.0]), [0]);
+        let left = decode(
+            &[3, 0.0f32.to_bits(), f32::INFINITY.to_bits(), LEAF, 1, 0],
+            &[0],
+        )
+        .unwrap();
+        let right = decode(
+            &[0, f32::NEG_INFINITY.to_bits(), 0.0f32.to_bits(), LEAF, 1, 0],
+            &[0],
+        )
+        .unwrap();
+        for zero in [0.0, -0.0] {
+            assert_eq!(point_visits(&left, [zero, 0.0, 0.0]), [0]);
+            assert_eq!(point_visits(&right, [zero, 0.0, 0.0]), [0]);
+        }
+        assert!(point_visits(&left, [0.1, 0.0, 0.0]).is_empty());
+        assert!(point_visits(&right, [-0.1, 0.0, 0.0]).is_empty());
+        let clipped = decode(
+            &[BVH2 | 3, (-1.0f32).to_bits(), 1.0f32.to_bits(), LEAF, 1, 0],
+            &[0],
+        )
+        .unwrap();
+        for x in [-1.0, 0.0, 1.0] {
+            assert_eq!(point_visits(&clipped, [x, 0.0, 0.0]), [0]);
+        }
+        assert!(point_visits(&clipped, [1.0f32.next_up(), 0.0, 0.0]).is_empty());
+        assert!(point_visits(&clipped, [-1.0f32.next_up(), 0.0, 0.0]).is_empty());
+        assert!(point_visits(&overlap, [3.0, 0.0, 0.0]).is_empty());
+    }
+
+    #[test]
+    fn point_traversal_accounts_nodes_callbacks_deadline_and_invalid_positions() {
+        let leaf = decode(&[LEAF, 2, 0], &[1, 0]).unwrap();
+        assert_eq!(point_visits(&leaf, [0.0; 3]), [1, 0]);
+        assert_eq!(
+            leaf.intersect_point([0.0; 3], &mut budget(0), |_, _| Ok(())),
+            Err(Error::Budget)
+        );
+        assert_eq!(
+            leaf.intersect_point([0.0; 3], &mut budget(2), |_, _| panic!(
+                "unbudgeted callback"
+            )),
+            Err(Error::Budget)
+        );
+        let mut expired = budget(1000);
+        expired.deadline = std::time::Instant::now();
+        assert_eq!(
+            leaf.intersect_point([0.0; 3], &mut expired, |_, _| Ok(())),
+            Err(Error::Budget)
+        );
+        assert_eq!(
+            leaf.intersect_point([0.0; 3], &mut budget(1000), |_, _| Err(Error::Missing)),
+            Err(Error::Missing)
+        );
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(
+                leaf.intersect_point([value; 3], &mut budget(1000), |_, _| Ok(())),
+                Err(Error::Format)
+            );
+        }
+    }
+
+    #[test]
+    fn infinite_distance_is_internal_to_location_group_searches() {
+        let leaf = decode(&[LEAF, 1, 0], &[0]).unwrap();
+        let ray = Ray {
+            origin: [0.0, 0.0, 1.0],
+            direction: [0.0, 0.0, -1.0],
+        };
+        let mut infinite = f32::INFINITY;
+        assert_eq!(
+            leaf.intersect(ray, &mut infinite, &mut budget(1000), |_, _, _| Ok(false)),
+            Err(Error::Format)
+        );
+        let mut distance = f32::INFINITY;
+        assert!(leaf
+            .intersect_with_limit(ray, &mut distance, &mut budget(1000), |_, distance, _| {
+                *distance = 1.0;
+                Ok(true)
+            })
+            .unwrap());
+        assert_eq!(distance.to_bits(), 1.0f32.to_bits());
+        for mut invalid in [f32::NAN, f32::NEG_INFINITY, -1.0] {
+            assert_eq!(
+                leaf.intersect_with_limit(ray, &mut invalid, &mut budget(1000), |_, _, _| Ok(
+                    false
+                )),
+                Err(Error::Format)
+            );
+        }
+    }
+
+    #[test]
+    fn loaded_point_tree_words_match_original_cpp_callback_order() {
+        let fixture = include_str!(
+            "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation_bih.tsv"
+        );
+        let word = |value: &str| u32::from_str_radix(value, 16).unwrap();
+        let list = |value: &str| -> Vec<u32> {
+            if value == "-" {
+                Vec::new()
+            } else {
+                value.split(',').map(word).collect()
+            }
+        };
+        let mut count = 0;
+        for row in fixture
+            .lines()
+            .filter(|row| !row.starts_with('#') && !row.is_empty())
+        {
+            let columns: Vec<_> = row.split('\t').collect();
+            assert_eq!(columns.len(), 7, "{row}");
+            let tree = decode(&list(columns[1]), &list(columns[2])).unwrap();
+            let position = std::array::from_fn(|axis| f32::from_bits(word(columns[3 + axis])));
+            assert_eq!(
+                point_visits(&tree, position),
+                list(columns[6]),
+                "{}",
+                columns[0]
+            );
+            count += 1;
+        }
+        assert_eq!(count, 492);
     }
 
     #[test]

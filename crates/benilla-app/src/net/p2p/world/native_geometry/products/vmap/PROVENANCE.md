@@ -1,9 +1,12 @@
-# Loaded dry static VMap rays
+# Loaded dry static VMap queries
 
 This is a safe Rust source-derived port of a bounded **static VMap ray** subset from
 [CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f](https://github.com/cmangos/mangos-classic/tree/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f).
-It loads actual serialized VMap geometry; it is not a Detour/MMap loader, PathFinder,
-composite terrain height, complete server LOS, swept body support, or native-content admission.
+It loads actual serialized VMap geometry for bounded rays, vertical heights and
+location floors; it is not a Detour/MMap loader, PathFinder, composite liquid query,
+complete server LOS, swept body support, or native-content admission. The separate
+[terrain selector](../PROVENANCE.md#loaded-static-terraininfo-height-prerequisite)
+combines raw terrain and this VMap height under an explicit source configuration.
 
 ## Source and grants
 
@@ -42,8 +45,8 @@ The accepted profile is tiled exterior `VMAP_7.0`, dry models, explicit MOD_HAS_
 MOD_M2 classification, finite source Euler angles within ±360 degrees and scales
 0.001..1000. Worldspawns, missing bounds, liquids and unknown spawn flags reject. Models
 shared by mixed M2/WMO classifications reject instead of preserving upstream shared-model
-flag mutation's load-order dependence. MOGP/root/group IDs are decoded but grant no area
-or liquid semantics. Empty model/group collision is explicit, never missing geometry.
+flag mutation's load-order dependence. MOGP/root/group IDs are retained for selected
+location identity but grant no area or liquid semantics. Empty model/group collision is explicit, never missing geometry.
 
 Additional limits are 16 MiB total VMap input within the inventory's existing 64 MiB
 limit; 262,144 elements per encoded array; 4,096 total decoded groups; 16,384 serialized
@@ -147,3 +150,14 @@ policy and separate profile-owned endpoint heights with `ignore_m2=true`. It doe
 not reuse the movement veto. Dynamic participants remain excluded by the existing
 unconstructible production proof; visibility/accessibility and native admission
 remain unavailable. Authored adapter/controller tests add no real-asset evidence.
+
+
+## Location floors
+
+The [loaded location query](../PROVENANCE.md#loaded-dry-vmap-location-floor-prerequisite)
+uses original point-BIH traversal, group containment/inside-object rays and strict
+nearest-group/highest-instance selection. Unlike the optional ray closure, its
+public request requires every map slot resolved. The query-specific policy prevents
+relabeling a ray or height binding as a location binding. An explicit location miss
+is valid only within this complete dry snapshot; it never supplies water, support,
+accessibility, participant or native-content admission.

@@ -7,7 +7,11 @@ use super::*;
 use std::{collections::BTreeMap, time::Duration};
 
 fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
-    let (mut spec, mut files) = vmap_tests::fixture();
+    terrain_coverage(vmap_tests::fixture())
+}
+fn terrain_coverage(
+    (mut spec, mut files): (InventorySpec, BTreeMap<String, Vec<u8>>),
+) -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     // Add terrain coverage at the actual source fixture's world-space model position.
     let old = spec.tiles[0];
     let tile = TileId { x: 0, y: 0 };
@@ -250,4 +254,49 @@ fn actual_height_uses_the_long_fallback_after_short_search_misses() {
         snapshot.query(query, deadline()).unwrap().height,
         9f32.to_bits()
     );
+}
+
+#[test]
+fn actual_dry_location_floor_differs_from_source_static_height_below_ceiling() {
+    let (mut spec, mut files) = terrain_coverage(vmap::location_fixture());
+    products::mutate(
+        &mut spec,
+        &mut files,
+        &ProductId::Terrain(TileId { x: 0, y: 0 }),
+        |bytes| {
+            bytes[56..60].copy_from_slice(&0f32.to_le_bytes());
+            bytes[60..64].copy_from_slice(&0f32.to_le_bytes());
+        },
+    );
+    let products = products::load(spec, &files).unwrap();
+    let height = products.load_static_height().unwrap();
+    let location = products.load_static_vmap().unwrap();
+    let mid = 0.5f32 * (64.0 * super::super::terrain::GRID_SIZE);
+    let position = [mid, mid, 5f32].map(f32::to_bits);
+    let height_request = HeightRequest {
+        snapshot: height.binding(),
+        ticket: 1,
+        position,
+        max_search: 50f32.to_bits(),
+    };
+    let location_request = vmap::LocationRequest {
+        snapshot: location.location_binding(),
+        ticket: 1,
+        position,
+    };
+    let selected_height = height.query(height_request, deadline()).unwrap();
+    let selected_location = location
+        .query_location(location_request, deadline())
+        .unwrap();
+    assert_eq!(selected_height.request, height_request);
+    assert_eq!(selected_location.request, location_request);
+    assert_eq!(selected_height.height, 6f32.to_bits());
+    let vmap::StaticLocation::Floor(floor) = selected_location.result else {
+        panic!("authored thick WMO must select its actual contained floor");
+    };
+    assert_eq!(floor.floor, 4f32.to_bits());
+    // Original GetLiquidLevel writes this location floor even though its group is
+    // dry. A later composite water query cannot substitute the z+2 static height.
+    // This test establishes the two loaded spatial facts, not a water result.
+    assert_ne!(floor.floor, selected_height.height);
 }

@@ -344,9 +344,10 @@ errors. No native capability, participant, movement or accessibility gate change
 This is deliberately not `TerrainInfo::getLiquidStatus`. Even a dry VMap can change
 its reference ground argument: `VMapManager2::GetLiquidLevel` writes the successful
 `GetLocationInfo` floor before a dry group returns false. That location floor can
-differ from GetHeightStatic's floor. Composite liquid therefore still needs exact
-location/group/floor selection (and later actual VMap LIQU handling), not merely
-this static height and the existing GridMap liquid result. Surviving map liquid
+differ from GetHeightStatic's floor. The separate location query below supplies that source-selected dry floor.
+Composite liquid must still combine it with this static height and the existing
+GridMap liquid result in the original branch order; actual VMap LIQU handling
+remains unsupported. Surviving map liquid
 would retain raw GridMap depth data; it must not be silently replaced with a static
 or location floor. Cached player water state and creature capabilities remain
 separate prerequisites after those spatial operations.
@@ -364,3 +365,54 @@ geometry. Separate integration tests combine the actual decoded GridMap/VMap byt
 through the production snapshot for initial-down, 10000 fallback, upward and
 near-map searches, map/VMap selection and a verified raw terrain hole. Failure
 injection proves callback errors never become a selected height or later probe.
+
+## Loaded dry VMap location floor prerequisite
+
+`VmapSnapshot::query_location` follows the pinned `StaticMapTree::GetLocationInfo`
+path over actual decoded native bytes. Its separate policy-bound request includes
+map, content, source epoch, complete inventory, ticket and exact world-position
+bits. The admitted external position is finite and within ±100000 on each axis;
+outside that profile returns Unsupported without clamping. Every map primitive
+must be resolved and every loaded model dry before this query can publish a result. A source-proven location miss is distinct from missing
+geometry, malformed bytes, an unsupported profile or an exhausted deadline/budget.
+
+The source BIH point traversal preserves inclusive bounds, strict gap tests and
+left-before-right traversal when clips overlap. It excludes M2 instances and checks
+instance and group containment before the group ray. `GroupModel::IsInsideObject`
+starts that ray at `pos - 0.1f * down`, uses the original unbounded positive-infinity
+search distance, and reports `distance - 0.1f`. The work bound and deadline, rather
+than an invented distance clamp, bound this internal query. Public segment and
+height limits are unaffected. Local groups compete by strictly smaller distance;
+instances compete by strictly greater transformed world Z. Equal results retain
+the first source traversal selection. Source matrix/vector expression order is
+preserved when converting the selected point back to world Z.
+
+The result identifies the selected spawn, ADT, root and group, retaining the actual
+serialized ID/flag bits. These identities are not AreaTable resolution or an area
+membership certificate. Nor does a location floor establish support, accessibility
+or liquid. In particular, the source manager writes a successful location floor
+before a dry group's liquid lookup returns false. Composite TerrainInfo liquid
+must account for that mutation: using static height alone can suppress legitimate
+raw GridMap water below a nearby ceiling. Surviving map liquid must retain its raw
+GridMap depth data. The source composite selector, wet VMap LIQU data, map-aware WMO
+area resolution, runtime player water state and creature movement capabilities
+remain separate dependencies; native entry and participant admission stay closed.
+
+The [original-source location oracle](../../../../../../../benilla-native-geometry-tests/tools/scopedlocation_README.md)
+compiles hash-guarded original BIH, WorldModel, ModelInstance and G3D translation
+units, with the complete original map/manager methods. Its 2,032 location queries
+include 1,040 selected floors over both existing and newly authored native products;
+492 point-traversal traces check ordered callbacks independently. The original dry
+manager's false return, unchanged liquid level, and hit-only floor/type mutations
+are verified alongside each location. The fixtures cover overlapping bounds,
+nearest groups and equal-height traversal ties, rotated/nonunit-scaled instances,
+M2 exclusion, empty groups, gaps, exact boundaries and the 0.1 local-unit offset.
+Full-width metadata bits are preserved. Source binary32 rounding is intentional:
+a nominal floor can differ by one ULP after offset subtraction and back-transform.
+
+A separate product integration test reads the same actual thick-WMO bytes together
+with flat GridMap terrain: at the authored point z=5, static z+2 height is 6 while
+the selected location floor is 4. This proves the two real spatial facts needed by
+the later composite selection, without claiming an implemented water result.
+Missing native tile slots, nonempty LIQU, stale identities and all work-budget cuts
+remain errors rather than partial floor or absence publications.

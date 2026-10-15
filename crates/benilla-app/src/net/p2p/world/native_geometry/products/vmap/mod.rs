@@ -4,10 +4,13 @@
 //! before publication. No untrusted bytes are passed to native code. See PROVENANCE.md.
 mod bih;
 mod height;
+mod location;
 mod math;
 mod trig;
 use self::{bih::Bih, math::*};
 use super::{Error, Hash, InventoriedProducts, ProductId};
+#[cfg(test)]
+pub(crate) use location::tests::fixture as location_fixture;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, time::Instant};
 
@@ -62,6 +65,35 @@ pub(crate) struct HeightReply {
     pub request: HeightRequest,
     /// Source height bits, including VMAP_INVALID_HEIGHT_VALUE on a proven miss.
     pub height: u32,
+}
+
+/// A location query is bound separately from rays/heights, including every position bit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LocationRequest {
+    pub snapshot: SnapshotBinding,
+    pub ticket: u64,
+    pub position: [u32; 3],
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LocationFloor {
+    /// Selected WMO floor in original world units, binary32 bits.
+    pub floor: u32,
+    pub root_id: u32,
+    pub group_id: u32,
+    pub group_flags: u32,
+    pub spawn_id: u32,
+    pub adt_id: u16,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StaticLocation {
+    /// Complete dry geometry was queried; no WMO location floor was selected.
+    None,
+    Floor(LocationFloor),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LocationReply {
+    pub request: LocationRequest,
+    pub result: StaticLocation,
 }
 
 #[derive(Debug)]
@@ -339,6 +371,8 @@ fn to_internal(p: Vector) -> Vector {
 #[derive(Debug)]
 struct Group {
     bounds: Bounds,
+    flags: u32,
+    id: u32,
     vertices: Vec<Vector>,
     triangles: Vec<[u32; 3]>,
     tree: Option<Bih>,
@@ -346,8 +380,8 @@ struct Group {
 impl Group {
     fn decode(c: &mut Cursor<'_>) -> Result<Self, Error> {
         let bounds = c.bounds()?;
-        c.word()?; // MOGP flags affect area/liquid queries, not IntersectRay.
-        c.word()?; // group WMO ID
+        let flags = c.word()?;
+        let id = c.word()?;
         c.magic(b"VERT")?;
         let length = c.word()? as usize;
         let count = c.count()?;
@@ -366,6 +400,8 @@ impl Group {
         if count == 0 {
             return Ok(Self {
                 bounds,
+                flags,
+                id,
                 vertices,
                 triangles: vec![],
                 tree: None,
@@ -397,6 +433,8 @@ impl Group {
         }
         Ok(Self {
             bounds,
+            flags,
+            id,
             vertices,
             triangles,
             tree: Some(tree),
@@ -429,6 +467,7 @@ impl Group {
 }
 #[derive(Debug)]
 struct Model {
+    root_id: u32,
     groups: Vec<Group>,
     tree: Option<Bih>,
     validation_work: usize,
@@ -440,9 +479,10 @@ impl Model {
         if c.word()? != 8 {
             return Err(Error::Framing);
         }
-        c.word()?; // Root WMO ID
+        let root_id = c.word()?;
         if c.remaining() == 0 {
             return Ok(Self {
+                root_id,
                 groups: vec![],
                 tree: None,
                 validation_work: 1,
@@ -465,6 +505,7 @@ impl Model {
         let validation_work =
             1 + groups.len() + groups.iter().map(|g| g.vertices.len()).sum::<usize>();
         Ok(Self {
+            root_id,
             groups,
             tree: Some(tree),
             validation_work,
