@@ -7,8 +7,8 @@ mod area;
 mod liquid;
 pub(crate) use area::AreaTable;
 #[cfg(test)]
-pub(crate) use liquid::{GridLiquidData, GridLiquidStatus};
-pub(crate) use liquid::{GridLiquidResult, LiquidStores, LiquidTypes};
+pub(crate) use liquid::GridLiquidData;
+pub(crate) use liquid::{GridLiquidResult, GridLiquidStatus, LiquidStores, LiquidTypes};
 
 const HEADER: usize = 40;
 const V9: usize = 129 * 129;

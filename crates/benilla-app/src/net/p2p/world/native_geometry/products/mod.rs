@@ -11,6 +11,7 @@ pub(crate) mod height;
 pub(crate) mod liquid;
 pub(crate) mod navigation;
 mod terrain;
+pub(crate) mod terrain_liquid;
 pub(crate) mod vmap;
 use sha2::{Digest, Sha256};
 use std::{

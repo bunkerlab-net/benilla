@@ -196,7 +196,7 @@ worldspawn or incomplete static geometry cannot silently become a water answer.
 
 This result is explicitly `GridMap::getLiquidStatus`, not the composite
 `TerrainInfo::getLiquidStatus`. The latter separately selects VMap liquids and
-requires a map liquid level above its composite static ground. A complete dry VMap
+requires a map liquid level above its effective ground, including any location-floor mutation. A complete dry VMap
 does not remove that ground comparison for wet GridMap results. The independent dry-navigation loader rejects wet terrain to preserve its previous
 accepted domain. No snapshot here
 is routed into player environment, accessibility, navigation or runtime admission.
@@ -228,7 +228,7 @@ ticket and snapshot binding are echoed; stale identities, invalid floats, missin
 tiles, unsupported area dependencies and expired budgets return errors.
 
 Remaining prerequisites include source-authenticated DBC extraction/epoch lifecycle,
-TerrainInfo-specific map-aware area resolution, VMap liquid selection and composite static ground,
+TerrainInfo-specific map-aware WMO area resolution and wet VMap liquid selection,
 player environment caching/timers/transitions/restoration, creature movement
 capabilities, and independent production/participant admission. This subset neither
 loads a real continent nor establishes that current inventory caps cover one.
@@ -288,8 +288,9 @@ rectangle/height/status checks retain their original ordering afterward.
 This closes only the GridMap area dependency. Complete dry VMap loading, missing
 slot rejection, immutable pose/map/content/epoch/inventory binding, deadlines, dry
 navigation restrictions and all runtime/participant admission checks remain in
-place. Composite ground/VMap water selection and cached player environment state
-are still prerequisites to a genuine accessibility answer.
+place. The separate dry-VMap composite query below combines these raw results
+with source ground selection. Wet VMap water and cached player environment state
+remain prerequisites to broader water coverage and a genuine accessibility answer.
 
 The [area override oracle](../../../../../../../benilla-native-geometry-tests/tools/generate_area_liquid_fixture.py)
 extracts the complete pinned `getArea`, `getLiquidStatus` and `GetAreaEntryByAreaID`
@@ -345,10 +346,10 @@ This is deliberately not `TerrainInfo::getLiquidStatus`. Even a dry VMap can cha
 its reference ground argument: `VMapManager2::GetLiquidLevel` writes the successful
 `GetLocationInfo` floor before a dry group returns false. That location floor can
 differ from GetHeightStatic's floor. The separate location query below supplies that source-selected dry floor.
-Composite liquid must still combine it with this static height and the existing
-GridMap liquid result in the original branch order; actual VMap LIQU handling
-remains unsupported. Surviving map liquid
-would retain raw GridMap depth data; it must not be silently replaced with a static
+The separate dry-VMap composite query below combines it with this static height
+and the existing GridMap liquid result in the original branch order; actual VMap
+LIQU handling remains unsupported. Surviving map liquid
+retains raw GridMap depth data; it must not be silently replaced with a static
 or location floor. Cached player water state and creature capabilities remain
 separate prerequisites after those spatial operations.
 
@@ -394,9 +395,9 @@ or liquid. In particular, the source manager writes a successful location floor
 before a dry group's liquid lookup returns false. Composite TerrainInfo liquid
 must account for that mutation: using static height alone can suppress legitimate
 raw GridMap water below a nearby ceiling. Surviving map liquid must retain its raw
-GridMap depth data. The source composite selector, wet VMap LIQU data, map-aware WMO
-area resolution, runtime player water state and creature movement capabilities
-remain separate dependencies; native entry and participant admission stay closed.
+GridMap depth data. The dry-VMap composite selector below accounts for those
+facts. Wet VMap LIQU data, map-aware WMO area resolution, runtime player water state
+and creature movement capabilities remain separate dependencies; native entry and participant admission stay closed.
 
 The [original-source location oracle](../../../../../../../benilla-native-geometry-tests/tools/scopedlocation_README.md)
 compiles hash-guarded original BIH, WorldModel, ModelInstance and G3D translation
@@ -413,6 +414,74 @@ a nominal floor can differ by one ULP after offset subtraction and back-transfor
 A separate product integration test reads the same actual thick-WMO bytes together
 with flat GridMap terrain: at the authored point z=5, static z+2 height is 6 while
 the selected location floor is 4. This proves the two real spatial facts needed by
-the later composite selection, without claiming an implemented water result.
+the separate composite selection below; this particular test asserts only the two
+spatial facts rather than a water result.
 Missing native tile slots, nonempty LIQU, stale identities and all work-budget cuts
 remain errors rather than partial floor or absence publications.
+
+
+## Bounded TerrainInfo liquid with complete dry VMap
+
+`load_terrain_liquid` and `load_terrain_liquid_with_areas` build a separate immutable
+`TerrainLiquidSnapshot` from actual inventoried terrain/VMap products and complete
+LiquidType/optional AreaTable WDBC bytes. Its query is the pinned
+`TerrainInfo::getLiquidStatus` under an explicit enabled-height, completely resolved
+dry-VMap profile. Wet terrain is supported in that profile; nonempty WMO LIQU,
+worldspawn, incomplete geometry and unsupported inventory domains remain rejected.
+It is not a claim that ordinary continent products satisfy these bounds.
+
+The query preserves the original three stages:
+
+1. Compute `GetHeightStatic` with `useVmaps=true` and `DEFAULT_WATER_SEARCH=50`,
+   retaining the original derived probes and raw invalid-height semantics.
+2. Query actual WMO location. A selected floor replaces the reference ground even
+   though dry `GetLiquidLevel` returns false; a location miss leaves static ground
+   unchanged. No liquid level is fabricated from a floor.
+3. Evaluate the raw GridMap liquid query with the exact requested mask, collision
+   height and complete DBC stores. Keep its result only when it is not NoWater and
+   its liquid level is strictly greater than the effective reference ground.
+
+A surviving result is copied unchanged, including its raw GridMap depth, entry,
+flags, level and status. Equal liquid/floor heights are suppressed by the outer
+strict comparison even where GridMap's own non-strict ground comparison accepted
+them. A suppressed result carries NoWater with no data, representing the source
+method's untouched output rather than leaking its temporary GridMap data.
+
+The raw GridMap call precedes the outer level filter. Missing AreaTable dependencies
+cannot be hidden by predicting that the later ground comparison will suppress
+water. Likewise, absent liquid does not bypass static-height computation or its
+bounded derived-probe checks. Missing terrain is unavailable, never an invented
+source no-grid NoWater result. Real terrain holes retain the raw source sentinel
+and do not become missing coverage or support proof.
+
+One absolute deadline and cumulative work allowance cover the entire query. The
+request binds map, content, source epoch, complete inventory, the enabled-height
+and location policies, complete DBC digests, ticket, exact position bits, requested
+mask and collision-height bits. Replacing files or DBC bytes cannot relabel a prior
+reply. An exhausted intermediate phase cannot publish a selected floor, partial
+liquid answer or no-water shortcut.
+
+This closes the dry-VMap composite spatial dependency only. Wet VMap LIQU and its
+map-aware WMO area overrides, source-authenticated extraction/epoch lifecycle,
+player cached water transitions/timers/restoration, creature movement capabilities,
+Detour path/support and independent content/participant admission remain separate.
+No composite reply is routed into runtime accessibility or character entry.
+
+The [composite source oracle](../../../../../../../benilla-native-geometry-tests/tools/terrain_liquid_README.md)
+executes complete original `TerrainInfo::getLiquidStatus`, `GetHeightStatic` and
+`GetGrid` methods with original VMap geometry queries and GridMap liquid, AREA,
+flat/float height and hole methods. Its 29 authored MAPS profiles and complete tiny
+WDBC files are decoded as native bytes by the Rust comparison, alongside the exact
+previously verified scopedlocation VMap products. No spatial query replies are
+scripted. Wet-only WMO area helpers and unexpected grid loading throw if reached;
+the oracle verifies zero wet-only calls and all queried grids already resident.
+
+The 5,048 source cases include 1,725 surviving liquid results, 857 raw GridMap
+results suppressed by the outer floor filter, 2,998 actual dry location-floor
+overwrites, and 1,463 location misses. They span all five liquid statuses,
+strict threshold neighbors, masks, area overrides, sampled liquid rectangles,
+float terrain/holes, transformed WMO placements and source calls with a null
+output pointer. The source asserts that suppressed/null-output calls leave its
+output sentinels unchanged and surviving data copies raw GridMap data exactly.
+The original floor4/static6/water5 case yields WaterWalk with raw depth0, directly
+proving why substituting static ground or replacing the returned depth is wrong.

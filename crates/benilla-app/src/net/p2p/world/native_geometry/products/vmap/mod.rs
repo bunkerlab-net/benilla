@@ -331,7 +331,7 @@ impl QueryBudget {
         }
         Ok(())
     }
-    fn take(&mut self) -> Result<(), Error> {
+    pub(super) fn take(&mut self) -> Result<(), Error> {
         if self.remaining == 0 || Instant::now() >= self.deadline {
             return Err(Error::Budget);
         }

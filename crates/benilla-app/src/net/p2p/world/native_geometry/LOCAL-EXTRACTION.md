@@ -189,9 +189,9 @@ The [generated-product prerequisite](products/PROVENANCE.md) implements bounded 
 inventory, native serialization framing, oracle-checked GridMap point heights and
 bounded GridMap liquid queries over actual MLIQ/LiquidType/optional AreaTable bytes.
 GridMap area/parent overrides and the enabled TerrainInfo static-height selector
-are source-backed, as is the dry VMap location/group/floor query. Composite liquid
-still needs their source-ordered combination and wet VMap LIQU handling; player
-environment-state integration also remains unsupported.
+are source-backed, as are the dry VMap location/group/floor query and their bounded
+TerrainInfo liquid combination. Wet VMap LIQU and map-aware WMO area handling,
+player environment-state integration and movement capabilities remain unsupported.
 The optional [safe static VMap port](products/vmap/PROVENANCE.md) now loads validated
 hierarchies/models and supplies bounded source-derived nearest rays as an additional
 provider veto. Detour internal references/loading remain unimplemented; caller-provided

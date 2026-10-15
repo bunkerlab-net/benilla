@@ -8,7 +8,7 @@ use std::time::Instant;
 const INVALID_HEIGHT: f32 = -100_000.0;
 const INVALID_HEIGHT_VALUE: f32 = -200_000.0;
 const DEFAULT_HEIGHT_SEARCH: f32 = 10.0;
-const POLICY: &[u8] = b"cmangos-8ec338a1-static-height-enabled-complete-dry-vmap-v1";
+pub(super) const POLICY: &[u8] = b"cmangos-8ec338a1-static-height-enabled-complete-dry-vmap-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SnapshotBinding {
@@ -73,32 +73,55 @@ impl StaticHeightSnapshot<'_> {
             return Err(Error::Identity);
         }
         let mut budget = vmap::QueryBudget::new(deadline);
-        budget.complete()?;
-        let p = request.position.map(f32::from_bits);
-        let search = f32::from_bits(request.max_search);
-        if p.iter().any(|v| !v.is_finite()) || !search.is_finite() {
-            return Err(Error::Format);
-        }
-        if p.iter().any(|v| v.abs() > 100_000.0) || search.abs() > 10_000.0 {
-            return Err(Error::Unsupported);
-        }
-        // Missing GridMap coverage remains unknown, not the source hole sentinel.
-        let tile = self
-            .products
-            .terrain(self.binding.map, world_tile(p[0], p[1])?)?;
-        let map_height = match tile.point_height(p[0], p[1])? {
-            PointHeight::Height(value) => value,
-            PointHeight::Hole => INVALID_HEIGHT_VALUE,
-        };
-        let height = select_height(map_height, p[2], search, |z, distance| {
-            self.vmap.height([p[0], p[1], z], distance, &mut budget)
-        })?;
-        budget.complete()?;
+        let height = height(
+            self.products,
+            &self.vmap,
+            request.position.map(f32::from_bits),
+            f32::from_bits(request.max_search),
+            &mut budget,
+        )?;
         Ok(HeightReply {
             request,
             height: height.to_bits(),
         })
     }
+}
+
+/// Shared source-bound implementation; composite queries retain the same loaded
+/// geometry and budget across height retries and subsequent location selection.
+pub(super) fn height(
+    products: &InventoriedProducts,
+    vmap: &vmap::VmapSnapshot,
+    p: [f32; 3],
+    search: f32,
+    budget: &mut vmap::QueryBudget,
+) -> Result<f32, Error> {
+    budget.complete()?;
+    let source = vmap.binding();
+    if source.map != products.map
+        || source.content != products.content
+        || source.source_epoch != products.source_epoch
+        || source.inventory != products.revision
+    {
+        return Err(Error::Identity);
+    }
+    if p.iter().any(|v| !v.is_finite()) || !search.is_finite() {
+        return Err(Error::Format);
+    }
+    if p.iter().any(|v| v.abs() > 100_000.0) || search.abs() > 10_000.0 {
+        return Err(Error::Unsupported);
+    }
+    // Missing GridMap coverage remains unknown, not the source hole sentinel.
+    let tile = products.terrain(products.map, world_tile(p[0], p[1])?)?;
+    let map_height = match tile.point_height(p[0], p[1])? {
+        PointHeight::Height(value) => value,
+        PointHeight::Hole => INVALID_HEIGHT_VALUE,
+    };
+    let height = select_height(map_height, p[2], search, |z, distance| {
+        vmap.height([p[0], p[1], z], distance, budget)
+    })?;
+    budget.complete()?;
+    Ok(height)
 }
 
 /// Exact source decision order and binary32 arithmetic. The only production caller
