@@ -683,3 +683,19 @@ CMaNGOS Classic `Spell::GetMinMaxRange` / `Spell::CheckRange` and
 Source copyright CMaNGOS contributors, GPL-2.0-or-later; this module is
 GPL-3.0-or-later. The source profile, operation order, numeric bounds and
 exclusions are documented beside the port. No stock spell data is bundled.
+
+## Shared bounded trig and initial near-point candidate
+
+[`source_trig`](SOURCE-TRIG.md) carries the existing bounded glibc 2.41 sinf/cosf
+reducer/polynomial once, shared by native and software arithmetic adapters. The
+core preserves its LGPL-2.1-or-later grant, Copyright (C) 2018–2025 Free Software
+Foundation, Inc.; complete notices, license and five original source hashes are
+linked in its contract. Existing VMap degree conversion and oracle vectors remain
+unchanged. The combined crate remains GPL-3.0-or-later.
+
+[`near_point`](NEAR-POINT.md) translates the initial
+`WorldObject::GetNearPoint2dAt` XY arithmetic and `NormalizeMapCoord` from the
+same pinned CMaNGOS revision. Its software IEEE RNE products and additions are
+separate, its angle is raw normalized source bits, and its source clamp follows
+the coordinate sums. It supplies no collision search, ground proof, runtime
+activation or production admission.

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Product-backed ground allowed-Z subquery for a future NearPoint provider.
-//! Candidate XY is supplied, not proven source sinf/cosf output. No candidate
-//! trigonometry, LOS selection, movement fact or admission is supplied.
+//! The scalar query accepts explicit XY; the initial-candidate query derives XY
+//! under a pinned arithmetic policy. Neither supplies LOS selection, a complete
+//! movement fact or admission.
 use super::{
     core::{Failure, Session},
     products::ground_height::{
@@ -14,6 +15,9 @@ use benilla_world_runtime::native::{
 };
 use sha2::{Digest, Sha256};
 use std::time::Instant;
+
+#[path = "source_ground_height/initial_candidate.rs"]
+mod initial_candidate;
 
 pub(crate) struct SourceGroundHeightProvider<'a> {
     session: Session,
@@ -237,7 +241,8 @@ impl BoundGroundHeightQuery<'_, '_> {
 /// query policies rather than treating this scalar dependency as full navigation.
 pub(crate) fn geometry_revision(b: SnapshotBinding) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(b"benilla-source-ground-allowed-z-subquery-v1");
+    h.update(b"benilla-source-ground-initial-candidate-subquery-v2");
+    h.update(initial_candidate::policy_digest());
     h.update(b.map.to_le_bytes());
     h.update(b.content);
     h.update(b.source_epoch);

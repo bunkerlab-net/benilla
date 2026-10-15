@@ -64,3 +64,9 @@ pub mod spell_event;
 
 /// Portable ordinary explicit-unit spell range and release tolerance.
 pub mod spell_range;
+
+/// Bounded shared source-profile sine/cosine with native and software adapters.
+pub mod source_trig;
+
+/// Initial source near-point XY candidate only; no collision search or admission.
+pub mod near_point;

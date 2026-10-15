@@ -4,7 +4,7 @@
 //! Bounded, source-profile numeric bearing and arc comparisons. No map, LOS,
 //! visibility, object identity inference, or admission. See ../../FACING.md.
 mod atan2;
-mod soft;
+pub(crate) mod soft;
 use soft::S;
 
 pub const POLICY: &str = "cmangos-8ec338a1-facing-glibc-2.41-soft-rne-v1";

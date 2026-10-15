@@ -3,15 +3,15 @@
 //! uses software round-to-nearest/ties-even with gradual underflow. No host FPU.
 use rustc_apfloat::{
     ieee::{Double, Single},
-    Float, FloatConvert, Round,
+    Float, FloatConvert, Round, Status,
 };
 use std::ops::{Add, Div, Mul, Neg, Sub};
 const R: Round = Round::NearestTiesToEven;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub(super) struct D(Double);
+pub(crate) struct D(Double);
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub(super) struct S(Single);
+pub(crate) struct S(Single);
 impl D {
     pub const ZERO: Self = Self(Double::ZERO);
     pub fn one() -> Self {
@@ -19,6 +19,18 @@ impl D {
     }
     pub fn bits(bits: u64) -> Self {
         Self(Double::from_bits(u128::from(bits)))
+    }
+    pub fn integer(value: i32) -> Self {
+        Self(Double::from_i128_r(i128::from(value), R).value)
+    }
+    /// C-style conversion: INEXACT is expected; invalid/overflow must not saturate.
+    pub fn truncate_i32(self) -> Option<i32> {
+        let out = self.0.to_i128_r(32, Round::TowardZero, &mut false);
+        if out.status.contains(Status::INVALID_OP) {
+            None
+        } else {
+            i32::try_from(out.value).ok()
+        }
     }
     pub fn raw(self) -> u64 {
         self.0.to_bits() as u64
@@ -90,6 +102,30 @@ operations!(S);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_integer_conversion_truncates_inexact_values_and_rejects_invalid() {
+        for (bits, expected) in [
+            (0x3ff8_0000_0000_0000, 1),
+            (0xbff8_0000_0000_0000, -1),
+            (0x3fef_ffff_ffff_ffff, 0),
+            (0xbfef_ffff_ffff_ffff, 0),
+            (0x8000_0000_0000_0000, 0),
+            (0x41df_ffff_ffc0_0000, i32::MAX),
+            (0xc1e0_0000_0000_0000, i32::MIN),
+        ] {
+            assert_eq!(D::bits(bits).truncate_i32(), Some(expected));
+        }
+        for bits in [
+            0x41e0_0000_0000_0000,
+            0xc1e0_0000_0020_0000,
+            0x7ff0_0000_0000_0000,
+            0xfff0_0000_0000_0000,
+            0x7ff8_0000_0000_0000,
+        ] {
+            assert_eq!(D::bits(bits).truncate_i32(), None);
+        }
+    }
 
     #[test]
     fn explicit_fma_has_one_rounding_and_ordinary_product_does_not_fuse() {

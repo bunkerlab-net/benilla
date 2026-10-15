@@ -32,6 +32,14 @@ in `crates/benilla-sim/src/facing/MIT-NOTICE.txt`; exact sources and numeric sco
 are documented in `crates/benilla-sim/FACING.md`. The combined program remains
 GPL-3.0-or-later.
 
+The shared bounded sinf/cosf core used by VMap Euler transforms and initial
+near-point arithmetic derives from GNU libc 2.41, Copyright (C) 2018–2025 Free
+Software Foundation, Inc., under LGPL-2.1-or-later. Preserve the complete notice
+and license in `crates/benilla-sim/src/source_trig/GLIBC-NOTICE.txt` and
+`crates/benilla-sim/src/source_trig/GLIBC-LICENSE.txt`. Exact sources and bounded
+native/software profiles are documented in `crates/benilla-sim/SOURCE-TRIG.md`.
+The original VMap copies of the notice and license remain available too.
+
 The matching build source, locked dependency sources, license texts, build scripts,
 and build information are provided through the exact download and SHA-256 in
 `SOURCE-DOWNLOAD.txt`, or through an embedded `corresponding-source.tar.gz` in a

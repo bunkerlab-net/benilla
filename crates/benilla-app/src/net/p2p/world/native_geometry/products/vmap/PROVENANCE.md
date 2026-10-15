@@ -85,6 +85,13 @@ query transforms and forward vertex validation use this same profile. The policy
 is changed so snapshots cannot silently cross numeric profiles. Existing CMaNGOS/G3D
 product bytes and all existing geometric oracle expectations remain unchanged.
 
+The degree wrapper delegates its radian evaluation to
+[benilla-sim's shared source core](../../../../../../../../benilla-sim/SOURCE-TRIG.md).
+That core has native and software adapters with one reducer/polynomial; this
+VMap caller retains the native adapter, its exact degree conversion, and its
+existing profile identity and oracle expectations. It does not switch VMap
+geometry to the near-point software consumer's policy.
+
 The original [glibc notice](GLIBC-NOTICE.txt) and
 [LGPL-2.1-or-later license](GLIBC-LICENSE.txt) are retained. The bounded Rust translation
 was made on 2026-10-14; original copyright is Free Software Foundation, Inc., 2018–2025.

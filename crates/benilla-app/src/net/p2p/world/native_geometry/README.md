@@ -247,15 +247,15 @@ lifecycle invariant, not transcript authenticity or liveness.
 Each initial/reset candidate subquery echoes the complete original authority and
 NearPoint context, exact candidate XYZ bits, ticket, and snapshot map/content/source
 epoch/inventory/policy. Initial Z must equal the original target Z. Candidate XY is
-supplied and is not yet proven to equal source `sinf`/`cosf` output. The result carries
+supplied by the scalar query and alone is not proven to equal source `sinf`/`cosf` output. The result carries
 raw Map height (including invalid sentinels) and source ground-only allowed Z.
 Strict comparisons preserve original Z bits on equality and invalid height. The
 source final NearPoint fallback can reuse previously adjusted Z and needs a later
 sequentially bound implementation; it is not silently admitted as an initial probe.
 
 This callable subquery deliberately has no movement/mailbox route and emits no
-complete NearPoint fact. Candidate arithmetic, selector ordering, collision config,
-LOS and fallback sequencing remain separate dependencies. A complete future
+complete NearPoint fact. Selector ordering, collision config, LOS and fallback
+sequencing remain separate dependencies. A complete future
 NearPoint provider must impose cumulative work and an absolute deadline across all
 candidate queries; the current scalar product query bounds one height operation.
 No native admission, full movement provider or playable-world claim follows.
@@ -263,3 +263,36 @@ No native admission, full movement provider or playable-world claim follows.
 [Source selection/empty-tree oracle](../../../../../../benilla-native-geometry-tests/tools/ground_height_README.md)
 is separate from loaded authored-product integration tests. Scalar callbacks prove
 arithmetic and call order; they are never evidence for terrain or collision geometry.
+
+
+## Source-derived initial candidate
+
+`BoundGroundHeightQuery::derive_initial_candidate` derives the first candidate's
+XY from its frozen request, then invokes the loaded-byte ground query above.
+`CurrentTargetToOwner` uses the existing pinned software facing kernel on target
+XY toward owner XY. `Absolute` uses the explicit request angle. Neither substitutes
+an orientation for a bearing or adds bounding radii to the request distance.
+Transient angle and position values remain raw binary32, including subnormals and
+signed zero; no persistent `Real` conversion silently narrows that domain.
+
+The single glibc-derived trig algorithm now has separately selected native and
+software arithmetic adapters. VMap keeps its original native-unfused arithmetic
+and degree conversion. The candidate selects software RNE trigonometry and
+binary32 multiplication, then separately rounded addition, then the exact source
+map clamp. This is a pinned source numeric profile, not a claim that every C++
+platform's libm produces identical bits. Existing geometry and height arithmetic
+are not thereby converted to software floating point.
+
+The revised spatial policy binds the candidate, trig and facing policy identities
+and pinned source hashes, even for an absolute-angle query. The reply echoes the
+resolved angle, policy digest and complete ground request/result. Caller-supplied
+XY is never accepted by this derived-candidate method. Both reachable angle kinds,
+raw tiny bearings and actual loaded authored products are exercised by tests.
+
+This is only the initial candidate plus ground adjustment. It does not decide that
+`DetectPosCollision` is disabled, accept the candidate under LOS/selector rules,
+implement ordered fallback, or publish a `Fact::NearPoint`. `OwnerPathFinder`,
+complete chase/replan routing and production startup remain separate work. Request
+consistency is not live-state authentication: the eventual owner must evaluate and
+accept the witness inside the current staged transaction and revoke replaced source
+sessions. Authored test inputs establish no installed world data or admission.
