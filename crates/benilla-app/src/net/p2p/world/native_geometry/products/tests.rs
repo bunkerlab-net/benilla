@@ -35,7 +35,7 @@ fn shape(k: usize, x: f32, y: f32, center: bool) -> f32 {
         _ => unreachable!(),
     }
 }
-fn terrain_bytes(k: usize) -> Vec<u8> {
+pub(super) fn terrain_bytes(k: usize) -> Vec<u8> {
     let mut values = vec![];
     if k != 0 && k != 7 {
         for i in 0..129 {

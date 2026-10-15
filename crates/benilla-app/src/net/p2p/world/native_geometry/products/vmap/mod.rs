@@ -164,6 +164,15 @@ impl VmapSnapshot {
             spawns,
         })
     }
+    /// A ray may ignore unrelated unloaded slots; a map-wide absence-of-liquid proof
+    /// may not. Every accepted group has absent liquid bytes (including explicit empty
+    /// groups), but that fact says nothing about any unresolved map primitive.
+    pub(super) fn require_complete_dry_map(&self) -> Result<(), Error> {
+        if self.spawns.iter().any(Option::is_none) {
+            return Err(Error::Missing);
+        }
+        Ok(())
+    }
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
     }

@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Exact no-liquid branch of pinned TerrainInfo, derived from validated native products.
+//! Not player environment state, accessibility, source authenticity or session admission.
+use super::{terrain::GRID_SIZE, Error, Hash, InventoriedProducts, ProductId, TileId};
+use sha2::{Digest, Sha256};
+use std::{collections::BTreeSet, time::Instant};
+
+const POLICY: &[u8] = b"cmangos-8ec338a1-complete-dry-native-liquid-v1";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SnapshotBinding {
+    pub map: u32,
+    pub content: Hash,
+    pub source_epoch: Hash,
+    pub inventory: Hash,
+    pub policy: Hash,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LiquidRequest {
+    pub snapshot: SnapshotBinding,
+    pub ticket: u64,
+    /// Exact world-coordinate binary32 bits, echoed even when two poses share a tile.
+    pub position: [u32; 3],
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LiquidStatus {
+    NoWater,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LiquidReply {
+    pub request: LiquidRequest,
+    pub status: LiquidStatus,
+}
+
+/// Immutable proof over this exact decoded product inventory. No caller-authored dry
+/// flag or list of tiles can construct it. There is intentionally no runtime authority
+/// conversion: Player::IsInWater reads ordered cached environment state, not this query.
+#[derive(Debug)]
+pub(crate) struct DryLiquidSnapshot {
+    binding: SnapshotBinding,
+    tiles: BTreeSet<TileId>,
+}
+impl InventoriedProducts {
+    pub(crate) fn load_dry_liquid(&self) -> Result<DryLiquidSnapshot, Error> {
+        // The real VMap decoder rejects LIQU payloads, malformed/unknown models and
+        // non-tiled/worldspawn domains. Require every tree slot, not only a ray's visits.
+        let vmap = self.load_static_vmap()?;
+        vmap.require_complete_dry_map()?;
+        let mut tiles = BTreeSet::new();
+        for (id, product) in &self.products {
+            if let ProductId::Terrain(tile) = id {
+                // TerrainTile::decode requires actual liquid offset AND size == zero.
+                // An absent/undecoded file is never an empty-water observation.
+                product.terrain.as_ref().ok_or(Error::Missing)?;
+                tiles.insert(*tile);
+            }
+        }
+        if tiles.is_empty() {
+            return Err(Error::Missing);
+        }
+        let source = vmap.binding();
+        let mut digest = Sha256::new();
+        digest.update(POLICY);
+        digest.update(source.policy);
+        Ok(DryLiquidSnapshot {
+            binding: SnapshotBinding {
+                map: source.map,
+                content: source.content,
+                source_epoch: source.source_epoch,
+                inventory: source.inventory,
+                policy: digest.finalize().into(),
+            },
+            tiles,
+        })
+    }
+}
+impl DryLiquidSnapshot {
+    pub(crate) fn binding(&self) -> SnapshotBinding {
+        self.binding
+    }
+    pub(crate) fn query(
+        &self,
+        request: LiquidRequest,
+        deadline: Instant,
+    ) -> Result<LiquidReply, Error> {
+        if request.snapshot != self.binding || request.ticket == 0 {
+            return Err(Error::Identity);
+        }
+        if Instant::now() >= deadline {
+            return Err(Error::Budget);
+        }
+        let p = request.position.map(f32::from_bits);
+        if p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
+            return Err(Error::Format);
+        }
+        let tile = world_tile(p[0], p[1])?;
+        if !self.tiles.contains(&tile) {
+            return Err(Error::Missing);
+        }
+        // TerrainInfo::getLiquidStatus: no GroupModel has iLiquid, hence GetLiquidLevel
+        // is false; GridMap's absent m_liquidFlags/m_liquidGlobalFlags returns NO_WATER
+        // before height, holes, area/DBC overrides or collision-height arithmetic.
+        // This is a source branch proof, not "no visible water" or clear navigation.
+        if Instant::now() >= deadline {
+            return Err(Error::Budget);
+        }
+        Ok(LiquidReply {
+            request,
+            status: LiquidStatus::NoWater,
+        })
+    }
+}
+fn world_tile(x: f32, y: f32) -> Result<TileId, Error> {
+    // TerrainInfo::GetGrid, GridMap.cpp:1224–1226: source binary32 division and
+    // subtraction, then truncation. Reject out-of-grid coordinates before conversion; this is not player map-coordinate validation.
+    let axis = |v| {
+        let grid = 32.0f32 - v / GRID_SIZE;
+        if !(0.0..64.0).contains(&grid) {
+            return Err(Error::OutsideTile);
+        }
+        Ok(grid as u8)
+    };
+    Ok(TileId {
+        x: axis(x)?,
+        y: axis(y)?,
+    })
+}
+
+#[cfg(test)]
+mod tests;

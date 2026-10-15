@@ -116,3 +116,62 @@ as an additional provider veto. This loaded subset does not establish complete n
 coverage, an owner-dependent PathFinder adapter or full-route movement authority. Stacked-floor/narrow-clearance/liquid/body/LOS and complete-route
 oracles, live immutable source binding, participant admission and real local Data remain
 mandatory and independent. Point interpolation opens no existing slope or movement gate.
+
+## Exact dry native liquid prerequisite
+
+`InventoriedProducts::load_dry_liquid` derives a separate immutable
+`DryLiquidSnapshot` from the actual decoded native products. It first loads the
+existing dry VMap reader and requires every map-tree primitive slot to be resolved.
+A successful ordinary ray load can leave unrelated slots unknown and is therefore
+insufficient. The retained terrain tile set comes only from fully decoded
+`TerrainTile` products, which require both liquid-section offset and size to be zero.
+No caller-provided dry flag, successful path, missing file, or renderer observation
+can construct this result.
+
+For the pinned source, these facts imply the exact `LIQUID_MAP_NO_WATER` branch:
+
+- `GridMap.cpp:43–68,120–125` leaves a new grid's liquid pointers/flags empty when
+  no liquid section is present
+- `GridMap::getLiquidStatus`, `GridMap.cpp:544–548`, returns NO_WATER before any
+  height, hole, area/DBC override or collision-height computation in that state
+- Every accepted VMap group has no liquid payload; the source empty-group branch
+  also has no liquid. `WorldModel.cpp:393–404` therefore cannot supply a liquid level
+- `VMapManager2.cpp:288–305` cannot return a liquid level for any selected group
+  in a fully resolved dry map. No location/floor winner needs to be approximated
+- `TerrainInfo::getLiquidStatus`, `GridMap.cpp:1054–1127`, receives false from
+  VMap and NO_WATER from the exact GridMap tile and retains its initial NO_WATER.
+  Its preliminary composite-height number is irrelevant to that bounded result
+
+A query binds map, content, source epoch, complete inventory, policy, ticket and
+exact world-position bits. Grid selection preserves `TerrainInfo::GetGrid`'s
+binary32 division/subtraction and truncation (`GridMap.cpp:1224–1226`), with invalid
+coordinates rejected before indexing. Only covered tiles can answer; a wholly dry
+VMap never makes a missing terrain tile dry. Deadline, malformed-point, stale
+binding, unresolved-slot, missing/corrupt-file and liquid-payload failures return
+errors. Even a liquid payload outside the requested point is unsupported in this
+strict profile. Holes and unsupported walking geometry cannot change NO_WATER,
+but this query grants no support, accessibility or navigation fact.
+
+The [offline oracle](../../../../../../../benilla-native-geometry-tests/tools/generate_liquid_fixture.py)
+hash-checks complete pinned GridMap.cpp, GridMapDefines.h and GridDefines.h,
+extracts the source grid constants, compiles the complete
+original `GridMap::getLiquidStatus` method and exact source grid-selector lines,
+and checks 1,338 authored center/boundary/adjacent-float/height vectors. DBC and
+height dependencies abort if reached, so they cannot supply invented values to
+an accidentally non-dry branch. The harness establishes only the dry branch and
+grid arithmetic; it is not a composite TerrainInfo or wet-liquid implementation.
+Original GPL source notices are retained with generated temporary translations;
+only authored numbers and the harness are committed. Run with `--check` to require
+an exact fixture match; a missing compiler is an error, never a silent skip.
+
+This is a product-level prerequisite, not current player water state.
+`Player::IsInWater` reads cached environment flags; `SetPosition` updates them only
+when its 100-ms position-status timer permits. Liquid transition callbacks, prior
+wet state and restoration history cannot be replaced by a fresh point query.
+Native `NpcAccessibility` remains unavailable pending that state/lifecycle and
+raw creature `InhabitType`/current movement-capability integration. Existing native
+capability, participant and local extraction/source-epoch admission stay closed.
+The immutable snapshot survives file changes under its old binding; it does not
+establish a live source lease. Whole-map dry closure is deliberately restrictive
+and may reject real continent products, including those exceeding existing caps.
+No real client assets or playable-world claim accompanies this prerequisite.

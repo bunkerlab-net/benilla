@@ -1,0 +1,301 @@
+use super::super::{tests as products, vmap::tests as vmap};
+use super::*;
+use std::time::Duration;
+
+fn snapshot() -> DryLiquidSnapshot {
+    let (spec, files) = vmap::fixture();
+    products::load(spec, &files)
+        .unwrap()
+        .load_dry_liquid()
+        .unwrap()
+}
+fn request(snapshot: &DryLiquidSnapshot) -> LiquidRequest {
+    LiquidRequest {
+        snapshot: snapshot.binding(),
+        ticket: 1,
+        position: [0.0f32, 800.0, 7.0].map(f32::to_bits),
+    }
+}
+fn deadline() -> Instant {
+    Instant::now() + Duration::from_secs(10)
+}
+
+#[test]
+fn real_decoded_native_products_prove_only_the_exact_covered_dry_tile() {
+    let snapshot = snapshot();
+    let mut query = request(&snapshot);
+    for z in [-1000.0f32, -0.0, 0.0, 7.0, 1000.0] {
+        query.position[2] = z.to_bits();
+        assert_eq!(
+            snapshot.query(query, deadline()).unwrap(),
+            LiquidReply {
+                request: query,
+                status: LiquidStatus::NoWater
+            }
+        );
+    }
+    // The full static map is known dry, but the queried terrain tile is absent.
+    query.position = [0.0f32, 0.0, 7.0].map(f32::to_bits);
+    assert_eq!(snapshot.query(query, deadline()), Err(Error::Missing));
+}
+#[test]
+fn liquid_payloads_and_noncovering_unloaded_vmap_slots_never_mean_dry() {
+    let (mut spec, mut files) = vmap::fixture();
+    // Nonzero native liquid section metadata explicitly rejects, even outside the query
+    // point. This profile has no wet/noncovering-liquid branch or liquid-type guessing.
+    let id = ProductId::Terrain(spec.tiles[0]);
+    products::mutate(&mut spec, &mut files, &id, |bytes| {
+        bytes[24..28].copy_from_slice(&48u32.to_le_bytes());
+        bytes[28..32].copy_from_slice(&16u32.to_le_bytes());
+    });
+    assert!(matches!(
+        products::load(spec, &files),
+        Err(Error::Unsupported)
+    ));
+    let (mut spec, mut files) = vmap::fixture();
+    let id = ProductId::VmapModel("ramp.wmo.vmo".into());
+    products::mutate(&mut spec, &mut files, &id, |bytes| {
+        let i = bytes.windows(4).position(|p| p == b"LIQU").unwrap();
+        bytes[i + 4..i + 8].copy_from_slice(&1u32.to_le_bytes());
+    });
+    assert!(products::load(spec, &files)
+        .and_then(|p| p.load_dry_liquid())
+        .is_err());
+
+    let (mut spec, mut files) = vmap::fixture();
+    // Keep the real complete map tree, but no tile resolves its primitive slots. The
+    // existing ray loader legitimately accepts this; all-map no-liquid proof cannot.
+    for tile in spec.tiles.clone() {
+        let id = ProductId::VmapTile(tile);
+        products::mutate(&mut spec, &mut files, &id, |bytes| {
+            bytes.truncate(12);
+            bytes[8..12].copy_from_slice(&0u32.to_le_bytes());
+        });
+        spec.products
+            .iter_mut()
+            .find(|p| p.id == id)
+            .unwrap()
+            .dependencies = vec![ProductId::VmapTree];
+    }
+    spec.products
+        .retain(|p| !matches!(p.id, ProductId::VmapModel(_)));
+    let products = products::load(spec, &files).unwrap();
+    assert!(products.load_static_vmap().is_ok());
+    assert!(matches!(products.load_dry_liquid(), Err(Error::Missing)));
+}
+#[test]
+fn missing_and_corrupt_products_reject_before_a_liquid_snapshot_exists() {
+    for id in [
+        ProductId::Terrain(TileId { x: 32, y: 30 }),
+        ProductId::VmapTree,
+        ProductId::VmapModel("wall.wmo.vmo".into()),
+    ] {
+        let (spec, mut files) = vmap::fixture();
+        files.remove(&id.filename(spec.map).unwrap());
+        assert!(products::load(spec, &files)
+            .and_then(|p| p.load_dry_liquid())
+            .is_err());
+    }
+    let (spec, mut files) = vmap::fixture();
+    let key = ProductId::Terrain(TileId { x: 32, y: 30 })
+        .filename(spec.map)
+        .unwrap();
+    files.get_mut(&key).unwrap()[0] ^= 1;
+    assert!(matches!(products::load(spec, &files), Err(Error::Hash)));
+}
+#[test]
+fn request_binds_map_content_epoch_inventory_policy_ticket_and_exact_pose() {
+    let snapshot = snapshot();
+    let original = request(&snapshot);
+    for field in 0..6 {
+        let mut changed = original;
+        match field {
+            0 => changed.snapshot.map += 1,
+            1 => changed.snapshot.content[0] ^= 1,
+            2 => changed.snapshot.source_epoch[0] ^= 1,
+            3 => changed.snapshot.inventory[0] ^= 1,
+            4 => changed.snapshot.policy[0] ^= 1,
+            _ => changed.ticket = 0,
+        }
+        assert_eq!(snapshot.query(changed, deadline()), Err(Error::Identity));
+    }
+    let mut moved = original;
+    moved.position[0] = (-0.0f32).to_bits();
+    moved.ticket = 2;
+    assert_ne!(
+        snapshot.query(original, deadline()).unwrap(),
+        snapshot.query(moved, deadline()).unwrap()
+    );
+    assert_eq!(snapshot.query(moved, deadline()).unwrap().request, moved);
+    assert_eq!(snapshot.query(original, Instant::now()), Err(Error::Budget));
+    for position in [
+        [f32::NAN, 800., 7.],
+        [0., f32::INFINITY, 7.],
+        [0., 800., f32::NEG_INFINITY],
+        [100000., 800., 7.],
+        [0., 800., 100001.],
+    ] {
+        let mut bad = original;
+        bad.position = position.map(f32::to_bits);
+        assert!(snapshot.query(bad, deadline()).is_err());
+    }
+}
+#[test]
+fn source_replacement_cannot_relabel_old_immutable_evidence() {
+    let (spec, mut files) = vmap::fixture();
+    let old = products::load(spec.clone(), &files)
+        .unwrap()
+        .load_dry_liquid()
+        .unwrap();
+    let mut changed = spec;
+    changed.binding.source_epoch = [77; 32];
+    let new = products::load(changed, &files)
+        .unwrap()
+        .load_dry_liquid()
+        .unwrap();
+    assert_ne!(old.binding(), new.binding());
+    files.values_mut().for_each(Vec::clear);
+    assert!(old.query(request(&old), deadline()).is_ok());
+    assert_eq!(new.query(request(&old), deadline()), Err(Error::Identity));
+    assert_eq!(old.query(request(&new), deadline()), Err(Error::Identity));
+}
+
+#[test]
+fn pinned_source_dry_branch_and_grid_selection_match_the_loaded_query() {
+    let snapshot = snapshot();
+    let mut count = 0;
+    for line in include_str!(
+        "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/dry-liquid.tsv"
+    )
+    .lines()
+    {
+        if line.starts_with('#') {
+            continue;
+        }
+        let row: Vec<_> = line.split('\t').collect();
+        let bits = |i| u32::from_str_radix(row[i], 16).unwrap();
+        let position = [bits(0), bits(1), bits(2)];
+        let tile = TileId {
+            x: row[5].parse().unwrap(),
+            y: row[6].parse().unwrap(),
+        };
+        assert_eq!(row[4], "0", "source no-liquid branch changed");
+        assert_eq!(
+            world_tile(f32::from_bits(position[0]), f32::from_bits(position[1])),
+            Ok(tile)
+        );
+        let request = LiquidRequest {
+            snapshot: snapshot.binding(),
+            ticket: count + 1,
+            position,
+        };
+        let actual = snapshot.query(request, deadline());
+        if snapshot.tiles.contains(&tile) {
+            assert_eq!(
+                actual,
+                Ok(LiquidReply {
+                    request,
+                    status: LiquidStatus::NoWater
+                })
+            );
+        } else {
+            assert_eq!(actual, Err(Error::Missing));
+        }
+        count += 1;
+    }
+    assert_eq!(count, 1338);
+}
+
+#[test]
+fn one_unresolved_slot_blocks_dry_proof_even_when_an_unrelated_ray_is_clear() {
+    use super::super::vmap::{RayRequest, StaticRay};
+    let (mut spec, mut files) = vmap::fixture();
+    for tile in spec.tiles.clone() {
+        products::mutate(&mut spec, &mut files, &ProductId::VmapTile(tile), |bytes| {
+            let count = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+            assert_eq!(count, 5);
+            // Exact authored native writer's first ramp spawn is 78 bytes. Another
+            // spawn still references this model, preserving the model dependency set.
+            bytes.drain(12..90);
+            bytes[8..12].copy_from_slice(&(count - 1).to_le_bytes());
+        });
+    }
+    let products = products::load(spec, &files).unwrap();
+    let rays = products.load_static_vmap().unwrap();
+    let request = RayRequest {
+        snapshot: rays.binding(),
+        ticket: 1,
+        from: [1000.0f32, 1000., 1.].map(f32::to_bits),
+        to: [1001.0f32, 1000., 1.].map(f32::to_bits),
+        ignore_m2: true,
+    };
+    assert_eq!(
+        rays.query(request, deadline()).unwrap().result,
+        StaticRay::Miss
+    );
+    assert!(matches!(products.load_dry_liquid(), Err(Error::Missing)));
+}
+#[test]
+fn outer_grid_boundaries_reject_before_unsigned_indexing_or_missing_tile_fallback() {
+    let positive = 32.0f32 * GRID_SIZE;
+    let negative = -positive;
+    assert_eq!(world_tile(positive, 0.), Ok(TileId { x: 0, y: 32 }));
+    assert_eq!(
+        world_tile(positive.next_down(), 0.),
+        Ok(TileId { x: 0, y: 32 })
+    );
+    assert_eq!(world_tile(positive.next_up(), 0.), Err(Error::OutsideTile));
+    assert_eq!(world_tile(negative, 0.), Err(Error::OutsideTile));
+    assert_eq!(
+        world_tile(negative.next_down(), 0.),
+        Err(Error::OutsideTile)
+    );
+    // The source float subtraction can round the immediately adjacent valid-world
+    // point back to grid 64; this supported API refuses it rather than indexing 64.
+    let grid = 32.0f32 - negative.next_up() / GRID_SIZE;
+    let expected = if grid < 64. {
+        Ok(TileId {
+            x: grid as u8,
+            y: 32,
+        })
+    } else {
+        Err(Error::OutsideTile)
+    };
+    assert_eq!(world_tile(negative.next_up(), 0.), expected);
+    assert_eq!(world_tile(0., positive.next_up()), Err(Error::OutsideTile));
+    assert_eq!(world_tile(0., negative), Err(Error::OutsideTile));
+}
+
+#[test]
+fn slopes_and_holes_do_not_turn_a_liquid_fact_into_a_support_fact() {
+    for shape in [1, 6] {
+        let (mut spec, mut files) = vmap::fixture();
+        products::mutate(
+            &mut spec,
+            &mut files,
+            &ProductId::Terrain(TileId { x: 32, y: 30 }),
+            |bytes| {
+                *bytes = products::terrain_bytes(shape);
+            },
+        );
+        let products = products::load(spec, &files).unwrap();
+        let (x, y) = (-1.0f32, 2.0f32 * GRID_SIZE - 1.0);
+        let height = products
+            .terrain(0, TileId { x: 32, y: 30 })
+            .unwrap()
+            .point_height(x, y)
+            .unwrap();
+        if shape == 6 {
+            assert_eq!(height, super::super::PointHeight::Hole);
+        } else {
+            assert!(matches!(height, super::super::PointHeight::Height(_)));
+        }
+        let snapshot = products.load_dry_liquid().unwrap();
+        let mut query = request(&snapshot);
+        query.position = [x, y, 7.0].map(f32::to_bits);
+        assert_eq!(
+            snapshot.query(query, deadline()).unwrap().status,
+            LiquidStatus::NoWater
+        );
+    }
+}
