@@ -214,3 +214,145 @@ fn long_diagnostics_keep_full_text_and_cannot_move_save_close_footer() {
         Val::Px(layout::FOOTER[1] * s)
     );
 }
+
+#[test]
+fn stock_frame_tints_do_not_turn_the_tooltip_mask_into_a_grey_panel() {
+    let mut app = App::new();
+    let border = crate::glue::backdrop::BackdropEdges {
+        left: Handle::default(),
+        right: Handle::default(),
+        top: Handle::default(),
+        bottom: Handle::default(),
+        tl: Handle::default(),
+        tr: Handle::default(),
+        bl: Handle::default(),
+        br: Handle::default(),
+    };
+    let mut art = GlueArt::default();
+    art.tooltip_bg = Some(Handle::default());
+    art.name_border = Some(border);
+    let skin = Skin {
+        art: &art,
+        font: Handle::default(),
+        edit_font: Handle::default(),
+        s: 1.0,
+        border_scale: 1.0,
+    };
+    let mut queue = bevy::ecs::world::CommandQueue::default();
+    Commands::new(&mut queue, app.world())
+        .spawn_empty()
+        .with_children(|ui| skin.frame(ui, false));
+    queue.apply(app.world_mut());
+    let images: Vec<_> = app
+        .world_mut()
+        .query::<&ImageNode>()
+        .iter(app.world())
+        .collect();
+    assert_eq!(images.len(), 9);
+    assert_eq!(
+        images
+            .iter()
+            .filter(|image| image.color == BOX_FILL)
+            .count(),
+        1
+    );
+    assert_eq!(
+        images
+            .iter()
+            .filter(|image| image.color == BOX_BORDER)
+            .count(),
+        8
+    );
+}
+
+#[test]
+fn repeated_navigation_and_reopening_keeps_one_panel_and_all_actions() {
+    let mut app = panel_app();
+    for _ in 0..3 {
+        for offset in [0, PAGE_SIZE, PAGE_SIZE * 2, PAGE_SIZE, 0] {
+            {
+                let mut settings = app.world_mut().resource_mut::<Settings>();
+                settings.open = true;
+                settings.keep_edit();
+                settings.offset = offset;
+                settings.select(offset);
+                settings.refresh = true;
+            }
+            app.update();
+            app.update();
+            root(&mut app);
+            let actions: Vec<_> = app
+                .world_mut()
+                .query::<&Action>()
+                .iter(app.world())
+                .collect();
+            assert_eq!(
+                actions.iter().filter(|a| matches!(a, Action::Save)).count(),
+                1
+            );
+            assert_eq!(
+                actions
+                    .iter()
+                    .filter(|a| matches!(a, Action::Cancel))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                actions
+                    .iter()
+                    .filter(|a| matches!(a, Action::Previous))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                actions.iter().filter(|a| matches!(a, Action::Next)).count(),
+                1
+            );
+            let settings = app.world().resource::<Settings>();
+            assert_eq!(settings.selected, Some(offset));
+            assert_eq!(
+                actions
+                    .iter()
+                    .filter(|a| matches!(a, Action::Select(_)))
+                    .count(),
+                (settings.fields.len() - offset).min(PAGE_SIZE)
+            );
+        }
+        app.world_mut().resource_mut::<Settings>().open = false;
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<Root>>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+        assert_eq!(
+            app.world_mut().query::<&Action>().iter(app.world()).count(),
+            0
+        );
+    }
+}
+
+#[test]
+fn header_uses_stock_small_font_and_panel_blocks_login_text_bleed() {
+    let mut app = panel_app();
+    app.update();
+    let s = layout::scale(800.0, 600.0);
+    let title = app
+        .world_mut()
+        .query::<(&Text, &TextFont)>()
+        .iter(app.world())
+        .find(|(text, _)| text.0 == "Connection setup")
+        .unwrap();
+    assert_eq!(title.1.font_size, 12.0 * s);
+    assert!(app
+        .world_mut()
+        .query::<(&BackgroundColor, &Node)>()
+        .iter(app.world())
+        .any(|(color, node)| color.0 == Color::BLACK
+            && node.left == Val::Px(12.0 * s)
+            && node.right == Val::Px(12.0 * s)
+            && node.top == Val::Px(12.0 * s)
+            && node.bottom == Val::Px(12.0 * s)));
+}

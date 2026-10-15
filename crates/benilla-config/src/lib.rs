@@ -2,6 +2,7 @@
 //! Never display TOML parser errors directly: they can contain the source and hence the PSK.
 
 pub mod editor;
+pub mod world_clock;
 
 use argon2::{Algorithm, Argon2, Block, Params, Version};
 use serde::Deserialize;
@@ -59,6 +60,7 @@ pub struct P2pConfig {
     pub encounter: Option<EncounterConfig>,
     pub internet: Option<benilla_p2p::InternetConfig>,
     pub network: String,
+    pub timezone: world_clock::WorldTimezone,
     pub listen: SocketAddr,
     pub peers: Vec<SocketAddr>,
     pub max_peers: u16,
@@ -245,6 +247,8 @@ struct RawP2p {
     psk: Passphrase,
     #[serde(default = "default_network")]
     network: String,
+    #[serde(default)]
+    timezone: world_clock::WorldTimezone,
     #[serde(default = "default_listen")]
     listen: SocketAddr,
     #[serde(default)]
@@ -452,6 +456,7 @@ fn validate_p2p(raw: RawP2p) -> Result<P2pConfig, ConfigError> {
             .transpose()?,
         internet: raw.internet,
         network: raw.network,
+        timezone: raw.timezone,
         listen: raw.listen,
         peers: raw.peers,
         max_peers: raw.max_peers,

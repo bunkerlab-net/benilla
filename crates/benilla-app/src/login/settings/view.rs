@@ -18,6 +18,10 @@ pub(in crate::login) struct ScrollArea(f32);
 #[derive(Component)]
 struct Footer;
 
+// Match the stock glue edit-box tint; the tooltip texture is a neutral tint mask.
+const BOX_BORDER: Color = Color::srgb(0.8, 0.8, 0.8);
+const BOX_FILL: Color = Color::srgb(0.09, 0.09, 0.09);
+
 #[derive(PartialEq)]
 pub(in crate::login) struct StyleKey {
     scale: f32,
@@ -72,26 +76,41 @@ impl Skin<'_> {
         );
     }
     fn frame(&self, ui: &mut ChildSpawnerCommands, dialog: bool) {
-        let (bg, border, edge) = if dialog {
-            (&self.art.dialog_bg, &self.art.dialog_border, 32.0)
+        let (bg, border, edge, fill, border_color, insets) = if dialog {
+            // GlueDialog's stock background insets and 32-pixel edge.
+            (
+                &self.art.dialog_bg,
+                &self.art.dialog_border,
+                32.0,
+                Color::WHITE,
+                Color::WHITE,
+                [11.0, 12.0, 12.0, 11.0],
+            )
         } else {
-            (&self.art.tooltip_bg, &self.art.name_border, 16.0)
+            (
+                &self.art.tooltip_bg,
+                &self.art.name_border,
+                16.0,
+                BOX_FILL,
+                BOX_BORDER,
+                [6.0; 4],
+            )
         };
         if let (Some(bg), Some(border)) = (bg, border) {
-            let inset = if dialog { 12.0 } else { 6.0 } * self.s;
+            let [left, right, top, bottom] = insets.map(|v| Val::Px(v * self.s));
             ui.spawn((
-                tiled_bg_node(bg.clone(), edge, self.s, Color::WHITE),
+                tiled_bg_node(bg.clone(), edge, self.s, fill),
                 Node {
                     position_type: PositionType::Absolute,
-                    left: Val::Px(inset),
-                    right: Val::Px(inset),
-                    top: Val::Px(inset),
-                    bottom: Val::Px(inset),
+                    left,
+                    right,
+                    top,
+                    bottom,
                     ..default()
                 },
             ));
             // The shared fitter multiplies by the global glue scale; this dialog also fits width.
-            backdrop_border(ui, border, edge * self.border_scale, Color::WHITE);
+            backdrop_border(ui, border, edge * self.border_scale, border_color);
         } else {
             ui.spawn((
                 BackgroundColor(Color::srgba(0.04, 0.04, 0.055, 0.97)),
@@ -256,6 +275,18 @@ pub(in crate::login) fn render(
                 ..default()
             })
             .with_children(|ui| {
+                // Keep the underlying login text out of the translucent stock backdrop.
+                ui.spawn((
+                    BackgroundColor(Color::BLACK),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(12.0 * s),
+                        right: Val::Px(12.0 * s),
+                        top: Val::Px(12.0 * s),
+                        bottom: Val::Px(12.0 * s),
+                        ..default()
+                    },
+                ));
                 skin.frame(ui, true);
                 content(ui, &settings, &skin);
             });
@@ -264,17 +295,18 @@ pub(in crate::login) fn render(
 
 fn content(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
     let s = skin.s;
+    // Realm selection uses this 256×64 stock plaque with a 12-point caption 14 below its top.
     if let Some((header, _)) = &skin.art.dialog_header {
         ui.spawn((
             ImageNode::new(header.clone()),
-            abs(s, 308.0, -8.0, 304.0, 64.0),
+            abs(s, (layout::WIDTH - 256.0) / 2.0, -12.0, 256.0, 64.0),
         ));
     }
     ui.spawn(Node {
         justify_content: JustifyContent::Center,
-        ..abs(s, 24.0, 14.0, 872.0, 30.0)
+        ..abs(s, (layout::WIDTH - 256.0) / 2.0, 2.0, 256.0, 20.0)
     })
-    .with_children(|title| skin.text(title, "Connection setup", 20.0, GOLD, Node::default()));
+    .with_children(|title| skin.text(title, "Connection setup", 12.0, GOLD, Node::default()));
     skin.text(
         ui,
         "Executable config.toml • Save requires restart • Passphrase is stored locally",
@@ -537,7 +569,7 @@ fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin
             (),
             Edit,
             (408.0, 36.0),
-            (Color::srgb(0.8, 0.8, 0.8), Color::srgb(0.09, 0.09, 0.09)),
+            (BOX_BORDER, BOX_FILL),
             (12.0, 12.0, 0.0, 5.0),
             s,
         );

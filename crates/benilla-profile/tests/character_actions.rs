@@ -1,8 +1,15 @@
-//! Execute the production app's deletion and confirmation edges without linking Bevy.
+mod char_select {
+    pub(crate) use crate::recovery_model;
+}
+#[path = "../../benilla-app/src/char_select/recovery_model.rs"]
+pub(crate) mod recovery_model;
+// Execute the production app character actions without linking Bevy.
 #[path = "../../benilla-app/src/net/p2p/character_actions.rs"]
 mod character_actions;
 #[path = "../../benilla-app/src/char_select/delete_intent.rs"]
 mod delete_intent;
+#[path = "../../benilla-app/src/net/p2p/recovery_actions.rs"]
+mod recovery_actions;
 
 use benilla_profile::{Appearance, NewCharacter, ProfileStore};
 use benilla_protocol::{CharAction, SessionEvent};
@@ -224,4 +231,165 @@ fn a_lost_roster_delivery_keeps_durable_removal_and_does_not_emit_success() {
     let store = ProfileStore::open(&fixture.0).unwrap();
     assert!(store.characters().is_empty());
     assert_eq!(store.archived_characters()[0].id, id);
+}
+
+#[test]
+fn recovery_lists_confirms_and_restores_once_without_changing_identity() {
+    let fixture = Fixture::new();
+    let mut store = ProfileStore::create(&fixture.0).unwrap();
+    let id = store.create_character(input("Alice")).unwrap();
+    let original = store.character(id).unwrap().clone();
+    store.archive_character(store.owner_id(), id).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    recovery_actions::recover(&mut store, recovery_model::Request::List(tx), |_| {
+        panic!("list is read only")
+    })
+    .unwrap();
+    let rows = rx.recv().unwrap().unwrap();
+    assert_eq!(rows, std::slice::from_ref(&original));
+    let mut confirmation = recovery_model::Confirmation(Some(original.clone()));
+    let target = confirmation.confirm(&rows).unwrap();
+    assert!(confirmation.confirm(&rows).is_none());
+    let (reply, rx) = std::sync::mpsc::channel();
+    recovery_actions::recover(
+        &mut store,
+        recovery_model::Request::Restore { target, reply },
+        |saved| {
+            assert_eq!(saved.character(id), Some(&original));
+            assert!(rx.try_recv().is_err(), "no success before roster delivery");
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(rx.recv().unwrap().unwrap().is_empty());
+    let (reply, rx) = std::sync::mpsc::channel();
+    recovery_actions::recover(
+        &mut store,
+        recovery_model::Request::Restore {
+            target: original.clone(),
+            reply,
+        },
+        |_| panic!("duplicate restore"),
+    )
+    .unwrap();
+    assert!(rx.recv().unwrap().is_err());
+    drop(store);
+    let store = ProfileStore::open(&fixture.0).unwrap();
+    assert_eq!(store.character(id), Some(&original));
+}
+
+#[test]
+fn recovery_rejects_foreign_stale_and_name_conflicting_targets() {
+    let fixture = Fixture::new();
+    let mut store = ProfileStore::create(&fixture.0).unwrap();
+    let id = store.create_character(input("Alice")).unwrap();
+    let original = store.character(id).unwrap().clone();
+    store.archive_character(store.owner_id(), id).unwrap();
+    let mut foreign = original.clone();
+    foreign.owner_id[0] ^= 1;
+    let mut stale = original.clone();
+    stale.id[0] ^= 1;
+    for target in [foreign, stale] {
+        let (reply, rx) = std::sync::mpsc::channel();
+        recovery_actions::recover(
+            &mut store,
+            recovery_model::Request::Restore { target, reply },
+            |_| panic!("invalid target"),
+        )
+        .unwrap();
+        assert!(rx.recv().unwrap().is_err());
+    }
+    store.create_character(input("Alice")).unwrap();
+    let before = fs::read(fixture.0.join("profile.json")).unwrap();
+    let (reply, rx) = std::sync::mpsc::channel();
+    recovery_actions::recover(
+        &mut store,
+        recovery_model::Request::Restore {
+            target: original.clone(),
+            reply,
+        },
+        |_| panic!("name conflict"),
+    )
+    .unwrap();
+    assert!(rx.recv().unwrap().unwrap_err().contains("name"));
+    assert_eq!(fs::read(fixture.0.join("profile.json")).unwrap(), before);
+    let mut confirmation = recovery_model::Confirmation(Some(original));
+    assert!(confirmation.confirm(&[]).is_none());
+    assert!(confirmation.0.is_none());
+}
+
+#[test]
+fn realm_recovery_requests_are_explicitly_rejected() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    recovery_model::Request::List(tx).reject();
+    assert!(rx.recv().unwrap().unwrap_err().contains("only for local"));
+}
+
+#[test]
+fn recovery_save_failure_closes_lobby_without_false_success() {
+    let fixture = Fixture::new();
+    let mut store = ProfileStore::create(&fixture.0).unwrap();
+    let id = store.create_character(input("Alice")).unwrap();
+    let target = store.character(id).unwrap().clone();
+    store.archive_character(store.owner_id(), id).unwrap();
+    fs::remove_file(fixture.0.join("profile.previous.json")).unwrap();
+    fs::create_dir(fixture.0.join("profile.previous.json")).unwrap();
+    let (reply, rx) = std::sync::mpsc::channel();
+    assert!(recovery_actions::recover(
+        &mut store,
+        recovery_model::Request::Restore { target, reply },
+        |_| panic!("failed save cannot refresh roster")
+    )
+    .is_err());
+    assert!(rx.recv().unwrap().is_err());
+    assert!(store.character(id).is_none());
+    assert_eq!(store.archived_characters().len(), 1);
+}
+
+#[test]
+fn recovery_lost_roster_delivery_does_not_acknowledge_success() {
+    let fixture = Fixture::new();
+    let mut store = ProfileStore::create(&fixture.0).unwrap();
+    let id = store.create_character(input("Alice")).unwrap();
+    let target = store.character(id).unwrap().clone();
+    store.archive_character(store.owner_id(), id).unwrap();
+    let (reply, rx) = std::sync::mpsc::channel();
+    assert!(recovery_actions::recover(
+        &mut store,
+        recovery_model::Request::Restore { target, reply },
+        |_| Err(anyhow::anyhow!("disconnected event queue"))
+    )
+    .is_err());
+    assert!(rx.recv().is_err());
+    drop(store);
+    assert!(ProfileStore::open(&fixture.0)
+        .unwrap()
+        .character(id)
+        .is_some());
+}
+
+#[test]
+fn recovery_full_roster_refuses_without_replacing_characters() {
+    let fixture = Fixture::new();
+    let mut store = ProfileStore::create(&fixture.0).unwrap();
+    let id = store.create_character(input("Archived")).unwrap();
+    let target = store.character(id).unwrap().clone();
+    store.archive_character(store.owner_id(), id).unwrap();
+    for name in [
+        "Alice", "Beryl", "Cathy", "Derek", "Edith", "Frank", "Grace", "Henry", "Irene", "James",
+    ] {
+        store.create_character(input(name)).unwrap();
+    }
+    assert_eq!(store.characters().len(), benilla_profile::MAX_CHARACTERS);
+    let (reply, rx) = std::sync::mpsc::channel();
+    recovery_actions::recover(
+        &mut store,
+        recovery_model::Request::Restore { target, reply },
+        |_| panic!("full roster"),
+    )
+    .unwrap();
+    assert!(rx.recv().unwrap().unwrap_err().contains("full"));
+    assert_eq!(store.characters().len(), benilla_profile::MAX_CHARACTERS);
+    assert!(store.character(id).is_none());
+    assert_eq!(store.archived_characters().len(), 1);
 }

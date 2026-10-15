@@ -196,7 +196,7 @@ pub(super) fn drive_delete_dialog(
 fn recovery_help_text() -> GlueText<'static> {
     GlueText {
         text:
-            "Local deletion keeps a recoverable archive.\nRestore help: benilla characters --help",
+            "Local deletion keeps a recoverable archive.\nUse Recover Characters on character select.",
         size: 12.0,
         color: GOLD,
         wrap: true,
@@ -431,7 +431,7 @@ fn spawn_dialog(
                         });
                     });
                 if recoverable {
-                    // Fork-only deviation: local removal is recoverable from the player CLI.
+                    // Fork-only deviation: local removal is recoverable from character select.
                     outlined_text_centered(
                         b,
                         Node {
@@ -503,7 +503,7 @@ mod tests {
             decoded.lines().collect::<Vec<_>>(),
             [
                 "Local deletion keeps a recoverable archive.",
-                "Restore help: benilla characters --help",
+                "Use Recover Characters on character select.",
             ]
         );
     }

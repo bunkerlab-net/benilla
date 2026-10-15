@@ -333,6 +333,11 @@ pub(super) fn browse(
                     |event| emit(events, event),
                     |saved| roster(saved, events, RosterCause::Changed, generation),
                 )?,
+                super::super::CharRequest::Recover(request) => {
+                    character_actions::recover(&mut store, request, |saved| {
+                        roster(saved, events, RosterCause::Changed, generation)
+                    })?
+                }
                 // Rename remains unsupported; deletion never changes names or identities.
                 super::super::CharRequest::Rename { .. } => emit(
                     events,

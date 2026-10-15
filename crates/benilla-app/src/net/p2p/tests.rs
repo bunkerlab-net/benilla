@@ -1046,3 +1046,27 @@ fn a_late_joiner_receives_current_loop_and_posture_without_replayed_text() {
     assert!(matches!(snapshot, SessionEvent::ObjectValues { fields, .. }
         if fields.unit_emote_state() == 0 && fields.unit_stand_state() == 0));
 }
+
+#[test]
+fn exploration_clock_publishes_configured_wall_minute_to_stock_consumers() {
+    let (send, receive) = crossbeam_channel::unbounded();
+    let sample = benilla_config::world_clock::WorldClockSample {
+        hours: 23,
+        minutes: 59,
+        day_serial: 739_904,
+    };
+    publish_exploration_clock(&send, sample).unwrap();
+    match receive.try_recv().unwrap() {
+        SessionEvent::TimeSpeed {
+            hours,
+            minutes,
+            day_serial,
+            timescale,
+        } => {
+            assert_eq!((hours, minutes, day_serial), (23, 59, 739_904));
+            assert_eq!(timescale, 1.0 / 60.0);
+        }
+        other => panic!("unexpected clock event: {other:?}"),
+    }
+    assert!(receive.try_recv().is_err());
+}

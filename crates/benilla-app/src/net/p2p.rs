@@ -23,6 +23,7 @@ mod emotes;
 mod encounter;
 #[path = "p2p/world/native_geometry/mod.rs"]
 mod native_geometry;
+mod recovery_actions;
 use character_actions::character_guid;
 mod profile;
 mod world_setup;
@@ -839,7 +840,7 @@ fn run_exploration_character(
         protocol_version: benilla_p2p::PROTOCOL_VERSION,
         network: settings.0.network.clone(),
         peer_id: id,
-        ruleset_hash: settings.1.fingerprint(),
+        ruleset_hash: settings.0.timezone.exploration_fingerprint(settings.1),
         content_version: CONTENT_VERSION.into(),
     };
     let transport = TransportConfig {
@@ -896,15 +897,14 @@ fn run_exploration_character(
     )?;
     emit(events, character_name(character))?;
     emit(events, character_avatar(character, catalog)?)?;
-    emit(
-        events,
-        SessionEvent::TimeSpeed {
-            hours: 12,
-            minutes: 0,
-            day_serial: 0,
-            timescale: 0.01666667,
-        },
-    )?;
+    // Fork deviation: exploration follows its configured IANA zone (UTC by default),
+    // rather than restarting at noon. Realm and synthetic encounter clocks are unchanged.
+    let mut clock_sample = settings
+        .0
+        .timezone
+        .now()
+        .context("system date outside world-clock range")?;
+    publish_exploration_clock(events, clock_sample)?;
     emit(events, chat(0, HELP.into()))?;
     ticket.set(network.endpoint_ticket());
     let mut ticket_updated = Instant::now();
@@ -927,6 +927,17 @@ fn run_exploration_character(
                 }
             }
             return Ok(());
+        }
+        // Resample wall time so minute boundaries, DST and OS clock corrections are reflected.
+        // This changes only the session clock; manual lighting overrides retain precedence.
+        let current = settings
+            .0
+            .timezone
+            .now()
+            .context("system date outside world-clock range")?;
+        if current != clock_sample {
+            publish_exploration_clock(events, current)?;
+            clock_sample = current;
         }
         setup.poll(store);
         if last_checkpoint.elapsed() >= CHECKPOINT_INTERVAL {
@@ -1174,3 +1185,19 @@ fn run_exploration_character(
 mod ecs_tests;
 #[cfg(test)]
 mod tests;
+
+/// Keep the stock clock/lighting consumers on the same automatic world time.
+fn publish_exploration_clock(
+    events: &Sender<SessionEvent>,
+    sample: benilla_config::world_clock::WorldClockSample,
+) -> Result<()> {
+    emit(
+        events,
+        SessionEvent::TimeSpeed {
+            hours: sample.hours,
+            minutes: sample.minutes,
+            day_serial: sample.day_serial,
+            timescale: 1.0 / 60.0,
+        },
+    )
+}

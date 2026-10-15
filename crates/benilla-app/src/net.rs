@@ -511,6 +511,8 @@ pub(crate) enum CharRequest {
     Create(benilla_protocol::CharCreateReq),
     /// Delete a character by guid (`CMSG_CHAR_DELETE`), then stay parked at select.
     Delete(u64),
+    /// Fork-only recovery, handled by the existing local profile writer.
+    Recover(crate::char_select::recovery_model::Request),
     /// Rename a character the server flagged for it (`CMSG_CHAR_RENAME`), then stay parked at
     /// select with the reply.
     Rename { guid: u64, name: String },

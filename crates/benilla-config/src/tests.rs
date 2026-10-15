@@ -332,3 +332,25 @@ fn internet_validation_rejects_mixed_modes_and_bad_infrastructure() {
         assert!(parse(&config(extra)).is_err(), "accepted {extra}");
     }
 }
+
+#[test]
+fn exploration_timezone_defaults_validates_and_never_echoes_bad_input() {
+    assert_eq!(
+        parse(&config("")).unwrap().p2p.unwrap().timezone.name(),
+        "UTC"
+    );
+    assert_eq!(
+        parse(&config("timezone = 'Africa/Johannesburg'"))
+            .unwrap()
+            .p2p
+            .unwrap()
+            .timezone
+            .name(),
+        "Africa/Johannesburg"
+    );
+    for bad in ["", "local", "africa/johannesburg", "UTC+2", TEST_PASSPHRASE] {
+        let error = parse(&config(&format!("timezone = '{bad}'"))).unwrap_err();
+        assert!(error.to_string().contains("source withheld"));
+        assert!(!error.to_string().contains(TEST_PASSPHRASE));
+    }
+}

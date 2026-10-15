@@ -8,6 +8,8 @@ mod addons;
 pub(crate) use addons::okay_after_clicks;
 mod dialog;
 mod input;
+mod recovery;
+pub(crate) mod recovery_model;
 mod refresh;
 mod screen;
 
@@ -74,6 +76,7 @@ impl Plugin for CharSelectPlugin {
                 publish_world_live.before(benilla_world::schedule::WorldStage::Net),
             )
             .init_resource::<dialog::DeleteDialog>()
+            .init_resource::<recovery::RecoveryPanel>()
             .init_resource::<addons::AddonsPanel>()
             .init_resource::<refresh::SelectBackground>()
             .add_systems(
@@ -104,6 +107,7 @@ impl Plugin for CharSelectPlugin {
                         screen::materialize_screen,
                         input::select_input.run_if(crate::ui_script::glue::native_glue),
                         input::rotate_model.run_if(crate::ui_script::glue::native_glue),
+                        recovery::drive.run_if(crate::ui_script::glue::native_glue),
                         debug_select_dialog,
                         dialog::drive_delete_dialog.run_if(crate::ui_script::glue::native_glue),
                         // Ahead of the dialog driver, so a refused delete shows the frame it lands.

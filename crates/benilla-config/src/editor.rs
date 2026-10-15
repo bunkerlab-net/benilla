@@ -322,6 +322,26 @@ mod tests {
         }
     }
     #[test]
+    fn unrelated_save_preserves_world_timezone() {
+        let t = Temp::new();
+        let path = t.path();
+        fs::write(&path, "[p2p]\npsk = 'public editor test phrase only'\ntimezone = 'Africa/Johannesburg' # shared world zone\n").unwrap();
+        let mut editor = ConfigEditor::open(&path).unwrap();
+        editor.set_literal("ruleset", "xp_rate", "2.0").unwrap();
+        let saved = editor.save().unwrap();
+        assert_eq!(saved.p2p.unwrap().timezone.name(), "Africa/Johannesburg");
+        assert!(fs::read_to_string(&path)
+            .unwrap()
+            .contains("# shared world zone"));
+        assert_eq!(
+            ConfigEditor::open(&path)
+                .unwrap()
+                .get("p2p", "timezone")
+                .as_deref(),
+            Some("Africa/Johannesburg")
+        );
+    }
+    #[test]
     fn nested_settings_preserve_other_nested_tables() {
         let t = Temp::new();
         let path = t.path();

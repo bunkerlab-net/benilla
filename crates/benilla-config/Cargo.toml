@@ -16,3 +16,5 @@ toml = "0.8"
 toml_edit = "0.22"
 sha2 = "0.10"
 zeroize = "1.8"
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+chrono-tz = "=0.10.4"

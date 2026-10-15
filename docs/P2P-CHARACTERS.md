@@ -30,7 +30,14 @@ leaves it alone. Other characters, the profile identity/signing key and all nati
 saves are preserved. The character disappears from the active roster and stays archived
 after restarting. Removing the selected character clears its saved selection.
 
-To restore, close the player and open a terminal beside the shipped executable:
+To restore in the player, choose **Recover Characters** on the local character-select
+screen. Select a deleted character (use Next/Previous for additional pages), choose Recover,
+and confirm the displayed name with Restore. Cancel or Escape leaves the archive unchanged.
+After saving, the character returns to the active roster with its original identity, position
+and world saves. This fork-only recovery panel uses the same Vanilla button and dialog art;
+it is not available for realm-server characters.
+
+The terminal route is also available. Close the player and open a terminal beside the shipped executable:
 
 ```sh
 ./benilla characters list-archived

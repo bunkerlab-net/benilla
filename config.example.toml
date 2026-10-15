@@ -12,6 +12,9 @@ listen = "0.0.0.0:7474"
 peers = []
 max_peers = 16
 timeout_ms = 5000
+# Optional IANA world timezone; defaults to UTC, never the host local timezone.
+# All exploration peers must use the exact same name.
+# timezone = "Africa/Johannesburg"
 
 # Optional internet mode: uncomment the table, choose compatible relay URLs, and privately
 # exchange endpoint tickets. Empty relays means direct QUIC only. Keep p2p.peers empty.

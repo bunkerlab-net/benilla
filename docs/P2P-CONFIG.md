@@ -18,6 +18,22 @@ Northshire meeting spawn; canonical racial start zones, NPC population, combat, 
 quests, XP and loot remain unfinished. One peer can enter alone without waiting for configured
 offline peers. Shared-world simulation and offline-world merging are not implemented.
 
+## Automatic world clock
+
+Optional `p2p.timezone` selects an exact IANA timezone name, for example
+`timezone = "Africa/Johannesburg"` in `[p2p]`. Omission means `UTC`; the host's local
+timezone is never used. Invalid names stop startup. Saved-character exploration uses the
+current wall-clock date and time in that zone for both the minimap clock and world lighting,
+refreshing at minute changes, including daylight-saving transitions and system-clock changes.
+Keep each computer's system clock synchronized. The initial sample has minute resolution.
+
+All exploration peers must use the exact same timezone name and bundled timezone rules version;
+aliases are not normalized. Mismatches and older noon-clock clients fail the existing peer
+compatibility check. This is a shared clock convention, not a network time-synchronization
+service. Existing local manual lighting overrides still take precedence. Realm clocks and
+synthetic encounter clocks are unchanged. The Time of Day admin action remains unavailable
+until a supported authoritative backend implements it.
+
 ## Peers and secrets
 
 `p2p.psk` is a shared private **passphrase**, not a raw hexadecimal key. Choose at least six
