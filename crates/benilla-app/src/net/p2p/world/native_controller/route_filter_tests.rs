@@ -548,7 +548,7 @@ fn explicitly_synthetic_successful_routes_roundtrip_replay_and_reopen_typed_owne
     let events = pump_to(&mut c, 2);
     let records = n::decode_records(&n::encode_records(c.world.records()).unwrap()).unwrap();
     assert_eq!(records, c.world.records());
-    assert!(records.iter().all(|record| record.version == 23));
+    assert!(records.iter().all(|record| record.version == 24));
     let reply = route_reply(&records);
     let route = route_query(&reply.request).unwrap();
     assert_eq!(route.owner_position, data.npcs[0].ai.spawn);

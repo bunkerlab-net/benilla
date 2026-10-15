@@ -844,3 +844,203 @@ fn native_speed_floor_and_ambiguous_radius_repair() {
     }
     assert!(prepare(&i).is_err());
 }
+
+fn model_receipt(i: &Input) -> ModelSelectionReceipt {
+    let plan = prepare(i).unwrap();
+    let model = plan.model_roll_range().map(|(low, _)| low);
+    let gender = plan.gender_roll_range(model).unwrap().map(|_| 0);
+    let level = plan.level_roll_range().map(|(low, _)| low);
+    plan.resolve_with_model_receipt(SelectionRolls {
+        model,
+        gender,
+        level,
+    })
+    .unwrap()
+    .1
+}
+
+#[test]
+fn initial_model_receipt_retains_source_projection_and_draw_order() {
+    let i = input();
+    let rolls = SelectionRolls {
+        model: Some(0),
+        gender: Some(0),
+        level: Some(1),
+    };
+    let original = prepare(&i).unwrap().resolve(rolls).unwrap();
+    let (mut result, receipt) = prepare(&i)
+        .unwrap()
+        .resolve_with_model_receipt(rolls)
+        .unwrap();
+    assert_eq!(result, original);
+    assert_eq!(receipt.policy(), CREATURE_MODEL_SELECTION_POLICY_ID);
+    assert_eq!(receipt.initialization_policy(), CREATURE_INIT_POLICY_ID);
+    assert_eq!(receipt.entry(), 99);
+    assert_eq!(receipt.template_displays(), &i.template.displays);
+    assert_eq!(receipt.raw_template_scale(), f(1.25));
+    assert_eq!(receipt.spawn_template_entry(), 0);
+    assert_eq!(receipt.spawn_model_id(), 0);
+    assert_eq!(receipt.original_display_id(), 31);
+    assert_eq!(receipt.native_display_id(), 34);
+    assert_eq!(receipt.gender(), 1);
+    assert_eq!(receipt.object_scale(), f(1.25));
+    assert_eq!(receipt.bounding_radius(), f(0.5));
+    assert_eq!(receipt.combat_reach(), f(1.5));
+    assert_eq!(
+        receipt
+            .display_scales()
+            .iter()
+            .map(|r| r.id)
+            .collect::<Vec<_>>(),
+        vec![31, 32, 33, 34]
+    );
+    assert_eq!(receipt.gender_rows()[0].display_id(), 31);
+    assert_eq!(receipt.gender_rows()[0].gender(), 0);
+    assert_eq!(receipt.gender_rows()[0].other_gender_id(), 34);
+    let draws = receipt.draws().map(|d| (d.purpose(), d.range(), d.value()));
+    assert_eq!(
+        draws,
+        [
+            (ModelSelectionDrawPurpose::Model, Some((0, 5)), Some(0)),
+            (ModelSelectionDrawPurpose::Gender, Some((0, 1)), Some(0)),
+            (ModelSelectionDrawPurpose::Level, Some((1, 20)), Some(1)),
+        ]
+    );
+    // Public arithmetic outputs cannot rewrite the immutable selected native model.
+    result.model.display_id = 999;
+    result.model.scale = f(99.);
+    assert_ne!(result.model.display_id, receipt.native_display_id());
+    assert_ne!(result.model.scale, receipt.object_scale());
+    assert_eq!(receipt.native_display_id(), 34);
+    assert_eq!(receipt.object_scale(), f(1.25));
+    let serialized = serde_json::to_value(&receipt).unwrap();
+    assert!(serialized.get("stats").is_none());
+    assert!(serialized.get("levels").is_none());
+    assert_eq!(serialized["native_display_id"], 34);
+    assert_eq!(serialized["object_scale"], f(1.25).bits());
+}
+
+#[test]
+fn initial_model_receipt_preserves_overrides_fallback_scale_and_absent_draws() {
+    let mut i = input();
+    i.template.minimum_level = 1;
+    i.template.maximum_level = 1;
+    i.template.scale = f(-1.);
+    spawn(&mut i).entry = 7;
+    spawn(&mut i).model_id = 32;
+    if let Rows::Complete(rows) = &mut i.displays {
+        rows.iter_mut().find(|r| r.id == 31).unwrap().scale = f(2.);
+        rows.iter_mut().find(|r| r.id == 32).unwrap().scale = f(3.);
+        rows.reverse();
+    }
+    let receipt = model_receipt(&i);
+    assert_eq!(receipt.spawn_template_entry(), 7);
+    assert_eq!(receipt.spawn_model_id(), 32);
+    assert_eq!(receipt.original_display_id(), 32);
+    assert_eq!(receipt.native_display_id(), 32);
+    assert_eq!(receipt.raw_template_scale(), f(-1.));
+    assert_eq!(receipt.object_scale(), f(2.)); // First template display, not selected override.
+    assert!(receipt
+        .draws()
+        .iter()
+        .all(|draw| draw.range().is_none() && draw.value().is_none()));
+    assert_eq!(receipt.display_scales()[0].id, 31);
+    let old = receipt.clone();
+    i.template.legacy.armor += 1; // Width receipt binds a model projection, not unrelated stats.
+    assert_eq!(model_receipt(&i), old);
+    i.template.displays[0].probability += 1;
+    assert_ne!(model_receipt(&i), old); // Retain raw choices even under a spawn override.
+}
+
+#[test]
+fn initial_model_receipt_requires_valid_full_plan_and_exact_draw_presence() {
+    let mut i = input();
+    i.template.displays[1] = DisplayChoice {
+        id: 0,
+        probability: 0,
+    };
+    i.template.displays[2] = DisplayChoice {
+        id: 0,
+        probability: 0,
+    };
+    i.template.displays[0].probability = 1;
+    let receipt = model_receipt(&i);
+    assert_eq!(receipt.draws()[0].range(), Some((0, 0)));
+    assert_eq!(receipt.draws()[0].value(), Some(0));
+    assert!(prepare(&i)
+        .unwrap()
+        .resolve_with_model_receipt(SelectionRolls {
+            model: None,
+            gender: Some(0),
+            level: Some(1),
+        })
+        .is_err());
+    assert!(prepare(&i)
+        .unwrap()
+        .resolve_with_model_receipt(SelectionRolls {
+            model: Some(0),
+            gender: None,
+            level: Some(1),
+        })
+        .is_err());
+    i.class_levels = Rows::Missing;
+    assert!(prepare(&i).is_err());
+    i = input();
+    i.external_features = Rows::Missing;
+    assert!(prepare(&i).is_err());
+    i.external_features = Rows::Complete(vec![ExternalFeature::InitialAuraOrUnitModifier]);
+    assert!(prepare(&i).is_err());
+}
+
+#[test]
+fn initial_width_checks_identity_and_only_exact_zero_selects_default() {
+    let receipt = model_receipt(&input());
+    assert!(receipt.collision_width(31, 51, f(1.)).is_err());
+    assert!(receipt.collision_width(34, 0, f(1.)).is_err());
+    for raw in [f(0.), f(-0.)] {
+        let width = receipt.collision_width(34, 51, raw).unwrap();
+        assert_eq!(width.policy(), CREATURE_COLLISION_WIDTH_POLICY_ID);
+        assert_eq!(width.native_display_id(), 34);
+        assert_eq!(width.model_id(), 51);
+        assert_eq!(width.object_scale(), f(1.25));
+        assert_eq!(width.raw_width(), raw);
+        assert_eq!(width.width(), bits(0x3f02_7bb3));
+    }
+    assert_eq!(
+        receipt.collision_width(34, 51, f(-1.)).unwrap().width(),
+        f(-1.25)
+    );
+    assert_eq!(
+        receipt.collision_width(34, 51, f(0.5)).unwrap().width(),
+        f(0.625)
+    );
+    assert!(receipt.collision_width(34, 51, f(1_000_000.)).is_err());
+}
+
+#[test]
+fn initial_width_matches_unchanged_source_fixture_and_refuses_numeric_outside_domain() {
+    let mut i = input();
+    i.template.maximum_level = 1;
+    let mut count = 0;
+    let mut rejected = 0;
+    for line in include_str!("fixtures/creature_collision_width_cmangos.test-fixture").lines() {
+        let row: Vec<u32> = line
+            .split_whitespace()
+            .map(|v| v.parse().unwrap())
+            .collect();
+        assert_eq!(row.len(), 4);
+        i.template.scale = bits(row[0]);
+        let receipt = model_receipt(&i);
+        let result = receipt.collision_width(receipt.native_display_id(), 51, bits(row[1]));
+        let magnitude = row[2] & 0x7fff_ffff;
+        if SpellFloat::from_bits(row[2]).is_err() || (magnitude == 0 && row[1] & 0x7fff_ffff != 0) {
+            assert!(result.is_err(), "out-of-domain source product: {line}");
+            rejected += 1;
+        } else {
+            assert_eq!(result.unwrap().width().bits(), row[3], "{line}");
+        }
+        count += 1;
+    }
+    assert_eq!(count, 2295);
+    assert!(rejected > 0);
+}

@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v23 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v24 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -16,6 +16,8 @@ Backpack drag commands and durable item projection are documented in
 [INVENTORY-MOVEMENT.md](INVENTORY-MOVEMENT.md).
 Bounded source creature habitat/current-flag ownership and reachable NearPoint
 request binding are documented in [CREATURE-CAPABILITIES.md](../../CREATURE-CAPABILITIES.md).
+Initial selected-model collision-width ownership, optional Route witnesses and
+respawn invalidation are documented in [CREATURE-COLLISION-WIDTH.md](../../CREATURE-COLLISION-WIDTH.md).
 
 ## Initialization and callbacks
 
@@ -79,7 +81,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 23, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 24, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -159,14 +161,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 23 changes experimental simulation checkpoints/records, not
+typed. Native format 24 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 23 does not change character/profile files.
+remains rejected. Native format 24 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.

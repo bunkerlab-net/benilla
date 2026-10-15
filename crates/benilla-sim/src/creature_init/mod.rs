@@ -4,9 +4,14 @@
 //! Bounded ordinary NPC creation arithmetic, not world admission or AI selection.
 //! Inputs are raw, locally captured rows. No database values or rates are supplied.
 //! See ../../CREATURE-INIT.md for loader preprocessing, draw order and exclusions.
+mod model_receipt;
 mod numeric;
 use crate::classic_spell::SpellFloat;
 use crate::npc_melee::{CreatureStatClass, DamageRange};
+pub use model_receipt::{
+    InitialCollisionWidth, ModelSelectionDraw, ModelSelectionDrawPurpose, ModelSelectionGenderRow,
+    ModelSelectionReceipt, CREATURE_COLLISION_WIDTH_POLICY_ID, CREATURE_MODEL_SELECTION_POLICY_ID,
+};
 use std::collections::{BTreeMap, BTreeSet};
 pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v1";
 pub const REGEN_INTERVAL_MS: u32 = 5_000;
@@ -41,7 +46,7 @@ impl<T> Rows<T> {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct DisplayChoice {
     pub id: u32,
     pub probability: u32,
@@ -120,7 +125,7 @@ pub struct ModelRow {
 }
 /// CreatureDisplayInfo identity/scale from the verified local DBC. Every named
 /// template/model/other-gender display must exist; loader repairs are rejected.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct DisplayRow {
     pub id: u32,
     pub scale: SpellFloat,
@@ -294,6 +299,16 @@ impl Plan<'_> {
         Ok((self.other_gender[&id] != 0).then_some((0, 1)))
     }
     pub fn resolve(self, rolls: SelectionRolls) -> Result<InitializedCreature> {
+        self.resolve_with_model_receipt(rolls)
+            .map(|(result, _)| result)
+    }
+    /// Resolve the same validated plan, retaining immutable model-selection evidence.
+    /// The receipt binds typed inputs and supplied draws, not an authenticated capture,
+    /// live RNG transcript, runnable creature or model after a later lifecycle reset.
+    pub fn resolve_with_model_receipt(
+        self,
+        rolls: SelectionRolls,
+    ) -> Result<(InitializedCreature, ModelSelectionReceipt)> {
         let original = self.selected_model(rolls.model)?;
         let gender_range = self.gender_roll_range(rolls.model)?;
         validate_roll(rolls.gender, gender_range, "gender draw")?;
@@ -321,7 +336,7 @@ impl Plan<'_> {
         }
         let mut model = self.models[&display];
         model.scale = self.scale;
-        Ok(InitializedCreature {
+        let result = InitializedCreature {
             entry: t.entry,
             level,
             power_type,
@@ -358,7 +373,9 @@ impl Plan<'_> {
             health_regenerates: t.regenerate_stats & 2 != 0 && t.type_flags & 0x40000 == 0,
             power_regenerates_out_of_combat: t.regenerate_stats & 8 != 0,
             power_regenerates_in_combat: t.regenerate_stats & 4 != 0,
-        })
+        };
+        let receipt = ModelSelectionReceipt::from_resolved(&self, rolls, original, &result.model)?;
+        Ok((result, receipt))
     }
 }
 fn validate_roll(value: Option<u32>, range: Option<(u32, u32)>, name: &'static str) -> Result<()> {

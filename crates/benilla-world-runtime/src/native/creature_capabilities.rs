@@ -309,6 +309,9 @@ pub struct CreatureNearPointRequest {
 pub struct CreatureRouteRequest {
     pub request: benilla_sim::creature_motion::RouteRequest,
     pub owner: CreatureCapabilityWitness,
+    /// Frozen current-generation width; absent until a genuine model selection exists.
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub collision_width: Option<CreatureCollisionWidthWitness>,
     /// Current Unit map position used by PathFinder::updateFilter, distinct from
     /// Home's potentially newer computed spline launch position.
     pub owner_position: ai::Point,

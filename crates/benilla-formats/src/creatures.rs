@@ -36,6 +36,23 @@ pub struct CreatureModel {
     pub collision_height: f32,
 }
 
+/// Raw collision-width data resolved through `CreatureDisplayInfo.ModelID` (field 1).
+/// The DBC scales are separate facts, neither the unit's current object scale nor a substitute
+/// for it. Values retain the existing reader's behavior, including zero and non-finite floats.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CreatureCollisionWidthRow {
+    /// The queried `CreatureDisplayInfo.ID` (field 0).
+    pub display_id: u32,
+    /// The referenced `CreatureModelData.ID` (field 0).
+    pub model_id: u32,
+    /// `CreatureModelData.CollisionWidth` (field 14), before scale or a zero-width fallback.
+    pub collision_width: f32,
+    /// `CreatureDisplayInfo.CreatureModelScale` (field 4), uncombined.
+    pub display_scale: f32,
+    /// `CreatureModelData.ModelScale` (field 4), uncombined.
+    pub model_scale: f32,
+}
+
 /// A character-model NPC's appearance, from `CreatureDisplayInfoExtra.dbc`. `skin` and `face` are
 /// already in the baked atlas; they serve the live composite when a row has no bake name.
 #[derive(Debug, Clone)]
@@ -58,6 +75,8 @@ pub struct NpcAppearance {
 #[derive(Debug, Clone)]
 struct DisplayRow {
     model_id: u32,
+    /// Exact 12-field record coverage, required by the raw collision-width lookup only.
+    complete_record: bool,
     /// `ExtendedDisplayInfoID`: the `CreatureDisplayInfoExtra` key; 0 = none.
     extended_id: u32,
     scale: f32,
@@ -87,6 +106,8 @@ struct ModelRow {
     /// `FootprintTextureLength`/`Width` (fields 7/8), in inches (× 1/36 to yards, `0x607a00`).
     footprint_length: f32,
     footprint_width: f32,
+    /// `CollisionWidth` (field 14), raw model units; absent unless the record is exactly 64 bytes.
+    collision_width: Option<f32>,
     /// `collisionHeight` (field 15), raw model units.
     collision_height: f32,
     /// `FoleyMaterialID` (field 10): the reference reads `[unit+0xb3c]+0x28`, field 10 of 16.
@@ -196,6 +217,26 @@ impl CreatureCatalog {
     pub fn collision_height(&self, display_id: u32) -> Option<f32> {
         let row = self.display.get(&display_id)?;
         Some(self.models.get(&row.model_id)?.collision_height)
+    }
+
+    /// Resolve raw width and its DBC row identities. For native-display collision, the caller
+    /// supplies `UNIT_FIELD_NATIVEDISPLAYID`, not a transformed/current render display.
+    /// No object scale, width fallback or numeric validation is applied here. `None` means the
+    /// display/model was not retained (the reader requires a model name), or either table's
+    /// record stride differs from its full schema. Reader zero-padding is never a raw width.
+    pub fn collision_width_row(&self, display_id: u32) -> Option<CreatureCollisionWidthRow> {
+        let row = self.display.get(&display_id)?;
+        if !row.complete_record {
+            return None;
+        }
+        let model = self.models.get(&row.model_id)?;
+        Some(CreatureCollisionWidthRow {
+            display_id,
+            model_id: row.model_id,
+            collision_width: model.collision_width?,
+            display_scale: row.scale,
+            model_scale: model.scale,
+        })
     }
 
     /// A display's foley material (`Material.dbc`), the creature half of the footfall rustle:
@@ -351,59 +392,14 @@ pub fn load_creature_catalog(chain: &mut Chain) -> Result<CreatureCatalog> {
         let bytes = chain
             .read_file(CREATURE_MODEL_DATA)
             .with_context(|| format!("reading {CREATURE_MODEL_DATA}"))?;
-        let rs = parse(&bytes, creature_model_data_schema(), "CreatureModelData")?;
-        let mut m = HashMap::with_capacity(rs.records().len());
-        for r in rs.records() {
-            if let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, 2)) {
-                m.insert(
-                    id,
-                    ModelRow {
-                        path: name,
-                        scale: f32_at(r, 4).unwrap_or(1.0),
-                        flags: u32_at(r, 1).unwrap_or(0),
-                        size_class: u32_at(r, 3).map_or(-1, |v| v as i32),
-                        blood: u32_at(r, 5).map_or(0, |v| v as i32),
-                        footprint_texture: u32_at(r, 6).map_or(-1, |v| v as i32),
-                        footprint_length: f32_at(r, 7).unwrap_or(0.0),
-                        footprint_width: f32_at(r, 8).unwrap_or(0.0),
-                        collision_height: f32_at(r, 15).unwrap_or(0.0),
-                        foley_material: u32_at(r, 10).unwrap_or(0),
-                        footstep_shake: u32_at(r, 11).unwrap_or(0),
-                        death_thud_shake: u32_at(r, 12).unwrap_or(0),
-                    },
-                );
-            }
-        }
-        m
+        model_rows_from(&bytes)?
     };
 
     let display = {
         let bytes = chain
             .read_file(CREATURE_DISPLAY_INFO)
             .with_context(|| format!("reading {CREATURE_DISPLAY_INFO}"))?;
-        let rs = parse(
-            &bytes,
-            creature_display_info_schema(),
-            "CreatureDisplayInfo",
-        )?;
-        let mut d = HashMap::with_capacity(rs.records().len());
-        for r in rs.records() {
-            if let (Some(id), Some(model_id)) = (u32_at(r, 0), u32_at(r, 1)) {
-                d.insert(
-                    id,
-                    DisplayRow {
-                        model_id,
-                        extended_id: u32_at(r, 3).unwrap_or(0),
-                        scale: f32_at(r, 4).unwrap_or(1.0),
-                        textures: [str_at(&rs, r, 6), str_at(&rs, r, 7), str_at(&rs, r, 8)],
-                        blood_level: u32_at(r, 10).unwrap_or(0),
-                        size_class: u32_at(r, 9).map_or(-1, |v| v as i32),
-                        model_alpha: u32_at(r, 5).unwrap_or(255),
-                    },
-                );
-            }
-        }
-        d
+        display_rows_from(&bytes)?
     };
 
     // Best-effort: without it only humanoid NPCs lose their skins; the caller logs `extra_len()`.
@@ -414,6 +410,60 @@ pub fn load_creature_catalog(chain: &mut Chain) -> Result<CreatureCatalog> {
         models,
         extra,
     })
+}
+
+fn model_rows_from(bytes: &[u8]) -> Result<HashMap<u32, ModelRow>> {
+    let rs = parse(bytes, creature_model_data_schema(), "CreatureModelData")?;
+    // The shared parser accepts short strides and zero-pads words; those are not raw DBC facts.
+    let complete_records = bytes[12..16] == 64_u32.to_le_bytes();
+    let mut m = HashMap::with_capacity(rs.records().len());
+    for r in rs.records() {
+        if let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, 2)) {
+            m.insert(
+                id,
+                ModelRow {
+                    path: name,
+                    scale: f32_at(r, 4).unwrap_or(1.0),
+                    flags: u32_at(r, 1).unwrap_or(0),
+                    size_class: u32_at(r, 3).map_or(-1, |v| v as i32),
+                    blood: u32_at(r, 5).map_or(0, |v| v as i32),
+                    footprint_texture: u32_at(r, 6).map_or(-1, |v| v as i32),
+                    footprint_length: f32_at(r, 7).unwrap_or(0.0),
+                    footprint_width: f32_at(r, 8).unwrap_or(0.0),
+                    collision_width: complete_records.then(|| f32_at(r, 14)).flatten(),
+                    collision_height: f32_at(r, 15).unwrap_or(0.0),
+                    foley_material: u32_at(r, 10).unwrap_or(0),
+                    footstep_shake: u32_at(r, 11).unwrap_or(0),
+                    death_thud_shake: u32_at(r, 12).unwrap_or(0),
+                },
+            );
+        }
+    }
+    Ok(m)
+}
+
+fn display_rows_from(bytes: &[u8]) -> Result<HashMap<u32, DisplayRow>> {
+    let rs = parse(bytes, creature_display_info_schema(), "CreatureDisplayInfo")?;
+    let complete_records = bytes[12..16] == 48_u32.to_le_bytes();
+    let mut d = HashMap::with_capacity(rs.records().len());
+    for r in rs.records() {
+        if let (Some(id), Some(model_id)) = (u32_at(r, 0), u32_at(r, 1)) {
+            d.insert(
+                id,
+                DisplayRow {
+                    model_id,
+                    complete_record: complete_records,
+                    extended_id: u32_at(r, 3).unwrap_or(0),
+                    scale: f32_at(r, 4).unwrap_or(1.0),
+                    textures: [str_at(&rs, r, 6), str_at(&rs, r, 7), str_at(&rs, r, 8)],
+                    blood_level: u32_at(r, 10).unwrap_or(0),
+                    size_class: u32_at(r, 9).map_or(-1, |v| v as i32),
+                    model_alpha: u32_at(r, 5).unwrap_or(255),
+                },
+            );
+        }
+    }
+    Ok(d)
 }
 
 /// Load CreatureDisplayInfoExtra.dbc: `extendedDisplayInfoId` → [`NpcAppearance`].
@@ -447,6 +497,9 @@ fn load_creature_display_info_extra(chain: &mut Chain) -> Result<HashMap<u32, Np
     }
     Ok(e)
 }
+
+#[cfg(test)]
+mod collision_width_tests;
 
 #[cfg(test)]
 mod tests {

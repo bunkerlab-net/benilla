@@ -29,6 +29,17 @@ fn sub(a: Single, b: Single) -> Result<Single> {
 fn mul(a: Single, b: Single) -> Result<Single> {
     checked(a.mul_r(b, R))
 }
+/// Unit.cpp:11986-11987 and ObjectDefines.h:48. Only exact signed zero selects
+/// DEFAULT_COLLISION_WIDTH; a finite negative nonzero product is not repaired.
+pub(super) fn collision_width(scale: SpellFloat, raw_width: SpellFloat) -> Result<SpellFloat> {
+    let width = mul(sf(scale), sf(raw_width))?;
+    if width == Single::ZERO {
+        SpellFloat::from_bits(0x3f02_7bb3)
+            .map_err(|_| InitError::Numeric("default collision width"))
+    } else {
+        out(width)
+    }
+}
 fn div(a: Single, b: Single) -> Result<Single> {
     checked(a.div_r(b, R))
 }

@@ -14,6 +14,38 @@ respawn draw/corpse cap. `regenerate_out_of_combat` is a narrowly named live-sta
 projection; a caller must enforce its alive/out-of-combat/no-modifier domain.
 These helpers do not mutate world state, consume an RNG or perform I/O.
 
+`Plan::resolve_with_model_receipt` returns the same public arithmetic result plus
+an immutable, Serialize-only `ModelSelectionReceipt`; existing `resolve` delegates
+and discards the receipt. Its model-only projection retains raw template choices
+and scale, the resolved spawn-template identity/model override, sorted reachable
+display scales and gender mappings, ordered model/gender/level draw identities,
+ranges and values, selected pre-/post-gender display and effective object scale.
+It also retains the selected immutable initial SQL bounding radius/combat reach,
+so a consumer can check its NPC AI profile without treating either as DBC width.
+It is minted inside the validated plan, not reconstructed from the caller-mutable
+`InitializedCreature.model`. It omits unrelated initialized stats and does not
+authenticate the input capture or turn supplied draws into a live RNG transcript.
+
+The receipt's `collision_width(display_id, model_id, raw_width)` checks the selected
+display and nonzero DBC model identity, then executes Unit.cpp:11986–11987 with
+software binary32: effective object scale times raw CreatureModelData.CollisionWidth;
+only a product equal to signed zero selects ObjectDefines.h's `0.5097f` default.
+Negative nonzero products are preserved, never repaired into the default. Normal
+SpellFloat bounds and arithmetic-exception refusals still apply, including
+underflow/subnormal/out-of-range products. Model/render scale is not multiplied.
+The immutable `InitialCollisionWidth` proves this arithmetic only. A runtime
+consumer must obtain width and ModelID directly from its loaded CreatureCatalog,
+compare the receipt's display-scale projection with that reader, bind selected
+rows/content revision and owner generation, and retain that source binding in its
+own private catalog/state/request. A supplied scalar or ID alone is not provenance.
+
+Policies: `cmangos-8ec338a1-initial-model-selection-receipt-v1` and
+`cmangos-8ec338a1-initial-collision-width-softfloat-v1`. Both are initial-only:
+Creature.cpp:1919 calls ResetEntry(true), which reruns UpdateEntry/InitEntry and
+model selection (636–654/506–508). Respawn, scale changes and native-model
+substitution invalidate a live owner's use until separately modeled/rebound;
+receipt cloning does not implement those callbacks or open native admission.
+
 ## Pinned source and license
 
 CMaNGOS Classic, CMaNGOS Project contributors, revision
@@ -214,3 +246,19 @@ Negative fractions between -1 and 0 truncate to zero, which is defined and
 included in the source fixture. Focused tests/clippy and fixture parity are narrower than
 workspace gates or genuine SQL/DBC/gameplay testing. They do not establish native
 entry, full AI/combat, app wiring, multiplayer determinism or live parity.
+
+`tools/generate_creature_collision_width_fixture.py UPSTREAM_ROOT [--check] [--sanitize]`
+checks LF-normalized complete Unit.cpp and ObjectDefines.h hashes, extracts the
+unchanged GetCollisionWidth method/default constant and runs an authored C++ host.
+The numeric-only `.test-fixture` contains 2,295 signed-zero, negative, rounding,
+scale and explicitly out-of-domain product cases. This oracle tests the width
+method, not initialization, a DBC loader or lifecycle. The existing initialization
+oracle remains the model-selection/scale source evidence. The generator uses
+FE_TONEAREST, no fast math/contraction and optional undefined-behavior sanitizers;
+its negative tests reject changed hashes, missing source/default and corrupted or
+truncated fixtures, and verify unchanged extraction/LF handling.
+The audited oracle profile is GCC 14.2.0/x86_64-linux-gnu, IEEE binary32,
+FLT_EVAL_METHOD=0, FTZ/DAZ disabled with gradual-underflow controls. FTZ, DAZ and
+non-nearest negative controls must refuse before invoking the source method.
+Each run reports the full compiler command, version/target and generated-harness
+and output hashes; this is narrower than cross-platform floating-point parity.

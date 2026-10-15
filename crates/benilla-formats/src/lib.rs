@@ -40,7 +40,8 @@ pub use cinematics::{
     CinematicSequence, CinematicView, SEQUENCE_CAMERAS,
 };
 pub use creatures::{
-    load_creature_catalog, CreatureCatalog, CreatureModel, FootprintParams, NpcAppearance,
+    load_creature_catalog, CreatureCatalog, CreatureCollisionWidthRow, CreatureModel,
+    FootprintParams, NpcAppearance,
 };
 pub use macro_icons::load_macro_icons;
 mod macro_icons;
