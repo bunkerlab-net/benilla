@@ -116,6 +116,36 @@ save. Source spell death, corpse removal and respawn retain the catalog binding
 while rebinding the runtime witness to the new creature generation, including
 corpse and respawn reopen boundaries.
 
+## Initial creature collision height
+
+The explicit initial-height option derives only from the retained, approved
+initial-model width source. The original Plan receipt selects the native display
+and object scale; the same immutable MPQ-loaded `CreatureCatalog` supplies the
+actual `CreatureModelData` field 15. Height is that positive object scale times
+raw field 15, with the source's exact-zero fallback `2.03128`. Radius, width,
+display scale and model/render scale cannot substitute for height. Initialization
+atomically installs the height catalog and derives the NPC motion-policy scalar;
+a later independent scalar change invalidates the selected profile.
+
+Generation-zero NPC state owns both source-bound width and height witnesses. The
+real controller Chase and moving-target replan freeze both in the typed Route
+request; height validation checks the shared model source, profile, generation
+and exact `owner_collision_height`. Native format 25 retains the witness through
+checkpoint, journal replay and reopen. A missing schema field fails to decode;
+explicit null denotes an unavailable dependency. Initial receipts survive corpse
+reopen but are cleared at respawn, and relabeling one cannot authorize a later
+creature generation.
+
+Authored controller tests resolve the real Plan receipt and MPQ/DBC chain, then
+exercise store publication, exact staged-batch replay, failed-authority retry,
+failed-save retry and reopen. Forged scalar, model, source, profile, generation or
+missing dependency echoes cannot mutate, persist or publish a tick. Changed or
+stale catalogs cannot reopen or rewrite the saved world. The successful spatial
+answers remain explicitly `SyntheticFixture`, including player movement and
+routes. These tests establish initial NPC model-height ownership only; player
+height, complete source Route production, actual geometry and native production
+admission remain unproven.
+
 ## Commands and movement orders
 
 Supported component-test inputs are exact-ID NPC casts, cancellation of the captured
@@ -295,7 +325,7 @@ The warm straight-calculation tests initialize collision width through Plan's
 opaque initial-model receipt and authored MPQ/DBC loading, then consume the exact
 runtime Route witness on the loaded navigation owner thread. Width is the source
 object-scale times raw field14, with no radius, display-scale or render-scale
-substitution. Native format 24 retains that witness in the explicitly synthetic
+substitution. Native format 25 retains that witness in the explicitly synthetic
 initial route's replay and reopen; the real loaded dependencies never enter the
 accepted authority journal.
 

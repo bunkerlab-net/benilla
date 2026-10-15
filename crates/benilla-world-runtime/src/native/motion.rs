@@ -239,6 +239,13 @@ impl NpcMotion {
         {
             return Err(NativeError::InvalidCheckpoint);
         }
+        // A retained spline must carry the same NPC scalar used by the runtime
+        // when it created the route, including profiles without height ownership.
+        if s.motion.spline.as_ref().is_some_and(|spline| {
+            spline.route_request.owner_collision_height != g.npc_policy.settings.collision_height
+        }) {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         // Runtime alone knows owner generation. These consistency checks do not
         // authenticate source refs or supply a production rehydration path.
         let prior_cache = s
@@ -389,7 +396,7 @@ pub enum MotionQuery {
     /// Selected source host supplies a bound current capability witness.
     NearPoint(CreatureNearPointRequest),
     /// Selected source host binds PathFinder's current owner and map position.
-    Route(CreatureRouteRequest),
+    Route(Box<CreatureRouteRequest>),
     Visitor(VisitorRequest),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

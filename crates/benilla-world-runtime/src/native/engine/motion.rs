@@ -7,6 +7,7 @@ struct Spatial<'a, 'b, A: Authority> {
     npc: NpcId,
     capabilities: Option<CreatureCapabilityWitness>,
     collision_width: Option<CreatureCollisionWidthWitness>,
+    collision_height: Option<CreatureCollisionHeightWitness>,
     failure: Option<NativeError>,
 }
 impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
@@ -45,14 +46,17 @@ impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
                     searcher: searcher.clone(),
                 })
             }
-            (m::Query::Route(request), Some(owner)) => MotionQuery::Route(CreatureRouteRequest {
-                request: request.clone(),
-                owner: owner.clone(),
-                collision_width: self.collision_width.clone(),
-                // Motion dispatch builds origin from its executing map_pose after
-                // any forced relocation; Home alone may have a different launch_origin.
-                owner_position: request.origin,
-            }),
+            (m::Query::Route(request), Some(owner)) => {
+                MotionQuery::Route(Box::new(CreatureRouteRequest {
+                    request: request.clone(),
+                    owner: owner.clone(),
+                    collision_width: self.collision_width.clone(),
+                    collision_height: self.collision_height.clone(),
+                    // Motion dispatch builds origin from its executing map_pose after
+                    // any forced relocation; Home alone may have a different launch_origin.
+                    owner_position: request.origin,
+                }))
+            }
             _ => MotionQuery::Spatial(query.clone()),
         };
         match self.frame.ask(Some(self.npc), Query::SourceMotion(query)) {
@@ -97,6 +101,7 @@ impl<A: Authority> Frame<'_, A> {
         id: NpcId,
         capabilities: Option<&CreatureCapabilityState>,
         collision_width: Option<&CreatureCollisionWidthState>,
+        collision_height: Option<&CreatureCollisionHeightState>,
         f: impl FnOnce(&mut Spatial<'_, '_, A>) -> Result<T, m::MotionError>,
     ) -> Result<T, NativeError> {
         if capabilities.is_some() != self.profile.creature_capabilities.is_some() {
@@ -106,11 +111,13 @@ impl<A: Authority> Frame<'_, A> {
             capabilities.validate(self.profile, id)?;
         }
         CreatureCollisionWidthState::validate_optional(collision_width, self.profile, id)?;
+        CreatureCollisionHeightState::validate_optional(collision_height, self.profile, id)?;
         let mut adapter = Spatial {
             frame: self,
             npc: id,
             capabilities: capabilities.map(|state| state.witness().clone()),
             collision_width: collision_width.map(|state| state.witness().clone()),
+            collision_height: collision_height.map(|state| state.witness().clone()),
             failure: None,
         };
         let result = f(&mut adapter);
@@ -405,6 +412,7 @@ impl<A: Authority> Frame<'_, A> {
                             npc.id,
                             npc.source_capabilities.as_ref(),
                             npc.source_collision_width.as_ref(),
+                            npc.source_collision_height.as_ref(),
                             |a| source.motion.start_chase(target, g.chase_walking, input, a),
                         )?
                     }
@@ -420,6 +428,7 @@ impl<A: Authority> Frame<'_, A> {
                             npc.id,
                             npc.source_capabilities.as_ref(),
                             npc.source_collision_width.as_ref(),
+                            npc.source_collision_height.as_ref(),
                             |a| {
                                 source.motion.start_home(
                                     destination,
@@ -617,6 +626,7 @@ impl<A: Authority> Frame<'_, A> {
                     npc.id,
                     npc.source_capabilities.as_ref(),
                     npc.source_collision_width.as_ref(),
+                    npc.source_collision_height.as_ref(),
                     |a| {
                         source.motion.advance_for_command(
                             command,
@@ -640,6 +650,7 @@ impl<A: Authority> Frame<'_, A> {
                     npc.id,
                     npc.source_capabilities.as_ref(),
                     npc.source_collision_width.as_ref(),
+                    npc.source_collision_height.as_ref(),
                     |a| source.motion.advance(diff, Some(target), input, a),
                 )?;
                 npc.source_motion = Some(source);
@@ -673,6 +684,7 @@ impl<A: Authority> Frame<'_, A> {
                                 npc.id,
                                 npc.source_capabilities.as_ref(),
                                 npc.source_collision_width.as_ref(),
+                                npc.source_collision_height.as_ref(),
                                 |a| source.motion.face_target(player_position, a),
                             )?;
                             self.events.push(Event::NpcMotion { id: npc.id, event });

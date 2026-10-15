@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v24\0", self)
+        crate::digest(b"benilla-native-record-v25\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +39,8 @@ struct NpcState {
     source_capabilities: Option<creature_capabilities::CreatureCapabilitySnapshot>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     source_collision_width: Option<creature_collision_width::CreatureCollisionWidthSnapshot>,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    source_collision_height: Option<creature_collision_height::CreatureCollisionHeightSnapshot>,
     regen_elapsed_ms: u32,
     original_loot_recipient: Option<crate::PlayerId>,
     corpse_loot: Option<CorpseLoot>,
@@ -206,10 +208,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v24\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v25\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v24\0",
+                    b"benilla-native-checkpoint-v25\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -263,6 +265,10 @@ pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> St
                             .source_collision_width
                             .as_ref()
                             .map(CreatureCollisionWidthState::snapshot),
+                        source_collision_height: n
+                            .source_collision_height
+                            .as_ref()
+                            .map(CreatureCollisionHeightState::snapshot),
                         regen_elapsed_ms: n.regen_elapsed_ms,
                         original_loot_recipient: n.original_loot_recipient,
                         corpse_loot: n.corpse_loot.clone(),
@@ -322,7 +328,7 @@ impl NativeWorld {
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v24\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v25\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -332,7 +338,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v24\0",
+            b"benilla-native-checkpoint-v25\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -360,10 +366,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v24\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v25\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v24\0",
+                    b"benilla-native-checkpoint-v25\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -569,6 +575,11 @@ impl NativeWorld {
                     )?,
                     source_collision_width: CreatureCollisionWidthState::restore(
                         n.source_collision_width,
+                        &profile,
+                        n.id,
+                    )?,
+                    source_collision_height: CreatureCollisionHeightState::restore(
+                        n.source_collision_height,
                         &profile,
                         n.id,
                     )?,
@@ -889,9 +900,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v24\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v25\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v24\0",
+            b"benilla-native-checkpoint-v25\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, Project contributors.
 // Creature.cpp:338-366/657-702, ObjectMgr.cpp:555-560/1615-1632,
-// Unit.cpp:11960-11987, ObjectDefines.h:48. Upstream GPL-2.0-or-later;
+// Unit.cpp:11930-11987, ObjectDefines.h:47-48. Upstream GPL-2.0-or-later;
 // Rust translation GPL-3.0-or-later. See ../../CREATURE-INIT.md.
 use super::*;
 use serde::Serialize;
@@ -10,6 +10,8 @@ pub const CREATURE_MODEL_SELECTION_POLICY_ID: &str =
     "cmangos-8ec338a1-initial-model-selection-receipt-v1";
 pub const CREATURE_COLLISION_WIDTH_POLICY_ID: &str =
     "cmangos-8ec338a1-initial-collision-width-softfloat-v1";
+pub const CREATURE_COLLISION_HEIGHT_POLICY_ID: &str =
+    "cmangos-8ec338a1-initial-collision-height-softfloat-v1";
 
 /// Ordered semantic identity only: caller-supplied draws are not an RNG transcript.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -241,6 +243,30 @@ impl ModelSelectionReceipt {
             width: numeric::collision_width(self.object_scale, raw_width)?,
         })
     }
+
+    /// Exact Unit::GetCollisionHeight arithmetic for this initial native model.
+    /// The caller must bind ModelId and raw field-15 height to its loaded DBC row
+    /// and this receipt to the current owner. Identity checks are not provenance.
+    /// The validated plan retains positive effective object scale; this does not
+    /// accept stored zero scale or apply later form/current-scale changes.
+    pub fn collision_height(
+        &self,
+        display_id: u32,
+        model_id: u32,
+        raw_height: SpellFloat,
+    ) -> Result<InitialCollisionHeight> {
+        if display_id != self.native_display_id || model_id == 0 {
+            return Err(InitError::Invalid("collision-height model identity"));
+        }
+        Ok(InitialCollisionHeight {
+            policy: CREATURE_COLLISION_HEIGHT_POLICY_ID,
+            native_display_id: display_id,
+            model_id,
+            object_scale: self.object_scale,
+            raw_height,
+            height: numeric::collision_height(self.object_scale, raw_height)?,
+        })
+    }
 }
 
 /// Immutable arithmetic result, not loaded-DBC provenance or a live-state witness.
@@ -271,5 +297,43 @@ impl InitialCollisionWidth {
     }
     pub fn width(&self) -> SpellFloat {
         self.width
+    }
+}
+
+/// Immutable initial-height arithmetic, not loaded-DBC provenance or live state.
+/// No public constructor or Deserialize can mint a receipt from a scalar.
+///
+/// ```compile_fail
+/// use benilla_sim::creature_init::InitialCollisionHeight;
+/// fn transcript<T: for<'de> serde::Deserialize<'de>>() {}
+/// transcript::<InitialCollisionHeight>();
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct InitialCollisionHeight {
+    policy: &'static str,
+    native_display_id: u32,
+    model_id: u32,
+    object_scale: SpellFloat,
+    raw_height: SpellFloat,
+    height: SpellFloat,
+}
+impl InitialCollisionHeight {
+    pub fn policy(&self) -> &'static str {
+        self.policy
+    }
+    pub fn native_display_id(&self) -> u32 {
+        self.native_display_id
+    }
+    pub fn model_id(&self) -> u32 {
+        self.model_id
+    }
+    pub fn object_scale(&self) -> SpellFloat {
+        self.object_scale
+    }
+    pub fn raw_height(&self) -> SpellFloat {
+        self.raw_height
+    }
+    pub fn height(&self) -> SpellFloat {
+        self.height
     }
 }

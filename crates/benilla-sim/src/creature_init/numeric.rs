@@ -40,6 +40,17 @@ pub(super) fn collision_width(scale: SpellFloat, raw_width: SpellFloat) -> Resul
         out(width)
     }
 }
+/// Unit.cpp:11956-11957 and ObjectDefines.h:47. The mount branch is commented
+/// out; only the native model's raw height and effective object scale participate.
+pub(super) fn collision_height(scale: SpellFloat, raw_height: SpellFloat) -> Result<SpellFloat> {
+    let height = mul(sf(scale), sf(raw_height))?;
+    if height == Single::ZERO {
+        SpellFloat::from_bits(0x4002_007e)
+            .map_err(|_| InitError::Numeric("default collision height"))
+    } else {
+        out(height)
+    }
+}
 fn div(a: Single, b: Single) -> Result<Single> {
     checked(a.div_r(b, R))
 }

@@ -312,6 +312,9 @@ pub struct CreatureRouteRequest {
     /// Frozen current-generation width; absent until a genuine model selection exists.
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     pub collision_width: Option<CreatureCollisionWidthWitness>,
+    /// Frozen initial-model NPC height; explicit absence is not source ownership.
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub collision_height: Option<CreatureCollisionHeightWitness>,
     /// Current Unit map position used by PathFinder::updateFilter, distinct from
     /// Home's potentially newer computed spline launch position.
     pub owner_position: ai::Point,

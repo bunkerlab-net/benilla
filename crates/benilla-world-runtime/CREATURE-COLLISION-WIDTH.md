@@ -11,13 +11,15 @@ resolution and the actual loaded `benilla_formats::CreatureCatalog`. It does not
 accept the mutable `InitializedCreature.model`, an asserted width, a bounding
 radius, or a render-scale product. Each reachable receipt display scale is checked
 bit-for-bit against the loaded display row. The selected display resolves its own
-CreatureModelData identity and raw field 14 through that catalog.
+CreatureModelData identity and raw field 14 through that catalog. The same strict
+loaded row also retains raw field-15 height bits, without numeric height validation.
 
 The private retained catalog binds the relevant template display choices, raw
 scale and effective spawn-template model override, conditional draw ranges and
 values in source order, original/other-gender/native selection, selected bounds,
-loaded display/model row identities, separate DBC scale bits, raw width and
-computed width. Its complete projection is included in the native profile digest.
+loaded display/model row identities, separate DBC scale bits, raw width/height bits and
+computed width. Width source policy/binding v2 includes raw height; the width
+arithmetic policy remains unchanged. Its complete projection is included in the native profile digest.
 Repeated display/model/template/spawn-template identities must agree. The selected
 entry, display, bounds and effective spawn-template identity must also agree with
 the same NPC's profile and capability source. These are typed capture and in-process
@@ -48,11 +50,11 @@ owner. Later-generation width queries fail rather than relabeling or cloning the
 initial width. Checkpoint restore rejects initial witnesses retained, forged or
 re-labeled for any later generation. Width-independent routes can still proceed.
 
-Native format **24**, policy `benilla-native-initial-model-width-v24`, adds
+Native format **25**, policy `benilla-native-initial-model-height-v25`, retains
 `Profile.creature_collision_widths`, the NPC checkpoint `source_collision_width`,
-and typed Route `collision_width`, with v24 profile/state/record/checkpoint/melee
+and typed Route `collision_width`, with v25 profile/state/record/checkpoint/melee
 digest domains. New optional serialized fields require explicit null when absent;
-omission does not manufacture a default. Native23 and earlier experimental saves
+omission does not manufacture a default. Native24 and earlier experimental saves
 and records are rejected rather than migrated. OriginalFixture v2 and exploration
 character/profile transports are unchanged. Native admission remains uninhabited.
 
@@ -60,3 +62,7 @@ The synthetic-only `synthetic_creature_model_fixture` creates invented rows and
 an authored temporary MPQ, loads them through the production Chain/DBC path, and
 exercises constructor, lifecycle, checkpoint, replay and Route ownership. It is
 not a private artifact compiler or a production content producer.
+
+[Initial collision-height ownership](CREATURE-COLLISION-HEIGHT.md) is a separate
+explicit opt-in derived from this exact retained source, with no second input
+projection and no change to width-only numeric validation.

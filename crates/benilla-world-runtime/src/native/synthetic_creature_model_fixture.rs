@@ -154,12 +154,22 @@ pub fn catalog_with_fields(
     display_scale: f32,
     short_model: bool,
 ) -> CreatureCatalog {
+    catalog_with_height_fields(width, 2.875, model_scale, display_scale, short_model)
+}
+/// Raw field 15 remains independent of width, display scale and model/render scale.
+pub fn catalog_with_height_fields(
+    width: f32,
+    height: f32,
+    model_scale: f32,
+    display_scale: f32,
+    short_model: bool,
+) -> CreatureCatalog {
     let mut model = [0_u32; 16];
     model[0] = 7;
     model[2] = 1;
     model[4] = model_scale.to_bits();
     model[14] = width.to_bits();
-    model[15] = 2.875_f32.to_bits();
+    model[15] = height.to_bits();
     let mut other = model;
     other[0] = 9;
     let mut display = [0_u32; 12];

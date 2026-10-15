@@ -7,7 +7,7 @@ use benilla_formats::CreatureCatalog;
 use benilla_sim::creature_init::{self as source, InitialCollisionWidth, ModelSelectionReceipt};
 use serde::{Deserialize, Serialize};
 
-pub const CREATURE_COLLISION_WIDTH_POLICY: &str = "cmangos-8ec338a1-native-initial-model-width-v1";
+pub const CREATURE_COLLISION_WIDTH_POLICY: &str = "cmangos-8ec338a1-native-initial-model-width-v2";
 
 /// Complete is an explicit capture contract, not proof of producer completeness.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -23,6 +23,7 @@ struct LoadedModelRow {
     display_scale_bits: u32,
     model_scale_bits: u32,
     raw_width_bits: u32,
+    raw_height_bits: u32,
 }
 
 /// Only a validated initializer receipt and the actual loaded catalog can create
@@ -52,7 +53,16 @@ impl CreatureCollisionWidthSource {
             let row = catalog.collision_width_row(display.id).ok_or(
                 NativeError::AuthorityUnavailable("complete loaded creature model width row"),
             )?;
-            if row.display_id != display.id || row.display_scale.to_bits() != display.scale.bits() {
+            let height = catalog.collision_height_row(display.id).ok_or(
+                NativeError::AuthorityUnavailable("complete loaded creature model height row"),
+            )?;
+            if row.display_id != display.id
+                || row.display_scale.to_bits() != display.scale.bits()
+                || height.display_id != row.display_id
+                || height.model_id != row.model_id
+                || height.display_scale.to_bits() != row.display_scale.to_bits()
+                || height.model_scale.to_bits() != row.model_scale.to_bits()
+            {
                 return Err(NativeError::AuthorityBinding);
             }
             // Retain raw bits, including model/render scale, without folding those
@@ -69,6 +79,9 @@ impl CreatureCollisionWidthSource {
                     display_scale_bits: row.display_scale.to_bits(),
                     model_scale_bits: row.model_scale.to_bits(),
                     raw_width_bits: raw_width.bits(),
+                    // Capture only: height validation is explicitly opt-in and
+                    // must not change the width-only raw numeric domain.
+                    raw_height_bits: height.collision_height.to_bits(),
                 },
             );
         }
@@ -140,9 +153,23 @@ impl CreatureCollisionWidthSource {
         }
         Ok(())
     }
-    fn binding(&self) -> crate::Digest {
+    pub(super) fn initial_height(&self) -> Result<source::InitialCollisionHeight, NativeError> {
+        self.validate()?;
+        let row = self
+            .loaded_rows
+            .get(&self.selection.native_display_id())
+            .ok_or(NativeError::InvalidProfile)?;
+        self.selection
+            .collision_height(
+                row.display_id,
+                row.model_id,
+                spell::SpellFloat::from_bits(row.raw_height_bits)?,
+            )
+            .map_err(|_| NativeError::InvalidProfile)
+    }
+    pub(super) fn binding(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-initial-model-width-source-v1\0",
+            b"benilla-initial-model-width-source-v2\0",
             &(CREATURE_COLLISION_WIDTH_POLICY, self),
         )
     }
@@ -213,7 +240,11 @@ impl CreatureCollisionWidthCatalog {
                 }
             }
             for (&id, loaded) in &row.loaded_rows {
-                let model = (loaded.model_scale_bits, loaded.raw_width_bits);
+                let model = (
+                    loaded.model_scale_bits,
+                    loaded.raw_width_bits,
+                    loaded.raw_height_bits,
+                );
                 if models
                     .insert(loaded.model_id, model)
                     .is_some_and(|old| old != model)

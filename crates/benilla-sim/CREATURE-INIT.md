@@ -46,6 +46,19 @@ model selection (636–654/506–508). Respawn, scale changes and native-model
 substitution invalidate a live owner's use until separately modeled/rebound;
 receipt cloning does not implement those callbacks or open native admission.
 
+The same selection receipt exposes
+`collision_height(display_id, model_id, raw_height)` under policy
+`cmangos-8ec338a1-initial-collision-height-softfloat-v1`. It multiplies raw
+CreatureModelData field 15 by retained positive effective initial object scale;
+only an exact signed-zero product selects native `2.03128f` (`0x4002007e`).
+The opaque `InitialCollisionHeight` retains the identity, scale, raw height and
+result, with no deserializer or public constructor. Negative nonzero products
+remain negative. Width, SQL bounding radius/reach and model/render scale are
+independent. The source's mount branch is commented out and its active lookup
+uses native display, not current display. [INITIAL-COLLISION-HEIGHT.md](INITIAL-COLLISION-HEIGHT.md)
+records source hashes, oracle profile, numeric refusals and the stored-zero-scale
+getter boundary. This remains initial arithmetic, not live form/scale support.
+
 ## Pinned source and license
 
 CMaNGOS Classic, CMaNGOS Project contributors, revision

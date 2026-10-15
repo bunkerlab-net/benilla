@@ -53,6 +53,23 @@ pub struct CreatureCollisionWidthRow {
     pub model_scale: f32,
 }
 
+/// Raw collision-height data resolved through `CreatureDisplayInfo.ModelID` (field 1).
+/// Heights and the two DBC scales retain their original float bits for caller validation;
+/// neither scale is the unit's current object scale or applied to the height here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CreatureCollisionHeightRow {
+    /// The queried `CreatureDisplayInfo.ID` (field 0).
+    pub display_id: u32,
+    /// The referenced `CreatureModelData.ID` (field 0).
+    pub model_id: u32,
+    /// `CreatureModelData.CollisionHeight` (field 15), before scale or any fallback.
+    pub collision_height: f32,
+    /// `CreatureDisplayInfo.CreatureModelScale` (field 4), uncombined.
+    pub display_scale: f32,
+    /// `CreatureModelData.ModelScale` (field 4), uncombined.
+    pub model_scale: f32,
+}
+
 /// A character-model NPC's appearance, from `CreatureDisplayInfoExtra.dbc`. `skin` and `face` are
 /// already in the baked atlas; they serve the live composite when a row has no bake name.
 #[derive(Debug, Clone)]
@@ -75,7 +92,7 @@ pub struct NpcAppearance {
 #[derive(Debug, Clone)]
 struct DisplayRow {
     model_id: u32,
-    /// Exact 12-field record coverage, required by the raw collision-width lookup only.
+    /// Exact 12-field record coverage, required by the raw collision lookups only.
     complete_record: bool,
     /// `ExtendedDisplayInfoID`: the `CreatureDisplayInfoExtra` key; 0 = none.
     extended_id: u32,
@@ -95,6 +112,8 @@ struct DisplayRow {
 struct ModelRow {
     path: String,
     scale: f32,
+    /// Exact 16-field record coverage, required by the raw collision-height lookup only.
+    complete_record: bool,
     /// `Flags` (field 1); bit 0x2 is the no-breath flag.
     flags: u32,
     /// `SizeClass` (field 3, +0x0c), 0 Small to 4 Colossal, read signed like the display's.
@@ -234,6 +253,25 @@ impl CreatureCatalog {
             display_id,
             model_id: row.model_id,
             collision_width: model.collision_width?,
+            display_scale: row.scale,
+            model_scale: model.scale,
+        })
+    }
+
+    /// Resolve raw height and its DBC row identities for the selected display.
+    /// No object scale, height fallback or numeric validation is applied here. `None` means
+    /// the display/model was not retained (the reader requires a model name), or either table's
+    /// record stride differs from its full schema. Reader zero-padding is never a raw height.
+    pub fn collision_height_row(&self, display_id: u32) -> Option<CreatureCollisionHeightRow> {
+        let row = self.display.get(&display_id)?;
+        let model = self.models.get(&row.model_id)?;
+        if !row.complete_record || !model.complete_record {
+            return None;
+        }
+        Some(CreatureCollisionHeightRow {
+            display_id,
+            model_id: row.model_id,
+            collision_height: model.collision_height,
             display_scale: row.scale,
             model_scale: model.scale,
         })
@@ -424,6 +462,7 @@ fn model_rows_from(bytes: &[u8]) -> Result<HashMap<u32, ModelRow>> {
                 ModelRow {
                     path: name,
                     scale: f32_at(r, 4).unwrap_or(1.0),
+                    complete_record: complete_records,
                     flags: u32_at(r, 1).unwrap_or(0),
                     size_class: u32_at(r, 3).map_or(-1, |v| v as i32),
                     blood: u32_at(r, 5).map_or(0, |v| v as i32),
@@ -500,6 +539,9 @@ fn load_creature_display_info_extra(chain: &mut Chain) -> Result<HashMap<u32, Np
 
 #[cfg(test)]
 mod collision_width_tests;
+
+#[cfg(test)]
+mod collision_height_tests;
 
 #[cfg(test)]
 mod tests {

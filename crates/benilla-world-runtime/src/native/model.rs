@@ -86,6 +86,7 @@ pub struct Profile {
     pub source_motion: Option<MotionGenesis>,
     pub creature_capabilities: Option<CreatureCapabilityCatalog>,
     pub creature_collision_widths: Option<CreatureCollisionWidthCatalog>,
+    pub creature_collision_heights: Option<CreatureCollisionHeightCatalog>,
     pub interactions: Option<InteractionCatalog>,
     pub quest_progression: Option<QuestProgressionGenesis>,
     pub combat: Option<CombatGenesis>,
@@ -102,7 +103,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v24\0",
+            b"benilla-native-profile-v25\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -160,6 +161,9 @@ impl Profile {
             catalog.validate(self)?;
         }
         if let Some(catalog) = &self.creature_collision_widths {
+            catalog.validate(self)?;
+        }
+        if let Some(catalog) = &self.creature_collision_heights {
             catalog.validate(self)?;
         }
         let p = &self.player;
@@ -287,6 +291,7 @@ pub struct Npc {
     pub source_motion: Option<NpcMotion>,
     pub(super) source_capabilities: Option<CreatureCapabilityState>,
     pub(super) source_collision_width: Option<CreatureCollisionWidthState>,
+    pub(super) source_collision_height: Option<CreatureCollisionHeightState>,
     pub regen_elapsed_ms: u32,
     pub original_loot_recipient: Option<PlayerId>,
     pub corpse_loot: Option<CorpseLoot>,

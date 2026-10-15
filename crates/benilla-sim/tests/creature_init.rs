@@ -1044,3 +1044,135 @@ fn initial_width_matches_unchanged_source_fixture_and_refuses_numeric_outside_do
     assert_eq!(count, 2295);
     assert!(rejected > 0);
 }
+
+#[test]
+fn initial_height_checks_native_identity_and_only_exact_zero_selects_default() {
+    let receipt = model_receipt(&input());
+    assert_eq!(receipt.original_display_id(), 31);
+    assert_eq!(receipt.native_display_id(), 34);
+    assert!(receipt.collision_height(31, 51, f(1.)).is_err());
+    assert!(receipt.collision_height(34, 0, f(1.)).is_err());
+    for raw in [f(0.), f(-0.)] {
+        let height = receipt.collision_height(34, 51, raw).unwrap();
+        assert_eq!(height.policy(), CREATURE_COLLISION_HEIGHT_POLICY_ID);
+        assert_eq!(height.native_display_id(), 34);
+        assert_eq!(height.model_id(), 51);
+        assert_eq!(height.object_scale(), f(1.25));
+        assert_eq!(height.raw_height(), raw);
+        assert_eq!(height.height(), bits(0x4002_007e));
+        let serialized = serde_json::to_value(height).unwrap();
+        assert_eq!(serialized["native_display_id"], 34);
+        assert_eq!(serialized["raw_height"], raw.bits());
+        assert_eq!(serialized["height"], 0x4002_007eu32);
+    }
+    assert_eq!(
+        receipt.collision_height(34, 51, f(-1.)).unwrap().height(),
+        f(-1.25)
+    );
+    assert_eq!(
+        receipt.collision_height(34, 51, f(2.)).unwrap().height(),
+        f(2.5)
+    );
+    assert!(receipt.collision_height(34, 51, f(1_000_000.)).is_err());
+    // SQL geometry and caller-mutable output are not height inputs.
+    assert_eq!(receipt.bounding_radius(), f(0.5));
+    assert_eq!(receipt.combat_reach(), f(1.5));
+}
+
+#[test]
+fn initial_height_preserves_positive_effective_scale_domain_and_template_fallback() {
+    let mut i = input();
+    if let Rows::Complete(rows) = &mut i.displays {
+        rows.iter_mut().find(|row| row.id == 31).unwrap().scale = f(2.);
+        rows.iter_mut().find(|row| row.id == 34).unwrap().scale = f(7.);
+    }
+    for raw_template_scale in [f(0.), f(-0.), f(-1.)] {
+        i.template.scale = raw_template_scale;
+        let receipt = model_receipt(&i);
+        assert_eq!(receipt.raw_template_scale(), raw_template_scale);
+        assert_eq!(receipt.object_scale(), f(2.));
+        assert_eq!(receipt.native_display_id(), 34);
+        // First actual template display sets initial scale, not selected gender.
+        let height = receipt.collision_height(34, 51, f(3.)).unwrap();
+        assert_eq!(height.height(), f(6.));
+    }
+    for invalid_scale in [f(0.), f(-0.), f(-1.)] {
+        let mut invalid = i.clone();
+        invalid.template.scale = f(1.);
+        if let Rows::Complete(rows) = &mut invalid.displays {
+            rows[0].scale = invalid_scale;
+        }
+        assert!(prepare(&invalid).is_err());
+    }
+    for raw in [
+        1,
+        0x007f_ffff,
+        0x4974_2401,
+        0x7f7f_ffff,
+        0x7f80_0000,
+        0x7fc0_0000,
+    ] {
+        assert!(SpellFloat::from_bits(raw).is_err());
+        assert!(SpellFloat::from_bits(raw | 0x8000_0000).is_err());
+    }
+}
+
+#[test]
+fn initial_height_matches_unchanged_source_fixture_and_refuses_numeric_outside_domain() {
+    let mut i = input();
+    i.template.maximum_level = 1;
+    let mut count = 0;
+    let mut refused_input = 0;
+    let mut refused_product = 0;
+    let mut source_overflow = 0;
+    let mut exact_zero_default = 0;
+    let mut underflow_zero = 0;
+    for line in include_str!("fixtures/creature_collision_height_cmangos.test-fixture").lines() {
+        let row: Vec<u32> = line
+            .split_whitespace()
+            .map(|v| v.parse().unwrap())
+            .collect();
+        assert_eq!(row.len(), 4);
+        i.template.scale = bits(row[0]);
+        let receipt = model_receipt(&i);
+        assert_eq!(receipt.object_scale().bits(), row[0]);
+        let magnitude = row[2] & 0x7fff_ffff;
+        match SpellFloat::from_bits(row[1]) {
+            Err(_) => {
+                // These source probes cannot enter the public arithmetic API.
+                refused_input += 1;
+                if magnitude == 0x7f80_0000 {
+                    source_overflow += 1;
+                }
+            }
+            Ok(raw_height) => {
+                let result = receipt.collision_height(receipt.native_display_id(), 51, raw_height);
+                let rounded_to_zero = magnitude == 0 && row[1] & 0x7fff_ffff != 0;
+                if SpellFloat::from_bits(row[2]).is_err() || rounded_to_zero {
+                    assert!(result.is_err(), "out-of-domain source product: {line}");
+                    refused_product += 1;
+                    if rounded_to_zero {
+                        assert_eq!(row[3], 0x4002_007e);
+                        underflow_zero += 1;
+                    }
+                } else {
+                    let result = result.unwrap();
+                    assert_eq!(result.height().bits(), row[3], "{line}");
+                    assert_eq!(result.raw_height().bits(), row[1]);
+                    assert_eq!(result.object_scale().bits(), row[0]);
+                    if magnitude == 0 {
+                        assert_eq!(row[3], 0x4002_007e);
+                        exact_zero_default += 1;
+                    }
+                }
+            }
+        }
+        count += 1;
+    }
+    assert_eq!(count, 2408);
+    assert_eq!(refused_input, 91);
+    assert!(refused_product > 0);
+    assert!(source_overflow > 0);
+    assert!(underflow_zero > 0);
+    assert_eq!(exact_zero_default, 26);
+}

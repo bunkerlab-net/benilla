@@ -9,8 +9,9 @@ mod numeric;
 use crate::classic_spell::SpellFloat;
 use crate::npc_melee::{CreatureStatClass, DamageRange};
 pub use model_receipt::{
-    InitialCollisionWidth, ModelSelectionDraw, ModelSelectionDrawPurpose, ModelSelectionGenderRow,
-    ModelSelectionReceipt, CREATURE_COLLISION_WIDTH_POLICY_ID, CREATURE_MODEL_SELECTION_POLICY_ID,
+    InitialCollisionHeight, InitialCollisionWidth, ModelSelectionDraw, ModelSelectionDrawPurpose,
+    ModelSelectionGenderRow, ModelSelectionReceipt, CREATURE_COLLISION_HEIGHT_POLICY_ID,
+    CREATURE_COLLISION_WIDTH_POLICY_ID, CREATURE_MODEL_SELECTION_POLICY_ID,
 };
 use std::collections::{BTreeMap, BTreeSet};
 pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v1";

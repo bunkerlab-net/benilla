@@ -57,6 +57,7 @@ pub fn profile() -> Profile {
         source_motion: None,
         creature_capabilities: None,
         creature_collision_widths: None,
+        creature_collision_heights: None,
         interactions: None,
         quest_progression: None,
         combat: None,
