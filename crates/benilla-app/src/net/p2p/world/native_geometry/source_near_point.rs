@@ -71,6 +71,9 @@ impl SourceNearPointProvider {
         snapshot: MapHeightSnapshot<'static>,
         config: SourceNearPointConfiguration,
     ) -> Result<Self, Failure> {
+        if session.empty_selector_near_point.is_some() {
+            return Err(Failure::UnsupportedQuery);
+        }
         // Typed composition rechecks config and exact snapshot identity rather than
         // accepting an arbitrary replacement geometry-revision digest.
         let ground =
@@ -144,7 +147,7 @@ impl SourceNearPointProvider {
     }
 }
 
-fn exact_point(bits: [u32; 3]) -> Result<Point, Failure> {
+pub(super) fn exact_point(bits: [u32; 3]) -> Result<Point, Failure> {
     let [x, y, z] = bits.map(f32::from_bits);
     let point = Point::new(x, y, z).map_err(|_| Failure::UnsupportedPointRepresentation)?;
     if [point.x, point.y, point.z].map(|v| v.as_f32().to_bits()) != bits {

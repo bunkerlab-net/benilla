@@ -72,6 +72,7 @@ fn setup(
         participants: Some(NonRenderParticipants::authored_fixture(b.content, b.map)),
         static_los: None,
         primary_near_point: None,
+        empty_selector_near_point: None,
     };
     let mut world =
         NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();

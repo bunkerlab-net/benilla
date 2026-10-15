@@ -191,6 +191,7 @@ fn real_static_los_missing_and_changed_geometry_pause_without_publication_then_r
         )),
         static_los: Some(StaticLosPolicy::from_profile(&data, true).unwrap()),
         primary_near_point: None,
+        empty_selector_near_point: None,
     };
     assert!(StaticLosPolicy::from_profile(&data, false).is_err());
     let mode = Arc::new(AtomicU64::new(1));

@@ -348,3 +348,53 @@ populated world. The original candidate-only API remains a separate partial witn
 observes source callback order and boundary arithmetic. Its scalar callbacks are not
 terrain, LOS, world-content or participant evidence; loaded-product/controller tests
 supply the separate bounded integration evidence.
+
+## Separately selected empty-selector NearPoint fallback
+
+`SourceEmptySelectorNearPointProvider` composes the same immutable loaded ground
+and VMap readers with the pinned empty-list selector. It has a distinct geometry
+revision and `EmptySelectorNearPointPolicy`; selecting both it and the existing
+primary-only policy is invalid. `install_with_empty_selector_near_point` is an
+explicit inert installer, not character-entry routing or production admission.
+The primary-only provider and its unsupported-fallback result remain unchanged.
+
+The supported branch has a real ground-searcher capability witness, collision
+detection enabled, VMap height/LOS enabled, and independent non-render participant
+exclusion. Config values remain explicit source declarations, not authenticated
+capture. No-searcher, swimming/flying, disabled-config, dynamic-participant and
+used-area-list branches are not inferred or silently substituted.
+
+A private sequential capability derives the primary XY and every raw signed
+fallback angle. Each ordinary candidate starts its height probe at target Z;
+strict source vertical acceptance precedes target-eye-to-candidate-feet LOS with
+M2 included. The first accepted point is returned. A selected point that cannot
+round-trip through persistent Point fails immediately, rather than searching for
+a different representable result. Missing coverage and malformed/binding failures
+also abort; they are not failed candidates or natural source exhaustion.
+
+After the actual empty iterator exhausts, the source restores first XY but keeps
+the last successfully adjusted Z. The final height query uses that carried Z and
+returns its result without another vertical or LOS test. This surprising source
+return is preserved. It is not a clear-path, support or accessibility certificate,
+and cannot replace OwnerPathFinder. Actual loaded stacked-floor tests distinguish
+this final query from an incorrect reset to target Z.
+
+All probes share one absolute deadline and cumulative geometry-work budget. The
+628-offset maximum is a numeric bound, not a promise that every search fits the
+service budget. Primary/free height and LOS tickets are unique pairs; the terminal
+height query has its own ticket and no LOS ticket. A failed sequence stays failed.
+The read-only test observer sees actual queries and cannot replace their answers;
+test work-limit instrumentation only lowers the existing ceiling.
+
+The [independent full-source oracle](../../../../../../benilla-native-geometry-tests/tools/near_point_empty_README.md)
+records candidate, height and conditional LOS order using explicitly authored
+scalar callbacks. Separate loaded-product tests
+compare matching cases using the actual readers. Controller tests use actual
+NearPoint mailbox facts but explicitly synthetic remaining authorities; headless
+checks do not exercise the Bevy scheduler. No installed-world content, complete
+pathfinding, runtime activation or startup admission is established here.
+
+Direct exhaustive reader tests use a longer deadline to inspect every source
+probe. Controller tests separately use the unchanged 2 ms mailbox allowance;
+neither establishes that worst-case search always fits a production frame.
+Deadline or work exhaustion rejects the entire fact without publication.

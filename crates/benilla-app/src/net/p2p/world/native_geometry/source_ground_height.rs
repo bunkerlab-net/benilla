@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Product-backed ground allowed-Z subquery for a future NearPoint provider.
-//! The scalar query accepts explicit XY; the initial-candidate query derives XY
-//! under a pinned arithmetic policy. Neither supplies LOS selection, a complete
-//! movement fact or admission.
+//! Product-backed ground allowed-Z subqueries for bounded NearPoint providers.
+//! Initial candidates enforce target Z; the empty-selector capability derives
+//! source-order probes and the final carried Z. No ground reply supplies LOS
+//! selection, a complete movement fact or admission.
 use super::{
     core::{Failure, Session},
     products::ground_height::{
@@ -16,8 +16,13 @@ use benilla_world_runtime::native::{
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
+#[path = "source_ground_height/empty_selector.rs"]
+mod empty_selector;
 #[path = "source_ground_height/initial_candidate.rs"]
 mod initial_candidate;
+pub(crate) use empty_selector::{
+    EmptySelectorGroundSequence, SequentialGroundPhase, SequentialGroundReply,
+};
 
 pub(crate) struct SourceGroundHeightProvider<'a> {
     session: Session,
@@ -61,6 +66,15 @@ impl<'products> SourceGroundHeightProvider<'products> {
         config: super::source_near_point::SourceNearPointConfiguration,
     ) -> Result<Self, Failure> {
         let expected = super::source_near_point::geometry_revision(&snapshot, config)?;
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+    pub(super) fn bind_with_empty_selector(
+        session: &Session,
+        profile: &Profile,
+        snapshot: MapHeightSnapshot<'products>,
+        config: super::source_near_point::SourceNearPointConfiguration,
+    ) -> Result<Self, Failure> {
+        let expected = super::source_near_point_empty::geometry_revision(&snapshot, config)?;
         Self::bind_revision(session, profile, snapshot, expected)
     }
     fn bind_revision(
@@ -123,6 +137,7 @@ impl<'products> SourceGroundHeightProvider<'products> {
             || session.player != self.session.player
             || session.static_los != self.session.static_los
             || session.primary_near_point != self.session.primary_near_point
+            || session.empty_selector_near_point != self.session.empty_selector_near_point
         {
             return Err(Failure::Binding);
         }
@@ -240,6 +255,21 @@ impl BoundGroundHeightQuery<'_, '_> {
             return Err(Failure::UnsupportedQuery);
         };
         if request.position[2] != near.request.target.pose.position.z.as_f32().to_bits() {
+            return Err(Failure::Binding);
+        }
+        self.query_ground_with_budget(request, budget)
+    }
+    /// Only this module's sequential capability may supply a carried candidate Z.
+    /// The initial-candidate entry point above retains its exact target-Z guard.
+    fn query_ground_with_budget(
+        &self,
+        request: GroundHeightRequest,
+        budget: &mut super::products::vmap::QueryBudget,
+    ) -> Result<GroundHeightReply, Failure> {
+        if request.context != self.context
+            || request.snapshot != self.provider.binding()
+            || request.ticket == 0
+        {
             return Err(Failure::Binding);
         }
         let query = MapHeightRequest {

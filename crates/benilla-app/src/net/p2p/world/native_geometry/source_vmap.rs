@@ -144,6 +144,7 @@ impl SourceVmapProvider {
             || session.bodies != self.session.bodies
             || session.static_los != self.session.static_los
             || session.primary_near_point != self.session.primary_near_point
+            || session.empty_selector_near_point != self.session.empty_selector_near_point
         {
             return Err(Failure::Binding);
         }

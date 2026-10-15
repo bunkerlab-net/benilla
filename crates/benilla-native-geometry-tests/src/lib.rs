@@ -118,3 +118,6 @@ fn parsed_authored_adt_drives_actual_movement_solver() {
 
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_near_point.rs"]
 mod source_near_point;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_near_point_empty.rs"]
+mod source_near_point_empty;

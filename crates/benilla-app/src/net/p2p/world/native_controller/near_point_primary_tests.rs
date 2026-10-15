@@ -265,6 +265,7 @@ fn setup(z: f32) -> (n::Profile, ProductAuthority) {
         participants: Some(proof.clone()),
         static_los: None,
         primary_near_point: Some(core::PrimaryNearPointPolicy::from_profile(&data).unwrap()),
+        empty_selector_near_point: None,
     };
     let provider = SourceNearPointProvider::bind(&session, &data, snapshot, config).unwrap();
     let bound_session = session.clone();
@@ -831,3 +832,6 @@ fn mailbox_primary_malformed_facts_do_not_commit_project_or_rewrite_store() {
         assert_eq!(observed.lock().unwrap().len(), 1);
     }
 }
+
+#[path = "near_point_empty_tests.rs"]
+mod near_point_empty_tests;

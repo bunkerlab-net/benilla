@@ -10,6 +10,7 @@ mod products;
 mod source_ground_height;
 mod source_navigation;
 mod source_near_point;
+mod source_near_point_empty;
 mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};
 use self::core::{Corridor, Mailbox};
@@ -45,13 +46,14 @@ struct Service {
     vmap: Option<source_vmap::SourceVmapProvider>,
     navigation: Option<source_navigation::SourceNavigationProvider>,
     primary_near_point: Option<source_near_point::SourceNearPointProvider>,
+    empty_selector: Option<source_near_point_empty::SourceEmptySelectorNearPointProvider>,
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct GeometryQueries;
 
 pub(crate) fn install(world: &mut World, session: Session) -> Result<LocalAuthority, Failure> {
-    install_products(world, session, None, None, None)
+    install_products(world, session, None, None, None, None)
 }
 
 /// Loaded static geometry adds a movement veto and explicitly selected source LOS.
@@ -63,7 +65,7 @@ pub(crate) fn install_with_static_vmap(
     raw_geometry: [u8; 32],
 ) -> Result<LocalAuthority, Failure> {
     let provider = source_vmap::SourceVmapProvider::bind(&session, snapshot, raw_geometry)?;
-    install_products(world, session, Some(provider), None, None)
+    install_products(world, session, Some(provider), None, None, None)
 }
 /// Additional dry navigation veto after raw support and static VMap. No slope or
 /// owner PathFinder proof and no native session admission is introduced here.
@@ -80,7 +82,7 @@ pub(crate) fn install_with_navigation(
         navigation,
         raw_geometry,
     )?;
-    install_products(world, session, None, Some(provider), None)
+    install_products(world, session, None, Some(provider), None, None)
 }
 /// Owns already-loaded immutable products for the bounded original NearPoint branch.
 /// Loading and participant/source-epoch proof remain the caller's responsibility.
@@ -99,7 +101,27 @@ pub(crate) fn install_with_primary_near_point(
         snapshot,
         configuration,
     )?;
-    install_products(world, session, None, None, Some(provider))
+    install_products(world, session, None, None, Some(provider), None)
+}
+
+/// Separately selected empty-list source fallback, using already-loaded products.
+/// Exhaustion returns the source point, not a clear walking route or admission.
+pub(crate) fn install_with_empty_selector_near_point(
+    world: &mut World,
+    mut session: Session,
+    profile: &benilla_world_runtime::native::Profile,
+    snapshot: products::ground_height::MapHeightSnapshot<'static>,
+    configuration: source_near_point::SourceNearPointConfiguration,
+) -> Result<LocalAuthority, Failure> {
+    session.empty_selector_near_point =
+        Some(core::EmptySelectorNearPointPolicy::from_profile(profile)?);
+    let provider = source_near_point_empty::SourceEmptySelectorNearPointProvider::bind(
+        &session,
+        profile,
+        snapshot,
+        configuration,
+    )?;
+    install_products(world, session, None, None, None, Some(provider))
 }
 
 fn install_products(
@@ -108,6 +130,7 @@ fn install_products(
     vmap: Option<source_vmap::SourceVmapProvider>,
     navigation: Option<source_navigation::SourceNavigationProvider>,
     primary_near_point: Option<source_near_point::SourceNearPointProvider>,
+    empty_selector: Option<source_near_point_empty::SourceEmptySelectorNearPointProvider>,
 ) -> Result<LocalAuthority, Failure> {
     let (authority, mailbox) = core::mailbox(session)?;
     world.insert_non_send_resource(Service {
@@ -116,6 +139,7 @@ fn install_products(
         vmap,
         navigation,
         primary_near_point,
+        empty_selector,
     });
     Ok(authority)
 }
@@ -168,6 +192,9 @@ fn process(
                     &request.query,
                     Query::SourceMotion(benilla_world_runtime::native::MotionQuery::NearPoint(_))
                 ) {
+                    if let Some(provider) = service.empty_selector.as_ref() {
+                        return provider.resolve(session, request, deadline);
+                    }
                     return service
                         .primary_near_point
                         .as_ref()
@@ -392,6 +419,11 @@ pub(crate) use source_near_point::{
 pub(crate) use products::authored_vmap;
 #[cfg(test)]
 pub(crate) use source_vmap::{geometry_revision as authored_vmap_revision, SourceVmapProvider};
+
+#[cfg(test)]
+pub(crate) use source_near_point_empty::{
+    geometry_revision as authored_empty_near_point_revision, SourceEmptySelectorNearPointProvider,
+};
 
 #[cfg(test)]
 mod tests {

@@ -54,6 +54,7 @@ fn session() -> Session {
         participants: Some(NonRenderParticipants::authored_fixture([3; 32], 0)),
         static_los: None,
         primary_near_point: None,
+        empty_selector_near_point: None,
     }
 }
 struct Proof(Result<(), Failure>);

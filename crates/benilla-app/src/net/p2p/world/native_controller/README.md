@@ -259,3 +259,12 @@ through failed save, and apply projected descriptors to an item cache across ret
 and reopen. They verify the slot/count changes consumed by the app's lock watcher;
 this no-Bevy harness does not execute that watcher or establish live UI rendering.
 Full app compilation and live user-local asset/rendering checks remain separate gates.
+
+## Empty-selector source NearPoint receipts
+
+The separately selected loaded empty-selector provider preserves the source's
+ordered primary/free search and exhausted first-XY/last-Z return. Its mailbox
+policy and geometry revision cannot be confused with the primary-only provider.
+The resulting source point is not a route-validity certificate: remaining source
+path and combat authorities in these component tests are explicitly synthetic.
+No character-entry or production admission path is enabled by this composition.

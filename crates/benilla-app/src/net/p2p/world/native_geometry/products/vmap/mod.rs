@@ -341,6 +341,15 @@ pub(crate) struct QueryBudget {
     deadline: Instant,
 }
 impl QueryBudget {
+    /// Test instrumentation only: the production work ceiling cannot be raised.
+    #[cfg(test)]
+    pub(crate) fn restrict_work_for_test(&mut self, limit: usize) {
+        self.remaining = self.remaining.min(limit);
+    }
+    #[cfg(test)]
+    pub(crate) fn remaining_work_for_test(&self) -> usize {
+        self.remaining
+    }
     /// Share one absolute deadline and work allowance across a composite query's rays.
     pub(crate) fn new(deadline: Instant) -> Self {
         Self {

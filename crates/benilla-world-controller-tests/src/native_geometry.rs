@@ -33,3 +33,11 @@ pub(crate) use source_near_point::{
 };
 #[cfg(test)]
 pub(crate) use source_vmap::{geometry_revision as authored_vmap_revision, SourceVmapProvider};
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_near_point_empty.rs"]
+mod source_near_point_empty;
+
+#[cfg(test)]
+pub(crate) use source_near_point_empty::{
+    geometry_revision as authored_empty_near_point_revision, SourceEmptySelectorNearPointProvider,
+};

@@ -28,10 +28,18 @@ fn setup_for(
     positions: Option<([f32; 2], [f32; 2])>,
     absolute: bool,
 ) -> (NativeWorld, Session, AuthorityRequest) {
+    setup_for_revision(binding, positions, absolute, geometry_revision(binding))
+}
+fn setup_for_revision(
+    binding: SnapshotBinding,
+    positions: Option<([f32; 2], [f32; 2])>,
+    absolute: bool,
+    revision: [u8; 32],
+) -> (NativeWorld, Session, AuthorityRequest) {
     let mut profile = fixture::profile();
     profile.content_digest = binding.content;
     profile.map_id = binding.map;
-    profile.geometry_revision = geometry_revision(binding);
+    profile.geometry_revision = revision;
     profile.npcs[0].ai.map_id = binding.map;
     profile.npcs[0].ai.content_revision = ai::movement::Revision(binding.content);
     profile.player.start.z = ai::Real::new(10.).unwrap();
@@ -73,6 +81,7 @@ fn setup_for(
         )),
         static_los: None,
         primary_near_point: None,
+        empty_selector_near_point: None,
     };
     let mut world =
         NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();
@@ -92,6 +101,9 @@ fn setup_for(
         .unwrap();
     (world, session, context)
 }
+
+#[path = "empty_selector_tests.rs"]
+mod empty_selector_tests;
 fn request(
     provider: &SourceGroundHeightProvider<'_>,
     context: &AuthorityRequest,

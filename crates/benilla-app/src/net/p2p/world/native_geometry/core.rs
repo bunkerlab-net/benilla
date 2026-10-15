@@ -254,6 +254,22 @@ impl PrimaryNearPointPolicy {
     }
 }
 
+/// Distinct empty-selector mailbox route with the same frozen source-owner contract.
+/// Selecting it does not authorize an occupied selector or establish geometry parity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EmptySelectorNearPointPolicy(PrimaryNearPointPolicy);
+impl EmptySelectorNearPointPolicy {
+    pub(crate) fn from_profile(profile: &Profile) -> Result<Self, Failure> {
+        PrimaryNearPointPolicy::from_profile(profile).map(Self)
+    }
+    fn check(self, session: &Session) -> Result<(), Failure> {
+        self.0.check(session)
+    }
+    fn body(self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
+        self.0.body(session, request)
+    }
+}
+
 /// Local session identity. Digests bind inputs; they do not attest that client collision
 /// equals CMaNGOS VMap data. Production admission must separately verify asset identity.
 #[derive(Clone)]
@@ -269,6 +285,7 @@ pub(crate) struct Session {
     pub participants: Option<NonRenderParticipants>,
     pub static_los: Option<StaticLosPolicy>,
     pub primary_near_point: Option<PrimaryNearPointPolicy>,
+    pub empty_selector_near_point: Option<EmptySelectorNearPointPolicy>,
 }
 impl Session {
     pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
@@ -301,10 +318,12 @@ impl Session {
                 return self.player.map(|p| p.body).ok_or(Failure::UnresolvedBody);
             }
             Query::SourceMotion(MotionQuery::NearPoint(_)) => {
-                return self
-                    .primary_near_point
-                    .ok_or(Failure::UnsupportedQuery)?
-                    .body(self, request);
+                return match (self.primary_near_point, self.empty_selector_near_point) {
+                    (Some(policy), None) => policy.body(self, request),
+                    (None, Some(policy)) => policy.body(self, request),
+                    (None, None) => Err(Failure::UnsupportedQuery),
+                    (Some(_), Some(_)) => Err(Failure::Invalid),
+                };
             }
             Query::SourceSpell(SourceSpellQuery::LineOfSight(_))
             | Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(_))) => {
@@ -366,8 +385,12 @@ impl Session {
             && self.player.is_none_or(PlayerMotion::validate)
             && self.bodies.len() <= 64
             && self.bodies.iter().all(|(id, b)| *id != 0 && b.validate())
+            && !(self.primary_near_point.is_some() && self.empty_selector_near_point.is_some())
             && self
                 .primary_near_point
+                .is_none_or(|p| p.check(self).is_ok())
+            && self
+                .empty_selector_near_point
                 .is_none_or(|p| p.check(self).is_ok())
     }
 }
@@ -929,6 +952,10 @@ mod tests;
 #[cfg(test)]
 #[path = "near_point_mailbox_tests.rs"]
 mod near_point_mailbox_tests;
+
+#[cfg(test)]
+#[path = "empty_selector_policy_tests.rs"]
+mod empty_selector_policy_tests;
 
 /// Render-frame accounting, separate from fixed ticks (which may run several times per frame).
 #[derive(Default)]
