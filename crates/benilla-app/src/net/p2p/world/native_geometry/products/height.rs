@@ -161,4 +161,4 @@ fn select_height(
 #[cfg(test)]
 mod oracle_tests;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

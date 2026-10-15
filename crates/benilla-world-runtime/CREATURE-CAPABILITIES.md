@@ -91,9 +91,15 @@ is the non-flying, non-swimming branch. Its `Map::GetHeight` argument is
 `swim=false`, not disabled VMAP: Map requests static VMAP (still subject to the
 effective source height configuration), uses the ordinary 10-yard initial search,
 then also queries dynamic height. No physical dry-location
-claim follows from habitat. The actual GetNearPoint collision configuration,
-candidate selection, full static/dynamic height, LOS, liquid/water-walk dependencies
-and provider are still unavailable; no guessed config or dry fallback is supplied.
+claim follows from habitat. The separately bound application ground-height subquery now composes loaded static
+products and positively proven empty dynamics under explicit enabled configuration.
+`CreatureCapabilityWitness::validate_for` checks that request against the immutable
+selected source catalog and exact outer NPC generation. It is not authentication or
+live-state reconstruction: the current closed ground-only lifecycle leaves the owned
+projection fixed, and any future mutable capability domain must replace this check.
+The actual GetNearPoint collision configuration, source candidate arithmetic,
+selection/fallback sequencing, LOS and complete provider remain unavailable; no
+guessed config or dry fallback is supplied.
 
 ## Persistence and checks
 

@@ -7,6 +7,7 @@
 )]
 pub(super) mod core;
 mod products;
+mod source_ground_height;
 mod source_navigation;
 mod source_vmap;
 pub(crate) use self::core::{Body, Failure, LocalAuthority, Session};

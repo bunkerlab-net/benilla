@@ -73,7 +73,7 @@ impl NonRenderParticipants {
     pub(crate) fn authored_fixture(content: Digest, map: u32) -> Self {
         Self { content, map }
     }
-    fn matches(&self, content: Digest, map: u32) -> bool {
+    pub(super) fn matches(&self, content: Digest, map: u32) -> bool {
         self.content == content && self.map == map
     }
 }

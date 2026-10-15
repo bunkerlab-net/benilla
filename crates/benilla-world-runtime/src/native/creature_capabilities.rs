@@ -243,6 +243,19 @@ pub struct CreatureCapabilityWitness {
     capability_movement_flags: u32,
 }
 impl CreatureCapabilityWitness {
+    /// Request consistency against the selected immutable source catalog and the
+    /// closed ground-only lifecycle invariant. This does not prove liveness or
+    /// authenticate deserialized transcripts. Mutable capability domains must
+    /// replace this check rather than silently reusing constructor defaults.
+    pub fn validate_for(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
+        let expected = CreatureCapabilityState::new(profile, npc)?.ok_or(
+            NativeError::AuthorityUnavailable("creature capability source catalog"),
+        )?;
+        if self != expected.witness() {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(())
+    }
     pub fn npc(&self) -> crate::NpcId {
         self.npc
     }

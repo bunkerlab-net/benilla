@@ -721,3 +721,36 @@ GridMap water, missing base types, bit-31 wet flags, full-width fallback overrid
 IDs, preserved raw depth, area occlusion and mixed WMO metadata. Normal and
 shift/float-cast-overflow-sanitized regeneration are byte-identical; all 93 prior
 source products remain unchanged. These fixtures contain no installation assets.
+
+## Map height and ground-only allowed-Z composition
+
+`ground_height.rs` adds pinned `Map.cpp:2758-2765` and the non-flying/non-swimming
+branch of `Unit.cpp:11835-11857` over the existing loaded static-height products.
+Copyright CMaNGOS contributors, upstream GPL-2.0-or-later; Rust translation is
+GPL-3.0-or-later. The independent source
+[oracle and guarded fragments](../../../../../../../benilla-native-geometry-tests/tools/ground_height_README.md)
+retain exact provenance and execute the complete relevant C++ method bodies.
+No client installation data is bundled.
+
+Map first requests `GetHeightStatic(x,y,z,true,swim ? 50 : 10)`, then evaluates
+`2.0f + (z < staticHeight ? staticHeight : z)` and subtracts static height in
+binary32. Ordered `std::max` retains the first operand on equality. A positive
+independent non-render-participant token permits the actual source empty-dynamic
+miss, negative infinity; absence of that token is an error. Ground allowed-Z uses
+`swim=false`, requires height strictly above -100000, and performs the two strict
+comparisons, preserving input signed-zero bits on equality and raw invalid heights.
+
+The effective config digest is retained from the loaded inventory and must match
+an explicit map/content/epoch-bound enabled declaration. This declaration does not
+authenticate a source configuration. The complete dry-VMap reader restriction,
+finite +/-100000 external coordinates, existing derived VMap range guard, full
+product validation and deadlines remain unchanged. Nonfinite input and nonfinite
+derived dynamic arithmetic fail closed before any answer; an intentional source
+negative-infinity empty miss is distinct from nonfinite input. Missing geometry
+never becomes terrain zero, a dry fact or an empty dynamic tree.
+
+The application adapter exposes only an initial/reset ground-height dependency,
+with complete immutable profile/session, source capability witness, outer/inner
+request, both poses, candidate position and ticket binding. It does not compute
+candidate XY, implement NearPoint fallback/LOS selection, or add a complete movement
+fact to the service. See the [provider boundary](../README.md).

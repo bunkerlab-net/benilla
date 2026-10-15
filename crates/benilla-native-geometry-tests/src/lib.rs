@@ -6,6 +6,8 @@ mod core;
 mod planar;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/products/mod.rs"]
 mod products;
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_ground_height.rs"]
+mod source_ground_height;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_navigation.rs"]
 mod source_navigation;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_vmap.rs"]

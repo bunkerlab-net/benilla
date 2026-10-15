@@ -29,6 +29,42 @@ fn profile() -> Profile {
 fn world() -> NativeWorld {
     NativeWorld::synthetic_component_test(profile(), [8; 16], f::player(), 1234).unwrap()
 }
+
+#[test]
+fn provider_consistency_validator_accepts_actual_respawn_witness_without_stale_state() {
+    let mut p = profile();
+    p.npcs[0].ai.corpse_decay_ms = 100;
+    p.npcs[0].ai.respawn_delay_seconds = 1;
+    let mut w = NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap();
+    let old = w.state().npcs[&2]
+        .creature_capabilities()
+        .unwrap()
+        .witness()
+        .clone();
+    old.validate_for(w.profile(), old.npc()).unwrap();
+    // Authored external death enters the real source host's corpse/respawn path.
+    w.state.npcs.get_mut(&2).unwrap().health = 0;
+    let mut a = fixture::SyntheticMotionAuthority {
+        visits: Some(false),
+        ..Default::default()
+    };
+    while w.state().npcs[&2].id.generation == 0 {
+        assert!(w.state().tick < 25);
+        step(&mut w, &mut a);
+    }
+    let current = w.state().npcs[&2]
+        .creature_capabilities()
+        .unwrap()
+        .witness();
+    assert_eq!(current.npc().generation, 1);
+    current.validate_for(w.profile(), current.npc()).unwrap();
+    assert!(old.validate_for(w.profile(), current.npc()).is_err());
+    assert!(current.validate_for(w.profile(), old.npc()).is_err());
+    assert_eq!(old.source_binding(), current.source_binding());
+    let mut changed = w.profile().clone();
+    changed.npcs[0].entry += 1;
+    assert!(current.validate_for(&changed, current.npc()).is_err());
+}
 fn step(w: &mut NativeWorld, authority: &mut impl Authority) {
     w.step(w.state().tick + 1, None, authority).unwrap();
 }

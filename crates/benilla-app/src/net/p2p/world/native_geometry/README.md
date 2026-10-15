@@ -217,3 +217,49 @@ unsupported. Visibility/detection is also distinct. The new LOS path establishes
 neither of them, complete native spatial authority, live source-epoch ownership,
 real-data admission nor playable gameplay. Source replacement must still revoke
 the session; uninhabited native and participant constructors are unchanged.
+
+## Product-backed ground height subquery
+
+`InventoriedProducts::load_map_height` composes the existing real GridMap/static
+VMap height reader with pinned `Map::GetHeight`, using an independently supplied
+`NonRenderParticipants` token to establish an empty dynamic collision tree.
+No-hit in that proven empty tree is source negative infinity. Missing participant
+proof, missing terrain, incomplete VMap primitives or expired budgets are unavailable.
+The conservative complete dry-VMap domain and previous reader guards remain intact;
+creature habitat does not establish physical dryness.
+
+`SourceHeightConfiguration` explicitly declares the recorded effective
+`vmap.enableHeight` state and binds map, content, source epoch and effective-config
+digest to the immutable loaded inventory. Only enabled height is implemented.
+This is consistency checking, not authenticated config parsing or evidence that a
+running source process actually used that configuration. Loading VMaps never
+implicitly enables height. Source-authenticated extraction/configuration and the
+production participant constructor remain separate closed gates.
+
+The ground provider selects an immutable validated Profile/Session and freezes one
+complete `MotionQuery::NearPoint` authority request. The existing typed capability
+witness is checked against that profile's source catalog and exact outer NPC
+identity/generation. The runtime already constructs it from the executing staged
+owner; the provider never consults a stale committed-world NPC. Its narrow public
+validator proves only source consistency under the current closed ground-only
+lifecycle invariant, not transcript authenticity or liveness.
+
+Each initial/reset candidate subquery echoes the complete original authority and
+NearPoint context, exact candidate XYZ bits, ticket, and snapshot map/content/source
+epoch/inventory/policy. Initial Z must equal the original target Z. Candidate XY is
+supplied and is not yet proven to equal source `sinf`/`cosf` output. The result carries
+raw Map height (including invalid sentinels) and source ground-only allowed Z.
+Strict comparisons preserve original Z bits on equality and invalid height. The
+source final NearPoint fallback can reuse previously adjusted Z and needs a later
+sequentially bound implementation; it is not silently admitted as an initial probe.
+
+This callable subquery deliberately has no movement/mailbox route and emits no
+complete NearPoint fact. Candidate arithmetic, selector ordering, collision config,
+LOS and fallback sequencing remain separate dependencies. A complete future
+NearPoint provider must impose cumulative work and an absolute deadline across all
+candidate queries; the current scalar product query bounds one height operation.
+No native admission, full movement provider or playable-world claim follows.
+
+[Source selection/empty-tree oracle](../../../../../../benilla-native-geometry-tests/tools/ground_height_README.md)
+is separate from loaded authored-product integration tests. Scalar callbacks prove
+arithmetic and call order; they are never evidence for terrain or collision geometry.

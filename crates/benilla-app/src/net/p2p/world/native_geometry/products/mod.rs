@@ -7,6 +7,7 @@
     reason = "native production session admission remains closed"
 )]
 mod envelopes;
+pub(crate) mod ground_height;
 pub(crate) mod height;
 pub(crate) mod liquid;
 pub(crate) mod navigation;
@@ -229,6 +230,7 @@ pub(crate) struct InventoriedProducts {
     revision: Hash,
     content: Hash,
     source_epoch: Hash,
+    effective_config: Hash,
     products: BTreeMap<ProductId, Product>,
     // Private parser-profile marker, never a caller-authored water/authority claim.
     vmap_liquid_profile: bool,
@@ -381,6 +383,7 @@ impl InventoriedProducts {
             map: spec.map,
             content: spec.binding.content,
             source_epoch: spec.binding.source_epoch,
+            effective_config: spec.binding.effective_config,
             revision: revision.finalize().into(),
             products,
             vmap_liquid_profile: allow_vmap_liquid,
@@ -623,4 +626,16 @@ pub(crate) fn authored_vmap(map: u32) -> vmap::VmapSnapshot {
         .unwrap()
         .load_static_vmap()
         .unwrap()
+}
+
+/// Authored native products for exact-code provider tests only.
+#[cfg(test)]
+pub(crate) fn authored_ground_height() -> (
+    InventoriedProducts,
+    ground_height::SourceHeightConfiguration,
+) {
+    let (spec, files) = height::tests::fixture();
+    let products = tests::load(spec, &files).unwrap();
+    let config = ground_height::tests::config(&products);
+    (products, config)
 }

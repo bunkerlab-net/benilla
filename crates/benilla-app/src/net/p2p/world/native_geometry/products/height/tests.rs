@@ -6,7 +6,7 @@ use super::super::{
 use super::*;
 use std::{collections::BTreeMap, time::Duration};
 
-fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
+pub(in super::super) fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     terrain_coverage(vmap_tests::fixture())
 }
 fn terrain_coverage(
