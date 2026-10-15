@@ -191,8 +191,9 @@ bounded GridMap liquid queries over actual MLIQ/LiquidType/optional AreaTable by
 GridMap area/parent overrides and the enabled TerrainInfo static-height selector
 are source-backed, as are the dry VMap location/group/floor query and their bounded
 TerrainInfo liquid combination. A separately opted-in native reader supplies raw
-WMO liquid levels; full wet TerrainInfo selection still needs map-aware WMO area
-handling. Player environment-state integration and movement capabilities remain
+WMO liquid levels and the separate raw VMap area-information query; full wet
+TerrainInfo selection still needs terrain occlusion and complete map-aware WMO
+area/DBC handling. Player environment-state integration and movement capabilities remain
 unsupported. Existing conservative readers continue to reject wet VMap products.
 The optional [safe static VMap port](products/vmap/PROVENANCE.md) now loads validated
 hierarchies/models and supplies bounded source-derived nearest rays as an additional

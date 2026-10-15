@@ -227,4 +227,4 @@ fn source_index(value: f32) -> Result<usize, Error> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

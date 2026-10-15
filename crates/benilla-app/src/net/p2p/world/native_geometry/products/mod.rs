@@ -231,9 +231,9 @@ pub(crate) struct InventoriedProducts {
     // Private parser-profile marker, never a caller-authored water/authority claim.
     vmap_liquid_profile: bool,
 }
-/// Explicit opt-in envelope for bounded WMO liquid bytes. It deliberately exposes no
-/// dry, ray, composite-height, terrain-status or navigation reader, nor a conversion
-/// into the conservative inventory. Exact bytes remain owned and immutable.
+/// Explicit opt-in envelope for bounded WMO liquid bytes and raw VMap area queries.
+/// It deliberately exposes no dry, ray, composite-height, terrain-status or navigation
+/// reader, nor a conversion into the conservative inventory. Bytes remain immutable.
 #[derive(Debug)]
 pub(crate) struct VmapLiquidProducts {
     inventory: InventoriedProducts,

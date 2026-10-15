@@ -2,6 +2,7 @@
 //! Bounded dry static VMap loader/query port, not Map LOS, navigation or admission.
 //! Every product is already inventoried; all hierarchy/model references are validated
 //! before publication. No untrusted bytes are passed to native code. See PROVENANCE.md.
+pub(crate) mod area;
 mod bih;
 mod height;
 pub(crate) mod liquid;
@@ -10,6 +11,8 @@ mod math;
 mod trig;
 use self::{bih::Bih, math::*};
 use super::{Error, Hash, InventoriedProducts, ProductId};
+#[cfg(test)]
+pub(crate) use liquid::tests::source_fixture as liquid_fixture;
 #[cfg(test)]
 pub(crate) use location::tests::fixture as location_fixture;
 use sha2::{Digest, Sha256};

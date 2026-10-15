@@ -114,6 +114,19 @@ impl Spawn {
         floor: f32,
         budget: &mut QueryBudget,
     ) -> Result<Option<(LocationFloor, usize)>, Error> {
+        Ok(self
+            .location_candidate(model, position, budget)?
+            .filter(|(candidate, _)| floor < f32::from_bits(candidate.floor)))
+    }
+
+    /// Both ModelInstance point-query paths use this exact local group selection
+    /// and world-floor arithmetic. Their cross-instance output writes differ.
+    pub(super) fn location_candidate(
+        &self,
+        model: &Model,
+        position: Vector,
+        budget: &mut QueryBudget,
+    ) -> Result<Option<(LocationFloor, usize)>, Error> {
         budget.take()?;
         if self.flags & 1 != 0 || !self.bounds.contains(position) {
             return Ok(None);
@@ -138,23 +151,19 @@ impl Spawn {
         if !world_z.is_finite() {
             return Err(Error::Format);
         }
-        if floor < world_z {
-            let group_index = group;
-            let group = &model.groups[group];
-            Ok(Some((
-                LocationFloor {
-                    floor: world_z.to_bits(),
-                    root_id: model.root_id,
-                    group_id: group.id,
-                    group_flags: group.flags,
-                    spawn_id: self.id,
-                    adt_id: self.adt,
-                },
-                group_index,
-            )))
-        } else {
-            Ok(None)
-        }
+        let group_index = group;
+        let group = &model.groups[group];
+        Ok(Some((
+            LocationFloor {
+                floor: world_z.to_bits(),
+                root_id: model.root_id,
+                group_id: group.id,
+                group_flags: group.flags,
+                spawn_id: self.id,
+                adt_id: self.adt,
+            },
+            group_index,
+        )))
     }
 }
 

@@ -557,3 +557,45 @@ exclusion, transformed/scaled instances and raw level/floor side effects. Normal
 and float-cast-overflow-sanitized regeneration are byte-identical; deliberately
 undefined conversions are tested only as Rust profile rejections, never oracle
 answers. These fixtures contain no client installation assets.
+
+
+## Separate raw VMap area-information prerequisite
+
+The opt-in `VmapLiquidProducts::load_vmap_area` reader supplies bound raw
+`VMapManager2::getAreaInfo` results from the same complete owned native VMap bytes.
+It accepts validated dry or wet groups without exposing the conservative geometry
+snapshot. This is a separate source query, not a conversion of the liquid/location
+winner and not `TerrainInfo::GetAreaFlag`.
+
+The pinned `WorldModel::IntersectPoint` selects the nearest intersecting group
+within each model and immediately overwrites result/root/group/flags. Its caller,
+`ModelInstance::intersectPoint`, then replaces ground and ADT only when the new
+world-space ground is strictly higher. A later successful lower or equal-floor
+instance can therefore supply root/group/flags while ground/ADT remain from an
+earlier instance. The reader preserves that behavior and makes no coherent
+winning-spawn assertion. Traversal order, group-distance ties, transformed local
+rays, M2 exclusion and exact binary32 world-floor arithmetic remain source-defined.
+
+An absent raw area result leaves the source output references unchanged. Complete
+map-slot validation, one cumulative work/deadline budget and immutable geometry
+ownership precede reply publication. Its distinct policy binds constituent geometry
+and selection policies; map/content/source epoch, inventory bytes, ticket and exact
+pose bits are carried by the query/reply identity. Errors publish no partial area
+metadata and cannot mutate a previously owned snapshot.
+
+This removes only the raw area-traversal dependency of wet TerrainInfo. That later
+path must still apply the source terrain-between-point-and-WMO-floor rejection,
+complete WMOAreaTable triple lookup, AreaTable map/explore-flag ordering and Map DBC
+linked-zone fallback before liquid override selection. Missing product inventories
+remain errors, never invented source fallback states. Existing conservative readers,
+wet TerrainInfo availability, accessibility and production admission are unchanged.
+
+The [raw area source oracle](../../../../../../../benilla-native-geometry-tests/tools/scopedarea_README.md)
+executes the original manager, area callbacks, model/instance queries and BIH/G3D
+code over authored numeric native products. Its 14,795 queries include 8,382 hits,
+6,413 unchanged-output misses and 499 differences from location-winner metadata.
+Forward/reverse fixtures change only map traversal order: unequal-floor overlaps
+retain highest floor/ADT while metadata changes, and equal-floor overlaps retain
+the first ADT but the last successful metadata. Fourteen dry/wet query pairs prove
+that raw area selection does not evaluate liquid cells. Previously recorded source
+products and answers remain byte-identical. No fixtures contain installation assets.

@@ -453,7 +453,7 @@ const SOURCE_MODELS: &[(&str, &[u8])] = &[
     ("wet.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/wet.wmo.vmo")),
     ("zero-corner.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedliquid/zero-corner.wmo.vmo")),
 ];
-fn source_fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
+pub(crate) fn source_fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     let (mut spec, mut files) = vmap_tests::fixture();
     for item in &spec.products {
         if matches!(item.id, ProductId::VmapModel(_)) {
