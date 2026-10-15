@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source-observed reducer outputs and callback intents. Harness dependency answers
 //! are authored, not proof that the production callback implementations exist.
-use super::tests::{STORE0, STORE1, TestHost, binding};
+use super::tests::{binding, TestHost, STORE0, STORE1};
 use super::*;
 const FIXTURE: &str = include_str!("../../../tools/fixtures/environment-state.tsv");
 fn number(s: &str) -> u32 {
@@ -11,7 +11,11 @@ fn bits(s: &str) -> u32 {
     u32::from_str_radix(s, 16).unwrap()
 }
 fn last(s: &str) -> Option<u32> {
-    if s == "-" { None } else { Some(number(s)) }
+    if s == "-" {
+        None
+    } else {
+        Some(number(s))
+    }
 }
 fn status(s: &str) -> LiquidStatus {
     match number(s) {

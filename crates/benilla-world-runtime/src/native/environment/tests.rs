@@ -363,26 +363,22 @@ fn checkpoint_and_journal_tampering_or_wrong_catalog_never_commit() {
     let mut checkpoint: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     checkpoint["state"]["timer_ms"] = 100.into();
     assert!(reopen(&m, &serde_json::to_vec(&checkpoint).unwrap()).is_err());
-    assert!(
-        EnvironmentMachine::restore(
-            m.snapshot,
-            m.world,
-            m.player,
-            LiquidCatalog::from_wdbc(STORE1).unwrap(),
-            &bytes
-        )
-        .is_err()
-    );
+    assert!(EnvironmentMachine::restore(
+        m.snapshot,
+        m.world,
+        m.player,
+        LiquidCatalog::from_wdbc(STORE1).unwrap(),
+        &bytes
+    )
+    .is_err());
     let tail = m.records_to_bytes().unwrap();
     let mut records: serde_json::Value = serde_json::from_slice(&tail).unwrap();
     records[1]["phase"]["Update"]["diff_ms"] = 98.into();
     let mut restored = reopen(&m, &initial).unwrap();
     let before = restored.checkpoint();
-    assert!(
-        restored
-            .replay_bytes(&serde_json::to_vec(&records).unwrap())
-            .is_err()
-    );
+    assert!(restored
+        .replay_bytes(&serde_json::to_vec(&records).unwrap())
+        .is_err());
     assert_eq!(restored.checkpoint(), before);
     let mut trailing = tail.clone();
     trailing.push(b' ');
@@ -460,16 +456,24 @@ fn selected_identity_full_catalog_profile_and_canonical_bounds_are_enforced() {
     let bytes = m.checkpoint().to_bytes().unwrap();
     let mut wrong_world = m.world;
     wrong_world[0] ^= 1;
-    assert!(
-        EnvironmentMachine::restore(m.snapshot, wrong_world, m.player, m.catalog.clone(), &bytes)
-            .is_err()
-    );
+    assert!(EnvironmentMachine::restore(
+        m.snapshot,
+        wrong_world,
+        m.player,
+        m.catalog.clone(),
+        &bytes
+    )
+    .is_err());
     let mut wrong_player = m.player;
     wrong_player.character[0] ^= 1;
-    assert!(
-        EnvironmentMachine::restore(m.snapshot, m.world, wrong_player, m.catalog.clone(), &bytes)
-            .is_err()
-    );
+    assert!(EnvironmentMachine::restore(
+        m.snapshot,
+        m.world,
+        wrong_player,
+        m.catalog.clone(),
+        &bytes
+    )
+    .is_err());
     let rows = u32::from_le_bytes(STORE0[4..8].try_into().unwrap()) as usize;
     let strings_at = 20 + rows * 16;
     let mut legacy_bytes = STORE0[..20].to_vec();
