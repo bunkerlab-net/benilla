@@ -17,3 +17,8 @@ mod source_vmap;
 #[allow(dead_code)]
 #[path = "../../benilla-world/src/terrain_stream/native_coverage/static_mesh.rs"]
 mod static_mesh;
+
+#[cfg(test)]
+pub(crate) use products::authored_vmap;
+#[cfg(test)]
+pub(crate) use source_vmap::{geometry_revision as authored_vmap_revision, SourceVmapProvider};

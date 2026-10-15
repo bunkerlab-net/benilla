@@ -3,7 +3,7 @@
 This is a safe Rust source-derived port of a bounded **static VMap ray** subset from
 [CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f](https://github.com/cmangos/mangos-classic/tree/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f).
 It loads actual serialized VMap geometry; it is not a Detour/MMap loader, PathFinder,
-composite terrain height, server LOS, swept body support, or native-content admission.
+composite terrain height, complete server LOS, swept body support, or native-content admission.
 
 ## Source and grants
 
@@ -140,3 +140,10 @@ Classic Data, and live visual/runtime tests. Real-asset validation has not been 
 No Northshire slope/navigation claim follows. The separately bounded dry Detour reader
 adds a query veto; actual owner-dependent PathFinder, sloped-body support, complete dynamic-participant audit,
 authenticated local extraction and live source-epoch admission remain necessary.
+
+The distinct [bound static source LOS adapter](../../README.md#bound-static-source-los)
+uses this same loaded snapshot for two current-phase queries, explicit LOS-enabled
+policy and separate profile-owned endpoint heights with `ignore_m2=true`. It does
+not reuse the movement veto. Dynamic participants remain excluded by the existing
+unconstructible production proof; visibility/accessibility and native admission
+remain unavailable. Authored adapter/controller tests add no real-asset evidence.

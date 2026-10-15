@@ -1,21 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Additional static-product veto in the current corridor. A VMap miss is never
-//! positive authority: the existing support/body/participant gates still run first.
+//! Static VMap movement veto and separately selected source LOS. Movement retains
+//! positive support/body proofs; source LOS requires its explicit frozen policy and
+//! independent participant exclusion, never a walking-corridor approximation.
 use super::{
     core::{Body, Corridor, Failure, Session},
     products::vmap::{RayRequest, StaticRay, VmapSnapshot},
 };
-use benilla_world_runtime::native::AuthorityRequest;
+use benilla_sim::creature_ai::movement::Check;
+use benilla_world_runtime::native::{
+    AuthorityRequest, CombatFacts, CombatPhase, CombatQuery, Facts, MotionFacts, MotionQuery,
+    Query, SourceSpellFacts, SourceSpellPhase, SourceSpellQuery,
+};
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
-pub(super) struct SourceVmapProvider {
+pub(crate) struct SourceVmapProvider {
     session: Session,
     raw_geometry: [u8; 32],
     snapshot: VmapSnapshot,
 }
 impl SourceVmapProvider {
-    pub(super) fn bind(
+    pub(crate) fn bind(
         session: &Session,
         snapshot: VmapSnapshot,
         raw_geometry: [u8; 32],
@@ -64,13 +69,71 @@ impl SourceVmapProvider {
     pub(super) fn raw_geometry(&self) -> [u8; 32] {
         self.raw_geometry
     }
-    pub(super) fn corridor<'a, C: Corridor>(
-        &'a self,
+    /// WorldObject::IsWithinLOSInMap -> Map::IsInLineOfSight for the explicitly
+    /// installed dry static domain. The independent participant proof excludes the
+    /// dynamic tree; no movement corridor, navigation result or renderer ray substitutes.
+    pub(crate) fn line_of_sight(
+        &self,
         session: &Session,
-        request: &'a AuthorityRequest,
-        inner: C,
+        request: &AuthorityRequest,
         deadline: Instant,
-    ) -> Result<SourceVmapCorridor<'a, C>, Failure> {
+    ) -> Result<Facts, Failure> {
+        self.check_session(session)?;
+        let npc_body = session.body(request)?;
+        let player_body = session.player.ok_or(Failure::UnresolvedBody)?.body;
+        let (player, npc, creature_first) = match &request.query {
+            Query::SourceSpell(SourceSpellQuery::LineOfSight(q))
+                if matches!(
+                    q.phase,
+                    SourceSpellPhase::Prepare | SourceSpellPhase::ReleaseCheck
+                ) =>
+            {
+                (q.player_position, q.target_position, false)
+            }
+            Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(q)))
+                if q.phase == CombatPhase::Sight =>
+            {
+                (q.player_pose.position, q.creature_pose.position, true)
+            }
+            _ => return Err(Failure::UnsupportedQuery),
+        };
+        // Source binary32 addition, separately using each unit's collision height.
+        // Combat reach, render height and the other endpoint's body are not substitutes.
+        let eye = |p: benilla_sim::creature_ai::Point, body: Body| {
+            [
+                p.x.as_f32(),
+                p.y.as_f32(),
+                p.z.as_f32() + body.height.as_f32(),
+            ]
+            .map(f32::to_bits)
+        };
+        let (p, n) = (eye(player, player_body), eye(npc, npc_body));
+        let query = RayRequest {
+            snapshot: self.snapshot.binding(),
+            ticket: 1,
+            from: if creature_first { n } else { p },
+            to: if creature_first { p } else { n },
+            // Both source CheckCast and CreatureAI sight callers ignore MOD_M2.
+            ignore_m2: true,
+        };
+        let reply = self
+            .snapshot
+            .query(query, deadline)
+            .map_err(|_| Failure::MissingGeometry)?;
+        if reply.request != query {
+            return Err(Failure::Binding);
+        }
+        let value = match reply.result {
+            StaticRay::Miss => Check::Passed,
+            StaticRay::Hit { .. } => Check::Failed,
+        };
+        Ok(if creature_first {
+            Facts::SourceMotion(MotionFacts::Combat(CombatFacts::NpcLineOfSight(value)))
+        } else {
+            Facts::SourceSpell(SourceSpellFacts::LineOfSight(value))
+        })
+    }
+    fn check_session(&self, session: &Session) -> Result<(), Failure> {
         if session.world != self.session.world
             || session.profile != self.session.profile
             || session.policy != self.session.policy
@@ -79,9 +142,20 @@ impl SourceVmapProvider {
             || session.map != self.session.map
             || session.player != self.session.player
             || session.bodies != self.session.bodies
+            || session.static_los != self.session.static_los
         {
             return Err(Failure::Binding);
         }
+        Ok(())
+    }
+    pub(super) fn corridor<'a, C: Corridor>(
+        &'a self,
+        session: &Session,
+        request: &'a AuthorityRequest,
+        inner: C,
+        deadline: Instant,
+    ) -> Result<SourceVmapCorridor<'a, C>, Failure> {
+        self.check_session(session)?;
         let body = self.session.body(request)?;
         if session.body(request)? != body {
             return Err(Failure::Binding);
@@ -142,7 +216,7 @@ pub(crate) fn geometry_revision(
     b: super::products::vmap::SnapshotBinding,
 ) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(b"benilla-raw-plus-static-vmap-corridor-v1");
+    h.update(b"benilla-raw-plus-static-vmap-corridor-los-v2");
     h.update(raw);
     h.update(b.map.to_le_bytes());
     h.update(b.content);

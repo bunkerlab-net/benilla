@@ -72,8 +72,9 @@ the current checkpoint but cannot retain memory after termination.
 The existing local geometry provider remains independently gated by exact terrain
 coverage and a private participants-domain proof. This controller adds no proof,
 geometry fallback, renderer-thread blocking call, or synthetic production authority.
-The provider currently handles only source-resolved NPC movement queries; unresolved
-player movement, spell, melee and NPC facts remain unavailable. Service installation
+The provider handles bounded source-resolved NPC/player movement and explicitly
+selected static source LOS. NPC visibility/accessibility, spell range/impact
+visibility, melee and other spatial facts remain unavailable. Service installation
 and an admitted source compiler remain required before production entry can open.
 
 ## Commands and movement orders

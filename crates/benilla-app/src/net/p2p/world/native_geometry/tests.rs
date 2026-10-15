@@ -52,6 +52,7 @@ fn session() -> Session {
             speed: ai::Real::new(7.0).unwrap(),
         }),
         participants: Some(NonRenderParticipants::authored_fixture([3; 32], 0)),
+        static_los: None,
     }
 }
 struct Proof(Result<(), Failure>);
@@ -926,4 +927,262 @@ fn source_live_speed_replaces_fixed_session_speed_without_renewing_cumulative_bu
         solve_player(&query, player, &mut Proof(Ok(()))),
         Ok(Facts::PlayerMovement { accepted: false })
     );
+}
+
+fn los_request() -> AuthorityRequest {
+    use benilla_world_runtime::native::{
+        InteractionMoment, InteractionWitness, Orientation, SourceSpellPhase, SourceSpellRequest,
+    };
+    let mut r = request();
+    r.query = Query::SourceSpell(SourceSpellQuery::LineOfSight(SourceSpellRequest {
+        witness: InteractionWitness {
+            moment: InteractionMoment::Frame { action_ordinal: 0 },
+            draft: [6; 32],
+        },
+        scheduler: None,
+        history: [7; 32],
+        cast_id: 1,
+        ability: 133,
+        phase: SourceSpellPhase::Prepare,
+        player_orientation: Orientation::new(0.0).unwrap(),
+        player_position: ai::Point::new(17066.666 - 35., 17066.666, 2.).unwrap(),
+        target_position: ai::Point::new(17066.666 - 45., 17066.666, 2.).unwrap(),
+        player_level: 1,
+        target_level: 1,
+    }));
+    r
+}
+fn los_session() -> Session {
+    let mut s = session();
+    s.player.as_mut().unwrap().body.height = ai::Real::new(12.).unwrap();
+    s.static_los = Some(StaticLosPolicy {
+        profile: s.profile,
+        map: s.map,
+        content: s.content,
+        geometry: s.geometry,
+        authority: s.policy,
+        player_height: s.player.unwrap().body.height,
+        npc: 3,
+        npc_height: body().height,
+    });
+    s
+}
+#[test]
+fn source_los_uses_distinct_endpoint_heights_and_ignores_m2_without_movement_support() {
+    use super::super::{
+        products::vmap::{tests::snapshot, RayRequest, StaticRay},
+        source_vmap::{geometry_revision, SourceVmapProvider},
+    };
+    use benilla_sim::creature_motion::Pose;
+    use benilla_world_runtime::native::{CombatPhase, CombatRequest, CombatWitness};
+    let snap = super::super::products::authored_vmap(0);
+    let binding = snap.binding();
+    let mut s = los_session();
+    let raw = s.geometry;
+    s.content = binding.content;
+    s.participants = Some(NonRenderParticipants::authored_fixture(s.content, s.map));
+    s.geometry = geometry_revision(raw, binding);
+    s.static_los.as_mut().unwrap().geometry = s.geometry;
+    s.static_los.as_mut().unwrap().content = s.content;
+    let mut r = los_request();
+    r.binding.geometry = s.geometry;
+    let provider = SourceVmapProvider::bind(&s, snapshot(), raw).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for (from, to) in [
+        ([35., 0., 2.], [45., 0., 2.]),
+        ([35., 0., -4.], [45., 0., -4.]),
+        ([100., -15., 3.], [100., -15., -7.]),
+    ] {
+        let world = |p: [f32; 3]| ai::Point::new(17066.666 - p[0], 17066.666 - p[1], p[2]).unwrap();
+        let p = world(from);
+        let n = world(to);
+        let eye =
+            |p: ai::Point, h: f32| [p.x.as_f32(), p.y.as_f32(), p.z.as_f32() + h].map(f32::to_bits);
+        for reverse in [false, true] {
+            let Query::SourceSpell(SourceSpellQuery::LineOfSight(mut q)) = los_request().query
+            else {
+                unreachable!()
+            };
+            q.player_position = p;
+            q.target_position = n;
+            r.query = if reverse {
+                Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(
+                    CombatRequest {
+                        phase: CombatPhase::Sight,
+                        witness: CombatWitness {
+                            frame: q.witness,
+                            working_npc: [8; 32],
+                        },
+                        action: None,
+                        player_pose: Pose {
+                            position: p,
+                            orientation: ai::Real::new(0.).unwrap(),
+                        },
+                        creature_pose: Pose {
+                            position: n,
+                            orientation: ai::Real::new(0.).unwrap(),
+                        },
+                        player_health: 100,
+                        creature_health: 100,
+                        creature_phase: ai::Phase::Idle,
+                        creature_ai_target: None,
+                    },
+                )))
+            } else {
+                Query::SourceSpell(SourceSpellQuery::LineOfSight(q))
+            };
+            let (p, n) = (eye(p, 12.), eye(n, 2.));
+            let ray = RayRequest {
+                snapshot: binding,
+                ticket: 1,
+                from: if reverse { n } else { p },
+                to: if reverse { p } else { n },
+                ignore_m2: true,
+            };
+            if from[0] == 100. {
+                let mut with_m2 = ray;
+                with_m2.ignore_m2 = false;
+                assert!(matches!(
+                    snap.query(with_m2, deadline).unwrap().result,
+                    StaticRay::Hit { .. }
+                ));
+                assert_eq!(snap.query(ray, deadline).unwrap().result, StaticRay::Miss);
+            }
+            let expected = match snap.query(ray, deadline).unwrap().result {
+                StaticRay::Miss => Check::Passed,
+                StaticRay::Hit { .. } => Check::Failed,
+            };
+            let facts = provider.line_of_sight(&s, &r, deadline).unwrap();
+            assert_eq!(
+                facts,
+                if reverse {
+                    Facts::SourceMotion(MotionFacts::Combat(CombatFacts::NpcLineOfSight(expected)))
+                } else {
+                    Facts::SourceSpell(SourceSpellFacts::LineOfSight(expected))
+                }
+            );
+            validate_facts(&s, &r, &facts).unwrap();
+            if reverse {
+                let mut wrong_phase = r.clone();
+                let Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(q))) =
+                    &mut wrong_phase.query
+                else {
+                    unreachable!()
+                };
+                q.phase = CombatPhase::AfterMovement;
+                let q = q.clone();
+                assert_eq!(
+                    provider.line_of_sight(&s, &wrong_phase, deadline),
+                    Err(Failure::UnsupportedQuery)
+                );
+                wrong_phase.query =
+                    Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcAccessibility(q)));
+                assert_eq!(s.body(&wrong_phase), Err(Failure::UnsupportedQuery));
+            }
+        }
+    }
+    r = los_request();
+    r.binding.geometry = s.geometry;
+    assert_eq!(
+        provider.line_of_sight(&s, &r, Instant::now()),
+        Err(Failure::MissingGeometry)
+    );
+    let mut changed = s.clone();
+    changed.player.as_mut().unwrap().body.height = body().height;
+    assert_eq!(
+        provider.line_of_sight(&changed, &r, deadline),
+        Err(Failure::Binding)
+    );
+    let mut changed = s.clone();
+    changed.participants = None;
+    assert_eq!(
+        provider.line_of_sight(&changed, &r, deadline),
+        Err(Failure::UnprovenParticipants)
+    );
+    let mut changed = s.clone();
+    changed.static_los = None;
+    assert_eq!(changed.body(&r), Err(Failure::UnsupportedQuery));
+    let mut changed = s.clone();
+    changed.player = None;
+    assert_eq!(changed.body(&r), Err(Failure::UnresolvedBody));
+    let mut changed = s.clone();
+    changed.bodies.clear();
+    assert_eq!(changed.body(&r), Err(Failure::UnresolvedBody));
+    for field in 0..4 {
+        let mut changed = s.clone();
+        match field {
+            0 => changed.map += 1,
+            1 => changed.content = [99; 32],
+            2 => changed.policy = [99; 32],
+            _ => changed.geometry = raw,
+        }
+        assert_eq!(s.static_los.unwrap().check(&changed), Err(Failure::Binding));
+    }
+    let Query::SourceSpell(SourceSpellQuery::LineOfSight(q)) = &mut r.query else {
+        unreachable!()
+    };
+    q.phase = benilla_world_runtime::native::SourceSpellPhase::Impact;
+    assert_eq!(
+        provider.line_of_sight(&s, &r, deadline),
+        Err(Failure::UnsupportedQuery)
+    );
+    let Query::SourceSpell(SourceSpellQuery::LineOfSight(q)) = r.query.clone() else {
+        unreachable!()
+    };
+    r.query = Query::SourceSpell(SourceSpellQuery::ImpactVisibility(q));
+    assert_eq!(s.body(&r), Err(Failure::UnsupportedQuery));
+    r = los_request();
+    r.binding.geometry = raw;
+    assert_eq!(
+        provider.line_of_sight(&s, &r, deadline),
+        Err(Failure::Binding)
+    );
+}
+
+#[test]
+fn source_los_mailbox_rejects_wrong_kind_changed_request_and_revoked_reply() {
+    let request = los_request();
+    let (mut authority, service) = mailbox(los_session()).unwrap();
+    authority.ticket = 1;
+    let reply = || Reply {
+        ticket: 1,
+        request: request.clone(),
+        result: Ok(Facts::SourceSpell(SourceSpellFacts::LineOfSight(
+            Check::Passed,
+        ))),
+    };
+    let mut wrong = reply();
+    wrong.result = Ok(Facts::PlayerMovement { accepted: true });
+    assert_eq!(
+        authority.finish_reply(&request, wrong),
+        Err(NativeError::AuthorityBinding)
+    );
+    for field in 0..3 {
+        let mut changed = reply();
+        match field {
+            0 => changed.request.binding.npc.as_mut().unwrap().generation += 1,
+            1 => changed.request.binding.tick += 1,
+            _ => {
+                let Query::SourceSpell(SourceSpellQuery::LineOfSight(q)) =
+                    &mut changed.request.query
+                else {
+                    unreachable!()
+                };
+                q.target_position.x = ai::Real::new(10.).unwrap();
+            }
+        }
+        assert_eq!(
+            authority.finish_reply(&request, changed),
+            Err(NativeError::AuthorityBinding)
+        );
+    }
+    assert!(authority.finish_reply(&request, reply()).is_ok());
+    drop(service);
+    assert!(matches!(
+        authority.finish_reply(&request, reply()),
+        Err(NativeError::AuthorityUnavailable(_))
+    ));
+    let mut missing = request;
+    missing.binding.npc = None;
+    assert_eq!(los_session().body(&missing), Err(Failure::Binding));
 }

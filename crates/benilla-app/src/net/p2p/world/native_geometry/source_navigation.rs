@@ -37,6 +37,18 @@ impl SourceNavigationProvider {
     pub(super) fn raw_geometry(&self) -> [u8; 32] {
         self.vmap.raw_geometry()
     }
+    #[allow(
+        dead_code,
+        reason = "production app dispatch, covered through the same VMap method in headless tests"
+    )]
+    pub(super) fn line_of_sight(
+        &self,
+        session: &Session,
+        request: &AuthorityRequest,
+        deadline: Instant,
+    ) -> Result<benilla_world_runtime::native::Facts, Failure> {
+        self.vmap.line_of_sight(session, request, deadline)
+    }
     pub(super) fn corridor<'a, C: Corridor>(
         &'a self,
         session: &Session,

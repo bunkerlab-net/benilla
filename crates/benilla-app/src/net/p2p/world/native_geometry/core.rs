@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded local geometry transport, not peer authority or a navigation mesh. The only
-//! positive solver is an unobstructed, continuously certified dry horizontal segment.
+//! movement solver is an unobstructed, continuously certified dry horizontal segment.
+//! Separately selected static LOS does not imply walking support or accessibility.
 use benilla_sim::creature_ai::{self as ai, movement::*};
 use benilla_world_runtime::{
-    native::{Authority, AuthorityReply, AuthorityRequest, Facts, NativeError, Query},
+    native::{
+        Authority, AuthorityReply, AuthorityRequest, CombatFacts, CombatPhase, CombatQuery, Facts,
+        MotionFacts, MotionQuery, NativeError, Query, SourceSpellFacts, SourceSpellPhase,
+        SourceSpellQuery,
+    },
     Digest, WorldId,
 };
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
@@ -65,11 +70,75 @@ pub(crate) struct NonRenderParticipants {
 }
 impl NonRenderParticipants {
     #[cfg(test)]
-    fn authored_fixture(content: Digest, map: u32) -> Self {
+    pub(crate) fn authored_fixture(content: Digest, map: u32) -> Self {
         Self { content, map }
     }
     fn matches(&self, content: Digest, map: u32) -> bool {
         self.content == content && self.map == map
+    }
+}
+
+/// Explicit LOS-enabled policy with frozen heights from the runtime's source-motion
+/// owner. This is not native admission: world construction remains capability gated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StaticLosPolicy {
+    profile: Digest,
+    map: u32,
+    content: Digest,
+    geometry: Digest,
+    authority: Digest,
+    player_height: ai::Real,
+    npc: u64,
+    npc_height: ai::Real,
+}
+impl StaticLosPolicy {
+    #[allow(
+        dead_code,
+        reason = "used by app/controller integration, not the standalone geometry harness"
+    )]
+    pub(crate) fn from_profile(
+        profile: &benilla_world_runtime::native::Profile,
+        line_of_sight_enabled: bool,
+    ) -> Result<Self, Failure> {
+        if !line_of_sight_enabled || profile.npcs.len() != 1 {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let motion = profile
+            .source_motion
+            .as_ref()
+            .ok_or(Failure::UnresolvedBody)?;
+        Ok(Self {
+            profile: profile.digest(),
+            map: profile.map_id,
+            content: profile.content_digest,
+            geometry: profile.geometry_revision,
+            authority: profile.authority_policy,
+            player_height: motion.player_collision_height,
+            npc: profile.npcs[0].ai.creature_id,
+            npc_height: motion.npc_policy.settings.collision_height,
+        })
+    }
+    fn check(self, session: &Session) -> Result<(), Failure> {
+        if self.profile != session.profile
+            || self.map != session.map
+            || self.content != session.content
+            || self.geometry != session.geometry
+            || self.authority != session.policy
+        {
+            return Err(Failure::Binding);
+        }
+        if session
+            .player
+            .is_none_or(|p| p.body.height != self.player_height)
+            || session.bodies.len() != 1
+            || session
+                .bodies
+                .get(&self.npc)
+                .is_none_or(|b| b.height != self.npc_height)
+        {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(())
     }
 }
 
@@ -86,6 +155,7 @@ pub(crate) struct Session {
     pub bodies: BTreeMap<u64, Body>,
     pub player: Option<PlayerMotion>,
     pub participants: Option<NonRenderParticipants>,
+    pub static_los: Option<StaticLosPolicy>,
 }
 impl Session {
     pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
@@ -116,6 +186,32 @@ impl Session {
                     return Err(Failure::Binding);
                 }
                 return self.player.map(|p| p.body).ok_or(Failure::UnresolvedBody);
+            }
+            Query::SourceSpell(SourceSpellQuery::LineOfSight(_))
+            | Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(_))) => {
+                let supported = match &request.query {
+                    Query::SourceSpell(SourceSpellQuery::LineOfSight(q)) => matches!(
+                        q.phase,
+                        SourceSpellPhase::Prepare | SourceSpellPhase::ReleaseCheck
+                    ),
+                    Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(q))) => {
+                        q.phase == CombatPhase::Sight
+                    }
+                    _ => false,
+                };
+                if !supported {
+                    return Err(Failure::UnsupportedQuery);
+                }
+                self.static_los
+                    .ok_or(Failure::UnsupportedQuery)?
+                    .check(self)?;
+                self.player.ok_or(Failure::UnresolvedBody)?;
+                let npc = b.npc.ok_or(Failure::Binding)?;
+                return self
+                    .bodies
+                    .get(&npc.spawn)
+                    .copied()
+                    .ok_or(Failure::UnresolvedBody);
             }
             _ => return Err(Failure::UnsupportedQuery),
         };
@@ -176,7 +272,7 @@ impl Failure {
             Self::Binding => NativeError::AuthorityBinding,
             Self::Invalid => NativeError::InvalidInput,
             Self::UnsupportedQuery => {
-                NativeError::AuthorityUnavailable("local geometry handles movement only")
+                NativeError::AuthorityUnavailable("local geometry query or policy unsupported")
             }
             Self::UnresolvedBody => {
                 NativeError::AuthorityUnavailable("native collision dimensions unresolved")
@@ -417,6 +513,16 @@ fn validate_facts(
                 Ok(())
             }
         }
+        (
+            Query::SourceSpell(SourceSpellQuery::LineOfSight(_)),
+            Facts::SourceSpell(SourceSpellFacts::LineOfSight(Check::Passed | Check::Failed)),
+        )
+        | (
+            Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(_))),
+            Facts::SourceMotion(MotionFacts::Combat(CombatFacts::NpcLineOfSight(
+                Check::Passed | Check::Failed,
+            ))),
+        ) => session.body(request).map(|_| ()),
         _ => Err(Failure::Binding),
     }
 }

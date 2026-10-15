@@ -554,3 +554,25 @@ fn u16_at(bytes: &[u8], at: usize) -> Result<u16, Error> {
 
 #[cfg(test)]
 mod tests;
+
+/// Original serialized geometry only, shared by the app and exact-code controller tests.
+#[cfg(test)]
+pub(crate) fn authored_vmap(map: u32) -> vmap::VmapSnapshot {
+    let (mut spec, files) = vmap::tests::fixture();
+    let old_map = spec.map;
+    spec.map = map;
+    let files = spec
+        .products
+        .iter()
+        .map(|p| {
+            (
+                p.id.filename(map).unwrap(),
+                files[&p.id.filename(old_map).unwrap()].clone(),
+            )
+        })
+        .collect();
+    tests::load(spec, &files)
+        .unwrap()
+        .load_static_vmap()
+        .unwrap()
+}

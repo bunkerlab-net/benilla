@@ -51,7 +51,7 @@ pub(crate) fn install(world: &mut World, session: Session) -> Result<LocalAuthor
     install_products(world, session, None, None)
 }
 
-/// Optional loaded static geometry can only add a veto to the existing authority.
+/// Loaded static geometry adds a movement veto and explicitly selected source LOS.
 /// Loading belongs off-thread. This neither opens admission nor replaces source-epoch proof.
 pub(crate) fn install_with_static_vmap(
     world: &mut World,
@@ -138,6 +138,22 @@ fn process(
             .serve_queries_until(allowance, |session, request, body, deadline| {
                 if !live.0 {
                     return Err(Failure::MissingGeometry);
+                }
+                if matches!(
+                    &request.query,
+                    Query::SourceSpell(
+                        benilla_world_runtime::native::SourceSpellQuery::LineOfSight(_)
+                    ) | Query::SourceMotion(benilla_world_runtime::native::MotionQuery::Combat(
+                        benilla_world_runtime::native::CombatQuery::NpcLineOfSight(_)
+                    ))
+                ) {
+                    return if let Some(provider) = service.navigation.as_ref() {
+                        provider.line_of_sight(session, request, deadline)
+                    } else if let Some(provider) = service.vmap.as_ref() {
+                        provider.line_of_sight(session, request, deadline)
+                    } else {
+                        Err(Failure::MissingGeometry)
+                    };
                 }
                 let mut corridor = LocalCorridor {
                     terrain: &terrain,
@@ -370,3 +386,8 @@ mod tests {
         assert_eq!(app.world().resource::<Order>().0, [1, 2, 3]);
     }
 }
+
+#[cfg(test)]
+pub(crate) use products::authored_vmap;
+#[cfg(test)]
+pub(crate) use source_vmap::{geometry_revision as authored_vmap_revision, SourceVmapProvider};

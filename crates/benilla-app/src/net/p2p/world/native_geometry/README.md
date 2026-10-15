@@ -114,7 +114,9 @@ is capped separately. These are work/memory limits, not a measured frame-time cl
 Queries run after Avian's default FixedPostUpdate physics/tree update and transform
 propagation. Each full request and monotonically increasing ticket are echoed and
 checked. NPC generation, movement IDs, map/content/geometry bindings are retained.
-NPC, spell, melee and near-point fact queries remain unavailable. Timeout or failure
+Only the two source LOS queries described below have an additional static provider.
+NPC visibility/accessibility, spell range/impact visibility, melee and near-point
+fact queries remain unavailable. Timeout or failure
 commits nothing; the controller must retain the exact tick/input for retry or pause.
 
 ## Private generated-product prerequisite
@@ -185,3 +187,33 @@ veto. Endpoints must not snap and the funnel must remain direct; a successful ro
 cannot supply any missing body, support, slope, participant or admission proof.
 [Source, ownership, ABI, limits and differential evidence](../../../../../../benilla-native-nav/PROVENANCE.md)
 include native node-exhaustion/truncation, alignment and allocation-failure tests.
+
+## Bound static source LOS
+
+An explicitly LOS-enabled `StaticLosPolicy` binds the runtime profile digest and
+its source-motion player/NPC collision heights. Session bodies must agree exactly;
+missing motion, disabled/unknown policy or changed heights do not yield LOS facts.
+The bounded source-motion profile has one NPC and frozen display/scale semantics.
+The profile and independent non-render-participant proof remain production gated.
+
+The installed VMap provider separately handles source spell Prepare/ReleaseCheck
+LOS and NPC Sight LOS. It raises each endpoint by that unit's own source collision
+height, preserves direction and binary32 addition, and queries the loaded static
+VMap with `ignore_m2=true`. A source hit yields Failed and a source miss yields
+Passed only in this declared static domain; missing primitives, expired queries,
+changed bindings and absent products yield unavailable. The navigation-equipped
+service uses the same VMap LOS method, not a pathfinding result. No flat support,
+walking-body sweep or renderer LOS mask substitutes for this source predicate.
+
+This follows pinned CMaNGOS `Object.cpp:1379–1391`, `Map.cpp:2668–2671`,
+`Unit.cpp:11930–11957`, `Spell.cpp:4850` and `VMapManager2.cpp:187–202`.
+`World.cpp:817` makes LOS configuration significant; loading a VMap does not
+silently enable it. Explicit new-world policy is distinct from importing an old
+server's effective configuration.
+
+Source `isInAccessablePlaceFor` instead reads the target's current water state and
+the actor's swim/walk/fly capabilities (`Unit.cpp:4460`). Those dependencies remain
+unsupported. Visibility/detection is also distinct. The new LOS path establishes
+neither of them, complete native spatial authority, live source-epoch ownership,
+real-data admission nor playable gameplay. Source replacement must still revoke
+the session; uninhabited native and participant constructors are unchanged.
