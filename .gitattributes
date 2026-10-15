@@ -12,3 +12,6 @@ crates/benilla-sim/tests/fixtures/lifecycle_reputation_cmangos.sha256 text eol=l
 crates/benilla-sim/tools/creature_capabilities_source/*.inc text eol=lf
 crates/benilla-sim/tools/creature_capabilities_source/source_manifest.json text eol=lf
 crates/benilla-sim/tests/fixtures/creature_capabilities_cmangos.test-fixture text eol=lf
+# License digest and multiline dispatch source contract are exact LF inputs.
+crates/benilla-sim/src/source_atan/GLIBC-LICENSE.txt text eol=lf
+crates/benilla-sim/src/creature_motion/state.rs text eol=lf
