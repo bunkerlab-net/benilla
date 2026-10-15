@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Actual loaded authored products; no installed world or production admission.
 use super::super::{
-    core::{Body, NonRenderParticipants, PlayerMotion},
+    core::{self, Body, NonRenderParticipants, PlayerMotion, PrimaryNearPointPolicy},
     products,
 };
 use super::*;
 use benilla_sim::creature_ai as ai;
 use benilla_world_runtime::native::{
-    synthetic_fixture as f, synthetic_motion_fixture as fixture, NativeWorld,
+    synthetic_fixture as f, synthetic_motion_fixture as fixture, Authority, AuthorityReply,
+    NativeError, NativeWorld,
 };
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
@@ -70,6 +71,7 @@ fn setup(
         }),
         participants: Some(NonRenderParticipants::authored_fixture(b.content, b.map)),
         static_los: None,
+        primary_near_point: None,
     };
     let mut world =
         NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();
@@ -431,4 +433,111 @@ fn covered_source_hole_can_accept_unchanged_z_without_inventing_ground_support()
     let (_, p) = point(provider.resolve(&session, &request, deadline()).unwrap());
     assert_eq!(p.z.as_f32().to_bits(), 10f32.to_bits());
     // This matches GetNearPointAt's first-return semantics, not a support proof.
+}
+
+fn mailbox_resolve(
+    session: Session,
+    request: AuthorityRequest,
+    mut resolve: impl FnMut(&Session, &AuthorityRequest, Instant) -> Result<Facts, Failure>,
+) -> Result<AuthorityReply, NativeError> {
+    let (mut authority, service) = core::mailbox(session).unwrap();
+    let expected_request = request.clone();
+    let request_copy = request;
+    let worker = std::thread::spawn(move || authority.resolve(&request_copy));
+    let end = deadline();
+    let mut serviced = 0;
+    while !worker.is_finished() && Instant::now() < end {
+        let frame_start = Instant::now();
+        serviced += service.serve_queries_until(1, |session, request, _, deadline| {
+            assert_eq!(request, &expected_request);
+            assert!(deadline >= frame_start);
+            assert!(deadline <= Instant::now() + Duration::from_millis(2));
+            resolve(session, request, deadline)
+        });
+        std::thread::yield_now();
+    }
+    assert!(
+        worker.is_finished(),
+        "cross-thread geometry request did not finish"
+    );
+    assert_eq!(serviced, 1);
+    worker.join().unwrap()
+}
+
+#[test]
+fn loaded_primary_mailbox_returns_exact_fact_with_original_frame_deadline() {
+    let (snapshot, config) = loaded();
+    let (world, mut session, request) = setup(&snapshot, config);
+    session.primary_near_point =
+        Some(PrimaryNearPointPolicy::from_profile(world.profile()).unwrap());
+    let provider =
+        SourceNearPointProvider::bind(&session, world.profile(), snapshot, config).unwrap();
+    let before = world.checkpoint().unwrap();
+    let reply = mailbox_resolve(session, request.clone(), |session, request, deadline| {
+        provider.resolve(session, request, deadline)
+    })
+    .unwrap();
+    assert_eq!(reply.request, request);
+    let (echo, p) = point(reply.facts);
+    let Query::SourceMotion(MotionQuery::NearPoint(near)) = request.query else {
+        unreachable!()
+    };
+    assert_eq!(echo, motion::Query::NearPoint(near.request));
+    let mid = 0.5f32 * (64.0 * 533.333_3);
+    assert_eq!(p, Point::new(mid - 52.5, mid - 1., 7.).unwrap());
+    assert_eq!(world.checkpoint().unwrap(), before);
+}
+
+#[test]
+fn loaded_primary_mailbox_rejects_modified_echo_and_unrelated_fact_kinds() {
+    for fault in 0..3 {
+        let (snapshot, config) = loaded();
+        let (world, mut session, request) = setup(&snapshot, config);
+        session.primary_near_point =
+            Some(PrimaryNearPointPolicy::from_profile(world.profile()).unwrap());
+        let provider =
+            SourceNearPointProvider::bind(&session, world.profile(), snapshot, config).unwrap();
+        let before = world.checkpoint().unwrap();
+        let result = mailbox_resolve(session, request, |session, request, deadline| {
+            let mut facts = provider.resolve(session, request, deadline)?;
+            let Facts::SourceMotion(MotionFacts::Spatial(reply)) = &mut facts else {
+                unreachable!()
+            };
+            match fault {
+                0 => {
+                    let motion::Query::NearPoint(query) = &mut reply.request else {
+                        unreachable!()
+                    };
+                    query.binding.query_id += 1;
+                }
+                1 => reply.fact = motion::Fact::Missing,
+                _ => facts = Facts::PlayerMovement { accepted: true },
+            }
+            Ok(facts)
+        });
+        assert_eq!(result, Err(NativeError::AuthorityBinding), "fault {fault}");
+        assert_eq!(world.checkpoint().unwrap(), before);
+    }
+}
+
+#[test]
+fn replacement_loaded_mailbox_cannot_reactivate_the_old_authority() {
+    let (snapshot, config) = loaded();
+    let (world, mut session, request) = setup(&snapshot, config);
+    session.primary_near_point =
+        Some(PrimaryNearPointPolicy::from_profile(world.profile()).unwrap());
+    let provider =
+        SourceNearPointProvider::bind(&session, world.profile(), snapshot, config).unwrap();
+    let (mut old_authority, old_service) = core::mailbox(session.clone()).unwrap();
+    drop(old_service);
+    let old_request = request.clone();
+    let old_worker = std::thread::spawn(move || old_authority.resolve(&old_request));
+    let replacement = mailbox_resolve(session, request, |session, request, deadline| {
+        provider.resolve(session, request, deadline)
+    });
+    assert!(replacement.is_ok());
+    assert!(matches!(
+        old_worker.join().unwrap(),
+        Err(NativeError::AuthorityUnavailable(_))
+    ));
 }

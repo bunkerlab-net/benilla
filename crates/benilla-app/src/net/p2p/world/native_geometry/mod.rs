@@ -44,13 +44,14 @@ struct Service {
     budget: core::FrameBudget,
     vmap: Option<source_vmap::SourceVmapProvider>,
     navigation: Option<source_navigation::SourceNavigationProvider>,
+    primary_near_point: Option<source_near_point::SourceNearPointProvider>,
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct GeometryQueries;
 
 pub(crate) fn install(world: &mut World, session: Session) -> Result<LocalAuthority, Failure> {
-    install_products(world, session, None, None)
+    install_products(world, session, None, None, None)
 }
 
 /// Loaded static geometry adds a movement veto and explicitly selected source LOS.
@@ -62,7 +63,7 @@ pub(crate) fn install_with_static_vmap(
     raw_geometry: [u8; 32],
 ) -> Result<LocalAuthority, Failure> {
     let provider = source_vmap::SourceVmapProvider::bind(&session, snapshot, raw_geometry)?;
-    install_products(world, session, Some(provider), None)
+    install_products(world, session, Some(provider), None, None)
 }
 /// Additional dry navigation veto after raw support and static VMap. No slope or
 /// owner PathFinder proof and no native session admission is introduced here.
@@ -79,13 +80,34 @@ pub(crate) fn install_with_navigation(
         navigation,
         raw_geometry,
     )?;
-    install_products(world, session, None, Some(provider))
+    install_products(world, session, None, Some(provider), None)
 }
+/// Owns already-loaded immutable products for the bounded original NearPoint branch.
+/// Loading and participant/source-epoch proof remain the caller's responsibility.
+/// This installs no movement/LOS fallback and does not open native session admission.
+pub(crate) fn install_with_primary_near_point(
+    world: &mut World,
+    mut session: Session,
+    profile: &benilla_world_runtime::native::Profile,
+    snapshot: products::ground_height::MapHeightSnapshot<'static>,
+    configuration: source_near_point::SourceNearPointConfiguration,
+) -> Result<LocalAuthority, Failure> {
+    session.primary_near_point = Some(core::PrimaryNearPointPolicy::from_profile(profile)?);
+    let provider = source_near_point::SourceNearPointProvider::bind(
+        &session,
+        profile,
+        snapshot,
+        configuration,
+    )?;
+    install_products(world, session, None, None, Some(provider))
+}
+
 fn install_products(
     world: &mut World,
     session: Session,
     vmap: Option<source_vmap::SourceVmapProvider>,
     navigation: Option<source_navigation::SourceNavigationProvider>,
+    primary_near_point: Option<source_near_point::SourceNearPointProvider>,
 ) -> Result<LocalAuthority, Failure> {
     let (authority, mailbox) = core::mailbox(session)?;
     world.insert_non_send_resource(Service {
@@ -93,6 +115,7 @@ fn install_products(
         budget: default(),
         vmap,
         navigation,
+        primary_near_point,
     });
     Ok(authority)
 }
@@ -140,6 +163,16 @@ fn process(
             .serve_queries_until(allowance, |session, request, body, deadline| {
                 if !live.0 {
                     return Err(Failure::MissingGeometry);
+                }
+                if matches!(
+                    &request.query,
+                    Query::SourceMotion(benilla_world_runtime::native::MotionQuery::NearPoint(_))
+                ) {
+                    return service
+                        .primary_near_point
+                        .as_ref()
+                        .ok_or(Failure::MissingGeometry)?
+                        .resolve(session, request, deadline);
                 }
                 if matches!(
                     &request.query,

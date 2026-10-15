@@ -3,11 +3,12 @@
 //! movement solver is an unobstructed, continuously certified dry horizontal segment.
 //! Separately selected static LOS does not imply walking support or accessibility.
 use benilla_sim::creature_ai::{self as ai, movement::*};
+use benilla_sim::creature_motion as motion;
 use benilla_world_runtime::{
     native::{
         Authority, AuthorityReply, AuthorityRequest, CombatFacts, CombatPhase, CombatQuery, Facts,
-        MotionFacts, MotionQuery, NativeError, Query, SourceSpellFacts, SourceSpellPhase,
-        SourceSpellQuery,
+        MotionFacts, MotionQuery, NativeError, Profile, Query, SourceSpellFacts, SourceSpellPhase,
+        SourceSpellQuery, SOLO_UNIT,
     },
     Digest, WorldId,
 };
@@ -142,6 +143,117 @@ impl StaticLosPolicy {
     }
 }
 
+/// Explicit primary-candidate mailbox route bound to the selected source owners.
+/// It grants no geometry fact: the retained product provider still validates the
+/// complete source witness, candidate, ground and LOS for each staged request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PrimaryNearPointPolicy {
+    profile: Digest,
+    map: u32,
+    content: Digest,
+    geometry: Digest,
+    authority: Digest,
+    npc: u64,
+    npc_body: Body,
+    player_body: Body,
+    player_combat_reach: ai::Real,
+    tick_ms: u32,
+    clock_origin_ms: u64,
+}
+impl PrimaryNearPointPolicy {
+    pub(crate) fn from_profile(profile: &Profile) -> Result<Self, Failure> {
+        profile.validate().map_err(|_| Failure::Binding)?;
+        let source = profile
+            .source_motion
+            .as_ref()
+            .ok_or(Failure::UnsupportedQuery)?;
+        if profile.creature_capabilities.is_none() || profile.npcs.len() != 1 {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let npc = &profile.npcs[0];
+        let npc_body = Body {
+            radius: npc.ai.bounding_radius,
+            height: source.npc_policy.settings.collision_height,
+        };
+        let player_body = Body {
+            radius: profile.player.bounding_radius,
+            height: source.player_collision_height,
+        };
+        if !npc_body.validate() || !player_body.validate() {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(Self {
+            profile: profile.digest(),
+            map: profile.map_id,
+            content: profile.content_digest,
+            geometry: profile.geometry_revision,
+            authority: profile.authority_policy,
+            npc: npc.ai.creature_id,
+            npc_body,
+            player_body,
+            player_combat_reach: profile.player.combat_reach,
+            tick_ms: profile.tick_ms,
+            clock_origin_ms: profile.clock_origin_ms,
+        })
+    }
+    fn check(self, session: &Session) -> Result<(), Failure> {
+        if self.profile != session.profile
+            || self.map != session.map
+            || self.content != session.content
+            || self.geometry != session.geometry
+            || self.authority != session.policy
+        {
+            return Err(Failure::Binding);
+        }
+        if session.player.is_none_or(|p| p.body != self.player_body)
+            || session.bodies.len() != 1
+            || session.bodies.get(&self.npc) != Some(&self.npc_body)
+        {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(())
+    }
+    fn body(self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
+        self.check(session)?;
+        let Query::SourceMotion(MotionQuery::NearPoint(near)) = &request.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        let npc = request.binding.npc.ok_or(Failure::Binding)?;
+        let q = &near.request;
+        let now = request
+            .binding
+            .tick
+            .checked_mul(u64::from(self.tick_ms))
+            .and_then(|elapsed| self.clock_origin_ms.checked_add(elapsed))
+            .ok_or(Failure::Invalid)?;
+        if npc.spawn != self.npc
+            || near.searcher.npc() != npc
+            || q.binding.identity.creature != npc.spawn
+            || q.binding.identity.map != self.map
+            || q.binding.identity.content.0 != self.content
+            || q.binding.identity.geometry.0 != self.geometry
+            || q.binding.query_id == 0
+            || q.binding.now_ms != now
+            || q.target.id != SOLO_UNIT
+        {
+            return Err(Failure::Binding);
+        }
+        if q.owner_bounding_radius != self.npc_body.radius
+            || q.target.bounding_radius != self.player_body.radius
+            || q.target.collision_height != self.player_body.height
+            || q.target.combat_reach != self.player_combat_reach
+        {
+            return Err(Failure::UnresolvedBody);
+        }
+        q.owner.validate().map_err(|_| Failure::Invalid)?;
+        q.target.pose.validate().map_err(|_| Failure::Invalid)?;
+        if q.distance.as_f32() < 0.0 {
+            return Err(Failure::Invalid);
+        }
+        Ok(self.npc_body)
+    }
+}
+
 /// Local session identity. Digests bind inputs; they do not attest that client collision
 /// equals CMaNGOS VMap data. Production admission must separately verify asset identity.
 #[derive(Clone)]
@@ -156,6 +268,7 @@ pub(crate) struct Session {
     pub player: Option<PlayerMotion>,
     pub participants: Option<NonRenderParticipants>,
     pub static_los: Option<StaticLosPolicy>,
+    pub primary_near_point: Option<PrimaryNearPointPolicy>,
 }
 impl Session {
     pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
@@ -186,6 +299,12 @@ impl Session {
                     return Err(Failure::Binding);
                 }
                 return self.player.map(|p| p.body).ok_or(Failure::UnresolvedBody);
+            }
+            Query::SourceMotion(MotionQuery::NearPoint(_)) => {
+                return self
+                    .primary_near_point
+                    .ok_or(Failure::UnsupportedQuery)?
+                    .body(self, request);
             }
             Query::SourceSpell(SourceSpellQuery::LineOfSight(_))
             | Query::SourceMotion(MotionQuery::Combat(CombatQuery::NpcLineOfSight(_))) => {
@@ -247,6 +366,9 @@ impl Session {
             && self.player.is_none_or(PlayerMotion::validate)
             && self.bodies.len() <= 64
             && self.bodies.iter().all(|(id, b)| *id != 0 && b.validate())
+            && self
+                .primary_near_point
+                .is_none_or(|p| p.check(self).is_ok())
     }
 }
 
@@ -322,7 +444,7 @@ pub(crate) struct LocalAuthority {
     active: Arc<AtomicBool>,
     cancelled: Receiver<()>,
 }
-pub(super) struct Mailbox {
+pub(crate) struct Mailbox {
     session: Session,
     rx: Receiver<Work>,
     active: Arc<AtomicBool>,
@@ -341,7 +463,7 @@ impl Drop for Mailbox {
         }
     }
 }
-pub(super) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Failure> {
+pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Failure> {
     session.check_participants()?;
     if !session.validate() {
         return Err(Failure::Invalid);
@@ -466,7 +588,7 @@ impl Mailbox {
         })
     }
     /// Product-backed queries inherit the original job and frame deadlines, never renew them.
-    pub(super) fn serve_queries_until(
+    pub(crate) fn serve_queries_until(
         &self,
         limit: usize,
         mut geometry: impl FnMut(&Session, &AuthorityRequest, Body, Instant) -> Result<Facts, Failure>,
@@ -531,6 +653,22 @@ fn validate_facts(
                 Check::Passed | Check::Failed,
             ))),
         ) => session.body(request).map(|_| ()),
+        (
+            Query::SourceMotion(MotionQuery::NearPoint(near)),
+            Facts::SourceMotion(MotionFacts::Spatial(reply)),
+        ) => {
+            session.body(request)?;
+            if reply.request != motion::Query::NearPoint(near.request.clone()) {
+                return Err(Failure::Binding);
+            }
+            let motion::Fact::NearPoint(point) = reply.fact else {
+                return Err(Failure::Binding);
+            };
+            point
+                .distance_squared(point)
+                .map(|_| ())
+                .map_err(|_| Failure::Binding)
+        }
         _ => Err(Failure::Binding),
     }
 }
@@ -787,6 +925,10 @@ fn point(p: ai::Point) -> [f32; 3] {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "near_point_mailbox_tests.rs"]
+mod near_point_mailbox_tests;
 
 /// Render-frame accounting, separate from fixed ticks (which may run several times per frame).
 #[derive(Default)]

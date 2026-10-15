@@ -122,6 +122,7 @@ impl<'products> SourceGroundHeightProvider<'products> {
             || session.bodies != self.session.bodies
             || session.player != self.session.player
             || session.static_los != self.session.static_los
+            || session.primary_near_point != self.session.primary_near_point
         {
             return Err(Failure::Binding);
         }

@@ -4,7 +4,7 @@
 use super::*;
 use crate::net::p2p::native_geometry::{
     authored_ground_height, authored_near_point_revision as geometry_revision,
-    core::{Body, Failure, NonRenderParticipants, PlayerMotion, Session},
+    core::{self, Body, Failure, NonRenderParticipants, PlayerMotion, Session},
     SourceNearPointConfiguration, SourceNearPointProvider,
 };
 use benilla_sim::{creature_ai as ai, creature_motion as motion};
@@ -126,6 +126,98 @@ impl n::Authority for ProductAuthority {
     }
 }
 
+// A stand-in for the main-thread product service. Only NearPoint crosses this
+// actual bounded mailbox; the other component authorities remain synthetic.
+struct MailboxAuthority {
+    local: core::LocalAuthority,
+    other: source::SyntheticMotionAuthority,
+    stop: Arc<AtomicBool>,
+    service: Option<std::thread::JoinHandle<()>>,
+}
+impl n::Authority for MailboxAuthority {
+    fn resolve(
+        &mut self,
+        request: &n::AuthorityRequest,
+    ) -> Result<n::AuthorityReply, n::NativeError> {
+        if matches!(
+            request.query,
+            n::Query::SourceMotion(n::MotionQuery::NearPoint(_))
+        ) {
+            self.local.resolve(request)
+        } else {
+            self.other.resolve(request)
+        }
+    }
+    fn observe_derived(&mut self, reply: &n::AuthorityReply) -> Result<(), n::NativeError> {
+        self.other.observe_derived(reply)
+    }
+}
+impl Drop for MailboxAuthority {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        let result = self.service.take().unwrap().join();
+        if !std::thread::panicking() {
+            result.unwrap();
+        }
+    }
+}
+fn mailbox_authority(authority: ProductAuthority) -> MailboxAuthority {
+    let ProductAuthority {
+        provider,
+        session,
+        fault,
+        observed,
+        failures,
+        other,
+        ..
+    } = authority;
+    let (local, mailbox) = core::mailbox(session).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let service_stop = Arc::clone(&stop);
+    let controller_thread = std::thread::current().id();
+    let service = std::thread::spawn(move || {
+        assert_ne!(std::thread::current().id(), controller_thread);
+        while !service_stop.load(Ordering::Acquire) {
+            let count = mailbox.serve_queries_until(1, |session, request, _, deadline| {
+                observed.lock().unwrap().push(request.clone());
+                // The retained provider is loaded/bound before this 2ms service window.
+                let facts = if fault.load(Ordering::SeqCst) == 1 {
+                    Err(Failure::MissingGeometry)
+                } else {
+                    provider.resolve(session, request, deadline)
+                };
+                let mut facts = facts.inspect_err(|&failure| {
+                    failures.lock().unwrap().push(failure);
+                })?;
+                let n::Facts::SourceMotion(n::MotionFacts::Spatial(reply)) = &mut facts else {
+                    unreachable!()
+                };
+                match fault.load(Ordering::SeqCst) {
+                    2 => {
+                        let motion::Query::NearPoint(query) = &mut reply.request else {
+                            unreachable!()
+                        };
+                        query.binding.query_id += 1;
+                    }
+                    3 => reply.fact = motion::Fact::Missing,
+                    _ => {}
+                }
+                Ok(facts)
+            });
+            assert!(count <= 1);
+            if count == 0 {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    });
+    MailboxAuthority {
+        local,
+        other,
+        stop,
+        service: Some(service),
+    }
+}
+
 fn setup(z: f32) -> (n::Profile, ProductAuthority) {
     let (products, height) = authored_ground_height();
     let products = Arc::new(products);
@@ -172,6 +264,7 @@ fn setup(z: f32) -> (n::Profile, ProductAuthority) {
         }),
         participants: Some(proof.clone()),
         static_los: None,
+        primary_near_point: Some(core::PrimaryNearPointPolicy::from_profile(&data).unwrap()),
     };
     let provider = SourceNearPointProvider::bind(&session, &data, snapshot, config).unwrap();
     let bound_session = session.clone();
@@ -214,7 +307,11 @@ fn enter(
     )
     .unwrap()
 }
-fn create(h: &Harness, profile: n::Profile, authority: ProductAuthority) -> NativeController {
+fn create(
+    h: &Harness,
+    profile: n::Profile,
+    authority: impl n::Authority + Send + 'static,
+) -> NativeController {
     enter(
         h,
         Entry::Create {
@@ -259,7 +356,7 @@ fn loaded_primary_candidate_advances_projects_persists_and_replays_exactly() {
     let h = Harness::new();
     let (data, authority) = setup(10.);
     let observed = Arc::clone(&authority.observed);
-    let mut c = create(&h, data.clone(), authority);
+    let mut c = create(&h, data.clone(), mailbox_authority(authority));
     c.initial_events().unwrap();
     let genesis = c.world.clone();
     let events = pump_to(&mut c, 2);
@@ -393,14 +490,19 @@ fn loaded_primary_candidate_advances_projects_persists_and_replays_exactly() {
         Entry::Open { world: [8; 16] },
         changed_geometry,
         &GroundCatalog,
-        rejected_authority,
+        mailbox_authority(rejected_authority),
     )
     .is_err());
     assert_eq!(durable_files(&h), persisted);
     assert!(rejected_requests.lock().unwrap().is_empty());
     let (reopened_profile, authority) = setup(10.);
     assert_eq!(reopened_profile, data);
-    let reopened = enter(&h, Entry::Open { world: [8; 16] }, data, authority);
+    let reopened = enter(
+        &h,
+        Entry::Open { world: [8; 16] },
+        data,
+        mailbox_authority(authority),
+    );
     assert_eq!(reopened.world.state_digest(), digest);
 }
 
@@ -546,7 +648,7 @@ fn actual_primary_vertical_fallback_remains_unavailable_without_any_publication(
     let (data, authority) = setup(11.);
     let failures = Arc::clone(&authority.failures);
     let observed = Arc::clone(&authority.observed);
-    let mut c = create(&h, data.clone(), authority);
+    let mut c = create(&h, data.clone(), mailbox_authority(authority));
     c.initial_events().unwrap();
     pump_to(&mut c, 1);
     let before = c.world.checkpoint().unwrap();
@@ -593,4 +695,139 @@ fn actual_primary_vertical_fallback_remains_unavailable_without_any_publication(
                 n::Query::SourceMotion(n::MotionQuery::NearPoint(_))
             )
         }));
+}
+
+#[test]
+fn mailbox_primary_retry_saves_then_publishes_exact_staged_tick_once() {
+    let h = Harness::new();
+    let (data, product) = setup(10.);
+    let fault = Arc::clone(&product.fault);
+    let observed = Arc::clone(&product.observed);
+    let failures = Arc::clone(&product.failures);
+    let mut c = create(&h, data.clone(), mailbox_authority(product));
+    c.initial_events().unwrap();
+    pump_to(&mut c, 1);
+    let before = c.world.checkpoint().unwrap();
+    let persisted = durable_files(&h);
+    let generation = c.store.generation();
+    let mut replay = c.world.clone();
+    let moved = [MID - 49.75, MID - 1., 10.];
+    c.receive(move_to(moved)).unwrap();
+    fault.store(1, Ordering::SeqCst);
+    let out = c.pump(c.tick_duration());
+    assert_eq!(out.ticks, 0);
+    assert!(out.events.is_empty());
+    assert!(matches!(out.pause.unwrap().kind, PauseKind::Authority));
+    let pending = c.pending.as_ref().unwrap().inputs.clone();
+    assert_eq!(c.world.checkpoint().unwrap(), before);
+    assert_eq!(c.store.generation(), generation);
+    assert_eq!(durable_files(&h), persisted);
+    assert_eq!(*failures.lock().unwrap(), vec![Failure::MissingGeometry]);
+    assert_eq!(observed.lock().unwrap().len(), 1);
+    assert_eq!(c.pump(Duration::from_secs(60)).ticks, 0);
+    assert_eq!(observed.lock().unwrap().len(), 1);
+
+    fault.store(0, Ordering::SeqCst);
+    fs::write(
+        h.path().join(".world-checkpoint.pending"),
+        b"authored mailbox primary save fault",
+    )
+    .unwrap();
+    c.retry_tick().unwrap();
+    let out = c.pump(Duration::ZERO);
+    assert_eq!(out.ticks, 1);
+    assert!(out.events.is_empty());
+    assert!(matches!(
+        out.pause.unwrap().kind,
+        PauseKind::Checkpoint {
+            requires_reopen: false
+        }
+    ));
+    assert_eq!(c.store.generation(), generation);
+    assert_eq!(c.position_xyz(), [MID - 50., MID - 1., 10.]);
+    assert!(c.pending.is_none());
+    assert_eq!(c.world.state().next_sequence, 1);
+    let record = c.world.last_tick().unwrap().clone();
+    assert_eq!(
+        record.inputs,
+        pending
+            .into_iter()
+            .map(|owned| owned.input)
+            .collect::<Vec<_>>()
+    );
+    replay.replay(std::slice::from_ref(&record)).unwrap();
+    assert_eq!(replay.checkpoint().unwrap(), c.world.checkpoint().unwrap());
+    let attempts = observed.lock().unwrap();
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(attempts[0], attempts[1]);
+    assert_eq!(
+        near_reply(std::slice::from_ref(&record)).request,
+        attempts[0]
+    );
+    drop(attempts);
+    let digest = c.world.state_digest();
+    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    c.retry_checkpoint().unwrap();
+    let out = c.pump(Duration::ZERO);
+    assert_eq!(out.ticks, 0);
+    assert_eq!(c.world.state_digest(), digest);
+    assert_eq!(c.position_xyz(), moved);
+    let npc = c.projection.npc_guid(c.world.state().npcs[&2].id).unwrap();
+    assert_eq!(
+        out.events
+            .iter()
+            .filter(|event| matches!(event,
+                SessionEvent::MonsterMove { guid, stop: false, .. } if *guid == npc))
+            .count(),
+        1
+    );
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    assert_eq!(observed.lock().unwrap().len(), 2);
+    c.shutdown().unwrap();
+    drop(c);
+    let (_, product) = setup(10.);
+    let reopened = enter(
+        &h,
+        Entry::Open { world: [8; 16] },
+        data,
+        mailbox_authority(product),
+    );
+    assert_eq!(reopened.world.state_digest(), digest);
+    assert_eq!(reopened.world.state().next_sequence, 1);
+}
+
+#[test]
+fn mailbox_primary_malformed_facts_do_not_commit_project_or_rewrite_store() {
+    for fault_kind in [2, 3] {
+        let h = Harness::new();
+        let (data, product) = setup(10.);
+        let fault = Arc::clone(&product.fault);
+        let observed = Arc::clone(&product.observed);
+        let mut c = create(&h, data, mailbox_authority(product));
+        c.initial_events().unwrap();
+        pump_to(&mut c, 1);
+        let before = c.world.checkpoint().unwrap();
+        let persisted = durable_files(&h);
+        let generation = c.store.generation();
+        c.receive(move_to([MID - 49.75, MID - 1., 10.])).unwrap();
+        fault.store(fault_kind, Ordering::SeqCst);
+        let out = c.pump(c.tick_duration());
+        assert_eq!(out.ticks, 0);
+        assert!(out.events.is_empty());
+        assert!(matches!(out.pause.unwrap().kind, PauseKind::Simulation));
+        let pending = c.pending.as_ref().unwrap().inputs.clone();
+        assert_eq!(c.world.checkpoint().unwrap(), before);
+        assert_eq!(c.store.generation(), generation);
+        assert_eq!(durable_files(&h), persisted);
+        assert_eq!(c.position_xyz(), [MID - 50., MID - 1., 10.]);
+        assert_eq!(observed.lock().unwrap().len(), 1);
+        assert!(c.retry_tick().is_err());
+        let waiting = c.pump(Duration::from_secs(60));
+        assert_eq!(waiting.ticks, 0);
+        assert!(waiting.events.is_empty());
+        assert_eq!(c.pending.as_ref().unwrap().inputs, pending);
+        assert_eq!(c.world.checkpoint().unwrap(), before);
+        assert_eq!(durable_files(&h), persisted);
+        assert_eq!(observed.lock().unwrap().len(), 1);
+    }
 }

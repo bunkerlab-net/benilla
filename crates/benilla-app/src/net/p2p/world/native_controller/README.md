@@ -100,11 +100,13 @@ authority receipt retains the profile, world, tick and geometry bindings; the
 inner spatial receipt must still echo the original query exactly. Unselected
 component fixtures keep their previous request path.
 
-Controller tests answer these requests with an explicitly authored spatial
-authority. They do not supply a product-backed NearPoint, height, liquid, collision
-configuration or LOS provider. Source capability evidence is a prerequisite for
-that later provider, not a substitute for its missing spatial facts or native
-content admission.
+Capability-specific tests answer these requests with an explicitly authored
+spatial authority. Separate primary NearPoint tests use actual loaded authored
+height/VMap products and the bounded provider through a crossed-thread local
+mailbox, then exercise controller projection, store publication and receipt replay.
+Other authority queries in that fixture remain synthetic. The tests do not exercise
+the Bevy service scheduler or establish actual installed-world content, complete
+NearPoint fallback, OwnerPathFinder routes or native content admission.
 
 Tests cover exact-request replay, movement/replan, failed-authority rollback,
 non-retryable mismatched echoes, failed-save publication followed by one retry,

@@ -114,9 +114,9 @@ is capped separately. These are work/memory limits, not a measured frame-time cl
 Queries run after Avian's default FixedPostUpdate physics/tree update and transform
 propagation. Each full request and monotonically increasing ticket are echoed and
 checked. NPC generation, movement IDs, map/content/geometry bindings are retained.
-Only the two source LOS queries described below have an additional static provider.
-NPC visibility/accessibility, spell range/impact visibility, melee and near-point
-fact queries remain unavailable. Timeout or failure
+The two source LOS queries and explicitly selected primary NearPoint path described
+below have loaded-product providers. NPC accessibility, spell impact visibility,
+melee and general near-point fallback queries remain unavailable. Timeout or failure
 commits nothing; the controller must retain the exact tick/input for retry or pause.
 
 ## Private generated-product prerequisite
@@ -334,8 +334,14 @@ The callable owned provider is exercised through the actual native controller,
 durable store, projection and encoded receipt replay. Those component tests use real
 loaded authored bytes for NearPoint and explicitly authored authorities for other
 queries. Existing production entry and participant constructors remain closed. This
-checkpoint does not install the provider into the main-thread geometry mailbox,
-complete fallback/selector search, supply OwnerPathFinder routes, or activate a
+explicit `install_with_primary_near_point` now retains the owned provider in the
+main-thread geometry mailbox. Its private-field policy is constructed from a
+validated profile and freezes the exact source-motion bodies, clock and identities.
+Only matching NearPoint requests and exactly echoed NearPoint replies are admitted;
+other motion queries remain unsupported. Queue cancellation, replacement, absolute
+deadlines and per-frame budgets still apply. The installer receives already-loaded
+products and proof; it is not called by character entry or exploration. This does
+not complete fallback/selector search, supply OwnerPathFinder routes, or activate a
 populated world. The original candidate-only API remains a separate partial witness.
 
 [Exact first-path source oracle](../../../../../../benilla-native-geometry-tests/tools/near_point_primary_README.md)
