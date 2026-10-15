@@ -11,6 +11,7 @@ pub(crate) mod height;
 pub(crate) mod liquid;
 pub(crate) mod navigation;
 mod terrain;
+pub(crate) mod terrain_area;
 pub(crate) mod terrain_liquid;
 pub(crate) mod vmap;
 use sha2::{Digest, Sha256};
@@ -232,7 +233,7 @@ pub(crate) struct InventoriedProducts {
     vmap_liquid_profile: bool,
 }
 /// Explicit opt-in envelope for bounded WMO liquid bytes and raw VMap area queries.
-/// It deliberately exposes no dry, ray, composite-height, terrain-status or navigation
+/// It deliberately exposes no dry, ray, composite-height, liquid-status or navigation
 /// reader, nor a conversion into the conservative inventory. Bytes remain immutable.
 #[derive(Debug)]
 pub(crate) struct VmapLiquidProducts {

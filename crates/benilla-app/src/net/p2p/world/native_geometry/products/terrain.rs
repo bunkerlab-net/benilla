@@ -5,6 +5,7 @@
 use super::{u16_at, u32_at, Error, PointHeight, TileId};
 mod area;
 mod liquid;
+pub(super) use area::AreaEntry;
 pub(crate) use area::AreaTable;
 #[cfg(test)]
 pub(crate) use liquid::GridLiquidData;
@@ -123,6 +124,12 @@ impl TerrainTile {
     /// Section presence, not a claim that every cell contains water.
     pub(crate) fn has_liquid(&self) -> bool {
         self.liquid.is_some()
+    }
+
+    /// Raw GridMap AREA flag, distinct from the AreaTable ID lookup used by liquid.
+    pub(super) fn area_flag(&self, world_x: f32, world_y: f32) -> Result<u16, Error> {
+        self.coordinates(world_x, world_y)?;
+        Ok(self.areas.get(world_x, world_y))
     }
 
     /// Exact pinned float-operation order, guarded against wrong tile/NaN/overflow.

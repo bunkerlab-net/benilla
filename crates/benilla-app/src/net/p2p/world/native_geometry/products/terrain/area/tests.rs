@@ -111,7 +111,10 @@ fn complete_area_table_preserves_raw_ids_and_hashes_unused_fields_and_strings() 
     assert_eq!(
         areas.entries[&0],
         AreaEntry {
+            id: 0,
+            map_id: 999,
             zone: 0,
+            explore_flag: 888,
             liquid_override: 0
         }
     );

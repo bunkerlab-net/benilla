@@ -87,7 +87,13 @@ impl AreaSnapshot {
         Ok(AreaReply { request, result })
     }
 
-    fn area(&self, position: Vector, budget: &mut QueryBudget) -> Result<AreaResult, Error> {
+    /// The composite area reader shares this exact traversal and cumulative budget;
+    /// the wet geometry itself remains private to this reader.
+    pub(in super::super) fn area(
+        &self,
+        position: Vector,
+        budget: &mut QueryBudget,
+    ) -> Result<AreaResult, Error> {
         if position.iter().any(|value| !value.is_finite()) {
             return Err(Error::Format);
         }

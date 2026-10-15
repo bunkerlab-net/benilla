@@ -55,10 +55,13 @@ impl GridAreas {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct AreaEntry {
-    pub(super) zone: u32,
-    pub(super) liquid_override: u32,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super) struct AreaEntry {
+    pub(in super::super) id: u32,
+    pub(in super::super) map_id: u32,
+    pub(in super::super) zone: u32,
+    pub(in super::super) explore_flag: u32,
+    pub(in super::super) liquid_override: u32,
 }
 
 /// Complete bounded niiiixxxxxissssssssxixxxi data, keyed by the raw u32 ID.
@@ -113,7 +116,10 @@ impl AreaTable {
                 return Err(Error::Unsupported);
             }
             let entry = AreaEntry {
+                id,
+                map_id: u32_at(bytes, at + 4)?,
                 zone: u32_at(bytes, at + 2 * 4)?,
+                explore_flag: u32_at(bytes, at + 3 * 4)?,
                 liquid_override: u32_at(bytes, at + 24 * 4)?,
             };
             if entries.insert(id, entry).is_some() {
@@ -128,6 +134,15 @@ impl AreaTable {
 
     pub(crate) fn digest(&self) -> Hash {
         self.digest
+    }
+
+    pub(in super::super) fn entry(&self, id: u32) -> Option<AreaEntry> {
+        self.entries.get(&id).copied()
+    }
+
+    /// Indexed DBCStorage iteration visits ascending IDs, not physical file rows.
+    pub(in super::super) fn ordered_entries(&self) -> impl Iterator<Item = AreaEntry> + '_ {
+        self.entries.values().copied()
     }
 }
 
