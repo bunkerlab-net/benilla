@@ -10,6 +10,7 @@ mod hostile_spell;
 mod npc_spell;
 mod player_slow;
 mod spell_authority;
+mod spell_range;
 use spell_authority::SpellHistory;
 mod inventory;
 mod loot;
@@ -190,7 +191,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v19\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v20\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -280,7 +281,10 @@ impl<A: Authority> Frame<'_, A> {
         };
         // This request was assembled in this frame from the executing callback.
         // Never admit an external pose/request as a current-state authority input.
-        let derived = match self.facing_facts(&request)? {
+        let derived = match self
+            .spell_range_facts(&request)?
+            .or(self.facing_facts(&request)?)
+        {
             Some(facts) => Some(facts),
             None => interactions::resolve(
                 self.profile,
@@ -1384,7 +1388,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v19\0",
+            b"benilla-native-melee-action-v20\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1653,7 +1657,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v19\0",
+            b"benilla-native-melee-chain-v20\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

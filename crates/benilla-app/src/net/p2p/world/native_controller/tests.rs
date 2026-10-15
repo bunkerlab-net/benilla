@@ -980,6 +980,9 @@ mod combat_authority_tests;
 #[path = "spell_authority_tests.rs"]
 mod spell_authority_tests;
 
+#[path = "spell_range_tests.rs"]
+mod spell_range_tests;
+
 #[path = "player_slow_tests.rs"]
 mod player_slow_tests;
 

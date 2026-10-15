@@ -43,10 +43,11 @@ compares complete replies, so modifying a recorded numeric receipt is rejected.
 An error anywhere in the tick rolls back staged state, input sequence, clocks,
 RNG and history through the existing whole-frame transaction.
 
-Unselected profiles preserve their external authority behavior. Every other
-query still follows its existing path: LOS, visibility, accessibility, range,
-visitors, NearPoint, routes, colliders and FacingTarget object lookup do not gain
-an implicit implementation or a default answer.
+Facing-unselected profiles preserve their external facing behavior. Independent
+source spell authority derives [range](SPELL-RANGE.md). LOS, visibility,
+accessibility, visitors, NearPoint, routes, colliders and FacingTarget object
+lookup retain their existing paths and gain no implicit implementation or default
+answer from facing selection.
 
 ## Numeric domain and provenance
 
@@ -73,8 +74,8 @@ third-party database rows are included.
 
 ## Format boundary
 
-The experimental native simulation checkpoint/record contract is format 19,
-`benilla-native-backpack-movement-v19`, with v19 profile/state/record/checkpoint/
+The experimental native simulation checkpoint/record contract is format 20,
+`benilla-native-spell-range-v20`, with v20 profile/state/record/checkpoint/
 melee-action/melee-chain hash domains. Published native format 11 is rejected by
 decode, restore and replay, with no reinterpretation or implicit migration.
 Incompatible store current and previous files remain intact on refusal.

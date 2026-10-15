@@ -128,10 +128,14 @@ fn selected_live_queries_derive_all_three_and_replay_rejects_altered_numeric_rec
         r.query,
         Query::SourceSpell(SourceSpellQuery::LineOfSight(_))
     )));
+    assert!(a.derived.iter().any(|r| matches!(
+        r.request.query,
+        Query::SourceSpell(SourceSpellQuery::Range { .. })
+    )));
     assert!(a
         .queries
         .iter()
-        .any(|r| matches!(r.query, Query::SourceSpell(SourceSpellQuery::Range { .. }))));
+        .all(|r| !matches!(r.query, Query::SourceSpell(SourceSpellQuery::Range { .. }))));
     assert!(a
         .queries
         .iter()
@@ -374,7 +378,7 @@ fn published_native_format11_checkpoint_record_and_replay_are_refused() {
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 19);
+    assert_eq!(NATIVE_FORMAT_VERSION, 20);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

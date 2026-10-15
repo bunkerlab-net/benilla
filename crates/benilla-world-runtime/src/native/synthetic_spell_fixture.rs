@@ -190,7 +190,7 @@ pub struct SpatialOnly {
     pub queries: Vec<AuthorityRequest>,
     pub derived: Vec<AuthorityReply>,
     pub line_of_sight: Option<ai::movement::Check>,
-    pub range: Option<SpellRangeResult>,
+    pub fail_range_phase: Option<SourceSpellPhase>,
     pub facing: Option<ai::movement::Check>,
     pub impact_visibility: Option<ai::movement::Check>,
     pub stale: bool,
@@ -212,9 +212,7 @@ impl Authority for SpatialOnly {
             SourceSpellQuery::LineOfSight(_) => SourceSpellFacts::LineOfSight(
                 self.line_of_sight.unwrap_or(ai::movement::Check::Passed),
             ),
-            SourceSpellQuery::Range { .. } => {
-                SourceSpellFacts::Range(self.range.unwrap_or(SpellRangeResult::Within))
-            }
+            SourceSpellQuery::Range { .. } => panic!("derived spell range escaped source host"),
             SourceSpellQuery::Facing(_) => {
                 SourceSpellFacts::Facing(self.facing.unwrap_or(ai::movement::Check::Passed))
             }
@@ -237,6 +235,13 @@ impl Authority for SpatialOnly {
     }
     fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
         self.derived.push(reply.clone());
+        if let Query::SourceSpell(SourceSpellQuery::Range { context, .. }) = &reply.request.query {
+            if Some(context.phase) == self.fail_range_phase {
+                return Err(NativeError::AuthorityUnavailable(
+                    "synthetic range receipt fault",
+                ));
+            }
+        }
         if let Query::SourceSpell(SourceSpellQuery::Semantics(q)) = &reply.request.query {
             if Some(q.phase) == self.fail_phase {
                 return Err(NativeError::AuthorityUnavailable(

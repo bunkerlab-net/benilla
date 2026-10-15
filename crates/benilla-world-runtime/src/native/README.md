@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v19 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v20 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -77,7 +77,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 19, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 20, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -157,14 +157,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 19 changes experimental simulation checkpoints/records, not
+typed. Native format 20 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 19 does not change character/profile files.
+remains rejected. Native format 20 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.

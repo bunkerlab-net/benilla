@@ -674,3 +674,12 @@ exact source files/hashes, software-binary32 operation order, required host
 exclusions and source-extracted oracle. No spell1604 amount/duration or game rows
 are supplied. The runtime's separate source/host catalog and private fixture-only
 effect seam do not complete NPC triggered casting or rear-melee admission.
+
+## Ordinary explicit-unit spell range
+
+[`spell_range`](SPELL-RANGE.md) ports the zero-flag explicit-unit branch of
+CMaNGOS Classic `Spell::GetMinMaxRange` / `Spell::CheckRange` and
+`WorldObject::GetDistance`, revision `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
+Source copyright CMaNGOS contributors, GPL-2.0-or-later; this module is
+GPL-3.0-or-later. The source profile, operation order, numeric bounds and
+exclusions are documented beside the port. No stock spell data is bundled.

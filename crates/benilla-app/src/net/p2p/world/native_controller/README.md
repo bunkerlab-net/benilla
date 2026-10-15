@@ -47,10 +47,10 @@ unchanged. Projection failure retains the committed batch without reapplying it.
 The runtime versions its native snapshot/journal schema, policy and digest domains.
 Tick records contain `inputs: Vec<Input>` and source-ordered per-input outcomes.
 Older native saves are rejected, never migrated or relabeled. Authored World v2 is unchanged; the store's
-outer native envelope delegates the schema check to the runtime. Format 19 includes
-backpack movement receipts and retains per-NPC event queues through durable
-publication, retry and reopen. Tests verify a due NPC notification is not dispatched
-again after a checkpoint failure.
+outer native envelope delegates the schema check to the runtime. Format 20 includes
+runtime-derived source spell range receipts, backpack movement receipts and
+per-NPC event queues through durable publication, retry and reopen. Tests verify a
+due NPC notification is not dispatched again after a checkpoint failure.
 
 Checkpoints run every ten simulated seconds or before native journal headroom is
 exhausted. `NativeError::JournalFull` means only uncommitted journal-capacity refusal;
@@ -73,9 +73,11 @@ The existing local geometry provider remains independently gated by exact terrai
 coverage and a private participants-domain proof. This controller adds no proof,
 geometry fallback, renderer-thread blocking call, or synthetic production authority.
 The provider handles bounded source-resolved NPC/player movement and explicitly
-selected static source LOS. NPC visibility/accessibility, spell range/impact
-visibility, melee and other spatial facts remain unavailable. Service installation
-and an admitted source compiler remain required before production entry can open.
+selected static source LOS. The selected source spell host derives range from the
+raw range row, both combat reaches, current staged poses and executing cast phase.
+NPC visibility/accessibility, spell impact visibility, melee and other spatial
+facts remain unavailable. Service installation and an admitted source compiler
+remain required before production entry can open.
 
 ## Commands and movement orders
 
@@ -124,6 +126,20 @@ this client's `MoveMode::Root.flag()` and `creature_anim::move_flags::ROOT` use
 does not change those constants or use the upstream bit to invalidate real app ACKs.
 
 ## Transactional player pose
+
+Selected source spell tests reject every external range request. Prepare checks
+strict bounds; release checks its current poses with the source non-strict
+tolerance. Equal and adjacent binary32 endpoints exercise both capped and
+proportional tolerance, with LOS before range and range before facing/power.
+Authored raw variants explicitly disable movement interruption when moving the
+caster between phases; they establish neither stock spell content nor movement
+authority. Failed derived receipt observation rolls back the exact tick/input,
+and failed store publication retains the range failure and pose until one retry.
+Publication retry and reopen preserve the bound pose without reapplying the input,
+dice or cost; journal replay re-derives the same source range receipts.
+The runtime record retains source errors `0x59`/`0x76`; the existing client
+projection still emits generic `SpellFailedOther` and `CastResult` without the
+specific reason. These tests do not claim a precise player-visible range message.
 
 Position and orientation enter as one sequenced `Pose`, with initial orientation
 explicitly bound by the native profile. Neither queued input nor blocked/dead

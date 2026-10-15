@@ -53,8 +53,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 19;
-pub const NATIVE_POLICY: &str = "benilla-native-backpack-movement-v19";
+pub const NATIVE_FORMAT_VERSION: u32 = 20;
+pub const NATIVE_POLICY: &str = "benilla-native-spell-range-v20";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -88,6 +88,7 @@ pub enum NativeError {
         observed: InteractionEvidence,
     },
     Facing(benilla_sim::facing::Error),
+    SpellRange(benilla_sim::spell_range::Error),
     InvalidProfile,
     InvalidInput,
     InvalidState,
@@ -119,6 +120,11 @@ impl std::fmt::Display for NativeError {
     }
 }
 impl std::error::Error for NativeError {}
+impl From<benilla_sim::spell_range::Error> for NativeError {
+    fn from(value: benilla_sim::spell_range::Error) -> Self {
+        Self::SpellRange(value)
+    }
+}
 impl From<spell::SpellError> for NativeError {
     fn from(e: spell::SpellError) -> Self {
         Self::Spell(e)
@@ -246,7 +252,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v19\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v20\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -419,3 +425,6 @@ mod admin_item_tests;
 
 #[cfg(test)]
 mod inventory_move_tests;
+
+#[cfg(test)]
+mod spell_range_tests;

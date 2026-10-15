@@ -185,10 +185,18 @@ fn source_spell_spatial_failures_preserve_error_precedence_and_short_circuit() {
             3,
         ),
     ] {
-        let mut w = world(fixture::profile());
+        let (mut p, initial, mut source) = fixture::inputs();
+        p.npcs[0].ai.spawn = f::point(16.0);
+        match range {
+            SpellRangeResult::TooFar => source.spells[0].range.maximum = f::float(1.0),
+            SpellRangeResult::TooClose => source.spells[0].range.minimum = f::float(20.0),
+            SpellRangeResult::Within => {}
+            SpellRangeResult::Unknown => unreachable!(),
+        }
+        p.initialize_spell_authority(&initial, source).unwrap();
+        let mut w = world(p);
         let mut a = fixture::spatial_only();
         a.line_of_sight = Some(los);
-        a.range = Some(range);
         a.facing = Some(front);
         cast(&mut w, &mut a);
         assert_eq!(
@@ -197,9 +205,12 @@ fn source_spell_spatial_failures_preserve_error_precedence_and_short_circuit() {
         );
         assert!(w.last_tick().unwrap().draws.is_empty());
         assert_eq!(
-            a.queries
+            w.last_tick()
+                .unwrap()
+                .replies
                 .iter()
-                .filter(|r| matches!(r.query, Query::SourceSpell(_)))
+                .filter(|r| matches!(r.request.query, Query::SourceSpell(ref q)
+                    if !matches!(q, SourceSpellQuery::Semantics(_))))
                 .count(),
             kinds
         );
@@ -215,7 +226,7 @@ fn late_missing_spatial_or_receipt_rolls_back_cast_rng_scheduler_sequence_and_re
         step(&mut w, &mut a);
         match kind {
             0 => a.line_of_sight = Some(Check::Unknown),
-            1 => a.range = Some(SpellRangeResult::Unknown),
+            1 => a.fail_range_phase = Some(SourceSpellPhase::ReleaseCheck),
             2 => a.facing = Some(Check::Unknown),
             3 => a.stale = true,
             4 => a.wrong_kind = true,
@@ -604,17 +615,17 @@ fn source_contract_rejects_published_format_ten_and_source_profile_substitution(
     p.initialize_spell_authority(&initial_input, source)
         .unwrap();
     assert!(NativeWorld::restore_synthetic_component_test(p, initial).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 19);
+    assert_eq!(NATIVE_FORMAT_VERSION, 20);
 }
 
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v19\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v20\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v19\0",
+        b"benilla-native-checkpoint-v20\0",
         &(&state, digest, tip),
     ))
     .unwrap();

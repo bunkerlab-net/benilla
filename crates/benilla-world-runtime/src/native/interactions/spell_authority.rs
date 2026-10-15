@@ -7,7 +7,7 @@ use super::*;
 use benilla_sim::starter_init as init;
 use std::collections::BTreeSet;
 
-pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v1";
+pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v2";
 const CANT_CRIT: u32 = 0x2000_0000;
 
 /// Complete applicable source rows, including an observed empty result. Unknown
@@ -217,11 +217,26 @@ struct InitialItemModifierSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SpellAuthorityCatalog {
     policy: &'static str,
+    range_policy: SpellRangeNumericPolicy,
     spells: BTreeMap<u32, SpellAuthoritySource>,
     npcs: BTreeMap<u32, NpcSpellSource>,
     session: SpellSessionSource,
     modifier_hooks: SpellHookSources,
     initial_modifiers: InitialModifierSource,
+}
+/// Private immutable numeric identity; only source spell initialization selects it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct SpellRangeNumericPolicy {
+    algorithm: &'static str,
+    source_sha256: [&'static str; 2],
+}
+impl SpellRangeNumericPolicy {
+    fn pinned() -> Self {
+        Self {
+            algorithm: benilla_sim::spell_range::POLICY,
+            source_sha256: benilla_sim::spell_range::SOURCE_SHA256,
+        }
+    }
 }
 impl Profile {
     /// Read-only projection contract selector; this does not grant content admission.
@@ -311,6 +326,7 @@ impl Profile {
             ))?
             .spell_authority = Some(SpellAuthorityCatalog {
             policy: SPELL_AUTHORITY_POLICY,
+            range_policy: SpellRangeNumericPolicy::pinned(),
             spells,
             npcs,
             session: input.session,
@@ -327,6 +343,11 @@ impl Profile {
 }
 impl SpellAuthorityCatalog {
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
+        if self.policy != SPELL_AUTHORITY_POLICY
+            || self.range_policy != SpellRangeNumericPolicy::pinned()
+        {
+            return Err(NativeError::InvalidProfile);
+        }
         let interactions = profile
             .interactions
             .as_ref()
@@ -950,6 +971,28 @@ pub enum SourceSpellFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn spell_and_range_algorithm_and_each_hash_are_digest_bound_and_validated() {
+        let profile = crate::native::synthetic_spell_fixture::profile();
+        let original = profile.digest();
+        for field in 0..4 {
+            let mut changed = profile.clone();
+            let catalog = changed
+                .interactions
+                .as_mut()
+                .unwrap()
+                .spell_authority
+                .as_mut()
+                .unwrap();
+            match field {
+                0 => catalog.policy = "old-spell-contract",
+                1 => catalog.range_policy.algorithm = "unrecognized-range-algorithm",
+                _ => catalog.range_policy.source_sha256[field - 2] = "unrecognized-source",
+            }
+            assert_ne!(changed.digest(), original);
+            assert_eq!(changed.validate(), Err(NativeError::InvalidProfile));
+        }
+    }
     #[test]
     fn positive_id_domain_refuses_hardcoded_helpers_and_other_ordinary_morphology() {
         let (_, _, input) = crate::native::synthetic_spell_fixture::inputs();

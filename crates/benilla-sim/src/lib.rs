@@ -58,3 +58,6 @@ pub mod event_processor;
 
 /// Exact bounded SpellEvent callback scheduling decisions; host lifecycle is separate.
 pub mod spell_event;
+
+/// Portable ordinary explicit-unit spell range and release tolerance.
+pub mod spell_range;
