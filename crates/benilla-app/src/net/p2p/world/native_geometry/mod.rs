@@ -346,6 +346,11 @@ fn coverage_failure(error: CoverageError) -> Failure {
 }
 
 #[cfg(test)]
+pub(crate) use products::authored_vmap;
+#[cfg(test)]
+pub(crate) use source_vmap::{geometry_revision as authored_vmap_revision, SourceVmapProvider};
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -386,8 +391,3 @@ mod tests {
         assert_eq!(app.world().resource::<Order>().0, [1, 2, 3]);
     }
 }
-
-#[cfg(test)]
-pub(crate) use products::authored_vmap;
-#[cfg(test)]
-pub(crate) use source_vmap::{geometry_revision as authored_vmap_revision, SourceVmapProvider};
