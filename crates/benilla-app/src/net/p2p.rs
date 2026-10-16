@@ -867,8 +867,6 @@ fn run_exploration_character(
         network.local_addr(),
         character.name
     );
-    let mut position = character.position.position;
-    let mut orientation = character.position.orientation;
     let mut peers = BTreeMap::<PeerId, Option<Character>>::new();
     let mut denied = std::collections::BTreeSet::new();
     // Transient presentation is bounded to this avatar and never enters saved progression.
@@ -1046,13 +1044,11 @@ fn run_exploration_character(
                                 ))
                                 .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
                         }
-                        position = pos;
-                        orientation = facing;
-                        character.position.position = position;
-                        character.position.orientation = orientation;
+                        character.position.position = pos;
+                        character.position.orientation = facing;
                         Some(Frame::Move {
-                            position,
-                            orientation,
+                            position: pos,
+                            orientation: facing,
                             flags,
                             pitch,
                             fall_time,
