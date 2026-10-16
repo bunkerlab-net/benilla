@@ -367,3 +367,37 @@ fn expired_constructor_retains_only_validated_context_and_reuses_original_claim(
     assert_eq!(lease.deadline(), original_expiry);
     assert!(lease.is_active());
 }
+
+#[test]
+fn job_adoption_rejects_foreign_profile_player_and_composition_before_native_work() {
+    for mutation in 0..3 {
+        let mut fixture = composed_setup();
+        let (session, request) = captured_route_request();
+        let (_authority, mailbox) = core::mailbox(session).unwrap();
+        let (_lease, reply) = mailbox.enqueue_service_test_request(1, request).unwrap();
+        tick_stage(&mailbox, &mut fixture.routes, &mut vec![]);
+        match mutation {
+            0 => fixture.routes.profile.tick_ms += 1,
+            1 => fixture.routes.player.character[0] ^= 1,
+            2 => fixture.routes.binding.raw_geometry[0] ^= 1,
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            mailbox.serve_service_test_slice(1, true, until(), |query, deadline| {
+                let ServiceQuery::Route(job) = query else {
+                    panic!("Route job")
+                };
+                assert_eq!(
+                    fixture.routes.advance_job(&job, 1, deadline),
+                    Err(SamePolygonError::Dependency(Failure::Binding))
+                );
+                Err(Failure::Binding)
+            }),
+            1
+        );
+        assert!(matches!(reply.try_result(), Ok(Err(Failure::Binding))));
+        assert!(fixture.routes.pending.is_empty());
+        assert!(fixture.routes.candidates.is_empty());
+        assert_eq!(fixture.routes.queries.constructor_count(), 0);
+    }
+}

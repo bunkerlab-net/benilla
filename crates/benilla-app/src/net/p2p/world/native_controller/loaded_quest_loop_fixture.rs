@@ -234,7 +234,9 @@ impl Fixture {
                     })
                     .cloned()
                     .collect();
-                assert_eq!(retried, attempted);
+                assert_eq!(retried, attempted,
+                    "loaded quest retry must reach the exact loaded Route before durable publication refusal: tick={}, retry_loaded_replies={}, ticks={}, pause={:?}",
+                    c.tick(), observed.loaded.lock().unwrap().len() - retry_first, out.ticks, out.pause);
                 assert!(!attempted[0]
                     .request
                     .require_pathfinder_dispatch(c.world.profile())

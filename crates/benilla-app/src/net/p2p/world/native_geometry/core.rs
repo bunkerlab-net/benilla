@@ -8,7 +8,8 @@ use benilla_sim::creature_motion as motion;
 use benilla_world_runtime::{
     native::{
         Authority, AuthorityReply, AuthorityRequest, CombatFacts, CombatPhase, CombatQuery, Facts,
-        MotionFacts, MotionQuery, NativeError, Profile, Query, SourceSpellFacts, SourceSpellPhase,
+        MotionFacts, MotionQuery, NativeError, OwnerIgnorePathfindingReceipt,
+        PathfinderDispatchReceipt, Profile, Query, SourceSpellFacts, SourceSpellPhase,
         SourceSpellQuery, SOLO_UNIT,
     },
     Digest, PlayerId, WorldId,
@@ -446,7 +447,11 @@ impl SamePolygonRoutePolicy {
         }
         Ok(())
     }
-    fn validate_model(&self, session: &Session, context: &AuthorityRequest) -> Result<(), Failure> {
+    fn validate_model(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+    ) -> Result<super::source_route_chase_gate::ChaseGateModel, Failure> {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery);
         };
@@ -455,8 +460,7 @@ impl SamePolygonRoutePolicy {
             session.world,
             self.environment.player,
             route,
-        )?;
-        Ok(())
+        )
     }
     fn resolve_owner_body(
         &self,
@@ -785,6 +789,7 @@ impl JobLease {
     }
 }
 struct OwnedRouteValidation {
+    model: super::source_route_chase_gate::ChaseGateModel,
     session: Session,
     request: AuthorityRequest,
     body: Body,
@@ -834,6 +839,7 @@ fn check_owned_route(
 /// Completed immutable subparts remain owned by this original queued Work. No
 /// provider, geometry fact, constructor or native cache can use a partial body.
 struct OwnedRouteBodyProgress {
+    model: Option<super::source_route_chase_gate::ChaseGateModel>,
     session: Session,
     request: AuthorityRequest,
     lease: JobLease,
@@ -870,6 +876,63 @@ impl<'call> RouteJob<'call> {
     pub(super) fn body(&self) -> Body {
         self.validation.body
     }
+    /// Completed immutable checks belong to this original Work and its exact
+    /// frozen profile, never a digest-only or deserialized validation claim.
+    pub(super) fn require_profile(&self, profile: &Profile) -> Result<(), Failure> {
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        let policy = self
+            .session()
+            .same_polygon_route
+            .as_ref()
+            .ok_or(Failure::Binding)?;
+        if *policy.environment.profile != *profile {
+            return Err(Failure::Binding);
+        }
+        Ok(())
+    }
+    pub(super) fn validated_model(
+        &self,
+        profile: &Profile,
+        player: PlayerId,
+        binding: super::source_route_same_polygon::SamePolygonBinding,
+    ) -> Result<&'call super::source_route_chase_gate::ChaseGateModel, Failure> {
+        self.require_profile(profile)?;
+        let policy = self
+            .session()
+            .same_polygon_route
+            .as_ref()
+            .ok_or(Failure::Binding)?;
+        if policy.environment.player != player || policy.binding != binding {
+            return Err(Failure::Binding);
+        }
+        Ok(&self.validation.model)
+    }
+    pub(super) fn validated_dispatch(
+        &self,
+        profile: &Profile,
+    ) -> Result<&'call PathfinderDispatchReceipt, Failure> {
+        self.require_profile(profile)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &self.request().query else {
+            return Err(Failure::Binding);
+        };
+        route.pathfinder_dispatch.as_ref().ok_or(Failure::Binding)
+    }
+    pub(super) fn validated_owner_ignore(
+        &self,
+        profile: &Profile,
+    ) -> Result<&'call OwnerIgnorePathfindingReceipt, Failure> {
+        self.require_profile(profile)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &self.request().query else {
+            return Err(Failure::Binding);
+        };
+        route
+            .owner_ignore_pathfinding
+            .as_ref()
+            .ok_or(Failure::Binding)
+    }
+
     pub(super) fn lease(&self) -> JobLease {
         self.validation.lease.clone()
     }
@@ -1589,6 +1652,7 @@ impl Mailbox {
     ) -> Result<(), Failure> {
         if work.route_body.is_none() {
             work.route_body = Some(OwnedRouteBodyProgress {
+                model: None,
                 session: self.session.clone(),
                 request: work.request.clone(),
                 lease: work.lease(),
@@ -1613,19 +1677,20 @@ impl Mailbox {
                 .as_ref()
                 .ok_or(Failure::UnsupportedQuery)?;
             let phase = progress.next;
-            let body = match phase {
+            let (body, model) = match phase {
                 RouteBodyPhase::Context => {
                     progress.session.check_request_binding(&progress.request)?;
                     policy.validate_context(&progress.session, &progress.request)?;
-                    None
+                    (None, None)
                 }
-                RouteBodyPhase::Model => {
-                    policy.validate_model(&progress.session, &progress.request)?;
-                    None
-                }
-                RouteBodyPhase::OwnerState => {
-                    Some(policy.resolve_owner_body(&progress.session, &progress.request)?)
-                }
+                RouteBodyPhase::Model => (
+                    None,
+                    Some(policy.validate_model(&progress.session, &progress.request)?),
+                ),
+                RouteBodyPhase::OwnerState => (
+                    Some(policy.resolve_owner_body(&progress.session, &progress.request)?),
+                    None,
+                ),
             };
             observed(phase, false);
             // A real validation failure above keeps its provenance even if time expired.
@@ -1643,6 +1708,7 @@ impl Mailbox {
             if let Some(body) = body {
                 let progress = work.route_body.take().ok_or(Failure::Binding)?;
                 work.route_validation = Some(OwnedRouteValidation {
+                    model: progress.model.ok_or(Failure::Binding)?,
                     session: progress.session,
                     request: progress.request,
                     body,
@@ -1654,7 +1720,11 @@ impl Mailbox {
                 observed(phase, true);
                 return Ok(());
             }
-            work.route_body.as_mut().ok_or(Failure::Binding)?.next = match phase {
+            let progress = work.route_body.as_mut().ok_or(Failure::Binding)?;
+            if let Some(model) = model {
+                progress.model = Some(model);
+            }
+            progress.next = match phase {
                 RouteBodyPhase::Context => RouteBodyPhase::Model,
                 RouteBodyPhase::Model => RouteBodyPhase::OwnerState,
                 RouteBodyPhase::OwnerState => unreachable!(),

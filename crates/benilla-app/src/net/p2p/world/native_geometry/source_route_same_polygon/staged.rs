@@ -204,9 +204,8 @@ impl SourceSamePolygonRouteProvider {
                 .try_reserve(1)
                 .map_err(|_| SamePolygonError::CandidateBudget)?;
             #[cfg(test)]
-            job.record_phase("validate_context");
-            let validation =
-                self.validate_calculation(job.session(), job.request(), first_ticket, deadline)?;
+            job.record_phase("adopt_validated_context");
+            let validation = self.validate_job_calculation(job, first_ticket, deadline)?;
             if !lease.is_active() {
                 return Err(Failure::Deadline.into());
             }
@@ -233,7 +232,7 @@ impl SourceSamePolygonRouteProvider {
         });
         let result = match &pending.phase {
             Phase::Validated(validation) => {
-                match self.prepare_constructor(validation, deadline, &mut observe) {
+                match self.prepare_constructor(validation, Some(job), deadline, &mut observe) {
                     Ok(dependencies) => {
                         let Phase::Validated(validation) = pending.phase else {
                             unreachable!()

@@ -374,6 +374,7 @@ impl SamePolygonProposal {
     }
 }
 struct ValidatedCalculation {
+    owner_ignore: Option<OwnerIgnorePathfindingReceipt>,
     context: AuthorityRequest,
     first_ticket: u64,
     dispatch: PathfinderDispatchReceipt,
@@ -948,7 +949,7 @@ impl SourceSamePolygonRouteProvider {
         mut observe: impl FnMut(Observation),
     ) -> Result<PreparedCalculation, SamePolygonError> {
         let validation = self.validate_calculation(session, context, first_ticket, deadline)?;
-        let dependencies = self.prepare_constructor(&validation, deadline, &mut observe)?;
+        let dependencies = self.prepare_constructor(&validation, None, deadline, &mut observe)?;
         Ok(PreparedCalculation {
             validation,
             dependencies,
@@ -986,6 +987,7 @@ impl SourceSamePolygonRouteProvider {
         let model = gate_model(&self.profile, session.world, self.player, route)?;
         require_time(deadline)?;
         Ok(ValidatedCalculation {
+            owner_ignore: None,
             context: context.clone(),
             first_ticket,
             dispatch: event.clone(),
@@ -994,9 +996,39 @@ impl SourceSamePolygonRouteProvider {
         })
     }
 
+    fn validate_job_calculation(
+        &self,
+        job: &super::core::RouteJob<'_>,
+        first_ticket: u64,
+        deadline: Instant,
+    ) -> Result<ValidatedCalculation, SamePolygonError> {
+        self.check_current_boundary(job.request())?;
+        if first_ticket == 0 {
+            return Err(Failure::Binding.into());
+        }
+        first_ticket.checked_add(5).ok_or(Failure::Invalid)?;
+        require_time(deadline)?;
+        let model = job
+            .validated_model(&self.profile, self.player, self.binding)?
+            .clone();
+        let dispatch = job.validated_dispatch(&self.profile)?.clone();
+        let owner_ignore = job.validated_owner_ignore(&self.profile)?.clone();
+        let filter_context = self.filter.prepare_job_context(job)?;
+        require_time(deadline)?;
+        Ok(ValidatedCalculation {
+            owner_ignore: Some(owner_ignore),
+            context: job.request().clone(),
+            first_ticket,
+            dispatch,
+            model,
+            filter_context,
+        })
+    }
+
     fn prepare_constructor(
         &mut self,
         validation: &ValidatedCalculation,
+        job: Option<&super::core::RouteJob<'_>>,
         deadline: Instant,
         mut observe: impl FnMut(Observation),
     ) -> Result<ConstructorDependencies, SamePolygonError> {
@@ -1070,7 +1102,14 @@ impl SourceSamePolygonRouteProvider {
                 .try_reserve(1)
                 .map_err(|_| SamePolygonError::CandidateBudget)?;
         }
-        let constructor = self.queries.prepare_constructor(context)?;
+        let constructor = if let Some(job) = job {
+            if job.request() != context {
+                return Err(Failure::Binding.into());
+            }
+            self.queries.prepare_constructor_for_job(job)?
+        } else {
+            self.queries.prepare_constructor(context)?
+        };
         observe(Observation::ConstructorQuery);
         require_time(deadline)?;
         Ok(ConstructorDependencies {
@@ -1149,10 +1188,13 @@ impl SourceSamePolygonRouteProvider {
         let mut constructor = self.queries.reborrow(&prepared.dependencies.constructor)?;
         let selected = constructor.select_for_calculate(deadline)?;
         observe(Observation::SelectedQuery);
-        let owner_ignore = route
-            .require_owner_ignore_pathfinding(&self.profile)
-            .map_err(|_| Failure::Binding)?
-            .clone();
+        let owner_ignore = match &prepared.validation.owner_ignore {
+            Some(receipt) => receipt.clone(),
+            None => route
+                .require_owner_ignore_pathfinding(&self.profile)
+                .map_err(|_| Failure::Binding)?
+                .clone(),
+        };
         observe(Observation::OwnerIgnore);
         if owner_ignore.ignore_pathfinding() {
             return Err(Failure::UnsupportedQuery.into());

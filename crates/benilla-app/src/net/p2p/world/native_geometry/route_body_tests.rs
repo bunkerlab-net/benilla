@@ -388,3 +388,87 @@ fn late_completion_of_each_body_subpart_never_certifies_it_or_restarts_prior_wor
         assert!(reply.is_empty());
     }
 }
+
+#[test]
+fn completed_job_exposes_only_exact_profile_player_composition_and_live_receipts() {
+    let (session, request) = captured_route_request();
+    let (_, service) = mailbox(session.clone()).unwrap();
+    let (mut work, _) = work(&service, request.clone());
+    service
+        .advance_route_body(&mut work, Instant::now() + WAIT, Instant::now, |_, _| {})
+        .unwrap();
+    let validation = work.route_validation.as_ref().unwrap();
+    let job = RouteJob { validation };
+    let policy = session.same_polygon_route.as_ref().unwrap();
+    let profile = &policy.environment.profile;
+    let model = job
+        .validated_model(profile, policy.environment.player, policy.binding)
+        .unwrap();
+    assert!(std::ptr::eq(model, &validation.model));
+    assert!(job
+        .validated_dispatch(profile)
+        .unwrap()
+        .same_live_dispatch(request.require_pathfinder_dispatch(profile).unwrap()));
+    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+        unreachable!()
+    };
+    assert_eq!(
+        job.validated_owner_ignore(profile).unwrap(),
+        route.require_owner_ignore_pathfinding(profile).unwrap()
+    );
+    let mut changed = (**profile).clone();
+    changed.tick_ms += 1;
+    assert_eq!(job.require_profile(&changed), Err(Failure::Binding));
+    assert_eq!(job.validated_dispatch(&changed), Err(Failure::Binding));
+    assert_eq!(job.validated_owner_ignore(&changed), Err(Failure::Binding));
+    let mut player = policy.environment.player;
+    player.character[0] ^= 1;
+    assert_eq!(
+        job.validated_model(profile, player, policy.binding),
+        Err(Failure::Binding)
+    );
+    let mut binding = policy.binding;
+    binding.raw_geometry[0] ^= 1;
+    assert_eq!(
+        job.validated_model(profile, policy.environment.player, binding),
+        Err(Failure::Binding)
+    );
+    service.active.store(false, Ordering::Release);
+    assert_eq!(job.require_profile(profile), Err(Failure::Deadline));
+    assert_eq!(job.validated_dispatch(profile), Err(Failure::Deadline));
+    assert_eq!(job.validated_owner_ignore(profile), Err(Failure::Deadline));
+    assert_eq!(
+        job.validated_model(profile, policy.environment.player, policy.binding),
+        Err(Failure::Deadline)
+    );
+}
+
+#[test]
+fn partial_or_late_model_never_installs_a_reusable_model_receipt() {
+    let (session, request) = captured_route_request();
+    let (_, service) = mailbox(session).unwrap();
+    let (mut work, _) = work(&service, request);
+    pause_after(&service, &mut work, RouteBodyPhase::Context);
+    assert!(work.route_body.as_ref().unwrap().model.is_none());
+    let start = Instant::now();
+    let slice = start + Duration::from_millis(2);
+    let now = Cell::new(start);
+    assert_eq!(
+        service.advance_route_body(
+            &mut work,
+            slice,
+            || now.get(),
+            |phase, saved| {
+                if phase == RouteBodyPhase::Model && !saved {
+                    now.set(slice);
+                }
+            }
+        ),
+        Err(Failure::Deadline)
+    );
+    assert!(work.route_body.as_ref().unwrap().model.is_none());
+    assert!(work.route_validation.is_none());
+    pause_after(&service, &mut work, RouteBodyPhase::Model);
+    assert!(work.route_body.as_ref().unwrap().model.is_some());
+    assert!(work.route_validation.is_none());
+}

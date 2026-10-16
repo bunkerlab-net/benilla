@@ -568,6 +568,61 @@ fn loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_cert
                     eprintln!(
                         "loaded quest body completed within original lease: attempts={attempts}"
                     );
+                    // Continue the same exact loaded context through every provider stage,
+                    // still without inventing a concrete physics certificate.
+                    let (_authority, mailbox) = core::mailbox(session.clone()).unwrap();
+                    let (lease, reply) = mailbox
+                        .enqueue_service_test_request(18, proposal.context.clone())
+                        .unwrap();
+                    let original_deadline = lease.deadline();
+                    let mut provider_attempts = 0;
+                    let mut observed = vec![];
+                    loop {
+                        provider_attempts += 1;
+                        assert_eq!(
+                            mailbox.serve_service_queries_until(1, true, |query, deadline| {
+                                let core::ServiceQuery::Route(job) = query else {
+                                    panic!("loaded Route job")
+                                };
+                                assert!(job.lease().same_job(&lease));
+                                assert_eq!(job.lease().deadline(), original_deadline);
+                                let mut attempt = vec![];
+                                let advanced = capture.providers.route.advance_job_observed(
+                                    &job, 1, deadline, |stage| attempt.push(stage));
+                                let complete = match advanced {
+                                    Ok(complete) => { observed.extend(attempt); complete },
+                                    Err(error) => {
+                                        eprintln!("loaded quest incomplete provider attempt: error={error:?}, observations={attempt:?}");
+                                        return Err(error.failure());
+                                    }
+                                };
+                                if complete {
+                                    let staged = capture
+                                        .providers
+                                        .route
+                                        .terminal_for_job(&job)
+                                        .map_err(SamePolygonError::failure)?;
+                                    assert!(Rc::ptr_eq(&staged.candidate, &proposal.candidate));
+                                    assert_eq!(staged.model, proposal.model);
+                                    assert_eq!(staged.owner_ignore, proposal.owner_ignore);
+                                    Err(Failure::MissingGeometry)
+                                } else {
+                                    Ok(core::ServiceStep::Pending)
+                                }
+                            }),
+                            1
+                        );
+                        match reply.try_result() {
+                            Err(crossbeam_channel::TryRecvError::Empty) => assert!(lease.is_active()),
+                            Ok(result) => { assert_eq!(result, Err(Failure::MissingGeometry)); break; },
+                            other => panic!("loaded quest staged provider expired: {other:?}; attempts={provider_attempts}"),
+                        }
+                    }
+                    assert_eq!(observed, capture.observations);
+                    assert!(!lease.is_active());
+                    capture.providers.route.reap_jobs();
+                    assert_eq!(capture.providers.route.pending_job_count(), 0);
+                    eprintln!("loaded quest provider completed within original lease: attempts={provider_attempts}");
                     assert_eq!(proposal.context.binding.npc.unwrap().spawn, hostile);
                     assert!(proposal.dispatch.first_construction());
                     assert_eq!(

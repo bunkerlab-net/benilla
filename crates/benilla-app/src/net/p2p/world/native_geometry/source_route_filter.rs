@@ -265,6 +265,22 @@ impl SourceRouteFilterProvider {
         })
     }
 
+    /// The original Work already completed the shared route-context checks.
+    /// Adoption still requires this provider's exact frozen session and profile.
+    pub(super) fn prepare_job_context(
+        &self,
+        job: &super::core::RouteJob<'_>,
+    ) -> Result<OwnedRouteFilterContext, Failure> {
+        job.require_profile(&self.profile)?;
+        if job.session() != &self.session {
+            return Err(Failure::Binding);
+        }
+        Ok(OwnedRouteFilterContext {
+            provider: Arc::clone(&self.identity),
+            context: job.request().clone(),
+        })
+    }
+
     /// No replacement input can be paired with retained validation. The enclosing
     /// original job independently checks attachment, session, request and expiry.
     pub(super) fn reborrow(

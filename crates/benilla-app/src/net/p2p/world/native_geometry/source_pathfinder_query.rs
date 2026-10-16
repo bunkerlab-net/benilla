@@ -187,7 +187,11 @@ impl SourcePathfinderQueryProvider {
         context: &AuthorityRequest,
     ) -> Result<RegisteredConstructorHandle, ConstructorQueryError> {
         let query = self.retain_constructor(context)?;
-        Ok(RegisteredConstructorHandle {
+        Ok(Self::constructor_handle(query))
+    }
+
+    fn constructor_handle(query: SourceConstructorQuery<'_>) -> RegisteredConstructorHandle {
+        RegisteredConstructorHandle {
             provider: query.provider,
             index: query.index,
             npc: query.entry.npc,
@@ -197,7 +201,22 @@ impl SourcePathfinderQueryProvider {
             snapshot: query.snapshot,
             from: query.from,
             to: query.to,
-        })
+        }
+    }
+
+    /// Use only the core's completed original-job dispatch receipt. Loaded query,
+    /// configuration, capacity and one-use constructor claim remain checked here.
+    pub(super) fn prepare_constructor_for_job(
+        &mut self,
+        job: &super::core::RouteJob<'_>,
+    ) -> Result<RegisteredConstructorHandle, super::source_route_same_polygon::SamePolygonError>
+    {
+        let event = job.validated_dispatch(&self.profile)?;
+        if job.session().world != self.world {
+            return Err(ConstructorQueryError::Binding.into());
+        }
+        let query = self.retain_validated_constructor(job.request(), event)?;
+        Ok(Self::constructor_handle(query))
     }
 
     /// Reborrow completed immutable constructor validation without another claim.
@@ -268,6 +287,18 @@ impl SourcePathfinderQueryProvider {
         let event = context
             .require_pathfinder_dispatch(&self.profile)
             .map_err(|_| ConstructorQueryError::Binding)?;
+        self.retain_validated_constructor(context, event)
+    }
+
+    fn retain_validated_constructor(
+        &mut self,
+        context: &AuthorityRequest,
+        event: &PathfinderDispatchReceipt,
+    ) -> Result<SourceConstructorQuery<'_>, ConstructorQueryError> {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(ConstructorQueryError::Binding);
+        };
+        let npc = context.binding.npc.ok_or(ConstructorQueryError::Binding)?;
         if event.configuration_binding() != self.navigation.configuration_binding()
             || event.first_construction() && route.request.prior_cache.is_some()
         {

@@ -74,6 +74,18 @@ jobs:
         run: scripts/doc-links.py
       - name: pass-span-lint
         run: scripts/pass-span-lint.py
+      - name: Record player Route timing
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-player-route-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon::two_owner_tests::loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_certificate -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+          retry_log="$RUNNER_TEMP/native-player-route-retry-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication -- --exact --nocapture 2>&1 | tee "$retry_log"
+          grep -Fxq "running 1 test" "$retry_log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$retry_log"
       - name: player-tests
         run: mbx test --locked --no-fail-fast -p benilla-formats -p benilla-app --no-default-features --lib
 
