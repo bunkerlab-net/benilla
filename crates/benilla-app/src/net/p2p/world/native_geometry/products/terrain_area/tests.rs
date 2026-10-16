@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Authored actual MAPS/WDBC/native VMap bytes; no installation data or caller predicates.
-use super::super::{tests as product_tests, vmap, InventorySpec, ProductId, ProductSpec, TileId};
+use super::super::{
+    tests as product_tests, vmap, InventoriedProducts, InventorySpec, ProductId, ProductSpec,
+    TileId,
+};
 use super::*;
 use std::{collections::BTreeMap, time::Duration};
 

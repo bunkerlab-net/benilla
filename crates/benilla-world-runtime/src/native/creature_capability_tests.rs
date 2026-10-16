@@ -314,9 +314,9 @@ fn rehashed(w: &NativeWorld, change: impl FnOnce(&mut serde_json::Value)) -> Che
     let mut state = serde_json::to_value(&c.state).unwrap();
     change(&mut state);
     c.state = serde_json::from_value(state).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v26\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v27\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v26\0",
+        b"benilla-native-checkpoint-v27\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -449,5 +449,5 @@ fn catalog_retains_scalar_policy_and_constructor_lifecycle_source_hashes() {
         catalog["source_policy"]["runtime_sources"],
         serde_json::json!(CREATURE_CAPABILITY_RUNTIME_SOURCE_SHA256)
     );
-    assert_eq!(NATIVE_FORMAT_VERSION, 26);
+    assert_eq!(NATIVE_FORMAT_VERSION, 27);
 }

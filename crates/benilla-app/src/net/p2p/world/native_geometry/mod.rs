@@ -11,6 +11,7 @@ mod source_ground_height;
 mod source_navigation;
 mod source_near_point;
 mod source_near_point_empty;
+mod source_player_environment;
 mod source_route_filter;
 mod source_route_point_path;
 mod source_route_smoothing;
@@ -52,13 +53,14 @@ struct Service {
     navigation: Option<source_navigation::SourceNavigationProvider>,
     primary_near_point: Option<source_near_point::SourceNearPointProvider>,
     empty_selector: Option<source_near_point_empty::SourceEmptySelectorNearPointProvider>,
+    player_environment: Option<source_player_environment::SourcePlayerEnvironmentProvider>,
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct GeometryQueries;
 
 pub(crate) fn install(world: &mut World, session: Session) -> Result<LocalAuthority, Failure> {
-    install_products(world, session, None, None, None, None)
+    install_products(world, session, None, None, None, None, None)
 }
 
 /// Loaded static geometry adds a movement veto and explicitly selected source LOS.
@@ -70,7 +72,7 @@ pub(crate) fn install_with_static_vmap(
     raw_geometry: [u8; 32],
 ) -> Result<LocalAuthority, Failure> {
     let provider = source_vmap::SourceVmapProvider::bind(&session, snapshot, raw_geometry)?;
-    install_products(world, session, Some(provider), None, None, None)
+    install_products(world, session, Some(provider), None, None, None, None)
 }
 /// Additional dry navigation veto after raw support and static VMap. No slope or
 /// owner PathFinder proof and no native session admission is introduced here.
@@ -87,7 +89,7 @@ pub(crate) fn install_with_navigation(
         navigation,
         raw_geometry,
     )?;
-    install_products(world, session, None, Some(provider), None, None)
+    install_products(world, session, None, Some(provider), None, None, None)
 }
 /// Owns already-loaded immutable products for the bounded original NearPoint branch.
 /// Loading and participant/source-epoch proof remain the caller's responsibility.
@@ -106,7 +108,7 @@ pub(crate) fn install_with_primary_near_point(
         snapshot,
         configuration,
     )?;
-    install_products(world, session, None, None, Some(provider), None)
+    install_products(world, session, None, None, Some(provider), None, None)
 }
 
 /// Separately selected empty-list source fallback, using already-loaded products.
@@ -126,7 +128,25 @@ pub(crate) fn install_with_empty_selector_near_point(
         snapshot,
         configuration,
     )?;
-    install_products(world, session, None, None, None, Some(provider))
+    install_products(world, session, None, None, None, Some(provider), None)
+}
+
+/// Separately selected loaded environment observations. Unsupported callbacks remain
+/// the runtime owner's responsibility; this does not admit a production session.
+pub(crate) fn install_with_player_environment(
+    world: &mut World,
+    mut session: Session,
+    profile: &benilla_world_runtime::native::Profile,
+    player: benilla_world_runtime::PlayerId,
+    snapshot: products::terrain_wet_liquid::TerrainLiquidSnapshot<'static>,
+) -> Result<LocalAuthority, Failure> {
+    session.player_environment = Some(core::PlayerEnvironmentPolicy::from_profile(
+        profile, player,
+    )?);
+    let provider = source_player_environment::SourcePlayerEnvironmentProvider::bind(
+        &session, profile, player, snapshot,
+    )?;
+    install_products(world, session, None, None, None, None, Some(provider))
 }
 
 fn install_products(
@@ -136,6 +156,7 @@ fn install_products(
     navigation: Option<source_navigation::SourceNavigationProvider>,
     primary_near_point: Option<source_near_point::SourceNearPointProvider>,
     empty_selector: Option<source_near_point_empty::SourceEmptySelectorNearPointProvider>,
+    player_environment: Option<source_player_environment::SourcePlayerEnvironmentProvider>,
 ) -> Result<LocalAuthority, Failure> {
     let (authority, mailbox) = core::mailbox(session)?;
     world.insert_non_send_resource(Service {
@@ -145,6 +166,7 @@ fn install_products(
         navigation,
         primary_near_point,
         empty_selector,
+        player_environment,
     });
     Ok(authority)
 }
@@ -192,6 +214,13 @@ fn process(
             .serve_queries_until(allowance, |session, request, body, deadline| {
                 if !live.0 {
                     return Err(Failure::MissingGeometry);
+                }
+                if matches!(&request.query, Query::PlayerEnvironment(_)) {
+                    return service
+                        .player_environment
+                        .as_ref()
+                        .ok_or(Failure::MissingGeometry)?
+                        .resolve(session, request, deadline);
                 }
                 if matches!(
                     &request.query,
@@ -466,6 +495,11 @@ pub(crate) use source_route_straight_path::{
 
 #[cfg(test)]
 pub(crate) use products::navigation::tests::straight_ground_products as authored_route_straight_ground;
+
+#[cfg(test)]
+pub(crate) use products::authored_player_environment;
+#[cfg(test)]
+pub(crate) use source_player_environment::SourcePlayerEnvironmentProvider;
 
 #[cfg(test)]
 mod tests {

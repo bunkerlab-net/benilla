@@ -302,7 +302,9 @@ fn initial_player_height_binds_actual_chase_moved_target_replay_and_reopen() {
     let player_id = c.world.state().player;
     let events = pump_to(&mut c, 2);
     let records = n::decode_records(&n::encode_records(c.world.records()).unwrap()).unwrap();
-    assert!(records.iter().all(|r| r.version == 26));
+    assert!(records
+        .iter()
+        .all(|r| r.version == n::NATIVE_FORMAT_VERSION));
     let replies: Vec<_> = records
         .iter()
         .flat_map(|r| &r.replies)
@@ -846,7 +848,7 @@ fn rehashed_checkpoint(
     let start = canonical.find("\"state\":").unwrap() + "\"state\":".len();
     let end = canonical.rfind(",\"digest\":").unwrap();
     let state = &canonical[start..end];
-    let digest = hash(b"benilla-native-state-v26\0", state.as_bytes());
+    let digest = hash(b"benilla-native-state-v27\0", state.as_bytes());
     let tuple = format!(
         "[{state},{},{}]",
         serde_json::to_string(&digest).unwrap(),
@@ -854,7 +856,7 @@ fn rehashed_checkpoint(
     );
     value["digest"] = serde_json::to_value(digest).unwrap();
     value["checksum"] =
-        serde_json::to_value(hash(b"benilla-native-checkpoint-v26\0", tuple.as_bytes())).unwrap();
+        serde_json::to_value(hash(b"benilla-native-checkpoint-v27\0", tuple.as_bytes())).unwrap();
     let typed: n::Checkpoint = serde_json::from_value(value).unwrap();
     // Decode passes integrity checks, so restore must reject the semantic forgery.
     n::Checkpoint::decode(&serde_json::to_vec(&typed).unwrap()).unwrap()

@@ -91,3 +91,11 @@ pub(crate) use source_route_straight_path::{
 
 #[cfg(test)]
 pub(crate) use products::navigation::tests::straight_ground_products as authored_route_straight_ground;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_player_environment.rs"]
+mod source_player_environment;
+
+#[cfg(test)]
+pub(crate) use products::authored_player_environment;
+#[cfg(test)]
+pub(crate) use source_player_environment::SourcePlayerEnvironmentProvider;

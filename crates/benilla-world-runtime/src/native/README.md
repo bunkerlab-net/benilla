@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v26 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v27 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -12,6 +12,8 @@ restoration. Feature unification, preparation JSON, hashes, and source initializ
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
 Player pose and orientation persistence are documented in [ORIENTATION.md](ORIENTATION.md).
+Explicit owned cached player terrain phases and their closed callback boundary are
+documented in [ENVIRONMENT.md](ENVIRONMENT.md).
 Backpack drag commands and durable item projection are documented in
 [INVENTORY-MOVEMENT.md](INVENTORY-MOVEMENT.md).
 Bounded source creature habitat/current-flag ownership and reachable NearPoint
@@ -60,7 +62,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
 - One authenticated solo owner and intent per fixed tick; no wall clock, networking,
   central host or trusted peer result frames
 - Commands, monotone cast IDs, spawn/spell-ordered auras, player reactive update,
-  death update, receipt-only event prelude, spawn-ordered AI/melee, player combat
+  optional environment countdown, death update, receipt-only event prelude, spawn-ordered AI/melee, player combat
   update, and mage regeneration
 - One generic casting slot, multiple traveling casts; at most 16 flights and 16
   harmful holders per target
@@ -81,7 +83,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 26, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 27, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -161,14 +163,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 26 changes experimental simulation checkpoints/records, not
+typed. Native format 27 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 26 does not change character/profile files.
+remains rejected. Native format 27 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.

@@ -309,6 +309,8 @@ pub struct CreatureNearPointRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreatureRouteRequest {
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub target_player_water: Option<PlayerEnvironmentTarget>,
     pub request: benilla_sim::creature_motion::RouteRequest,
     pub owner: CreatureCapabilityWitness,
     #[serde(deserialize_with = "creature_collision_width::required_option")]

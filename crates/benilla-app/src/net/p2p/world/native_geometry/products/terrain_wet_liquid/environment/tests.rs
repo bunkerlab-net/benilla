@@ -270,3 +270,71 @@ fn loaded_deep_water_cells_mutate_owned_fatigue_scale_and_replay() {
         -1
     );
 }
+
+#[test]
+fn owned_liquid_and_area_readers_retain_actual_products_then_release_them() {
+    use super::super::super::terrain_area::TerrainAreaRequest;
+    use std::sync::Arc;
+    let products = Arc::new(products());
+    let weak = Arc::downgrade(&products);
+    let borrowed = snapshot(&products, 0);
+    let mut machine = machine(&borrowed);
+    let query = machine.query_for_position(pose(31.)).unwrap().unwrap();
+    let expected = borrowed.query_environment(query, deadline()).unwrap();
+    let owned = Arc::clone(&products)
+        .load_terrain_wet_liquid_owned(
+            &dbc(&[[1, 0, 3, 0]]),
+            &dbc::<25>(&[]),
+            &dbc::<20>(&[]),
+            &dbc::<42>(&[]),
+        )
+        .unwrap();
+    assert_eq!(owned.environment_binding(), borrowed.environment_binding());
+    assert_eq!(owned.environment_catalog(), borrowed.environment_catalog());
+    let area = Arc::clone(&products)
+        .load_terrain_area_owned(&dbc::<25>(&[]), &dbc::<20>(&[]), &dbc::<42>(&[]))
+        .unwrap();
+    let area_query = TerrainAreaRequest {
+        snapshot: area.binding(),
+        ticket: 1,
+        position: pose(31.).position,
+    };
+    let expected_area = products
+        .load_terrain_area(&dbc::<25>(&[]), &dbc::<20>(&[]), &dbc::<42>(&[]))
+        .unwrap()
+        .query(area_query, deadline())
+        .unwrap();
+    drop(borrowed);
+    drop(products);
+    assert!(weak.upgrade().is_some());
+    let result = owned.query_environment(query, deadline()).unwrap();
+    assert_eq!(result, expected);
+    machine.set_position_phase(pose(31.), Some(result)).unwrap();
+    assert_eq!(area.query(area_query, deadline()).unwrap(), expected_area);
+    drop(area);
+    assert!(weak.upgrade().is_some());
+    drop(owned);
+    assert!(weak.upgrade().is_none());
+}
+
+#[test]
+fn owned_loaders_fail_closed_without_retaining_incomplete_dbc_dependencies() {
+    use std::sync::Arc;
+    let products = Arc::new(products());
+    for missing in 0..4 {
+        let mut stores = [
+            dbc(&[[1, 0, 3, 0]]),
+            dbc::<25>(&[]),
+            dbc::<20>(&[]),
+            dbc::<42>(&[]),
+        ];
+        stores[missing].clear();
+        let borrowed =
+            products.load_terrain_wet_liquid(&stores[0], &stores[1], &stores[2], &stores[3]);
+        let owned = Arc::clone(&products)
+            .load_terrain_wet_liquid_owned(&stores[0], &stores[1], &stores[2], &stores[3]);
+        assert!(borrowed.is_err());
+        assert_eq!(owned.err(), borrowed.err());
+        assert_eq!(Arc::strong_count(&products), 1);
+    }
+}

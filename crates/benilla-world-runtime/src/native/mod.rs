@@ -6,6 +6,10 @@ pub use admin::*;
 mod combat;
 mod creature_capabilities;
 mod player_collision_height;
+mod player_environment;
+pub use player_environment::*;
+#[cfg(test)]
+mod player_environment_tests;
 pub use player_collision_height::*;
 mod creature_collision_height;
 #[cfg(test)]
@@ -75,8 +79,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 26;
-pub const NATIVE_POLICY: &str = "benilla-native-initial-player-model-height-v26";
+pub const NATIVE_FORMAT_VERSION: u32 = 27;
+pub const NATIVE_POLICY: &str = "benilla-native-owned-player-environment-v27";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -97,6 +101,7 @@ pub enum NativeCapability {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeError {
+    PlayerEnvironment(environment::EnvironmentError),
     PlayerSlow(benilla_sim::player_slow::SlowError),
     Inventory(benilla_sim::inventory::Error),
     Loot(benilla_sim::loot::Error),
@@ -246,6 +251,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let state = State {
+            source_player_environment: PlayerEnvironmentState::new(&profile, world, player)?,
             source_player_collision_height: PlayerCollisionHeightState::new(
                 &profile, world, player,
             )?,
@@ -298,7 +304,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v26\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v27\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

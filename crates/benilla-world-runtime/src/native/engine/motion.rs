@@ -72,6 +72,13 @@ impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
                 MotionQuery::Route(Box::new(CreatureRouteRequest {
                     request: request.clone(),
                     owner: owner.clone(),
+                    target_player_water: match self.frame.player_target_water(request) {
+                        Ok(witness) => witness,
+                        Err(error) => {
+                            self.failure = Some(error);
+                            return Err(m::MotionError::Invalid("player target water binding"));
+                        }
+                    },
                     target_player_height: target_player_height.clone(),
                     collision_width: self.collision_width.clone(),
                     collision_height: self.collision_height.clone(),
@@ -202,6 +209,26 @@ impl<A: Authority> Frame<'_, A> {
             .as_ref()
             .map(|source| PlayerCollisionHeightTarget::new(source, *target)))
     }
+    fn player_target_water(
+        &self,
+        request: &m::RouteRequest,
+    ) -> Result<Option<PlayerEnvironmentTarget>, NativeError> {
+        if !matches!(
+            request.kind,
+            m::RouteKind::ChaseInitial | m::RouteKind::ChaseReplan
+        ) {
+            return Ok(None);
+        }
+        let target = request
+            .target
+            .as_ref()
+            .ok_or(NativeError::AuthorityBinding)?;
+        if target != &self.source_target()? {
+            return Err(NativeError::AuthorityBinding);
+        }
+        PlayerEnvironmentTarget::new(self.profile, self.state, *target)
+    }
+
     fn source_input(&self, npc: &Npc) -> Result<m::UnitInputs, NativeError> {
         let p = self
             .profile

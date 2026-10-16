@@ -95,6 +95,7 @@ fn setup_selected_with_player_height(
         static_los: None,
         primary_near_point: (!empty)
             .then(|| PrimaryNearPointPolicy::from_profile(&profile).unwrap()),
+        player_environment: None,
         empty_selector_near_point: empty
             .then(|| EmptySelectorNearPointPolicy::from_profile(&profile).unwrap()),
     };

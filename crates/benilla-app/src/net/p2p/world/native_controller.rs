@@ -610,10 +610,12 @@ impl NativeController {
         self.orders.counter = staged_orders;
         if self.world.profile().quest_progression.is_some()
             || self.world.profile().player_slow.is_some()
+            || self.world.profile().player_environment.is_some()
             || pending.moving
         {
             // Pose-bearing ticks also save before publishing authoritative position/facing.
-            // Progression and slow durations also mutate without a projected event.
+            // Progression, slow durations and environment countdowns also mutate
+            // without a projected event.
             // Persist every enabled tick, accepting one synchronous checkpoint per tick.
             // Project first: the store receipt clears last_tick and its event journal.
             self.outbox = Some(PendingEvents {

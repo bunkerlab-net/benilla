@@ -59,6 +59,7 @@ pub fn profile() -> Profile {
         creature_collision_widths: None,
         creature_collision_heights: None,
         player_collision_height: None,
+        player_environment: None,
         interactions: None,
         quest_progression: None,
         combat: None,
@@ -175,6 +176,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::PlayerEnvironment(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "synthetic fixture has no player environment terrain",
+                ));
+            }
             Query::NpcSpell(_) | Query::SourceSpell(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "source spell spatial fixture",

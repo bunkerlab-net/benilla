@@ -8,6 +8,7 @@ mod event_scheduler;
 mod facing;
 mod hostile_spell;
 mod npc_spell;
+mod player_environment;
 mod player_slow;
 mod spell_authority;
 mod spell_range;
@@ -164,6 +165,7 @@ impl NativeWorld {
             frame.auras()?;
         }
         frame.player_reactives();
+        frame.player_environment_update()?;
         frame.player_death_update()?;
         #[cfg(any(test, feature = "synthetic-native-tests"))]
         frame.synthetic_npc_spell_starts(false)?;
@@ -191,7 +193,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v26\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v27\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -717,6 +719,7 @@ impl<A: Authority> Frame<'_, A> {
             position: destination,
             orientation,
         });
+        self.player_environment_position()?;
         Ok(None)
     }
     fn rolls(
@@ -1394,7 +1397,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v26\0",
+            b"benilla-native-melee-action-v27\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1663,7 +1666,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v26\0",
+            b"benilla-native-melee-chain-v27\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

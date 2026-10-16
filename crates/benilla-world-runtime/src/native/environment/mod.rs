@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Independent, opt-in cached player environment component. See ../ENVIRONMENT.md.
+//! Shared cached player environment reducer and standalone journal. See ../ENVIRONMENT.md.
 //! CMaNGOS Classic 8ec338a1 Player.cpp:1105–1140,1483–1489,6069–6075,19113–19175,
 //! copyright CMaNGOS contributors, upstream GPL-2.0-or-later.
 //! This is the environment phase AFTER accepted relocation, not full SetPosition.
-//! No NativeWorld/Engine producer or gameplay admission. Only owned mirror scaling executes.
+//! NativeWorld selects its narrower callback-free owner explicitly; gameplay admission stays closed.
 mod catalog;
 pub mod mirror;
 mod persistence;
+mod reducer;
 pub use catalog::{LiquidCatalog, LiquidCatalogError, LiquidTypeRow};
 use mirror::{MirrorTimer, MirrorTimerType};
 pub use persistence::{EnvironmentCheckpoint, EnvironmentRecord};
+pub(crate) use reducer::{EnvironmentPhase, EnvironmentStateSnapshot};
 use serde::{Deserialize, Serialize};
 
 pub const ENVIRONMENT_POLICY: &str = "cmangos-8ec338a1-player-environment-component-mirror-v2";
@@ -134,7 +136,7 @@ pub struct BoundLiquidResult {
     pub data: Option<LiquidData>,
 }
 impl BoundLiquidResult {
-    fn validate(self, expected: EnvironmentQuery) -> Result<(), EnvironmentError> {
+    pub(crate) fn validate(self, expected: EnvironmentQuery) -> Result<(), EnvironmentError> {
         if self.query != expected {
             return Err(EnvironmentError::Binding);
         }
@@ -462,7 +464,7 @@ impl EnvironmentMachine {
         player: crate::PlayerId,
         catalog: LiquidCatalog,
     ) -> Result<Self, EnvironmentError> {
-        snapshot.validate(&catalog)?;
+        let state = EnvironmentState::new(snapshot, &catalog)?;
         if world == [0; 16] || player.owner == [0; 16] || player.character == [0; 16] {
             return Err(EnvironmentError::InvalidInput);
         }
@@ -471,14 +473,7 @@ impl EnvironmentMachine {
             world,
             player,
             catalog,
-            state: EnvironmentState {
-                flags: 0,
-                timer_ms: 0,
-                last_liquid: None,
-                last_position: None,
-                cached_query: None,
-                mirrors: initial_mirrors(),
-            },
+            state,
             sequence: 0,
             tip: [0; 32],
             records: vec![],
@@ -500,24 +495,12 @@ impl EnvironmentMachine {
         &self,
         pose: EnvironmentPose,
     ) -> Result<Option<EnvironmentQuery>, EnvironmentError> {
-        pose.validate()?;
-        if self.state.timer_ms != 0 {
-            return Ok(None);
-        }
-        Ok(Some(EnvironmentQuery {
-            snapshot: self.snapshot,
-            ticket: self
-                .sequence
-                .checked_add(1)
-                .ok_or(EnvironmentError::Limit)?,
-            position: pose.position,
-            required_type: ALL_LIQUIDS,
-            collision_height: pose.collision_height,
-        }))
+        self.state
+            .query_for_position(self.snapshot, self.sequence, pose)
     }
     /// Player::Update timer fragment only. No terrain query or refresh on expiration.
     pub fn update_phase(&mut self, diff_ms: u32) -> Result<(), EnvironmentError> {
-        self.transact(persistence::EnvironmentPhase::Update { diff_ms })
+        self.transact(EnvironmentPhase::Update { diff_ms })
     }
     /// Environment-only phase after valid SetPosition relocation has completed.
     /// Cached calls require None; eligible calls require the exactly bound result.
@@ -526,46 +509,19 @@ impl EnvironmentMachine {
         pose: EnvironmentPose,
         result: Option<BoundLiquidResult>,
     ) -> Result<(), EnvironmentError> {
-        self.transact(persistence::EnvironmentPhase::Position {
+        self.transact(EnvironmentPhase::Position {
             pose,
             result: result.map(Box::new),
         })
     }
-    fn transact(&mut self, phase: persistence::EnvironmentPhase) -> Result<(), EnvironmentError> {
+    fn transact(&mut self, phase: EnvironmentPhase) -> Result<(), EnvironmentError> {
         if self.records.len() >= MAX_ENVIRONMENT_RECORDS {
             return Err(EnvironmentError::JournalFull);
         }
-        let sequence = self
-            .sequence
-            .checked_add(1)
-            .ok_or(EnvironmentError::Limit)?;
         let before = self.state_digest();
-        let mut next = self.state.clone();
-        match &phase {
-            persistence::EnvironmentPhase::Update { diff_ms } => {
-                next.update_timer(*diff_ms);
-            }
-            persistence::EnvironmentPhase::Position { pose, result } => {
-                let pose = *pose;
-                match (self.query_for_position(pose)?, result.as_deref().copied()) {
-                    (None, None) => {}
-                    (Some(expected), Some(reply)) => {
-                        reply.validate(expected)?;
-                        let mut mirrors = next.mirrors.clone();
-                        next.refresh_if_due(
-                            reply,
-                            &self.catalog,
-                            &mut OwnedMirrorCallbacks {
-                                timers: &mut mirrors,
-                            },
-                        )?;
-                        next.mirrors = mirrors;
-                    }
-                    _ => return Err(EnvironmentError::Binding),
-                }
-                next.last_position = Some(pose);
-            }
-        }
+        let (next, sequence) =
+            self.state
+                .reduce(self.snapshot, &self.catalog, self.sequence, &phase)?;
         let record = EnvironmentRecord::new(self, sequence, phase, before, &next);
         let prospective_bytes = self
             .records

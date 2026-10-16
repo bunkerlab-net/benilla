@@ -10,7 +10,7 @@ use super::{
         liquid_status, source_type_flag, GridLiquidData, GridLiquidResult, GridLiquidStatus,
         LiquidStores, LiquidTypes,
     },
-    terrain_area::TerrainAreaSnapshot,
+    terrain_area::{TerrainAreaSnapshot, WetProducts},
     vmap::{
         liquid::{LiquidResult, LiquidSnapshot},
         QueryBudget,
@@ -18,7 +18,7 @@ use super::{
     Error, Hash, VmapLiquidProducts,
 };
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 mod environment;
 
@@ -52,7 +52,7 @@ pub(crate) struct TerrainLiquidReply {
 #[derive(Debug)]
 pub(crate) struct TerrainLiquidSnapshot<'a> {
     binding: SnapshotBinding,
-    products: &'a VmapLiquidProducts,
+    products: WetProducts<'a>,
     liquid: LiquidSnapshot,
     area: TerrainAreaSnapshot<'a>,
     types: LiquidTypes,
@@ -68,9 +68,48 @@ impl VmapLiquidProducts {
         wmo_area_table_dbc: &[u8],
         map_dbc: &[u8],
     ) -> Result<TerrainLiquidSnapshot<'_>, Error> {
+        TerrainLiquidSnapshot::load(
+            WetProducts::Borrowed(self),
+            liquid_type_dbc,
+            area_table_dbc,
+            wmo_area_table_dbc,
+            map_dbc,
+        )
+    }
+
+    /// Own both the liquid reader's products and its area-override dependency.
+    pub(crate) fn load_terrain_wet_liquid_owned(
+        self: Arc<Self>,
+        liquid_type_dbc: &[u8],
+        area_table_dbc: &[u8],
+        wmo_area_table_dbc: &[u8],
+        map_dbc: &[u8],
+    ) -> Result<TerrainLiquidSnapshot<'static>, Error> {
+        TerrainLiquidSnapshot::load(
+            WetProducts::Owned(self),
+            liquid_type_dbc,
+            area_table_dbc,
+            wmo_area_table_dbc,
+            map_dbc,
+        )
+    }
+}
+impl<'a> TerrainLiquidSnapshot<'a> {
+    fn load(
+        products: WetProducts<'a>,
+        liquid_type_dbc: &[u8],
+        area_table_dbc: &[u8],
+        wmo_area_table_dbc: &[u8],
+        map_dbc: &[u8],
+    ) -> Result<Self, Error> {
         let types = LiquidTypes::decode_complete(liquid_type_dbc)?;
-        let liquid = self.load_vmap_liquid()?;
-        let area = self.load_terrain_area(area_table_dbc, wmo_area_table_dbc, map_dbc)?;
+        let liquid = products.load_vmap_liquid()?;
+        let area = TerrainAreaSnapshot::load(
+            products.clone(),
+            area_table_dbc,
+            wmo_area_table_dbc,
+            map_dbc,
+        )?;
         let source = liquid.binding();
         let area_source = area.binding();
         if source.map != area_source.map
@@ -94,7 +133,7 @@ impl VmapLiquidProducts {
                 inventory: source.inventory,
                 policy: policy.finalize().into(),
             },
-            products: self,
+            products,
             liquid,
             area,
             types,
@@ -215,7 +254,7 @@ impl TerrainLiquidSnapshot<'_> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 #[cfg(test)]
 mod oracle_tests;

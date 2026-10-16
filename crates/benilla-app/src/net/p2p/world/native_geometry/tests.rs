@@ -55,6 +55,7 @@ fn session() -> Session {
         static_los: None,
         primary_near_point: None,
         empty_selector_near_point: None,
+        player_environment: None,
     }
 }
 struct Proof(Result<(), Failure>);

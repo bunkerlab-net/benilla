@@ -494,3 +494,26 @@ owner-eye line of sight including M2 geometry, owner water and target water, in
 source order. Active allowed-Z normalization, transports, Home's fresh owner,
 cold-cache initialization and complete movement evidence remain separate. The
 production mailbox and native entry admission remain unchanged.
+
+## Loaded player-environment observations
+
+`SourcePlayerEnvironmentProvider` retains an actual immutable `TerrainLiquidSnapshot`
+and compares its full snapshot binding and decoded LiquidType catalog with the
+explicitly selected runtime owner. `load_terrain_wet_liquid_owned` retains an
+`Arc<VmapLiquidProducts>` for both liquid and area readers; queries need no live
+staging files or leaked allocation, and dropping the reader releases its ownership. Public binding hashes are equality checks, never
+source authenticity. `PlayerEnvironmentPolicy` requires the actual source-initialized
+`PlayerCollisionHeightWitness`, exact world/player/profile/map/content/geometry
+bindings, and the session's matching player body. No body height is inferred from
+combat reach, bounding radius, or a rendering model.
+
+The separately selected mailbox route preserves the complete typed phase query and
+original absolute deadline through the loaded query and reply validation. Missing
+products, unloaded neighboring tiles, source replacement and deadline expiry are
+unavailable, never manufactured `NoWater`. Installing this route does not select
+an environment source for another profile or open native session admission.
+
+The reader can observe actual wet states. Runtime environment reduction separately
+rejects unsupported threat, spell, hazard and mirror-callback transitions before a
+frame commits. An observation is not permission to execute those callbacks or a
+completed Chase water predicate for an unowned target.

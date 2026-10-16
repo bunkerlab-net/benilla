@@ -8,10 +8,10 @@ use super::{
         area::{AreaResult, AreaSnapshot},
         QueryBudget,
     },
-    Error, Hash, InventoriedProducts, PointHeight, VmapLiquidProducts,
+    Error, Hash, PointHeight, VmapLiquidProducts,
 };
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{ops::Deref, sync::Arc, time::Instant};
 
 mod stores;
 use stores::{MapTable, WmoAreaTable};
@@ -77,10 +77,26 @@ pub(crate) struct TerrainAreaReply {
     pub result: TerrainAreaResult,
 }
 
+/// Borrowed readers and retained readers share the same immutable product closure.
+#[derive(Clone, Debug)]
+pub(super) enum WetProducts<'a> {
+    Borrowed(&'a VmapLiquidProducts),
+    Owned(Arc<VmapLiquidProducts>),
+}
+impl Deref for WetProducts<'_> {
+    type Target = VmapLiquidProducts;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(products) => products,
+            Self::Owned(products) => products,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct TerrainAreaSnapshot<'a> {
     binding: SnapshotBinding,
-    products: &'a InventoriedProducts,
+    products: WetProducts<'a>,
     // AreaSnapshot never exposes its wet geometry as a dry conservative reader.
     raw: AreaSnapshot,
     areas: AreaTable,
@@ -97,6 +113,36 @@ impl VmapLiquidProducts {
         wmo_area_table_dbc: &[u8],
         map_dbc: &[u8],
     ) -> Result<TerrainAreaSnapshot<'_>, Error> {
+        TerrainAreaSnapshot::load(
+            WetProducts::Borrowed(self),
+            area_table_dbc,
+            wmo_area_table_dbc,
+            map_dbc,
+        )
+    }
+
+    /// Retain the same actual products; dropping the caller's Arc cannot unload them.
+    pub(crate) fn load_terrain_area_owned(
+        self: Arc<Self>,
+        area_table_dbc: &[u8],
+        wmo_area_table_dbc: &[u8],
+        map_dbc: &[u8],
+    ) -> Result<TerrainAreaSnapshot<'static>, Error> {
+        TerrainAreaSnapshot::load(
+            WetProducts::Owned(self),
+            area_table_dbc,
+            wmo_area_table_dbc,
+            map_dbc,
+        )
+    }
+}
+impl<'a> TerrainAreaSnapshot<'a> {
+    pub(super) fn load(
+        products: WetProducts<'a>,
+        area_table_dbc: &[u8],
+        wmo_area_table_dbc: &[u8],
+        map_dbc: &[u8],
+    ) -> Result<Self, Error> {
         let areas = AreaTable::decode(area_table_dbc)?;
         // The source's inclusive u32 loop wraps when GetNumRows() == UINT32_MAX.
         // Keep this narrower guard local: old GridMap/dry AreaTable policies are unchanged.
@@ -105,7 +151,7 @@ impl VmapLiquidProducts {
         }
         let wmo_areas = WmoAreaTable::decode(wmo_area_table_dbc)?;
         let maps = MapTable::decode(map_dbc)?;
-        let raw = self.load_vmap_area()?;
+        let raw = products.load_vmap_area()?;
         let source = raw.binding();
         let mut policy = Sha256::new();
         policy.update(POLICY);
@@ -121,7 +167,7 @@ impl VmapLiquidProducts {
                 inventory: source.inventory,
                 policy: policy.finalize().into(),
             },
-            products: &self.inventory,
+            products,
             raw,
             areas,
             wmo_areas,
@@ -187,6 +233,7 @@ impl TerrainAreaSnapshot<'_> {
         // invent GetAreaFlagByMapId fallback, even if a WMO could supply an area.
         let tile = self
             .products
+            .inventory
             .terrain(self.binding.map, world_tile(position[0], position[1])?)?;
         let area_info = if let AreaResult::Area { floor, .. } = raw_area {
             budget.take()?;

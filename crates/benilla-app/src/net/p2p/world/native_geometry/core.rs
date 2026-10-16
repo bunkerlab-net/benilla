@@ -10,7 +10,7 @@ use benilla_world_runtime::{
         MotionFacts, MotionQuery, NativeError, Profile, Query, SourceSpellFacts, SourceSpellPhase,
         SourceSpellQuery, SOLO_UNIT,
     },
-    Digest, WorldId,
+    Digest, PlayerId, WorldId,
 };
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use std::{
@@ -270,6 +270,73 @@ impl EmptySelectorNearPointPolicy {
     }
 }
 
+/// Explicit environment selection bound to the actual initialized model owner.
+/// This equality policy cannot authenticate loaded spatial products by itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlayerEnvironmentPolicy {
+    profile: Arc<Profile>,
+    profile_digest: Digest,
+    player: PlayerId,
+    body: Body,
+}
+impl PlayerEnvironmentPolicy {
+    pub(crate) fn from_profile(profile: &Profile, player: PlayerId) -> Result<Self, Failure> {
+        profile.validate().map_err(|_| Failure::Binding)?;
+        profile
+            .player_environment
+            .as_ref()
+            .ok_or(Failure::UnsupportedQuery)?;
+        let height = profile
+            .player_collision_height
+            .as_ref()
+            .ok_or(Failure::UnresolvedBody)?;
+        let body = Body {
+            radius: profile.player.bounding_radius,
+            height: ai::Real::from_bits(height.initial_height().height().bits())
+                .map_err(|_| Failure::UnresolvedBody)?,
+        };
+        if !body.validate() || player.owner == [0; 16] || player.character == [0; 16] {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(Self {
+            profile: Arc::new(profile.clone()),
+            profile_digest: profile.digest(),
+            player,
+            body,
+        })
+    }
+    pub(super) fn check(&self, session: &Session) -> Result<(), Failure> {
+        if self.profile_digest != session.profile
+            || self.profile.map_id != session.map
+            || self.profile.content_digest != session.content
+            || self.profile.geometry_revision != session.geometry
+            || self.profile.authority_policy != session.policy
+        {
+            return Err(Failure::Binding);
+        }
+        if session.player.is_none_or(|p| p.body != self.body) {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(())
+    }
+    fn body(&self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
+        self.check(session)?;
+        let Query::PlayerEnvironment(query) = &request.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        if request.binding.npc.is_some() {
+            return Err(Failure::Binding);
+        }
+        query
+            .validate_for(&self.profile, session.world, self.player)
+            .map_err(|_| Failure::Binding)?;
+        if query.height_witness().height().bits() != self.body.height.bits() {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(self.body)
+    }
+}
+
 /// Local session identity. Digests bind inputs; they do not attest that client collision
 /// equals CMaNGOS VMap data. Production admission must separately verify asset identity.
 #[derive(Clone)]
@@ -286,6 +353,7 @@ pub(crate) struct Session {
     pub static_los: Option<StaticLosPolicy>,
     pub primary_near_point: Option<PrimaryNearPointPolicy>,
     pub empty_selector_near_point: Option<EmptySelectorNearPointPolicy>,
+    pub player_environment: Option<PlayerEnvironmentPolicy>,
 }
 impl Session {
     pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
@@ -301,6 +369,13 @@ impl Session {
         }
         let m = match &request.query {
             Query::Movement(m) => m,
+            Query::PlayerEnvironment(_) => {
+                return self
+                    .player_environment
+                    .as_ref()
+                    .ok_or(Failure::UnsupportedQuery)?
+                    .body(self, request);
+            }
             Query::PlayerMovement {
                 accepted_path,
                 elapsed_ms,
@@ -365,7 +440,7 @@ impl Session {
             .copied()
             .ok_or(Failure::UnresolvedBody)
     }
-    fn check_participants(&self) -> Result<(), Failure> {
+    pub(super) fn check_participants(&self) -> Result<(), Failure> {
         if self
             .participants
             .as_ref()
@@ -386,6 +461,10 @@ impl Session {
             && self.bodies.len() <= 64
             && self.bodies.iter().all(|(id, b)| *id != 0 && b.validate())
             && !(self.primary_near_point.is_some() && self.empty_selector_near_point.is_some())
+            && self
+                .player_environment
+                .as_ref()
+                .is_none_or(|p| p.check(self).is_ok())
             && self
                 .primary_near_point
                 .is_none_or(|p| p.check(self).is_ok())
@@ -657,6 +736,10 @@ fn validate_facts(
 ) -> Result<(), Failure> {
     match (&request.query, facts) {
         (Query::Movement(m), Facts::Movement(outcome)) => validate_outcome(m, outcome),
+        (Query::PlayerEnvironment(query), Facts::PlayerEnvironment(facts)) => {
+            session.body(request)?;
+            facts.validate_for(query).map_err(|_| Failure::Binding)
+        }
         (Query::PlayerMovement { .. }, Facts::PlayerMovement { accepted }) => {
             let player = session.player.ok_or(Failure::UnresolvedBody)?;
             let within_budget = player_path(&request.query, player)?.is_some();
@@ -1003,3 +1086,7 @@ pub(super) fn geometry_revision(
     }
     hash.finalize().into()
 }
+
+#[cfg(test)]
+#[path = "player_environment_mailbox_tests.rs"]
+mod player_environment_mailbox_tests;

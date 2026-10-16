@@ -612,3 +612,43 @@ fn unloaded_static_tree_slots_cannot_be_treated_as_dry_or_missing_water() {
         Err(Error::Missing)
     ));
 }
+
+/// Real loaded products and complete authored WDBC stores for mailbox/controller tests.
+pub(crate) fn authored_player_environment(
+    map: u32,
+    content: Hash,
+) -> TerrainLiquidSnapshot<'static> {
+    authored_player_environment_with_spell(map, content, 0)
+}
+pub(crate) fn authored_player_environment_with_spell(
+    map: u32,
+    content: Hash,
+    spell: u32,
+) -> TerrainLiquidSnapshot<'static> {
+    let (spec, files) = fixture();
+    let (mut spec, files) = remap(spec, files, TileId { x: 32, y: 32 });
+    let old_map = spec.map;
+    spec.map = map;
+    spec.binding.content = content;
+    let files = spec
+        .products
+        .iter()
+        .map(|p| {
+            (
+                p.id.filename(map).unwrap(),
+                files[&p.id.filename(old_map).unwrap()].clone(),
+            )
+        })
+        .collect();
+    let stage = products::Stage::new(&files);
+    let products = Arc::new(VmapLiquidProducts::load(&stage.0, spec).unwrap());
+    drop(stage);
+    products
+        .load_terrain_wet_liquid_owned(
+            &dbc(&[[1, 0, 3, spell]]),
+            &dbc::<25>(&[]),
+            &dbc::<20>(&[]),
+            &dbc::<42>(&[]),
+        )
+        .unwrap()
+}

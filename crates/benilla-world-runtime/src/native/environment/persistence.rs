@@ -6,116 +6,6 @@ const VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) enum EnvironmentPhase {
-    Update {
-        diff_ms: u32,
-    },
-    Position {
-        pose: EnvironmentPose,
-        result: Option<Box<BoundLiquidResult>>,
-    },
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StoredState {
-    flags: u8,
-    timer_ms: u32,
-    last_liquid: Option<u32>,
-    last_position: Option<EnvironmentPose>,
-    cached_query: Option<EnvironmentQuery>,
-    mirrors: [mirror::MirrorTimerSnapshot; 4],
-}
-impl From<&EnvironmentState> for StoredState {
-    fn from(s: &EnvironmentState) -> Self {
-        Self {
-            flags: s.flags,
-            timer_ms: s.timer_ms,
-            last_liquid: s.last_liquid,
-            last_position: s.last_position,
-            cached_query: s.cached_query,
-            mirrors: s.mirrors.each_ref().map(MirrorTimer::snapshot),
-        }
-    }
-}
-impl StoredState {
-    fn restore(
-        self,
-        machine: &EnvironmentMachine,
-        sequence: u64,
-    ) -> Result<EnvironmentState, EnvironmentError> {
-        // Only owned mirror-scale effects execute. Wet/hazard/aura/threat branches
-        // remain unavailable; no started/ticking mirror timers can be imported here.
-        if ![0, LIQUID, LIQUID | HIGH_SEA].contains(&self.flags)
-            || self.timer_ms > REFRESH_MS
-            || self.last_liquid.is_some_and(|id| {
-                id == 0 || machine.catalog.get(id).is_none_or(|r| r.spell_id != 0)
-            })
-        {
-            return Err(EnvironmentError::InvalidCheckpoint);
-        }
-        if let Some(pose) = self.last_position {
-            pose.validate()
-                .map_err(|_| EnvironmentError::InvalidCheckpoint)?;
-        }
-        match self.cached_query {
-            None if self.flags == 0
-                && self.timer_ms == 0
-                && self.last_liquid.is_none()
-                && self.last_position.is_none() => {}
-            Some(q)
-                if q.snapshot == machine.snapshot
-                    && q.ticket != 0
-                    && q.ticket <= sequence
-                    && q.required_type == ALL_LIQUIDS
-                    && self.last_position.is_some() =>
-            {
-                EnvironmentPose {
-                    position: q.position,
-                    collision_height: q.collision_height,
-                }
-                .validate()
-                .map_err(|_| EnvironmentError::InvalidCheckpoint)?;
-                if (self.flags == 0 && self.last_liquid.is_some())
-                    || (q.ticket == sequence
-                        && (self.timer_ms != REFRESH_MS
-                            || self.last_position
-                                != Some(EnvironmentPose {
-                                    position: q.position,
-                                    collision_height: q.collision_height,
-                                })))
-                {
-                    return Err(EnvironmentError::InvalidCheckpoint);
-                }
-            }
-            _ => return Err(EnvironmentError::InvalidCheckpoint),
-        }
-        let mut mirrors = initial_mirrors();
-        if self.flags == LIQUID {
-            let mut regenerated = initial_mirrors();
-            regenerated[0].set_scale(10);
-            if self.mirrors == regenerated.each_ref().map(MirrorTimer::snapshot) {
-                if self.cached_query.is_none_or(|q| q.ticket < 3) {
-                    return Err(EnvironmentError::InvalidCheckpoint);
-                }
-                mirrors = regenerated;
-            }
-        }
-        if self.mirrors != mirrors.each_ref().map(MirrorTimer::snapshot) {
-            return Err(EnvironmentError::InvalidCheckpoint);
-        }
-        Ok(EnvironmentState {
-            mirrors,
-            flags: self.flags,
-            timer_ms: self.timer_ms,
-            last_liquid: self.last_liquid,
-            last_position: self.last_position,
-            cached_query: self.cached_query,
-        })
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct EnvironmentRecord {
     version: u32,
     policy: String,
@@ -166,7 +56,7 @@ pub struct EnvironmentCheckpoint {
     player: crate::PlayerId,
     snapshot: EnvironmentSnapshotBinding,
     sequence: u64,
-    state: StoredState,
+    state: EnvironmentStateSnapshot,
     state_digest: crate::Digest,
     history_tip: crate::Digest,
     checksum: crate::Digest,
@@ -195,7 +85,7 @@ impl EnvironmentMachine {
                 self.player,
                 self.snapshot,
                 sequence,
-                StoredState::from(state),
+                state.snapshot(),
             ),
         )
     }
@@ -210,7 +100,7 @@ impl EnvironmentMachine {
             player: self.player,
             snapshot: self.snapshot,
             sequence: self.sequence,
-            state: StoredState::from(&self.state),
+            state: self.state.snapshot(),
             state_digest: self.state_digest(),
             history_tip: self.tip,
             checksum: [0; 32],
@@ -245,7 +135,10 @@ impl EnvironmentMachine {
             return Err(EnvironmentError::InvalidCheckpoint);
         }
         let mut machine = Self::new(snapshot, world, player, catalog)?;
-        machine.state = checkpoint.state.restore(&machine, checkpoint.sequence)?;
+        machine.state =
+            checkpoint
+                .state
+                .restore(snapshot, &machine.catalog, checkpoint.sequence)?;
         machine.sequence = checkpoint.sequence;
         machine.tip = checkpoint.history_tip;
         if machine.state_digest() != checkpoint.state_digest {

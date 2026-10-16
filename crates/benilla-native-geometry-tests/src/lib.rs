@@ -136,3 +136,6 @@ mod source_route_warm_cache;
 mod source_route_straight_path;
 
 mod production_item_order;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_player_environment.rs"]
+mod source_player_environment;

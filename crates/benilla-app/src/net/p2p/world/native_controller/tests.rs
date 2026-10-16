@@ -1011,3 +1011,6 @@ mod npc_spell_tests;
 
 #[path = "level_sixty_tests.rs"]
 mod level_sixty_tests;
+
+#[path = "player_environment_tests.rs"]
+mod player_environment_tests;

@@ -1,6 +1,6 @@
 # Cached player environment component
 
-`native::environment` is a standalone, opt-in GPL-3.0-or-later port of the
+`native::environment` is a shared, opt-in GPL-3.0-or-later port of the
 CMaNGOS Classic revision
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f` player environment reducer.
 Upstream is GPL-2.0-or-later, copyright CMaNGOS contributors. Source anchors:
@@ -88,13 +88,16 @@ spell-bearing remembered rows, or active mirror states through an environment
 checkpoint. A private `cfg(test)` fully owned synthetic host exercises the wider
 reducer and staged host rollback; it is not the game's effect implementation.
 
-There is no Engine/NativeWorld/Profile default change, live world-feed producer,
-NPC accessibility admission, spell/threat authority, damage/drowning/fatigue
-implementation, or playable-world claim. Full callback implementations are
+The standalone component does not supply a live world-feed producer, NPC
+accessibility admission, spell/threat authority, damage/drowning/fatigue
+implementation, or playable-world claim. The explicit native owner below has a
+narrower callback-free domain. Full callback implementations are
 follow-on engineering work, not implicitly denied permission. Concrete seams:
 
-- Threat updates need the actual hostile-reference set and source creature
-  water/land accessibility, not guessed CanSwim/CanWalk or InhabitType
+- Threat updates need the actual hostile-reference container lifecycle:
+  HostileRefManager::updateThreatTables calls HostileReference::updateOnlineStatus,
+  which consults Unit::IsOfflineTarget (successful feign death). Creature
+  Unit::isInAccessablePlaceFor is a separate water/land accessibility path
 - Aura interrupts/removal/HasAura need the real ordered holder lifecycle and
   complete interrupt/spell metadata; removal must affect later same-spell queries
 - Mirror scaling now mutates owned persistent source timer state. Starting/ticking
@@ -103,7 +106,65 @@ follow-on engineering work, not implicitly denied permission. Concrete seams:
 - Triggered self-casts need genuine spell catalog and the source spell/event
   lifecycle; an emitted cast intent cannot substitute for execution
 
+## Native owned cache
+
+`Profile::initialize_player_environment` explicitly selects the source snapshot
+and complete liquid catalog only after genuine loaded player model-height
+ownership. The optional field has no dry fallback. `NativeWorld` owns private
+reducer state, a monotone phase sequence, the last countdown tick, and the latest accepted full pose;
+it does not embed `EnvironmentMachine` or accumulate a second journal.
+
+`Frame::pose` executes the phase after accepted relocation and orientation,
+including unchanged and turn-only inputs, preserving every pose in batch order.
+Rejected or dead movement has no position phase. After commands and player
+reactives, the frame decrements once before NPC processing, including empty
+batches and dead-player updates. Expiry only zeros the timer. This bounded
+ordering does not implement complete Map/Player::Update or SetPosition parity.
+
+A due `Query::PlayerEnvironment` binds world, player, current profile and geometry,
+source snapshot/epoch/inventory/policy/catalog, owned model-height witness,
+phase sequence, before-cache digest, and exact current position/orientation.
+`Facts::PlayerEnvironment` must echo the entire query and raw liquid result.
+Native events retain each position phase's input sequence and one countdown
+receipt. Existing staged native replay covers requests, facts, ordered receipts
+and full state; later NPC/RNG/checkpoint failures discard the entire staged frame.
+
+The native domain accepts initial/repeated NoWater, and callback-free nonhazardous
+AboveWater/WaterWalk observations from the selected provider. Wet, hazardous,
+high-sea and spell-bearing results remain closed because their player callback
+and mirror activation/expiration lifecycles are absent. Even an above-water to
+NoWater transition fails when the source combined clear requires threat/aura
+callbacks. No placeholder predicate or callback receipt substitutes for execution.
+
+Chase route requests carry a frozen `PlayerEnvironmentTarget` dependency for the
+last `!i_target->IsInWater()` clause of TargetedMovementGenerator.cpp:502. It uses
+the cached IN_WATER environment bit, not a new sample at the current target pose.
+The latest accepted full pose is checked independently of the historical cached
+query. The sampling tick must match the route clock, with bounded sequence and
+phase-specific timer state; an older same-pose cache cannot be transplanted into
+a later route. Synchronous player AINotify/combat callbacks may start Chase before
+the countdown. Witnesses bind BeforeCountdown/AfterCountdown against the owned
+last countdown tick rather than moving that source callback or timer phase. Distance, vertical, LOS, owner-water and complete source dispatch remain
+separate dependencies; this witness does not select straightPath or certify that
+the complete Chase gate ran. Home and Backpedal carry explicit absence.
+
+Native format 27 and `benilla-native-owned-player-environment-v27` include the
+optional owned cache, required optional latest-pose and route-witness fields,
+and v27 profile/state/record/checkpoint/melee domains. Missing fields and older
+native checkpoints reject rather than fabricate initial state. Independent
+component v2 encoding, exploration character data and raw native admission stay
+unchanged. Hashes establish consistency, never historical authenticity; complete
+journal replay is required to verify the supplied history.
+
 ## Independent persistence and evidence
+
+The crate-private state reducer stages one phase and returns owned state plus
+a checked monotone sequence; it owns no journal or external callback host.
+Initialization, query construction and validated snapshots share that boundary.
+The standalone `EnvironmentMachine` wraps it with its existing atomic journal
+limits and v2 encoding. Native lifecycle guards are separate and narrower: they
+reject wet/hazard/high-sea phases and noninitial mirrors without changing the
+standalone component's supported source transitions.
 
 Component checkpoint/journal formats have their own version/policy and do not
 change native world saves. Environment component v2 deliberately rejects v1
