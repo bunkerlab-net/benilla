@@ -42,9 +42,9 @@ fn rehashed(w: &NativeWorld, edit: impl FnOnce(&mut serde_json::Value)) -> Check
     let mut state = serde_json::to_value(&c.state).unwrap();
     edit(&mut state);
     c.state = serde_json::from_value(state).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v31\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v33\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v31\0",
+        b"benilla-native-checkpoint-v33\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -76,6 +76,8 @@ fn height_is_explicitly_derived_from_owned_width_source_and_updates_motion_atomi
         height.height().bits(),
         p.source_motion
             .as_ref()
+            .unwrap()
+            .npc(2)
             .unwrap()
             .npc_policy
             .settings
@@ -206,6 +208,9 @@ fn missing_sources_and_changed_width_catalog_or_motion_scalar_cannot_mint_height
                 changed
                     .source_motion
                     .as_mut()
+                    .unwrap()
+                    .npcs
+                    .get_mut(&2)
                     .unwrap()
                     .npc_policy
                     .settings
@@ -346,6 +351,9 @@ fn forged_route_height_owner_identity_width_or_motion_scalar_is_rejected() {
     other_profile
         .source_motion
         .as_mut()
+        .unwrap()
+        .npcs
+        .get_mut(&2)
         .unwrap()
         .npc_policy
         .settings
@@ -517,7 +525,7 @@ fn native25_and_all_earlier_checkpoints_records_and_replay_are_refused() {
         assert!(replay.replay(&records).is_err());
         assert_eq!(replay.checkpoint().unwrap(), initial);
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 31);
+    assert_eq!(NATIVE_FORMAT_VERSION, 33);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -540,6 +548,8 @@ fn retained_spline_route_height_cannot_diverge_from_profile_even_when_rehashed()
             w.profile()
                 .source_motion
                 .as_ref()
+                .unwrap()
+                .npc(2)
                 .unwrap()
                 .npc_policy
                 .settings

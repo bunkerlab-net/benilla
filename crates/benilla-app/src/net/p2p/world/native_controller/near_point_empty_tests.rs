@@ -138,7 +138,7 @@ fn assert_exact_spline(
     let mut spline = motion::LinearSpline::launch(
         vec![data.npcs[0].ai.spawn, expected],
         data.npcs[0].ai.spawn,
-        data.source_motion.as_ref().unwrap().npc_policy.run_speed,
+        data.npc_motion(2).unwrap().npc_policy.run_speed,
     )
     .unwrap();
     spline.advance(data.tick_ms);

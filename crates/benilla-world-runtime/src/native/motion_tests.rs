@@ -113,6 +113,9 @@ fn source_initial_policy_rejects_unknown_current_domain_and_legacy_cannot_claim_
     p.source_motion
         .as_mut()
         .unwrap()
+        .npcs
+        .get_mut(&2)
+        .unwrap()
         .npc_policy
         .audit
         .speed_auras = m::Evidence::Unknown;
@@ -473,7 +476,7 @@ fn source_set_in_front_precedes_native_melee_and_does_not_relocate() {
         let mut p = f::initialized_profile();
         p.npcs[0].ai.spawn = f::point(2.0);
         p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
-        let mut g = fixture::genesis(&p);
+        let mut g = fixture::genesis(&p, 2);
         g.creature_initial_aggro_delay_ms = 0;
         p.source_motion = Some(g);
         let mut w = NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap();
@@ -528,9 +531,9 @@ fn altered_checkpoint(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Valu
     let mut value = serde_json::to_value(&checkpoint.state).unwrap();
     mutate(&mut value);
     checkpoint.state = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v31\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v33\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v31\0",
+        b"benilla-native-checkpoint-v33\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint
@@ -539,8 +542,13 @@ fn altered_checkpoint(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Valu
 fn source_restore_rejects_rehashed_phase_clock_flags_and_notify_claims() {
     let mut p = fixture::profile();
     p.npcs[0].ai.hard_leash_radius = Some(f::real(5.0));
-    p.source_motion.as_mut().unwrap().npc_spawn_orientation =
-        Orientation::new(-std::f32::consts::TAU).unwrap();
+    p.source_motion
+        .as_mut()
+        .unwrap()
+        .npcs
+        .get_mut(&2)
+        .unwrap()
+        .npc_spawn_orientation = Orientation::new(-std::f32::consts::TAU).unwrap();
     let mut w = NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap();
     let mut a = fixture::SyntheticMotionAuthority::default();
     step(&mut w, &mut a);
@@ -684,7 +692,7 @@ fn source_initial_player_passives_keep_raw_interrupt_flags_and_reject_unported_r
             interrupt_flags
         );
         NativeWorld::synthetic_component_test(p.clone(), [8; 16], f::player(), 1234).unwrap();
-        p.source_motion = Some(fixture::genesis(&p));
+        p.source_motion = Some(fixture::genesis(&p, 2));
         if interrupt_flags == 0 {
             NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap();
         } else {

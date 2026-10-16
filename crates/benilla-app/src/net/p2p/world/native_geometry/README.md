@@ -704,11 +704,45 @@ an exact authenticated runtime next-prior can select one; serialized references
 cannot recreate it. Exact request retries repeat source observations and cold
 constructor work but reuse the identical immutable candidate. No ancestor is
 pruned on resolve or on observing a later prior, because another operation in the
-same outer frame can still fail. Saturation is unavailable, never eviction. A
-future explicit committed-frame acknowledgement belongs immediately after the
-controller's successful `world.step_batch`, before pending input retirement or
-projection; projection/checkpoint retry must never calculate again. Loaded native
-rehydration after reopening remains separately unsupported.
+same outer frame can still fail. Saturation is unavailable, never eviction.
+A committed head counts toward the same total cap of four; after acknowledgement
+it leaves room for at most three uncommitted candidates. Loaded native rehydration
+after reopening remains separately unsupported.
+
+The app geometry identity is `benilla-owned-dry-same-polygon-chase-commit-v2`,
+including the outer-commit acknowledgement and total-cap-four policy. The earlier
+uncommitted-proposal identity is incompatible. Commit-head delivery itself does not
+alter the native payload schema; the current payload is format 32 for per-owner
+motion genesis.
+`install_with_same_polygon` returns a proposal authority and an explicit paired
+commit sink. The selected mailbox refuses queries until the controller attaches
+that sink at the actual cache-free world boundary. A fresh opaque attachment and
+the existing mailbox cancellation fence prevent equal-byte installations from
+transferring ownership.
+
+Immediately after successful `step_batch` and input retirement, the controller
+captures an app-local nonserializable notice from that exact record and final
+current Chase caches. It does so before projection/checkpoint can clear the
+journal. The notice binds each consecutive tick, previous record, before/after
+state, ordered Route replies and current owner/construction/cache, including
+explicit absence. Successful calculation, concrete certification and reply
+transmission remain speculative. Only this notice can acknowledge their use.
+
+On its NonSend owner thread the provider validates the complete exact certified
+chain and final current cache before atomically retaining the actual final native
+candidate and pruning obsolete speculation. Historical spline prior-cache DTOs
+remain unchanged and cannot select the current head. Exact duplicate notices are
+idempotent; stale, skipped, wrong-attachment or mismatched notices cannot prune.
+The committed watermark rejects delayed calculations before candidate staging.
+Constructor-registry churn and its existing lifetime bound are unchanged.
+
+Control notices share the explicit service work allowance but do not need current
+terrain coverage or `WorldLive`. The controller retains at most one pending
+notice and blocks another tick behind it. A failed delivery has its own
+`CommittedAwaitingRouteAck` pause and retries only that exact notice, never the
+committed inputs. Projection and checkpoint failures preserve the captured notice
+and committed world, while required projection/outbox work retains priority.
+Shutdown may save and release the session; it does not rehydrate loaded queries.
 
 The engine-free harness executes this composition from actual runtime callbacks
 and observes unchanged world checkpoints when the callback refuses the final
@@ -741,13 +775,38 @@ composite binds their actual revisions/configuration under one geometry identity
 it cannot relabel a provider with an arbitrary matching hash. The headless harness
 executes genuine NearPoint and source-order callbacks but cannot certify a Route.
 App-only tests exercise the real physics resolver and installed Service/mailbox
-first calculation, failed-frame retry with a fresh live dispatch, and retained
-replan. Those app tests require full Bevy/system-library CI and are unverified in
+first calculation, failed-frame retry with a fresh live dispatch, retained
+replans beyond the total candidate cap, exact native candidate promotion, stale
+acknowledgement/callback refusal, real corridor failure, and cap saturation without
+eviction followed by an exact retry, and actual spell-death/cache-free respawn
+pruning. Those app tests require full Bevy/system-library CI and are unverified in
 the local environment without `libudev.pc`.
 
 The authored runtime/transport tests still use explicitly synthetic unrelated
 combat and other non-geometry callbacks; they do not admit a production session.
 Native checkpoint serialization is distinct from loaded-cache rehydration, which
-remains closed. No controller/store durable-session or reopen success is implied.
-The four-candidate bound and missing explicit commit acknowledgement mean this
-first-route slice is not sustained gameplay.
+remains closed. Controller tests exercise actual projection/checkpoint failures,
+committed input retirement, record chaining after journal clearing, and the distinct
+acknowledgement retry barrier using an explicit authored sink; they do not substitute
+for the real physics/Service tests. This bounded lifecycle sustains same-polygon
+replanning across acknowledged ticks, not arbitrary per-tick chains, generator
+churn, multi-polygon navigation, saved-query rehydration or production admission.
+
+The sustained authored trajectory keeps the selected combat host's required
+backpedal policy and fanning behavior. It waits for actual spline completion,
+then moves stopped-target pose samples along two rectangle axes chosen from the
+current owner/target offset. The fixed component stays above the source backpedal
+threshold; the far corner exceeds combined reach. Every resulting Route origin
+and goal is checked against the fixture's first convex polygon. Non-Route combat,
+bearing and Collider(None) observations remain explicitly authored fixtures.
+
+A successful multi-Route same-generator batch is not claimed by this selected
+Complete-only test path. `NativeWorld::step_batch` applies all commands before
+source event/motion updates. `start_chase` reuses an existing Chase without a
+calculation; a new Complete ChaseInitial launches its half-reach endpoint, so the
+same-frame recheck cannot exceed combined reach. The one later `update_chase`
+dispatch returns after launch. No live runtime caller sets `speed_changed` in this
+bounded host. The acknowledgement validator still checks an ordered full chain,
+but no manufactured candidate/notice chain substitutes for a reachable source
+execution. The cache-free respawn test stops before a new constructor: it proves
+obsolete-owner pruning, not constructor-registry churn support.

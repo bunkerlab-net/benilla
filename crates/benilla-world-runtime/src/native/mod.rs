@@ -60,18 +60,24 @@ pub use player_events::{
 pub mod equipment;
 pub use combat::*;
 mod interactions;
+mod source_visitors;
+#[cfg(test)]
+mod two_owner_visitor_tests;
+pub use source_visitors::*;
 mod model;
 mod motion;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_two_owner_fixture;
 pub use interactions::{
     CombatAuthorityCatalog, CombatFacts, CombatPhase, CombatQuery, CombatRequest, CombatWitness,
     FacingNumericPolicy, InteractionAudit, InteractionCatalog, InteractionControlSeed,
     InteractionEvidence, InteractionFactionSource, InteractionInput, InteractionMoment,
     InteractionWitness, MeleeCombatFacts, MeleeEntryFacts, NpcCombatAuthoritySource,
-    NpcInteractionSource, NpcSemanticFacts, NpcSpellSource, PlayerInteractionSource,
-    SourceSpellFacts, SourceSpellPhase, SourceSpellQuery, SourceSpellRequest,
-    SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource, SpellCastTimeSource,
-    SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult, SpellRangeSource,
-    SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
+    NpcInteractionSource, NpcSemanticFacts, NpcSpellSource, PeerSightDisposition,
+    PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase, SourceSpellQuery,
+    SourceSpellRequest, SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource,
+    SpellCastTimeSource, SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult,
+    SpellRangeSource, SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
     SPELL_AUTHORITY_POLICY,
 };
 pub use motion::*;
@@ -89,8 +95,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 31;
-pub const NATIVE_POLICY: &str = "benilla-native-first-owned-pathfinder-cache-v31";
+pub const NATIVE_FORMAT_VERSION: u32 = 33;
+pub const NATIVE_POLICY: &str = "benilla-native-complete-source-visitors-v33";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -314,7 +320,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v31\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v33\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest
@@ -427,6 +433,8 @@ mod reputation_tests;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_reputation_fixture;
 
+#[cfg(test)]
+mod motion_genesis_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(any(test, feature = "synthetic-native-tests"))]

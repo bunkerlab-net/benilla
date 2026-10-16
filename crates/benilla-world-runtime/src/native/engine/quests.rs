@@ -403,7 +403,7 @@ impl NativeWorld {
             events: vec![],
             draws: vec![],
             receipts: BTreeMap::new(),
-            source_inside_alive_unit: false,
+            source_alive_unit: None,
             moved: false,
             cast_inputs: BTreeMap::new(),
             movement_origin: self.state.position,

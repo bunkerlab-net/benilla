@@ -146,5 +146,10 @@ mod source_route_chase_gate;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_pathfinder_query.rs"]
 mod source_pathfinder_query;
 
+#[allow(dead_code)] // Certification and native-object inspection also serve app-only fixture tests.
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_same_polygon.rs"]
 mod source_route_same_polygon;
+
+#[allow(dead_code)]
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/route_commit.rs"]
+mod route_commit;

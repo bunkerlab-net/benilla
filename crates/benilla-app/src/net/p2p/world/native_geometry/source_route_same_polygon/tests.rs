@@ -410,7 +410,7 @@ pub(crate) fn source_session(p: &Profile) -> Session {
             2,
             Body {
                 radius: p.npcs[0].ai.bounding_radius,
-                height: source.npc_policy.settings.collision_height,
+                height: source.npc(2).unwrap().npc_policy.settings.collision_height,
             },
         )]),
         player: Some(PlayerMotion {
@@ -539,6 +539,74 @@ fn shared_components_execute_genuine_near_point_before_source_ordered_route() {
         route.request.binding.query_id += 1;
     }
     assert!(consumer.session.body(&changed).is_err());
+}
+
+#[test]
+fn commit_boundary_tracks_no_route_records_and_rejects_other_attachments_atomically() {
+    let mut setup = setup(config());
+    let boundary = RouteCommitBoundary::capture_initial(&setup.world).unwrap();
+    setup
+        .routes
+        .initialize_commit(&setup.session, &boundary)
+        .unwrap();
+    setup
+        .routes
+        .initialize_commit(&setup.session, &boundary)
+        .unwrap();
+    let other = RouteCommitBoundary::capture_initial(&setup.world).unwrap();
+    assert_ne!(boundary.session(), other.session());
+    assert_eq!(
+        setup.routes.initialize_commit(&setup.session, &other),
+        Err(Failure::Binding)
+    );
+    let (world, mut consumer) = consumer(&mut setup);
+    world.step(1, None, &mut consumer).unwrap();
+    assert!(
+        consumer.requests.is_empty(),
+        "initial activation tick is route-free"
+    );
+    let notice = RouteCommitNotice::capture(world, &boundary).unwrap();
+    let wrong_session = RouteCommitNotice::capture(world, &other).unwrap();
+    assert!(notice.routes().is_empty());
+    assert_eq!(
+        consumer
+            .routes
+            .acknowledge(consumer.session, &wrong_session),
+        Err(Failure::Binding)
+    );
+    assert_eq!(consumer.routes.committed_boundary.as_ref(), Some(&boundary));
+    consumer
+        .routes
+        .acknowledge(consumer.session, &notice)
+        .unwrap();
+    consumer
+        .routes
+        .acknowledge(consumer.session, &notice)
+        .unwrap();
+    assert_eq!(
+        consumer.routes.committed_boundary.as_ref(),
+        Some(notice.boundary())
+    );
+    assert_eq!(consumer.routes.retained_candidate_count(), 0);
+    assert!(consumer.routes.committed_candidate().is_none());
+}
+
+#[test]
+fn legacy_uncommitted_geometry_identity_cannot_initialize_commit_session() {
+    let mut setup = setup(config());
+    let legacy = setup.routes.binding.geometry_revision_for_policy(
+        b"benilla-owned-dry-same-polygon-chase-proposal-v1",
+        b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;uncommitted",
+    ).unwrap();
+    assert_ne!(legacy, setup.session.geometry);
+    let boundary = RouteCommitBoundary::capture_initial(&setup.world).unwrap();
+    let mut legacy_session = setup.session.clone();
+    legacy_session.geometry = legacy;
+    assert_eq!(
+        setup.routes.initialize_commit(&legacy_session, &boundary),
+        Err(Failure::Binding)
+    );
+    assert!(setup.routes.committed_boundary.is_none());
 }
 
 #[test]

@@ -55,6 +55,7 @@ pub fn profile() -> Profile {
         admin: None,
         player_slow: None,
         source_motion: None,
+        source_visitors: None,
         creature_capabilities: None,
         creature_collision_widths: None,
         creature_collision_heights: None,

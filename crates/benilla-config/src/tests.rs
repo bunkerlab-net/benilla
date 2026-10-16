@@ -354,3 +354,41 @@ fn exploration_timezone_defaults_validates_and_never_echoes_bad_input() {
         assert!(!error.to_string().contains(TEST_PASSPHRASE));
     }
 }
+
+#[test]
+fn classic_start_capture_directory_is_optional_and_executable_relative_without_io() {
+    assert!(parse(&config(""))
+        .unwrap()
+        .p2p
+        .unwrap()
+        .classic_start_captures
+        .is_none());
+    let parsed = parse(&config(
+        "classic_start_captures = 'benilla-config/classic-starts'",
+    ))
+    .unwrap();
+    assert_eq!(
+        parsed.p2p.unwrap().classic_start_captures,
+        Some(fixture_directory().join("benilla-config/classic-starts"))
+    );
+    let absolute = fixture_directory().join("missing-start-captures");
+    let field = format!(
+        "classic_start_captures = {}",
+        toml::Value::String(absolute.to_string_lossy().into_owned())
+    );
+    assert_eq!(
+        parse(&config(&field))
+            .unwrap()
+            .p2p
+            .unwrap()
+            .classic_start_captures,
+        Some(absolute)
+    );
+    for invalid in [
+        "classic_start_captures = ''",
+        "classic_start_captures = 42",
+        "classic_start_captures = ['unexpected']",
+    ] {
+        assert!(parse(&config(invalid)).is_err());
+    }
+}

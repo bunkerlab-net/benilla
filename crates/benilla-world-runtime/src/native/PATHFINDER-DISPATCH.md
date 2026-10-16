@@ -46,18 +46,20 @@ contract accepts a typed Complete NORMAL claim only with the first dispatch and
 revision one; actual source/query/geometry proof remains the app provider's duty.
 Production native session admission stays closed.
 
-The mutable simulation identity is staged with motion/world state. An authority,
-subsequent frame, or store-publication failure does not commit it. Retrying the
-same frame regenerates identical evidence with a fresh live claim, so a failed
-attempt cannot burn future legitimate construction. A provider's dependency-only
-lease is not committed world state or a successful Route calculation.
+The mutable simulation identity is staged with motion/world state. An authority
+error or later failure inside `step_batch` discards that staged identity. Once
+`step_batch` succeeds, the identity is committed in memory; later projection or
+checkpoint failures do not roll it back or permit replaying its inputs. Retrying
+an uncommitted frame regenerates identical evidence with a fresh live claim. A
+provider's dependency-only lease is not itself committed world state or a
+successful Route calculation.
 
 ## Persistence contract
 
-Native format **31**, `benilla-native-first-owned-pathfinder-cache-v31`, and
+Native format **33**, `benilla-native-complete-source-visitors-v33`, and
 motion policy `cmangos-8ec338a1-ground-linear-motion-first-owned-cache-v3` bind
 the first source-cache contract and constructor lifecycle. Profile/state/record/
-checkpoint/melee digest domains are v31. Native30/motion2 and earlier are rejected;
+checkpoint/melee digest domains are v33. Native32 and earlier are rejected;
 no migration or serde default invents evidence.
 MotionSnapshot also requires its exact policy, including Idle snapshots.
 The new simulation snapshot/request options and native Route option are required

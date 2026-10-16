@@ -24,7 +24,7 @@ pub fn unowned_profile() -> Profile {
     let mut p = f::initialized_profile();
     p.npcs[0].ai.spawn = f::point(8.0);
     p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
-    p.source_motion = Some(motion::genesis(&p));
+    p.source_motion = Some(motion::genesis(&p, 2));
     p.initialize_creature_capabilities(motion::creature_capability_sources(&p))
         .unwrap();
     p

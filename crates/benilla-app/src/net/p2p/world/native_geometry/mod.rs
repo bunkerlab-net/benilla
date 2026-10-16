@@ -9,6 +9,7 @@ pub(super) mod core;
 mod products;
 #[cfg(test)]
 pub(crate) mod real_corridor_fixture;
+pub(crate) mod route_commit;
 mod source_ground_height;
 mod source_navigation;
 mod source_near_point;
@@ -187,7 +188,10 @@ pub(crate) fn install_with_same_polygon(
     profile: &benilla_world_runtime::native::Profile,
     player: benilla_world_runtime::PlayerId,
     products: source_route_same_polygon::SamePolygonProducts,
-) -> Result<LocalAuthority, source_route_same_polygon::SamePolygonError> {
+) -> Result<
+    (LocalAuthority, core::MailboxRouteCommitSink),
+    source_route_same_polygon::SamePolygonError,
+> {
     if session.empty_selector_near_point.is_some() {
         return Err(Failure::UnsupportedQuery.into());
     }
@@ -201,7 +205,8 @@ pub(crate) fn install_with_same_polygon(
         products.binding()?,
     )?);
     let providers = products.bind(&session, profile, player)?;
-    let (authority, mailbox) = core::mailbox(session)?;
+    let (mut authority, mailbox) = core::mailbox(session)?;
+    let sink = authority.take_route_commit_sink().ok_or(Failure::Binding)?;
     world.insert_non_send_resource(Service {
         mailbox,
         budget: default(),
@@ -212,7 +217,7 @@ pub(crate) fn install_with_same_polygon(
         player_environment: Some(providers.environment),
         same_polygon_route: Some(providers.route),
     });
-    Ok(authority)
+    Ok((authority, sink))
 }
 
 pub(crate) fn uninstall(world: &mut World) {
@@ -262,98 +267,110 @@ fn process(
         same_polygon_route,
         ..
     } = &mut **service;
-    let used = mailbox.serve_validated_queries_until(allowance, |validated, deadline| {
-        let session = validated.session();
-        let request = validated.request();
-        let body = validated.body();
-        if !live.0 {
-            return Err(Failure::MissingGeometry);
-        }
-        if matches!(&request.query, Query::PlayerEnvironment(_)) {
-            return player_environment
-                .as_ref()
-                .ok_or(Failure::MissingGeometry)?
-                .resolve(session, request, deadline);
-        }
-        if matches!(
-            &request.query,
-            Query::SourceMotion(benilla_world_runtime::native::MotionQuery::NearPoint(_))
-        ) {
-            if let Some(provider) = empty_selector.as_ref() {
-                return provider.resolve(session, request, deadline);
+    let controls = mailbox.serve_route_commits(allowance, |session, command| {
+        let provider = same_polygon_route
+            .as_mut()
+            .ok_or(Failure::UnsupportedQuery)?;
+        match command {
+            core::RouteCommitCommand::Initialize(boundary) => {
+                provider.initialize_commit(session, boundary)
             }
-            return primary_near_point
-                .as_ref()
-                .ok_or(Failure::MissingGeometry)?
-                .resolve(session, request, deadline);
+            core::RouteCommitCommand::Commit(notice) => provider.acknowledge(session, notice),
         }
-        if matches!(
-            &request.query,
-            Query::SourceSpell(benilla_world_runtime::native::SourceSpellQuery::LineOfSight(_))
-                | Query::SourceMotion(benilla_world_runtime::native::MotionQuery::Combat(
-                    benilla_world_runtime::native::CombatQuery::NpcLineOfSight(_)
-                ))
-        ) {
-            return if let Some(provider) = navigation.as_ref() {
-                provider.line_of_sight(session, request, deadline)
-            } else if let Some(provider) = vmap.as_ref() {
-                provider.line_of_sight(session, request, deadline)
-            } else {
-                Err(Failure::MissingGeometry)
-            };
-        }
-        if matches!(
-            &request.query,
-            Query::SourceMotion(benilla_world_runtime::native::MotionQuery::Route(_))
-        ) {
-            let provider = same_polygon_route
-                .as_mut()
-                .ok_or(Failure::MissingGeometry)?;
+    });
+    let used = controls
+        + mailbox.serve_validated_queries_until(allowance - controls, |validated, deadline| {
+            let session = validated.session();
+            let request = validated.request();
+            let body = validated.body();
+            if !live.0 {
+                return Err(Failure::MissingGeometry);
+            }
+            if matches!(&request.query, Query::PlayerEnvironment(_)) {
+                return player_environment
+                    .as_ref()
+                    .ok_or(Failure::MissingGeometry)?
+                    .resolve(session, request, deadline);
+            }
+            if matches!(
+                &request.query,
+                Query::SourceMotion(benilla_world_runtime::native::MotionQuery::NearPoint(_))
+            ) {
+                if let Some(provider) = empty_selector.as_ref() {
+                    return provider.resolve(session, request, deadline);
+                }
+                return primary_near_point
+                    .as_ref()
+                    .ok_or(Failure::MissingGeometry)?
+                    .resolve(session, request, deadline);
+            }
+            if matches!(
+                &request.query,
+                Query::SourceSpell(benilla_world_runtime::native::SourceSpellQuery::LineOfSight(_))
+                    | Query::SourceMotion(benilla_world_runtime::native::MotionQuery::Combat(
+                        benilla_world_runtime::native::CombatQuery::NpcLineOfSight(_)
+                    ))
+            ) {
+                return if let Some(provider) = navigation.as_ref() {
+                    provider.line_of_sight(session, request, deadline)
+                } else if let Some(provider) = vmap.as_ref() {
+                    provider.line_of_sight(session, request, deadline)
+                } else {
+                    Err(Failure::MissingGeometry)
+                };
+            }
+            if matches!(
+                &request.query,
+                Query::SourceMotion(benilla_world_runtime::native::MotionQuery::Route(_))
+            ) {
+                let provider = same_polygon_route
+                    .as_mut()
+                    .ok_or(Failure::MissingGeometry)?;
+                let mut corridor = LocalCorridor {
+                    terrain: &terrain,
+                    collision: &collision,
+                    spatial: &spatial,
+                    map: session.map,
+                    revision: provider.raw_geometry(),
+                };
+                return source_route_same_polygon_local::resolve_validated(
+                    provider,
+                    validated,
+                    &mut corridor,
+                    1,
+                    deadline,
+                )
+                .map_err(|error| {
+                    #[cfg(test)]
+                    eprintln!(
+                        "native geometry service route failure: tick={} error={error:?} deadline_expired={}",
+                        request.binding.tick,
+                        std::time::Instant::now() >= deadline,
+                    );
+                    error.failure()
+                });
+            }
             let mut corridor = LocalCorridor {
                 terrain: &terrain,
                 collision: &collision,
                 spatial: &spatial,
                 map: session.map,
-                revision: provider.raw_geometry(),
+                revision: navigation
+                    .as_ref()
+                    .map(|nav| nav.raw_geometry())
+                    .or_else(|| vmap.as_ref().map(|vmap| vmap.raw_geometry()))
+                    .unwrap_or(session.geometry),
             };
-            return source_route_same_polygon_local::resolve_validated(
-                provider,
-                validated,
-                &mut corridor,
-                1,
-                deadline,
-            )
-            .map_err(|error| {
-                #[cfg(test)]
-                eprintln!(
-                    "native geometry service route failure: tick={} error={error:?} deadline_expired={}",
-                    request.binding.tick,
-                    std::time::Instant::now() >= deadline,
-                );
-                error.failure()
-            });
-        }
-        let mut corridor = LocalCorridor {
-            terrain: &terrain,
-            collision: &collision,
-            spatial: &spatial,
-            map: session.map,
-            revision: navigation
-                .as_ref()
-                .map(|nav| nav.raw_geometry())
-                .or_else(|| vmap.as_ref().map(|vmap| vmap.raw_geometry()))
-                .unwrap_or(session.geometry),
-        };
-        if let Some(provider) = navigation.as_ref() {
-            let mut corridor = provider.corridor(session, request, corridor, deadline)?;
-            resolve_query(session, request, body, &mut corridor)
-        } else if let Some(provider) = vmap.as_ref() {
-            let mut corridor = provider.corridor(session, request, corridor, deadline)?;
-            resolve_query(session, request, body, &mut corridor)
-        } else {
-            resolve_query(session, request, body, &mut corridor)
-        }
-    });
+            if let Some(provider) = navigation.as_ref() {
+                let mut corridor = provider.corridor(session, request, corridor, deadline)?;
+                resolve_query(session, request, body, &mut corridor)
+            } else if let Some(provider) = vmap.as_ref() {
+                let mut corridor = provider.corridor(session, request, corridor, deadline)?;
+                resolve_query(session, request, body, &mut corridor)
+            } else {
+                resolve_query(session, request, body, &mut corridor)
+            }
+        });
     service.budget.spend(used);
 }
 

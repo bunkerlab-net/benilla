@@ -66,7 +66,7 @@ fn profile() -> Profile {
     p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
     p.npcs[0].faction_template = 2;
     p.player.start = point(-400., -390., 0.);
-    p.source_motion = Some(motion_fixture::genesis(&p));
+    p.source_motion = Some(motion_fixture::genesis(&p, 2));
     combat::install(&mut p);
     p.initialize_creature_capabilities(motion_fixture::creature_capability_sources(&p))
         .unwrap();
@@ -94,7 +94,12 @@ fn session(p: &Profile) -> Session {
             2,
             Body {
                 radius: p.npcs[0].ai.bounding_radius,
-                height: settings.npc_policy.settings.collision_height,
+                height: settings
+                    .npc(2)
+                    .unwrap()
+                    .npc_policy
+                    .settings
+                    .collision_height,
             },
         )]),
         player: Some(PlayerMotion {

@@ -62,6 +62,16 @@ The new post-return entry predicate is unaffected: `CanEnterCombat` reads neithe
 victim nor health. This batch does not claim a complete source victim snapshot or
 redesign that existing death bridge.
 
+The selected [complete visitor lane](src/native/README.md#selected-complete-source-visitors)
+adds a read-only ordinary creature/creature prefix. It uses both raw directional
+faction relations, not a fabricated player-controlled target. At the pre-unit
+visitor boundary, Combat phase plus a supported retained target without
+`victim_detached_at_ms` represents the active attack victim: AttackStart may
+precede a cached ThreatManager choice, while retained AI target alone survives
+player death. The visitor cannot execute inside the mainhand kill callback; the
+existing detachment bridge has returned before this check. Reached assistance or
+peer attack continuations remain unsupported, with whole-frame rollback.
+
 ## Provenance and limits
 
 Mechanisms are derived from CMaNGOS Classic
@@ -84,7 +94,7 @@ Mechanisms are derived from CMaNGOS Classic
 Upstream is GPL-2.0-or-later, copyright CMaNGOS contributors. Derived Rust is
 GPL-3.0-or-later. No game assets or third-party database rows are included.
 
-This still has no production admission, complete map
+This still has no production admission, loaded map
 visitor/visibility/accessibility service, general auras/control/scripts, full
 combat parity or multiplayer semantics. `NativeCapability` remains uninhabited.
 The tests exercise authored rows through real runtime, replay, store and app
@@ -92,9 +102,9 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 31 and
-`benilla-native-first-owned-pathfinder-cache-v31`, with separate v31 profile, state,
-record, checkpoint and melee-action/chain hash domains. Published native formats 9, 10 and 11
+This profile/receipt contract uses native format 33 and
+`benilla-native-complete-source-visitors-v33`, with separate v33 profile, state,
+record, checkpoint and melee-action/chain hash domains. Native32 and all older
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source
 semantics. OriginalFixture format 2 is unchanged.

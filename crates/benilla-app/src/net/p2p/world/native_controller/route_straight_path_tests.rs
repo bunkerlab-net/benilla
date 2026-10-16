@@ -350,6 +350,9 @@ fn setup_with_poses(
         data.source_motion
             .as_mut()
             .unwrap()
+            .npcs
+            .get_mut(&2)
+            .unwrap()
             .creature_detection_range = 100;
     }
     if let Some((owner, player)) = poses {

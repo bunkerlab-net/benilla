@@ -207,3 +207,27 @@ fn enabling_p2p_with_an_untouched_empty_passphrase_writes_an_explicit_empty_valu
     assert_eq!(editor.get("p2p", "psk").as_deref(), Some(""));
     assert!(!path.exists(), "preparing the draft must not write a file");
 }
+
+#[test]
+fn classic_capture_path_uses_existing_optional_text_field_and_cancel_discards_it() {
+    let cvars = Cvars::default();
+    let mut settings = Settings::default();
+    settings.refresh_fields(&cvars);
+    let index = settings
+        .fields
+        .iter()
+        .position(|f| f.name == "p2p.classic_start_captures")
+        .unwrap();
+    assert_eq!(settings.fields[index].value, "");
+    settings.fields[index].locked = false;
+    settings.select(index);
+    settings.edit.set_text("benilla-config/classic-starts");
+    settings.keep_edit();
+    assert_eq!(
+        settings.changes["p2p.classic_start_captures"],
+        "benilla-config/classic-starts"
+    );
+    let mut reopened = Settings::default();
+    reopened.refresh_fields(&cvars);
+    assert_eq!(reopened.fields[index].value, "");
+}

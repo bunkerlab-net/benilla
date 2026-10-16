@@ -12,6 +12,7 @@ use super::{
         terrain_wet_liquid::TerrainLiquidSnapshot,
         vmap::{RayReply, RayRequest, SnapshotBinding as VmapBinding, StaticRay, VmapSnapshot},
     },
+    route_commit::{RouteCommitBoundary, RouteCommitNotice},
     source_near_point::{SourceNearPointConfiguration, SourceNearPointProvider},
     source_pathfinder_query::{ConstructorQueryError, SourcePathfinderQueryProvider},
     source_player_environment::SourcePlayerEnvironmentProvider,
@@ -34,7 +35,7 @@ use benilla_native_nav::{
 use benilla_sim::{chase_gate, creature_ai::Point, creature_motion as motion};
 use benilla_world_runtime::{
     native::{
-        AuthorityRequest, Facts, MotionQuery, OwnerIgnorePathfindingReceipt,
+        AuthorityReply, AuthorityRequest, Facts, MotionQuery, OwnerIgnorePathfindingReceipt,
         PathfinderDispatchReceipt, Profile, Query, CREATURE_COLLISION_HEIGHT_POLICY,
         OWNER_IGNORE_PATHFINDING_POLICY, PLAYER_COLLISION_HEIGHT_POLICY, PLAYER_ENVIRONMENT_POLICY,
     },
@@ -139,6 +140,16 @@ impl SamePolygonBinding {
         Ok(())
     }
     pub(crate) fn geometry_revision(self) -> Result<[u8; 32], Failure> {
+        self.geometry_revision_for_policy(
+            b"benilla-owned-dry-same-polygon-chase-commit-v2",
+            b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;outer-commit-ack;total-cap4",
+        )
+    }
+    fn geometry_revision_for_policy(
+        self,
+        domain: &[u8],
+        lifecycle: &[u8],
+    ) -> Result<[u8; 32], Failure> {
         self.configuration.validate()?;
         let a = self.liquid;
         let b = self.navigation;
@@ -158,7 +169,7 @@ impl SamePolygonBinding {
             return Err(Failure::Binding);
         }
         let mut hash = Sha256::new();
-        hash.update(b"benilla-owned-dry-same-polygon-chase-proposal-v1");
+        hash.update(domain);
         hash.update(self.raw_geometry);
         hash.update(super::source_route_filter::geometry_revision(a));
         hash.update(super::source_pathfinder_query::geometry_revision(b));
@@ -192,7 +203,7 @@ impl SamePolygonBinding {
             hash.update((budget.lookup_primitives as u64).to_le_bytes());
             hash.update((budget.terminal_primitives as u64).to_le_bytes());
         }
-        hash.update(b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;uncommitted");
+        hash.update(lifecycle);
         if let Some(near_point) = self.near_point {
             hash.update(b"genuine-primary-near-point");
             hash.update(near_point.revision);
@@ -361,6 +372,8 @@ struct GeneratorCandidates {
     npc: NpcId,
     construction: motion::QueryBinding,
     proposals: Vec<Rc<SamePolygonCandidate>>,
+    certified: Vec<AuthorityReply>,
+    committed: Option<Rc<SamePolygonCandidate>>,
 }
 /// Bound before runtime is driven; consume requests inside its authority callback.
 /// A captured unclaimed event alone does not establish this installation ordering.
@@ -373,6 +386,8 @@ pub(crate) struct SourceSamePolygonRouteProvider {
     filter: SourceRouteFilterProvider,
     vmap: VmapSnapshot,
     candidates: Vec<GeneratorCandidates>,
+    committed_boundary: Option<RouteCommitBoundary>,
+    last_notice: Option<RouteCommitNotice>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Observation {
@@ -401,6 +416,248 @@ impl Observation {
     }
 }
 impl SourceSamePolygonRouteProvider {
+    /// Only the concrete LocalCorridor seam records successful certification. The
+    /// exact complete facts, not calculation alone, may later select a commit head.
+    pub(super) fn certify(
+        &mut self,
+        session: &Session,
+        proposal: &SamePolygonProposal,
+        facts: &Facts,
+    ) -> Result<(), SamePolygonError> {
+        super::core::validate_facts(session, &proposal.context, facts)?;
+        let Facts::SourceMotion(benilla_world_runtime::native::MotionFacts::Spatial(reply)) = facts
+        else {
+            return Err(Failure::Binding.into());
+        };
+        let motion::Fact::RouteCalculation(calculation) = &reply.fact else {
+            return Err(Failure::Binding.into());
+        };
+        if calculation.after_cache != proposal.candidate.after_cache {
+            return Err(Failure::Binding.into());
+        }
+        let entry = self
+            .candidates
+            .iter_mut()
+            .find(|entry| {
+                entry
+                    .proposals
+                    .iter()
+                    .any(|candidate| Rc::ptr_eq(candidate, &proposal.candidate))
+            })
+            .ok_or(Failure::Binding)?;
+        let reply = AuthorityReply {
+            request: proposal.context.clone(),
+            facts: facts.clone(),
+        };
+        if let Some(prior) = entry
+            .certified
+            .iter()
+            .find(|prior| prior.request == reply.request)
+        {
+            if *prior != reply {
+                return Err(Failure::Binding.into());
+            }
+        } else {
+            entry
+                .certified
+                .try_reserve(1)
+                .map_err(|_| SamePolygonError::CandidateBudget)?;
+            entry.certified.push(reply);
+        }
+        Ok(())
+    }
+    fn check_commit_binding(
+        &self,
+        session: &Session,
+        boundary: &RouteCommitBoundary,
+    ) -> Result<(), Failure> {
+        if boundary.world() != session.world
+            || boundary.player() != self.player
+            || boundary.profile() != session.profile
+            || boundary.profile() != self.profile.digest()
+            || boundary.geometry() != session.geometry
+            || boundary.geometry() != self.binding.geometry_revision()?
+            || boundary.authority() != session.policy
+            || boundary.heads().len() != self.profile.npcs.len()
+        {
+            return Err(Failure::Binding);
+        }
+        let mut previous_spawn = None;
+        for head in boundary.heads() {
+            if !session.bodies.contains_key(&head.npc().spawn)
+                || previous_spawn.is_some_and(|spawn| spawn >= head.npc().spawn)
+                || head.cache().is_some() && head.construction().is_none()
+            {
+                return Err(Failure::Binding);
+            }
+            previous_spawn = Some(head.npc().spawn);
+        }
+        Ok(())
+    }
+    /// Initial attachment establishes the exact cache-free journal boundary. It
+    /// cannot adopt proposals or native state from a different loaded session.
+    pub(super) fn initialize_commit(
+        &mut self,
+        session: &Session,
+        boundary: &RouteCommitBoundary,
+    ) -> Result<(), Failure> {
+        self.check_commit_binding(session, boundary)?;
+        if let Some(current) = &self.committed_boundary {
+            return if current == boundary && self.last_notice.is_none() {
+                Ok(())
+            } else {
+                Err(Failure::Binding)
+            };
+        }
+        if boundary.heads().iter().any(|head| head.cache().is_some())
+            || self
+                .candidates
+                .iter()
+                .any(|entry| !entry.proposals.is_empty())
+        {
+            return Err(Failure::Binding);
+        }
+        self.committed_boundary = Some(boundary.clone());
+        Ok(())
+    }
+    /// Validate the whole certified chain and final current Chase cache before
+    /// changing any retained owner. Spline prior-cache history is not a head.
+    pub(super) fn acknowledge(
+        &mut self,
+        session: &Session,
+        notice: &RouteCommitNotice,
+    ) -> Result<(), Failure> {
+        let boundary = notice.boundary();
+        self.check_commit_binding(session, boundary)?;
+        if self.last_notice.as_ref() == Some(notice) {
+            return Ok(());
+        }
+        let previous = self.committed_boundary.as_ref().ok_or(Failure::Binding)?;
+        if boundary.session() != previous.session()
+            || previous.tick().checked_add(1) != Some(boundary.tick())
+            || notice.previous_record() != previous.record()
+            || notice.before() != previous.state()
+            || boundary.record() == previous.record()
+        {
+            return Err(Failure::Binding);
+        }
+        let mut heads: Vec<_> = self
+            .candidates
+            .iter()
+            .map(|entry| entry.committed.clone())
+            .collect();
+        for reply in notice.routes() {
+            if reply.request.binding.tick != boundary.tick() {
+                return Err(Failure::Binding);
+            }
+            super::core::validate_facts(session, &reply.request, &reply.facts)?;
+            let Query::SourceMotion(MotionQuery::Route(route)) = &reply.request.query else {
+                return Err(Failure::Binding);
+            };
+            let dispatch = reply
+                .request
+                .require_pathfinder_dispatch(&self.profile)
+                .map_err(|_| Failure::Binding)?;
+            let index = self
+                .candidates
+                .iter()
+                .position(|entry| {
+                    entry.npc == route.owner.npc()
+                        && entry.construction == dispatch.construction_binding()
+                })
+                .ok_or(Failure::Binding)?;
+            let entry = &self.candidates[index];
+            if !entry.certified.contains(reply) {
+                return Err(Failure::Binding);
+            }
+            let mut matching = entry
+                .proposals
+                .iter()
+                .filter(|candidate| candidate.context == reply.request);
+            let candidate = matching.next().ok_or(Failure::Binding)?;
+            if matching.next().is_some()
+                || route.request.prior_cache.as_deref()
+                    != heads[index].as_ref().map(|head| &head.after_cache)
+                || heads[index].as_ref().is_some_and(|head| {
+                    head.dispatch.dispatch_binding().query_id
+                        >= dispatch.dispatch_binding().query_id
+                })
+            {
+                return Err(Failure::Binding);
+            }
+            heads[index] = Some(Rc::clone(candidate));
+        }
+        // Every live head must be the final exact candidate of its accepted chain.
+        // Explicit generator absence drops ownership rather than promoting history.
+        for head in boundary.heads() {
+            if let Some(cache) = head.cache() {
+                let index = self
+                    .candidates
+                    .iter()
+                    .position(|entry| {
+                        entry.npc == head.npc() && Some(entry.construction) == head.construction()
+                    })
+                    .ok_or(Failure::Binding)?;
+                if heads[index]
+                    .as_ref()
+                    .is_none_or(|candidate| candidate.after_cache != *cache)
+                {
+                    return Err(Failure::Binding);
+                }
+            }
+        }
+        for (index, entry) in self.candidates.iter_mut().enumerate() {
+            let current = boundary.heads().iter().find(|head| {
+                head.npc() == entry.npc && head.construction() == Some(entry.construction)
+            });
+            let selected = current
+                .and_then(|head| head.cache())
+                .and_then(|_| heads[index].take());
+            entry.proposals.retain(|candidate| {
+                selected
+                    .as_ref()
+                    .is_some_and(|head| Rc::ptr_eq(candidate, head))
+            });
+            entry.certified.retain(|reply| {
+                selected
+                    .as_ref()
+                    .is_some_and(|head| head.context == reply.request)
+            });
+            entry.committed = selected;
+        }
+        self.committed_boundary = Some(boundary.clone());
+        self.last_notice = Some(notice.clone());
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(super) fn retained_candidate_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|entry| entry.proposals.len())
+            .sum()
+    }
+    #[cfg(test)]
+    pub(super) fn certified_candidate_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|entry| entry.certified.len())
+            .sum()
+    }
+    #[cfg(test)]
+    pub(super) fn committed_candidate(&self) -> Option<(usize, &motion::PathFinderCache)> {
+        self.candidates
+            .iter()
+            .find_map(|entry| entry.committed.as_ref())
+            .map(|candidate| (Rc::as_ptr(candidate) as usize, &candidate.after_cache))
+    }
+    #[cfg(test)]
+    pub(super) fn candidate_identity(&self, reply: &AuthorityReply) -> Option<usize> {
+        self.candidates
+            .iter()
+            .flat_map(|entry| &entry.proposals)
+            .find(|candidate| candidate.context == reply.request)
+            .map(|candidate| Rc::as_ptr(candidate) as usize)
+    }
     pub(super) fn raw_geometry(&self) -> [u8; 32] {
         self.binding.raw_geometry
     }
@@ -506,6 +763,8 @@ impl SourceSamePolygonRouteProvider {
             filter,
             vmap,
             candidates: vec![],
+            committed_boundary: None,
+            last_notice: None,
         })
     }
     /// The prefix-only entry stays unavailable. The app-only LocalCorridor resolver
@@ -582,7 +841,11 @@ impl SourceSamePolygonRouteProvider {
         deadline: Instant,
         mut observe: impl FnMut(Observation),
     ) -> Result<SamePolygonProposal, SamePolygonError> {
-        if first_ticket == 0 {
+        if first_ticket == 0
+            || self.committed_boundary.as_ref().is_some_and(|boundary| {
+                boundary.tick().checked_add(1) != Some(context.binding.tick)
+            })
+        {
             return Err(Failure::Binding.into());
         }
         first_ticket.checked_add(5).ok_or(Failure::Invalid)?;
@@ -625,13 +888,15 @@ impl SourceSamePolygonRouteProvider {
                 npc,
                 construction,
                 proposals: vec![],
+                certified: vec![],
+                committed: None,
             });
             self.candidates.len() - 1
         };
         let entry = &mut self.candidates[index];
         // The runtime-owned exact prior selects a native object, never rehydrates
-        // serialized refs. Keep every ancestor: later ticks can still roll back as
-        // part of step_batch. No implicit promotion, pruning or resolve-time commit.
+        // serialized refs. Keep every uncommitted ancestor until the controller
+        // acknowledges the complete successful step_batch, never on resolve.
         let prior = match route.request.prior_cache.as_deref() {
             None if event.first_construction() => None,
             Some(prior) if !event.first_construction() => {

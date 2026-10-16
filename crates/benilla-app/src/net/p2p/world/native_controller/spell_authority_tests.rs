@@ -129,7 +129,7 @@ fn real_static_los_missing_and_changed_geometry_pause_without_publication_then_r
                     1 => {
                         return Err(n::NativeError::AuthorityUnavailable(
                             "authored missing snapshot",
-                        ))
+                        ));
                     }
                     2 => session.geometry = [99; 32],
                     _ => {}
@@ -179,7 +179,14 @@ fn real_static_los_missing_and_changed_geometry_pause_without_publication_then_r
         map: data.map_id,
         bodies: std::collections::BTreeMap::from([(
             data.npcs[0].ai.creature_id,
-            body(motion.npc_policy.settings.collision_height),
+            body(
+                motion
+                    .npc(data.npcs[0].ai.creature_id)
+                    .unwrap()
+                    .npc_policy
+                    .settings
+                    .collision_height,
+            ),
         )]),
         player: Some(PlayerMotion {
             body: body(motion.player_collision_height),

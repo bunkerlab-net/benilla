@@ -325,12 +325,13 @@ pub(super) fn validate_route_context(
         .as_ref()
         .ok_or(Failure::UnresolvedBody)?;
     let npc_profile = profile.npc(npc.spawn).ok_or(Failure::Binding)?;
+    let npc_motion = source.npc(npc.spawn).map_err(|_| Failure::UnresolvedBody)?;
     let body = session
         .bodies
         .get(&npc.spawn)
         .ok_or(Failure::UnresolvedBody)?;
     if body.radius != npc_profile.ai.bounding_radius
-        || body.height != source.npc_policy.settings.collision_height
+        || body.height != npc_motion.npc_policy.settings.collision_height
         || q.owner_collision_height != body.height
     {
         return Err(Failure::UnresolvedBody);

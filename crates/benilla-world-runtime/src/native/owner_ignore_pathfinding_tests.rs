@@ -162,6 +162,9 @@ fn invalid_present_bit_and_unknown_or_present_mutation_audits_reject_atomically(
         p.source_motion
             .as_mut()
             .unwrap()
+            .npcs
+            .get_mut(&2)
+            .unwrap()
             .npc_policy
             .audit
             .combat_scripts = evidence;
@@ -447,11 +450,8 @@ fn pre_receipt_native28_checkpoint_record_and_replay_are_rejected() {
     assert!(decode_records(&encode_records(&records).unwrap()).is_err());
     let mut replay = world(w.profile().clone());
     assert!(replay.replay(&records).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 31);
-    assert_eq!(
-        NATIVE_POLICY,
-        "benilla-native-first-owned-pathfinder-cache-v31"
-    );
+    assert_eq!(NATIVE_FORMAT_VERSION, 33);
+    assert_eq!(NATIVE_POLICY, "benilla-native-complete-source-visitors-v33");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -471,7 +471,7 @@ fn consistent_earlier_ability_receipt_cannot_replace_current_frame_or_replay_rec
     rows.npc_rows.clear();
     rows.kill.creatures.retain(|r| r.entry == p.npcs[0].entry);
     p.initialize_quest_progression(&input, rows).unwrap();
-    p.source_motion = Some(motion::genesis(&p));
+    p.source_motion = Some(motion::genesis(&p, 2));
     combat::install(&mut p);
     p.initialize_creature_capabilities(motion::creature_capability_sources(&p))
         .unwrap();

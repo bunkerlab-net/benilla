@@ -322,6 +322,32 @@ mod tests {
         }
     }
     #[test]
+    fn unrelated_save_preserves_classic_capture_directory_and_explicit_remove_restores_default() {
+        let t = Temp::new();
+        let path = t.path();
+        fs::write(&path, "[p2p]\npsk = 'public editor fixture'\nclassic_start_captures = 'private-starts' # local only\n").unwrap();
+        let mut editor = ConfigEditor::open(&path).unwrap();
+        editor.set_literal("ruleset", "xp_rate", "2.0").unwrap();
+        assert!(editor
+            .save()
+            .unwrap()
+            .p2p
+            .unwrap()
+            .classic_start_captures
+            .unwrap()
+            .ends_with("private-starts"));
+        assert!(fs::read_to_string(&path).unwrap().contains("# local only"));
+        let mut editor = ConfigEditor::open(&path).unwrap();
+        editor.remove("p2p", "classic_start_captures");
+        assert!(editor
+            .save()
+            .unwrap()
+            .p2p
+            .unwrap()
+            .classic_start_captures
+            .is_none());
+    }
+    #[test]
     fn unrelated_save_preserves_world_timezone() {
         let t = Temp::new();
         let path = t.path();

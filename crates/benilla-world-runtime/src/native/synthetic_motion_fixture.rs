@@ -3,8 +3,9 @@
 //! below are deliberately synthetic and cannot establish native-world admission.
 use super::{synthetic_fixture as f, *};
 use benilla_sim::creature_motion as m;
-pub fn genesis(p: &Profile) -> MotionGenesis {
-    let n = &p.npcs[0];
+pub fn genesis(p: &Profile, spawn: u64) -> MotionGenesis {
+    assert_eq!(p.npcs.len(), 1, "authored singleton motion fixture");
+    let n = p.npc(spawn).expect("explicit authored fixture owner");
     MotionGenesis {
         spell_hits: p
             .abilities
@@ -29,50 +30,56 @@ pub fn genesis(p: &Profile) -> MotionGenesis {
             })
             .collect(),
         player_can_enter_combat: true,
-        npc_can_enter_combat: true,
-        npc_stand_state: 0,
-        npc_policy: MotionPolicy {
-            walk_speed: f::real(1.25),
-            run_speed: n.ai.run_speed,
-            settings: m::GroundSettings {
-                combat_reach: n.ai.combat_reach,
-                bounding_radius: n.ai.bounding_radius,
-                collision_height: f::real(2.0),
-                no_wounded_slowdown: false,
-                backpedal_enabled: true,
-                fanning_enabled: true,
-            },
-            audit: m::MotionAudit {
-                flight_swimming_transport: m::Evidence::Absent,
-                immobilization: m::Evidence::Absent,
-                non_melee_casting: m::Evidence::Absent,
-                speed_auras: m::Evidence::Absent,
-                combat_scripts: m::Evidence::Absent,
-                target_airborne_or_transport: m::Evidence::Absent,
-            },
-            home: HomeAudit {
-                reset_position_override: m::Evidence::Absent,
-                restore_temporary_faction: m::Evidence::Absent,
-                addon_effects: m::Evidence::Absent,
-                scripted_home_events: m::Evidence::Absent,
-                temporary_summon_callback: m::Evidence::Absent,
-            },
-        },
         player_collision_height: f::real(2.0),
         player_movement_flags: m::GroundMovementFlags::STOPPED,
-        npc_spawn_orientation: Orientation::new(1.0).unwrap(),
-        npc_initial_active: false,
-        chase_walking: false,
-        home_walking: false,
         creature_initial_aggro_delay_ms: 200,
         relocation_aggro_delay_ms: 100,
-        creature_detection_range: n.ai.detection.as_f32() as u32,
+        aggro_rate: n.ai.aggro_rate,
+        npcs: BTreeMap::from([(
+            spawn,
+            NpcMotionGenesis {
+                npc_can_enter_combat: true,
+                npc_stand_state: 0,
+                npc_policy: MotionPolicy {
+                    walk_speed: f::real(1.25),
+                    run_speed: n.ai.run_speed,
+                    settings: m::GroundSettings {
+                        combat_reach: n.ai.combat_reach,
+                        bounding_radius: n.ai.bounding_radius,
+                        collision_height: f::real(2.0),
+                        no_wounded_slowdown: false,
+                        backpedal_enabled: true,
+                        fanning_enabled: true,
+                    },
+                    audit: m::MotionAudit {
+                        flight_swimming_transport: m::Evidence::Absent,
+                        immobilization: m::Evidence::Absent,
+                        non_melee_casting: m::Evidence::Absent,
+                        speed_auras: m::Evidence::Absent,
+                        combat_scripts: m::Evidence::Absent,
+                        target_airborne_or_transport: m::Evidence::Absent,
+                    },
+                    home: HomeAudit {
+                        reset_position_override: m::Evidence::Absent,
+                        restore_temporary_faction: m::Evidence::Absent,
+                        addon_effects: m::Evidence::Absent,
+                        scripted_home_events: m::Evidence::Absent,
+                        temporary_summon_callback: m::Evidence::Absent,
+                    },
+                },
+                npc_spawn_orientation: Orientation::new(1.0).unwrap(),
+                npc_initial_active: false,
+                chase_walking: false,
+                home_walking: false,
+                creature_detection_range: n.ai.detection.as_f32() as u32,
+            },
+        )]),
     }
 }
 pub fn profile() -> Profile {
     let mut p = f::profile();
     p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
-    p.source_motion = Some(genesis(&p));
+    p.source_motion = Some(genesis(&p, 2));
     p
 }
 pub fn world() -> NativeWorld {
@@ -212,7 +219,7 @@ impl Authority for SyntheticMotionAuthority {
                 | CombatQuery::MeleeCombatEntry(_) => {
                     return Err(NativeError::AuthorityUnavailable(
                         "runtime-owned combat semantics escaped",
-                    ))
+                    ));
                 }
             }),
             MotionQuery::HostileSpellRelation(_) => MotionFacts::HostileSpellRelation(
@@ -222,6 +229,13 @@ impl Authority for SyntheticMotionAuthority {
                 self.hostile_visibility
                     .unwrap_or(ai::movement::Check::Passed),
             ),
+            MotionQuery::SceneVisitor(_)
+            | MotionQuery::VisitorVisibility(_)
+            | MotionQuery::VisitorSight(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "selected visitor requires complete authored authority",
+                ));
+            }
             MotionQuery::Visitor(_) => MotionFacts::Visitor(VisitorFacts::Complete {
                 loaded_membership: ai::movement::Check::Passed,
                 call_move_in_line_of_sight: self.visits.unwrap_or(true),

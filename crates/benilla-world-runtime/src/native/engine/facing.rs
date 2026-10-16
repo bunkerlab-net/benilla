@@ -212,7 +212,7 @@ mod tests {
                     events: vec![],
                     draws: vec![],
                     receipts: BTreeMap::new(),
-                    source_inside_alive_unit: false,
+                    source_alive_unit: None,
                     moved: false,
                     cast_inputs: BTreeMap::new(),
                     movement_origin: world.state.position,

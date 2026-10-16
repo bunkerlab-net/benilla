@@ -7,7 +7,8 @@
 //! This is not a realm database or an anti-cheat system. The local owner can copy, edit, or
 //! roll back saves. There is no XP, inventory, spell, quest, loot, or combat authority here.
 //! Character creation fixes level at one. `SpawnPolicy::NorthshireMeetingV1` deliberately
-//! starts all races at the fork's existing exploration meeting point, not their racial start.
+//! starts unconfigured characters at the exploration meeting point. Configured creation
+//! uses an existing local source-v2 capture through `create_character_from_start`.
 //!
 //! See the crate README for durability, concurrency, platform, and appearance limitations.
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
@@ -16,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt, path::Path, sync::Arc};
 use zeroize::Zeroizing;
 pub mod recovery;
+pub mod starting_location;
 mod storage;
 pub mod world_setup;
 
@@ -141,16 +143,25 @@ impl Appearance {
 #[serde(rename_all = "snake_case")]
 pub enum SpawnPolicy {
     NorthshireMeetingV1,
+    /// Explicit opt-in source position; reopening always uses Character::position.
+    ClassicSourceV1 {
+        capture_sha256: [u8; 32],
+    },
 }
 impl SpawnPolicy {
-    pub fn position(self) -> Position {
+    pub fn position(self) -> Result<Position, Error> {
+        if !matches!(self, Self::NorthshireMeetingV1) {
+            return Err(Error::Invalid(
+                "source starts require their captured position",
+            ));
+        }
         // Existing fork exploration spawn, not a bundled world-database/race-start table.
-        Position {
+        Ok(Position {
             map_id: 0,
             zone_id: 12,
             position: [-8949.95, -132.49, 83.9],
             orientation: 0.0,
-        }
+        })
     }
 }
 
@@ -390,7 +401,37 @@ impl ProfileStore {
         self.state.characters.iter().find(|c| c.id == id)
     }
     pub fn create_character(&mut self, input: NewCharacter) -> Result<CharacterId, Error> {
+        self.create_character_at(
+            input,
+            SpawnPolicy::NorthshireMeetingV1,
+            SpawnPolicy::NorthshireMeetingV1.position()?,
+        )
+    }
+    /// Explicit opt-in: uses only this selected local capture; never falls back to Northshire.
+    /// This does not admit native gameplay or alter an existing character.
+    pub fn create_character_from_start(
+        &mut self,
+        input: NewCharacter,
+        start: &starting_location::ClassicStart,
+    ) -> Result<CharacterId, Error> {
         input.validate()?;
+        let position = start.position_for(input.race, input.class)?;
+        self.create_character_at(
+            input,
+            SpawnPolicy::ClassicSourceV1 {
+                capture_sha256: start.capture_sha256(),
+            },
+            position,
+        )
+    }
+    fn create_character_at(
+        &mut self,
+        input: NewCharacter,
+        policy: SpawnPolicy,
+        position: Position,
+    ) -> Result<CharacterId, Error> {
+        input.validate()?;
+        position.validate()?;
         let name = canonical_name(&input.name)?;
         if self.state.characters.len() >= MAX_CHARACTERS {
             return Err(Error::Invalid("profile has reached its character limit"));
@@ -418,7 +459,6 @@ impl ProfileStore {
                 break id;
             }
         };
-        let policy = SpawnPolicy::NorthshireMeetingV1;
         let character = Character {
             id,
             owner_id: self.owner_id(),
@@ -429,7 +469,7 @@ impl ProfileStore {
             appearance: input.appearance,
             level: 1,
             spawn_policy: policy,
-            position: policy.position(),
+            position,
         };
         let mut next = self.state.clone();
         next.characters.push(character);

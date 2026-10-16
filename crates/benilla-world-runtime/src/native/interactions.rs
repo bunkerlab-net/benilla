@@ -6,7 +6,10 @@ use super::*;
 use crate::NpcId;
 mod combat_authority;
 mod facing;
+mod peer_sight;
 pub use facing::FacingNumericPolicy;
+pub(in crate::native) use peer_sight::source_peer_sight;
+pub use peer_sight::PeerSightDisposition;
 pub(in crate::native) mod spell_authority;
 use benilla_formats::FactionTemplate;
 use benilla_sim::classic_targets as relations;
@@ -393,7 +396,7 @@ pub(super) fn validate_abilities(abilities: &[Ability]) -> Result<(), NativeErro
                     spell::MageEffect::Unsupported { .. } => {
                         return Err(NativeError::UnsupportedMechanic(
                             "interaction-changing active effect",
-                        ))
+                        ));
                     }
                 }
             }
@@ -681,7 +684,8 @@ pub(super) fn resolve(
                 || q.creature_phase != npc.ai.phase()
                 || q.player_can_enter_combat != g.player_can_enter_combat
                 || q.creature_can_enter_combat
-                    != (g.npc_can_enter_combat && npc.ai.phase() != ai::Phase::ReturningHome)
+                    != (profile.npc_motion(npc.id.spawn)?.npc_can_enter_combat
+                        && npc.ai.phase() != ai::Phase::ReturningHome)
             {
                 return Err(NativeError::AuthorityBinding);
             }

@@ -2,6 +2,7 @@
 //! Bounded local geometry transport, not peer authority or a navigation mesh. The only
 //! movement solver is an unobstructed, continuously certified dry horizontal segment.
 //! Separately selected static LOS does not imply walking support or accessibility.
+use super::route_commit::{RouteCommitBoundary, RouteCommitNotice, RouteCommitSink};
 use benilla_sim::creature_ai::{self as ai, movement::*};
 use benilla_sim::creature_motion as motion;
 use benilla_world_runtime::{
@@ -14,6 +15,7 @@ use benilla_world_runtime::{
 };
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -24,6 +26,7 @@ use std::{
 
 pub(super) const QUEUE_CAPACITY: usize = 16;
 pub(super) const PER_FRAME: usize = 8;
+const ROUTE_COMMIT_CAPACITY: usize = 1;
 const WAIT: Duration = Duration::from_millis(500);
 const MAX_SEGMENT: f32 = 8.0;
 
@@ -108,6 +111,8 @@ impl StaticLosPolicy {
             .source_motion
             .as_ref()
             .ok_or(Failure::UnresolvedBody)?;
+        let npc = profile.npcs[0].ai.creature_id;
+        let npc_motion = motion.npc(npc).map_err(|_| Failure::UnresolvedBody)?;
         Ok(Self {
             profile: profile.digest(),
             map: profile.map_id,
@@ -115,8 +120,8 @@ impl StaticLosPolicy {
             geometry: profile.geometry_revision,
             authority: profile.authority_policy,
             player_height: motion.player_collision_height,
-            npc: profile.npcs[0].ai.creature_id,
-            npc_height: motion.npc_policy.settings.collision_height,
+            npc,
+            npc_height: npc_motion.npc_policy.settings.collision_height,
         })
     }
     fn check(self, session: &Session) -> Result<(), Failure> {
@@ -171,9 +176,12 @@ impl PrimaryNearPointPolicy {
             return Err(Failure::UnsupportedQuery);
         }
         let npc = &profile.npcs[0];
+        let npc_motion = source
+            .npc(npc.ai.creature_id)
+            .map_err(|_| Failure::UnresolvedBody)?;
         let npc_body = Body {
             radius: npc.ai.bounding_radius,
-            height: source.npc_policy.settings.collision_height,
+            height: npc_motion.npc_policy.settings.collision_height,
         };
         let player_body = Body {
             radius: profile.player.bounding_radius,
@@ -690,6 +698,45 @@ struct Reply {
     result: Result<Facts, Failure>,
 }
 
+/// Control data for the same installed loaded owner. It never carries native objects
+/// or grants a proposal the authority of an actual committed controller transition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RouteCommitCommand {
+    Initialize(RouteCommitBoundary),
+    Commit(RouteCommitNotice),
+}
+impl RouteCommitCommand {
+    fn boundary(&self) -> &RouteCommitBoundary {
+        match self {
+            Self::Initialize(boundary) => boundary,
+            Self::Commit(notice) => notice.boundary(),
+        }
+    }
+}
+struct RouteCommitWork {
+    ticket: u64,
+    command: RouteCommitCommand,
+    deadline: Instant,
+    reply: Sender<RouteCommitReply>,
+}
+struct RouteCommitReply {
+    ticket: u64,
+    command: RouteCommitCommand,
+    result: Result<(), Failure>,
+}
+
+/// The controller owns this separately from its proposal-only Authority. Its unique
+/// transport and cancellation fence belong to exactly one mailbox installation.
+pub(crate) struct MailboxRouteCommitSink {
+    session: Session,
+    tx: Sender<RouteCommitWork>,
+    ticket: u64,
+    active: Arc<AtomicBool>,
+    cancelled: Receiver<()>,
+    ready: Arc<AtomicBool>,
+    initial: Option<RouteCommitBoundary>,
+}
+
 /// Owned exclusively by the off-thread native driver. The main-thread service never waits.
 /// A timeout leaves NativeWorld::step uncommitted; retry the same input/tick or pause explicitly.
 /// Do not call resolve from a Bevy system: it deliberately waits for the main-thread service.
@@ -699,10 +746,14 @@ pub(crate) struct LocalAuthority {
     ticket: u64,
     active: Arc<AtomicBool>,
     cancelled: Receiver<()>,
+    route_ready: Arc<AtomicBool>,
+    route_commit: Option<MailboxRouteCommitSink>,
 }
 pub(crate) struct Mailbox {
     session: Session,
     rx: Receiver<Work>,
+    route_rx: Receiver<RouteCommitWork>,
+    route_initial: RefCell<Option<RouteCommitBoundary>>,
     /// Retry at the same bounded FIFO tail; no second queue or renewed job lifetime.
     retry: Sender<Work>,
     active: Arc<AtomicBool>,
@@ -719,6 +770,11 @@ impl Drop for Mailbox {
                 break;
             }
         }
+        for _ in 0..ROUTE_COMMIT_CAPACITY {
+            if self.route_rx.try_recv().is_err() {
+                break;
+            }
+        }
     }
 }
 pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Failure> {
@@ -727,8 +783,20 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
         return Err(Failure::Invalid);
     }
     let (tx, rx) = bounded(QUEUE_CAPACITY);
+    let (route_tx, route_rx) = bounded(ROUTE_COMMIT_CAPACITY);
     let active = Arc::new(AtomicBool::new(true));
     let (cancellation, cancelled) = bounded(0);
+    let route_selected = session.same_polygon_route.is_some();
+    let route_ready = Arc::new(AtomicBool::new(!route_selected));
+    let route_commit = route_selected.then(|| MailboxRouteCommitSink {
+        session: session.clone(),
+        tx: route_tx,
+        ticket: 0,
+        active: Arc::clone(&active),
+        cancelled: cancelled.clone(),
+        ready: Arc::clone(&route_ready),
+        initial: None,
+    });
     Ok((
         LocalAuthority {
             session: session.clone(),
@@ -736,10 +804,14 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
             ticket: 0,
             active: active.clone(),
             cancelled,
+            route_ready,
+            route_commit,
         },
         Mailbox {
             session,
             rx,
+            route_rx,
+            route_initial: RefCell::new(None),
             retry: tx,
             active,
             _cancellation: cancellation,
@@ -749,6 +821,11 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
 impl Authority for LocalAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         self.check_active()?;
+        if !self.route_ready.load(Ordering::Acquire) {
+            return Err(NativeError::AuthorityUnavailable(
+                "local route commit session is not initialized",
+            ));
+        }
         self.session.body(request).map_err(Failure::native)?;
         self.ticket = self.ticket.checked_add(1).ok_or(NativeError::Limit)?;
         let (tx, rx) = bounded(1);
@@ -773,6 +850,11 @@ impl Authority for LocalAuthority {
     }
 }
 impl LocalAuthority {
+    /// A selected owned-route mailbox cannot resolve until this exact sink's
+    /// initialization response has been accepted by its waiting controller.
+    pub(crate) fn take_route_commit_sink(&mut self) -> Option<MailboxRouteCommitSink> {
+        self.route_commit.take()
+    }
     fn check_active(&self) -> Result<(), NativeError> {
         if self.active.load(Ordering::Acquire) {
             Ok(())
@@ -801,11 +883,116 @@ impl LocalAuthority {
     }
 }
 
-fn receive_reply_until(
-    rx: &Receiver<Reply>,
+fn check_route_boundary(session: &Session, boundary: &RouteCommitBoundary) -> Result<(), Failure> {
+    let policy = session
+        .same_polygon_route
+        .as_ref()
+        .ok_or(Failure::UnsupportedQuery)?;
+    if boundary.world() != session.world
+        || boundary.player() != policy.environment.player
+        || boundary.profile() != session.profile
+        || boundary.geometry() != session.geometry
+        || boundary.authority() != session.policy
+    {
+        return Err(Failure::Binding);
+    }
+    Ok(())
+}
+
+fn same_route_attachment(initial: &RouteCommitBoundary, next: &RouteCommitBoundary) -> bool {
+    initial.session() == next.session()
+        && initial.world() == next.world()
+        && initial.player() == next.player()
+        && initial.profile() == next.profile()
+        && initial.geometry() == next.geometry()
+        && initial.authority() == next.authority()
+}
+
+impl MailboxRouteCommitSink {
+    fn check_active(&self) -> Result<(), NativeError> {
+        if self.active.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(NativeError::AuthorityUnavailable(
+                "local route commit snapshot replaced",
+            ))
+        }
+    }
+    fn send(&mut self, command: RouteCommitCommand) -> Result<(), NativeError> {
+        self.check_active()?;
+        check_route_boundary(&self.session, command.boundary()).map_err(Failure::native)?;
+        self.ticket = self.ticket.checked_add(1).ok_or(NativeError::Limit)?;
+        let (reply, rx) = bounded(1);
+        let deadline = Instant::now() + WAIT;
+        self.tx
+            .try_send(RouteCommitWork {
+                ticket: self.ticket,
+                command: command.clone(),
+                deadline,
+                reply,
+            })
+            .map_err(|error| match error {
+                TrySendError::Full(_) => {
+                    NativeError::AuthorityUnavailable("local route commit queue full")
+                }
+                TrySendError::Disconnected(_) => {
+                    NativeError::AuthorityUnavailable("local route commit service closed")
+                }
+            })?;
+        let reply = receive_reply_until(&rx, &self.cancelled, deadline)?;
+        self.finish_reply(&command, reply)
+    }
+    fn finish_reply(
+        &self,
+        command: &RouteCommitCommand,
+        reply: RouteCommitReply,
+    ) -> Result<(), NativeError> {
+        self.check_active()?;
+        if reply.ticket != self.ticket || reply.command != *command {
+            return Err(NativeError::AuthorityBinding);
+        }
+        reply.result.map_err(Failure::native)?;
+        self.check_active()
+    }
+}
+impl RouteCommitSink for MailboxRouteCommitSink {
+    fn initialize(&mut self, boundary: &RouteCommitBoundary) -> Result<(), NativeError> {
+        self.check_active()?;
+        check_route_boundary(&self.session, boundary).map_err(Failure::native)?;
+        match &self.initial {
+            Some(initial) if initial != boundary => return Err(NativeError::AuthorityBinding),
+            Some(_) => (),
+            None => self.initial = Some(boundary.clone()),
+        }
+        // Reserve the original attachment before sending. A lost reply may have
+        // applied it; only the exact same boundary may be retried afterward.
+        self.send(RouteCommitCommand::Initialize(boundary.clone()))?;
+        self.ready.store(true, Ordering::Release);
+        Ok(())
+    }
+    fn deliver(&mut self, notice: &RouteCommitNotice) -> Result<(), NativeError> {
+        self.check_active()?;
+        if !self.ready.load(Ordering::Acquire) {
+            return Err(NativeError::AuthorityUnavailable(
+                "local route commit session is not initialized",
+            ));
+        }
+        if self
+            .initial
+            .as_ref()
+            .is_none_or(|initial| !same_route_attachment(initial, notice.boundary()))
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        self.send(RouteCommitCommand::Commit(notice.clone()))
+    }
+}
+
+fn receive_reply_until<T>(
+    rx: &Receiver<T>,
     cancelled: &Receiver<()>,
     deadline: Instant,
-) -> Result<Reply, NativeError> {
+) -> Result<T, NativeError> {
     let unavailable = || NativeError::AuthorityUnavailable("local geometry reply unavailable");
     let expired = || NativeError::AuthorityUnavailable("local geometry request deadline exceeded");
     let timeout = crossbeam_channel::at(deadline);
@@ -823,6 +1010,61 @@ fn receive_reply_until(
 }
 
 impl Mailbox {
+    /// Controls consume the same explicit frame budget as queries, but require no
+    /// current terrain/WorldLive view. Applying one is not proof its reply arrived:
+    /// the provider must safely accept the exact last notice again after reply loss.
+    pub(crate) fn serve_route_commits(
+        &self,
+        limit: usize,
+        mut commit: impl FnMut(&Session, &RouteCommitCommand) -> Result<(), Failure>,
+    ) -> usize {
+        let deadline = Instant::now() + Duration::from_millis(2);
+        let mut count = 0;
+        while count < limit.min(PER_FRAME) {
+            if count > 0 && Instant::now() >= deadline {
+                break;
+            }
+            let Ok(work) = self.route_rx.try_recv() else {
+                break;
+            };
+            count += 1;
+            if !self.active.load(Ordering::Acquire) || Instant::now() >= work.deadline {
+                continue;
+            }
+            let result = self.check_route_command(&work.command).and_then(|()| {
+                commit(&self.session, &work.command)?;
+                if let RouteCommitCommand::Initialize(boundary) = &work.command {
+                    *self.route_initial.borrow_mut() = Some(boundary.clone());
+                }
+                Ok(())
+            });
+            if !self.active.load(Ordering::Acquire) || Instant::now() >= work.deadline {
+                continue;
+            }
+            let _ = work.reply.try_send(RouteCommitReply {
+                ticket: work.ticket,
+                command: work.command,
+                result,
+            });
+        }
+        count
+    }
+    fn check_route_command(&self, command: &RouteCommitCommand) -> Result<(), Failure> {
+        check_route_boundary(&self.session, command.boundary())?;
+        let initial = self.route_initial.borrow();
+        match (initial.as_ref(), command) {
+            (None, RouteCommitCommand::Initialize(_)) => Ok(()),
+            (Some(initial), RouteCommitCommand::Initialize(boundary)) if initial == boundary => {
+                Ok(())
+            }
+            (Some(initial), RouteCommitCommand::Commit(notice))
+                if same_route_attachment(initial, notice.boundary()) =>
+            {
+                Ok(())
+            }
+            _ => Err(Failure::Binding),
+        }
+    }
     /// The count includes expired/rejected jobs, so cancellation cannot bypass the frame bound.
     /// A caller provides a fresh read-only geometry view for each service invocation.
     #[cfg(test)]
@@ -1427,3 +1669,7 @@ pub(super) fn geometry_revision(
 #[cfg(test)]
 #[path = "player_environment_mailbox_tests.rs"]
 mod player_environment_mailbox_tests;
+
+#[cfg(test)]
+#[path = "route_commit_mailbox_tests.rs"]
+mod route_commit_mailbox_tests;

@@ -90,17 +90,18 @@ impl CombatAuthorityCatalog {
                 .source_motion
                 .as_ref()
                 .ok_or(NativeError::InvalidProfile)?;
+            let owner_motion = profile.npc_motion(npc.ai.creature_id)?;
             if npc.ai.neutral_to_all != neutral_to_all
                 // UnitAI starts aggressive; all admitted raw flags exclude
                 // CreatureAI's defensive/no-combat overrides and other AI kinds.
                 || npc.ai.reaction != ai::Reaction::Aggressive
-                || !motion.player_can_enter_combat || !motion.npc_can_enter_combat
+                || !motion.player_can_enter_combat || !owner_motion.npc_can_enter_combat
                 // Unit.cpp:3123 and Creature.cpp:2983 read these same raw bits.
                 || combat.no_crushing_blows != (row.static_flags2 & NO_CRUSHING_BLOWS != 0)
-                || motion.npc_policy.settings.no_wounded_slowdown != (row.static_flags2 & NO_WOUNDED_SLOWDOWN != 0)
+                || owner_motion.npc_policy.settings.no_wounded_slowdown != (row.static_flags2 & NO_WOUNDED_SLOWDOWN != 0)
                 // TargetedMovementGenerator.cpp:145; the zero-only StaticFlags4
                 // bound cannot represent disabled backpedal in another field.
-                || !motion.npc_policy.settings.backpedal_enabled
+                || !owner_motion.npc_policy.settings.backpedal_enabled
             {
                 return Err(NativeError::InvalidProfile);
             }
@@ -390,7 +391,7 @@ impl<'a> WorkingNpc<'a> {
                 evading_home: false,
             }),
             npc_can_enter_combat: relations::can_enter_combat(relations::CombatEntryInput {
-                can_enter_combat: genesis.npc_can_enter_combat,
+                can_enter_combat: profile.npc_motion(self.id.spawn)?.npc_can_enter_combat,
                 evading_home: self.ai.phase() == ai::Phase::ReturningHome,
             }),
         })
@@ -415,7 +416,7 @@ impl<'a> WorkingNpc<'a> {
                 evading_home: false,
             }),
             npc_can_enter_combat: relations::can_enter_combat(relations::CombatEntryInput {
-                can_enter_combat: genesis.npc_can_enter_combat,
+                can_enter_combat: profile.npc_motion(self.id.spawn)?.npc_can_enter_combat,
                 evading_home: self.ai.phase() == ai::Phase::ReturningHome,
             }),
         })

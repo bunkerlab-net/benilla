@@ -141,8 +141,8 @@ fn tangent_facing_and_u32_spline_boundary_are_exact() {
 
 fn source_world() -> n::NativeWorld {
     let mut profile = n::synthetic_fixture::profile();
-    let mut genesis = n::synthetic_motion_fixture::genesis(&profile);
-    genesis.npc_spawn_orientation = n::Orientation::new(1.25).unwrap();
+    let mut genesis = n::synthetic_motion_fixture::genesis(&profile, 2);
+    genesis.npcs.get_mut(&2).unwrap().npc_spawn_orientation = n::Orientation::new(1.25).unwrap();
     profile.source_motion = Some(genesis);
     n::NativeWorld::synthetic_component_test(profile, [8; 16], n::synthetic_fixture::player(), 7)
         .unwrap()
@@ -770,7 +770,7 @@ fn lethal_first_hit_projects_launch_damage_stop_before_zero_corpse_destruction_a
         let mut profile = n::synthetic_fixture::profile();
         profile.npcs[0].max_health = 1;
         profile.npcs[0].ai.corpse_decay_ms = corpse_decay_ms;
-        profile.source_motion = Some(n::synthetic_motion_fixture::genesis(&profile));
+        profile.source_motion = Some(n::synthetic_motion_fixture::genesis(&profile, 2));
         let mut world = n::NativeWorld::synthetic_component_test(
             profile,
             [8; 16],

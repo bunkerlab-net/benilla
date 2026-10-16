@@ -319,7 +319,7 @@ fn death_root_and_slow_speeds_share_one_session_counter_and_independent_typed_ac
     let h = Harness::new();
     let mut data = death_profile();
     data.player_slow = slow::profile().player_slow;
-    data.source_motion = Some(n::synthetic_motion_fixture::genesis(&data));
+    data.source_motion = Some(n::synthetic_motion_fixture::genesis(&data, 2));
     let mut c = h
         .enter(
             Entry::Create {

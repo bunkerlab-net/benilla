@@ -132,7 +132,7 @@ pub(super) fn fixture(owner: u8, id: u8, name: &str) -> Character {
         appearance: Appearance::default(),
         level: 1,
         spawn_policy: SpawnPolicy::NorthshireMeetingV1,
-        position: SpawnPolicy::NorthshireMeetingV1.position(),
+        position: SpawnPolicy::NorthshireMeetingV1.position().unwrap(),
     }
 }
 

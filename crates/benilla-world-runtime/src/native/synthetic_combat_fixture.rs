@@ -81,7 +81,7 @@ pub fn profile() -> Profile {
     let mut p = synthetic_fixture::initialized_profile();
     p.npcs[0].faction_template = 2;
     p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
-    p.source_motion = Some(synthetic_motion_fixture::genesis(&p));
+    p.source_motion = Some(synthetic_motion_fixture::genesis(&p, 2));
     install(&mut p);
     p
 }

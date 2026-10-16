@@ -84,6 +84,7 @@ pub struct Profile {
     pub admin: Option<AdminPolicy>,
     pub player_slow: Option<PlayerSlowGenesis>,
     pub source_motion: Option<MotionGenesis>,
+    pub source_visitors: Option<SourceVisitorCatalog>,
     pub creature_capabilities: Option<CreatureCapabilityCatalog>,
     pub creature_collision_widths: Option<CreatureCollisionWidthCatalog>,
     pub creature_collision_heights: Option<CreatureCollisionHeightCatalog>,
@@ -106,7 +107,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v31\0",
+            b"benilla-native-profile-v33\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -138,6 +139,14 @@ impl Profile {
             .ok()
             .map(|i| &self.npcs[i])
     }
+    /// Exact configured owner lookup; it does not authenticate a generation.
+    pub fn npc_motion(&self, spawn: u64) -> Result<&NpcMotionGenesis, NativeError> {
+        self.npc(spawn).ok_or(NativeError::InvalidProfile)?;
+        self.source_motion
+            .as_ref()
+            .ok_or(NativeError::InvalidProfile)?
+            .npc(spawn)
+    }
     pub fn specs(&self) -> Vec<spell::MageProjectileSpec> {
         self.abilities
             .iter()
@@ -159,6 +168,9 @@ impl Profile {
         }
         if let Some(g) = &self.source_motion {
             g.validate(self)?;
+        }
+        if let Some(catalog) = &self.source_visitors {
+            catalog.validate(self)?;
         }
         if let Some(catalog) = &self.creature_capabilities {
             catalog.validate(self)?;

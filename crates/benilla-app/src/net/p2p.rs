@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::{io, ChatKind, ClientCommand, P2pSettings, ParkRequest, ParkSender};
 
 mod character_actions;
+mod creation_start;
 mod emote_motion;
 mod emotes;
 mod encounter;
@@ -33,7 +34,7 @@ pub(super) use native_geometry::plugin as native_geometry_plugin;
 use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
-const CONTENT_VERSION: &str = "benilla-saved-exploration-northshire-v3";
+const CONTENT_VERSION: &str = "benilla-saved-exploration-classic-starts-v4";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
 /// Public connection metadata plus the local setup mailbox; no signing keys or PSKs.
@@ -81,7 +82,7 @@ impl Drop for ClearTicket {
     }
 }
 
-const HELP: &str = "P2P exploration: saved local characters, movement and /say. All races start at the Northshire meeting point. Position saves every 10 seconds and on logout. Combat, quests, XP, loot, spells and inventory progression are not implemented.";
+const HELP: &str = "P2P exploration: saved local characters, movement and /say. New characters use configured local racial starts; without p2p.classic_start_captures they use the legacy Northshire meeting point. Position saves every 10 seconds and on logout. Combat, quests, XP, loot, spells and inventory progression are not implemented.";
 const AVATAR_VERSION: u16 = 1;
 const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -886,15 +887,7 @@ fn run_exploration_character(
             addon_info: Some(Vec::new()),
         },
     )?;
-    emit(
-        events,
-        SessionEvent::Worldport {
-            map_id: character.position.map_id,
-            position,
-            orientation,
-            needs_ack: false,
-        },
-    )?;
+    emit(events, creation_start::worldport(character))?;
     emit(events, character_name(character))?;
     emit(events, character_avatar(character, catalog)?)?;
     // Fork deviation: exploration follows its configured IANA zone (UTC by default),

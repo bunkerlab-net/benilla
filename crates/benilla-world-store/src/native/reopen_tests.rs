@@ -13,6 +13,11 @@ fn cache_world() -> NativeWorld {
     p.npcs[0].max_health = 10;
     p.initialize_creature_capabilities(fixture::creature_capability_sources(&p))
         .unwrap();
+    initialize_cache_configuration(&mut p);
+    NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap()
+}
+
+fn initialize_cache_configuration(p: &mut Profile) {
     let t = Temp::new();
     let path = t.0.join("map.MPQ");
     let mut dbc = b"WDBC".to_vec();
@@ -42,7 +47,6 @@ fn cache_world() -> NativeWorld {
         &maps,
     )
     .unwrap();
-    NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 1234).unwrap()
 }
 
 struct AuthoredCacheClaims {
@@ -277,4 +281,201 @@ fn historical_authored_owner_route_reopens_after_modeled_death_drops_cache() {
     let (_, restored) = open_cache(&t.path(), &world).unwrap();
     assert_eq!(restored.checkpoint().unwrap(), expected);
     assert!(restored.records().is_empty());
+}
+
+/// Authored two-owner cache claims, never a native producer or geometry proof.
+struct TwoOwnerCacheClaims {
+    inner: synthetic_two_owner_fixture::CompleteAuthority,
+    source: m::RouteSource,
+    owner: u64,
+    calculations: usize,
+}
+impl Authority for TwoOwnerCacheClaims {
+    fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+        let mut reply = self.inner.resolve(request)?;
+        let Query::SourceMotion(MotionQuery::Route(q)) = &request.query else {
+            return Ok(reply);
+        };
+        if q.owner.npc().spawn != self.owner {
+            return Ok(reply);
+        }
+        let Facts::SourceMotion(MotionFacts::Spatial(spatial)) = &mut reply.facts else {
+            panic!("spatial reply");
+        };
+        let m::Fact::Route(outcome) = &spatial.fact else {
+            panic!("authored route");
+        };
+        let mut after = q
+            .request
+            .prior_cache
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(|| m::PathFinderCache {
+                binding: m::PathFinderCacheBinding {
+                    identity: q.request.binding.identity,
+                    owner_generation: q.owner.npc().generation,
+                    inventory: [3; 32],
+                    source_epoch: [4; 32],
+                    navigation_policy: [5; 32],
+                },
+                revision: 0,
+                source: self.source,
+                poly_refs: (0..77)
+                    .map(|i| if !(2..74).contains(&i) { i + 1 } else { 0 })
+                    .collect(),
+                active_len: 2,
+                point_limit: 74,
+                path_type: 1,
+                requested_end: q.request.goal,
+                include_flags: 1,
+                exclude_flags: 0,
+            });
+        after.revision += 1;
+        after.requested_end = q.request.goal;
+        let mut outcome = outcome.clone();
+        let m::RouteOutcome::Complete(path) = &mut outcome else {
+            panic!("complete authored route");
+        };
+        path.source = self.source;
+        spatial.fact = m::Fact::RouteCalculation(Box::new(m::RouteCalculation {
+            source: self.source,
+            outcome,
+            prior_cache: q.request.prior_cache.clone(),
+            after_cache: after,
+        }));
+        self.calculations += 1;
+        Ok(reply)
+    }
+    fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
+        self.inner.observe_derived(reply)
+    }
+}
+fn two_owner_cache_world(
+    owner: u64,
+) -> (NativeWorld, synthetic_two_owner_fixture::CompleteAuthority) {
+    let mut p = synthetic_two_owner_fixture::profile();
+    for npc in &mut p.npcs {
+        npc.combat.as_mut().unwrap().minimum_damage = f::float(0.0);
+        npc.combat.as_mut().unwrap().maximum_damage = f::float(0.0);
+    }
+    // The same explicitly authored outdoor Map row used by the singleton cache
+    // contract has the identical map identity. Its tiny generated MPQ contains
+    // only that authored row, not private client assets or loaded geometry.
+    initialize_cache_configuration(&mut p);
+    p.validate().unwrap();
+    let w = NativeWorld::synthetic_component_test(p, [8; 16], f::player(), 7).unwrap();
+    let mut a = synthetic_two_owner_fixture::CompleteAuthority::default();
+    a.base.base.critical_chance = Some(0);
+    a.base.base.resist_chance = Some(0);
+    if owner == 3 {
+        let hostile = VisitorParticipant::Creature(w.state().npcs[&2].id);
+        a.visibility_overrides = vec![
+            (
+                hostile,
+                VisitorParticipant::Player(w.state().player),
+                ai::movement::Check::Failed,
+            ),
+            (
+                hostile,
+                VisitorParticipant::Creature(w.state().npcs[&3].id),
+                ai::movement::Check::Failed,
+            ),
+        ];
+    }
+    (w, a)
+}
+#[test]
+fn two_owner_cache_in_either_owner_preserves_native_reopen_guard_and_files() {
+    for owner in [2, 3] {
+        for source in [
+            m::RouteSource::OwnerPathFinder,
+            m::RouteSource::SyntheticFixture,
+        ] {
+            let t = Temp::new();
+            let (mut world, inner) = two_owner_cache_world(owner);
+            let genesis = world.checkpoint().unwrap();
+            let (mut store, _) = NativeStore::create(t.path(), &world).unwrap();
+            let mut authority = TwoOwnerCacheClaims {
+                inner,
+                source,
+                owner,
+                calculations: 0,
+            };
+            if owner == 3 {
+                let mut cast = f::cast(&world, 60001);
+                let Command::Cast { target, .. } = &mut cast.input.command else {
+                    unreachable!();
+                };
+                *target = world.state().npcs[&3].id;
+                world.step(1, Some(cast), &mut authority).unwrap();
+            }
+            while authority.calculations == 0 {
+                assert!(world.state().tick < 100, "owner {owner}");
+                world
+                    .step(world.state().tick + 1, None, &mut authority)
+                    .unwrap();
+            }
+            let cached = &world.state().npcs[&owner]
+                .source_motion
+                .as_ref()
+                .unwrap()
+                .motion;
+            let m::Generator::Chase(chase) = cached.generator() else {
+                panic!("owner chase");
+            };
+            assert_eq!(chase.pathfinder_cache.as_ref().unwrap().source, source);
+            let other = if owner == 2 { 3 } else { 2 };
+            let other_motion = &world.state().npcs[&other]
+                .source_motion
+                .as_ref()
+                .unwrap()
+                .motion;
+            assert!(matches!(other_motion.generator(), m::Generator::Idle));
+            let expected = world.checkpoint().unwrap();
+            let records = world.records().to_vec();
+            store.commit(store.prepare(&world).unwrap()).unwrap();
+            drop(store);
+            let current = fs::read(t.path().join("world.checkpoint")).unwrap();
+            let previous = fs::read(t.path().join("world.previous")).unwrap();
+            let envelope = Envelope::decode(&current).unwrap();
+            assert_eq!(envelope.base, genesis);
+            assert_eq!(envelope.records, records);
+            let replay = envelope
+                .restore(&Identity::of(&genesis), &mut |checkpoint| {
+                    NativeWorld::restore_synthetic_component_test(
+                        world.profile().clone(),
+                        checkpoint,
+                    )
+                })
+                .unwrap();
+            assert_eq!(replay.checkpoint().unwrap(), expected);
+            if source == m::RouteSource::OwnerPathFinder {
+                assert!(NativeWorld::restore_synthetic_component_test(
+                    world.profile().clone(),
+                    expected.clone()
+                )
+                .is_err());
+                for _ in 0..2 {
+                    assert!(matches!(
+                        open_cache(&t.path(), &world),
+                        Err(Error::Runtime(NativeError::UnsupportedMechanic(
+                            "saved native PathFinder cache rehydration"
+                        )))
+                    ));
+                    assert_eq!(
+                        fs::read(t.path().join("world.checkpoint")).unwrap(),
+                        current
+                    );
+                    assert_eq!(fs::read(t.path().join("world.previous")).unwrap(), previous);
+                }
+            } else {
+                let (mut reopened, mut restored) = open_cache(&t.path(), &world).unwrap();
+                assert_eq!(restored.checkpoint().unwrap(), expected);
+                reopened.checkpoint(&mut restored).unwrap();
+                drop(reopened);
+                let (_, restored) = open_cache(&t.path(), &restored).unwrap();
+                assert_eq!(restored.checkpoint().unwrap(), expected);
+            }
+        }
+    }
 }

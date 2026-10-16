@@ -51,6 +51,16 @@ impl<A: Authority> Frame<'_, A> {
         npc: &Npc,
         phase: CombatPhase,
     ) -> Result<NpcFacts, NativeError> {
+        self.source_npc_facts_with_visibility(npc, phase, None)
+    }
+    /// The selected notifier already evaluated directional AI visibility before
+    /// MoveInLineOfSight's semantic prefix. Do not ask a second detector later.
+    pub(super) fn source_npc_facts_with_visibility(
+        &mut self,
+        npc: &Npc,
+        phase: CombatPhase,
+        notifier_visibility: Option<bool>,
+    ) -> Result<NpcFacts, NativeError> {
         let working = WorkingNpc::from_npc(npc)?;
         let request = self.combat_request(&working, phase, None)?;
         let facts = working.npc_semantics(self.profile, self.state)?;
@@ -75,16 +85,22 @@ impl<A: Authority> Frame<'_, A> {
             && facts.can_initiate_attack
             && facts.can_attack_on_sight
         {
-            let query = CombatQuery::NpcVisibility(self.combat_request(&working, phase, None)?);
-            let Facts::SourceMotion(MotionFacts::Combat(CombatFacts::NpcVisibility(check))) = self
-                .ask(
-                    Some(npc.id),
-                    Query::SourceMotion(MotionQuery::Combat(query)),
-                )?
-            else {
-                return Err(NativeError::AuthorityBinding);
+            visible = match notifier_visibility {
+                Some(visible) => visible,
+                None => {
+                    let query =
+                        CombatQuery::NpcVisibility(self.combat_request(&working, phase, None)?);
+                    let Facts::SourceMotion(MotionFacts::Combat(CombatFacts::NpcVisibility(check))) =
+                        self.ask(
+                            Some(npc.id),
+                            Query::SourceMotion(MotionQuery::Combat(query)),
+                        )?
+                    else {
+                        return Err(NativeError::AuthorityBinding);
+                    };
+                    spatial(check)?
+                }
             };
-            visible = spatial(check)?;
             let query = CombatQuery::NpcAccessibility(self.combat_request(&working, phase, None)?);
             let Facts::SourceMotion(MotionFacts::Combat(CombatFacts::NpcAccessibility(check))) =
                 self.ask(

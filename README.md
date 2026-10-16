@@ -22,7 +22,8 @@ matchmaking service or elected game host runs in P2P mode.
   persistent owner identity, appearance and position checkpoints; deliberate Enter World
 - Implemented: authenticated, encrypted TCP and optional iroh QUIC peer links; matching network,
   protocol, exploration-contract version and ruleset fingerprints; owner-authenticated saved
-  avatars at a shared Northshire meeting point; peer movement and `/say`; join/disconnect cleanup
+  avatars with optional [local source-backed racial starts](docs/CLASSIC-EXPLORATION-STARTS.md)
+  (legacy Northshire default when unconfigured); peer movement and `/say`; join/disconnect cleanup
 - Connectivity: explicit peer addresses on a LAN, reachable IPv6, or manually
   forwarded TCP ports by default. Opt-in `[p2p.internet]` uses private endpoint tickets,
   iroh NAT hole punching and encrypted relay fallback through explicitly configured

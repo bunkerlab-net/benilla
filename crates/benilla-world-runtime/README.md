@@ -201,7 +201,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 31. This is not production content
+and native simulation checkpoint/record format 33. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -215,5 +215,5 @@ atomic motion-height initialization, generation ownership and persistence bounda
 
 See [owner pathfinding bit receipts](src/native/README.md#owner-pathfinding-bit-receipt)
 for bounded runtime issuance from source/control audits and live executable abilities,
-required-option v31 Route evidence, replay guarantees and the pinned source guard.
+required-option v33 Route evidence, replay guarantees and the pinned source guard.
 This supplies only IGNORE_PATHFINDING, not config, calculate completion or native admission.

@@ -83,7 +83,7 @@ fn facing_selection_is_explicit_profile_bound_preserved_and_requires_source_inpu
     .is_err());
 
     let mut no_interactions = f::initialized_profile();
-    no_interactions.source_motion = Some(synthetic_motion_fixture::genesis(&no_interactions));
+    no_interactions.source_motion = Some(synthetic_motion_fixture::genesis(&no_interactions, 2));
     let before = no_interactions.clone();
     assert!(no_interactions.initialize_facing_authority().is_err());
     assert_eq!(no_interactions, before);
@@ -378,7 +378,7 @@ fn published_native_format11_checkpoint_record_and_replay_are_refused() {
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 31);
+    assert_eq!(NATIVE_FORMAT_VERSION, 33);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

@@ -63,6 +63,7 @@ const STARTUP: &[(&str, &str, bool)] = &[
     ("p2p.max_peers", "16", false),
     ("p2p.timeout_ms", "5000", false),
     ("wow.data", "", false),
+    ("p2p.classic_start_captures", "", false),
     ("ruleset.xp_rate", "1.0", false),
     ("ruleset.drop_rate", "1.0", false),
     ("p2p.internet.enabled", "false", false),
@@ -208,7 +209,7 @@ impl Settings {
             {
                 continue;
             }
-            if section == "wow" && value.is_empty() {
+            if (section == "wow" || name == "p2p.classic_start_captures") && value.is_empty() {
                 editor.remove(section, key);
             } else if matches!(
                 name.as_str(),
@@ -216,6 +217,7 @@ impl Settings {
                     | "p2p.network"
                     | "p2p.listen"
                     | "wow.data"
+                    | "p2p.classic_start_captures"
                     | "p2p.encounter.local_id"
                     | "p2p.encounter.epoch"
             ) {

@@ -137,16 +137,16 @@ pub(super) fn resolve_validated(
         after_cache: proposal.after_cache().clone(),
     };
     calculation.validate_for(q).map_err(|_| Failure::Binding)?;
-    #[cfg(test)]
-    proposal.report_timing();
     // This immutable candidate remains staged. Neither certification nor returning
     // facts acknowledges an outer step_batch commit or prunes rollback ancestors.
-    Ok(Facts::SourceMotion(MotionFacts::Spatial(Box::new(
-        motion::Reply {
-            request: motion::Query::Route(q.clone()),
-            fact: motion::Fact::RouteCalculation(Box::new(calculation)),
-        },
-    ))))
+    let facts = Facts::SourceMotion(MotionFacts::Spatial(Box::new(motion::Reply {
+        request: motion::Query::Route(q.clone()),
+        fact: motion::Fact::RouteCalculation(Box::new(calculation)),
+    })));
+    provider.certify(session, &proposal, &facts)?;
+    #[cfg(test)]
+    proposal.report_timing();
+    Ok(facts)
 }
 
 #[cfg(test)]

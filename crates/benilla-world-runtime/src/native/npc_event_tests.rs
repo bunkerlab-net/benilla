@@ -14,9 +14,9 @@ fn altered(w: &NativeWorld, change: impl FnOnce(&mut serde_json::Value)) -> Chec
     let mut state = serde_json::to_value(&checkpoint.state).unwrap();
     change(&mut state["npcs"]["2"]["events"]);
     checkpoint.state = serde_json::from_value(state).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v31\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v33\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v31\0",
+        b"benilla-native-checkpoint-v33\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint
@@ -506,4 +506,25 @@ fn npc_notification_callback_runs_before_existing_periodic_aura_update() {
         })
         .unwrap();
     assert!(visitor < aura);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|q| matches!(
+                q,
+                Query::Spell {
+                    phase: CastPhase::Aura,
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    let observations = requests
+        .iter()
+        .enumerate()
+        .filter_map(|(index, q)| matches!(q, Query::Npc { .. }).then_some(index))
+        .collect::<Vec<_>>();
+    assert_eq!(observations.len(), 2);
+    assert!(aura < observations[0] && observations[0] < observations[1]);
+    assert_eq!(reopen(&w).state_digest(), w.state_digest());
 }

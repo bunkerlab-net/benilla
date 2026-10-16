@@ -165,9 +165,9 @@ last countdown tick rather than moving that source callback or timer phase. Dist
 separate dependencies; this witness does not select straightPath or certify that
 the complete Chase gate ran. Home and Backpedal carry explicit absence.
 
-Native format 31 and `benilla-native-first-owned-pathfinder-cache-v31` include the
+Native format 33 and `benilla-native-complete-source-visitors-v33` include the
 optional owned cache, required optional latest-pose and route-witness fields,
-and v31 profile/state/record/checkpoint/melee domains. Missing fields and older
+and v33 profile/state/record/checkpoint/melee domains. Missing fields and older
 native checkpoints reject rather than fabricate initial state. Independent
 component v2 encoding, exploration character data and raw native admission stay
 unchanged. Hashes establish consistency, never historical authenticity; complete

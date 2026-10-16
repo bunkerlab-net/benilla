@@ -335,6 +335,9 @@ fn missing_owner_catalogs_and_invalid_nontransport_domain_cannot_be_selected() {
                 p.source_motion
                     .as_mut()
                     .unwrap()
+                    .npcs
+                    .get_mut(&2)
+                    .unwrap()
                     .npc_policy
                     .audit
                     .flight_swimming_transport = Evidence::Present

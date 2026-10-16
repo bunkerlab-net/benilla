@@ -171,6 +171,9 @@ fn setup(
         .source_motion
         .as_mut()
         .unwrap()
+        .npcs
+        .get_mut(&2)
+        .unwrap()
         .creature_detection_range = 100;
     profile
         .initialize_creature_capabilities(source::creature_capability_sources(&profile))
@@ -214,7 +217,8 @@ fn setup(
     session.geometry = profile.geometry_revision;
     session.map = profile.map_id;
     let motion = profile.source_motion.as_ref().unwrap();
-    session.bodies.get_mut(&2).unwrap().height = motion.npc_policy.settings.collision_height;
+    session.bodies.get_mut(&2).unwrap().height =
+        motion.npc(2).unwrap().npc_policy.settings.collision_height;
     session.player.as_mut().unwrap().body.height = motion.player_collision_height;
     session.participants = Some(NonRenderParticipants::authored_fixture(
         binding.content,

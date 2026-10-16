@@ -18,6 +18,7 @@ use std::{
 pub(crate) enum Control {
     RetryCheckpoint,
     RetryTick,
+    AcknowledgeCommittedRoute,
 }
 pub(crate) struct Exit {
     pub saved: SavedBoundary,
@@ -112,6 +113,7 @@ fn drive(
                 let retry = match control {
                     Control::RetryCheckpoint => controller.retry_checkpoint().map(|_| ()),
                     Control::RetryTick => controller.retry_tick(),
+                    Control::AcknowledgeCommittedRoute => controller.retry_route_commit(),
                 };
                 match retry {
                     Ok(_) => {
@@ -213,6 +215,9 @@ pub(crate) trait Driven: Send {
     fn pump(&mut self, elapsed: Duration) -> Pump;
     fn retry_checkpoint(&mut self) -> Result<SavedBoundary, Error>;
     fn retry_tick(&mut self) -> Result<(), Error> {
+        Err(Error::Paused)
+    }
+    fn retry_route_commit(&mut self) -> Result<(), Error> {
         Err(Error::Paused)
     }
     fn shutdown(&mut self) -> Result<(SavedBoundary, usize, Vec<SessionEvent>), Error>;

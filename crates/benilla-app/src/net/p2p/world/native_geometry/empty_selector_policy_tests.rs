@@ -27,7 +27,12 @@ fn setup() -> (Profile, Session, AuthorityRequest) {
             profile.npcs[0].ai.creature_id,
             Body {
                 radius: profile.npcs[0].ai.bounding_radius,
-                height: source.npc_policy.settings.collision_height,
+                height: source
+                    .npc(profile.npcs[0].ai.creature_id)
+                    .unwrap()
+                    .npc_policy
+                    .settings
+                    .collision_height,
             },
         )]),
         player: Some(PlayerMotion {

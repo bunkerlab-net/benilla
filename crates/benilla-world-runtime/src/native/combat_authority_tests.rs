@@ -303,7 +303,7 @@ fn friendly_at_war_runtime_retaliates_without_becoming_an_on_sight_enemy() {
         .unwrap(),
     );
     p.initialize_quest_progression(&input, data).unwrap();
-    p.source_motion = Some(synthetic_motion_fixture::genesis(&p));
+    p.source_motion = Some(synthetic_motion_fixture::genesis(&p, 3));
     let mut rows = fixture::source_rows(&p);
     rows.npcs[0].npc_flags = 2;
     rows.factions[1].faction = rep_fixture::PRIMARY;
@@ -595,6 +595,9 @@ fn overlapping_source_faction_and_static_flags_must_match_ai_combat_and_motion()
                 p.source_motion
                     .as_mut()
                     .unwrap()
+                    .npcs
+                    .get_mut(&2)
+                    .unwrap()
                     .npc_policy
                     .settings
                     .no_wounded_slowdown = true
@@ -603,12 +606,23 @@ fn overlapping_source_faction_and_static_flags_must_match_ai_combat_and_motion()
                 p.source_motion
                     .as_mut()
                     .unwrap()
+                    .npcs
+                    .get_mut(&2)
+                    .unwrap()
                     .npc_policy
                     .settings
                     .backpedal_enabled = false
             }
             7 => p.npcs[0].ai.reaction = ai::Reaction::Defensive,
-            8 => p.source_motion.as_mut().unwrap().npc_can_enter_combat = false,
+            8 => {
+                p.source_motion
+                    .as_mut()
+                    .unwrap()
+                    .npcs
+                    .get_mut(&2)
+                    .unwrap()
+                    .npc_can_enter_combat = false
+            }
             9 => p.source_motion.as_mut().unwrap().player_can_enter_combat = false,
             _ => {}
         }
@@ -670,6 +684,9 @@ fn overlapping_source_faction_and_static_flags_must_match_ai_combat_and_motion()
     p.source_motion
         .as_mut()
         .unwrap()
+        .npcs
+        .get_mut(&2)
+        .unwrap()
         .npc_policy
         .settings
         .no_wounded_slowdown = true;
@@ -718,6 +735,6 @@ fn native_ten_rejects_published_nine_checkpoint_and_records_without_migration() 
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 31);
+    assert_eq!(NATIVE_FORMAT_VERSION, 33);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }

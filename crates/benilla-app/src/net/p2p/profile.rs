@@ -226,6 +226,9 @@ pub(super) fn browse(
         std::fs::create_dir_all(root.parent().context("profile directory has no parent")?)?;
         ProfileStore::create(root)?
     };
+    if settings.0.classic_start_captures.is_none() {
+        bevy::log::warn!("{}", super::creation_start::LEGACY_WARNING);
+    }
     for character in store.characters() {
         catalog.body(character)?;
     }
@@ -267,8 +270,27 @@ pub(super) fn browse(
                     {
                         benilla_protocol::messages::CHAR_CREATE_SERVER_LIMIT
                     } else {
-                        store
-                            .create_character(input)
+                        // Source setup is consulted only on Create, never Enter or recovery.
+                        let start = match super::creation_start::CreationStart::load(
+                            settings.0.classic_start_captures.as_deref(),
+                            input.race,
+                            input.class,
+                        ) {
+                            Ok(start) => start,
+                            Err(error) => {
+                                bevy::log::warn!("p2p: {error}");
+                                emit(
+                                    events,
+                                    SessionEvent::CharActionResult {
+                                        action: CharAction::Create,
+                                        code: 0x32, // CHAR_CREATE_DISABLED; this race/class needs local setup.
+                                    },
+                                )?;
+                                continue;
+                            }
+                        };
+                        start
+                            .create(&mut store, input)
                             .context("could not save character; local profile closed")?;
                         roster(&store, events, RosterCause::Changed, generation)?;
                         benilla_protocol::messages::CHAR_CREATE_SUCCESS

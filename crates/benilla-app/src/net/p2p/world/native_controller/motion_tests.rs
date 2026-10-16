@@ -6,8 +6,8 @@ use n::synthetic_motion_fixture as motion_fixture;
 
 fn source_profile() -> n::Profile {
     let mut profile = fixture::profile();
-    let mut genesis = motion_fixture::genesis(&profile);
-    genesis.npc_spawn_orientation = n::Orientation::new(1.25).unwrap();
+    let mut genesis = motion_fixture::genesis(&profile, 2);
+    genesis.npcs.get_mut(&2).unwrap().npc_spawn_orientation = n::Orientation::new(1.25).unwrap();
     profile.source_motion = Some(genesis);
     profile
 }

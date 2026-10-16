@@ -208,11 +208,12 @@ fn serialized_exact_replay_regenerates_events_without_rehydrating_queries() {
 }
 
 #[test]
-fn old_native29_and_native30_are_not_migrated() {
+fn old_native29_through_native31_are_not_migrated() {
     let (w, _) = captured(profile());
     for (version, policy) in [
         (29, "benilla-native-owner-ignore-pathfinding-v29"),
         (30, "benilla-native-pathfinder-constructor-dispatch-v30"),
+        (31, "benilla-native-first-owned-pathfinder-cache-v31"),
     ] {
         let mut old = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
         old["version"] = version.into();
@@ -226,11 +227,8 @@ fn old_native29_and_native30_are_not_migrated() {
         assert!(decode_records(&encode_records(&records).unwrap()).is_err());
         assert!(world(w.profile().clone()).replay(&records).is_err());
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 31);
-    assert_eq!(
-        NATIVE_POLICY,
-        "benilla-native-first-owned-pathfinder-cache-v31"
-    );
+    assert_eq!(NATIVE_FORMAT_VERSION, 33);
+    assert_eq!(NATIVE_POLICY, "benilla-native-complete-source-visitors-v33");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

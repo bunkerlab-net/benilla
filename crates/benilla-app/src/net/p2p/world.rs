@@ -75,7 +75,7 @@ impl fmt::Display for Error {
                 f.write_str("world input queue is full; this action was not accepted")
             }
             Self::Paused => f.write_str(
-                "world is paused; resolve its checkpoint or projection error before continuing",
+                "world is paused; resolve its checkpoint, projection or commit acknowledgement error before continuing",
             ),
             _ => write!(f, "solo world: {self:?}"),
         }
@@ -173,6 +173,7 @@ pub(crate) enum PauseKind {
     Checkpoint { requires_reopen: bool },
     Simulation,
     Authority,
+    CommittedAwaitingRouteAck,
     Projection,
     Clock,
 }

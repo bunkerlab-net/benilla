@@ -260,7 +260,7 @@ fn actual_lethal_melee_removes_active_holders_with_callback_owned_source_unit_le
         p.npcs[0].ai.respawn_delay_seconds = 1;
         p.npcs[0].combat.as_mut().unwrap().minimum_damage = f::float(10000.0);
         p.npcs[0].combat.as_mut().unwrap().maximum_damage = f::float(10000.0);
-        p.source_motion = Some(motion_fixture::genesis(&p));
+        p.source_motion = Some(motion_fixture::genesis(&p, 2));
         p.player_slow = Some(
             PlayerSlowGenesis::from_sources(
                 vec![player_slow::source::synthetic_source(61004, -40, 6000)],
@@ -365,9 +365,9 @@ fn movement_queries_use_incoming_walk_backwards_and_live_slow_budget() {
 }
 fn repaired(value: serde_json::Value) -> Checkpoint {
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v31\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v33\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v31\0",
+        b"benilla-native-checkpoint-v33\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

@@ -15,6 +15,11 @@ timeout_ms = 5000
 # Optional IANA world timezone; defaults to UTC, never the host local timezone.
 # All exploration peers must use the exact same name.
 # timezone = "Africa/Johannesburg"
+# Optional private source-v2 captures, one file per race/class: <race>-<class>.json.
+# Relative to the executable. Example: 6-11.json for Tauren Druid.
+# Configured missing/invalid files refuse new creation; saved characters still enter normally.
+# Omit for the legacy shared Northshire start. See docs/CLASSIC-EXPLORATION-STARTS.md.
+# classic_start_captures = "benilla-config/classic-starts"
 
 # Optional internet mode: uncomment the table, choose compatible relay URLs, and privately
 # exchange endpoint tickets. Empty relays means direct QUIC only. Keep p2p.peers empty.

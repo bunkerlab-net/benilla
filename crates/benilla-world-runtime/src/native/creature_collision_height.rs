@@ -88,13 +88,9 @@ impl CreatureCollisionHeightCatalog {
         if self != &Self::from_profile(profile)? {
             return Err(NativeError::InvalidProfile);
         }
-        // SourceMotion currently admits exactly one NPC. Do not let its free
-        // settings scalar masquerade as the selected model's computed height.
-        let motion = profile
-            .source_motion
-            .as_ref()
-            .ok_or(NativeError::InvalidProfile)?;
+        // Each owner's height must agree with its retained model source.
         for npc in &profile.npcs {
+            let motion = profile.npc_motion(npc.ai.creature_id)?;
             let row = self
                 .source(npc.ai.creature_id)
                 .ok_or(NativeError::InvalidProfile)?;
@@ -110,7 +106,7 @@ impl CreatureCollisionHeightCatalog {
 }
 impl Profile {
     /// Explicitly opt in to height using the already-owned initial model source.
-    /// Both the retained height catalog and NPC motion scalar update atomically.
+    /// The retained catalog and each owner's motion height update atomically.
     pub fn initialize_creature_collision_heights(&mut self) -> Result<(), NativeError> {
         // Existing ownership is immutable: repeat initialization may not repair
         // a changed source binding or an independently edited motion scalar.
@@ -127,8 +123,13 @@ impl Profile {
             let row = catalog
                 .source(npc.ai.creature_id)
                 .ok_or(NativeError::InvalidProfile)?;
-            motion.npc_policy.settings.collision_height =
-                ai::Real::from_bits(row.initial_height.height().bits())?;
+            motion
+                .npcs
+                .get_mut(&npc.ai.creature_id)
+                .ok_or(NativeError::InvalidProfile)?
+                .npc_policy
+                .settings
+                .collision_height = ai::Real::from_bits(row.initial_height.height().bits())?;
         }
         next.creature_collision_heights = Some(catalog);
         next.validate()?;
@@ -283,9 +284,8 @@ impl CreatureRouteRequest {
             || height.object_scale != width.object_scale()
             || height.height.bits() != self.request.owner_collision_height.bits()
             || profile
-                .source_motion
-                .as_ref()
-                .ok_or(NativeError::AuthorityBinding)?
+                .npc_motion(self.owner.npc().spawn)
+                .map_err(|_| NativeError::AuthorityBinding)?
                 .npc_policy
                 .settings
                 .collision_height

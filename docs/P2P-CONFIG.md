@@ -13,9 +13,11 @@ character. Loading configuration or opening Settings does not dial peers/relays 
 router mappings. The optional synthetic encounter test also requires an explicit start.
 
 Exploration provides saved characters, movement and chat. See [character profiles](P2P-CHARACTERS.md)
-for private identity storage, checkpointing and recovery limits. All races initially share the
-Northshire meeting spawn; canonical racial start zones, NPC population, combat, abilities,
-quests, XP and loot remain unfinished. One peer can enter alone without waiting for configured
+for private identity storage, checkpointing and recovery limits. Optional
+[`p2p.classic_start_captures`](CLASSIC-EXPLORATION-STARTS.md) selects private source-v2
+captures for new-character racial starts. Without it, new characters retain the legacy
+Northshire meeting point and emit a warning. NPC population, combat, abilities, quests,
+XP and loot remain unfinished. One peer can enter alone without waiting for configured
 offline peers. Shared-world simulation and offline-world merging are not implemented.
 
 ## Automatic world clock
@@ -186,7 +188,8 @@ different `BENILLA_HOME` per process. Never point `BENILLA_HOME` into the WoW in
    `peers = ["127.0.0.1:7475"]`; B listens on `127.0.0.1:7475` and lists
    `peers = ["127.0.0.1:7474"]`. Both use the same network name and ruleset.
 3. Start both, choose Start/Join, then create or select a local character and Enter World.
-   Each initially meets in Northshire and should see the other saved avatar. The login display
+   With unconfigured starts, both initially meet in Northshire; configured racial starts
+   require the characters to meet on the same map to see each other. The login display
    lists configured local endpoints; this is not a reachability test. No realm account is needed.
 4. Move, turn, jump, stop and use `/say` on each. Confirm the other sees the movement
    and message. Close one client; the other should remove its avatar. Restart the first;

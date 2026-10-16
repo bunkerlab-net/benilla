@@ -59,7 +59,7 @@ fn setup(
             2,
             Body {
                 radius: profile.npcs[0].ai.bounding_radius,
-                height: m.npc_policy.settings.collision_height,
+                height: m.npc(2).unwrap().npc_policy.settings.collision_height,
             },
         )]),
         player: Some(PlayerMotion {
@@ -223,7 +223,9 @@ fn missing_coverage_changed_bindings_and_unrepresentable_points_fail_closed() {
 #[test]
 fn independent_source_first_path_scalar_oracle_preserves_order_and_boundaries() {
     use super::super::products::ground_height::allowed_ground_z;
-    let data = include_str!("../../../../../../../benilla-native-geometry-tests/tools/fixtures/near_point_primary/primary-acceptance.test-fixture");
+    let data = include_str!(
+        "../../../../../../../benilla-native-geometry-tests/tools/fixtures/near_point_primary/primary-acceptance.test-fixture"
+    );
     let header = data
         .lines()
         .find(|line| line.starts_with("# case\t"))

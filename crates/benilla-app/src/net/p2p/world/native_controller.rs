@@ -2,6 +2,9 @@
 //! App-native clock, durable boundary and local command driver. The production capability
 //! is still uninhabited. Component-test fixtures cannot enter through a production request.
 use super::*;
+use crate::net::p2p::native_geometry::route_commit::{
+    RouteCommitBoundary, RouteCommitNotice, RouteCommitSink,
+};
 use crate::{creature_anim::move_flags, net::ClientCommand};
 use benilla_protocol::messages::{MoveMode, RelayVerb, SpeedKind};
 use benilla_sim::creature_ai::Point;
@@ -21,6 +24,15 @@ struct PendingEvents {
     tick: u64,
     events: Vec<SessionEvent>,
     saved: Option<SavedBoundary>,
+}
+
+struct RouteCommitState {
+    sink: Box<dyn RouteCommitSink>,
+    boundary: RouteCommitBoundary,
+    initialized: bool,
+    // A capture error is also post-commit: retain it instead of retrying the inputs or
+    // attempting to reconstruct evidence after a checkpoint has cleared the journal.
+    pending: Option<Result<RouteCommitNotice, n::NativeError>>,
 }
 
 struct LocalAuthority(Box<dyn n::Authority + Send>);
@@ -195,6 +207,7 @@ pub(crate) struct NativeController {
     selected: Selection,
     published_pose: PublishedPose,
     authority: LocalAuthority,
+    route_commit: Option<RouteCommitState>,
     orders: MovementOrders,
     loot_window: Option<PublishedLoot>,
     initial: Option<Vec<SessionEvent>>,
@@ -298,6 +311,7 @@ impl NativeController {
             selected,
             published_pose,
             authority: LocalAuthority(Box::new(authority)),
+            route_commit: None,
             orders,
             loot_window: None,
             initial: Some(initial),
@@ -315,11 +329,72 @@ impl NativeController {
             closed: false,
         })
     }
+    /// The paired selected-route sink must attach before resolving any owned Route.
+    /// Failed initialization retains this exact attachment for explicit control retry.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "Native entry remains capability gated")
+    )]
+    pub(crate) fn attach_route_commit_sink(
+        &mut self,
+        sink: impl RouteCommitSink + 'static,
+    ) -> Result<(), Error> {
+        if self.closed || self.closing {
+            return Err(Error::Closed);
+        }
+        if self.route_commit.is_some()
+            || self.pending.is_some()
+            || self.outbox.is_some()
+            || self.pause.is_some()
+            || !self.actions.is_empty()
+        {
+            return Err(Error::Paused);
+        }
+        let boundary = RouteCommitBoundary::capture_initial(&self.world)?;
+        self.route_commit = Some(RouteCommitState {
+            sink: Box::new(sink),
+            boundary,
+            initialized: false,
+            pending: None,
+        });
+        self.drain_route_commit()
+    }
+    fn drain_route_commit(&mut self) -> Result<(), Error> {
+        let result = (|| {
+            let Some(commit) = self.route_commit.as_mut() else {
+                return Ok(());
+            };
+            if !commit.initialized {
+                commit.sink.initialize(&commit.boundary)?;
+                commit.initialized = true;
+            }
+            if let Some(pending) = &commit.pending {
+                let notice = pending.as_ref().map_err(Clone::clone)?;
+                commit.sink.deliver(notice)?;
+                commit.boundary = notice.boundary().clone();
+                commit.pending = None;
+            }
+            Ok::<(), n::NativeError>(())
+        })();
+        result.map_err(|error| {
+            self.pause = Some(Pause {
+                kind: PauseKind::CommittedAwaitingRouteAck,
+                message: error.to_string(),
+            });
+            error.into()
+        })
+    }
     fn ensure_input(&self) -> Result<(), Error> {
         if self.closed || self.closing {
             return Err(Error::Closed);
         }
-        if self.pause.is_some() || self.outbox.is_some() {
+        if self.pause.is_some()
+            || self.outbox.is_some()
+            || self
+                .route_commit
+                .as_ref()
+                .is_some_and(|commit| !commit.initialized || commit.pending.is_some())
+        {
             return Err(Error::Paused);
         }
         Ok(())
@@ -547,6 +622,8 @@ impl NativeController {
         Ok(PendingTick { inputs, moving })
     }
     fn advance_one(&mut self, out: &mut Pump) -> Result<(), Error> {
+        // An acknowledgement barrier precedes staging and calculation of the next tick.
+        self.drain_route_commit()?;
         // A committed but unpublished tick cannot be overtaken by another simulation step.
         if self.outbox.is_some() {
             return Err(Error::Paused);
@@ -560,6 +637,10 @@ impl NativeController {
         // Immediately retire the committed input. A projection/checkpoint failure must never
         // rerun a committed cast, loot/reward, RNG draw or sequence on explicit retry.
         let pending = self.pending.take().expect("committed staged tick");
+        if let Some(commit) = self.route_commit.as_mut() {
+            debug_assert!(commit.pending.is_none());
+            commit.pending = Some(RouteCommitNotice::capture(&self.world, &commit.boundary));
+        }
         let admin_rejections = self
             .world
             .last_tick()
@@ -630,7 +711,9 @@ impl NativeController {
             self.published(&projected);
             out.events.extend(projected);
         }
-        Ok(())
+        // Delivery follows required projection/outbox work. A dropped acknowledgement
+        // cannot suppress already committed events or turn this into an input retry.
+        self.drain_route_commit()
     }
     fn resync_slow_timers(&mut self, events: &mut Vec<SessionEvent>) {
         if !self.resync_slow_durations {
@@ -1065,6 +1148,7 @@ impl Driven for NativeController {
             // on this pump, even with zero elapsed time, before admitting another tick/input.
             if self.pause.is_none() && self.outbox.is_some() {
                 self.publish_pending(&mut out.events);
+                let _ = self.drain_route_commit();
                 out.pending_ticks = self.debt.as_nanos() / self.tick_duration().as_nanos();
                 out.pause = self.pause.clone();
                 self.refresh_admin_mailbox();
@@ -1159,6 +1243,21 @@ impl Driven for NativeController {
         self.pause = None;
         Ok(())
     }
+    fn retry_route_commit(&mut self) -> Result<(), Error> {
+        if self.closing
+            || self.closed
+            || !matches!(
+                self.pause.as_ref().map(|pause| &pause.kind),
+                Some(PauseKind::CommittedAwaitingRouteAck)
+            )
+        {
+            return Err(Error::Paused);
+        }
+        self.drain_route_commit()?;
+        self.resync_slow_durations = true;
+        self.pause = None;
+        Ok(())
+    }
     fn shutdown(&mut self) -> Result<(SavedBoundary, usize, Vec<SessionEvent>), Error> {
         if self.closed {
             return Err(Error::Closed);
@@ -1173,6 +1272,9 @@ impl Driven for NativeController {
         self.publish_pending(&mut events);
         self.actions.clear();
         self.pending = None;
+        // Closing a loaded owner does not rehydrate it on the next session. Saving
+        // committed state is still permitted when its acknowledgement channel was lost.
+        self.route_commit = None;
         self.closed = true;
         self.refresh_admin_mailbox();
         Ok((saved, cancelled, events))

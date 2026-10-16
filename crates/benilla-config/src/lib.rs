@@ -57,6 +57,8 @@ impl Drop for SecretPsk {
 
 #[derive(Clone, Debug)]
 pub struct P2pConfig {
+    /// Optional directory of <race>-<class>.json source-v2 captures, absolute after loading.
+    pub classic_start_captures: Option<PathBuf>,
     pub encounter: Option<EncounterConfig>,
     pub internet: Option<benilla_p2p::InternetConfig>,
     pub network: String,
@@ -241,6 +243,7 @@ impl<'de> Deserialize<'de> for Passphrase {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawP2p {
+    classic_start_captures: Option<PathBuf>,
     encounter: Option<RawEncounter>,
     #[serde(default)]
     internet: Option<benilla_p2p::InternetConfig>,
@@ -378,7 +381,12 @@ impl AppConfig {
             xp_milli: rate(raw.ruleset.xp_rate, "ruleset.xp_rate")?,
             drop_milli: rate(raw.ruleset.drop_rate, "ruleset.drop_rate")?,
         };
-        let p2p = raw.p2p.map(validate_p2p).transpose()?;
+        let mut p2p = raw.p2p.map(validate_p2p).transpose()?;
+        if let Some(path) = p2p.as_mut().and_then(|p| p.classic_start_captures.as_mut()) {
+            if path.is_relative() {
+                *path = directory.join(&*path);
+            }
+        }
         Ok(Self { p2p, wow, ruleset })
     }
 }
@@ -399,6 +407,13 @@ fn rate(value: f64, field: &str) -> Result<u32, ConfigError> {
 }
 
 fn validate_p2p(raw: RawP2p) -> Result<P2pConfig, ConfigError> {
+    if raw
+        .classic_start_captures
+        .as_ref()
+        .is_some_and(|p| p.as_os_str().is_empty())
+    {
+        return Err(invalid("p2p.classic_start_captures must name a directory; omit it for legacy exploration starts"));
+    }
     if raw.internet.is_some() && raw.encounter.is_some() {
         return Err(invalid("internet and synthetic encounter modes cannot be combined; encounter currently requires its fixed TCP roster"));
     }
@@ -450,6 +465,7 @@ fn validate_p2p(raw: RawP2p) -> Result<P2pConfig, ConfigError> {
     // Validate every cheap field before allocating the fixed 64 MiB KDF workspace.
     let psk = derive_psk(&raw.psk.0, &raw.network)?;
     Ok(P2pConfig {
+        classic_start_captures: raw.classic_start_captures,
         encounter: raw
             .encounter
             .map(|encounter| validate_encounter(encounter, raw.listen, &raw.peers, raw.max_peers))

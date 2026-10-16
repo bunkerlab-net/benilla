@@ -995,6 +995,9 @@ mod event_scheduler_tests;
 #[path = "combat_authority_tests.rs"]
 mod combat_authority_tests;
 
+#[path = "two_owner_visitor_tests.rs"]
+mod two_owner_visitor_tests;
+
 #[path = "spell_authority_tests.rs"]
 mod spell_authority_tests;
 
@@ -1014,3 +1017,6 @@ mod level_sixty_tests;
 
 #[path = "player_environment_tests.rs"]
 mod player_environment_tests;
+
+#[path = "route_commit_tests.rs"]
+mod route_commit_tests;

@@ -175,7 +175,7 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 31 retains this required-option evidence and rejects earlier formats.
+  format 32 retains this required-option evidence and rejects earlier formats.
   The first source-owner cache contract requires explicit first dispatch, revision
   one and Complete NORMAL with exact endpoints/all segment predicates. Retained
   use still requires exact prior and increment. Runtime-owned live dispatch is

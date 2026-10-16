@@ -117,7 +117,7 @@ fn setup(
             2,
             Body {
                 radius: profile.npcs[0].ai.bounding_radius,
-                height: source.npc_policy.settings.collision_height,
+                height: source.npc(2).unwrap().npc_policy.settings.collision_height,
             },
         )]),
         player: Some(PlayerMotion {

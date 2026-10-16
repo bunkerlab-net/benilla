@@ -48,11 +48,11 @@ is implemented, respawn clears both initial width and height ownership. Later
 NPC generations cannot reuse or relabel generation-zero height. Height-independent
 routes continue with explicit `None`.
 
-Native format **31**, policy `benilla-native-first-owned-pathfinder-cache-v31`, retains
+Native format **33**, policy `benilla-native-complete-source-visitors-v33`, retains
 optional profile height catalog, checkpoint `source_collision_height`, and typed
 Route `collision_height`. Every serialized optional field must exist, using
 explicit null for absence. Profile/state/record/checkpoint/melee digest domains
-are v31; native30 and every earlier experimental format are rejected without
+are v33; native32 and every earlier experimental format are rejected without
 migration defaults. OriginalFixture v2 and character/profile transports are
 unchanged. Native admission remains uninhabited.
 

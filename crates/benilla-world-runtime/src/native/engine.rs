@@ -17,6 +17,9 @@ mod inventory;
 mod loot;
 mod motion;
 mod quests;
+#[cfg(test)]
+mod update_phase_tests;
+mod visitors;
 use ai::movement::{
     GeometryAuthority, MovementOutcome, MovementPurpose, MovementRequest, Revision,
 };
@@ -118,7 +121,7 @@ impl NativeWorld {
             events: vec![],
             draws: vec![],
             receipts: BTreeMap::new(),
-            source_inside_alive_unit: false,
+            source_alive_unit: None,
             moved: false,
             cast_inputs: BTreeMap::new(),
             movement_origin: self.state.position,
@@ -193,7 +196,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v31\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v33\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -246,7 +249,7 @@ struct Frame<'a, A> {
     events: Vec<Event>,
     draws: Vec<Draw>,
     receipts: BTreeMap<u64, Vec<ai::Receipt>>,
-    source_inside_alive_unit: bool,
+    source_alive_unit: Option<NpcId>,
     moved: bool,
     cast_inputs: BTreeMap<u64, Option<u64>>,
     movement_origin: ai::Point,
@@ -949,325 +952,91 @@ impl<A: Authority> Frame<'_, A> {
         Ok((after_update, handled_delayed))
     }
     fn auras(&mut self) -> Result<(), NativeError> {
-        let ids = self.state.npcs.keys().copied().collect::<Vec<_>>();
+        let ids = self
+            .state
+            .npcs
+            .values()
+            .map(|npc| npc.id)
+            .collect::<Vec<_>>();
         for id in ids {
-            let spells = self.state.npcs[&id]
-                .auras
-                .keys()
-                .copied()
-                .collect::<Vec<_>>();
-            for ability in spells {
-                // Synchronous source death can remove all remaining holders.
-                if !self.state.npcs[&id].auras.contains_key(&ability) {
-                    continue;
-                }
-                let target_id = self.state.npcs[&id].id;
-                let facts =
-                    self.facts(0, ability, target_id, CastPhase::Aura, SpellHistory::Aura)?;
-                let npc = self.state.npcs.get_mut(&id).unwrap();
-                let mut target = npc.auras.remove(&ability).unwrap();
-                target.health = npc.health;
-                // DealDamageMods absorbs the due tick throughout timed/home evade;
-                // its aura timer continues until the ordinary EnterEvadeMode cleanup.
-                let events = target.update_aura_with_evade(
-                    self.state.now_ms,
-                    self.profile.tick_ms,
-                    facts.immune,
-                    npc.ai.is_evading(),
-                )?;
-                npc.health = target.health;
-                if target.aura().is_some() {
-                    npc.auras.insert(ability, target);
-                } else {
-                    npc.aura_bindings.remove(&ability);
-                }
-                self.spell_events(0, ability, target_id, events)?;
+            self.npc_auras(id)?;
+        }
+        Ok(())
+    }
+    // Unit::_UpdateSpells advances only its own holders after its event queue.
+    fn npc_auras(&mut self, id: NpcId) -> Result<(), NativeError> {
+        let spells = self
+            .state
+            .npcs
+            .get(&id.spawn)
+            .filter(|npc| npc.id == id)
+            .ok_or(NativeError::UnknownTarget)?
+            .auras
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for ability in spells {
+            // Synchronous source death can remove all remaining holders.
+            if !self.state.npcs[&id.spawn].auras.contains_key(&ability) {
+                continue;
             }
+            let facts = self.facts(0, ability, id, CastPhase::Aura, SpellHistory::Aura)?;
+            let npc = self.state.npcs.get_mut(&id.spawn).unwrap();
+            let mut target = npc.auras.remove(&ability).unwrap();
+            target.health = npc.health;
+            // DealDamageMods absorbs the due tick throughout timed/home evade;
+            // its aura timer continues until the ordinary EnterEvadeMode cleanup.
+            let events = target.update_aura_with_evade(
+                self.state.now_ms,
+                self.profile.tick_ms,
+                facts.immune,
+                npc.ai.is_evading(),
+            )?;
+            npc.health = target.health;
+            if target.aura().is_some() {
+                npc.auras.insert(ability, target);
+            } else {
+                npc.aura_bindings.remove(&ability);
+            }
+            self.spell_events(0, ability, id, events)?;
         }
         Ok(())
     }
     fn npcs(&mut self) -> Result<(), NativeError> {
-        let mut prepared = if self.profile.source_motion.is_some() {
-            self.prepare_source_receipts()?
+        // Source owners complete events through regeneration in one turn. The
+        // selected authored order does not claim Map's unordered object schedule.
+        let source = self.profile.source_motion.is_some();
+        let mut prepared = if source {
+            BTreeMap::new()
         } else {
             self.prepare_npc_receipts()?
         };
-        let ids = self.state.npcs.keys().copied().collect::<Vec<_>>();
+        let ids = if let Some(visitors) = &self.profile.source_visitors {
+            visitors
+                .owner_order()
+                .iter()
+                .map(|spawn| {
+                    self.state
+                        .npcs
+                        .get(spawn)
+                        .map(|npc| npc.id)
+                        .ok_or(NativeError::InvalidState)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            self.state
+                .npcs
+                .values()
+                .map(|npc| npc.id)
+                .collect::<Vec<_>>()
+        };
         let mut swings = Vec::new();
         for id in ids {
-            let mut npc = self.state.npcs.remove(&id).unwrap();
-            let p = self.profile.npc(id).unwrap();
-            // Creature::Update does not regenerate on corpse/dead/respawn updates.
-            let alive_update = npc.health > 0
-                && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned);
-            let receipt_step = prepared.remove(&id);
-            let prior_motion = receipt_step
-                .as_ref()
-                .map(|(_, motion)| motion.clone())
-                .unwrap_or_else(|| npc.ai.motion().cloned());
-            if npc.health == 0
-                && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned)
-            {
-                // Damage receipts before death need a live authoritative target and are preserved.
-                let pending = self.receipts.entry(id).or_default();
-                pending.push(ai::Receipt {
-                    id: npc
-                        .ai
-                        .last_receipt_id()
-                        .checked_add(pending.len() as u64 + 1)
-                        .ok_or(NativeError::Limit)?,
-                    event: ai::CombatEvent::Died,
-                });
-                for ability in npc.auras.keys() {
-                    self.events.push(Event::Spell {
-                        cast_id: 0,
-                        ability: *ability,
-                        target: npc.id,
-                        event: spell::SpellEvent::AuraRemoved,
-                    });
-                }
-                npc.auras.clear();
-                npc.aura_bindings.clear();
-            }
-            let (effects, mut melee_events) = if npc.source_motion.is_some() {
-                let (token, _) = receipt_step.ok_or(NativeError::InvalidState)?;
-                self.advance_source_npc(&mut npc, token)?
+            if source {
+                self.source_npc_update(id, &mut swings)?;
             } else {
-                let query = Query::Npc {
-                    position: npc.ai.position(),
-                    player_position: self.state.position,
-                    motion: npc.ai.motion().cloned(),
-                };
-                let Facts::Npc(facts) = self.ask(Some(npc.id), query)? else {
-                    return Err(NativeError::AuthorityBinding);
-                };
-                let movement = if let Some(motion) = prior_motion.filter(|_| {
-                    !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned)
-                        && npc.health > 0
-                }) {
-                    let goal = match motion.purpose {
-                        MovementPurpose::Home => motion.home.ok_or(NativeError::InvalidState)?,
-                        MovementPurpose::Chase { .. } => facts.chase_goal.ok_or(
-                            NativeError::AuthorityUnavailable("native chase near-point/navigation"),
-                        )?,
-                    };
-                    let request = MovementRequest {
-                        request_id: npc
-                            .ai
-                            .last_movement_request_id()
-                            .checked_add(1)
-                            .ok_or(NativeError::Limit)?,
-                        command_id: motion.command_id,
-                        creature_id: id,
-                        map_id: self.profile.map_id,
-                        origin: npc.ai.position(),
-                        goal,
-                        speed: if motion.purpose == MovementPurpose::Home {
-                            p.ai.home_speed
-                        } else {
-                            p.ai.run_speed
-                        },
-                        elapsed_ms: self.profile.tick_ms,
-                        content_revision: Revision(self.profile.content_digest),
-                        geometry_revision: Revision(self.profile.geometry_revision),
-                        purpose: motion.purpose,
-                    };
-                    let Facts::Movement(outcome) =
-                        self.ask(Some(npc.id), Query::Movement(request.clone()))?
-                    else {
-                        return Err(NativeError::AuthorityBinding);
-                    };
-                    Some(ai::movement::resolve_movement(
-                        &mut MovementAdapter(outcome),
-                        request,
-                    )?)
-                } else {
-                    None
-                };
-                let observation = ai::Observation {
-                    sequence: self.state.tick,
-                    elapsed_ms: self.profile.tick_ms,
-                    geometry_revision: Revision(self.profile.geometry_revision),
-                    target: Some(ai::Target {
-                        id: SOLO_UNIT,
-                        position: self.state.position,
-                        level: self.state.level(self.profile),
-                        combat_reach: self.profile.player.combat_reach,
-                        bounding_radius: self.profile.player.bounding_radius,
-                        moving_and_running: self.moved,
-                        alive: self.state.health > 0,
-                        online: true,
-                        can_attack_in_combat: facts.can_attack_in_combat,
-                        can_attack_on_sight: facts.can_attack_on_sight,
-                        visible: facts.visible,
-                        accessible: facts.accessible,
-                        line_of_sight: facts.line_of_sight,
-                    }),
-                    can_initiate_attack: facts.can_initiate_attack,
-                    casting_non_melee: false,
-                    stationary_melee_refresh_eligible: facts.stationary_melee_refresh_eligible,
-                    creature_moving_and_running: facts.creature_moving_and_running,
-                    movement,
-                    receipts: self.receipts.remove(&id).unwrap_or_default(),
-                };
-                let mut melee_events = Vec::new();
-                let effects = if self.state.combat.is_some() {
-                    let start = self.events.len();
-                    let mut failure = None;
-                    let npc_id = npc.id;
-                    let health = npc.health;
-                    let mut callback = |_, position, started| {
-                        if started {
-                            self.enter_player_combat();
-                        }
-                        match self.native_melee(npc_id, position, health, None, None) {
-                            Ok(()) => Ok(if self.state.health == 0 {
-                                ai::MainhandResult::TargetDied
-                            } else {
-                                ai::MainhandResult::Unchanged
-                            }),
-                            Err(error) => {
-                                failure = Some(error);
-                                Err(ai::AiError::Invalid("native melee callback"))
-                            }
-                        }
-                    };
-                    let result = if let Some((token, _)) = receipt_step {
-                        let prefix = token.effects().len();
-                        npc.ai
-                            .finish_receipts(observation, token, &mut callback)
-                            .map(|effects| effects.into_iter().skip(prefix).collect())
-                    } else {
-                        npc.ai.step_with_mainhand(
-                            &mut ObservationAdapter(Some(observation)),
-                            &mut |id, point, started| callback(id, point, started).map(|_| ()),
-                        )
-                    };
-                    if let Some(error) = failure {
-                        return Err(error);
-                    }
-                    melee_events = self.events.split_off(start);
-                    result?
-                } else {
-                    npc.ai.step(&mut ObservationAdapter(Some(observation)))?
-                };
-                (effects, melee_events)
-            };
-            for effect in effects {
-                match &effect {
-                    ai::Effect::MainhandSwing { .. } if self.state.combat.is_none() => {
-                        swings.push(npc.id)
-                    }
-                    ai::Effect::EvadeStarted(_) => {
-                        npc.original_loot_recipient = None;
-                        npc.corpse_loot = None;
-                        for ability in npc.auras.keys() {
-                            self.events.push(Event::Spell {
-                                cast_id: 0,
-                                ability: *ability,
-                                target: npc.id,
-                                event: spell::SpellEvent::AuraRemoved,
-                            });
-                        }
-                        npc.auras.clear();
-                        npc.aura_bindings.clear();
-                    }
-                    ai::Effect::CorpseRemoved => {
-                        if self
-                            .state
-                            .quest_progression
-                            .as_ref()
-                            .is_some_and(|q| q.loot_target == Some(npc.id))
-                        {
-                            self.state.quest_progression.as_mut().unwrap().loot_target = None;
-                            self.events.push(Event::Loot(LootEvent::Released {
-                                corpse: npc.id,
-                                send_response: true,
-                            }));
-                        }
-                        npc.corpse_loot = None;
-                    }
-                    ai::Effect::Respawned { .. } => {
-                        npc.original_loot_recipient = None;
-                        npc.corpse_loot = None;
-                        npc.id.generation =
-                            npc.id.generation.checked_add(1).ok_or(NativeError::Limit)?;
-                        // Respawn reruns source InitEntry: no fresh model receipt exists yet.
-                        npc.source_collision_width = None;
-                        npc.source_collision_height = None;
-                        npc.events.rebind_respawn(npc.id)?;
-                        if let Some(capabilities) = &mut npc.source_capabilities {
-                            capabilities.respawn(self.profile, npc.id)?;
-                        }
-                        npc.health = p.max_health;
-                        npc.auras.clear();
-                        npc.aura_bindings.clear();
-                    }
-                    _ => {}
-                }
-                let started = matches!(effect, ai::Effect::CombatStarted { .. });
-                let swung = matches!(effect, ai::Effect::MainhandSwing { .. });
-                if npc.source_motion.is_some() && matches!(effect, ai::Effect::FaceTarget { .. }) {
-                    while matches!(
-                        melee_events.first(),
-                        Some(Event::NpcMotion {
-                            event: benilla_sim::creature_motion::Event::FacingChanged { .. },
-                            ..
-                        })
-                    ) {
-                        self.events.push(melee_events.remove(0));
-                    }
-                }
-                self.events.push(Event::Npc {
-                    id: npc.id,
-                    effect: effect.clone(),
-                });
-                self.source_ai_effect(&mut npc, &effect)?;
-                if started {
-                    if matches!(
-                        melee_events.first(),
-                        Some(Event::Combat(CombatEvent::EnteredCombat))
-                    ) {
-                        self.events.push(melee_events.remove(0));
-                    } else {
-                        self.enter_player_combat();
-                    }
-                }
-                if swung {
-                    self.events.append(&mut melee_events);
-                }
+                self.npc_update(id, prepared.remove(&id.spawn), &mut swings)?;
             }
-            if !melee_events.is_empty() {
-                return Err(NativeError::InvalidState);
-            }
-            // Creature::RegenerateAll follows Unit::Update, including motion, AI and
-            // CombatManager. In particular newly entered combat blocks this pulse.
-            let before = npc.health;
-            let regenerated = benilla_sim::creature_regeneration::update(
-                p.health_regeneration,
-                p.max_health,
-                benilla_sim::creature_regeneration::State {
-                    elapsed_ms: npc.regen_elapsed_ms,
-                    health: npc.health,
-                },
-                benilla_sim::creature_regeneration::Frame {
-                    diff_ms: self.profile.tick_ms,
-                    alive_update: alive_update && npc.health > 0,
-                    in_combat: npc.ai.phase() == ai::Phase::Combat,
-                    evade_regeneration: npc.ai.is_evade_regeneration(),
-                },
-            )?;
-            npc.regen_elapsed_ms = regenerated.elapsed_ms;
-            npc.health = regenerated.health;
-            if npc.health != before {
-                self.events.push(Event::NpcHealthRegenerated {
-                    id: npc.id,
-                    before,
-                    after: npc.health,
-                });
-            }
-            self.source_inside_alive_unit = false;
-            self.state.npcs.insert(id, npc);
         }
         // Legacy synthetic fixed-outcome mode only: observations share pre-melee
         // actor state. Initialized mode already resolved callbacks inside AI. Legacy swings
@@ -1314,6 +1083,289 @@ impl<A: Authority> Frame<'_, A> {
                 self.interrupt_scheduled_cast(id, spell::CastFailure::CasterDead)?;
             }
         }
+        Ok(())
+    }
+    fn npc_update(
+        &mut self,
+        owner: NpcId,
+        receipt_step: Option<(ai::ReceiptStep, Option<ai::MotionCommand>)>,
+        swings: &mut Vec<NpcId>,
+    ) -> Result<(), NativeError> {
+        let mut npc = self
+            .state
+            .npcs
+            .remove(&owner.spawn)
+            .filter(|npc| npc.id == owner)
+            .ok_or(NativeError::UnknownTarget)?;
+        let id = owner.spawn;
+        let p = self.profile.npc(id).unwrap();
+        // Creature::Update does not regenerate on corpse/dead/respawn updates.
+        let alive_update =
+            npc.health > 0 && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned);
+        let prior_motion = receipt_step
+            .as_ref()
+            .map(|(_, motion)| motion.clone())
+            .unwrap_or_else(|| npc.ai.motion().cloned());
+        if npc.health == 0 && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned) {
+            // Damage receipts before death need a live authoritative target and are preserved.
+            let pending = self.receipts.entry(id).or_default();
+            pending.push(ai::Receipt {
+                id: npc
+                    .ai
+                    .last_receipt_id()
+                    .checked_add(pending.len() as u64 + 1)
+                    .ok_or(NativeError::Limit)?,
+                event: ai::CombatEvent::Died,
+            });
+            for ability in npc.auras.keys() {
+                self.events.push(Event::Spell {
+                    cast_id: 0,
+                    ability: *ability,
+                    target: npc.id,
+                    event: spell::SpellEvent::AuraRemoved,
+                });
+            }
+            npc.auras.clear();
+            npc.aura_bindings.clear();
+        }
+        let (effects, mut melee_events) = if npc.source_motion.is_some() {
+            let (token, _) = receipt_step.ok_or(NativeError::InvalidState)?;
+            self.advance_source_npc(&mut npc, token)?
+        } else {
+            let query = Query::Npc {
+                position: npc.ai.position(),
+                player_position: self.state.position,
+                motion: npc.ai.motion().cloned(),
+            };
+            let Facts::Npc(facts) = self.ask(Some(npc.id), query)? else {
+                return Err(NativeError::AuthorityBinding);
+            };
+            let movement = if let Some(motion) = prior_motion.filter(|_| {
+                !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned)
+                    && npc.health > 0
+            }) {
+                let goal = match motion.purpose {
+                    MovementPurpose::Home => motion.home.ok_or(NativeError::InvalidState)?,
+                    MovementPurpose::Chase { .. } => facts.chase_goal.ok_or(
+                        NativeError::AuthorityUnavailable("native chase near-point/navigation"),
+                    )?,
+                };
+                let request = MovementRequest {
+                    request_id: npc
+                        .ai
+                        .last_movement_request_id()
+                        .checked_add(1)
+                        .ok_or(NativeError::Limit)?,
+                    command_id: motion.command_id,
+                    creature_id: id,
+                    map_id: self.profile.map_id,
+                    origin: npc.ai.position(),
+                    goal,
+                    speed: if motion.purpose == MovementPurpose::Home {
+                        p.ai.home_speed
+                    } else {
+                        p.ai.run_speed
+                    },
+                    elapsed_ms: self.profile.tick_ms,
+                    content_revision: Revision(self.profile.content_digest),
+                    geometry_revision: Revision(self.profile.geometry_revision),
+                    purpose: motion.purpose,
+                };
+                let Facts::Movement(outcome) =
+                    self.ask(Some(npc.id), Query::Movement(request.clone()))?
+                else {
+                    return Err(NativeError::AuthorityBinding);
+                };
+                Some(ai::movement::resolve_movement(
+                    &mut MovementAdapter(outcome),
+                    request,
+                )?)
+            } else {
+                None
+            };
+            let observation = ai::Observation {
+                sequence: self.state.tick,
+                elapsed_ms: self.profile.tick_ms,
+                geometry_revision: Revision(self.profile.geometry_revision),
+                target: Some(ai::Target {
+                    id: SOLO_UNIT,
+                    position: self.state.position,
+                    level: self.state.level(self.profile),
+                    combat_reach: self.profile.player.combat_reach,
+                    bounding_radius: self.profile.player.bounding_radius,
+                    moving_and_running: self.moved,
+                    alive: self.state.health > 0,
+                    online: true,
+                    can_attack_in_combat: facts.can_attack_in_combat,
+                    can_attack_on_sight: facts.can_attack_on_sight,
+                    visible: facts.visible,
+                    accessible: facts.accessible,
+                    line_of_sight: facts.line_of_sight,
+                }),
+                can_initiate_attack: facts.can_initiate_attack,
+                casting_non_melee: false,
+                stationary_melee_refresh_eligible: facts.stationary_melee_refresh_eligible,
+                creature_moving_and_running: facts.creature_moving_and_running,
+                movement,
+                receipts: self.receipts.remove(&id).unwrap_or_default(),
+            };
+            let mut melee_events = Vec::new();
+            let effects = if self.state.combat.is_some() {
+                let start = self.events.len();
+                let mut failure = None;
+                let npc_id = npc.id;
+                let health = npc.health;
+                let mut callback = |_, position, started| {
+                    if started {
+                        self.enter_player_combat();
+                    }
+                    match self.native_melee(npc_id, position, health, None, None) {
+                        Ok(()) => Ok(if self.state.health == 0 {
+                            ai::MainhandResult::TargetDied
+                        } else {
+                            ai::MainhandResult::Unchanged
+                        }),
+                        Err(error) => {
+                            failure = Some(error);
+                            Err(ai::AiError::Invalid("native melee callback"))
+                        }
+                    }
+                };
+                let result = if let Some((token, _)) = receipt_step {
+                    let prefix = token.effects().len();
+                    npc.ai
+                        .finish_receipts(observation, token, &mut callback)
+                        .map(|effects| effects.into_iter().skip(prefix).collect())
+                } else {
+                    npc.ai.step_with_mainhand(
+                        &mut ObservationAdapter(Some(observation)),
+                        &mut |id, point, started| callback(id, point, started).map(|_| ()),
+                    )
+                };
+                if let Some(error) = failure {
+                    return Err(error);
+                }
+                melee_events = self.events.split_off(start);
+                result?
+            } else {
+                npc.ai.step(&mut ObservationAdapter(Some(observation)))?
+            };
+            (effects, melee_events)
+        };
+        for effect in effects {
+            match &effect {
+                ai::Effect::MainhandSwing { .. } if self.state.combat.is_none() => {
+                    swings.push(npc.id)
+                }
+                ai::Effect::EvadeStarted(_) => {
+                    npc.original_loot_recipient = None;
+                    npc.corpse_loot = None;
+                    for ability in npc.auras.keys() {
+                        self.events.push(Event::Spell {
+                            cast_id: 0,
+                            ability: *ability,
+                            target: npc.id,
+                            event: spell::SpellEvent::AuraRemoved,
+                        });
+                    }
+                    npc.auras.clear();
+                    npc.aura_bindings.clear();
+                }
+                ai::Effect::CorpseRemoved => {
+                    if self
+                        .state
+                        .quest_progression
+                        .as_ref()
+                        .is_some_and(|q| q.loot_target == Some(npc.id))
+                    {
+                        self.state.quest_progression.as_mut().unwrap().loot_target = None;
+                        self.events.push(Event::Loot(LootEvent::Released {
+                            corpse: npc.id,
+                            send_response: true,
+                        }));
+                    }
+                    npc.corpse_loot = None;
+                }
+                ai::Effect::Respawned { .. } => {
+                    npc.original_loot_recipient = None;
+                    npc.corpse_loot = None;
+                    npc.id.generation =
+                        npc.id.generation.checked_add(1).ok_or(NativeError::Limit)?;
+                    // Respawn reruns source InitEntry: no fresh model receipt exists yet.
+                    npc.source_collision_width = None;
+                    npc.source_collision_height = None;
+                    npc.events.rebind_respawn(npc.id)?;
+                    if let Some(capabilities) = &mut npc.source_capabilities {
+                        capabilities.respawn(self.profile, npc.id)?;
+                    }
+                    npc.health = p.max_health;
+                    npc.auras.clear();
+                    npc.aura_bindings.clear();
+                }
+                _ => {}
+            }
+            let started = matches!(effect, ai::Effect::CombatStarted { .. });
+            let swung = matches!(effect, ai::Effect::MainhandSwing { .. });
+            if npc.source_motion.is_some() && matches!(effect, ai::Effect::FaceTarget { .. }) {
+                while matches!(
+                    melee_events.first(),
+                    Some(Event::NpcMotion {
+                        event: benilla_sim::creature_motion::Event::FacingChanged { .. },
+                        ..
+                    })
+                ) {
+                    self.events.push(melee_events.remove(0));
+                }
+            }
+            self.events.push(Event::Npc {
+                id: npc.id,
+                effect: effect.clone(),
+            });
+            self.source_ai_effect(&mut npc, &effect)?;
+            if started {
+                if matches!(
+                    melee_events.first(),
+                    Some(Event::Combat(CombatEvent::EnteredCombat))
+                ) {
+                    self.events.push(melee_events.remove(0));
+                } else {
+                    self.enter_player_combat();
+                }
+            }
+            if swung {
+                self.events.append(&mut melee_events);
+            }
+        }
+        if !melee_events.is_empty() {
+            return Err(NativeError::InvalidState);
+        }
+        // Creature::RegenerateAll follows Unit::Update, including motion, AI and
+        // CombatManager. In particular newly entered combat blocks this pulse.
+        let before = npc.health;
+        let regenerated = benilla_sim::creature_regeneration::update(
+            p.health_regeneration,
+            p.max_health,
+            benilla_sim::creature_regeneration::State {
+                elapsed_ms: npc.regen_elapsed_ms,
+                health: npc.health,
+            },
+            benilla_sim::creature_regeneration::Frame {
+                diff_ms: self.profile.tick_ms,
+                alive_update: alive_update && npc.health > 0,
+                in_combat: npc.ai.phase() == ai::Phase::Combat,
+                evade_regeneration: npc.ai.is_evade_regeneration(),
+            },
+        )?;
+        npc.regen_elapsed_ms = regenerated.elapsed_ms;
+        npc.health = regenerated.health;
+        if npc.health != before {
+            self.events.push(Event::NpcHealthRegenerated {
+                id: npc.id,
+                before,
+                after: npc.health,
+            });
+        }
+        self.state.npcs.insert(id, npc);
         Ok(())
     }
     fn player_reactives(&mut self) {
@@ -1397,7 +1449,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v31\0",
+            b"benilla-native-melee-action-v33\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1666,7 +1718,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v31\0",
+            b"benilla-native-melee-chain-v33\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

@@ -252,7 +252,7 @@ fn setup(z: f32) -> (n::Profile, ProductAuthority) {
             2,
             Body {
                 radius: data.npcs[0].ai.bounding_radius,
-                height: motion.npc_policy.settings.collision_height,
+                height: motion.npc(2).unwrap().npc_policy.settings.collision_height,
             },
         )]),
         player: Some(PlayerMotion {

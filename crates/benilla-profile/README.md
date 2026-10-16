@@ -38,10 +38,10 @@ row exists**. The app must validate actual options against the player's own `Cha
 No client data is redistributed here. Names/IDs are ordinary clean-room protocol facts; the
 numeric IDs already appear throughout `benilla-formats` and `benilla-app`.
 
-`SpawnPolicy::NorthshireMeetingV1` persists an explicit fork deviation: every race starts at
+`SpawnPolicy::NorthshireMeetingV1` persists the unconfigured fork default: every race starts at
 the existing P2P exploration meeting point `[-8949.95, -132.49, 83.9]`, map 0, zone 12. It is
-**not a canonical racial starting-location table**. A future genuine race-start implementation
-requires a new policy and migration, not silent reinterpretation of existing saves. Position
+**not a canonical racial starting-location table**. Source-backed race-start creation
+uses a new policy for new characters, never silent reinterpretation of existing saves. Position
 validation allows only maps 0 and 1, finite coordinates within ±20,000 yards, bounded zone IDs,
 and finite orientation within ±100 radians. It is not map collision, speed, zone-membership,
 teleport authorization, or gameplay anti-cheat validation.
@@ -192,3 +192,19 @@ All platform durability and local-owner limitations above apply equally to the s
 Signatures detect unauthorized changes by someone without the key; the operating-system owner
 can still copy keys and roll back complete saved directories. This is not global world-name
 ownership, anti-cheat, a remote permission service, or distributed admin consensus.
+
+## Configured local racial starts
+
+`starting_location::ClassicStart` reads the selected `playercreateinfo` position from
+an existing private `benilla-classic-source-slice-v2` capture.
+`ProfileStore::create_character_from_start` explicitly opts a new character into that
+selected map, zone, XYZ and orientation. A missing, mismatched, invalid or unsupported
+race/class does not fall back to Northshire. The original `create_character` API retains the legacy policy. The app uses the
+source-backed API when `p2p.classic_start_captures` is configured.
+See [the integration boundary](../../docs/CLASSIC-EXPLORATION-STARTS.md).
+
+The new policy records the exact capture byte digest. Every login, movement checkpoint,
+reopen and archive restoration continues to use the saved position; no table is needed
+again and no legacy character is reset. Older builds do not understand the new policy;
+back up the private profile before testing an explicitly opted-in character, and do not
+expect such a profile to open in an older build.

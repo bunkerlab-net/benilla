@@ -65,7 +65,7 @@ fn setup(
             2,
             Body {
                 radius: profile.npcs[0].ai.bounding_radius,
-                height: motion.npc_policy.settings.collision_height,
+                height: motion.npc(2).unwrap().npc_policy.settings.collision_height,
             },
         )]),
         player: Some(PlayerMotion {

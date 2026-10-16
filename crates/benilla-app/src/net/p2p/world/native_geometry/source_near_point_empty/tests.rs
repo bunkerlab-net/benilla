@@ -81,7 +81,7 @@ fn setup_selected_with_player_height(
             2,
             Body {
                 radius: profile.npcs[0].ai.bounding_radius,
-                height: m.npc_policy.settings.collision_height,
+                height: m.npc(2).unwrap().npc_policy.settings.collision_height,
             },
         )]),
         player: Some(PlayerMotion {
@@ -188,8 +188,12 @@ fn assert_source_case(
     label: &str,
     source_result: [u32; 3],
 ) {
-    let cases = source_rows(include_str!("../../../../../../../benilla-native-geometry-tests/tools/fixtures/near_point_empty/cases.test-fixture"));
-    let heights = source_rows(include_str!("../../../../../../../benilla-native-geometry-tests/tools/fixtures/near_point_empty/heights.test-fixture"));
+    let cases = source_rows(include_str!(
+        "../../../../../../../benilla-native-geometry-tests/tools/fixtures/near_point_empty/cases.test-fixture"
+    ));
+    let heights = source_rows(include_str!(
+        "../../../../../../../benilla-native-geometry-tests/tools/fixtures/near_point_empty/heights.test-fixture"
+    ));
     let case = cases.iter().find(|row| row["label"] == label).unwrap();
     let hex =
         |row: &BTreeMap<&str, &str>, field: &str| u32::from_str_radix(row[field], 16).unwrap();

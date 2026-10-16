@@ -46,7 +46,12 @@ snapshot exposes its actual clock, detached executing event and pending peers to
 authority bindings. The NPC handle remains set throughout the visitor, so any
 ordinary rescheduling from synchronous sight/chase callbacks remains a no-op.
 This bounded visitor does not support forced replacement or arbitrary queue
-mutation during its own callback; those paths fail closed. Bounded triggered
+mutation during its own callback; those paths fail closed. The explicitly selected
+[complete visitor lane](src/native/README.md#selected-complete-source-visitors)
+keeps that lifetime across the entire ordered grid/world traversal and both peer
+directions. The owner update order is an authored catalog permutation; each
+owner's notify, aura, motion/AI and regeneration phases remain consecutive.
+Bounded triggered
 starts run outside dispatch; nested starts inside a visitor remain unsupported.
 
 External event handles bind world, spawn, generation and event ID. Respawn keeps
@@ -56,7 +61,7 @@ alone does not clear `CanAggro` or abort the queue. A dead creature's due visito
 can set `CanAggro=false`; ordinary corpse removal preserves whichever value the
 source had until respawn resets it.
 
-Checkpoint format 31 (`benilla-native-first-owned-pathfinder-cache-v31`) binds source policy,
+Checkpoint format 33 (`benilla-native-complete-source-visitors-v33`) binds source policy,
 owner, queue, pending notify, aggro state and count of DEAD updates skipped by
 the processor. The exact queue clock equals `(tick - skipped_updates) * diff`;
 the AI's actual corpse-removal timestamp independently bounds the current DEAD

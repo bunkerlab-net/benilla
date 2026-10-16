@@ -44,7 +44,7 @@ impl<A: Authority> Frame<'_, A> {
             // Unit.h::CanEnterCombat = m_canEnterCombat && !IsEvadingHome.
             // No admitted operation calls SetCanEnterCombat or gives player Home.
             player_can_enter_combat: g.player_can_enter_combat,
-            creature_can_enter_combat: g.npc_can_enter_combat
+            creature_can_enter_combat: self.profile.npc_motion(target.spawn)?.npc_can_enter_combat
                 && npc.ai.phase() != ai::Phase::ReturningHome,
         })
     }
@@ -112,7 +112,7 @@ impl<A: Authority> Frame<'_, A> {
                 ai::movement::Check::Unknown => {
                     return Err(NativeError::AuthorityUnavailable(
                         "player detected by creature for hostile spell",
-                    ))
+                    ));
                 }
             },
             _ => return Err(NativeError::AuthorityBinding),

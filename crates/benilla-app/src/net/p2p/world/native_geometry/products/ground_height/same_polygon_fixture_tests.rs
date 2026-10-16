@@ -53,7 +53,7 @@ fn same_arc_and_source_identity_survive_owned_dry_height_projection() {
         benilla_sim::creature_ai::movement::Revision(config.content);
     profile.npcs[0].ai.reaction = benilla_sim::creature_ai::Reaction::Aggressive;
     profile.npcs[0].faction_template = 2;
-    profile.source_motion = Some(motion::genesis(&profile));
+    profile.source_motion = Some(motion::genesis(&profile, 2));
     // Actual selected pathfinder configuration requires complete interaction flags,
     // even though this reader test does not dispatch motion or supply any Facts.
     combat::install(&mut profile);

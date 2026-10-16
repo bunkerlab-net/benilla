@@ -216,13 +216,14 @@ impl<'products> SourceGroundHeightProvider<'products> {
             .source_motion
             .as_ref()
             .ok_or(Failure::UnresolvedBody)?;
+        let npc_motion = motion.npc(npc.spawn).map_err(|_| Failure::UnresolvedBody)?;
         let body = session
             .bodies
             .get(&npc.spawn)
             .ok_or(Failure::UnresolvedBody)?;
         let player = session.player.ok_or(Failure::UnresolvedBody)?;
         if body.radius != npc_profile.ai.bounding_radius
-            || body.height != motion.npc_policy.settings.collision_height
+            || body.height != npc_motion.npc_policy.settings.collision_height
             || q.owner_bounding_radius != body.radius
             || player.body.radius != self.profile.player.bounding_radius
             || player.body.height != motion.player_collision_height

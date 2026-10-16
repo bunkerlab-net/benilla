@@ -6,37 +6,68 @@ use super::*;
 use benilla_sim::creature_motion as motion;
 use serde::{Deserialize, Serialize};
 
+/// Shared player and world configuration. Every NPC owns an explicit entry;
+/// the unselected legacy visitor lane remains singleton-only.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MotionGenesis {
-    pub npc_policy: MotionPolicy,
     /// Captured raw spell inputs; no database inspection is implied.
     pub spell_hits: BTreeMap<u32, SpellHitPolicy>,
     pub player_can_enter_combat: bool,
-    pub npc_can_enter_combat: bool,
-    pub npc_stand_state: u8,
     pub player_collision_height: ai::Real,
     pub player_movement_flags: motion::GroundMovementFlags,
+    pub creature_initial_aggro_delay_ms: u32,
+    pub relocation_aggro_delay_ms: u32,
+    /// UnitVisitObjectsInRangeNotifyEvent uses the common CONFIG_FLOAT_RATE_CREATURE_AGGRO.
+    pub aggro_rate: ai::Real,
+    #[serde(deserialize_with = "unique_npc_motion_owners")]
+    pub npcs: BTreeMap<u64, NpcMotionGenesis>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NpcMotionGenesis {
+    pub npc_policy: MotionPolicy,
+    pub npc_can_enter_combat: bool,
+    pub npc_stand_state: u8,
     pub npc_spawn_orientation: Orientation,
     pub npc_initial_active: bool,
     pub chase_walking: bool,
     pub home_walking: bool,
-    pub creature_initial_aggro_delay_ms: u32,
-    pub relocation_aggro_delay_ms: u32,
     pub creature_detection_range: u32,
 }
-impl MotionGenesis {
-    pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
-        // A deliberate first adapter boundary, not a Classic world/game rule.
-        if profile.npcs.len() != 1
-            || profile.npcs[0].ai.creature_id == SOLO_UNIT
-            || self.creature_detection_range > 1000
+fn unique_npc_motion_owners<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<u64, NpcMotionGenesis>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Owners;
+    impl<'de> serde::de::Visitor<'de> for Owners {
+        type Value = BTreeMap<u64, NpcMotionGenesis>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("unique stable-spawn motion owners")
+        }
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
         {
+            let mut owners = BTreeMap::new();
+            while let Some((spawn, genesis)) = map.next_entry()? {
+                if owners.insert(spawn, genesis).is_some() {
+                    return Err(serde::de::Error::custom("duplicate NPC motion owner"));
+                }
+            }
+            Ok(owners)
+        }
+    }
+    deserializer.deserialize_map(Owners)
+}
+impl NpcMotionGenesis {
+    pub(super) fn validate_for(&self, npc: &NpcProfile) -> Result<(), NativeError> {
+        if npc.ai.creature_id <= SOLO_UNIT || self.creature_detection_range > 1000 {
             return Err(NativeError::InvalidProfile);
         }
-        ai::Real::from_bits(profile.player.orientation.bits())?;
         ai::Real::from_bits(self.npc_spawn_orientation.bits())?;
-        let npc = &profile.npcs[0];
         self.npc_policy
             .input(npc.max_health, npc.max_health)
             .validate()?;
@@ -46,6 +77,53 @@ impl MotionGenesis {
                 "source hostile-hit stand state",
             ));
         }
+        if ai::Real::new(self.creature_detection_range as f32)? != npc.ai.detection
+            || self.npc_policy.run_speed != npc.ai.run_speed
+            || self.npc_policy.settings.combat_reach != npc.ai.combat_reach
+            || self.npc_policy.settings.bounding_radius != npc.ai.bounding_radius
+        {
+            return Err(NativeError::InvalidProfile);
+        }
+        Ok(())
+    }
+}
+impl MotionGenesis {
+    /// Stable-spawn policy selection is not a current-generation witness.
+    pub fn npc(&self, spawn: u64) -> Result<&NpcMotionGenesis, NativeError> {
+        self.npcs
+            .get(&spawn)
+            .filter(|_| spawn > SOLO_UNIT)
+            .ok_or(NativeError::InvalidProfile)
+    }
+    pub(super) fn validate_owners(&self, profile: &Profile) -> Result<(), NativeError> {
+        if !self
+            .npcs
+            .keys()
+            .copied()
+            .eq(profile.npcs.iter().map(|npc| npc.ai.creature_id))
+        {
+            return Err(NativeError::InvalidProfile);
+        }
+        for npc in &profile.npcs {
+            self.npc(npc.ai.creature_id)?.validate_for(npc)?;
+            if self.aggro_rate != npc.ai.aggro_rate {
+                return Err(NativeError::InvalidProfile);
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
+        self.validate_owners(profile)?;
+        // A deliberate execution/visitor boundary, not a Classic world/game rule.
+        if let Some(visitors) = &profile.source_visitors {
+            visitors.validate_scene(profile)?;
+        } else if profile.npcs.len() != 1 {
+            return Err(NativeError::InvalidProfile);
+        }
+        if self.player_collision_height.as_f32() < 0.0 {
+            return Err(NativeError::InvalidProfile);
+        }
+        ai::Real::from_bits(profile.player.orientation.bits())?;
         for ability in &profile.abilities {
             if let AbilityAdmission::Available(spec) = &ability.admission {
                 self.spell_hits
@@ -67,15 +145,6 @@ impl MotionGenesis {
             return Err(NativeError::UnsupportedMechanic(
                 "source motion interruptible initial player auras",
             ));
-        }
-
-        if ai::Real::new(self.creature_detection_range as f32)? != npc.ai.detection
-            || self.npc_policy.run_speed != npc.ai.run_speed
-            || self.npc_policy.settings.combat_reach != npc.ai.combat_reach
-            || self.npc_policy.settings.bounding_radius != npc.ai.bounding_radius
-            || self.player_collision_height.as_f32() < 0.0
-        {
-            return Err(NativeError::InvalidProfile);
         }
         Ok(())
     }
@@ -210,9 +279,10 @@ impl NpcMotionSnapshot {
 impl NpcMotion {
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn new(profile: &Profile, npc: &NpcProfile) -> Result<Option<Self>, NativeError> {
-        let Some(g) = &profile.source_motion else {
+        if profile.source_motion.is_none() {
             return Ok(None);
-        };
+        }
+        let g = profile.npc_motion(npc.ai.creature_id)?;
         Ok(Some(Self {
             motion: motion::MotionState::new(
                 motion::Identity {
@@ -250,8 +320,14 @@ impl NpcMotion {
         let Some(g) = &profile.source_motion else {
             return Err(NativeError::InvalidCheckpoint);
         };
-        let expected = Self::new(profile, &profile.npcs[0])?
-            .unwrap()
+        let owner = profile
+            .npc(npc.spawn)
+            .ok_or(NativeError::InvalidCheckpoint)?;
+        let owner_genesis = profile
+            .npc_motion(npc.spawn)
+            .map_err(|_| NativeError::InvalidCheckpoint)?;
+        let expected = Self::new(profile, owner)?
+            .ok_or(NativeError::InvalidCheckpoint)?
             .motion
             .snapshot()
             .identity;
@@ -265,7 +341,8 @@ impl NpcMotion {
         // Source dispatch passes None only for Home; every Chase/Backpedal uses
         // Some(player). Preserve that presence and both owners' original bounds.
         if s.motion.spline.as_ref().is_some_and(|spline| {
-            spline.route_request.owner_collision_height != g.npc_policy.settings.collision_height
+            spline.route_request.owner_collision_height
+                != owner_genesis.npc_policy.settings.collision_height
                 || matches!(
                     spline.route_request.kind,
                     motion::RouteKind::HomeForceDestination
@@ -342,7 +419,8 @@ impl NpcMotion {
         };
         match ai.phase() {
             ai::Phase::Idle
-                if result.combat_start.is_some() || result.active != g.npc_initial_active =>
+                if result.combat_start.is_some()
+                    || result.active != owner_genesis.npc_initial_active =>
             {
                 return Err(NativeError::InvalidCheckpoint);
             }
@@ -431,6 +509,90 @@ pub enum VisitorFacts {
     Missing,
     UnrepresentedParticipants,
 }
+/// Exact actor identity in the selected authored scene. Membership classifications
+/// are spatial evidence, never an inferred distance or liveness filter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum VisitorParticipant {
+    Player(crate::PlayerId),
+    Creature(crate::NpcId),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VisitorContainer {
+    GridCreatures,
+    WorldPlayers,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VisitorDirection {
+    VisitedToOwner,
+    OwnerToVisited,
+}
+/// Full staged scene, live event callback/queue and action ordinal. A serialized
+/// receipt is not a live scene view and cannot authorize a semantic decision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneWitness {
+    pub frame: InteractionWitness,
+    pub callback: crate::Digest,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisitorCreature {
+    pub id: crate::NpcId,
+    pub pose: motion::Pose,
+    pub health: u32,
+    pub phase: ai::Phase,
+    pub can_aggro: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneVisitorRequest {
+    pub witness: SceneWitness,
+    pub notification_owner: VisitorParticipant,
+    pub callback: benilla_sim::event_processor::EventCallbackSnapshot,
+    pub event_clock_ms: u64,
+    pub now_ms: u64,
+    pub radius: ai::Real,
+    /// An authored permutation, not a claim about Map's unordered update set.
+    pub owner_order: Vec<u64>,
+    pub player: crate::PlayerId,
+    pub player_pose: motion::Pose,
+    pub player_alive: bool,
+    pub creatures: Vec<VisitorCreature>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum SceneVisitorFacts {
+    Complete {
+        loaded_membership: ai::movement::Check,
+        grid_creatures: Vec<crate::NpcId>,
+        world_players: Vec<crate::PlayerId>,
+        not_visited: Vec<VisitorParticipant>,
+    },
+    Missing,
+    UnrepresentedParticipants,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisitorSightRequest {
+    pub witness: SceneWitness,
+    pub notification_owner: VisitorParticipant,
+    pub callback: benilla_sim::event_processor::EventCallbackSnapshot,
+    pub container: VisitorContainer,
+    pub visit_index: u32,
+    pub direction: VisitorDirection,
+    pub observer: VisitorParticipant,
+    pub target: VisitorParticipant,
+}
+/// Runtime-owned no-op/dispatch receipt. Providers answer membership and the
+/// directional AI::IsVisible predicate only, never these semantic branches.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SightDisposition {
+    Evading,
+    NotVisible,
+    Peer(PeerSightDisposition),
+    PlayerSightApplied,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum MotionQuery {
@@ -443,6 +605,13 @@ pub enum MotionQuery {
     /// Selected source host binds PathFinder's current owner and map position.
     Route(Box<CreatureRouteRequest>),
     Visitor(VisitorRequest),
+    SceneVisitor(Box<SceneVisitorRequest>),
+    /// UnitAI::IsVisible: within this observer's AI visibility distance AND
+    /// target.IsVisibleForOrDetect(observer, observer, true), not static LOS.
+    /// CMaNGOS Classic 8ec338a1, AI/BaseAI/UnitAI.cpp:662–665.
+    VisitorVisibility(Box<VisitorSightRequest>),
+    /// Runtime-derived disposition; an external authority cannot choose it.
+    VisitorSight(Box<VisitorSightRequest>),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -452,6 +621,9 @@ pub enum MotionFacts {
     HostileSpellVisibility(ai::movement::Check),
     Spatial(Box<motion::Reply>),
     Visitor(VisitorFacts),
+    SceneVisitor(SceneVisitorFacts),
+    VisitorVisibility(ai::movement::Check),
+    VisitorSight(SightDisposition),
 }
 impl From<motion::MotionError> for NativeError {
     fn from(value: motion::MotionError) -> Self {

@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v31 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v33 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -34,7 +34,7 @@ UnitState bits are not projected. Consumers use
 The immutable captured abilities support transcript consistency checks. Replay
 regenerates the receipt from live staged abilities and compares the exact request;
 a self-consistent historical receipt alone does not establish current state.
-Native v31 requires the `owner_ignore_pathfinding` option field: explicit null is
+Native v33 requires the `owner_ignore_pathfinding` option field: explicit null is
 unavailable, omitted fields and v29 or earlier records/checkpoints reject.
 See [the full source contract](../../CREATURE-CAPABILITIES.md#single-bit-owner-pathfinding-closure).
 From the repository root, verify the six pinned source files and source expressions:
@@ -108,7 +108,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 31, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 33, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -188,14 +188,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 31 changes experimental simulation checkpoints/records, not
+typed. Native format 33 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 31 does not change character/profile files.
+remains rejected. Native format 33 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.
@@ -210,7 +210,7 @@ height scalars. Respawn clears it; current-model mutation and native admission r
 
 Optional fresh-player model height ownership is documented in [Player collision height](../../PLAYER-COLLISION-HEIGHT.md). It retains the actual starter identity and loaded selection, with no production admission or cached-water claim.
 
-Native v31 also requires actual first/retained Chase constructor dispatch evidence,
+Native v33 also requires actual first/retained Chase constructor dispatch evidence,
 independent of cache or route success. The private live receipt is paired with a
 separately loaded query; serialized replay evidence cannot recreate that lease.
 See [PathFinder constructor dispatch](PATHFINDER-DISPATCH.md) for timing, Home
@@ -222,4 +222,83 @@ all segment checks. Retained replies still need exact prior state and increment.
 The runtime requires its own request-side live dispatch; this does not prove the
 app's native query, source calculation or geometry. Structural motion replay is
 separate from native loaded-cache restore, which remains rejected. No production
-session, participant or source-epoch admission is opened by native31.
+session, participant or source-epoch admission is opened by native33.
+
+### Owner-keyed motion genesis
+
+Native format 33 (`benilla-native-complete-source-visitors-v33`) requires an explicit
+`MotionGenesis.npcs` map keyed by exact stable spawn. Each `NpcMotionGenesis` owns
+its speed/body settings, orientation, initial activity, walking choices, detection
+range and combat-entry flag. Player/spell inputs, ordinary initial/relocation
+notify delays and the world aggro rate remain shared. Every AI aggro rate must
+match that shared value; missing, extra, duplicate or player-owner keys reject.
+There is no first-owner fallback or automatic scalar migration.
+
+Construction, restore, model-height initialization, combat/spell semantics and
+geometry readers select the exact owner. Stable-spawn lookup is not a generation
+witness; existing full `NpcId`, route/cache and source witnesses remain required.
+The unselected legacy source-motion visitor lane still requires exactly one NPC.
+The explicitly selected complete source visitor catalog below admits only its exact
+one/two-owner scene. Loaded app-geometry policies remain singleton-only; the
+selected authored lane does not supply a loaded visitor/visibility producer.
+Motion arithmetic, production admission/startup and loaded-native cache reopening
+remain unchanged.
+
+Native32 and older checkpoints/journals reject without migration. Profile, state,
+record, checkpoint and melee digest domains are v33; original World v2, character
+profiles and the store envelope are unchanged. Fixtures are authored component
+evidence, not captured client/DB data.
+
+
+### Selected complete source visitors
+
+`Profile.source_visitors` selects an immutable `SourceVisitorCatalog`. Its source
+builder validates shape before an executable profile exists; its private rows and
+lack of deserialization prevent a recorded catalog from becoming live admission.
+The selection binds an explicit authored owner-update permutation, raw map ID and
+outdoor instance type zero, and one or two distinct-entry ordinary owners. Every
+owner has separate complete-empty entry and GUID EventAI lookups, no ScriptName or
+script ID, idle default movement, no spell list, and complete-empty custom/named
+AI, guard, pet/totem/control, script/addon, linking/group and other creation-hook
+coverage. Missing and unknown sources never become empty rows. Ground capability,
+initialized player, faction/control and combat closure reuse the retained catalogs.
+Both the empty default AIName and explicit EventAI name reach ordinary Aggressive
+EventAI; Passive or disabled-combat substitutions reject.
+
+The selected path requests one complete ordered grid/world membership list per
+notification. Its grid creatures, world players and explicit not-visited actors
+must cover the exact current scene with no missing, duplicate, foreign or stale
+generations. Self and dead members remain in membership and are skipped during
+dispatch. The returned traversal is never spawn-sorted; grid runs completely
+before world. Creature visits run visited-peer to notification-owner, then owner
+to peer. The ordinary player's absent AI leaves only the creature-to-player side.
+A callback-bound current-scene witness includes the actual executing owner while
+it is removed from the staged map. External authority supplies membership and
+directional AI visibility; runtime-owned semantic disposition receipts are
+regenerated during replay. Static LOS is not AI visibility.
+
+The peer callback is read-only. After current liveness/control/evade and visibility,
+its source prefix returns for an active outdoor victim, raw observer neutrality,
+false CanInitiateAttack, or false ordinary directional NPC/NPC CanAttackOnSight.
+A reached CheckForHelp invocation fails closed before later initiate/relation
+checks, even if they would deny attack. A reached peer attack/accessibility
+continuation also fails closed before installing a peer target or threat. Empty
+linking rows do not remove the core assistance branch. Active victim means Combat
+phase with the retained supported target and no completed victim detachment at
+this visitor boundary; it is not a general Unit::GetVictim snapshot API.
+
+The explicitly synthetic fixture gives A a hostile-to-player faction and B a raw
+faction-zero template with zero masks/lists. Both remain ordinary Aggressive,
+combat-capable EventAI with independent motion, event queues and generations. B
+initially returns from neutrality; A returns from its active outdoor victim or a
+directional peer relation denial. This does not permanently classify B as harmless:
+player retaliation can reach another branch. Heights, speeds and orientations are
+independently authored. Map::Update's object collection is unordered, so the
+selected owner permutation is fixture data, never universal spawn order.
+
+This lane is for authored runtime and headless actual-controller injection. It
+establishes no private raw-input capture, loaded map-visitor producer, graphical
+create-to-reopen result, or production NativeCapability. The loaded geometry
+singleton policies and loaded-native cache reopen guard remain closed. Native32
+and older decode/restore/replay paths reject rather than migrating, and store
+refusal preserves current and previous files.

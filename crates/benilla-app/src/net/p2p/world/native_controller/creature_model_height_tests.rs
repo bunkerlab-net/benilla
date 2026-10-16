@@ -279,6 +279,8 @@ fn initial_model_height_binds_controller_chase_replan_replay_and_reopen() {
         data.source_motion
             .as_ref()
             .unwrap()
+            .npc(2)
+            .unwrap()
             .npc_policy
             .settings
             .collision_height
@@ -349,6 +351,9 @@ fn initial_model_height_binds_controller_chase_replan_replay_and_reopen() {
     altered_policy
         .source_motion
         .as_mut()
+        .unwrap()
+        .npcs
+        .get_mut(&2)
         .unwrap()
         .npc_policy
         .settings
@@ -701,6 +706,8 @@ fn height_initialization_rejects_unusable_retained_sources_without_partial_polic
             data.source_motion
                 .as_ref()
                 .unwrap()
+                .npc(2)
+                .unwrap()
                 .npc_policy
                 .settings
                 .collision_height
@@ -731,6 +738,9 @@ fn removed_changed_or_stale_height_catalog_cannot_open_or_rewrite_a_saved_world(
         .source_motion
         .as_mut()
         .unwrap()
+        .npcs
+        .get_mut(&2)
+        .unwrap()
         .npc_policy
         .settings
         .collision_height = ai::Real::new(17.0).unwrap();
@@ -754,11 +764,15 @@ fn removed_changed_or_stale_height_catalog_cannot_open_or_rewrite_a_saved_world(
             .source_motion
             .as_ref()
             .unwrap()
+            .npc(2)
+            .unwrap()
             .npc_policy
             .settings
             .collision_height,
         data.source_motion
             .as_ref()
+            .unwrap()
+            .npc(2)
             .unwrap()
             .npc_policy
             .settings

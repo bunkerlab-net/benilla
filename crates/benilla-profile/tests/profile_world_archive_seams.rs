@@ -115,7 +115,7 @@ fn private_file(path: &Path, bytes: &[u8]) {
     options.open(path).unwrap().write_all(bytes).unwrap();
 }
 fn character(owner: OwnerId, id: CharacterId, name: &str) -> Character {
-    let mut position = SpawnPolicy::NorthshireMeetingV1.position();
+    let mut position = SpawnPolicy::NorthshireMeetingV1.position().unwrap();
     position.position = [-8931.25, -117.5, 84.125];
     position.orientation = 1.25;
     Character {

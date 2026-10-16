@@ -127,7 +127,7 @@ impl<A: Authority> Frame<'_, A> {
             .get(&caster.spawn)
             .ok_or(NativeError::InvalidState)?;
         if !g.player_can_enter_combat
-            || !g.npc_can_enter_combat
+            || !self.profile.npc_motion(caster.spawn)?.npc_can_enter_combat
             || npc.ai.phase() == ai::Phase::ReturningHome
         {
             return Ok(());

@@ -290,9 +290,7 @@ impl<A: Authority> Frame<'_, A> {
         }
         let input = self
             .profile
-            .source_motion
-            .as_ref()
-            .ok_or(NativeError::InvalidState)?
+            .npc_motion(npc.id.spawn)?
             .npc_policy
             .input(npc.health, p.max_health);
         input.validate()?;
@@ -322,7 +320,7 @@ impl<A: Authority> Frame<'_, A> {
         };
         Ok(facts)
     }
-    fn source_observation(
+    pub(super) fn source_observation(
         &self,
         npc: &Npc,
         facts: NpcFacts,
@@ -394,13 +392,15 @@ impl<A: Authority> Frame<'_, A> {
                     VisitorOwner::Player => 18,
                     VisitorOwner::Creature(_) => {
                         self.profile
-                            .source_motion
-                            .as_ref()
-                            .unwrap()
+                            .npc_motion(npc.id.spawn)?
                             .creature_detection_range
                     }
                 },
-                self.profile.npcs[0].ai.aggro_rate,
+                self.profile
+                    .source_motion
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?
+                    .aggro_rate,
             )?,
             player_pose: self.source_target()?.pose,
             player_alive: self.state.health > 0,
@@ -451,7 +451,7 @@ impl<A: Authority> Frame<'_, A> {
         let observation = self.source_observation(&npc, facts, None, vec![receipt])?;
         let effects = npc
             .ai
-            .source_combat_event_with_phase(&observation, self.source_inside_alive_unit)?;
+            .source_combat_event_with_phase(&observation, self.source_alive_unit == Some(id))?;
         self.source_prefix_effects(&mut npc, &effects)?;
         self.state.npcs.insert(id.spawn, npc);
         Ok(())
@@ -462,6 +462,9 @@ impl<A: Authority> Frame<'_, A> {
     ) -> Result<(), NativeError> {
         if self.profile.source_motion.is_none() {
             return Err(NativeError::InvalidState);
+        }
+        if self.profile.source_visitors.is_some() {
+            return self.source_selected_player_notify(callback);
         }
         let id = self.profile.npcs[0].ai.creature_id;
         let mut npc = self
@@ -520,7 +523,12 @@ impl<A: Authority> Frame<'_, A> {
         if npc.source_motion.is_none() {
             return Ok(());
         }
-        let g = self.profile.source_motion.as_ref().unwrap();
+        let shared = self
+            .profile
+            .source_motion
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let g = self.profile.npc_motion(npc.id.spawn)?;
         match effect {
             ai::Effect::CombatStarted { .. } => {
                 let source = npc.source_motion.as_mut().unwrap();
@@ -601,19 +609,20 @@ impl<A: Authority> Frame<'_, A> {
                     orientation: ai::Real::from_bits(g.npc_spawn_orientation.bits())?,
                 })?;
                 npc.events
-                    .schedule_notify(g.relocation_aggro_delay_ms, false)?;
+                    .schedule_notify(shared.relocation_aggro_delay_ms, false)?;
             }
             ai::Effect::Respawned { .. } => {
                 let source = npc.source_motion.as_mut().unwrap();
                 source.active = g.npc_initial_active;
                 source.combat_start = None;
-                npc.events.respawned(g.creature_initial_aggro_delay_ms)?;
+                npc.events
+                    .respawned(shared.creature_initial_aggro_delay_ms)?;
             }
             _ => {}
         }
         Ok(())
     }
-    fn source_prefix_effects(
+    pub(super) fn source_prefix_effects(
         &mut self,
         npc: &mut Npc,
         effects: &[ai::Effect],
@@ -674,7 +683,9 @@ impl<A: Authority> Frame<'_, A> {
             npc.events.callback = Some(callback.clone());
             if due.callback == CallbackKind::Execute {
                 npc.events.can_aggro = npc.health > 0;
-                if self.source_visitor(npc, VisitorOwner::Creature(npc.id), &callback)? {
+                if self.profile.source_visitors.is_some() {
+                    self.source_selected_npc_notify(npc, &callback)?;
+                } else if self.source_visitor(npc, VisitorOwner::Creature(npc.id), &callback)? {
                     let facts = self.source_facts(npc, CombatPhase::Sight)?;
                     let observation = self.source_observation(npc, facts, None, Vec::new())?;
                     let effects = npc.ai.source_sight_event(&observation)?;
@@ -692,41 +703,58 @@ impl<A: Authority> Frame<'_, A> {
         npc.events.queue = queue;
         Ok(())
     }
-    pub(super) fn prepare_source_receipts(
+    pub(super) fn source_npc_update(
         &mut self,
-    ) -> Result<BTreeMap<u64, (ai::ReceiptStep, Option<ai::MotionCommand>)>, NativeError> {
-        let id = self.profile.npcs[0].ai.creature_id;
-        if self.receipts.get(&id).is_some_and(|r| !r.is_empty()) {
+        id: NpcId,
+        swings: &mut Vec<NpcId>,
+    ) -> Result<(), NativeError> {
+        let result = (|| {
+            if self.source_alive_unit.is_some() {
+                return Err(NativeError::InvalidState);
+            }
+            let receipt = self.prepare_source_receipt(id)?;
+            self.npc_update(id, Some(receipt), swings)
+        })();
+        // Keep the ALIVE branch local even when an authority rejects the staged
+        // update. The enclosing world transaction owns all state/output rollback.
+        self.source_alive_unit = None;
+        result
+    }
+    fn prepare_source_receipt(
+        &mut self,
+        id: NpcId,
+    ) -> Result<(ai::ReceiptStep, Option<ai::MotionCommand>), NativeError> {
+        let npc = self
+            .state
+            .npcs
+            .get(&id.spawn)
+            .filter(|npc| npc.id == id)
+            .ok_or(NativeError::UnknownTarget)?;
+        if self.receipts.get(&id.spawn).is_some_and(|r| !r.is_empty()) {
             return Err(NativeError::InvalidState);
         }
         // Source direct damage has already executed synchronous receipt callbacks.
         // The fallback represents an externally staged death before Unit::Update.
-        if self.state.npcs[&id].health == 0
-            && !matches!(
-                self.state.npcs[&id].ai.phase(),
-                ai::Phase::Corpse | ai::Phase::Despawned
-            )
-        {
-            let target = self.state.npcs[&id].id;
-            self.source_combat_receipt(target, ai::CombatEvent::Died)?;
+        if npc.health == 0 && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned) {
+            self.source_combat_receipt(id, ai::CombatEvent::Died)?;
         }
         let mut npc = self
             .state
             .npcs
-            .remove(&id)
+            .remove(&id.spawn)
             .ok_or(NativeError::InvalidState)?;
         let entered_alive =
             npc.health > 0 && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned);
-        self.source_inside_alive_unit = entered_alive;
+        self.source_alive_unit = entered_alive.then_some(id);
         self.npc_event_update(&mut npc)?;
-        self.state.npcs.insert(id, npc);
-        // Unit::_UpdateSpells follows m_events.Update and precedes spline/motion.
+        self.state.npcs.insert(id.spawn, npc);
+        // Unit::_UpdateSpells follows this owner's events and precedes its motion.
         // Its damage callbacks also execute synchronously before the receipt token.
-        self.auras()?;
+        self.npc_auras(id)?;
         let mut npc = self
             .state
             .npcs
-            .remove(&id)
+            .remove(&id.spawn)
             .ok_or(NativeError::InvalidState)?;
         let prior = npc.ai.motion().cloned();
         let facts = self.source_facts(&npc, CombatPhase::UnitPrelude)?;
@@ -734,8 +762,8 @@ impl<A: Authority> Frame<'_, A> {
         let token = npc
             .ai
             .begin_source_receipts_in_phase(&observation, entered_alive)?;
-        self.state.npcs.insert(id, npc);
-        Ok(BTreeMap::from([(id, (token, prior))]))
+        self.state.npcs.insert(id.spawn, npc);
+        Ok((token, prior))
     }
     pub(super) fn advance_source_npc(
         &mut self,

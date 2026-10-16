@@ -99,8 +99,10 @@ are refused until cross-map membership is implemented.
 
 ## Deliberate first-slice limits
 
-All races begin at the existing Northshire meeting point. This is a documented fork deviation
-from racial starting zones, not a bundled world database. Characters remain level one.
+New characters can use [configured local racial starts](CLASSIC-EXPLORATION-STARTS.md).
+Without that configuration, all races retain the legacy Northshire meeting point, with a
+diagnostic warning. Existing saved positions are never reset. No world rows are bundled.
+Characters remain level one.
 Health/power fields are exploration UI baselines, not implemented class statistics. There are
 no implemented world NPCs/AI, combat abilities, spells, XP awards, quests, inventory, loot,
 professions, trades or progression in this slice. The separate synthetic encounter harness

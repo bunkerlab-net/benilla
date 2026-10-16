@@ -338,6 +338,8 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
         (13, "benilla-native-npc-events-v13"),
         (14, "benilla-native-player-slow-v14"),
         (15, "benilla-native-npc-triggered-v15"),
+        (31, "benilla-native-first-owned-pathfinder-cache-v31"),
+        (32, "benilla-native-owner-motion-genesis-v32"),
     ] {
         for incompatible in ["world.checkpoint", "world.previous"] {
             let t = Temp::new();
@@ -352,6 +354,24 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
             old["version"] = version.into();
             old["state"]["version"] = version.into();
             old["state"]["policy"] = policy.into();
+            // Keep both historical inner domains and the outer store checksum
+            // valid: rejection must come from the incompatible native boundary.
+            let typed: Checkpoint = serde_json::from_value(old.clone()).unwrap();
+            let encoded = String::from_utf8(typed.encode().unwrap()).unwrap();
+            let start = encoded.find("\"state\":").unwrap() + "\"state\":".len();
+            let end = encoded.rfind(",\"digest\":").unwrap();
+            let state = &encoded[start..end];
+            let historical_hash = |kind: &str, bytes: &[u8]| -> Digest {
+                let mut hasher = Sha256::new();
+                hasher.update(format!("benilla-native-{kind}-v{version}\0").as_bytes());
+                hasher.update(bytes);
+                hasher.finalize().into()
+            };
+            let digest = historical_hash("state", state.as_bytes());
+            old["digest"] = serde_json::to_value(digest).unwrap();
+            let body = format!("[{state},{},{}]", old["digest"], old["history_tip"]);
+            old["checksum"] =
+                serde_json::to_value(historical_hash("checkpoint", body.as_bytes())).unwrap();
             envelope.base = serde_json::from_value(old).unwrap();
             fs::write(&path, envelope.encode().unwrap()).unwrap();
             let current = fs::read(t.path().join("world.checkpoint")).unwrap();
