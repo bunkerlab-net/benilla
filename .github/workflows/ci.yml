@@ -55,8 +55,6 @@ jobs:
       - name: clippy
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
       - name: test
-        env:
-          WOW_AMBIGUITY_DUMP: "1"
         run: mbx test --locked --no-fail-fast --workspace
       - name: doc-links-gate-tests
         run: python3 scripts/test-doc-links.py

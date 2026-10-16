@@ -853,8 +853,10 @@ pub(crate) mod schedule_tests {
     /// Raising the ceiling is a claim that a new undeclared order is acceptable: make it with the
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
     /// that commutes by construction belongs in [`Classes`].
-    // CI census after the Settings painter consolidation and explicit CVar ordering.
-    const UPDATE_ACTIONABLE_CEILING: usize = 4_597;
+    // CI 38858798446, job 116836306255: explicit recovery ordering reduced the
+    // 700-system Update graph to 3,990 actionable pairs (16,654 total, 12,664 explained).
+    // Ratchet downward to that measured census; keep the same assertions and slack.
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_990;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {
