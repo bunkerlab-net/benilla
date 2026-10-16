@@ -42,6 +42,8 @@ pub mod synthetic_creature_model_fixture;
 pub use creature_capabilities::*;
 mod loot;
 pub use loot::*;
+mod event_ai;
+pub use event_ai::*;
 mod engine;
 pub mod environment;
 mod npc_events;
@@ -68,6 +70,8 @@ mod model;
 mod motion;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_distinct_quest_fixture;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_event_ai_fixture;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_two_owner_fixture;
 pub use interactions::{
@@ -97,8 +101,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 33;
-pub const NATIVE_POLICY: &str = "benilla-native-complete-source-visitors-v33";
+pub const NATIVE_FORMAT_VERSION: u32 = 35;
+pub const NATIVE_POLICY: &str = "benilla-native-corpse-carried-items-v35";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -119,6 +123,7 @@ pub enum NativeCapability {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeError {
+    EventAi(benilla_sim::event_ai::Error),
     PlayerEnvironment(environment::EnvironmentError),
     PlayerSlow(benilla_sim::player_slow::SlowError),
     Inventory(benilla_sim::inventory::Error),
@@ -269,6 +274,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let state = State {
+            event_ai: EventAiState::new(&profile)?,
             source_player_environment: PlayerEnvironmentState::new(&profile, world, player)?,
             source_player_collision_height: PlayerCollisionHeightState::new(
                 &profile, world, player,
@@ -322,7 +328,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v33\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v35\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v33\0", self)
+        crate::digest(b"benilla-native-record-v35\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +53,8 @@ struct NpcState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StateCheckpoint {
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    event_ai: Option<EventAiState>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     source_player_environment: Option<player_environment::PlayerEnvironmentSnapshot>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
@@ -145,6 +147,13 @@ impl StateCheckpoint {
                     .and_then(|n| n.checked_add(q.derived_calls.len() as u64))
             })
             .ok_or(NativeError::TooLarge)?;
+        total = total
+            .checked_add(
+                self.event_ai
+                    .as_ref()
+                    .map_or(Ok(0), EventAiState::replay_work)?,
+            )
+            .ok_or(NativeError::TooLarge)?;
         for binding in self
             .casts
             .values()
@@ -212,10 +221,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v33\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v35\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v33\0",
+                    b"benilla-native-checkpoint-v35\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -227,6 +236,7 @@ impl Checkpoint {
 }
 pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> StateCheckpoint {
     StateCheckpoint {
+        event_ai: state.event_ai.clone(),
         source_player_environment: state
             .source_player_environment
             .as_ref()
@@ -350,6 +360,8 @@ impl NativeWorld {
         state: &State,
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
+        let snapshot = self.snapshot_of(state);
+        snapshot.validate_history_budget()?;
         PlayerCollisionHeightState::validate_optional(
             state.source_player_collision_height.as_ref(),
             &self.profile,
@@ -361,8 +373,9 @@ impl NativeWorld {
             &self.profile,
             state,
         )?;
-        let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v33\0", &state);
+        EventAiState::validate_optional(&self.profile, state)?;
+        let state = snapshot;
+        let digest = crate::digest(b"benilla-native-state-v35\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -372,7 +385,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v33\0",
+            b"benilla-native-checkpoint-v35\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -400,10 +413,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v33\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v35\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v33\0",
+                    b"benilla-native-checkpoint-v35\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -811,6 +824,7 @@ impl NativeWorld {
             _ => return Err(NativeError::InvalidCheckpoint),
         };
         let state = State {
+            event_ai: s.event_ai,
             source_player_environment: PlayerEnvironmentState::restore(
                 s.source_player_environment,
                 &profile,
@@ -849,6 +863,7 @@ impl NativeWorld {
             &state,
         )
         .map_err(|_| NativeError::InvalidCheckpoint)?;
+        EventAiState::validate_optional(&profile, &state)?;
         state.admin.validate(&profile, &state)?;
         state.player_events.validate(&state, &profile)?;
         if let Some(slow) = &state.player_slow {
@@ -969,9 +984,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v33\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v35\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v33\0",
+            b"benilla-native-checkpoint-v35\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

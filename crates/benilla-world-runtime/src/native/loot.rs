@@ -123,7 +123,7 @@ impl NativeLootGenesis {
                 let l::ItemLookup::Present(item) = lookup else {
                     return Err(NativeError::InvalidProfile);
                 };
-                let i = rows.inventory.ordinary_loot_ready(item.entry)?;
+                let i = rows.inventory.corpse_carried_ready(item.entry)?;
                 if (
                     i.quality,
                     i.display_id,
@@ -181,8 +181,9 @@ impl NativeLootGenesis {
         }
         initial_inventory.validate(&rows.inventory)?;
         let identity = crate::digest(
-            b"benilla-native-loot-genesis-reconstruction-v1\0",
+            b"benilla-native-loot-genesis-reconstruction-v2\0",
             &(
+                inv::CORPSE_POLICY_ID,
                 rows.inventory.hash(),
                 catalog.identity(),
                 &rows.rules,

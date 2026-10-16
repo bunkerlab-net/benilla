@@ -1023,3 +1023,6 @@ mod route_commit_tests;
 
 #[path = "distinct_quest_loop_tests.rs"]
 pub(crate) mod distinct_quest_loop_tests;
+
+#[path = "event_ai_tests.rs"]
+mod event_ai_tests;

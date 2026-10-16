@@ -13,7 +13,7 @@ DurationIndex0/resolved-duration0 permanence branch. The initializer policy is
 included in the native runtime profile digest and live-training identity.
 Profiles bound under v1 or v2 have different identities; their checkpoints and
 journals reject under v3 even if a particular input has no reputation aura and
-its resulting stats are unchanged. The native33 checkpoint field layout is
+its resulting stats are unchanged. This initializer policy leaves the native checkpoint field layout
 unchanged: compatibility is rejected through its mandatory profile/genesis
 contracts. There is no automatic migration or rebase. Recreate a compatible
 profile and fresh state from validated inputs; never relabel an old digest.

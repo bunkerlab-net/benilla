@@ -98,7 +98,8 @@ def main():
         outputs = {"inventory.tsv": subprocess.check_output([str(exe)]),
                    "inventory_store.tsv": subprocess.check_output([str(exe), "--store"]),
                    "inventory_grant.tsv": subprocess.check_output([str(exe), "--grant"]),
-                   "inventory_create.tsv": subprocess.check_output([str(exe), "--create"])}
+                   "inventory_create.tsv": subprocess.check_output([str(exe), "--create"]),
+                   "inventory_corpse.tsv": subprocess.check_output([str(exe), "--corpse"])}
         # Unsupported dependent behavior must reach an aborting boundary, rather
         # than silently produce an invented successful no-op oracle result.
         def no_core_dump():

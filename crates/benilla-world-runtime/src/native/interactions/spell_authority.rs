@@ -7,7 +7,7 @@ use super::*;
 use benilla_sim::starter_init as init;
 use std::collections::BTreeSet;
 
-pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v2";
+pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v3";
 const CANT_CRIT: u32 = 0x2000_0000;
 
 /// Complete applicable source rows, including an observed empty result. Unknown
@@ -413,7 +413,6 @@ impl SpellAuthorityCatalog {
                 || raw.creature_type == 8
                 || raw.spell_list_id != 0
                 || raw.script_id != 0
-                || !raw.ai_name.is_empty()
             {
                 return Err(NativeError::UnsupportedMechanic(
                     "spell NPC kind, level or script source",
@@ -424,7 +423,46 @@ impl SpellAuthorityCatalog {
             raw.spawn_addon_auras
                 .empty("NPC spawn addon aura source closure")?;
             raw.immunity_set.empty("NPC immunity set source closure")?;
-            raw.event_scripts.empty("NPC event script source closure")?;
+            match profile
+                .source_visitors
+                .as_ref()
+                .and_then(|visitors| visitors.event_ai().map(|runtime| (visitors, runtime)))
+            {
+                None => {
+                    if !raw.ai_name.is_empty() {
+                        return Err(NativeError::UnsupportedMechanic(
+                            "spell NPC ordinary empty AI source",
+                        ));
+                    }
+                    raw.event_scripts.empty("NPC event script source closure")?;
+                }
+                Some((visitors, runtime)) => {
+                    let owner = visitors
+                        .owner(n.ai.creature_id)
+                        .ok_or(NativeError::AuthorityBinding)?;
+                    if raw.entry != owner.entry
+                        || raw.ai_name != owner.ai_name
+                        || raw.spell_list_id != owner.spell_list_id
+                    {
+                        return Err(NativeError::AuthorityBinding);
+                    }
+                    raw.event_scripts
+                        .complete("NPC retained EventAI script source closure")?;
+                    let SpellSourceRows::Complete(actual) = &raw.event_scripts else {
+                        return Err(NativeError::AuthorityUnavailable(
+                            "NPC retained EventAI script source closure",
+                        ));
+                    };
+                    let expected = runtime.catalog().events(n.ai.creature_id)?;
+                    if !actual
+                        .iter()
+                        .copied()
+                        .eq(expected.iter().map(|event| event.event_id()))
+                    {
+                        return Err(NativeError::AuthorityBinding);
+                    }
+                }
+            }
         }
         for row in self.spells.values() {
             row.validate()?;

@@ -685,3 +685,13 @@ EVENT_TEXT_ALIASES = {"broadcast_text_locale": {"Id": ("Id", "ID"),
                                                 "Locale": ("Locale", "locale")}}
 COLUMNS.update({table: [column[0] for column in columns]
                 for table, columns in EVENT_TEXT_SCHEMA.items()})
+
+
+# Pinned sql/base/mangos.sql:1052-1063,10306-10317, schema only.
+LOOT_SCHEMA = {table: [
+    ("entry", "mediumint unsigned", False), ("item", "mediumint unsigned", False),
+    ("ChanceOrQuestChance", "float", False), ("groupid", "tinyint unsigned", False),
+    ("mincountOrRef", "mediumint", False), ("maxcount", "tinyint unsigned", False),
+    ("condition_id", "mediumint unsigned", False), ("comments", "varchar(300)", True)]
+    for table in ("creature_loot_template", "reference_loot_template")}
+LOOT_PRIMARY_KEYS = {table: ["entry", "item"] for table in LOOT_SCHEMA}

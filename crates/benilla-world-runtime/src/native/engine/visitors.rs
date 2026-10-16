@@ -50,7 +50,7 @@ impl<A: Authority> Frame<'_, A> {
         let scene = self.visitor_scene(working)?;
         Ok(SceneWitness {
             frame: interactions::witness(self.profile_digest, &scene, self.interaction_moment())?,
-            callback: crate::digest(b"benilla-native-visitor-callback-v33\0", callback),
+            callback: crate::digest(b"benilla-native-visitor-callback-v35\0", callback),
         })
     }
     fn visitor_binding(owner: VisitorParticipant) -> Option<NpcId> {
@@ -293,7 +293,14 @@ impl<A: Authority> Frame<'_, A> {
         let facts = self.source_npc_facts_with_visibility(npc, CombatPhase::Sight, Some(true))?;
         let observation = self.source_observation(npc, facts, None, Vec::new())?;
         let effects = npc.ai.source_sight_event(&observation)?;
-        self.source_prefix_effects(npc, &effects)?;
+        self.source_prefix_effects(
+            npc,
+            &effects,
+            &EventAiCallbackKind::Sight {
+                notification_owner: visit.owner,
+                callback: callback.clone(),
+            },
+        )?;
         let request = self.sight_request(Some(npc), callback, visit)?;
         self.record_sight(request, SightDisposition::PlayerSightApplied)
     }

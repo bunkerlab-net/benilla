@@ -62,6 +62,9 @@ pub mod facing;
 /// Source-derived per-Unit event ordering with bounded transactional dispatch.
 pub mod event_processor;
 
+/// Bounded source-derived AGGRO -> TEXT lifecycle and full-word RNG reducer.
+pub mod event_ai;
+
 /// Exact bounded SpellEvent callback scheduling decisions; host lifecycle is separate.
 pub mod spell_event;
 

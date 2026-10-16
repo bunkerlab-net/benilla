@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native33 (`benilla-native-complete-source-visitors-v33`), quest genesis policy v5,
+is native35 (`benilla-native-corpse-carried-items-v35`), quest genesis policy v5,
 and live training journal v2.
 Older policies are rejected rather than silently migrated.
 
@@ -92,7 +92,7 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 33 explicitly rejects prior schemas; cast checkpoints use version 2,
+Native format 35 explicitly rejects prior schemas; cast checkpoints use version 2,
 while common resource/aura checkpoints remain version 1. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight
@@ -171,7 +171,7 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Distinct-actor source-selected component loop
 
-The authored native33 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
+The authored native35 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
 composes the selected interaction, combat, spell-133, current-pose facing, complete
 visitor, quest, progression and loot hosts. A is the hostile kill target; neutral-to-all
 B is both starter and finisher with matching QUESTGIVER flags and relations. B keeps
@@ -251,3 +251,24 @@ cargo clippy -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
 cargo clippy -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
   -p benilla-world-controller-tests -p benilla-world-store --all-targets -- -D warnings
 ```
+
+## Corpse-carried metadata boundary
+
+Native35 separately admits corpse acquisition of inert carried metadata and
+ordinary empty bags through the checked inventory corpse policy. Unused spell
+cooldowns, all five charges and durability retain source values; Bag instances
+retain source container slots and zero creation charges. The existing sixteen
+backpack positions, unique limits, binding, checked IDs and ItemAddedQuestCheck
+before storage stay authoritative. Collection remains all-or-nothing, with the
+quest host and corpse mutation committed together. Admin partial grants and
+self-unbinding are not used. Quest rewards and starter inventory still use the
+unchanged ordinary readiness; timed/auto-reward quest and effect audits remain.
+
+Inventory policy v5, corpse policy v1, loot genesis v2 and corpse-item receipt v2
+are bound under native35 profile/state/record/checkpoint identities. Native34
+headers, policies, legacy digest domains and profile contexts reject, including
+rehashed outer checkpoints/journals; no serde defaults or replay migration exist.
+References remain unsupported without separate catalog/rate semantics and genuine
+whole-table loader-order evidence. Selected SQL reader closure is not that proof.
+No item use/equip, extra bag capacity/contents, playable Northshire, actual Vermin
+completion, production admission or saved-cache opening is established here.

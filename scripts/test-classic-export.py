@@ -16,7 +16,9 @@ import warnings
 import getpass
 
 from classic_export.capture import Query, capture, validate_bundle
-from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS
+from classic_export.columns import (COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA,
+                                    REGISTRY_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS,
+                                    LOOT_SCHEMA, LOOT_PRIMARY_KEYS)
 from classic_export import starter
 from classic_export.core import (ExportError, MAX_ROWS, Selection, TEXT_COLUMNS,
                                  canonical, decode_json, digest, normalize_cell,
@@ -35,14 +37,16 @@ def schema():
             if name in FLOAT_FIELDS:
                 kind = "decimal(40,20)"
             columns.append({"name": name, "type": kind, "nullable": False, "ordinal": ordinal})
-        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA):
+        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA):
             columns = [{"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
-                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA)[table], 1)]
+                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA)[table], 1)]
         tables[table] = {"engine": "InnoDB", "table_type": "BASE TABLE", "columns": columns}
         if table in REGISTRY_SCHEMA:
             tables[table]["primary_key"] = ["Id"]
         if table in EVENT_TEXT_PRIMARY_KEYS:
             tables[table]["primary_key"] = EVENT_TEXT_PRIMARY_KEYS[table].copy()
+        if table in LOOT_PRIMARY_KEYS:
+            tables[table]["primary_key"] = LOOT_PRIMARY_KEYS[table].copy()
     return {"format_version": 1, "tables": tables}
 
 def row(table, **changes):
@@ -1676,6 +1680,603 @@ class EventTextCaptureTests(unittest.TestCase):
         for sql,params,_ in calls:
             self.assertTrue(sql.startswith("SELECT ")); self.assertNotIn(";",sql)
             if "KEY_COLUMN_USAGE" in sql: self.assertEqual(params[1],"PRIMARY")
+
+
+class BodyLootCaptureTests(unittest.TestCase):
+    """Original synthetic rows prove capture boundaries, never loot execution."""
+    BODY = "creature_loot_template"
+    REFERENCE = "reference_loot_template"
+
+    def source(self):
+        source = starter_source()
+        creature = source.rows["creature_template"][0]
+        creature.update(LootId=970101, KillCredit1=900002, PickpocketLootId=972001,
+                        SkinningLootId=973001, MinLootGold=7, MaxLootGold=13)
+        source.rows["creature_template"] += [
+            dict(creature, Entry=900002, KillCredit1=0, PickpocketLootId=0, SkinningLootId=0),
+            dict(creature, Entry=900003, LootId=970102, KillCredit1=0,
+                 PickpocketLootId=0, SkinningLootId=0)]
+        source.rows["quest_template"][0].update(ReqCreatureOrGOId2=900003, ReqCreatureOrGOCount2=1)
+        source.rows[self.BODY] = [
+            row(self.BODY, entry=970101, item=0, ChanceOrQuestChance=Decimal("0"),
+                groupid=255, mincountOrRef=-971101, maxcount=0,
+                condition_id=0xffffff, comments="Original α reference sentinel"),
+            row(self.BODY, entry=970101, item=920201, ChanceOrQuestChance=Decimal("-15.5"),
+                groupid=1, mincountOrRef=1, maxcount=3, condition_id=12, comments=None),
+            row(self.BODY, entry=970102, item=930999, ChanceOrQuestChance=Decimal("100"),
+                mincountOrRef=-971101, maxcount=2, comments="Original non-item placeholder")]
+        source.rows[self.REFERENCE] = [
+            row(self.REFERENCE, entry=971101, item=0, ChanceOrQuestChance=Decimal("100"),
+                mincountOrRef=-971102, maxcount=1, comments=None),
+            row(self.REFERENCE, entry=971101, item=920202, ChanceOrQuestChance=Decimal("0"),
+                groupid=2, mincountOrRef=2, maxcount=4),
+            row(self.REFERENCE, entry=971102, item=920203, ChanceOrQuestChance=Decimal("75.25"),
+                mincountOrRef=1, maxcount=1)]
+        source.rows["item_template"] += [
+            row("item_template", entry=920201, name="Original Loot Test First", stackable=3,
+                requiredspell=930201, spellid_1=-1, spellid_2=930202),
+            row("item_template", entry=920202, name="Original Loot Test Second", stackable=4),
+            row("item_template", entry=920203, name="Original Loot Test Third", stackable=5)]
+        source.rows["spell_template"] += [row("spell_template", Id=930201, Effect1=2),
+            row("spell_template", Id=930202, Effect1=2, EffectTriggerSpell1=930203),
+            row("spell_template", Id=930203, Effect1=2)]
+        return source
+
+    def captured(self, source=None, **kwargs):
+        return capture(source or self.source(), starter_selection(), capture_body_loot=True, **kwargs)
+
+    def rehash(self, bundle, *, dependencies=True):
+        from classic_export import event_ai, event_text, loot, native_spawn, spell_registry
+        bundle["schema_sha256"] = digest(bundle["schema"])
+        bundle["table_sha256"] = {table: digest(rows) for table, rows in bundle["tables"].items()}
+        bundle["event_ai_capture"] = event_ai.evidence(bundle["tables"])
+        bundle["event_text_capture"] = event_text.evidence(bundle)
+        bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
+        bundle["spell_script_capture"] = spell_registry.evidence(bundle)
+        if dependencies:
+            bundle["loot_capture"] = loot.evidence(bundle)
+
+    def test_shared_roots_recursive_references_and_leaf_spell_closure(self):
+        from classic_export import loot
+        source = self.source(); bundle = self.captured(source)
+        validate_bundle(bundle)
+        evidence = bundle["loot_capture"]
+        self.assertEqual(evidence["format"], loot.FORMAT)
+        self.assertEqual(evidence["scope"], "selected_body_loot_dependencies_only")
+        self.assertEqual(evidence["requested_mode"], "body_loot_selectors")
+        self.assertEqual(evidence["root_ids"], [970101, 970102])
+        self.assertEqual(evidence["reference_ids"], [971101, 971102])
+        self.assertEqual(evidence["leaf_item_ids"], [920201, 920202, 920203])
+        self.assertEqual([(r["Entry"], r["LootId"]) for r in evidence["creatures"]],
+                         [(900001,970101), (900002,970101), (900003,970102)])
+        self.assertEqual([(r["table"],r["entry"],r["target_id"]) for r in evidence["reference_edges"]],
+                         [(self.BODY,970101,971101), (self.BODY,970102,971101),
+                          (self.REFERENCE,971101,971102)])
+        self.assertTrue({920201,920202,920203} <= set(bundle["required_ids"]["item_template"]))
+        self.assertTrue({930201,930202,930203} <= set(bundle["required_ids"]["spell_template"]))
+        self.assertNotIn(930999, bundle["required_ids"]["item_template"])
+        self.assertNotIn(0, bundle["required_ids"]["item_template"])
+        for table in (self.BODY, self.REFERENCE):
+            expected = normalize_rows(table, source.rows[table],
+                schema_profile(source.inventory, {table})[table], MAX_ROWS)
+            self.assertEqual(bundle["tables"][table], expected)
+        self.assertTrue(source.finished)
+
+    def test_zero_negative_group_condition_money_and_nonbody_sentinels_are_retained(self):
+        bundle = self.captured(); evidence = bundle["loot_capture"]
+        sentinel = bundle["tables"][self.BODY][0]
+        self.assertEqual(sentinel["item"], 0)
+        self.assertEqual(sentinel["mincountOrRef"], -971101)
+        self.assertEqual(sentinel["ChanceOrQuestChance"], {"decimal":"0"})
+        self.assertEqual((sentinel["groupid"],sentinel["maxcount"],sentinel["condition_id"]),
+                         (255,0,0xffffff))
+        self.assertEqual(evidence["creatures"][0]["MinLootGold"], 7)
+        self.assertEqual(evidence["creatures"][0]["MaxLootGold"], 13)
+        self.assertEqual(evidence["non_body_dependencies"], [
+            {"creature_entry":900001,"field":"PickpocketLootId","loot_id":972001,
+             "status":"unknown","reason":"outside_body_scope"},
+            {"creature_entry":900001,"field":"SkinningLootId","loot_id":973001,
+             "status":"unknown","reason":"outside_body_scope"}])
+        self.assertTrue(evidence["selected_rows_complete"])
+        self.assertEqual(evidence["loader_order"], "unproven")
+        self.assertEqual(evidence["query_order"], "entry_item_key_order")
+        self.assertFalse(bundle["revision_claims_verified_against_installation"])
+        self.assertFalse(bundle["report"]["runnable"])
+        self.assertFalse(bundle["report"]["capture_complete"])
+        reasons = {finding["reason"] for finding in evidence["unsupported"]}
+        self.assertTrue({"loot.source_loader_order_unproven", "loot.condition_not_resolved",
+            "loot.quest_chance_not_interpreted", "loot.group_domain_unsupported",
+            "loot.count_shape_unsupported", "loot.nested_reference_not_executable"} <= reasons)
+
+    def test_six_row_candidate_captures_thirty_two_leaf_items_and_full_spell_metadata(self):
+        source = starter_source()
+        source.rows["creature_template"][0]["LootId"] = 974101
+        leaves = list(range(921001,921033))
+        source.rows[self.BODY] = [row(self.BODY,entry=974101,item=item,
+            ChanceOrQuestChance=Decimal("17.25"),mincountOrRef=1,maxcount=2,
+            comments="Original direct candidate leaf") for item in leaves[:4]] + [
+            row(self.BODY,entry=974101,item=0,ChanceOrQuestChance=Decimal("31.5"),
+                mincountOrRef=-975101,maxcount=1,comments="Original five-leaf reference"),
+            row(self.BODY,entry=974101,item=1,ChanceOrQuestChance=Decimal("63.5"),
+                mincountOrRef=-975102,maxcount=2,comments="Original twenty-three-leaf reference")]
+        source.rows[self.REFERENCE] = [row(self.REFERENCE,entry=entry,item=item,
+            ChanceOrQuestChance=0,groupid=1,mincountOrRef=1,maxcount=1,
+            comments="Original referenced candidate leaf")
+            for entry,items in ((975101,leaves[4:9]),(975102,leaves[9:])) for item in items]
+        metadata = {f"{field}_{slot}": value for slot in range(1,6)
+            for field,value in (("spellid",0),("spelltrigger",0),("spellcharges",0),
+                ("spellppmRate",0),("spellcooldown",-1),("spellcategory",0),
+                ("spellcategorycooldown",-1))}
+        authored = [row("item_template",entry=item,name=f"Original Candidate Item {index}",
+            stackable=1+index%7,**metadata) for index,item in enumerate(leaves)]
+        authored[0].update(spellid_1=931201,spelltrigger_1=0,spellcharges_1=-5,
+                           spellcooldown_1=1700,spellcategory_1=17,spellcategorycooldown_1=2300)
+        authored[-1].update(spellid_3=931202,spelltrigger_3=1,spellcharges_3=7,
+                            spellppmRate_3=3,spellcategory_3=19)
+        source.rows["item_template"] += authored
+        source.rows["spell_template"] += [row("spell_template",Id=spell,Effect1=2)
+                                           for spell in (931201,931202)]
+        bundle = self.captured(source)
+        serialized = canonical(bundle)
+        restored = decode_json(serialized,len(serialized))
+        validate_bundle(restored)
+        evidence = restored["loot_capture"]
+        self.assertEqual(len(restored["tables"][self.BODY]),6)
+        self.assertEqual([sum(r["entry"] == entry for r in restored["tables"][self.REFERENCE])
+                          for entry in (975101,975102)],[5,23])
+        self.assertEqual(evidence["leaf_item_ids"],leaves)
+        self.assertEqual(len(evidence["reference_edges"]),2)
+        actual = [r for r in restored["tables"]["item_template"] if r["entry"] in leaves]
+        self.assertEqual(actual,authored)
+        self.assertEqual(set(restored["required_ids"]["item_template"]),
+                         {920001,920101,920102,*leaves})
+        self.assertEqual(set(restored["required_ids"]["spell_template"]),
+                         {930001,930101,930102,931201,931202})
+        self.assertEqual(actual[0]["spellcharges_1"],-5)
+        self.assertEqual(actual[-1]["spellcharges_3"],7)
+        self.assertTrue(all(r["spellcooldown_5"] == -1 and r["spellcategorycooldown_5"] == -1
+                            for r in actual))
+        self.assertFalse(restored["report"]["runnable"])
+        self.assertFalse(restored["report"]["capture_complete"])
+
+    def test_positive_and_zero_mincount_zero_items_are_preserved_without_leaf_queries(self):
+        source = self.source()
+        source.rows[self.BODY][0].update(mincountOrRef=1, maxcount=1)
+        source.rows[self.REFERENCE][0].update(mincountOrRef=0)
+        bundle = self.captured(source)
+        self.assertEqual(bundle["loot_capture"]["leaf_item_ids"], [920201,920202])
+        self.assertEqual(bundle["loot_capture"]["reference_ids"], [971101])
+        self.assertEqual(bundle["tables"][self.BODY][0]["item"], 0)
+        reasons = {r["reason"] for r in bundle["loot_capture"]["unsupported"]}
+        self.assertIn("loot.zero_leaf_item_unsupported", reasons)
+        self.assertIn("loot.zero_mincount_unsupported", reasons)
+        for sql, args in source.queries:
+            if "FROM `item_template`" in sql:
+                self.assertNotIn(0, args[:-1])
+
+    def test_long_reference_chain_and_cycle_have_no_sixteen_round_cutoff(self):
+        source = self.source()
+        ids = list(range(980001, 980026))
+        source.rows[self.BODY] = [row(self.BODY, entry=970101, item=0,
+            mincountOrRef=-ids[0], maxcount=1, ChanceOrQuestChance=100),
+            row(self.BODY, entry=970102, item=0, mincountOrRef=-ids[0], maxcount=1)]
+        source.rows[self.REFERENCE] = [row(self.REFERENCE, entry=entry, item=0,
+            mincountOrRef=-ids[(index+1) % len(ids)], maxcount=1, ChanceOrQuestChance=100)
+            for index, entry in enumerate(ids)]
+        source.rows[self.REFERENCE].append(row(self.REFERENCE, entry=ids[-1], item=920203,
+            mincountOrRef=1, maxcount=1, ChanceOrQuestChance=100))
+        bundle = self.captured(source); evidence = bundle["loot_capture"]
+        self.assertEqual(evidence["reference_ids"], ids)
+        self.assertEqual(evidence["cyclic_reference_components"], [ids])
+        self.assertEqual(evidence["leaf_item_ids"], [920203])
+        self.assertEqual(len(evidence["tables"][self.REFERENCE]["queries"]), len(ids))
+        self.assertEqual(sum(f"FROM `{self.REFERENCE}`" in sql for sql,_ in source.queries), len(ids))
+        self.assertTrue(evidence["selected_rows_complete"])
+        self.assertIn("loot.reference_cycle_not_executable", {r["reason"] for r in evidence["unsupported"]})
+
+    def test_self_reference_is_visited_once(self):
+        source = self.source()
+        source.rows[self.REFERENCE][0]["mincountOrRef"] = -971101
+        bundle = self.captured(source)
+        self.assertEqual(bundle["loot_capture"]["cyclic_reference_components"], [[971101]])
+        self.assertEqual(len(bundle["loot_capture"]["tables"][self.REFERENCE]["queries"]), 1)
+
+    def test_missing_tables_and_missing_selected_ids_remain_distinct(self):
+        for table in (self.BODY, self.REFERENCE):
+            source = self.source(); source.inventory["tables"].pop(table)
+            bundle = self.captured(source); record = bundle["loot_capture"]["tables"][table]
+            self.assertNotIn(table, bundle["tables"])
+            self.assertEqual(record["status"], "unknown")
+            self.assertIsNone(record["missing_ids"])
+            self.assertFalse(bundle["loot_capture"]["selected_rows_complete"])
+            self.assertTrue(all(not query["query_performed"] and query["rows_sha256"] is None
+                                for query in record["queries"]))
+            self.assertFalse(any(f"FROM `{table}`" in sql for sql,_ in source.queries))
+            source = self.source(); source.rows[table] = []
+            bundle = self.captured(source); record = bundle["loot_capture"]["tables"][table]
+            self.assertEqual(record["status"], "missing")
+            self.assertEqual(record["missing_ids"], [970101,970102] if table == self.BODY else [971101])
+            self.assertTrue(record["queries"][0]["query_performed"])
+            self.assertEqual(record["queries"][0]["returned_keys"], [])
+            self.assertFalse(bundle["loot_capture"]["selected_rows_complete"])
+
+    def test_no_roots_never_queries_empty_in_and_absent_schema_stays_unknown(self):
+        for missing in (None, self.BODY, self.REFERENCE):
+            source = self.source()
+            for creature in source.rows["creature_template"]: creature["LootId"] = 0
+            if missing: source.inventory["tables"].pop(missing)
+            bundle = self.captured(source); evidence = bundle["loot_capture"]
+            self.assertEqual(evidence["root_ids"], [])
+            self.assertEqual(evidence["reference_ids"], [])
+            self.assertEqual(evidence["leaf_item_ids"], [])
+            self.assertEqual(evidence["selected_rows_complete"], missing is None)
+            for table in (self.BODY, self.REFERENCE):
+                record = evidence["tables"][table]
+                self.assertEqual(record["status"], "unknown" if table == missing else "not_needed")
+                self.assertEqual(record["requested_ids"], [])
+                self.assertFalse(record["queries"][0]["query_performed"])
+                self.assertIsNone(record["queries"][0]["query_sha256"])
+                self.assertFalse(any(f"FROM `{table}`" in sql for sql,_ in source.queries))
+
+    def test_missing_leaf_item_and_its_spell_dependencies_fail_and_cleanup(self):
+        for table, key, missing in [("item_template","entry",920203),
+                                    ("spell_template","Id",930201),
+                                    ("spell_template","Id",930203)]:
+            source = self.source()
+            source.rows[table] = [r for r in source.rows[table] if r[key] != missing]
+            with self.subTest(table=table,missing=missing), self.assertRaisesRegex(ExportError, "reference.missing"):
+                self.captured(source)
+            self.assertTrue(source.finished)
+
+    def test_explicit_opt_in_requires_boolean_and_starter_and_legacy_remains_valid(self):
+        for selected, flag in [(selection(),True), (starter_selection(),1),
+                               (starter_selection(),"true"), (starter_selection(),None)]:
+            source = self.source()
+            with self.subTest(flag=flag), self.assertRaisesRegex(ExportError,"loot."):
+                capture(source, selected, capture_body_loot=flag)
+            self.assertFalse(source.started)
+            self.assertEqual(source.queries, [])
+        for selected in (selection(), starter_selection()):
+            source = self.source(); bundle = capture(source, selected)
+            self.assertNotIn("loot_capture", bundle)
+            self.assertFalse({self.BODY,self.REFERENCE} & set(bundle["tables"]))
+            validate_bundle(bundle)
+
+    def test_cli_body_loot_plan_rejects_malformed_schema_without_traceback(self):
+        import subprocess
+        import sys
+        path = Path(__file__).with_name("classic-export.py")
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            selected = directory/"selection.json"
+            inventory = directory/"schema.json"
+            output = directory/"plan.json"
+            selected.write_bytes(canonical(starter_selection().json()))
+            for value in ([],None,{"format_version":1,"tables":None},
+                          {"format_version":1,"tables":[]}):
+                inventory.write_bytes(canonical(value))
+                completed = subprocess.run([sys.executable,str(path),"plan","--body-loot",
+                    "--schema",str(inventory),"--selection",str(selected),"--output",str(output)],
+                    capture_output=True,text=True,check=False)
+                with self.subTest(schema=value):
+                    self.assertEqual(completed.returncode,2)
+                    self.assertEqual(completed.stderr.strip(),"schema.tables")
+                    self.assertNotIn("Traceback",completed.stderr)
+                    self.assertEqual(completed.stdout,"")
+                    self.assertFalse(output.exists())
+
+    def test_exact_schema_width_signedness_nullable_order_and_primary_key(self):
+        expected = [("entry","mediumint unsigned",False), ("item","mediumint unsigned",False),
+            ("ChanceOrQuestChance","float",False), ("groupid","tinyint unsigned",False),
+            ("mincountOrRef","mediumint",False), ("maxcount","tinyint unsigned",False),
+            ("condition_id","mediumint unsigned",False), ("comments","varchar(300)",True)]
+        for table in (self.BODY, self.REFERENCE):
+            self.assertEqual(LOOT_SCHEMA[table], expected)
+            self.assertEqual(LOOT_PRIMARY_KEYS[table], ["entry","item"])
+            edits = [lambda m:m.pop("primary_key"), lambda m:m.update(primary_key=["entry"]),
+                lambda m:m.update(primary_key=["item","entry"]), lambda m:m.update(table_type="VIEW"),
+                lambda m:m.update(engine="MEMORY"), lambda m:m["columns"].pop(),
+                lambda m:m["columns"][0].update(type="mediumint"),
+                lambda m:m["columns"][1].update(type="int unsigned"),
+                lambda m:m["columns"][2].update(type="double"),
+                lambda m:m["columns"][3].update(type="tinyint"),
+                lambda m:m["columns"][4].update(type="mediumint unsigned"),
+                lambda m:m["columns"][5].update(type="smallint unsigned"),
+                lambda m:m["columns"][6].update(type="mediumint"),
+                lambda m:m["columns"][7].update(type="varchar(301)"),
+                lambda m:m["columns"][7].update(nullable=False),
+                lambda m:m["columns"][2].update(nullable=True),
+                lambda m:m["columns"][0].update(ordinal=50),
+                lambda m:m["columns"].append({"name":"unexpected","type":"int","nullable":False,"ordinal":9})]
+            for edit in edits:
+                source = self.source(); edit(source.inventory["tables"][table])
+                with self.subTest(table=table,edit=edit), self.assertRaises(ExportError): self.captured(source)
+                self.assertFalse(source.started)
+            source = self.source()
+            source.inventory["tables"][table]["columns"][0]["type"] = "mediumint(8) unsigned"
+            source.inventory["tables"][table]["columns"][4]["type"] = "mediumint(9)"
+            validate_bundle(self.captured(source))
+
+    def test_signed_reference_boundaries_and_unsigned_cell_domains(self):
+        for table in (self.BODY, self.REFERENCE):
+            profile = schema_profile(schema(), {table})[table]
+            for value in (-0x800000, 0x7fffff):
+                values = normalize_rows(table, [row(table, entry=0xffffff, item=0,
+                    mincountOrRef=value, maxcount=255, groupid=255, condition_id=0xffffff,
+                    ChanceOrQuestChance=Decimal("-100"), comments=None)], profile, MAX_ROWS)
+                self.assertEqual(values[0]["mincountOrRef"], value)
+            for field,value in [("entry",0), ("entry",0x1000000), ("item",-1),
+                ("item",0x1000000), ("mincountOrRef",-0x800001), ("mincountOrRef",0x800000),
+                ("groupid",256), ("maxcount",-1), ("maxcount",256), ("condition_id",-1),
+                ("condition_id",0x1000000), ("comments","x"*301), ("comments","bad\0text"),
+                ("ChanceOrQuestChance",float("inf")), ("ChanceOrQuestChance",None)]:
+                value_row = row(table, entry=970101, item=0, mincountOrRef=1, maxcount=1)
+                value_row[field] = value
+                with self.subTest(table=table,field=field,value=value), self.assertRaises(ExportError):
+                    normalize_rows(table, [value_row], profile, MAX_ROWS)
+        source = self.source(); source.rows[self.BODY][0]["mincountOrRef"] = -0x800000
+        source.rows[self.BODY][2]["mincountOrRef"] = -0x800000
+        source.rows[self.REFERENCE] = [row(self.REFERENCE, entry=0x800000, item=920203,
+            mincountOrRef=1, maxcount=1, ChanceOrQuestChance=100)]
+        self.assertEqual(self.captured(source)["loot_capture"]["reference_ids"], [0x800000])
+
+    def test_fixed_parameterized_queries_reject_wrong_modes_and_selector_domains(self):
+        from classic_export import loot
+        for table in (self.BODY, self.REFERENCE):
+            sql,args = Query(table,loot.MODE,(970101,970102),limit=23).sql()
+            self.assertEqual(args,(970101,970102,24))
+            self.assertIn("WHERE `entry` IN (%s,%s) ORDER BY `entry`,`item` LIMIT %s",sql)
+            self.assertNotIn("970101",sql)
+            invalid = [Query(table,"ids",(1,)), Query(table,"event_text_selectors",(1,)),
+                Query("item_template",loot.MODE,(1,)), Query(table,loot.MODE,()),
+                Query(table,loot.MODE,(0,)), Query(table,loot.MODE,(-1,)),
+                Query(table,loot.MODE,(0x1000000,)), Query(table,loot.MODE,(True,)),
+                Query(table,loot.MODE,("1 OR 1=1",)), Query(table,loot.MODE,(2,1)),
+                Query(table,loot.MODE,(1,1)), Query(table,loot.MODE,(1,),selection=starter_selection()),
+                Query(table,loot.MODE,(1,),limit=0), Query(table,loot.MODE,(1,),limit=MAX_ROWS+1),
+                Query(table,loot.MODE,(1,),source_names=("bad",)),
+                Query(table,loot.MODE,tuple(range(1,MAX_ROWS+2)))]
+            for query in invalid:
+                with self.subTest(query=query), self.assertRaises(ExportError): query.sql()
+            Query(table,loot.MODE,(0xffffff,)).sql()
+
+    def test_input_order_is_normalized_and_query_evidence_matches_actual_batches(self):
+        first_source = self.source(); first = self.captured(first_source)
+        second_source = self.source()
+        for rows in second_source.rows.values(): rows.reverse()
+        second = self.captured(second_source)
+        self.assertEqual(canonical(first), canonical(second))
+        self.assertEqual(first_source.queries, second_source.queries)
+        for table in (self.BODY,self.REFERENCE):
+            actual = [query for query in first_source.queries if f"FROM `{table}`" in query[0]]
+            queries = first["loot_capture"]["tables"][table]["queries"]
+            self.assertEqual([record["query_sha256"] for record in queries], [digest(query) for query in actual])
+            self.assertEqual([record["requested_ids"] for record in queries], [list(args[:-1]) for _,args in actual])
+            self.assertTrue(all(record["query_performed"] for record in queries))
+            self.assertTrue(all(args[-1] == MAX_ROWS+1 for _,args in actual))
+
+    def test_duplicate_keys_and_unselected_source_rows_reject_and_cleanup(self):
+        for table in (self.BODY,self.REFERENCE):
+            for conflicting in (False,True):
+                source = self.source(); duplicate = copy.deepcopy(source.rows[table][0])
+                if conflicting: duplicate["comments"] = "Original conflicting value"
+                source.rows[table].append(duplicate)
+                with self.subTest(table=table), self.assertRaisesRegex(ExportError,"duplicate_key"): self.captured(source)
+                self.assertTrue(source.finished)
+            source = self.source(); original = source.fetch
+            def extra(query,table=table):
+                rows = original(query)
+                return rows + [row(table,entry=979999,item=0,mincountOrRef=0)] if query.table == table else rows
+            source.fetch = extra
+            with self.assertRaisesRegex(ExportError,"loot.unselected_row"): self.captured(source)
+            self.assertTrue(source.finished)
+
+    def test_each_query_max_plus_one_rejects_without_partial_bundle(self):
+        for table,entry in ((self.BODY,970101),(self.REFERENCE,971101)):
+            source = self.source(); original = source.fetch
+            def overflow(query,table=table,entry=entry):
+                if query.table == table:
+                    return [row(table,entry=entry,item=i,mincountOrRef=0) for i in range(MAX_ROWS+1)]
+                return original(query)
+            source.fetch = overflow
+            with self.subTest(table=table), self.assertRaisesRegex(ExportError,f"rows.limit:{table}"):
+                self.captured(source)
+            self.assertTrue(source.finished)
+
+    def test_second_reference_batch_cumulative_rows_and_bytes_are_bounded(self):
+        source = self.source()
+        source.rows[self.REFERENCE] = [row(self.REFERENCE,entry=971101,item=i,
+            mincountOrRef=-971102,maxcount=1) for i in range(MAX_ROWS)]
+        source.rows[self.REFERENCE].append(row(self.REFERENCE,entry=971102,item=0,mincountOrRef=0))
+        with self.assertRaisesRegex(ExportError,"loot.accumulated_row_limit"): self.captured(source)
+        self.assertTrue(source.finished)
+        self.assertEqual(sum(f"FROM `{self.REFERENCE}`" in sql for sql,_ in source.queries),2)
+        source = self.source()
+        profile = schema_profile(source.inventory,{self.REFERENCE})[self.REFERENCE]
+        normalized = normalize_rows(self.REFERENCE,source.rows[self.REFERENCE],profile,MAX_ROWS)
+        first_bytes = sum(len(canonical(r)) for r in normalized if r["entry"] == 971101)
+        with mock.patch("classic_export.loot.MAX_TABLE_BYTES",first_bytes), self.assertRaisesRegex(
+                ExportError,"loot.accumulated_table_byte_limit"):
+            self.captured(source)
+        self.assertTrue(source.finished)
+        self.assertEqual(sum(f"FROM `{self.REFERENCE}`" in sql for sql,_ in source.queries),2)
+
+    def test_reference_selector_and_item_closure_budgets_reject_before_next_query(self):
+        source = self.source()
+        source.rows[self.REFERENCE] = [row(self.REFERENCE,entry=971101,item=i,
+            mincountOrRef=-(980000+i),maxcount=1) for i in range(MAX_ROWS)]
+        with self.assertRaisesRegex(ExportError,"loot.reference_id_limit"): self.captured(source)
+        self.assertTrue(source.finished)
+        self.assertEqual(sum(f"FROM `{self.REFERENCE}`" in sql for sql,_ in source.queries),1)
+        from classic_export.core import MAX_ITEMS
+        source = self.source()
+        source.rows[self.BODY] = [row(self.BODY,entry=970101,item=1000000+i,
+            mincountOrRef=1,maxcount=1) for i in range(MAX_ITEMS+1)]
+        with self.assertRaisesRegex(ExportError,"loot.item_limit"): self.captured(source)
+        self.assertTrue(source.finished)
+        self.assertFalse(any("FROM `item_template`" in sql for sql,_ in source.queries))
+
+    def test_item_budget_applies_to_union_of_loot_quest_starter_and_explicit_requests(self):
+        request = LearningExportTests().request()
+        request.update(spell_ids=[],item_ids=[920201])
+        with mock.patch("classic_export.capture.MAX_ITEMS",6):
+            bundle = self.captured(dependency_request=request)
+        self.assertEqual(bundle["required_ids"]["item_template"],
+                         [920001,920101,920102,920201,920202,920203])
+        self.assertEqual(bundle["learning_capture"]["dependency_request"],request)
+        # Each contributor fits individually, but their distinct-ID union does not.
+        for limit,explicit in ((5,[]),(6,[920301])):
+            source = self.source(); request["item_ids"] = explicit
+            with mock.patch("classic_export.capture.MAX_ITEMS",limit), self.assertRaisesRegex(
+                    ExportError,"closure.limit:item_template"):
+                self.captured(source,dependency_request=request)
+            self.assertTrue(source.finished)
+            self.assertFalse(any("FROM `item_template`" in sql for sql,_ in source.queries))
+
+    def test_existing_row_byte_cap_applies_to_both_loot_tables(self):
+        for table in (self.BODY,self.REFERENCE):
+            source = self.source(); original = source.fetch
+            profile = schema_profile(source.inventory,{table})[table]
+            rows = normalize_rows(table,source.rows[table],profile,MAX_ROWS)
+            cap = len(canonical(rows[0]))-1
+            # Earlier wide creature/item records retain their ordinary allowance.
+            # Only lower the shared bound once the selected loot response arrives.
+            with mock.patch("classic_export.core.MAX_ROW_BYTES",65536):
+                def bounded(query,table=table):
+                    values = original(query)
+                    if query.table == table:
+                        import classic_export.core as core
+                        core.MAX_ROW_BYTES = cap
+                    return values
+                source.fetch = bounded
+                with self.subTest(table=table), self.assertRaisesRegex(ExportError,f"row.byte_limit:{table}"):
+                    self.captured(source)
+            self.assertTrue(source.finished)
+
+    def test_aggregate_byte_budget_includes_loot_rows(self):
+        source = self.source(); original = source.fetch
+        # Measure the first loot response in the ordinary shared accounting path.
+        fetched = len(canonical(source.inventory))
+        first_loot_total = None
+        def measured(query):
+            nonlocal fetched, first_loot_total
+            rows = original(query)
+            profile = schema_profile(source.inventory,{query.table})[query.table]
+            fetched += len(canonical(normalize_rows(query.table,rows,profile,query.limit)))
+            if query.table == self.BODY: first_loot_total = fetched
+            return rows
+        source.fetch = measured; self.captured(source)
+        self.assertIsNotNone(first_loot_total)
+        source = self.source()
+        with mock.patch("classic_export.capture.MAX_BUNDLE_BYTES",first_loot_total-1), self.assertRaisesRegex(
+                ExportError,"aggregate_byte_limit"):
+            self.captured(source)
+        self.assertTrue(source.finished)
+        self.assertIn(f"FROM `{self.BODY}`", source.queries[-1][0])
+        self.assertFalse(any(f"FROM `{self.REFERENCE}`" in sql for sql,_ in source.queries))
+
+    def test_snapshot_engines_version_drift_and_fetch_errors_always_cleanup(self):
+        for table in (self.BODY,self.REFERENCE):
+            source = self.source(); source.inventory["tables"][table]["engine"] = "MyISAM"
+            with self.assertRaisesRegex(ExportError,"quiescent"): self.captured(source)
+            self.assertTrue(source.finished)
+            source = self.source(); source.inventory["tables"][table]["engine"] = "MyISAM"
+            bundle = self.captured(source,quiescent=True)
+            self.assertEqual(bundle["loot_capture"]["snapshot"]["consistency"],"operator_quiescent_snapshot")
+            source = self.source(); original = source.fetch
+            def failed(query,table=table):
+                if query.table == table: raise ExportError("original.test_read_failure")
+                return original(query)
+            source.fetch = failed
+            with self.assertRaisesRegex(ExportError,"original.test_read_failure"): self.captured(source)
+            self.assertTrue(source.finished)
+        source = self.source(); original = source.fetch
+        def guarded(query):
+            self.assertTrue(source.started); self.assertFalse(source.finished); self.assertEqual(source.versions,1)
+            return original(query)
+        source.fetch = guarded; self.captured(source); self.assertEqual(source.versions,2)
+        source = self.source(); source.mutate_version = True
+        with self.assertRaisesRegex(ExportError,"snapshot.version_changed"): self.captured(source)
+        self.assertTrue(source.finished)
+
+    def test_required_evidence_tables_and_starter_scope_cannot_be_stripped(self):
+        for edit in [lambda b:b.pop("loot_capture"), lambda b:b["tables"].pop(self.BODY),
+                     lambda b:b["tables"].pop(self.REFERENCE),
+                     lambda b:b["loot_capture"]["snapshot"].update(consistency="operator_quiescent_snapshot")]:
+            bundle = self.captured(); edit(bundle)
+            bundle["table_sha256"] = {t:digest(rows) for t,rows in bundle["tables"].items()}
+            with self.assertRaises(ExportError): validate_bundle(bundle)
+        bundle = capture(FakeSource(),selection())
+        bundle["loot_capture"] = self.captured()["loot_capture"]
+        with self.assertRaises(ExportError): validate_bundle(bundle)
+
+    def test_outer_rehash_does_not_hide_source_mapping_rows_or_query_tampering(self):
+        edits = [lambda b:b["tables"][self.BODY][0].update(comments="Modified raw provenance"),
+            lambda b:b["tables"][self.REFERENCE].pop(),
+            lambda b:b["tables"]["creature_template"][0].update(LootId=970102),
+            lambda b:b["tables"]["creature_template"][0].update(MinLootGold=8),
+            lambda b:b["loot_capture"].update(loader_order="proven"),
+            lambda b:b["loot_capture"].update(selected_rows_complete=False),
+            lambda b:b["loot_capture"]["root_ids"].pop(),
+            lambda b:b["loot_capture"]["reference_ids"].pop(),
+            lambda b:b["loot_capture"]["reference_edges"].pop(),
+            lambda b:b["loot_capture"]["leaf_item_ids"].pop(),
+            lambda b:b["loot_capture"]["non_body_dependencies"].pop(),
+            lambda b:b["loot_capture"]["tables"][self.REFERENCE]["queries"].pop(),
+            lambda b:b["loot_capture"]["tables"][self.BODY]["queries"][0].update(query_performed=False),
+            lambda b:b["loot_capture"]["tables"][self.BODY]["queries"][0].update(row_limit=1),
+            lambda b:b["loot_capture"]["tables"][self.BODY]["queries"][0].update(returned_keys=[])]
+        for edit in edits:
+            bundle = self.captured(); edit(bundle); self.rehash(bundle,dependencies=False)
+            with self.subTest(edit=edit), self.assertRaisesRegex(ExportError,"loot."): validate_bundle(bundle)
+
+    def test_recomputed_evidence_cannot_hide_orphan_rows_or_missing_leaf_dependency(self):
+        for table in (self.BODY,self.REFERENCE):
+            bundle = self.captured(); bundle["tables"][table][-1]["entry"] = 979999
+            self.rehash(bundle,dependencies=False)
+            # Recompute all affected row hashes without calling the checked graph
+            # builder: it is offline validation itself that must reject the orphan.
+            evidence = bundle["loot_capture"]
+            evidence["snapshot"]["table_sha256"][table] = digest(bundle["tables"][table])
+            query = evidence["tables"][table]["queries"][-1]
+            selected_rows = bundle["tables"][table] if table == self.BODY else bundle["tables"][table][-1:]
+            query["rows_sha256"] = digest(selected_rows)
+            query["returned_keys"] = [[r["entry"],r["item"]] for r in selected_rows]
+            with self.subTest(table=table), self.assertRaisesRegex(ExportError,"loot.unselected_row"):
+                validate_bundle(bundle)
+        bundle = self.captured()
+        bundle["tables"][self.REFERENCE][0]["mincountOrRef"] = 0
+        self.rehash(bundle,dependencies=False)
+        bundle["loot_capture"]["snapshot"]["table_sha256"][self.REFERENCE] = digest(bundle["tables"][self.REFERENCE])
+        bundle["loot_capture"]["tables"][self.REFERENCE]["queries"][0]["rows_sha256"] = digest(
+            bundle["tables"][self.REFERENCE][:2])
+        with self.assertRaisesRegex(ExportError,"loot.unselected_row"): validate_bundle(bundle)
+        bundle = self.captured()
+        bundle["tables"]["item_template"] = [r for r in bundle["tables"]["item_template"] if r["entry"] != 920203]
+        bundle["required_ids"]["item_template"].remove(920203)
+        self.rehash(bundle)
+        with self.assertRaisesRegex(ExportError,"loot.leaf_item_missing"): validate_bundle(bundle)
+        bundle = self.captured(); bundle["tables"][self.REFERENCE].pop(); self.rehash(bundle)
+        bundle["loot_capture"]["selected_rows_complete"] = True
+        bundle["loot_capture"]["tables"][self.REFERENCE].update(status="complete",missing_ids=[])
+        with self.assertRaisesRegex(ExportError,"loot.coverage_mismatch"): validate_bundle(bundle)
+
+    def test_driver_inspects_both_loot_primary_keys_with_readonly_queries(self):
+        instance = LocalSqlSource.__new__(LocalSqlSource); inventory = self.source().inventory
+        names = (self.BODY,self.REFERENCE); calls = []
+        def select(sql,params,limit):
+            calls.append((sql,params,limit))
+            if "information_schema.TABLES" in sql:
+                return [{"name":t,"engine":"InnoDB","table_type":"BASE TABLE"} for t in names]
+            if "information_schema.COLUMNS" in sql:
+                return [{"table_name":t,**{**c,"nullable":"YES" if c["nullable"] else "NO"}}
+                        for t in names for c in inventory["tables"][t]["columns"]]
+            self.assertIn("information_schema.KEY_COLUMN_USAGE",sql)
+            self.assertEqual(params[1],"PRIMARY")
+            return [{"name":n,"ordinal":i} for i,n in enumerate(LOOT_PRIMARY_KEYS[params[0]],1)]
+        instance._select = select; inspected = instance.inspect()
+        self.assertEqual({t:m["primary_key"] for t,m in inspected["tables"].items()},LOOT_PRIMARY_KEYS)
+        self.assertTrue(all(sql.startswith("SELECT ") and ";" not in sql for sql,_,_ in calls))
 
 
 if __name__ == "__main__":

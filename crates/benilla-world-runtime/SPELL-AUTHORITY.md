@@ -93,8 +93,13 @@ are accepted only for unselected profiles.
 
 The selected host returns before the legacy unconditional combat-stat critical
 assignment. CANT_CRIT therefore cannot be overwritten. Hit, direct damage,
-critical and periodic dice retain the existing source component order; a miss
-consumes only the hit die, and disabled crit consumes no critical die.
+critical and periodic dice retain the source component order; a miss consumes
+only the hit die, and disabled crit consumes no critical die. At an allowed,
+nonimmune successful delayed impact on a living target, random periodic-effect
+values are drawn before the hostile-hit/EnterCombat callback. The callback still
+observes pre-impact target health and installed auras: damage and aura installation
+remain afterward. A resisted, immune, disallowed or dead-target impact consumes
+no periodic value draw; a constant periodic value likewise consumes none.
 
 ## History, replay and persistence
 
@@ -122,7 +127,7 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 33, `benilla-native-complete-source-visitors-v33`, with v33 profile/state/
+format 35, `benilla-native-corpse-carried-items-v35`, with v35 profile/state/
 record/checkpoint/action hash domains. Published formats 10 through 19 reject without an
 implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace
@@ -166,3 +171,32 @@ ordering, real quest reward stat changes, unsupported/unknown raw closures,
 hardcoded exception IDs, crit suppression, exact miss draw use, stale/forged
 receipts and scheduler contexts, rehashed historical launch tampering, format-10
 refusal, durable publication faults and checkpoint/replay/reopen continuation.
+
+### Delayed-impact periodic value / hostile callback ordering
+
+The original `Spell.cpp` at the pinned revision above (full-file SHA-256
+`ebcabd3073f188541e6a1abcc82a8d0ee6d48d360dc5ab16d9e63b3e87d75201`)
+calls `ExecuteEffects` at line 1451 before `CasterHitTargetWithSpell` at 1454,
+and installs the created aura holder at 1456 onward. `HandleEffect` calculates
+effect values at 4597–4600. The immediate-launch path at 1640–1652 already
+executes its applicable damage effects before its critical roll; it is unchanged.
+
+`native::engine::Frame::casts_one` therefore draws only the existing eligible
+periodic effect values before its synchronous hostile callback. It does not
+move target damage, aura extraction/installation, or general scheduler phases.
+The `periodic_impact_roll_precedes_hostile_callback_without_early_health_or_aura_mutation`
+regression starts a real scheduled traveling cast, then checks the callback's
+complete state witness and pre-impact health/phase. Its gating matrix checks
+exact draw records/counter, callback presence and aura installation for successful,
+resisted, immune, disallowed, dead-target and constant-periodic cases. The original
+ordering fails its witness check; this is a source-order regression rather than
+a claim of a full C++ spell-lifecycle differential.
+
+This source-order correction is a dependency of the format-34 integration and
+must not be published alone under format 33. `TickRecord.replies` retains each
+`AuthorityReply.request`; its `InteractionWitness` hashes the complete staged
+state including RNG position. `ReplayAuthority` compares requests and derived
+replies exactly. Moving the draw therefore changes persisted callback evidence
+even when the final RNG position and serialized member shapes are unchanged.
+The integration must reject format-33 records/checkpoints after recomputing outer
+hashes; unchanged hash domains cannot be used as an implicit migration.

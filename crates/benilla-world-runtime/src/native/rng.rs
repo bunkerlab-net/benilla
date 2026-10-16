@@ -8,19 +8,54 @@ pub const RNG_POLICY: &str = "benilla-native-sha256-counter-le64-rejection-fract
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum DrawPurpose {
-    Loot { corpse: crate::NpcId },
-    LootChance { corpse: crate::NpcId },
-    LootShuffle { corpse: crate::NpcId },
+    EventAiChance {
+        npc: crate::NpcId,
+        event_id: u32,
+        occurrence: u64,
+    },
+    EventAiAction {
+        npc: crate::NpcId,
+        event_id: u32,
+        occurrence: u64,
+    },
+    Loot {
+        corpse: crate::NpcId,
+    },
+    LootChance {
+        corpse: crate::NpcId,
+    },
+    LootShuffle {
+        corpse: crate::NpcId,
+    },
     Hit,
-    Direct { slot: u8 },
+    Direct {
+        slot: u8,
+    },
     Critical,
-    Periodic { slot: u8 },
+    Periodic {
+        slot: u8,
+    },
     Pushback,
-    MeleeDamage { action: u64, npc: crate::NpcId },
-    MeleeOutcome { action: u64, npc: crate::NpcId },
-    DurabilityChance { action: u64, npc: crate::NpcId },
-    DurabilitySlot { action: u64, npc: crate::NpcId },
-    DefenseGain { action: u64, npc: crate::NpcId },
+    MeleeDamage {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    MeleeOutcome {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    DurabilityChance {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    DurabilitySlot {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    DefenseGain {
+        action: u64,
+        npc: crate::NpcId,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -91,4 +126,15 @@ impl State {
         }
         Err(NativeError::Limit)
     }
+}
+
+/// Full32 requests have width 2^32, threshold zero and consume one counter.
+pub(super) fn full_u32(world: crate::WorldId, seed: u64, counter: u64) -> u32 {
+    let mut hash = Sha256::new();
+    hash.update(RNG_POLICY.as_bytes());
+    hash.update(world);
+    hash.update(seed.to_le_bytes());
+    hash.update(counter.to_le_bytes());
+    let bytes = hash.finalize();
+    u32::from_le_bytes(bytes[..4].try_into().unwrap())
 }

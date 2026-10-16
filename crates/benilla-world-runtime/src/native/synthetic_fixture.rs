@@ -178,6 +178,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::EventAiAudience(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "legacy fixture has no complete camera membership",
+                ));
+            }
             Query::PlayerEnvironment(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "synthetic fixture has no player environment terrain",

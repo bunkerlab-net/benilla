@@ -20,6 +20,7 @@ pub struct NpcEventHandle {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NpcEvents {
+    pub(super) event_ai_anchor: Option<EventAiCallbackAnchor>,
     world: crate::WorldId,
     npc: crate::NpcId,
     pub(super) queue: EventProcessor,
@@ -35,6 +36,8 @@ pub struct NpcEvents {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NpcEventsSnapshot {
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    event_ai_anchor: Option<EventAiCallbackAnchor>,
     policy: String,
     world: crate::WorldId,
     npc: crate::NpcId,
@@ -53,6 +56,7 @@ impl NpcEvents {
         profile: &Profile,
     ) -> Result<Self, NativeError> {
         let mut result = Self {
+            event_ai_anchor: profile.event_ai().map(|_| EventAiCallbackAnchor::default()),
             world,
             npc,
             queue: EventProcessor::new(),
@@ -166,6 +170,7 @@ impl NpcEvents {
     }
     pub(super) fn snapshot(&self) -> NpcEventsSnapshot {
         NpcEventsSnapshot {
+            event_ai_anchor: self.event_ai_anchor.clone(),
             policy: NPC_EVENT_POLICY.into(),
             world: self.world,
             npc: self.npc,
@@ -193,7 +198,8 @@ impl NpcEvents {
             .ok_or_else(invalid)?
             .checked_mul(u64::from(profile.tick_ms))
             .ok_or_else(invalid)?;
-        if snapshot.policy != NPC_EVENT_POLICY
+        if snapshot.event_ai_anchor.is_some() != profile.event_ai().is_some()
+            || snapshot.policy != NPC_EVENT_POLICY
             || snapshot.world != world
             || snapshot.npc != npc
             || snapshot.queue.clock_ms != elapsed
@@ -235,6 +241,7 @@ impl NpcEvents {
             return Err(invalid());
         }
         let result = Self {
+            event_ai_anchor: snapshot.event_ai_anchor,
             world,
             npc,
             queue: EventProcessor::restore(snapshot.queue)?,

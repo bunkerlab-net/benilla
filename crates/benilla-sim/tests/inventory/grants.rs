@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-fn grant_slots(text: &str) -> BTreeMap<u8, Instance> {
+pub(super) fn grant_slots(text: &str) -> BTreeMap<u8, Instance> {
     if text == "-" {
         return BTreeMap::new();
     }

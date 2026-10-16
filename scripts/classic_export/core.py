@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .columns import (COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA,
-                      INITIAL_HOOK_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS, EVENT_TEXT_ALIASES)
+                      INITIAL_HOOK_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS, EVENT_TEXT_ALIASES, LOOT_SCHEMA)
 
 FORMAT = "benilla-classic-source-slice-v1"
 STARTER_FORMAT = "benilla-classic-source-slice-v2"
@@ -198,13 +198,15 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     profiles = {}
     for table, meta in inventory["tables"].items():
         fields = {"engine", "table_type", "columns"}
-        if table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA) and type(meta) is dict and "primary_key" in meta:
+        if table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA | LOOT_SCHEMA) and type(meta) is dict and "primary_key" in meta:
             fields.add("primary_key")
         check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
         if table in REGISTRY_SCHEMA and table in required:
             check(meta.get("primary_key") == ["Id"], "schema.registry_primary_key")
         if table in INITIAL_HOOK_SCHEMA and table in required:
             check(meta.get("primary_key") == list(KEYS[table]), "schema.initial_hook_primary_key")
+        if table in LOOT_SCHEMA and table in required:
+            check(meta.get("primary_key") == list(KEYS[table]), "schema.loot_primary_key")
         check(meta["table_type"] == "BASE TABLE", "schema.views_rejected")
         check(meta["engine"] in {"InnoDB", "MyISAM"}, "schema.engine")
         check(type(meta["columns"]) is list and len(meta["columns"]) <= 512, "schema.columns")
@@ -223,9 +225,9 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
         missing = wanted - set(by_name)
         if table in required:
             check(not missing, f"schema.missing_columns:{table}")
-        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA) and table in required:
+        if table in (STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | LOOT_SCHEMA) and table in required:
             check(wanted == set(by_name), f"schema.starter_columns:{table}")
-            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA)[table], 1):
+            for ordinal, (name, kind, nullable) in enumerate((STARTER_SCHEMA | LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | LOOT_SCHEMA)[table], 1):
                 actual = by_name[name.casefold()]
                 observed, expected = sql_type(actual["type"]), sql_type(kind)
                 # Ignore display width for integer types, never size/signedness/nullability/order.
@@ -357,6 +359,8 @@ def normalize_rows(table: str, rows: list[dict[str, Any]], profile: dict[str, An
         zero_keys = {"playercreateinfo_action": {"button"},
                      "playercreateinfo_skills": {"raceMask", "classMask"},
                      "creature_spawn_data_template": {"Entry"},
+                     "creature_loot_template": {"item"},
+                     "reference_loot_template": {"item"},
                      "spell_area": {"area", "quest_start", "quest_start_active", "racemask", "gender"}}.get(table, set())
         check(all((type(row_value) is str and 0 < len(row_value) <= 10)
                   if table == "broadcast_text_locale" and name == "Locale" else
@@ -389,7 +393,7 @@ def referenced_items(quests: list[dict[str, Any]]) -> set[int]:
     return result
 
 
-def report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any]) -> list[dict[str, Any]]:
+def report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any], *, body_loot: bool = False) -> list[dict[str, Any]]:
     issues = []
     def add(table: str, key: int | str, reason: str) -> None:
         issues.append({"table": table, "key": key, "status": "blocked", "reason": reason})
@@ -409,7 +413,7 @@ def report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any]) ->
                     add(table, key, "creature.variable_level")
                 if row["AIName"] or row["ScriptName"] or row["SpellList"] or row["CharmedSpellList"]:
                     add(table, key, "creature.ai_or_spell_dependency")
-                if row["LootId"] or row["SkinningLootId"] or row["PickpocketLootId"]:
+                if not body_loot and (row["LootId"] or row["SkinningLootId"] or row["PickpocketLootId"]):
                     add(table, key, "creature.loot_dependency_not_captured")
             elif table == "quest_template":
                 add(table, key, "quest.native_eligibility_credit_reward_required")

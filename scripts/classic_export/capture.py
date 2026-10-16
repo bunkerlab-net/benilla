@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA, EVENT_TEXT_ALIASES
-from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks
+from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks, loot
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -35,6 +35,7 @@ class Query:
               "query.initial_hook_mode")
         check(self.table not in event_text.TABLES or self.mode == event_text.MODE,
               "query.event_text_mode")
+        check(self.table not in loot.TABLES or self.mode == loot.MODE, "query.loot_mode")
         check(not self.source_names or self.table in event_text.TABLES, "query.source_names")
         integer(self.limit, 1, MAX_ROWS, "query.limit")
         names = self.source_names or tuple(COLUMNS[self.table])
@@ -52,6 +53,15 @@ class Query:
             check(selected is not None, "query.starter_selection")
             check(self.limit <= starter.STARTER_LIMITS[self.table], "query.starter_limit")
             where, params = starter.predicate(self.table, selected)
+        elif self.mode == loot.MODE:
+            check(self.table in loot.TABLES and self.selection is None
+                  and 0 < len(self.ids) <= MAX_ROWS, "query.loot_selectors")
+            check(len(set(self.ids)) == len(self.ids), "query.duplicate_ids")
+            for value in self.ids:
+                integer(value, 1, 0xffffff, "query.loot_selector")
+            check(tuple(sorted(self.ids)) == self.ids, "query.loot_order")
+            where = f"`entry` IN ({','.join(['%s']*len(self.ids))})"
+            params = self.ids
         elif self.mode == "event_ai_selectors":
             check(self.table == event_ai.TABLE and self.selection is None
                   and 0 < len(self.ids) <= event_ai.MAX_SELECTORS, "query.event_ai_selectors")
@@ -137,17 +147,21 @@ class ReadSource(Protocol):
 
 def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             dependency_request: dict[str, Any] | None = None, *,
-            capture_initial_hooks: bool = False) -> dict[str, Any]:
+            capture_initial_hooks: bool = False, capture_body_loot: bool = False) -> dict[str, Any]:
     selection = Selection.parse(selection.json())
     if dependency_request is not None:
         learning.request(dependency_request, selection)
     inventory = source.inspect()
     check(type(capture_initial_hooks) is bool, "initial_hooks.request_boolean")
     check(not capture_initial_hooks or selection.starter is not None, "initial_hooks.starter_selection_required")
+    check(type(capture_body_loot) is bool, "loot.request_boolean")
+    check(not capture_body_loot or selection.starter is not None, "loot.starter_selection_required")
     minimum = required_tables(selection)
     if (selection.starter is not None and type(inventory) is dict
             and type(inventory.get("tables")) is dict):
         minimum.update(set(event_text.TABLES) & set(inventory["tables"]))
+    if capture_body_loot and type(inventory) is dict and type(inventory.get("tables")) is dict:
+        minimum.update(set(loot.TABLES) & set(inventory["tables"]))
     if capture_initial_hooks:
         minimum.update(INITIAL_HOOK_SCHEMA)
     profiles = schema_profile(inventory, minimum)
@@ -279,7 +293,11 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
                         for level in range(r["MinLevel"], r["MaxLevel"]+1)}
         stats = [r for r in stats if (r["Class"], r["Level"]) in needed_stats]
         tables["creature_template_classlevelstats"] = stats
+        if capture_body_loot:
+            loot.capture_tables(tables, profiles, get)
         item_ids = referenced_items(quests) | starter_items
+        if capture_body_loot:
+            item_ids.update(loot.leaf_ids(tables))
         if dependency_request is not None:
             item_ids.update(dependency_request["item_ids"])
         items = get("item_template", item_ids, MAX_ITEMS)
@@ -339,7 +357,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             for table in initial_hooks.TABLES:
                 tables[table] = get(table, hook_ids, initial_hooks.LIMITS[table], mode="initial_hook_selectors")
         check(version_before == normalize_version_notes(source.version_notes(), profiles["db_version"]), "snapshot.version_changed")
-        findings = full_report(tables, profiles, selection)
+        findings = full_report(tables, profiles, selection, body_loot=capture_body_loot)
         bundle = {
             "format": STARTER_FORMAT if selection.starter is not None else FORMAT, "core_revision": CORE_REVISION, "database_revision": DATABASE_REVISION,
             "revision_claims_verified_against_installation": False, "client_build": 5875,
@@ -358,6 +376,8 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
             bundle["spell_script_capture"] = spell_registry.evidence(bundle)
             bundle["learning_capture"] = learning.evidence(tables, dependency_request, global_learning_rows)
+        if capture_body_loot:
+            bundle["loot_capture"] = loot.evidence(bundle)
         if capture_initial_hooks:
             bundle["initial_hook_capture"] = initial_hooks.evidence(bundle)
         check(len(canonical(bundle)) <= MAX_BUNDLE_BYTES, "bundle.byte_limit")
@@ -386,6 +406,8 @@ def validate_bundle(bundle: Any) -> None:
             expected.add("spell_script_capture")
         if "initial_hook_capture" in bundle:
             expected.add("initial_hook_capture")
+        if "loot_capture" in bundle:
+            expected.add("loot_capture")
     check(set(bundle) == expected, "bundle.fields")
     check(bundle["format"] in {FORMAT, STARTER_FORMAT} and bundle["core_revision"] == CORE_REVISION
           and bundle["database_revision"] == DATABASE_REVISION and bundle["client_build"] == 5875,
@@ -448,6 +470,11 @@ def validate_bundle(bundle: Any) -> None:
     if "initial_hook_capture" in bundle:
         check(selection.starter is not None, "initial_hooks.starter_selection_required")
         initial_hooks.validate(bundle)
+    check(not (set(loot.TABLES) & set(bundle["tables"])) or "loot_capture" in bundle,
+          "loot.coverage_required_with_tables")
+    if "loot_capture" in bundle:
+        check(selection.starter is not None, "loot.starter_selection_required")
+        loot.validate(bundle, profiles)
     check((spell_registry.TABLE in bundle["tables"]) == ("spell_script_capture" in bundle),
           "spell_registry.coverage_required_with_table")
     if "spell_script_capture" in bundle:
@@ -507,13 +534,14 @@ def validate_bundle(bundle: Any) -> None:
         check(issue["table"] in COLUMNS and issue["status"] == "blocked", "bundle.issue")
         check(type(issue["key"]) is str and len(issue["key"]) <= 128, "bundle.issue_key")
         check(type(issue["reason"]) is str and len(issue["reason"]) <= 128, "bundle.issue_reason")
-    required_findings = full_report(bundle["tables"], profiles, selection)
+    required_findings = full_report(bundle["tables"], profiles, selection, body_loot="loot_capture" in bundle)
     check(status["unsupported"] == required_findings, "bundle.missing_or_inconsistent_blocker")
     check(len(canonical(bundle)) <= MAX_BUNDLE_BYTES, "bundle.byte_limit")
 
 
-def full_report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any], selection: Selection) -> list[dict[str, Any]]:
-    findings = report(tables, profiles) + starter.blockers(tables, selection) + event_text.blockers(tables)
+def full_report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any], selection: Selection, *, body_loot: bool = False) -> list[dict[str, Any]]:
+    findings = (report(tables, profiles, body_loot=body_loot) + starter.blockers(tables, selection)
+                + event_text.blockers(tables) + loot.blockers(tables, body_loot))
     needed_stats = set()
     for row in tables["creature_template"]:
         low = integer(row["MinLevel"], 1, 65, "creature.min_level")

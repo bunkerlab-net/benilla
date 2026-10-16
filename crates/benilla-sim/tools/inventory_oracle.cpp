@@ -223,6 +223,38 @@ void grants(){
  }
  reset();
 }
+void corpse_storage(){
+ // Authored carried-only cases. The source CanStoreNewItem/StoreNewItem methods
+ // run unchanged; no .additem handler, partial award or self-unbinding is used.
+ // TSV: case, requested, template, equipped_count, before, result, no_space,
+ // next_id, callback, destinations, last_slot_id_count, after.
+ for(uint32 c=0;c<320;++c){
+  reset();Player p;uint32 shape=c%5;
+  prototypes[70001]={70001,shape>=3?1u:5u,0};prototypes[70002]={70002,1,0};auto&row=prototypes[70001];
+  row.Class=shape>=3?1:15;row.InventoryType=shape>=3?18:0;
+  row.ContainerSlots=shape==3?6:shape==4?36:0;row.Bonding=(c/5)%5;row.MaxDurability=c%47;
+  for(uint32 k=0;k<5;++k){auto&spell=row.Spells[k];spell.SpellCooldown=-1;spell.SpellCategoryCooldown=-1;
+   if(shape==0){spell.SpellCharges=int32(k)-2;spell.SpellTrigger=k;spell.SpellCategory=k+10;spell.SpellPPMRate=float(k)*0.25f;}}
+  if(shape==1){row.Spells[0].SpellId=81001;row.Spells[0].SpellCharges=-1;row.Spells[0].SpellCategoryCooldown=1000;}
+  uint32 equipped=shape<3&&c%7==0?1:0;
+  if(equipped)seed_created(p,4,70001,1,false);
+  uint32 layout=(c/25)%4;
+  for(uint32 slot=23;slot<39;++slot){
+   if(layout==0)continue;
+   if(layout==1){if(slot<38)seed_created(p,slot,70002,1,false);continue;}
+   if(layout==2){if(slot%3==0)seed_created(p,slot,70001,1,false);else if(slot%3==1)seed_created(p,slot,70002,1,false);continue;}
+   seed_created(p,slot,70002,1,false);
+  }
+  uint32 previous=p.GetItemCount(70001,true,nullptr);row.MaxCount=c%3==0?previous+(c/3)%4:0;
+  uint32 count=std::array<uint32,4>{1,2,6,17}[(c/9)%4],no_space=0;ItemPosCountVec dest;
+  auto before=snapshot(p);auto code=p.CanStoreNewItem(NULL_BAG,NULL_SLOT,dest,70001,count,&no_space);
+  Item*last=code==EQUIP_ERR_OK?p.StoreNewItem(dest,70001,false):nullptr;
+  std::cout<<c<<'\t'<<count<<'\t';metadata(row);std::cout<<'\t'<<equipped<<'\t'<<before<<'\t'<<unsigned(code)<<'\t'<<no_space<<'\t'<<sObjectMgr.next<<'\t';notification(p.callback);
+  std::cout<<'\t';positions(dest);std::cout<<'\t';if(last)std::cout<<unsigned(last->slot)<<':'<<last->guid<<':'<<last->GetCount();else std::cout<<'-';
+  std::cout<<'\t'<<snapshot(p)<<'\n';
+ }
+ reset();
+}
 void creations(){
  // TSV: case, inventory_type, class, container_slots, requested, created,
  // next_id, instance_or_dash, owner_contained_or_dash. Fixed inputs are
@@ -256,6 +288,7 @@ int main(int argc,char**argv){
  if(argc==2&&std::string(argv[1]).find("--unsupported-")==0){unsupported(argv[1]);return 0;}
  if(argc==2&&std::string(argv[1])=="--grant"){grants();return 0;}
  if(argc==2&&std::string(argv[1])=="--create"){creations();return 0;}
+ if(argc==2&&std::string(argv[1])=="--corpse"){corpse_storage();return 0;}
  bool store=argc==2&&std::string(argv[1])=="--store";
  for(uint32 c=0;c<2048;++c){
   reset();

@@ -90,9 +90,11 @@ The implemented capture follows these bounded reference sets:
 - In v2, selected native player creation/item/spell/action/skill-mask rows;
   class and race/class levels 1..cap, XP levels 1..cap−1, and required item/spell rows
 
-Spawn overrides, conditions, AI/script data, loot tables, quest-chain rows and
-other spell dependency tables are not captured. Their required mechanics remain
-blocked. A full edge-provenance graph and additional dependency families are
+Selected v2 spawn overrides, EventAI/text and spell registry dependencies have
+separate reader contracts in the tool README. Optional `--body-loot` adds
+[bounded body/reference loot capture](../scripts/classic_export/LOOT-CAPTURE.md).
+Source-loader ordering and generation remain unproven; non-body loot, conditions,
+other AI/script data and quest-chain closure remain uncaptured or unsupported. A full edge-provenance graph and additional dependency families are
 future work; current `required_ids` records the captured identity sets rather
 than a reason graph for every edge.
 

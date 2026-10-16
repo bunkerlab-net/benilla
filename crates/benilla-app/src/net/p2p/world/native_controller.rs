@@ -692,6 +692,7 @@ impl NativeController {
         if self.world.profile().quest_progression.is_some()
             || self.world.profile().player_slow.is_some()
             || self.world.profile().player_environment.is_some()
+            || self.world.profile().event_ai().is_some()
             || pending.moving
         {
             // Pose-bearing ticks also save before publishing authoritative position/facing.

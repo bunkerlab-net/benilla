@@ -516,6 +516,18 @@ errors and UBSan. Unsupported script, random-property, duration and keyring
 routes abort. Bag dispatch is inventory type, not item class, and slots above 36
 fail in source creation. The Rust gate checks such a row before starting a grant.
 
+## Corpse-carried item storage
+
+`src/inventory/corpse.rs` is a separately checked caller of the same pinned
+CanStoreNewItem/StoreNewItem storage translation. Item::Create copies every
+charge slot, while Bag::Create leaves charges zero and initializes empty source
+container slots; no use/equip spell is invoked by _StoreItem. Existing full-file
+pins and GPL notices above apply. The same generator extracts unchanged source
+methods for 320 additional authored corpse cases in `inventory_corpse.tsv`, with
+complete input/output metadata, callback, allocator and binding comparisons.
+Those cases do not invoke HandleAddItemCommand and cannot establish production
+content admission or whole-table loot-loader order.
+
 ## Backpack movement, occupied swaps and stack merging
 
 `src/inventory/movement.rs` translates the backpack-only `Player::SwapItem`
@@ -749,3 +761,51 @@ contributors, GPL-2.0-or-later; translation and authored host GPL-3.0-or-later.
 Complete normalized source hashes, unchanged source-extracted oracle, numeric
 domain and lifecycle exclusions are linked in the contract. The arithmetic
 receipt is neither loaded-data provenance nor runtime/native-world admission.
+
+
+## Bounded ordinary EventAI AGGRO -> TEXT
+
+`src/event_ai.rs` translates the ordinary AGGRO holder lifecycle and the
+full-unsigned-word chance/action sequence from CMaNGOS Classic revision
+`8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. Source copyright CMaNGOS Project
+contributors, GPL-2.0-or-later; the Rust translation and authored numeric tests
+are 2026 Benilla fork contributors, GPL-3.0-or-later. Existing upstream authors,
+copyright and license files under `licenses/` apply.
+
+Reviewed source files and full-file SHA-256 values:
+
+- [`src/game/AI/EventAI/CreatureEventAI.cpp`](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.cpp):
+  `70ffaf2f96d95d33d994908acd92431dd694ae8fbf86506f5051320cdf37837f`;
+  InitAI, IsTimerExecutedEvent, IsRepeatableEvent, IsTimerBasedEvent, CheckEvent,
+  ResetEvent, CheckAndReadyEventForExecution, ProcessEvent, the ACTION_T_TEXT
+  selection block in ProcessAction, JustRespawned, Reset, JustReachedHome,
+  JustDied and EnterCombat
+- [`src/game/AI/EventAI/CreatureEventAI.h`](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/AI/EventAI/CreatureEventAI.h):
+  `73a07a9adbbaf2599aaf7ba957918a9296003e5d397bd226a3b1f417fc2acc94`;
+  CreatureEventAIHolder constructor and its source fields
+- [`src/shared/Util/Util.cpp`](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/shared/Util/Util.cpp):
+  `f408c8a466a183cabdf96b0f7c18907b8cbb2144d73b0b2e8b81fdf421b43133`;
+  parameterless urand uses std::uniform_int_distribution<uint32>, retaining
+  the small modulo100 bias rather than a bounded uniform percentage draw
+
+The host must validate complete source order/coverage, type AGGRO, zero inverse
+phase mask/flags/event parameters, one TEXT action plus two NONE actions, and
+a genuine EnterCombat callback. The immutable component requires a nonzero
+event ID, chance1..100 and one to three contiguous positive signed32 text IDs.
+No database row, localized text or client asset is bundled; tests use authored
+IDs and numeric source-operation probes rather than an executed C++ oracle.
+
+The versioned policy consumes one full32 chance word and, only on success, one
+independent full32 action word even for a single text or zero listeners. Both
+chance failure and success retain enabled=true/timer0/eventTarget=null. Ordinary
+Reset/home/death do not reset AGGRO; respawn reconstructs. Readiness rejects the
+transient inProgress guard, and checkpoints reject pending callbacks, malformed
+source members, unsupported versions, missing fields and unknown fields.
+
+Compact reconstruction is limited to that immutable semantic shape. The outer
+host separately binds the catalog digest, owner generation, event order and
+occurrence identity; event ID alone does not establish that binding. The host
+must stage the reducer, RNG and outputs in one transaction and discard a partial
+callback on failure. There is no generic EventAI interpreter, timer execution,
+combat detection, target resolution, broadcast lookup, audience discovery, packet
+projection, real-world admission or seed/stream equivalence in this component.

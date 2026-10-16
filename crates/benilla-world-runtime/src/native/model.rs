@@ -107,7 +107,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v33\0",
+            b"benilla-native-profile-v35\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -327,6 +327,7 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) event_ai: Option<EventAiState>,
     pub(super) source_player_environment: Option<PlayerEnvironmentState>,
     pub(super) source_player_collision_height: Option<PlayerCollisionHeightState>,
     pub admin: AdminState,
@@ -471,6 +472,8 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
+    EventAiEvaluation(Box<EventAiEvaluation>),
+    EventAiSpeech(Box<EventAiSpeech>),
     PlayerEnvironment(PlayerEnvironmentReceipt),
     NpcSpell(NpcSpellEvent),
     AdminCommitted(AdminReceipt),
@@ -548,6 +551,7 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    EventAiAudience(Box<EventAiAudienceRequest>),
     PlayerEnvironment(Box<PlayerEnvironmentQuery>),
     NpcSpell(NpcSpellQuery),
     SourceSpell(SourceSpellQuery),
@@ -663,6 +667,7 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    EventAiAudience(EventAiAudienceFacts),
     PlayerEnvironment(PlayerEnvironmentFacts),
     NpcSpell(NpcSpellFacts),
     SourceSpell(SourceSpellFacts),

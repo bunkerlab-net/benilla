@@ -61,6 +61,13 @@ acknowledges and clears the journal only after durable publication and replay ch
 Projection runs before acknowledgment, and committed inputs are retired before
 projection. A projection failure cannot reapply a committed command on retry/logout.
 
+Selected EventAI saves every enabled tick before publishing monster-say packets.
+A failed save retains the committed simulation and its unpublished outbox;
+`RetryCheckpoint` saves that same boundary before the next pump delivers the line.
+The callback, random draws and inputs are not repeated. Reopening validates the
+historical speech receipts but bootstrap emits no old chat. This is not a
+crash-proof exactly-once guarantee for display in an external UI.
+
 Unavailable authority pauses with the exact uncommitted batch, tick, sequences and
 journal intact. Only explicit `RetryTick` allows another attempt. Paused time adds
 no debt. A definite pre-publication checkpoint failure permits explicit
@@ -130,7 +137,7 @@ a later independent scalar change invalidates the selected profile.
 Generation-zero NPC state owns both source-bound width and height witnesses. The
 real controller Chase and moving-target replan freeze both in the typed Route
 request; height validation checks the shared model source, profile, generation
-and exact `owner_collision_height`. Native format 33 retains the witness through
+and exact `owner_collision_height`. Native format 35 retains the witness through
 checkpoint, journal replay and reopen. A missing schema field fails to decode;
 explicit null denotes an unavailable dependency. Initial receipts survive corpse
 reopen but are cleared at respawn, and relabeling one cannot authorize a later
@@ -157,7 +164,7 @@ edited scalars, changed source catalogs and a different starter identity fail cl
 
 The actual controller freezes the selected player's world/character identity,
 source binding and exact sampled target pose, flags and dimensions into typed
-NearPoint and Route requests. Native format 33 retains ownership through journal
+NearPoint and Route requests. Native format 35 retains ownership through journal
 replay, checkpoint and reopen. Tests exercise chase and moving-target replan,
 source/identity/pose/height/width echo forgery, atomic controller/store/projection
 failure, exact authority retry, single publication after a store retry, and both
@@ -349,7 +356,7 @@ The warm straight-calculation tests initialize collision width through Plan's
 opaque initial-model receipt and authored MPQ/DBC loading, then consume the exact
 runtime Route witness on the loaded navigation owner thread. Width is the source
 object-scale times raw field14, with no radius, display-scale or render-scale
-substitution. Native format 33 retains that witness in the explicitly synthetic
+substitution. Native format 35 retains that witness in the explicitly synthetic
 initial route's replay and reopen; the real loaded dependencies never enter the
 accepted authority journal.
 
@@ -389,7 +396,7 @@ in command order, including unchanged-position and rotation-only calls. The
 100 ms gate counts down after those commands; stationary expiry never queries
 terrain. The last accepted pose and the earlier cached-query pose remain distinct.
 
-Native format 33 stores the cache and monotone phase sequence in the native
+Native format 35 stores the cache and monotone phase sequence in the native
 checkpoint, without a nested standalone environment journal. The controller saves
 every enabled environment tick before publishing, including countdown-only ticks.
 A failed save retains the committed tick and withholds projection until retry;
@@ -420,7 +427,7 @@ initialization nor production entry is opened.
 
 ## Complete authored two-owner visitors
 
-The injected-authority component path accepts native33's explicitly selected
+The injected-authority component path accepts native34's explicitly selected
 complete one-player/two-NPC fixture. Its independently owned hostile A and raw
 neutral-to-all B both remain ordinary Aggressive, combat-capable empty EventAI.
 An authored owner permutation is independent of complete grid/world membership

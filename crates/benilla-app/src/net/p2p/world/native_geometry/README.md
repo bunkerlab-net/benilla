@@ -720,7 +720,7 @@ The app geometry identity is
 outer-commit acknowledgement, total-cap-four and bounded original-job policies.
 Earlier uncommitted-proposal and monolithic-commit identities are incompatible.
 Commit-head delivery itself does not alter the native payload schema; the current
-payload is format 33 for complete authored one/two-owner source visitors.
+payload is format 35 for complete authored one/two-owner source visitors.
 `install_with_same_polygon` returns a proposal authority and an explicit paired
 commit sink. The selected mailbox refuses queries until the controller attaches
 that sink at the actual cache-free world boundary. A fresh opaque attachment and
@@ -801,7 +801,7 @@ churn, multi-polygon navigation, saved-query rehydration or production admission
 
 The two-owner authored composition initializes distinct owner radii, source model
 widths/heights, speeds and orientations before loading the shared query providers.
-An initially hostile A and raw-neutral Aggressive B retain the native33 visitor and
+An initially hostile A and raw-neutral Aggressive B retain the native34 visitor and
 combat semantics: a deliberate supported hit makes B retaliate. Both source-owned
 NearPoint callbacks use the actual loaded MapHeight/VMap readers, and app-only
 fixtures require the installed Service and concrete LocalCorridor for both Routes.
@@ -840,7 +840,7 @@ but no manufactured candidate/notice chain substitutes for a reachable source
 execution. The cache-free respawn test stops before a new constructor: it proves
 obsolete-owner pruning, not constructor-registry churn support.
 
-The distinct-giver quest variant reuses the exact source-selected native33 quest,
+The distinct-giver quest variant reuses the exact source-selected native34 quest,
 interaction, combat, facing, spell-133 and ordinary loot catalogs. Its app-only
 fixture installs the real Service and LocalCorridor, binds the controller's actual
 selected player into the environment and route policies, and pumps stock commands

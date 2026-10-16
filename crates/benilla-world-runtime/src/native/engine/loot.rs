@@ -277,7 +277,7 @@ impl<A: Authority> Frame<'_, A> {
         let catalog = &g.loot.as_ref().unwrap().inventory;
         let current = self.state.quest_progression.as_ref().unwrap();
         let mut inventory = current.inventory.clone().ok_or(NativeError::InvalidState)?;
-        let plan = inventory.can_store(catalog, item.item, item.count.into())?;
+        let plan = inventory.can_store_corpse_item(catalog, item.item, item.count.into())?;
         if plan.result != inv::InventoryResult::Ok {
             self.events.push(Event::Loot(LootEvent::StorageFailed {
                 corpse: id,
@@ -293,19 +293,23 @@ impl<A: Authority> Frame<'_, A> {
             .combat
             .as_ref()
             .ok_or(NativeError::InvalidState)?;
-        let stored =
-            inventory.store_new(catalog, item.item, item.count.into(), |_, entry, count| {
+        let stored = inventory.store_corpse_item(
+            catalog,
+            item.item,
+            item.count.into(),
+            |_, entry, count| {
                 let (updated, events) = next
                     .reduce(g, combat, q::Command::ItemAdded { item: entry, count })
                     .map_err(|_| inv::Error::Callback("pre-store item quest callback"))?;
                 next = updated;
                 callbacks = events;
                 Ok(())
-            })?;
+            },
+        )?;
         next.inventory = Some(inventory);
         super::super::loot::update_inventory_receipts(
             &mut next,
-            crate::digest(b"benilla-native-corpse-item-v1\0", &(id, slot, &stored)),
+            crate::digest(b"benilla-native-corpse-item-v2\0", &(id, slot, &stored)),
         )?;
         self.commit_quest_progression(next)?;
         self.events

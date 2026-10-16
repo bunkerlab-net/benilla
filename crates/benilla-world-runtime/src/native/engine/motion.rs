@@ -448,11 +448,15 @@ impl<A: Authority> Frame<'_, A> {
             event,
         };
         let facts = self.source_facts(&npc, CombatPhase::CombatReceipt)?;
-        let observation = self.source_observation(&npc, facts, None, vec![receipt])?;
+        let observation = self.source_observation(&npc, facts, None, vec![receipt.clone()])?;
         let effects = npc
             .ai
             .source_combat_event_with_phase(&observation, self.source_alive_unit == Some(id))?;
-        self.source_prefix_effects(&mut npc, &effects)?;
+        self.source_prefix_effects(
+            &mut npc,
+            &effects,
+            &EventAiCallbackKind::CombatReceipt { receipt },
+        )?;
         self.state.npcs.insert(id.spawn, npc);
         Ok(())
     }
@@ -476,7 +480,14 @@ impl<A: Authority> Frame<'_, A> {
             let facts = self.source_facts(&npc, CombatPhase::Sight)?;
             let observation = self.source_observation(&npc, facts, None, Vec::new())?;
             let effects = npc.ai.source_sight_event(&observation)?;
-            self.source_prefix_effects(&mut npc, &effects)?;
+            self.source_prefix_effects(
+                &mut npc,
+                &effects,
+                &EventAiCallbackKind::Sight {
+                    notification_owner: VisitorParticipant::Player(self.state.player),
+                    callback: callback.clone(),
+                },
+            )?;
         }
         self.state.npcs.insert(id, npc);
         Ok(())
@@ -519,6 +530,7 @@ impl<A: Authority> Frame<'_, A> {
         &mut self,
         npc: &mut Npc,
         effect: &ai::Effect,
+        callback: Option<&EventAiCallbackKind>,
     ) -> Result<(), NativeError> {
         if npc.source_motion.is_none() {
             return Ok(());
@@ -530,10 +542,11 @@ impl<A: Authority> Frame<'_, A> {
             .ok_or(NativeError::InvalidState)?;
         let g = self.profile.npc_motion(npc.id.spawn)?;
         match effect {
-            ai::Effect::CombatStarted { .. } => {
+            ai::Effect::CombatStarted { target } => {
                 let source = npc.source_motion.as_mut().unwrap();
                 source.combat_start = Some(source.motion.pose());
                 npc.events.entered_combat()?;
+                self.event_ai_enter_combat(npc, *target, callback)?;
                 self.enter_player_combat();
             }
             ai::Effect::Motion(command) => {
@@ -626,13 +639,14 @@ impl<A: Authority> Frame<'_, A> {
         &mut self,
         npc: &mut Npc,
         effects: &[ai::Effect],
+        callback: &EventAiCallbackKind,
     ) -> Result<(), NativeError> {
         for effect in effects {
             self.events.push(Event::Npc {
                 id: npc.id,
                 effect: effect.clone(),
             });
-            self.source_ai_effect(npc, effect)?;
+            self.source_ai_effect(npc, effect, Some(callback))?;
         }
         Ok(())
     }
@@ -689,7 +703,14 @@ impl<A: Authority> Frame<'_, A> {
                     let facts = self.source_facts(npc, CombatPhase::Sight)?;
                     let observation = self.source_observation(npc, facts, None, Vec::new())?;
                     let effects = npc.ai.source_sight_event(&observation)?;
-                    self.source_prefix_effects(npc, &effects)?;
+                    self.source_prefix_effects(
+                        npc,
+                        &effects,
+                        &EventAiCallbackKind::Sight {
+                            notification_owner: VisitorParticipant::Creature(npc.id),
+                            callback: callback.clone(),
+                        },
+                    )?;
                 }
                 transaction.finish_execute(true)?;
             } else {

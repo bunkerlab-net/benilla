@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 from classic_export.capture import capture, validate_bundle
-from classic_export import learning
+from classic_export import learning, loot
 from classic_export.columns import INITIAL_HOOK_SCHEMA
 from classic_export.core import (COLUMNS, CORE_REVISION, DATABASE_REVISION, ExportError,
                                  MAX_BUNDLE_BYTES, MAX_SCHEMA_BYTES, Selection,
@@ -62,12 +62,15 @@ def main() -> int:
         if name == "capture":
             cmd.add_argument("--selection", type=Path, required=True)
             cmd.add_argument("--dependency-request", type=Path, help="bounded native preparation recapture request")
+            cmd.add_argument("--body-loot", action="store_true",
+                             help="capture bounded selected body/reference loot dependencies for source-v2")
             cmd.add_argument("--initial-hooks", action="store_true",
                              help="capture selected raw spell_area and spell_proc_event inputs for source-v2")
             cmd.add_argument("--quiescent-snapshot", action="store_true",
                              help="operator confirms no writer can change this already prepared local snapshot")
     cmd = sub.add_parser("plan")
     cmd.add_argument("--initial-hooks", action="store_true")
+    cmd.add_argument("--body-loot", action="store_true")
     cmd.add_argument("--schema", type=Path, required=True)
     cmd.add_argument("--selection", type=Path, required=True)
     cmd.add_argument("--output", type=Path, required=True)
@@ -88,11 +91,17 @@ def main() -> int:
             if args.initial_hooks:
                 check(selection.starter is not None, "initial_hooks.starter_selection_required")
                 minimum.update(INITIAL_HOOK_SCHEMA)
+            if args.body_loot:
+                check(selection.starter is not None, "loot.starter_selection_required")
+                check(type(schema) is dict and type(schema.get("tables")) is dict, "schema.tables")
+                minimum.update(set(loot.TABLES) & set(schema["tables"]))
             profiles = schema_profile(schema, minimum)
             output = {"format": "benilla-classic-capture-plan-v2" if selection.starter is not None else "benilla-classic-capture-plan-v1", "selection": selection.json(),
                       "core_revision": CORE_REVISION, "database_revision": DATABASE_REVISION,
                       "schema_sha256": digest(schema), "capture_tables": sorted(minimum),
                       "quiescent_required": any(p["engine"] == "MyISAM" for p in profiles.values()),
+                      "body_loot_requested": args.body_loot,
+                      "body_loot_missing_tables": sorted(set(loot.TABLES) - set(profiles)) if args.body_loot else [],
                       "runnable": False, "unreviewed_columns": {t: p["unreviewed_columns"] for t,p in profiles.items() if p["unreviewed_columns"]}}
         else:
             # Import/authentication occurs only in an explicit user's local read action.
@@ -104,7 +113,7 @@ def main() -> int:
             source = LocalSqlSource(args.database, args.user, args.port)
             try:
                 output = source.inspect() if args.command == "inspect" else capture(source, selection, args.quiescent_snapshot,
-                    dependency_request, capture_initial_hooks=args.initial_hooks)
+                    dependency_request, capture_initial_hooks=args.initial_hooks, capture_body_loot=args.body_loot)
             finally:
                 source.close()
         write_new(args.output, output)

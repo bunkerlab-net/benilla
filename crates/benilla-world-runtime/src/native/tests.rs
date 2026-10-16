@@ -207,11 +207,11 @@ fn mutate_resigned(
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
     cp["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v33\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v35\0", &state)).unwrap();
     let digest: crate::Digest = serde_json::from_value(cp["digest"].clone()).unwrap();
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v33\0",
+        b"benilla-native-checkpoint-v35\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -375,10 +375,218 @@ fn original_fixture_snapshot_has_no_native_decode_path() {
     let original = br#"{"version":2,"content_digest":[],"rules_digest":[],"state":{}}"#;
     assert!(Checkpoint::decode(original).is_err());
     assert_eq!(crate::FORMAT_VERSION, 2);
-    assert_eq!(NATIVE_FORMAT_VERSION, 33);
+    assert_eq!(NATIVE_FORMAT_VERSION, 35);
     // The compiler token is uninhabited even when the synthetic feature is unified.
     assert_eq!(std::mem::size_of::<NativeCapability>(), 0);
 }
+
+fn profile_identity_for_format(p: &Profile, version: u32, policy: &str) -> crate::Digest {
+    crate::digest(
+        format!("benilla-native-profile-v{version}\0").as_bytes(),
+        &(
+            policy,
+            NPC_SPELL_POLICY,
+            ADMIN_POLICY,
+            benilla_sim::player_slow::PLAYER_SLOW_POLICY,
+            RNG_POLICY,
+            spell::SPELL_EXECUTION_POLICY_ID,
+            ai::CREATURE_AI_POLICY_ID,
+            benilla_sim::creature_motion::CREATURE_MOTION_POLICY_ID,
+            benilla_sim::creature_regeneration::CREATURE_REGENERATION_POLICY_ID,
+            mana::MAGE_RESOURCE_POLICY_ID,
+            benilla_sim::starter_init::STARTER_INIT_POLICY_ID,
+            benilla_sim::npc_melee::NPC_MELEE_POLICY_ID,
+            equipment::EQUIPMENT_POLICY,
+            benilla_sim::player_death::PLAYER_DEATH_POLICY,
+            p,
+        ),
+    )
+}
+
+fn resign_identity_checkpoint(
+    value: serde_json::Value,
+    state_format: u32,
+    checkpoint_format: u32,
+) -> Checkpoint {
+    let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
+    checkpoint.digest = crate::digest(
+        format!("benilla-native-state-v{state_format}\0").as_bytes(),
+        &checkpoint.state,
+    );
+    checkpoint.checksum = crate::digest(
+        format!("benilla-native-checkpoint-v{checkpoint_format}\0").as_bytes(),
+        &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
+    );
+    checkpoint
+}
+
+#[test]
+fn native35_profile_state_record_and_checkpoint_domains_are_exact() {
+    assert_eq!(NATIVE_FORMAT_VERSION, 35);
+    assert_eq!(NATIVE_POLICY, "benilla-native-corpse-carried-items-v35");
+    assert_eq!(crate::FORMAT_VERSION, 2);
+    let mut w = world();
+    assert_eq!(
+        w.profile().digest(),
+        profile_identity_for_format(w.profile(), 35, NATIVE_POLICY)
+    );
+    for (format, policy) in [
+        (34, "benilla-native-event-ai-aggro-text-v34"),
+        (34, NATIVE_POLICY),
+        (35, "benilla-native-event-ai-aggro-text-v34"),
+    ] {
+        assert_ne!(
+            w.profile().digest(),
+            profile_identity_for_format(w.profile(), format, policy)
+        );
+    }
+    let initial = w.checkpoint().unwrap();
+    advance(&mut w, 2, &mut SyntheticAuthority::default());
+    let checkpoint = w.checkpoint().unwrap();
+    let value = serde_json::to_value(&checkpoint).unwrap();
+    assert_eq!(value["version"], 35);
+    assert_eq!(value["state"]["version"], 35);
+    assert_eq!(value["state"]["policy"], NATIVE_POLICY);
+    assert_eq!(
+        checkpoint.digest,
+        crate::digest(b"benilla-native-state-v35\0", &checkpoint.state)
+    );
+    assert_eq!(checkpoint.digest, w.state_digest());
+    assert_eq!(
+        checkpoint.checksum,
+        crate::digest(
+            b"benilla-native-checkpoint-v35\0",
+            &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
+        )
+    );
+    for record in w.records() {
+        assert_eq!(record.version, 35);
+        assert_eq!(record.profile, w.profile().digest());
+        assert_eq!(
+            record.digest(),
+            crate::digest(b"benilla-native-record-v35\0", record)
+        );
+        assert_ne!(
+            record.digest(),
+            crate::digest(b"benilla-native-record-v34\0", record)
+        );
+    }
+    assert_eq!(
+        Checkpoint::decode(&checkpoint.encode().unwrap()).unwrap(),
+        checkpoint
+    );
+    let mut replay =
+        NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial).unwrap();
+    replay.replay(w.records()).unwrap();
+    assert_eq!(replay.checkpoint().unwrap(), checkpoint);
+}
+
+#[test]
+fn native34_checkpoint_headers_and_policies_reject_even_with_current_outer_hashes() {
+    let w = world();
+    let initial = w.checkpoint().unwrap();
+    for (outer, state, policy) in [
+        (34, 34, "benilla-native-event-ai-aggro-text-v34"),
+        (34, 35, NATIVE_POLICY),
+        (35, 34, NATIVE_POLICY),
+        (35, 35, "benilla-native-event-ai-aggro-text-v34"),
+    ] {
+        for hash_format in [34, 35] {
+            let mut value = serde_json::to_value(&initial).unwrap();
+            value["version"] = outer.into();
+            value["state"]["version"] = state.into();
+            value["state"]["policy"] = policy.into();
+            let old = resign_identity_checkpoint(value, hash_format, hash_format);
+            assert_eq!(
+                Checkpoint::decode(&old.encode().unwrap()).unwrap_err(),
+                NativeError::InvalidCheckpoint
+            );
+            assert!(
+                NativeWorld::restore_synthetic_component_test(w.profile().clone(), old).is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn native34_state_checkpoint_and_profile_context_cannot_be_resealed_as_native35() {
+    let w = world();
+    let initial = w.checkpoint().unwrap();
+    for (state_format, checkpoint_format) in [(34, 34), (34, 35), (35, 34)] {
+        let old = resign_identity_checkpoint(
+            serde_json::to_value(&initial).unwrap(),
+            state_format,
+            checkpoint_format,
+        );
+        assert_eq!(
+            Checkpoint::decode(&old.encode().unwrap()).unwrap_err(),
+            NativeError::InvalidCheckpoint
+        );
+        assert!(matches!(
+            NativeWorld::restore_synthetic_component_test(w.profile().clone(), old),
+            Err(NativeError::InvalidCheckpoint)
+        ));
+    }
+    for (format, policy) in [
+        (34, "benilla-native-event-ai-aggro-text-v34"),
+        (34, NATIVE_POLICY),
+        (35, "benilla-native-event-ai-aggro-text-v34"),
+    ] {
+        let mut value = serde_json::to_value(&initial).unwrap();
+        value["state"]["profile"] =
+            serde_json::to_value(profile_identity_for_format(w.profile(), format, policy)).unwrap();
+        let old = resign_identity_checkpoint(value, 35, 35);
+        // Decode checks the envelope; only restore has the executable profile context.
+        let decoded = Checkpoint::decode(&old.encode().unwrap()).unwrap();
+        assert!(matches!(
+            NativeWorld::restore_synthetic_component_test(w.profile().clone(), decoded),
+            Err(NativeError::Incompatible)
+        ));
+    }
+}
+
+#[test]
+fn native34_record_versions_and_rehashed_context_reject_without_committing_a_prefix() {
+    let mut w = world();
+    let initial = w.checkpoint().unwrap();
+    advance(&mut w, 1, &mut SyntheticAuthority::default());
+    let middle = w.checkpoint().unwrap();
+    advance(&mut w, 1, &mut SyntheticAuthority::default());
+    let end = w.checkpoint().unwrap();
+    let records = w.records().to_vec();
+    for case in 0..5 {
+        let mut forged = records.clone();
+        match case {
+            0 => forged[1].version = 34,
+            1 => {
+                forged[1].profile = profile_identity_for_format(
+                    w.profile(),
+                    34,
+                    "benilla-native-event-ai-aggro-text-v34",
+                )
+            }
+            2 => forged[1].before = crate::digest(b"benilla-native-state-v34\0", &middle.state),
+            3 => forged[1].after = crate::digest(b"benilla-native-state-v34\0", &end.state),
+            _ => {
+                forged[1].previous_record =
+                    crate::digest(b"benilla-native-record-v34\0", &forged[0])
+            }
+        }
+        let bytes = encode_records(&forged).unwrap();
+        if case == 0 {
+            assert_eq!(decode_records(&bytes), Err(NativeError::InvalidCheckpoint));
+        } else {
+            assert_eq!(decode_records(&bytes).unwrap(), forged);
+        }
+        let mut replay =
+            NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial.clone())
+                .unwrap();
+        assert_eq!(replay.replay(&forged), Err(NativeError::ReplayMismatch));
+        assert_eq!(replay.checkpoint().unwrap(), initial);
+        assert!(replay.records().is_empty());
+    }
+}
+
 #[test]
 fn dead_caster_dot_applies_without_invalid_threat_then_npc_evades() {
     let mut p = profile();

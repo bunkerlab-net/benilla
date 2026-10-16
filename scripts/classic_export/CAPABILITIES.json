@@ -37,5 +37,12 @@
   "selected_event_text_dependency_capture": true,
   "event_text_capture_format": "benilla-classic-event-text-selection-v1",
   "event_ai_execution": false,
-  "production_admission": false
+  "production_admission": false,
+  "optional_selected_body_loot_capture": true,
+  "loot_capture_format": "benilla-classic-body-loot-selection-v1",
+  "loot_max_rows_per_table": 4096,
+  "loot_max_reference_ids": 4096,
+  "loot_source_loader_order_verified": false,
+  "loot_generation": false,
+  "loot_item_admission": false
 }

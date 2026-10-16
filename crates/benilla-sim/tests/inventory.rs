@@ -592,3 +592,6 @@ mod grants;
 
 #[path = "inventory/movement.rs"]
 mod movement;
+
+#[path = "inventory/corpse.rs"]
+mod corpse;

@@ -8,7 +8,7 @@ use super::*;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-v1";
+pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-v2";
 
 /// A producer must explicitly classify every applicable row. Unknown or missing
 /// coverage cannot supply an empty EventAI or override lookup.
@@ -62,15 +62,15 @@ pub struct SourceVisitorOwner {
     pub overrides: SourceVisitorRows<SourceVisitorOverride>,
 }
 impl SourceVisitorOwner {
-    fn validate(&self) -> Result<(), NativeError> {
+    fn validate(&self, event_ai: Option<&EventAiRuntimeCatalog>) -> Result<(), NativeError> {
         if self.spawn_id <= SOLO_UNIT || self.entry == 0 || self.entry > 0xff_ffff {
             return Err(NativeError::InvalidProfile);
         }
         if self.ai_name.len() > 128 || self.script_name.len() > 128 {
             return Err(NativeError::TooLarge);
         }
-        // The empty-name default and the explicit EventAI name reach the same
-        // ordinary EventAI selection, never NullAI or a fabricated Passive AI.
+        // This bounded nonempty-event policy selects EventAI explicitly.
+        // The source can also choose it through the empty-name Permit fallback.
         if !matches!(self.ai_name.as_str(), "" | "EventAI")
             || !self.script_name.is_empty()
             || self.script_id != 0
@@ -81,10 +81,50 @@ impl SourceVisitorOwner {
                 "ordinary visitor EventAI selection",
             ));
         }
-        self.entry_events
-            .require_empty("complete empty visitor entry EventAI")?;
-        self.guid_events
-            .require_empty("complete empty visitor GUID EventAI")?;
+        match event_ai {
+            None => {
+                self.entry_events
+                    .require_empty("complete empty visitor entry EventAI")?;
+                self.guid_events
+                    .require_empty("complete empty visitor GUID EventAI")?;
+            }
+            Some(runtime) => {
+                let owner = runtime
+                    .catalog()
+                    .owner(self.spawn_id)
+                    .ok_or(NativeError::AuthorityBinding)?;
+                let source = runtime
+                    .owner(self.spawn_id)
+                    .ok_or(NativeError::AuthorityBinding)?;
+                if owner.entry != self.entry || source.spell_list_id != self.spell_list_id {
+                    return Err(NativeError::AuthorityBinding);
+                }
+                if self.ai_name != "EventAI" && !runtime.catalog().events(self.spawn_id)?.is_empty()
+                {
+                    return Err(NativeError::UnsupportedMechanic(
+                        "nonempty events require explicit EventAI selection",
+                    ));
+                }
+                for (actual, retained) in [
+                    (&self.entry_events, &owner.entry_events),
+                    (&self.guid_events, &owner.guid_events),
+                ] {
+                    let EventAiRows::Complete(retained) = retained else {
+                        return Err(NativeError::AuthorityUnavailable(
+                            "complete visitor EventAI rows",
+                        ));
+                    };
+                    if !actual
+                        .require("complete visitor EventAI IDs")?
+                        .iter()
+                        .copied()
+                        .eq(retained.iter().map(|event| event.id))
+                    {
+                        return Err(NativeError::AuthorityBinding);
+                    }
+                }
+            }
+        }
         self.overrides
             .require_empty("complete empty visitor creation overrides")
     }
@@ -113,11 +153,26 @@ pub struct SourceVisitorCatalog {
     map_id: u32,
     map_instance_type: u32,
     owners: BTreeMap<u64, SourceVisitorOwner>,
+    event_ai: Option<EventAiRuntimeCatalog>,
 }
 impl SourceVisitorCatalog {
     /// Validate source shape before an executable Profile exists. This is neither
     /// a gameplay admission token nor a permissive world constructor.
     pub fn validate_sources(input: SourceVisitorInput) -> Result<Self, NativeError> {
+        Self::validate_selected_sources(input, None)
+    }
+    /// Explicitly select exact retained text events without relaxing the old
+    /// constructor's complete-empty event requirement.
+    pub fn validate_sources_with_event_ai(
+        input: SourceVisitorInput,
+        runtime: EventAiRuntimeCatalog,
+    ) -> Result<Self, NativeError> {
+        Self::validate_selected_sources(input, Some(runtime))
+    }
+    fn validate_selected_sources(
+        input: SourceVisitorInput,
+        event_ai: Option<EventAiRuntimeCatalog>,
+    ) -> Result<Self, NativeError> {
         let rows = input.owners.require("complete visitor owner sources")?;
         if !matches!(rows.len(), 1 | 2) || input.owner_order.len() != rows.len() {
             return Err(NativeError::InvalidProfile);
@@ -128,7 +183,7 @@ impl SourceVisitorCatalog {
         let mut owners = BTreeMap::new();
         let mut entries = BTreeSet::new();
         for row in rows {
-            row.validate()?;
+            row.validate(event_ai.as_ref())?;
             if !entries.insert(row.entry) || owners.insert(row.spawn_id, row.clone()).is_some() {
                 return Err(NativeError::InvalidProfile);
             }
@@ -137,13 +192,23 @@ impl SourceVisitorCatalog {
         if scheduled.len() != input.owner_order.len() || !scheduled.iter().eq(owners.keys()) {
             return Err(NativeError::InvalidProfile);
         }
+        if event_ai
+            .as_ref()
+            .is_some_and(|runtime| !runtime.owner_ids().eq(owners.keys().copied()))
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
         Ok(Self {
             policy: SOURCE_VISITOR_POLICY,
             owner_order: input.owner_order,
             map_id: input.map_id,
             map_instance_type: input.map_instance_type,
             owners,
+            event_ai,
         })
+    }
+    pub fn event_ai(&self) -> Option<&EventAiRuntimeCatalog> {
+        self.event_ai.as_ref()
     }
     pub fn owner_order(&self) -> &[u64] {
         &self.owner_order
@@ -181,10 +246,13 @@ impl SourceVisitorCatalog {
             let row = self
                 .owner(npc.ai.creature_id)
                 .ok_or(NativeError::InvalidProfile)?;
-            row.validate()?;
+            row.validate(self.event_ai.as_ref())?;
             if row.entry != npc.entry || !entries.insert(npc.entry) {
                 return Err(NativeError::InvalidProfile);
             }
+        }
+        if let Some(runtime) = &self.event_ai {
+            runtime.validate_scene(profile)?;
         }
         Ok(())
     }
@@ -469,8 +537,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 33);
-        assert_eq!(NATIVE_POLICY, "benilla-native-complete-source-visitors-v33");
+        assert_eq!(NATIVE_FORMAT_VERSION, 35);
+        assert_eq!(NATIVE_POLICY, "benilla-native-corpse-carried-items-v35");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

@@ -8,7 +8,9 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v4";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-carried-items-v5";
+mod corpse;
+pub use corpse::CORPSE_POLICY_ID;
 mod grants;
 pub use grants::*;
 mod movement;

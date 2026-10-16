@@ -60,6 +60,14 @@ retain the returned World; reconstructing its own journal base is unsupported.
 Snapshot and journal schemas/hashes are delegated to the runtime rather than
 hardcoded here, so incompatible runtime schema upgrades fail explicitly.
 
+Native EventAI callback receipts and their random draws participate in the same
+exact replay and durable boundary. A caller stages speech packets before saving,
+withholds them until publication succeeds, and acknowledges afterward. Reopening
+validates historical speech without redisplaying it; a fresh projection emits
+only future combat entries. This establishes session delivery and persisted
+simulation state, not crash-proof exactly-once display to an external UI. Loaded
+native ownership remains subject to the runtime's separate reopen rejection.
+
 ## One publication point, bounded files
 
 The dedicated directory contains:

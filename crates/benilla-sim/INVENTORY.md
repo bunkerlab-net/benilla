@@ -5,7 +5,7 @@
 `SwapItem` from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`. The upstream grant is
 GPL-2.0-or-later; see [PROVENANCE.md](PROVENANCE.md). Its policy is
-`cmangos-8ec338a1-carried-items-v4`.
+`cmangos-8ec338a1-carried-items-v5`.
 The separately named positive admin policy is `CmangosAddItemV1`.
 
 ## Exact source behavior
@@ -69,6 +69,38 @@ random properties, duration, area/map lifecycle restrictions and unreviewed flag
 remain explicit grant blockers. BagFamily is the Classic enum, not a bitmask;
 keys (9) require the missing keyring route. Other families reach the backpack in
 this no-equipped-bag domain. No input field is zeroed to pass a gate.
+
+## Corpse-carried acquisition
+
+`corpse_carried_ready`, `can_store_corpse_item` and `store_corpse_item` use
+`cmangos-8ec338a1-corpse-carried-items-v1`. They reuse the same all-or-nothing
+planner, original/clone allocation, pre-store quest callback and storage path.
+They never call the admin grant handler or unbind destinations. The ordinary
+`can_store`/`store_new`, starter and quest-reward readiness remain unchanged.
+
+This separate domain retains unused SpellId0 metadata, including -1 cooldowns
+and nonzero charges. Item::Create copies all five charges regardless of SpellId.
+Real trigger0 on-use spells are retained without execution: the pickup/store path
+does not call CastItemUseSpell or equipment modifiers. Other real spell triggers
+remain blocked. All fields, including inactive cooldown/category/PPM values, stay
+unchanged in catalog identity. No use, eating/drinking, equipment or class-based
+equip capability follows from acquiring an item.
+
+Ordinary empty bags require class1, InventoryType18, BagFamily0, Stackable1 and
+1–36 ContainerSlots. Their instance retains the source slot count and durability,
+but has zero charges even if template charges are nonzero. They consume existing
+backpack positions without extending capacity or admitting contents. Quivers,
+malformed bag shapes, nonzero bag families, StartQuest, sets and locks remain
+blocked, together with existing random-property/script/duration/location/flag
+and audit guards. The source loader must still establish resolved input rows.
+
+The existing original-source oracle additionally runs 320 authored corpse cases
+through unchanged CanStoreNewItem/StoreNewItem, comparing complete metadata,
+pre-state, capacity/unique refusals, callback position, destinations, allocator,
+binding and final instances. No admin operation or partial grant supplies the
+expected results. Native collection stages the real quest callback and corpse
+mutation in its existing atomic frame; native35 identity separates this expanded
+accepted domain from native34 without migration.
 
 ## Positive admin grants and empty containers
 

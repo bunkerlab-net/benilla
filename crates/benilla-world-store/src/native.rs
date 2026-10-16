@@ -439,3 +439,6 @@ mod tests;
 
 #[cfg(test)]
 mod level_sixty_tests;
+
+#[cfg(test)]
+mod event_ai_tests;

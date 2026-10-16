@@ -118,7 +118,12 @@ New v2 captures retain full reviewed EventAI rows and selected
 locales. Missing base rows remain missing; absent broadcast tables remain
 unknown. No event or text action executes, and no production profile is issued.
 
-Not captured: other event override/group/linking state; gameobjects; loot rows;
+With `--body-loot`, v2 also captures bounded selected body/reference loot rows
+and leaf item/spell dependencies. The [loot capture contract](LOOT-CAPTURE.md)
+distinguishes selected-key completeness from unproven source-loader order; no
+generation, item admission or whole-table provenance is supplied.
+
+Not captured: other event override/group/linking state; gameobjects; non-body loot;
 conditions; other AI/script data; local starter outfits/DBC records; quest chains
 beyond referenced fields; spell procs/stacking or the local client DBCs.
 Legacy v2 captures without server learning coverage remain valid but unproven;

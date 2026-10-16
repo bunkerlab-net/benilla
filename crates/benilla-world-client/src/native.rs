@@ -6,6 +6,8 @@ use benilla_protocol::{messages as p, EntityKind, ObjectFields, SessionEvent};
 use benilla_sim::{classic_spell as spell, creature_ai as ai};
 use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "native_event_ai.rs"]
+mod event_ai;
 #[path = "native_loot.rs"]
 mod loot;
 #[path = "native_motion.rs"]
@@ -764,6 +766,7 @@ impl NativeProjection {
         let mut reward_refusal_presented = false;
         let mut prepare_range_cast = None;
         let mut range_refusal_presented_at = None;
+        let mut speech_deliveries = BTreeSet::new();
         for (event_index, event) in record.events.iter().enumerate() {
             // HandleQuestgiverAcceptQuest closes gossip after AddQuest and
             // CompleteQuest callbacks, before the next input or world update.
@@ -781,6 +784,20 @@ impl NativeProjection {
                     .ok_or(Error::UnknownTarget)
             };
             match event {
+                n::Event::EventAiEvaluation(_) => {}, // Internal callback/RNG audit, never a chat line.
+                n::Event::EventAiSpeech(speech) => {
+                    let frame = source_frame.as_ref().ok_or(Error::StaleProjection)?;
+                    let speaker = frame.guid(&speech.callback.npc)?;
+                    if !speech_deliveries.insert((
+                        speech.callback.npc,
+                        speech.event_id,
+                        speech.occurrence,
+                        speech.recipient,
+                    )) {
+                        return Err(Error::StaleProjection);
+                    }
+                    events.push(event_ai::project(self, w, speech, speaker)?);
+                }
                 n::Event::InputResult { sequence, accepted } => {
                     reward_refusal_presented = false;
                     let input = record.inputs.iter().find(|input| input.sequence == *sequence)

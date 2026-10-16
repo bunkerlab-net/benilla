@@ -18,6 +18,8 @@ libc = "0.2"
 workspace = true
 
 [dev-dependencies]
+benilla-world-client = { path = "../benilla-world-client" }
+benilla-protocol = { path = "../benilla-protocol" }
 benilla-formats = { path = "../benilla-formats" }
 benilla-sim = { path = "../benilla-sim" }
 benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }

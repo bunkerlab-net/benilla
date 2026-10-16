@@ -231,9 +231,9 @@ fn check_saved_reputation_and_callback(modifier: bool) {
             _ => unreachable!(),
         }
         forged.state = serde_json::from_value(state).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v33\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v35\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v33\0",
+            b"benilla-native-checkpoint-v35\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         assert!(
@@ -270,9 +270,9 @@ fn reward_level_witness_rejects_an_unfinished_level_hook_prefix() {
     );
     receipt["call"]["Reward"]["progression_prefix"] = serde_json::json!(1);
     forged.state = serde_json::from_value(state).unwrap();
-    forged.digest = crate::digest(b"benilla-native-state-v33\0", &forged.state);
+    forged.digest = crate::digest(b"benilla-native-state-v35\0", &forged.state);
     forged.checksum = crate::digest(
-        b"benilla-native-checkpoint-v33\0",
+        b"benilla-native-checkpoint-v35\0",
         &(&forged.state, forged.digest, forged.history_tip),
     );
     assert!(NativeWorld::restore_synthetic_component_test(w.profile().clone(), forged).is_err());
@@ -457,9 +457,9 @@ fn source_item_removal_overcount_keeps_incomplete_reputation_objective_reopenabl
     let mut state = serde_json::to_value(&forged.state).unwrap();
     state["quest_progression"]["reputation"]["item_incomplete"] = serde_json::json!({});
     forged.state = serde_json::from_value(state).unwrap();
-    forged.digest = crate::digest(b"benilla-native-state-v33\0", &forged.state);
+    forged.digest = crate::digest(b"benilla-native-state-v35\0", &forged.state);
     forged.checksum = crate::digest(
-        b"benilla-native-checkpoint-v33\0",
+        b"benilla-native-checkpoint-v35\0",
         &(&forged.state, forged.digest, forged.history_tip),
     );
     assert!(NativeWorld::restore_synthetic_component_test(w.profile().clone(), forged).is_err());

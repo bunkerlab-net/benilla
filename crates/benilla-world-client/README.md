@@ -46,6 +46,15 @@ silently lose events or project a different world's branch. Construct a fresh pr
 Project first, then acknowledge its saved checkpoint: acknowledgement intentionally
 clears the completed journal records.
 
+The opt-in native adapter projects validated EventAI SAY delivery receipts as
+stock `SessionEvent::Chat` monster-say messages. It preserves callback-bound NPC
+generation, inline localized name/text, Universal/Common language and player
+addressee, in journal order before corpse destruction. Audit-only evaluations,
+checkpoint bootstrap and historical replay do not generate chat. Projection
+stages all events before committing its cursor; a failed frame returns no partial
+speech. This headless boundary does not prove stock UI assets, language fluency,
+bubbles, animation, or production native admission.
+
 NPC GUIDs retain the protocol's creature entry bits and use a world/spawn/
 generation-derived counter. Any active collision is rejected, never merged. Player
 GUIDs use the same owner+character hashing domain as the saved-character app. These

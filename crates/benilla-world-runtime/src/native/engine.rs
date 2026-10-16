@@ -4,6 +4,7 @@ use crate::NpcId;
 mod admin;
 mod combat_authority;
 mod death;
+mod event_ai;
 mod event_scheduler;
 mod facing;
 mod hostile_spell;
@@ -196,7 +197,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v33\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v35\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -883,26 +884,13 @@ impl<A: Authority> Frame<'_, A> {
                 .execution
                 .launch_context()
                 .is_some_and(|l| l.rolls.hit > l.resist_chance);
-            if self.profile.source_motion.is_some() && self.state.npcs[&c.target.spawn].health > 0 {
-                // A resisted launch calls the failed-hostile-hit branch independently
-                // of effective damage. A delayed successful hit rejected by impact
-                // visibility/attack or immunity returns before the source callback.
-                if !hit || (facts.allowed && !facts.immune) {
-                    self.source_hostile_spell_hit(id, c.ability, c.target, hit, &impact_spec)?;
-                }
-            }
-            let npc = self.state.npcs.get_mut(&c.target.spawn).unwrap();
-            let mut target = npc
-                .auras
-                .remove(&c.ability)
-                .unwrap_or(spell::DamageTarget::new(c.target.spawn, npc.health)?);
-            target.health = npc.health;
+            // Spell.cpp:1451 ExecuteEffects (HandleEffect:4597 calculates aura
+            // values) precedes CasterHitTargetWithSpell:1454. Consume only these
+            // impact-time value draws here; damage and aura installation remain
+            // after the callback, which still observes pre-impact target health.
             let mut aura_rolls = [None; 3];
-            let hit = c
-                .execution
-                .launch_context()
-                .is_some_and(|l| l.rolls.hit > l.resist_chance);
-            if hit && facts.allowed && !facts.immune && target.health > 0 {
+            if hit && facts.allowed && !facts.immune && self.state.npcs[&c.target.spawn].health > 0
+            {
                 for (slot, effect) in impact_spec.effects.iter().enumerate() {
                     if let spell::MageEffect::PeriodicDamage { value, .. } = effect {
                         if let Some((lo, hi)) = value.roll_range(impact_spec.spell_rank)? {
@@ -917,6 +905,20 @@ impl<A: Authority> Frame<'_, A> {
                     }
                 }
             }
+            if self.profile.source_motion.is_some() && self.state.npcs[&c.target.spawn].health > 0 {
+                // A resisted launch calls the failed-hostile-hit branch independently
+                // of effective damage. A delayed successful hit rejected by impact
+                // visibility/attack or immunity returns before the source callback.
+                if !hit || (facts.allowed && !facts.immune) {
+                    self.source_hostile_spell_hit(id, c.ability, c.target, hit, &impact_spec)?;
+                }
+            }
+            let npc = self.state.npcs.get_mut(&c.target.spawn).unwrap();
+            let mut target = npc
+                .auras
+                .remove(&c.ability)
+                .unwrap_or(spell::DamageTarget::new(c.target.spawn, npc.health)?);
+            target.health = npc.health;
             let events = c.execution.impact_at_rank(
                 impact_spec.spell_rank,
                 self.state.now_ms,
@@ -1295,6 +1297,9 @@ impl<A: Authority> Frame<'_, A> {
                     npc.source_collision_width = None;
                     npc.source_collision_height = None;
                     npc.events.rebind_respawn(npc.id)?;
+                    if let Some(events) = &mut self.state.event_ai {
+                        events.respawn(self.profile, npc.id, self.state.tick)?;
+                    }
                     if let Some(capabilities) = &mut npc.source_capabilities {
                         capabilities.respawn(self.profile, npc.id)?;
                     }
@@ -1321,7 +1326,7 @@ impl<A: Authority> Frame<'_, A> {
                 id: npc.id,
                 effect: effect.clone(),
             });
-            self.source_ai_effect(&mut npc, &effect)?;
+            self.source_ai_effect(&mut npc, &effect, None)?;
             if started {
                 if matches!(
                     melee_events.first(),
@@ -1449,7 +1454,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v33\0",
+            b"benilla-native-melee-action-v35\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1718,7 +1723,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v33\0",
+            b"benilla-native-melee-chain-v35\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events
