@@ -613,3 +613,25 @@ consumer compares all source coordinate observations and 60 admissible loaded
 mesh rows; 27 invalid-coordinate rows fail before querying, while empty/layer-one
 meshes and two out-of-native-domain heights remain explicitly rejected. This is
 platform-specific source evidence, not untested target or full-gameplay parity.
+
+## Selected cold-distance compatibility policy
+
+`Mesh::loaded_source_cold_distance_compatibility` is a separate, explicitly
+versioned loaded calculation dependency under
+`cmangos-buildpolypath-zero-distance-v1`. It initializes only the two
+`BuildPolyPath` endpoint-distance locals to positive binary32 zero. This is a
+selected repair of an undefined original cold read, not original cold parity.
+The existing warm APIs and their cold refusal remain unchanged.
+
+The opaque result retains actual mesh identity and constructor-equivalent
+74-zero-slot/active-zero storage. It exposes observations, never a warm seed,
+owner receipt, configuration authority, point path, or gameplay Route. The
+bounded loader's 512-node lookup query is not source manager construction;
+replacement retains the separate 1024-node direct-corridor dependency.
+`m_defaultNavMeshQuery` and all unrelated source defects are unchanged.
+
+The [compatibility review](../../docs/CMANGOS-COLD-DISTANCE-COMPATIBILITY.md)
+records the exact source pin/lines, two-line initialization diff, policy binding,
+original-versus-repaired oracle labels, bounds, exclusions, and reproduction
+commands. The independent repaired observer uses real loaded Detour and checks
+only the declared caller prefix and existing selected storage fragments.

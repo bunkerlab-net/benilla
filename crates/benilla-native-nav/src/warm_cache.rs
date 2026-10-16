@@ -10,6 +10,33 @@ pub const SOURCE_WARM_CACHE_MAX_STORAGE: usize = 4096;
 pub const SOURCE_WARM_CACHE_MAX_LOOKUP_PRIMITIVES: usize = 16388;
 pub const SOURCE_WARM_CACHE_MAX_CORRIDOR_EXPANSIONS: usize = 4096;
 
+/// Selects only the audited BuildPolyPath local initialization; never owner admission.
+#[cfg(benilla_native_detour)]
+#[derive(Clone, Copy)]
+pub(crate) enum DistanceInitialization {
+    OriginalWarm,
+    CompatibilityZeroV1,
+}
+
+#[cfg(benilla_native_detour)]
+pub(crate) fn cold_constructor_storage(mesh: &Mesh, until: Instant) -> Result<WarmCache, Error> {
+    deadline(until)?;
+    let mut storage = Vec::new();
+    storage
+        .try_reserve_exact(SOURCE_WARM_CACHE_POINT_LIMIT)
+        .map_err(|_| Error::Budget)?;
+    storage.resize(SOURCE_WARM_CACHE_POINT_LIMIT, 0);
+    Ok(WarmCache {
+        mesh_id: mesh.instance_id,
+        filter: SourceOwnerFilter {
+            include_flags: 1,
+            exclude_flags: 0,
+        },
+        storage,
+        active_len: 0,
+    })
+}
+
 /// Opaque authority for one immutable loaded mesh instance. It cannot be constructed from
 /// public refs, hashes, snapshots or serialized state. Read-only refs confer no authority.
 /// The complete retained storage includes inactive slots and the searchable tail.
@@ -461,7 +488,29 @@ pub(crate) mod native {
         endpoint: u8,
         work: &mut Work,
     ) -> Result<SourceWarmLookup, SourceWarmCacheError> {
-        let mut distance = None;
+        lookup_with_initialization(
+            mesh,
+            candidate,
+            point,
+            endpoint,
+            work,
+            DistanceInitialization::OriginalWarm,
+        )
+    }
+    fn lookup_with_initialization(
+        mesh: &Mesh,
+        candidate: &mut WarmCache,
+        point: &[f32; 3],
+        endpoint: u8,
+        work: &mut Work,
+        initialization: DistanceInitialization,
+    ) -> Result<SourceWarmLookup, SourceWarmCacheError> {
+        // Selected compatibility deviation: initialize each BuildPolyPath local to +0.0f.
+        // Nonempty active/tail scans overwrite it exactly as in the original warm path.
+        let mut distance = match initialization {
+            DistanceInitialization::OriginalWarm => None,
+            DistanceInitialization::CompatibilityZeroV1 => Some(0.0),
+        };
         if candidate.active_len != 0 {
             let found = scan(
                 mesh,
@@ -502,8 +551,8 @@ pub(crate) mod native {
                 });
             }
         }
-        // BuildPolyPath's distances have no initializer. Reject before a successful nearest
-        // could read that unwritten value; no invented zero initializer or smaller limit.
+        // Original policy still rejects the undefined cold read. Only the separately
+        // named compatibility entry point supplies the approved +0.0 initializer.
         let distance = distance.ok_or(SourceWarmCacheError::ColdDistanceUndefined)?;
         for (extent, primitive, origin) in [
             (
@@ -538,7 +587,7 @@ pub(crate) mod native {
                 if !new_distance.is_finite() || new_distance < 0.0 {
                     return Err(Error::Format.into());
                 }
-                // Source's zero disjunct is retained, though finite warm misses cannot reach it.
+                // Original zero disjunct; newly reachable only under the explicit cold repair.
                 let appended = distance == 0.0 || new_distance < distance;
                 if appended {
                     if candidate.storage.len() >= SOURCE_WARM_CACHE_MAX_STORAGE {
@@ -651,6 +700,25 @@ pub(crate) mod native {
         budget: SourceWarmCacheBudget,
         until: Instant,
     ) -> Result<(LoadedSourceWarmCache, Work), SourceWarmCacheError> {
+        prepare_with_initialization(
+            mesh,
+            before,
+            from,
+            to,
+            budget,
+            until,
+            DistanceInitialization::OriginalWarm,
+        )
+    }
+    fn prepare_with_initialization(
+        mesh: &mut Mesh,
+        before: &WarmCache,
+        from: [u32; 3],
+        to: [u32; 3],
+        budget: SourceWarmCacheBudget,
+        until: Instant,
+        initialization: DistanceInitialization,
+    ) -> Result<(LoadedSourceWarmCache, Work), SourceWarmCacheError> {
         deadline(until)?;
         if before.mesh_id != mesh.instance_id {
             return Err(Error::Identity.into());
@@ -678,9 +746,11 @@ pub(crate) mod native {
             expansions: 0,
             trace: Vec::new(),
         };
-        let start = lookup(mesh, &mut candidate, &a, 0, &mut work)?;
+        let start =
+            lookup_with_initialization(mesh, &mut candidate, &a, 0, &mut work, initialization)?;
         // Start appends are visible here. Running these independently is not source-compatible.
-        let end = lookup(mesh, &mut candidate, &b, 1, &mut work)?;
+        let end =
+            lookup_with_initialization(mesh, &mut candidate, &b, 1, &mut work, initialization)?;
         if f32::from_bits(start.distance_bits) > 7.0 || f32::from_bits(end.distance_bits) > 7.0 {
             return Err(SourceWarmCacheError::FarFromPolygonUnsupported);
         }
@@ -748,7 +818,27 @@ pub(crate) mod native {
         budget: SourceWarmCacheBudget,
         until: Instant,
     ) -> Result<LoadedSourceWarmCache, SourceWarmCacheError> {
-        let (mut selected, mut work) = prepare(mesh, before, from, to, budget, until)?;
+        query_with_initialization(
+            mesh,
+            before,
+            from,
+            to,
+            budget,
+            until,
+            DistanceInitialization::OriginalWarm,
+        )
+    }
+    pub(crate) fn query_with_initialization(
+        mesh: &mut Mesh,
+        before: &WarmCache,
+        from: [u32; 3],
+        to: [u32; 3],
+        budget: SourceWarmCacheBudget,
+        until: Instant,
+        initialization: DistanceInitialization,
+    ) -> Result<LoadedSourceWarmCache, SourceWarmCacheError> {
+        let (mut selected, mut work) =
+            prepare_with_initialization(mesh, before, from, to, budget, until, initialization)?;
         if selected.phase == SourceWarmPolyPhase::Replacement {
             selected.direct_status = Some(replace(
                 mesh,

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Private, bounded MMap/Detour reader. Queries describe only the loaded ground mesh;
 //! they never authorize body movement, sloped support, source epochs or live sessions.
+mod cold_distance;
 mod smoothing;
 mod tile_presence;
 mod validate;
 mod warm_cache;
 mod warm_point_path;
 mod warm_straight_path;
+pub use cold_distance::*;
 pub use smoothing::*;
 pub use tile_presence::*;
 pub use warm_cache::*;
@@ -449,3 +451,6 @@ mod warm_point_path_tests;
 
 #[cfg(all(test, benilla_native_detour))]
 mod warm_straight_path_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod cold_distance_tests;
