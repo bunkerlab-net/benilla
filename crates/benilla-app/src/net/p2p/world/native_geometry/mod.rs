@@ -262,7 +262,10 @@ fn process(
         same_polygon_route,
         ..
     } = &mut **service;
-    let used = mailbox.serve_queries_until(allowance, |session, request, body, deadline| {
+    let used = mailbox.serve_validated_queries_until(allowance, |validated, deadline| {
+        let session = validated.session();
+        let request = validated.request();
+        let body = validated.body();
         if !live.0 {
             return Err(Failure::MissingGeometry);
         }
@@ -313,10 +316,9 @@ fn process(
                 map: session.map,
                 revision: provider.raw_geometry(),
             };
-            return source_route_same_polygon_local::resolve(
+            return source_route_same_polygon_local::resolve_validated(
                 provider,
-                session,
-                request,
+                validated,
                 &mut corridor,
                 1,
                 deadline,

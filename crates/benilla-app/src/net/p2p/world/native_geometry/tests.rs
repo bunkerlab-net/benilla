@@ -3,6 +3,8 @@ use benilla_world_runtime::{native::Binding, NpcId};
 
 #[path = "deadline_tests.rs"]
 mod deadline_tests;
+#[path = "validated_request_tests.rs"]
+mod validated_request_tests;
 
 fn body() -> Body {
     Body {

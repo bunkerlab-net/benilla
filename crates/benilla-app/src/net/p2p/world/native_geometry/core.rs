@@ -445,7 +445,43 @@ pub(crate) struct Session {
     pub player_environment: Option<PlayerEnvironmentPolicy>,
     pub same_polygon_route: Option<SamePolygonRoutePolicy>,
 }
+/// One successful immutable body validation for these exact borrowed objects.
+/// No geometry, dispatch liveness or result is certified by this attempt-local value.
+pub(super) struct ValidatedRequest<'attempt> {
+    session: &'attempt Session,
+    request: &'attempt AuthorityRequest,
+    body: Body,
+}
+impl<'attempt> ValidatedRequest<'attempt> {
+    pub(super) fn session(&self) -> &'attempt Session {
+        self.session
+    }
+    pub(super) fn request(&self) -> &'attempt AuthorityRequest {
+        self.request
+    }
+    pub(super) fn body(&self) -> Body {
+        self.body
+    }
+}
 impl Session {
+    pub(super) fn with_validated_request<R>(
+        &self,
+        request: &AuthorityRequest,
+        consume: impl for<'attempt> FnOnce(ValidatedRequest<'attempt>) -> R,
+    ) -> Result<R, Failure> {
+        Ok(consume(self.validated_request(request)?))
+    }
+    fn validated_request<'attempt>(
+        &'attempt self,
+        request: &'attempt AuthorityRequest,
+    ) -> Result<ValidatedRequest<'attempt>, Failure> {
+        let body = self.body(request)?;
+        Ok(ValidatedRequest {
+            session: self,
+            request,
+            body,
+        })
+    }
     pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
         self.check_participants()?;
         let b = &request.binding;
@@ -821,11 +857,41 @@ impl Mailbox {
         let deadline = Instant::now() + Duration::from_millis(2);
         self.serve_query_slice(limit, deadline, &mut geometry)
     }
+    /// The higher-ranked callback cannot retain validation across attempts.
+    pub(super) fn serve_validated_queries_until(
+        &self,
+        limit: usize,
+        geometry: impl for<'attempt> FnMut(
+            ValidatedRequest<'attempt>,
+            Instant,
+        ) -> Result<Facts, Failure>,
+    ) -> usize {
+        let deadline = Instant::now() + Duration::from_millis(2);
+        self.serve_validated_query_slice(limit, deadline, geometry)
+    }
     fn serve_query_slice(
         &self,
         limit: usize,
         deadline: Instant,
         mut geometry: impl FnMut(&Session, &AuthorityRequest, Body, Instant) -> Result<Facts, Failure>,
+    ) -> usize {
+        self.serve_validated_query_slice(limit, deadline, |validated, until| {
+            geometry(
+                validated.session(),
+                validated.request(),
+                validated.body(),
+                until,
+            )
+        })
+    }
+    fn serve_validated_query_slice(
+        &self,
+        limit: usize,
+        deadline: Instant,
+        mut geometry: impl for<'attempt> FnMut(
+            ValidatedRequest<'attempt>,
+            Instant,
+        ) -> Result<Facts, Failure>,
     ) -> usize {
         let mut count = 0;
         while count < limit.min(PER_FRAME) {
@@ -841,17 +907,22 @@ impl Mailbox {
             let started = Instant::now();
             #[cfg(test)]
             let mut stage = "session.body";
-            let result = self.session.body(&work.request).and_then(|body| {
+            let validated = self.session.validated_request(&work.request);
+            #[cfg(test)]
+            let body_finished = Instant::now();
+            #[cfg(test)]
+            let mut provider_finished = body_finished;
+            let result = validated.and_then(|validated| {
                 #[cfg(test)]
                 {
                     stage = "provider callback";
                 }
-                let facts = geometry(
-                    &self.session,
-                    &work.request,
-                    body,
-                    work.deadline.min(deadline),
-                )?;
+                let facts = geometry(validated, work.deadline.min(deadline));
+                #[cfg(test)]
+                {
+                    provider_finished = Instant::now();
+                }
+                let facts = facts?;
                 #[cfg(test)]
                 {
                     stage = "validate_facts";
@@ -860,17 +931,38 @@ impl Mailbox {
                 Ok(facts)
             });
             #[cfg(test)]
+            if matches!(
+                &work.request.query,
+                Query::SourceMotion(MotionQuery::Route(_))
+            ) {
+                let ended = Instant::now();
+                eprintln!(
+                    "native geometry Route timing: tick={} ticket={} success={} stage={stage} \
+                     body={:?} provider={:?} reply_validation={:?} total={:?} \
+                     frame_remaining={:?} job_remaining={:?}",
+                    work.request.binding.tick,
+                    work.ticket,
+                    result.is_ok(),
+                    body_finished.duration_since(started),
+                    provider_finished.saturating_duration_since(body_finished),
+                    ended.duration_since(provider_finished),
+                    ended.duration_since(started),
+                    deadline.saturating_duration_since(ended),
+                    work.deadline.saturating_duration_since(ended),
+                );
+            }
+            #[cfg(test)]
             if let Err(error) = &result {
                 let ended = Instant::now();
                 eprintln!(
-                    "native geometry mailbox failure: tick={} ticket={} query={:?} stage={stage} \
+                    "native geometry mailbox failure: tick={} ticket={} query_kind={} stage={stage} \
                      error={error:?} elapsed={:?} job_expired_before={} job_expired_after={} \
                      frame_expired_before={} frame_expired_after={} \
                      job_remaining_before={:?} frame_remaining_before={:?} \
                      job_remaining_after={:?} frame_remaining_after={:?}",
                     work.request.binding.tick,
                     work.ticket,
-                    work.request.query,
+                    query_kind(&work.request.query),
                     ended.duration_since(started),
                     started >= work.deadline,
                     ended >= work.deadline,
@@ -909,6 +1001,21 @@ impl Mailbox {
             result,
         });
         false
+    }
+}
+
+#[cfg(test)]
+fn query_kind(query: &Query) -> &'static str {
+    match query {
+        Query::Movement(_) => "Movement",
+        Query::PlayerMovement { .. } => "PlayerMovement",
+        Query::PlayerEnvironment(_) => "PlayerEnvironment",
+        Query::SourceMotion(MotionQuery::Route(_)) => "Route",
+        Query::SourceMotion(MotionQuery::NearPoint(_)) => "NearPoint",
+        Query::SourceMotion(MotionQuery::Combat(_)) => "Combat",
+        Query::SourceMotion(_) => "SourceMotion",
+        Query::SourceSpell(_) => "SourceSpell",
+        _ => "Other",
     }
 }
 

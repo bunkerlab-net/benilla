@@ -469,8 +469,7 @@ pub(crate) fn composed_inputs(
     (profile, session, inputs)
 }
 
-#[test]
-fn shared_components_execute_genuine_near_point_before_source_ordered_route() {
+fn composed_setup() -> Setup {
     let raw = RawMap::new(TerrainKind::Flat);
     let (spec, files) = same_polygon_fixture::fixture(&raw);
     let products = fixtures::load(spec, &files);
@@ -488,14 +487,19 @@ fn shared_components_execute_genuine_near_point_before_source_ordered_route() {
     );
     let (profile, session, inputs) = composed_inputs(products, revision, &raw.maps());
     let bound = inputs.bind(&session, &profile, f::player()).unwrap();
-    let mut setup = Setup {
+    Setup {
         world: NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234)
             .unwrap(),
         session,
         routes: bound.route,
         environment: bound.environment,
         near_point: Some(bound.near_point),
-    };
+    }
+}
+
+#[test]
+fn shared_components_execute_genuine_near_point_before_source_ordered_route() {
+    let mut setup = composed_setup();
     let (world, mut consumer) = consumer(&mut setup);
     drive_first(world, &mut consumer);
     assert_eq!(consumer.near_queries, 1);
@@ -590,4 +594,88 @@ fn same_live_dispatch_repeats_real_calculation_without_another_constructor_or_ca
         consumer.proposals[0].after_cache(),
         consumer.proposals[1].after_cache()
     );
+}
+
+#[test]
+fn attempt_validation_retains_exact_route_binding_and_rejects_mutation_or_decoding() {
+    let mut fixture = composed_setup();
+    let (world, mut consumer) = consumer(&mut fixture);
+    consumer.retry_same_dispatch = true;
+    drive_first(world, &mut consumer);
+    assert!(consumer.errors.is_empty());
+    // Timing is retained without formatting inside the provider's slice.
+    let proposal = &consumer.proposals[0];
+    let timing = proposal.timing.as_ref().unwrap();
+    assert!(timing.count > 0);
+    assert_eq!(timing.stages[timing.count - 1].unwrap().0, "terminal");
+    proposal.report_timing();
+    let context = &consumer.requests[0];
+    consumer
+        .session
+        .with_validated_request(context, |validated| {
+            assert!(std::ptr::eq(validated.session(), consumer.session));
+            assert!(std::ptr::eq(validated.request(), context));
+            let npc = context.binding.npc.unwrap().spawn;
+            assert_eq!(validated.body(), consumer.session.bodies[&npc]);
+            for mutation in 0..6 {
+                let mut changed = consumer.session.clone();
+                match mutation {
+                    0 => changed.world[0] ^= 1,
+                    1 => changed.profile[0] ^= 1,
+                    2 => changed.geometry[0] ^= 1,
+                    3 => changed.policy[0] ^= 1,
+                    4 => changed.bodies.get_mut(&npc).unwrap().height = ai::Real::new(99.).unwrap(),
+                    5 => changed.participants = None,
+                    _ => unreachable!(),
+                }
+                assert!(
+                    changed.with_validated_request(context, |_| ()).is_err(),
+                    "session mutation {mutation}"
+                );
+            }
+            for mutation in 0..6 {
+                let mut changed = context.clone();
+                match mutation {
+                    0 => changed.binding.tick += 1,
+                    1 => changed.binding.npc.as_mut().unwrap().generation += 1,
+                    2 => changed.binding.world[0] ^= 1,
+                    3 => changed.binding.geometry[0] ^= 1,
+                    4 | 5 => {
+                        let Query::SourceMotion(MotionQuery::Route(route)) = &mut changed.query
+                        else {
+                            unreachable!()
+                        };
+                        if mutation == 4 {
+                            route.request.binding.query_id += 1;
+                        } else {
+                            route.request.goal.x = ai::Real::new(99.).unwrap();
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+                assert!(
+                    consumer
+                        .session
+                        .with_validated_request(&changed, |_| ())
+                        .is_err(),
+                    "request mutation {mutation}"
+                );
+            }
+            let decoded: AuthorityRequest =
+                serde_json::from_value(serde_json::to_value(context).unwrap()).unwrap();
+            assert!(consumer
+                .session
+                .with_validated_request(&decoded, |_| ())
+                .is_err());
+
+            // The body receipt grants nothing to a provider bound to another policy.
+            let mut foreign = setup(config());
+            assert!(foreign
+                .routes
+                .calculate(validated.session(), validated.request(), 1, until())
+                .is_err());
+            assert_eq!(foreign.routes.queries.constructor_count(), 0);
+            assert!(foreign.routes.candidates.is_empty());
+        })
+        .unwrap();
 }

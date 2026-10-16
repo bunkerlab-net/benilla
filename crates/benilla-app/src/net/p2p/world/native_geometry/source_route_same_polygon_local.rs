@@ -2,7 +2,7 @@
 //! The sole proposal-to-Route seam takes the concrete production LocalCorridor.
 //! A generic Corridor implementation cannot supply this conversion.
 use super::{
-    core::{Corridor, Failure, Session},
+    core::{Corridor, Failure, Session, ValidatedRequest},
     source_route_same_polygon::{SamePolygonError, SourceSamePolygonRouteProvider},
     LocalCorridor,
 };
@@ -22,8 +22,26 @@ pub(super) fn resolve(
     first_ticket: u64,
     deadline: Instant,
 ) -> Result<Facts, SamePolygonError> {
+    // Preserve raw-entry validation and its structural-error precedence.
+    first_ticket.checked_add(6).ok_or(Failure::Invalid)?;
+    session.with_validated_request(context, |validated| {
+        resolve_validated(provider, validated, corridor, first_ticket, deadline)
+    })?
+}
+
+/// Accept only the exact objects already checked in this synchronous attempt.
+/// Calculate still validates provider binding, live dispatch and all loaded inputs.
+pub(super) fn resolve_validated(
+    provider: &mut SourceSamePolygonRouteProvider,
+    validated: ValidatedRequest<'_>,
+    corridor: &mut LocalCorridor<'_, '_, '_>,
+    first_ticket: u64,
+    deadline: Instant,
+) -> Result<Facts, SamePolygonError> {
     let segment_ticket = first_ticket.checked_add(6).ok_or(Failure::Invalid)?;
-    let body = session.body(context)?;
+    let session = validated.session();
+    let context = validated.request();
+    let body = validated.body();
     if corridor.map != session.map || corridor.revision != provider.raw_geometry() {
         return Err(Failure::Binding.into());
     }
@@ -119,6 +137,8 @@ pub(super) fn resolve(
         after_cache: proposal.after_cache().clone(),
     };
     calculation.validate_for(q).map_err(|_| Failure::Binding)?;
+    #[cfg(test)]
+    proposal.report_timing();
     // This immutable candidate remains staged. Neither certification nor returning
     // facts acknowledges an outer step_batch commit or prunes rollback ancestors.
     Ok(Facts::SourceMotion(MotionFacts::Spatial(Box::new(

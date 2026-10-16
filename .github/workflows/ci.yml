@@ -56,6 +56,14 @@ jobs:
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
+      - name: Record installed Service timing
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-service-timing.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_same_polygon_local::tests::installed_service_mailbox_executes_fresh_dispatch_retry_and_retained_route -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
       - name: doc-links-gate-tests
         run: python3 scripts/test-doc-links.py
       - name: doc-links

@@ -117,6 +117,12 @@ No provider witness or partial Route is reused as completed authority. Generic
 callbacks keep their prior successful-result semantics: the slice limits scheduling,
 while the original job expiry and cancellation fence still govern delivery. Only an
 explicit provider deadline failure is retried; elapsed time never reclassifies a result.
+The concrete Route resolver consumes an attempt-local borrowed validation token
+from the mailbox instead of repeating the same successful `Session::body` check.
+Only core can construct the token, from the exact immutable session/request;
+it cannot be cloned, serialized or retained by the higher-ranked callback. Raw
+entry points still validate fully. This certifies neither geometry nor continued
+dispatch liveness: Calculate and final reply validation keep all their checks.
 These error variants are crate-private and nonserialized; native state, facts,
 wire formats and work limits are unchanged. Each player job
 contains at most 64 segments. Structural limits are checked before request cloning

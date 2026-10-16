@@ -322,6 +322,14 @@ pub(crate) struct SamePolygonProposal {
     tiles: LoadedSourceTilePresence,
     filter: RouteFilterUpdateDependency,
     candidate: Rc<SamePolygonCandidate>,
+    #[cfg(test)]
+    timing: Option<CalculateTiming>,
+}
+#[cfg(test)]
+struct CalculateTiming {
+    elapsed: std::time::Duration,
+    stages: [Option<(&'static str, std::time::Duration)>; 16],
+    count: usize,
 }
 struct SamePolygonCandidate {
     context: AuthorityRequest,
@@ -330,6 +338,18 @@ struct SamePolygonCandidate {
     after_cache: motion::PathFinderCache,
 }
 impl SamePolygonProposal {
+    /// Print only after the concrete resolver has finished its deadline checks.
+    #[cfg(test)]
+    pub(super) fn report_timing(&self) {
+        if let Some(timing) = &self.timing {
+            eprintln!(
+                "native geometry Calculate stages: tick={} success=true elapsed={:?} completed={:?}",
+                self.context.binding.tick,
+                timing.elapsed,
+                &timing.stages[..timing.count],
+            );
+        }
+    }
     pub(crate) fn terminal(&self) -> &LoadedSourceSamePolygon {
         &self.candidate.terminal
     }
@@ -364,6 +384,21 @@ enum Observation {
     HaveTile,
     CalculateFilter,
     Terminal,
+}
+#[cfg(test)]
+impl Observation {
+    fn name(self) -> &'static str {
+        match self {
+            Self::ConstructorQuery => "constructor_query",
+            Self::ConstructorFilter => "constructor_filter",
+            Self::Gate(_) => "chase_gate",
+            Self::SelectedQuery => "selected_query",
+            Self::OwnerIgnore => "owner_ignore",
+            Self::HaveTile => "have_tile",
+            Self::CalculateFilter => "calculate_filter",
+            Self::Terminal => "terminal",
+        }
+    }
 }
 impl SourceSamePolygonRouteProvider {
     pub(super) fn raw_geometry(&self) -> [u8; 32] {
@@ -500,10 +535,31 @@ impl SourceSamePolygonRouteProvider {
         {
             let started = Instant::now();
             let mut last_completed = None;
-            let result =
+            let mut stage_times = [None; 16];
+            let mut completed_count = 0;
+            let mut result =
                 self.calculate_observed(session, context, first_ticket, deadline, |stage| {
                     last_completed = Some(stage);
+                    if completed_count < stage_times.len() {
+                        stage_times[completed_count] = Some((stage.name(), started.elapsed()));
+                        completed_count += 1;
+                    }
                 });
+            if let Ok(proposal) = &mut result {
+                proposal.timing = Some(CalculateTiming {
+                    elapsed: started.elapsed(),
+                    stages: stage_times,
+                    count: completed_count,
+                });
+            } else if completed_count > 0 {
+                eprintln!(
+                    "native geometry Calculate stages: tick={} success={} elapsed={:?} completed={:?}",
+                    context.binding.tick,
+                    result.is_ok(),
+                    started.elapsed(),
+                    &stage_times[..completed_count],
+                );
+            }
             if let Err(error) = &result {
                 let ended = Instant::now();
                 eprintln!(
@@ -771,6 +827,8 @@ impl SourceSamePolygonRouteProvider {
             tiles,
             filter,
             candidate,
+            #[cfg(test)]
+            timing: None,
         })
     }
 }

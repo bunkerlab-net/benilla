@@ -406,3 +406,55 @@ fn installed_service_mailbox_executes_fresh_dispatch_retry_and_retained_route() 
         NativeWorld::restore_synthetic_component_test(world.profile().clone(), checkpoint).is_err()
     );
 }
+
+#[test]
+fn direct_route_resolver_still_rejects_replaced_session_and_decoded_request() {
+    let (mut world, mut consumer) = setup();
+    consumer.fail_after_route = true;
+    for _ in 0..8 {
+        let result = world.step(world.state().tick + 1, None, &mut consumer);
+        if !consumer.replies.is_empty() {
+            assert!(result.is_err());
+            break;
+        }
+        result.unwrap();
+    }
+    assert_eq!(consumer.replies.len(), 1);
+    let context = consumer.replies[0].request.clone();
+    let before = world.checkpoint().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for mutation in 0..4 {
+        let mut changed = consumer.session.clone();
+        match mutation {
+            0 => changed.world[0] ^= 1,
+            1 => changed.profile[0] ^= 1,
+            2 => changed.geometry[0] ^= 1,
+            3 => changed.bodies.clear(),
+            _ => unreachable!(),
+        }
+        let result = consumer.geometry.with_local_corridor(|corridor| {
+            super::resolve(
+                &mut consumer.providers.route,
+                &changed,
+                &context,
+                corridor,
+                1,
+                deadline,
+            )
+        });
+        assert!(result.is_err(), "session mutation {mutation}");
+    }
+    let decoded = serde_json::from_value(serde_json::to_value(&context).unwrap()).unwrap();
+    let result = consumer.geometry.with_local_corridor(|corridor| {
+        super::resolve(
+            &mut consumer.providers.route,
+            &consumer.session,
+            &decoded,
+            corridor,
+            1,
+            deadline,
+        )
+    });
+    assert!(result.is_err());
+    assert_eq!(world.checkpoint().unwrap(), before);
+}
