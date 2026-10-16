@@ -162,7 +162,7 @@ dependencies; this receipt supplies none of them.
 
 ## Persistence and checks
 
-Native format 29 (`benilla-native-owner-ignore-pathfinding-v29`) binds the typed route owner
+Native format 30 (`benilla-native-pathfinder-constructor-dispatch-v30`) binds the typed route owner
 transcript through profile, state, record, checkpoint and source-action digest
 domains. Format 28 and earlier saves/records are rejected rather than rewriting
 `Spatial(Route)` receipts or inventing an owner witness. The original fixture

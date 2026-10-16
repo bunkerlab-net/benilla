@@ -397,8 +397,10 @@ mod native {
         if selected.phase() == SourceWarmPolyPhase::SamePolygon {
             work.primitive()?;
             points.try_reserve_exact(2).map_err(|_| Error::Budget)?;
-            points.extend_from_slice(&[from, to]);
-            path_type = 1;
+            let terminal = crate::warm_point_path::same_polygon_terminal(from, to);
+            points.extend_from_slice(&terminal.points);
+            actual_end = terminal.actual_end.map(f32::from_bits);
+            path_type = terminal.path_type;
             build_points = false;
         } else if selected.phase() == SourceWarmPolyPhase::Replacement {
             work.primitive()?;

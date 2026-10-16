@@ -597,3 +597,61 @@ The reader can observe actual wet states. Runtime environment reduction separate
 rejects unsupported threat, spell, hazard and mirror-callback transitions before a
 frame commits. An observation is not permission to execute those callbacks or a
 completed Chase water predicate for an unowned target.
+
+## Actual constructor-dispatch query ownership
+
+`products::source_query` loads an independent `SourceQueryProjection` over the
+same actual-byte dry-liquid/VMap inventory. It uses the retained selected
+configuration's real map/source-instance slot and the distinct native
+`SourceMapQuery` 1024-node constructor. The existing `NavigationSnapshot`,
+`DryRouteProjection`, bounded512 and warm-seed policies remain unchanged. The
+new snapshot policy binds source configuration, source slot, inventory, dry proof,
+source/Detour pins and actual native capacity. A separate loaded object with
+identical snapshot bytes is still a different native allocation.
+
+`SourcePathfinderQueryProvider` freezes the final profile/world/query policy,
+after the query has been loaded. At an actual runtime Route dispatch it requires
+the private live `PathfinderDispatchReceipt`, complete selected configuration,
+matching outer world/profile/policy/tick/NpcId and exact inner dispatch binding.
+The receipt names the first actual Chase dispatch after forced relocation and
+before the straight gate, independently of any retained polygon cache. Nearby
+initial Chase does not imply construction. Home's separate stack-local
+PathFinder lifecycle is unsupported here. A live receipt may outlast its callback;
+it is not a timestamp attestation of native loading. The eventual composer must
+bind this provider before driving the runtime and consume the event inside that
+actual callback. Captured requests exercise rejection/identity controls in tests
+and do not independently establish that ordering.
+
+The provider keeps at most 4096 constructor-query entries. Keys include exact
+first-dispatch binding and outer NPC generation. A first event reserves storage
+and retains the already loaded query before claiming its shared one-use live
+seal. There are no fallible operations after claim before registry insertion.
+Cloned first events cannot create a second lease in an equal-byte replacement
+provider. The same live event reuses its existing entry. A regenerated first
+event after outer transaction rollback must claim its fresh seal, then reuses
+only the same constructor identity, frozen configuration and actual query.
+Retained events without their existing entry fail closed. Serialized receipts
+have no live seal and hashes/after-cache/warm seeds cannot restore an entry.
+No eviction, query replacement, unload or registry deserialization is supported.
+The query and registry intentionally use owner-thread `Rc<RefCell<_>>` ownership.
+They are not `Send`/`Sync` and require local/non-send service placement, rather than
+an ordinary Bevy `Resource`. This boundary does not change concurrency policy or
+install the registry into the engine service.
+
+The returned `SourceConstructorQuery` is explicitly **query ownership only**.
+It does not execute `createFilter`/constructor `updateFilter`, which precede the
+Chase gate in the source, and it cannot supply a Route fact. Current query starts
+unselected. A separately requested calculate-prefix check preserves original
+runtime endpoints, validates destination then start, selects the retained default
+and observes actual loaded layer-zero endpoint tiles. Invalid source coordinates
+never transition selection; an already expired operational budget returns before
+selection. Equal-byte query instances cannot exchange the loaded observations.
+
+Rollback reuse is safe only for this immutable loaded-query dependency and its
+idempotent current-query selection. Native HaveTile is read-only. Future
+BuildPolyPath/cache/filter composition must stage and validate mutable source
+state and commit it with the enclosing runtime frame; it cannot infer rollback
+safety, fresh constructor-filter evidence or a completed calculation from this
+registry. Enabled-at-construction, fixed outdoor map/source slot zero and
+nontransport configuration are required. Disabled-then-enabled same-map default
+query reads remain excluded, as do all query replacement/map-change paths.

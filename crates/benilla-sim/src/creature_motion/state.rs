@@ -152,6 +152,9 @@ pub struct ChaseSnapshot {
     pub mode: ChaseMode,
     pub requested_goal: Option<Point>,
     pub pathfinder_cache: Option<Box<PathFinderCache>>,
+    /// First actual Chase dispatch, retained even when calculate returns NoPath.
+    #[serde(deserialize_with = "super::pathfinder_dispatch::required_option")]
+    pub pathfinder_construction: Option<QueryBinding>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -175,6 +178,7 @@ pub struct ActiveSplineSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MotionSnapshot {
+    pub policy: String,
     pub identity: Identity,
     pub now_ms: u64,
     pub processed_map_clock_ms: u64,
@@ -254,6 +258,7 @@ impl MotionState {
         }
         Ok(Self {
             state: MotionSnapshot {
+                policy: CREATURE_MOTION_POLICY_ID.into(),
                 identity,
                 now_ms,
                 processed_map_clock_ms: now_ms,
@@ -274,7 +279,8 @@ impl MotionState {
             state.now_ms,
             state.last_move_ms,
         )?;
-        if state.processed_map_clock_ms > state.now_ms
+        if state.policy != CREATURE_MOTION_POLICY_ID
+            || state.processed_map_clock_ms > state.now_ms
             || state.now_ms - state.processed_map_clock_ms > 60_000
             || state.relocation_timer_ms > 400
             || state.spline_id > u64::from(u32::MAX)
@@ -284,6 +290,7 @@ impl MotionState {
         if let Some(s) = &state.spline {
             LinearSpline::restore(s.spline.clone())?;
             validate_route(&s.route_request, &s.route)?;
+            s.route_request.validate_pathfinder_dispatch()?;
             if s.route.source == RouteSource::OwnerPathFinder
                 && s.route_request.prior_cache.is_none()
             {
@@ -334,6 +341,36 @@ impl MotionState {
                 }
                 if let Some(p) = c.requested_goal {
                     p.validate()?;
+                }
+                if let Some(construction) = c.pathfinder_construction {
+                    if construction.identity != state.identity
+                        || construction.query_id == 0
+                        || construction.query_id > state.query_id
+                        || construction.now_ms > state.now_ms
+                    {
+                        return Err(MotionError::Invalid(
+                            "saved pathfinder construction binding",
+                        ));
+                    }
+                }
+                if c.pathfinder_construction.is_some() != c.requested_goal.is_some() {
+                    return Err(MotionError::Invalid(
+                        "saved constructor dispatch/goal presence",
+                    ));
+                }
+                if c.pathfinder_cache.is_some() && c.pathfinder_construction.is_none() {
+                    return Err(MotionError::Invalid("saved cache without construction"));
+                }
+                if let Some(dispatch) = state
+                    .spline
+                    .as_ref()
+                    .and_then(|s| s.route_request.pathfinder_dispatch.as_ref())
+                {
+                    if c.pathfinder_construction != Some(dispatch.construction_binding()) {
+                        return Err(MotionError::Invalid(
+                            "saved pathfinder construction lineage",
+                        ));
+                    }
                 }
                 if c.pathfinder_cache.is_none()
                     && state
@@ -613,6 +650,7 @@ impl MotionState {
         &mut self,
         goal: Point,
         cache: &mut Option<Box<PathFinderCache>>,
+        construction: &mut Option<QueryBinding>,
         kind: RouteKind,
         walking: bool,
         facing: Facing,
@@ -632,8 +670,18 @@ impl MotionState {
         } else {
             self.pose().position
         };
+        let binding = self.binding()?;
+        // TargetedMovementGenerator.cpp:498-499: lazy construction follows forced
+        // relocation and precedes the straight gate/calculation in the authority.
+        let pathfinder_dispatch = if kind == RouteKind::HomeForceDestination {
+            None
+        } else {
+            let event = PathfinderDispatch::new(*construction, binding)?;
+            *construction = Some(event.construction_binding());
+            Some(event)
+        };
         let request = RouteRequest {
-            binding: self.binding()?,
+            binding,
             origin: self.state.map_pose.position,
             launch_origin,
             goal,
@@ -642,6 +690,7 @@ impl MotionState {
             owner_collision_height: input.settings.collision_height,
             point_limit: MAX_PATH_POINTS as u16,
             prior_cache: cache.clone(),
+            pathfinder_dispatch,
         };
         if let Some(prior) = cache.as_ref() {
             prior.validate_for(request.binding.identity)?;
@@ -793,6 +842,7 @@ impl MotionState {
             mode: ChaseMode::Normal,
             requested_goal: None,
             pathfinder_cache: None,
+            pathfinder_construction: None,
         };
         if staged.requires_position(target, staged.pose().position, input)? {
             let distance =
@@ -808,6 +858,7 @@ impl MotionState {
             staged.dispatch(
                 goal,
                 &mut chase.pathfinder_cache,
+                &mut chase.pathfinder_construction,
                 RouteKind::ChaseInitial,
                 walking,
                 Facing::Target(target.id),
@@ -860,9 +911,11 @@ impl MotionState {
         let mut events = vec![Event::HomeStarted { was_active }];
         // Home owns a fresh stack-local PathFinder and discards it after launch.
         let mut home_cache = None;
+        let mut home_construction = None;
         staged.dispatch(
             destination.position,
             &mut home_cache,
+            &mut home_construction,
             RouteKind::HomeForceDestination,
             walking,
             Facing::Angle(destination.orientation),
@@ -1030,6 +1083,7 @@ impl MotionState {
                     let result = self.dispatch(
                         goal,
                         &mut chase.pathfinder_cache,
+                        &mut chase.pathfinder_construction,
                         RouteKind::ChaseReplan,
                         chase.walking,
                         Facing::Target(target.id),
@@ -1171,6 +1225,7 @@ impl MotionState {
             let result = self.dispatch(
                 goal,
                 &mut chase.pathfinder_cache,
+                &mut chase.pathfinder_construction,
                 RouteKind::Backpedal,
                 true,
                 Facing::Tangent,

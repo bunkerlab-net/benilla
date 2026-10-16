@@ -540,3 +540,132 @@ fn legacy_bounded_detour_stays_cache_free_but_owner_pathfinder_requires_state() 
     spline.route_source = RouteSource::OwnerPathFinder;
     assert!(MotionState::restore(forged).is_err());
 }
+
+#[test]
+fn constructor_dispatch_is_independent_of_legacy_cache_and_retained_on_no_path() {
+    let mut s = state();
+    let mut a = SyntheticCache {
+        legacy: true,
+        no_path: true,
+        ..Default::default()
+    };
+    s.start_chase(target(20.), false, input(), &mut a).unwrap();
+    let first = last_route(&a).pathfinder_dispatch.unwrap();
+    assert!(first.first_construction());
+    assert_eq!(first.construction_binding(), last_route(&a).binding);
+    assert!(chase(&s).pathfinder_cache.is_none());
+    s.advance(250, Some(target(40.)), input(), &mut a).unwrap();
+    let retained = last_route(&a).pathfinder_dispatch.unwrap();
+    assert!(!retained.first_construction());
+    assert_eq!(
+        retained.construction_binding(),
+        first.construction_binding()
+    );
+    assert!(retained.dispatch_binding().query_id > first.dispatch_binding().query_id);
+    assert!(chase(&s).pathfinder_cache.is_none());
+    assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+}
+
+#[test]
+fn proximity_skipped_chase_first_constructs_at_later_replan() {
+    let mut s = state();
+    let mut a = SyntheticCache::default();
+    s.start_chase(target(1.), false, input(), &mut a).unwrap();
+    assert!(a.queries.is_empty());
+    assert!(chase(&s).pathfinder_construction.is_none());
+    s.advance(250, Some(target(20.)), input(), &mut a).unwrap();
+    let request = last_route(&a);
+    assert_eq!(request.kind, RouteKind::ChaseReplan);
+    assert!(request.pathfinder_dispatch.unwrap().first_construction());
+    assert_eq!(chase(&s).pathfinder_construction, Some(request.binding));
+}
+
+#[test]
+fn constructor_dispatch_follows_forced_relocation_and_home_drops_chase_identity() {
+    let mut s = state();
+    let mut a = SyntheticCache::default();
+    s.start_chase(target(20.), false, input(), &mut a).unwrap();
+    let original = last_route(&a)
+        .pathfinder_dispatch
+        .unwrap()
+        .construction_binding();
+    let mut other = target(30.);
+    other.id = 2;
+    s.start_chase(other, false, input(), &mut a).unwrap();
+    assert_eq!(chase(&s).pathfinder_construction, Some(original));
+    s.advance(100, Some(other), input(), &mut a).unwrap();
+    let request = last_route(&a);
+    assert_ne!(request.origin, point(0.));
+    assert_eq!(request.origin, s.pose().position);
+    assert_eq!(
+        request.pathfinder_dispatch.unwrap().construction_binding(),
+        original
+    );
+    s.start_home(pose(-10.), false, false, input(), &mut a)
+        .unwrap();
+    assert!(last_route(&a).pathfinder_dispatch.is_none());
+    s.start_chase(other, false, input(), &mut a).unwrap();
+    let replacement = last_route(&a).pathfinder_dispatch.unwrap();
+    assert!(replacement.first_construction());
+    assert!(replacement.construction_binding().query_id > original.query_id);
+}
+
+#[test]
+fn constructor_failure_rolls_back_and_retry_emits_identical_first_boundary() {
+    let mut s = state();
+    let before = s.clone();
+    let mut a = SyntheticCache {
+        failure: 13,
+        ..Default::default()
+    };
+    assert!(s.start_chase(target(20.), false, input(), &mut a).is_err());
+    let failed = last_route(&a).clone();
+    assert!(failed.pathfinder_dispatch.unwrap().first_construction());
+    assert_eq!(s, before);
+    a.failure = 0;
+    s.start_chase(target(20.), false, input(), &mut a).unwrap();
+    assert_eq!(last_route(&a), &failed);
+}
+
+#[test]
+fn constructor_snapshot_and_request_fields_are_required_and_consistent() {
+    let mut s = state();
+    let mut a = SyntheticCache::default();
+    s.start_chase(target(20.), false, input(), &mut a).unwrap();
+    let mut missing = serde_json::to_value(s.snapshot()).unwrap();
+    missing["generator"]["Chase"]
+        .as_object_mut()
+        .unwrap()
+        .remove("pathfinder_construction");
+    assert!(serde_json::from_value::<MotionSnapshot>(missing).is_err());
+    let mut missing = serde_json::to_value(last_route(&a)).unwrap();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("pathfinder_dispatch");
+    assert!(serde_json::from_value::<RouteRequest>(missing).is_err());
+    let mut forged = s.snapshot();
+    if let Generator::Chase(c) = &mut forged.generator {
+        c.pathfinder_construction = None;
+    }
+    assert!(MotionState::restore(forged).is_err());
+    let mut forged = s.snapshot();
+    forged
+        .spline
+        .as_mut()
+        .unwrap()
+        .route_request
+        .pathfinder_dispatch = None;
+    assert!(MotionState::restore(forged).is_err());
+}
+
+#[test]
+fn previous_motion_policy_and_missing_policy_are_rejected_even_when_idle() {
+    let s = state();
+    let mut missing = serde_json::to_value(s.snapshot()).unwrap();
+    missing.as_object_mut().unwrap().remove("policy");
+    assert!(serde_json::from_value::<MotionSnapshot>(missing).is_err());
+    let mut old = s.snapshot();
+    old.policy = "cmangos-8ec338a1-ground-linear-motion-binary32-v1".into();
+    assert!(MotionState::restore(old).is_err());
+}

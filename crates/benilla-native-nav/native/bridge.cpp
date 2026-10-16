@@ -3,6 +3,7 @@
 #include "DetourNavMesh.h"
 #include "DetourNavMeshQuery.h"
 #include "DetourAlloc.h"
+#include "DetourNode.h"
 #include "source_smoothing.h"
 #include "source_direct.h"
 #include "source_warm_cache.h"
@@ -57,8 +58,7 @@ struct BenillaNav {
         for (unsigned i=0;i<count;++i) std::free(allocations[i]);
     }
 };
-extern "C" {
-void* benilla_nav_create(const unsigned char* params) {
+static void* create_nav(const unsigned char* params, int nodes) {
     const unsigned short endian=1;
     if (*reinterpret_cast<const unsigned char*>(&endian)!=1) return nullptr;
     BenillaNav* nav=new(std::nothrow) BenillaNav;
@@ -66,8 +66,20 @@ void* benilla_nav_create(const unsigned char* params) {
     dtNavMeshParams p;
     std::memcpy(&p, params, sizeof p);
     if (!nav->mesh || !nav->query || nav->mesh->init(&p)!=DT_SUCCESS ||
-        nav->query->init(nav->mesh, 512)!=DT_SUCCESS) { delete nav; return nullptr; }
+        nav->query->init(nav->mesh, nodes)!=DT_SUCCESS) { delete nav; return nullptr; }
     return nav;
+}
+extern "C" {
+// The bounded loader remains a separate ABI; source query capacity is never relabeled.
+void* benilla_nav_create(const unsigned char* params) { return create_nav(params, 512); }
+// MoveMap.cpp::loadMapInstance initializes the retained map-instance query with 1024.
+void* benilla_nav_create_source1024(const unsigned char* params) { return create_nav(params, 1024); }
+unsigned benilla_nav_query_capacity(const void* raw) {
+    if (!raw) return 0;
+    const auto* nav = static_cast<const BenillaNav*>(raw);
+    const auto* pool = nav->query ? nav->query->getNodePool() : nullptr;
+    if (!pool || nav->query->getAttachedNavMesh() != nav->mesh) return 0;
+    return static_cast<unsigned>(pool->getMaxNodes());
 }
 void benilla_nav_free(void* raw) { delete static_cast<BenillaNav*>(raw); }
 unsigned benilla_nav_add(void* raw,const unsigned char* bytes,int size) {

@@ -224,3 +224,18 @@ for this adapter, not the source server's thread-local global allocator. Their
 producer identity and all route points are retained in launch events so a client
 can project the actual spline/duration/facing instead of constructing a fake
 single-tick line segment. Counter wrap is outside the admitted numeric domain.
+
+## Constructor dispatch identity
+
+Motion policy `cmangos-8ec338a1-ground-linear-motion-constructor-dispatch-v2`
+models TargetedMovementGenerator.cpp:498–499 at the actual dispatch boundary,
+after forced relocation and before the authority's straight gate. The required
+`pathfinder_dispatch` Route option identifies the first actual dispatch and each
+retained use; Chase retains its first query binding separately from polygon cache.
+A skipped initial Chase has no constructor until a later dispatch. Retarget and
+NoPath retain it; generator replacement/death do not. Home's distinct local
+constructor remains explicit null in this seam. This is modeled lifecycle
+metadata, never loaded query ownership or a successful route. Required-option
+snapshot/request fields reject older missing evidence rather than default it.
+See the runtime [constructor contract](../benilla-world-runtime/src/native/PATHFINDER-DISPATCH.md)
+for live receipt, replay and loaded-lease boundaries.

@@ -12,6 +12,7 @@ pub(crate) mod ground_height;
 pub(crate) mod height;
 pub(crate) mod liquid;
 pub(crate) mod navigation;
+pub(crate) mod source_query;
 mod terrain;
 pub(crate) mod terrain_area;
 pub(crate) mod terrain_liquid;

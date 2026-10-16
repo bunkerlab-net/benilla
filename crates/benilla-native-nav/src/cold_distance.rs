@@ -13,7 +13,8 @@ pub const SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION: &str =
     "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
 
 /// Opaque loaded calculation result retaining mesh identity, selected policy, and the
-/// actual constructor-equivalent empty storage. It cannot be imported as a warm seed,
+/// actual constructor-equivalent empty storage. A private retained continuation keeps
+/// that origin while using original warm lookup semantics. It cannot become a warm seed,
 /// owner receipt, point path, or Route. Public references are read-only observations.
 ///
 /// ```compile_fail
@@ -26,9 +27,91 @@ pub const SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION: &str =
 pub struct LoadedSourceColdDistanceCompatibility {
     version: u32,
     initial: WarmCache,
+    previous: Option<WarmCache>,
     observed: LoadedSourceWarmCache,
 }
 impl LoadedSourceColdDistanceCompatibility {
+    /// Private same-query composition keeps the selected compatibility policy attached.
+    /// No direct replacement is invoked or public original-warm handle returned.
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn same_polygon(
+        mesh: &mut Mesh,
+        from: [u32; 3],
+        to: [u32; 3],
+        lookup_primitives: usize,
+        until: Instant,
+    ) -> Result<Option<Self>, SourceWarmCacheError> {
+        let initial = crate::warm_cache::cold_constructor_storage(mesh, until)?;
+        let Some(observed) = crate::warm_cache::native::cold_same_polygon(
+            mesh,
+            &initial,
+            from,
+            to,
+            SourceWarmCacheBudget {
+                lookup_primitives,
+                corridor_expansions: 0,
+            },
+            until,
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            version: SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+            initial,
+            previous: None,
+            observed,
+        }))
+    }
+    /// Continue the real retained cache under original, defined warm lookup semantics.
+    /// The initial compatibility policy remains attached; no new repair is selected.
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn retained_same_polygon(
+        &self,
+        mesh: &mut Mesh,
+        from: [u32; 3],
+        to: [u32; 3],
+        lookup_primitives: usize,
+        until: Instant,
+    ) -> Result<Option<Self>, SourceWarmCacheError> {
+        self.check_mesh(mesh)?;
+        if self.observed.after().active_len() != 1 {
+            return Err(Error::Format.into());
+        }
+        let Some(observed) = crate::warm_cache::native::retained_same_polygon(
+            mesh,
+            self.observed.after(),
+            from,
+            to,
+            SourceWarmCacheBudget {
+                lookup_primitives,
+                corridor_expansions: 0,
+            },
+            until,
+        )?
+        else {
+            return Ok(None);
+        };
+        let result = Self {
+            version: self.version,
+            initial: self.initial.try_copy()?,
+            previous: Some(self.observed.after().try_copy()?),
+            observed,
+        };
+        crate::deadline(until)?;
+        Ok(Some(result))
+    }
+    /// Whether this observation continues an actual prior terminal cache.
+    pub fn is_retained(&self) -> bool {
+        self.previous.is_some()
+    }
+    /// Complete storage before this calculation; the origin stays in initial_storage.
+    pub fn before_storage(&self) -> &[u64] {
+        self.previous.as_ref().unwrap_or(&self.initial).storage()
+    }
+    pub fn before_active_len(&self) -> usize {
+        self.previous.as_ref().unwrap_or(&self.initial).active_len()
+    }
     pub fn check_mesh(&self, mesh: &Mesh) -> Result<(), Error> {
         self.initial.check_mesh(mesh)?;
         self.observed.after().check_mesh(mesh)
@@ -114,6 +197,7 @@ impl Mesh {
             Ok(LoadedSourceColdDistanceCompatibility {
                 version: compatibility_version,
                 initial,
+                previous: None,
                 observed,
             })
         }

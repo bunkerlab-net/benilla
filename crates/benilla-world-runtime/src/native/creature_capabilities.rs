@@ -309,6 +309,10 @@ pub struct CreatureNearPointRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreatureRouteRequest {
+    /// Actual first/retained Chase dispatch, before the provider's straight gate.
+    /// Null is explicit unsupported constructor ownership, including Home.
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub pathfinder_dispatch: Option<PathfinderDispatchReceipt>,
     /// Single-bit lifecycle receipt minted from the executing staged NPC. Explicit
     /// absence is not a constructor default or source proof.
     #[serde(deserialize_with = "creature_collision_width::required_option")]

@@ -718,6 +718,6 @@ fn native_ten_rejects_published_nine_checkpoint_and_records_without_migration() 
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone()).unwrap();
     assert!(replay.replay(&records).is_err());
     assert_eq!(replay.checkpoint().unwrap(), initial);
-    assert_eq!(NATIVE_FORMAT_VERSION, 29);
+    assert_eq!(NATIVE_FORMAT_VERSION, 30);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }

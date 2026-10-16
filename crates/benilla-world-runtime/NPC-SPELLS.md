@@ -84,7 +84,7 @@ respawn compare the persistent source Unit identity for stacking, while new
 entries still require the current generation. NPC generation and world/player
 identity are bound, and stale-generation triggers reject.
 
-Native format 29 binds both allocators, terminal lifetimes, source recipe,
+Native format 30 binds both allocators, terminal lifetimes, source recipe,
 start map/Unit times, fixture schedule position and actual owning event.
 Current-tick successful lifetimes retain the allocated holder ID, including
 replaced holders, and validate the final holder/allocator lineage.

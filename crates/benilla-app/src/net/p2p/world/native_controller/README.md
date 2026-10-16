@@ -130,7 +130,7 @@ a later independent scalar change invalidates the selected profile.
 Generation-zero NPC state owns both source-bound width and height witnesses. The
 real controller Chase and moving-target replan freeze both in the typed Route
 request; height validation checks the shared model source, profile, generation
-and exact `owner_collision_height`. Native format 29 retains the witness through
+and exact `owner_collision_height`. Native format 30 retains the witness through
 checkpoint, journal replay and reopen. A missing schema field fails to decode;
 explicit null denotes an unavailable dependency. Initial receipts survive corpse
 reopen but are cleared at respawn, and relabeling one cannot authorize a later
@@ -157,7 +157,7 @@ edited scalars, changed source catalogs and a different starter identity fail cl
 
 The actual controller freezes the selected player's world/character identity,
 source binding and exact sampled target pose, flags and dimensions into typed
-NearPoint and Route requests. Native format 29 retains ownership through journal
+NearPoint and Route requests. Native format 30 retains ownership through journal
 replay, checkpoint and reopen. Tests exercise chase and moving-target replan,
 source/identity/pose/height/width echo forgery, atomic controller/store/projection
 failure, exact authority retry, single publication after a store retry, and both
@@ -349,7 +349,7 @@ The warm straight-calculation tests initialize collision width through Plan's
 opaque initial-model receipt and authored MPQ/DBC loading, then consume the exact
 runtime Route witness on the loaded navigation owner thread. Width is the source
 object-scale times raw field14, with no radius, display-scale or render-scale
-substitution. Native format 29 retains that witness in the explicitly synthetic
+substitution. Native format 30 retains that witness in the explicitly synthetic
 initial route's replay and reopen; the real loaded dependencies never enter the
 accepted authority journal.
 
@@ -369,8 +369,10 @@ committing or publishing changes to the world, checkpoint, journal, durable stor
 projection, delivered pose or pending input. Initial route/cache and surrounding
 NearPoint/player movement remain explicitly synthetic. Complete source Route
 production, cold initial-owner policy, checkpoint cache rehydration and production
-entry remain unavailable. Production pathfinding-enable, source nav/query ownership,
-`ExtraFlags`/`m_ignoreMMAP` configuration and dungeon context are still unresolved.
+entry remain unavailable. These warm-route tests do not consume the separate
+selected MMap configuration or retained source1024 constructor-query dependency.
+Their full constructor/query
+composition remains unproven; see `../native_geometry/README.md`.
 The owned receipt proves only the clear `0x10000000` UnitState bit from explicit
 interaction seeds and the bounded lifecycle closure. Both calculation dependencies
 retain it; missing or edited receipt/profile/source/generation bindings stop before
@@ -387,7 +389,7 @@ in command order, including unchanged-position and rotation-only calls. The
 100 ms gate counts down after those commands; stationary expiry never queries
 terrain. The last accepted pose and the earlier cached-query pose remain distinct.
 
-Native format 29 stores the cache and monotone phase sequence in the native
+Native format 30 stores the cache and monotone phase sequence in the native
 checkpoint, without a nested standalone environment journal. The controller saves
 every enabled environment tick before publishing, including countdown-only ticks.
 A failed save retains the committed tick and withholds projection until retry;

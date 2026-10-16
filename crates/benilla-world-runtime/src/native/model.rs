@@ -89,6 +89,7 @@ pub struct Profile {
     pub creature_collision_heights: Option<CreatureCollisionHeightCatalog>,
     pub player_collision_height: Option<PlayerCollisionHeightSource>,
     pub player_environment: Option<PlayerEnvironmentSource>,
+    pub pathfinder_configuration: Option<PathfinderConfigurationSource>,
     pub interactions: Option<InteractionCatalog>,
     pub quest_progression: Option<QuestProgressionGenesis>,
     pub combat: Option<CombatGenesis>,
@@ -105,7 +106,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v29\0",
+            b"benilla-native-profile-v30\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -172,6 +173,9 @@ impl Profile {
             source.validate(self)?;
         }
         if let Some(source) = &self.player_environment {
+            source.validate(self)?;
+        }
+        if let Some(source) = &self.pathfinder_configuration {
             source.validate(self)?;
         }
         let p = &self.player;

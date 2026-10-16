@@ -11,7 +11,8 @@ mod spline;
 pub use numeric::chase_speed;
 pub use spline::{LinearSpline, SplineEvent, SplineSnapshot, MAX_PATH_POINTS};
 
-pub const CREATURE_MOTION_POLICY_ID: &str = "cmangos-8ec338a1-ground-linear-motion-binary32-v1";
+pub const CREATURE_MOTION_POLICY_ID: &str =
+    "cmangos-8ec338a1-ground-linear-motion-constructor-dispatch-v2";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MotionError {
     Invalid(&'static str),
@@ -30,6 +31,8 @@ impl std::fmt::Display for MotionError {
     }
 }
 impl std::error::Error for MotionError {}
+mod pathfinder_dispatch;
+pub use pathfinder_dispatch::PathfinderDispatch;
 mod pathfinder_cache;
 pub use pathfinder_cache::{
     PathFinderCache, PathFinderCacheBinding, RouteCalculation, MAX_PATHFINDER_CACHE_REFS,

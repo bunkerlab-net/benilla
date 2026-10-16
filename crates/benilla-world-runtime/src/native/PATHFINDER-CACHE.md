@@ -4,7 +4,7 @@ Pinned reference: CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `PathFinder.cpp:306–383,410–789`, `PathFinder.h::clear`, and the Chase/Home
 movement-generator call sites. Existing source/license notices remain applicable.
 
-Native format **29**, policy `benilla-native-owner-ignore-pathfinding-v29`, retains the
+Native format **30**, policy `benilla-native-pathfinder-constructor-dispatch-v30`, retains the
 optional retained cache to Chase snapshots, requests and completed calculation
 receipts. Older native checkpoints/records are incompatible; character/profile
 save formats are unchanged. An incompatible open preserves the existing files.
@@ -100,3 +100,7 @@ provide a Home producer. A source NORMAL result may end early after NoSteerTarge
 it does not satisfy or replace the existing CompleteRoute segment/endpoint proof.
 Source initial cold policy, full dispatch, normalized points, loaded checkpoint
 rehydration and production gameplay admission remain separate dependencies.
+
+The [constructor dispatch](PATHFINDER-DISPATCH.md) lifecycle is retained separately
+from this cache. A warm cache is never evidence that a constructor ran, and a
+cache-free NoPath may still retain a constructed Chase identity.

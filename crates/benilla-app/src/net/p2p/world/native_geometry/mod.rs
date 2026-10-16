@@ -11,6 +11,7 @@ mod source_ground_height;
 mod source_navigation;
 mod source_near_point;
 mod source_near_point_empty;
+mod source_pathfinder_query;
 mod source_player_environment;
 mod source_route_chase_gate;
 mod source_route_filter;

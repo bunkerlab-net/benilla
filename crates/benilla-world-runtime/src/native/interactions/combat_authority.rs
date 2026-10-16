@@ -194,6 +194,35 @@ impl Profile {
             })
             .collect()
     }
+    /// Retained complete ExtraFlags for the separate IsIgnoringMMAP predicate.
+    /// Full catalog validation also excludes player control and external scripts;
+    /// capability/motion lifecycle closure is required by the configuration host.
+    pub(in crate::native) fn source_pathfinding_extra_flags(
+        &self,
+        spawn_id: u64,
+    ) -> Result<u32, NativeError> {
+        let catalog = self
+            .interactions
+            .as_ref()
+            .ok_or(NativeError::AuthorityUnavailable(
+                "pathfinder interaction source catalog",
+            ))?;
+        catalog.validate(self)?;
+        let combat = catalog
+            .combat_authority
+            .as_ref()
+            .ok_or(NativeError::AuthorityUnavailable(
+                "pathfinder complete combat authority flags",
+            ))?;
+        let npc = self.npc(spawn_id).ok_or(NativeError::UnknownTarget)?;
+        let row = combat
+            .npcs
+            .get(&npc.entry)
+            .ok_or(NativeError::AuthorityUnavailable(
+                "pathfinder complete creature ExtraFlags",
+            ))?;
+        Ok(row.extra_flags)
+    }
     pub(in crate::native) fn source_combat_authority(&self) -> bool {
         self.interactions
             .as_ref()

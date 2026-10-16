@@ -854,6 +854,50 @@ pub(crate) mod native {
         deadline(until)?;
         Ok(selected)
     }
+    /// Lookup/selection only. Reject before a direct state or smoother can exist.
+    /// The caller must retain the compatibility policy around this private cache.
+    pub(crate) fn cold_same_polygon(
+        mesh: &mut Mesh,
+        before: &WarmCache,
+        from: [u32; 3],
+        to: [u32; 3],
+        budget: SourceWarmCacheBudget,
+        until: Instant,
+    ) -> Result<Option<LoadedSourceWarmCache>, SourceWarmCacheError> {
+        let (mut selected, work) = prepare_with_initialization(
+            mesh,
+            before,
+            from,
+            to,
+            budget,
+            until,
+            DistanceInitialization::CompatibilityZeroV1,
+        )?;
+        if selected.phase != SourceWarmPolyPhase::SamePolygon {
+            return Ok(None);
+        }
+        finish_trace(&mut selected, work);
+        deadline(until)?;
+        Ok(Some(selected))
+    }
+    /// Original defined warm lookup on a genuine retained same-polygon result only.
+    /// The caller keeps the cold-origin compatibility policy around this private cache.
+    pub(crate) fn retained_same_polygon(
+        mesh: &mut Mesh,
+        before: &WarmCache,
+        from: [u32; 3],
+        to: [u32; 3],
+        budget: SourceWarmCacheBudget,
+        until: Instant,
+    ) -> Result<Option<LoadedSourceWarmCache>, SourceWarmCacheError> {
+        let (mut selected, work) = prepare(mesh, before, from, to, budget, until)?;
+        if selected.phase != SourceWarmPolyPhase::SamePolygon {
+            return Ok(None);
+        }
+        finish_trace(&mut selected, work);
+        deadline(until)?;
+        Ok(Some(selected))
+    }
     pub(crate) fn finish_trace(selected: &mut LoadedSourceWarmCache, work: Work) {
         selected.trace = work.trace;
     }

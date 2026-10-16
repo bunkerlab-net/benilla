@@ -1,6 +1,6 @@
 # Native player pose boundary
 
-Native format 29 binds an explicit `PlayerProfile.orientation` into the profile
+Native format 30 binds an explicit `PlayerProfile.orientation` into the profile
 identity. `State.orientation`, checkpoints, journals and state hashes retain it.
 There is no default inferred from the selected exploration character on restore.
 Prior format-8 state/records require a separate explicit migration; they cannot

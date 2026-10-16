@@ -39,3 +39,17 @@ crates/benilla-native-nav/tools/tile_presence_README.md text eol=lf
 crates/benilla-native-nav/tools/tile_presence_source_fragments.test-fixture text eol=lf -whitespace
 crates/benilla-native-nav/tools/fixtures/tile-presence/*.test-fixture -text
 crates/benilla-native-nav/tools/fixtures/tile-presence/cases.test-fixture text eol=lf
+
+# Selected cold same-polygon source oracle remains exact LF text on all checkouts.
+crates/benilla-native-nav/tools/cold_same_poly*.py text eol=lf
+crates/benilla-native-nav/tools/cold_same_poly*.cpp text eol=lf
+crates/benilla-native-nav/tools/cold_same_poly*.md text eol=lf
+crates/benilla-native-nav/tools/cold_same_poly_source_fragments.test-fixture text eol=lf -whitespace
+crates/benilla-native-nav/tools/fixtures/cold-same-poly/*.test-fixture text eol=lf
+
+# Retained same-polygon original-warm observer exact LF text.
+crates/benilla-native-nav/tools/retained_same_poly*.py text eol=lf
+crates/benilla-native-nav/tools/retained_same_poly*.cpp text eol=lf
+crates/benilla-native-nav/tools/retained_same_poly*.md text eol=lf
+crates/benilla-native-nav/tools/retained_same_poly_source_fragments.test-fixture text eol=lf -whitespace
+crates/benilla-native-nav/tools/fixtures/retained-same-poly/*.test-fixture text eol=lf

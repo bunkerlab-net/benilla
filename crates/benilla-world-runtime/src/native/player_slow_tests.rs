@@ -365,9 +365,9 @@ fn movement_queries_use_incoming_walk_backwards_and_live_slow_budget() {
 }
 fn repaired(value: serde_json::Value) -> Checkpoint {
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v29\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v30\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v29\0",
+        b"benilla-native-checkpoint-v30\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

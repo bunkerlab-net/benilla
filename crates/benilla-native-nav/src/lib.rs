@@ -3,6 +3,8 @@
 //! they never authorize body movement, sloped support, source epochs or live sessions.
 mod cold_distance;
 mod smoothing;
+mod source_cold_same_polygon;
+mod source_query;
 mod tile_presence;
 mod validate;
 mod warm_cache;
@@ -10,6 +12,8 @@ mod warm_point_path;
 mod warm_straight_path;
 pub use cold_distance::*;
 pub use smoothing::*;
+pub use source_cold_same_polygon::*;
+pub use source_query::*;
 pub use tile_presence::*;
 pub use warm_cache::*;
 pub use warm_point_path::*;
@@ -56,6 +60,7 @@ pub struct Mesh {
     raw: NonNull<std::ffi::c_void>,
     // Allocation addresses can be reused; retained dependencies require a never-reused ID.
     instance_id: u64,
+    query_profile: QueryProfile,
     origin: [f32; 3],
     agent: [f32; 3],
     _single_thread: PhantomData<Rc<()>>,
@@ -63,7 +68,7 @@ pub struct Mesh {
 const SUCCESS: u32 = 1 << 30;
 const PROGRESS: u32 = 1 << 29;
 // Early deadline/budget/native failure must reset source sliced state before any
-// subsequent non-sliced query. Finalization is bounded by the 512-node pool.
+// subsequent non-sliced query. Finalization is bounded by the selected node pool.
 struct SearchGuard {
     raw: NonNull<std::ffi::c_void>,
     active: bool,
@@ -86,6 +91,8 @@ mod ffi {
     use std::ffi::c_void;
     unsafe extern "C" {
         pub fn benilla_nav_create(params: *const u8) -> *mut c_void;
+        pub fn benilla_nav_create_source1024(params: *const u8) -> *mut c_void;
+        pub fn benilla_nav_query_capacity(mesh: *const c_void) -> u32;
         pub fn benilla_nav_free(mesh: *mut c_void);
         pub fn benilla_nav_add(mesh: *mut c_void, bytes: *const u8, size: i32) -> u32;
         pub fn benilla_nav_nearest(
@@ -125,6 +132,12 @@ mod ffi {
     use std::ffi::c_void;
     pub unsafe fn benilla_nav_create(params: *const u8) -> *mut c_void {
         std::ptr::null_mut()
+    }
+    pub unsafe fn benilla_nav_create_source1024(params: *const u8) -> *mut c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn benilla_nav_query_capacity(mesh: *const c_void) -> u32 {
+        0
     }
     pub unsafe fn benilla_nav_free(mesh: *mut c_void) {}
     pub unsafe fn benilla_nav_add(mesh: *mut c_void, bytes: *const u8, size: i32) -> u32 {
@@ -195,6 +208,13 @@ fn world(p: [f32; 3]) -> [u32; 3] {
 }
 impl Mesh {
     pub fn load(params: &[u8], tiles: &[TileInput<'_>]) -> Result<Self, Error> {
+        Self::load_profile(params, tiles, QueryProfile::Bounded512)
+    }
+    fn load_profile(
+        params: &[u8],
+        tiles: &[TileInput<'_>],
+        query_profile: QueryProfile,
+    ) -> Result<Self, Error> {
         if !cfg!(benilla_native_detour) {
             return Err(Error::Unsupported);
         }
@@ -209,15 +229,26 @@ impl Mesh {
             )
             .map_err(|_| Error::Budget)?;
         // SAFETY: exactly 28 validated bytes, copied into an aligned native params object.
-        let raw = NonNull::new(unsafe { ffi::benilla_nav_create(valid.params.as_ptr()) })
-            .ok_or(Error::Budget)?;
+        let raw = NonNull::new(unsafe {
+            match query_profile {
+                QueryProfile::Bounded512 => ffi::benilla_nav_create(valid.params.as_ptr()),
+                QueryProfile::SourceMapInstance1024 => {
+                    ffi::benilla_nav_create_source1024(valid.params.as_ptr())
+                }
+            }
+        })
+        .ok_or(Error::Budget)?;
         let mesh = Self {
             raw,
             instance_id,
+            query_profile,
             origin: valid.origin,
             agent: valid.agent,
             _single_thread: PhantomData,
         };
+        if mesh.query_capacity() != query_profile.node_capacity() {
+            return Err(Error::Identity);
+        }
         for bytes in valid.tiles {
             // SAFETY: validated exact layout/topology, all counts and conversions bounded.
             // C++ makes its own correctly aligned copy; flags=0, owner frees after mesh.
@@ -226,6 +257,15 @@ impl Mesh {
             })?;
         }
         Ok(mesh)
+    }
+    /// The native allocation profile, not a caller-selected policy/hash label.
+    pub fn query_profile(&self) -> QueryProfile {
+        self.query_profile
+    }
+    /// Read back the actual attached query's node pool, not the requested capacity.
+    pub fn query_capacity(&self) -> u32 {
+        // SAFETY: this immutable observation uses the live query owned by self.
+        unsafe { ffi::benilla_nav_query_capacity(self.raw.as_ptr()) }
     }
     pub fn agent_dimensions(&self) -> [f32; 3] {
         self.agent

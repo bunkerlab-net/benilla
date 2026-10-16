@@ -175,7 +175,14 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 29 retains this required-option evidence and rejects earlier formats.
+  format 30 retains this required-option evidence and rejects earlier formats.
+  Actual Chase dispatch also records first construction or retained use after
+  forced relocation and before the straight gate, independently of cache/result.
+  Its runtime receipt binds generation and selected MMap configuration; a skipped
+  initial Chase has no event until dispatch. The one-use live receipt must still
+  be paired with a separately loaded query; deserialized evidence grants no lease.
+  Home's distinct local constructor remains outside this Chase seam. See the
+  [constructor contract](../crates/benilla-world-runtime/src/native/PATHFINDER-DISPATCH.md).
   Actual tile absence stays unavailable even when nearby polygons or the retained
   cache can be found. An independent unchanged-source oracle covers coordinate
   and nontransport tile predicates. Configuration/query selection and the complete

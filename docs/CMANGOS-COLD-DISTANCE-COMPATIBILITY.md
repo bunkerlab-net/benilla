@@ -155,3 +155,45 @@ exporting its internal cache as an original warm dependency.
 
 These checks establish only the stated loaded dependency and selected repair.
 They do not establish playable creature routing or a first gameplay Route.
+
+## Selected source1024 same-polygon composition
+
+`SelectedSourceQuery::loaded_cold_same_polygon` is a separate bounded composition
+of this same version-one repair with the genuine retained 1024-node query and
+only `BuildPolyPath`'s same-polygon terminal. The original Mesh entry point above
+retains its existing behavior and limits. The selected-query entry point refuses
+nonmatching polygons before any direct search or smoothing, requires explicit
+NormalizeZ=false and ignoreNormalization=false, and preserves the repair identity
+around its original zero storage, full lookup/cache observations and terminal.
+
+The same-polygon branch calls BuildShortcut, reinstalls polygon zero/active one,
+and assigns NORMAL. It returns exact start/actual-end points without running
+straight or smooth BuildPointPath. The private terminal helper is shared with
+the existing warm callers; the new result cannot be extracted or relabeled as
+an original WarmCache or warm terminal. It retains the exact query allocation,
+so byte-identical reloads are rejected. Every failure leaves any previous opaque
+proposal unchanged and publishes no new candidate.
+
+`SelectedSourceQuery::loaded_retained_same_polygon` continues the actual previous
+`LoadedSourceSamePolygon` without extracting or seeding a public WarmCache. It uses
+the same retained query allocation and unchanged false/false normalization selection.
+Original warm lookup semantics apply because its active cache is nonempty: the scan
+initializes each original caller distance before it is read. This continuation does
+not invoke or expand the repair. The shared lineage retains the named compatibility
+origin and constructor-zero storage, while exposing an explicit retained flag and
+exact latest before/after observations. Repeated immutable proposals do not imply
+application adoption or mutate any earlier cache. The original cold-only type names
+remain aliases of this same policy-bearing type, not an original-warm relabel.
+
+The [same-polygon oracle](../crates/benilla-native-nav/tools/cold_same_poly_README.md)
+adds separately labeled selected-repair observations for that precise terminal,
+with original source methods and the original tile-lifetime caveat left explicit.
+It does not execute the original undefined cold branch, repair any unrelated
+undefined local, or establish constructor/owner/configuration/Route admission.
+
+The [retained same-polygon oracle](../crates/benilla-native-nav/tools/retained_same_poly_README.md)
+separately records the original defined warm continuation from the actual repaired
+cold result on the same loaded query. It preserves the initial repair label and the
+existing raw-storage lifetime caveat, with no additional source amendment. App filter
+ordering, constructor/dispatch/configuration validation, segment geometry, Route/cache
+transactions and loaded-query rehydration remain separate prerequisites.

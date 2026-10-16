@@ -106,6 +106,10 @@ pub struct RouteRequest {
     pub point_limit: u16,
     /// Exact retained state of this generator before this calculation.
     pub prior_cache: Option<Box<PathFinderCache>>,
+    /// Actual dispatch boundary, independent of calculation/cache success. Home
+    /// owns a separate stack-local PathFinder whose constructor is not modeled here.
+    #[serde(deserialize_with = "super::pathfinder_dispatch::required_option")]
+    pub pathfinder_dispatch: Option<super::PathfinderDispatch>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

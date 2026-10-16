@@ -115,3 +115,6 @@ pub(crate) use source_route_chase_gate::{
     geometry_revision as authored_chase_gate_revision, ChaseGateConfiguration, ChaseGateRejection,
     ChaseGateRequest, ChaseGateSelection, SourceRouteChaseGateProvider,
 };
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_pathfinder_query.rs"]
+mod source_pathfinder_query;

@@ -8,6 +8,24 @@ use crate::{
 };
 use std::time::Instant;
 
+/// Common BuildPolyPath same-polygon terminal, before straight/smooth dispatch.
+/// Callers establish same polygon, both distances <=7 and inactive NormalizePath.
+#[derive(Debug)]
+pub(crate) struct SamePolygonTerminal {
+    pub(crate) points: [[u32; 3]; 2],
+    pub(crate) actual_end: [u32; 3],
+    pub(crate) path_type: u32,
+}
+#[cfg(benilla_native_detour)]
+pub(crate) fn same_polygon_terminal(from: [u32; 3], actual_end: [u32; 3]) -> SamePolygonTerminal {
+    // PathFinder.cpp:508–519,1005–1020: BuildShortcut then NORMAL, no BuildPointPath.
+    SamePolygonTerminal {
+        points: [from, actual_end],
+        actual_end,
+        path_type: 1,
+    }
+}
+
 pub const SOURCE_WARM_POINT_PATH_POLICY: u32 = 1;
 pub const SOURCE_POINT_PATH_MAX_POSTPROCESS_PRIMITIVES: usize = 221;
 
@@ -205,10 +223,11 @@ mod native {
                 }
                 // BuildShortcut clears then reinstalls slot zero/active_len=1. Warm selection
                 // already made that exact change, retaining all inactive storage and tail.
-                points.extend_from_slice(&[warm.from(), warm.to()]);
+                let terminal = same_polygon_terminal(warm.from(), warm.to());
+                points.extend_from_slice(&terminal.points);
                 (
-                    warm.to(),
-                    1,
+                    terminal.actual_end,
+                    terminal.path_type,
                     Vec::new(),
                     None,
                     None,

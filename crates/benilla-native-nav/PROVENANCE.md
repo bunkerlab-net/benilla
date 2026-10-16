@@ -635,3 +635,142 @@ records the exact source pin/lines, two-line initialization diff, policy binding
 original-versus-repaired oracle labels, bounds, exclusions, and reproduction
 commands. The independent repaired observer uses real loaded Detour and checks
 only the declared caller prefix and existing selected storage fragments.
+
+## Retained source map-instance query allocation
+
+`SourceMapQuery` is a distinct loader for the original 1024-node map-instance
+query. `Mesh::load` and its existing bounded/warm APIs still allocate 512 nodes.
+The two C ABI constructors dispatch to explicit capacities; Rust records the
+chosen allocation profile and checks the native attached query's actual node-pool
+capacity before publishing the owner. A policy hash cannot choose or relabel the
+allocation, and there is no bounded-Mesh conversion or raw query replacement API.
+All serialized tile validation, memory/alignment ownership and loaded inventory
+limits are shared unchanged with the bounded loader.
+
+Pinned `Map.cpp:203–210` calls `loadMapInstance` while creating the map, before
+loading active entities. `MoveMap.cpp:356–380` creates a query keyed by actual
+`(mapId, instanceId)` and initializes it with 1024 nodes; `GetNavMeshQuery` at
+499–511 only looks up this existing slot. The explicit `SourceMapQuerySlot` is
+this source key, distinct from the private never-reused local Mesh identity.
+The low-level reader can represent other explicit instance slots for isolation
+checks; the application constructor domain separately restricts actual selected
+configuration to outdoor map type zero, source slot zero, enabled at construction,
+nontransport owners and immutable inventory. Loading a query does not establish
+these application facts by itself.
+
+`RetainedSourceQuery` keeps the same actual allocation alive with private shared
+ownership. It begins with no selected current query. The query-only
+`select_for_calculate` transition checks destination and start coordinates before
+selecting the retained default, matching `PathFinder.cpp:120–160`; invalid
+coordinates preserve the prior selection. A source-valid height outside the
+narrower native budget still selects first, then bounded HaveTile may refuse.
+Map/instance changes are unsupported. Selected HaveTile observations retain exact
+native allocation and endpoint identity. There is no unload, replacement,
+serialization, byte/hash restoration, warm-seed conversion, or mutable path-cache
+operation on this interface.
+
+This is a genuine query allocation/retention dependency, **not by itself an owner
+constructor receipt**. Chase lazily creates its `i_path` in
+`TargetedMovementGenerator.cpp:498–499`, after forced spline relocation and before
+its straight-line gate; an initially nearby Chase may not construct until a later
+dispatch. `PathFinder.cpp:35–54` retains the default query only when enabled and
+leaves the current query null. An application must pair its preloaded query with
+that actual owner/generator dispatch event, complete selected configuration and
+constructor filter state before claiming the constructor. A warm seed, a Route
+request without this event, or serialized after-cache cannot establish it.
+Disabled-at-construction then enabled on the same map reads the source's
+uninitialized default-query field and is excluded, not repaired here.
+
+The authored long600 regression exercises the actual stored native query: the
+legacy pool exhausts at 512 while the distinct source pool completes all 600
+expansions (the output remains explicitly truncated). Other tests pin actual
+capacity readback, unchanged bounded APIs, same-byte fresh-allocation rejection,
+source-slot separation, retained allocation lifetime, destination-first invalid
+coordinates, unchanged selection on invalid/map/instance inputs, exact loaded
+HaveTile identity and pre-native malformed-input refusal. These are compiled
+native/Rust boundary tests, not a new independent original-constructor oracle or
+complete PathFinder/Route/gameplay evidence. No cold-distance or other source UB
+repair is part of this query-allocation change.
+
+## Selected source-query same-polygon lineage
+
+`SelectedSourceQuery::loaded_cold_same_polygon` composes only the reviewed
+`cmangos-buildpolypath-zero-distance-v1` lookup with the same-polygon terminal
+at `PathFinder.cpp:508–519,988–1020`. It exclusively borrows the genuine retained
+source1024 query for each ordered native nearest/closest-point call. It never
+uses a legacy512 lookup, creates a separate direct query, or invokes raycast,
+sampled straight BuildPointPath or smoothing. Different polygon references,
+missing polygons and distances greater than seven publish no candidate.
+
+`SourceSamePolygonConfig` requires explicit `normalize_z=false` and
+`ignore_normalization=false`; neither a server default nor a fabricated callback
+is used. The source NormalizePath condition returns immediately in this domain.
+The shared private same-polygon terminal preserves exact XYZ start/actual-end
+bits and NORMAL=1. Existing warm straight/smooth callers use the same helper
+without changing their original behavior. This terminal precedes both dispatch
+branches; reusing it does not imply that either BuildPointPath branch ran.
+
+The opaque result retains the actual query allocation, the named cold policy,
+original constructor-equivalent 74-zero-slot/active-zero storage, full native
+lookup observations, final active-one polygon cache including every inactive and
+tail slot, explicit normalization selection, and two terminal points. Read-only
+access cannot export a WarmCache, original-warm terminal or serialized restore.
+Query checks compare the allocation and original calculate endpoints; identical
+mesh bytes or source slot alone do not match. The result keeps its allocation
+alive after loader/lease handles are dropped.
+
+At most five lookup primitives (two start nearest attempts, one end tail scan and
+two end nearest attempts) and one terminal primitive are allowed. These operational
+budgets are separate from the source point limit; each bounded primitive checks
+the deadline before and after its work. Failed or
+expired calls discard their private candidate, and retries start from fresh logical
+constructor storage on the same selected allocation. Native lookup scratch is not
+a retained path-cache mutation. There is no accepted-cache commit or public warm
+seed. `LoadedSourceSamePolygon` is the common initial/retained lineage type; old
+cold-only names are type aliases, which preserve all the same policy observations.
+
+`SelectedSourceQuery::loaded_retained_same_polygon` takes that actual prior opaque
+result by shared reference. It checks the same query allocation and exact configuration,
+then performs ordered original warm lookups on a private copy of the complete current
+cache. The nonempty, valid active prefix initializes each source distance before its
+read; no cold initializer or new undefined-behavior repair runs. New endpoints are
+allowed. A same-byte query reload, changed configuration, malformed/unsupported input,
+missing/different polygons, distance greater than seven, exhausted work or deadline
+publishes no candidate. Multi-polygon selection may inspect the existing prefix, but
+never invokes replacement, raycast or smoothing before rejecting it.
+
+Each retained result preserves the original zero constructor storage and compatibility
+ID/version/source pin, the exact latest before-storage/active length, and current full
+after-storage. `compatibility().is_retained()` distinguishes that observation from the
+initial repaired calculation. Both APIs return the same policy-bearing type, allowing
+repeated replans without a chain of proof wrappers or a serialized restore. Memory is
+bounded independently of replan count: original 74 slots plus latest before and after
+vectors of at most 4096 slots each. At most 8050 retained lookup primitives and one
+terminal primitive are allowed; the common default of five can be raised explicitly
+for longer tails. Every success preserves the whole previous proposal, too. Retrying
+against an earlier proposal starts from that proposal's own exact cache, not from an
+implicitly committed latest result. Native query scratch can change, but accepted
+owner/cache state remains the future application's transaction responsibility.
+
+The [independent cold same-polygon observer](tools/cold_same_poly_README.md)
+executes the selected two-local repair, unchanged lookup bodies, exact same-poly
+branch and complete BuildShortcut/NormalizePath methods on original source1024
+Detour. Four authored cases compare every terminal point bit and retained slot,
+including a nonzero vertical endpoint and nearest10 start. This observer leaves
+the original tile raw-storage lifetime caveat explicit and applies no new UB
+repair. Rust tests additionally reject configuration/policy mismatches, different
+polygons, equal-byte foreign allocations, endpoint mismatch, work/deadline failures
+and exclusive-borrow conflicts, and establish retry and allocation lifetime.
+Compile-fail tests forbid public original-warm relabel and restoration. The
+[independent retained observer](tools/retained_same_poly_README.md) follows one actual
+query and cache from repaired cold origin through unmodified warm caller prefixes.
+Retained native tests compare exact source cache/point observations, append/reuse of
+tails, repeated continuation, foreign allocations, configuration and budget/deadline
+rejection, and successful retry after a partially completed lookup.
+
+Constructor event/filter/configuration provenance, runtime dispatch, HaveTile and
+fresh filter-update composition, actual segment geometry, authority/cache commit,
+Route evidence and gameplay admission remain separate application prerequisites.
+Source NORMAL does not prove dry support, endpoint support or body clearance.
+No application/runtime code or admission gate is changed. Disabled-constructor
+`m_defaultNavMeshQuery` and all other excluded undefined branches remain untouched.

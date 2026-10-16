@@ -14,6 +14,10 @@ struct Spatial<'a, 'b, A: Authority> {
 impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
     fn resolve(&mut self, query: &m::Query) -> Result<m::Reply, m::MotionError> {
         if let m::Query::Route(request) = query {
+            if let Err(error) = request.validate_pathfinder_dispatch() {
+                self.failure = Some(NativeError::AuthorityBinding);
+                return Err(error);
+            }
             if matches!(request.kind, m::RouteKind::HomeForceDestination)
                 != request.target.is_none()
             {
@@ -70,7 +74,22 @@ impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
                 })
             }
             (m::Query::Route(request), Some(owner)) => {
+                let pathfinder_dispatch = match PathfinderDispatchReceipt::mint(
+                    self.frame.profile,
+                    self.frame.state.world,
+                    self.frame.state.tick,
+                    self.npc,
+                    owner,
+                    request,
+                ) {
+                    Ok(receipt) => receipt,
+                    Err(error) => {
+                        self.failure = Some(error);
+                        return Err(m::MotionError::Invalid("native pathfinder dispatch"));
+                    }
+                };
                 MotionQuery::Route(Box::new(CreatureRouteRequest {
+                    pathfinder_dispatch,
                     request: request.clone(),
                     owner: owner.clone(),
                     owner_ignore_pathfinding: self.owner_ignore_pathfinding.clone(),

@@ -60,6 +60,7 @@ pub fn profile() -> Profile {
         creature_collision_heights: None,
         player_collision_height: None,
         player_environment: None,
+        pathfinder_configuration: None,
         interactions: None,
         quest_progression: None,
         combat: None,
