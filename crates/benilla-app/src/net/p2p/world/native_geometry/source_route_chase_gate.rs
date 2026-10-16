@@ -406,7 +406,7 @@ pub(crate) fn geometry_revision(
         return Err(Failure::Binding);
     }
     let mut hash = Sha256::new();
-    hash.update(b"benilla-source-dry-warm-chase-loaded-tile-straight-gate-v2");
+    hash.update(b"benilla-source-dry-warm-chase-owned-ignore-pathfinding-tile-straight-gate-v3");
     hash.update(source_route_straight_path::geometry_revision(
         liquid,
         navigation,

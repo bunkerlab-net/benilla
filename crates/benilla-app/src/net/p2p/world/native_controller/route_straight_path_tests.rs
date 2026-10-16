@@ -15,6 +15,7 @@ use std::sync::mpsc;
 struct Observation {
     context: n::AuthorityRequest,
     width: n::CreatureCollisionWidthWitness,
+    owner_ignore_pathfinding: n::OwnerIgnorePathfindingReceipt,
     owner: [u32; 3],
     tickets: Vec<u64>,
     tiles: TileObservation,
@@ -34,6 +35,7 @@ struct Observation {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FallbackObservation {
+    owner_ignore_pathfinding: n::OwnerIgnorePathfindingReceipt,
     tiles: TileObservation,
     before_storage: Vec<u64>,
     before_active: usize,
@@ -368,6 +370,21 @@ fn setup_with_poses(
         .unwrap(),
     ]))
     .unwrap();
+    // Original authored player/control rows permit the real runtime-owned bit
+    // receipt without changing the movement fixture or authenticating its warm seed.
+    let initialized = fixture::initialized_profile();
+    data.npcs[0].combat = initialized.npcs[0].combat.clone();
+    if let n::AbilityAdmission::Available(spec) = &mut data.abilities[0].admission {
+        spec.spell_rank = 1;
+    }
+    data.initialize_player(
+        &fixture::initialized_starter_input(),
+        fixture::float(100.),
+        1,
+    )
+    .unwrap();
+    data.initialize_interactions(n::synthetic_combat_fixture::source_rows(&data))
+        .unwrap();
     let mut session = base.session;
     session.profile = data.digest();
     session.content = data.content_digest;
@@ -511,6 +528,7 @@ fn setup_with_poses(
                         *width = serde_json::from_value(value).unwrap();
                     }
                     15 => route.collision_width = None,
+                    20..=27 => edit_owner_ignore_pathfinding(route, (mode - 20) as u8),
                     _ => {}
                 }
             }
@@ -617,6 +635,38 @@ fn stage_replan(c: &mut NativeController) {
     moved[1] += 6.;
     c.receive(move_to(moved)).unwrap();
 }
+fn edit_owner_ignore_pathfinding(route: &mut n::CreatureRouteRequest, edit: u8) {
+    if edit == 0 {
+        route.owner_ignore_pathfinding = None;
+        return;
+    }
+    let mut value = serde_json::to_value(route.owner_ignore_pathfinding.as_ref().unwrap()).unwrap();
+    match edit {
+        1 => value["npc"]["generation"] = (route.owner.npc().generation + 1).into(),
+        2..=4 => {
+            let field =
+                ["profile_binding", "source_binding", "capability_binding"][usize::from(edit - 2)];
+            value[field][0] = (value[field][0].as_u64().unwrap() ^ 1).into();
+        }
+        5 => value["policy"] = "forged-owner-policy".into(),
+        6 => value["projected_unit_state"] = n::UNIT_STAT_IGNORE_PATHFINDING.into(),
+        7 => value["live_abilities"][0]["id"] = 60009.into(),
+        _ => unreachable!(),
+    }
+    route.owner_ignore_pathfinding = Some(serde_json::from_value(value).unwrap());
+}
+fn assert_owner_ignore_pathfinding(
+    route: &n::CreatureRouteRequest,
+    profile: &n::Profile,
+) -> n::OwnerIgnorePathfindingReceipt {
+    let receipt = route.require_owner_ignore_pathfinding(profile).unwrap();
+    assert_eq!(receipt.npc(), route.owner.npc());
+    assert_eq!(receipt.profile_binding(), profile.digest());
+    assert_eq!(receipt.policy(), n::OWNER_IGNORE_PATHFINDING_POLICY);
+    assert!(!receipt.ignore_pathfinding());
+    assert_eq!(receipt.projected_unit_state(), 0);
+    receipt.clone()
+}
 fn assert_width(
     route: &n::CreatureRouteRequest,
     data: &n::Profile,
@@ -679,6 +729,7 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
             let first = route_reply(&records);
             let first_route = route_query(&first.request).unwrap();
             let width = assert_width(first_route, &data);
+            let first_owner_bit = assert_owner_ignore_pathfinding(first_route, &data);
             assert_eq!(
                 c.world.state().npcs[&2]
                     .creature_collision_width()
@@ -698,14 +749,15 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
                 panic!("synthetic complete")
             };
             assert_eq!(path.source, motion::RouteSource::SyntheticFixture);
-            // Only the accepted synthetic seed replays. No loaded dependency is a receipt.
+            // Only the accepted synthetic seed route replays; the loaded calculation
+            // never emits a Route receipt. Its owned-bit receipt has a narrower scope.
             let mut replay = genesis;
             replay.replay(&records).unwrap();
             assert_eq!(replay.checkpoint().unwrap(), c.world.checkpoint().unwrap());
             stage_replan(&mut c);
             let before = boundary(&c, &h);
             let mut pending = None;
-            for (attempt, mode) in [0, 1, 15, 0].into_iter().enumerate() {
+            for (attempt, mode) in [0, 1, 15, 20, 0].into_iter().enumerate() {
                 fault.store(mode, Ordering::SeqCst);
                 if attempt != 0 {
                     c.retry_tick().unwrap();
@@ -734,13 +786,13 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
                 assert_eq!(queries.lock().unwrap().len(), count);
                 assert_eq!(boundary(&c, &h), before);
             }
-            assert_eq!(*failures.lock().unwrap(), [Failure::MissingGeometry; 2]);
+            assert_eq!(*failures.lock().unwrap(), [Failure::MissingGeometry; 3]);
             let queries = queries.lock().unwrap();
             let warm: Vec<_> = queries
                 .iter()
                 .filter(|q| route_query(q).is_some_and(|r| r.request.prior_cache.is_some()))
                 .collect();
-            assert_eq!(warm.len(), 4);
+            assert_eq!(warm.len(), 5);
             assert!(warm.iter().all(|q| *q == warm[0]));
             let route = route_query(warm[0]).unwrap();
             assert_eq!(route.request.prior_cache.as_deref(), Some(&cache));
@@ -751,12 +803,17 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
             assert_eq!(warm[0].binding.geometry, data.geometry_revision);
             assert_eq!(warm[0].binding.npc, Some(width.npc()));
             assert_eq!(assert_width(route, &data), width);
+            assert_eq!(
+                assert_owner_ignore_pathfinding(route, &data),
+                first_owner_bit
+            );
             let seen = observations.lock().unwrap();
             assert_eq!(seen.len(), 2);
             assert_eq!(seen[0], seen[1]);
             let result = &seen[0];
             assert_eq!(result.context, *warm[0]);
             assert_eq!(result.width, width);
+            assert_eq!(result.owner_ignore_pathfinding, first_owner_bit);
             assert_eq!(result.tickets, [51, 52, 53, 54]);
             assert_eq!(result.tiles.start, ([0, 0], true));
             assert_eq!(result.tiles.end, Some(([0, 0], true)));
@@ -807,7 +864,7 @@ fn stale_generation_content_width_or_request_binding_never_mutates_controller() 
     if !benilla_native_nav::SUPPORTED_ABI {
         return;
     }
-    for mode in (2..=19).filter(|mode| *mode != 15) {
+    for mode in (2..=27).filter(|mode| !matches!(*mode, 15 | 20)) {
         let h = Harness::new();
         let (data, authority, fault, observations) = straight_path_setup(true, true, 0);
         let queries = Arc::clone(&authority.queries);
@@ -1137,6 +1194,11 @@ fn observe_dependency(
 ) {
     let route = route_query(context).unwrap();
     let width = assert_width(route, profile);
+    let owner_ignore_pathfinding = assert_owner_ignore_pathfinding(route, profile);
+    assert_eq!(
+        dependency.owner_ignore_pathfinding_dependency(),
+        &owner_ignore_pathfinding
+    );
     let filter = dependency.filter_dependency();
     let tiles = observe_tiles(dependency.tile_dependency());
     assert_eq!(
@@ -1257,7 +1319,12 @@ fn observe_dependency(
         assert_eq!(terminal.config(), points.request().configuration);
         assert_eq!(terminal.warm(), warm);
         assert_eq!(terminal.after(), warm.after());
+        assert_eq!(
+            fallback.owner_ignore_pathfinding_dependency(),
+            &owner_ignore_pathfinding
+        );
         FallbackObservation {
+            owner_ignore_pathfinding: fallback.owner_ignore_pathfinding_dependency().clone(),
             tiles: retry_tiles,
             before_storage: fallback.before_cache().storage().to_vec(),
             before_active: fallback.before_cache().active_len(),
@@ -1275,6 +1342,7 @@ fn observe_dependency(
     seen.lock().unwrap().push(Observation {
         context: context.clone(),
         width,
+        owner_ignore_pathfinding,
         owner: filter.owner_position(),
         tickets,
         tiles,
@@ -1527,3 +1595,58 @@ fn loaded_short_alone_keeps_retry_absent_and_does_not_publish_cleared_terminal_c
 
 #[path = "route_chase_gate_tests.rs"]
 mod route_chase_gate_tests;
+
+#[test]
+fn runtime_owned_bit_in_synthetic_seed_journal_roundtrips_but_edits_cannot_replay() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let h = Harness::new();
+    let (data, authority, _, _) = straight_path_setup(true, false, 0);
+    let mut c = create(&h, data.clone(), authority);
+    c.initial_events().unwrap();
+    let genesis = c.world.clone();
+    pump_to(&mut c, 4);
+    let records = n::decode_records(&n::encode_records(c.world.records()).unwrap()).unwrap();
+    let index = records
+        .iter()
+        .position(|record| {
+            record
+                .replies
+                .iter()
+                .any(|reply| route_query(&reply.request).is_some())
+        })
+        .unwrap();
+    let receipt = assert_owner_ignore_pathfinding(
+        route_query(&route_reply(&records).request).unwrap(),
+        &data,
+    );
+    let mut before_route = genesis.clone();
+    before_route.replay(&records[..index]).unwrap();
+    let before = before_route.checkpoint().unwrap();
+    for edit in 0..8 {
+        let mut record = records[index].clone();
+        let reply = record
+            .replies
+            .iter_mut()
+            .find(|reply| route_query(&reply.request).is_some())
+            .unwrap();
+        let n::Query::SourceMotion(n::MotionQuery::Route(route)) = &mut reply.request.query else {
+            unreachable!()
+        };
+        assert_eq!(route.owner_ignore_pathfinding.as_ref(), Some(&receipt));
+        edit_owner_ignore_pathfinding(route, edit);
+        let changed = n::decode_records(&n::encode_records(&[record]).unwrap()).unwrap();
+        let mut rejected = before_route.clone();
+        assert!(rejected.replay(&changed).is_err(), "receipt edit {edit}");
+        assert_eq!(
+            rejected.checkpoint().unwrap(),
+            before,
+            "receipt edit {edit}"
+        );
+    }
+    let mut replay = genesis;
+    replay.replay(&records).unwrap();
+    assert_eq!(replay.checkpoint().unwrap(), c.world.checkpoint().unwrap());
+    assert_eq!(retained(&c).source, motion::RouteSource::SyntheticFixture);
+}

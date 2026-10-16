@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v28 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v29 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -17,9 +17,34 @@ documented in [ENVIRONMENT.md](ENVIRONMENT.md).
 Backpack drag commands and durable item projection are documented in
 [INVENTORY-MOVEMENT.md](INVENTORY-MOVEMENT.md).
 Bounded source creature habitat/current-flag ownership and reachable NearPoint
-request binding are documented in [CREATURE-CAPABILITIES.md](../../CREATURE-CAPABILITIES.md).
+request binding, including the bounded runtime-owned IGNORE_PATHFINDING receipt,
+are documented in [CREATURE-CAPABILITIES.md](../../CREATURE-CAPABILITIES.md).
 Initial selected-model collision-width ownership, optional Route witnesses and
 respawn invalidation are documented in [CREATURE-COLLISION-WIDTH.md](../../CREATURE-COLLISION-WIDTH.md).
+
+## Owner pathfinding bit receipt
+
+Typed Route requests optionally carry `OwnerIgnorePathfindingReceipt`, privately
+minted from the staged NPC capability owner, explicit interaction control/audits,
+NPC motion closure and the current executable ability set. The single source
+`IGNORE_PATHFINDING=0x10000000` bit remains clear in this closed lifecycle; other
+UnitState bits are not projected. Consumers use
+`CreatureRouteRequest::require_owner_ignore_pathfinding(profile)`.
+
+The immutable captured abilities support transcript consistency checks. Replay
+regenerates the receipt from live staged abilities and compares the exact request;
+a self-consistent historical receipt alone does not establish current state.
+Native v29 requires the `owner_ignore_pathfinding` option field: explicit null is
+unavailable, omitted fields and v28 or earlier records/checkpoints reject.
+See [the full source contract](../../CREATURE-CAPABILITIES.md#single-bit-owner-pathfinding-closure).
+From the repository root, verify the six pinned source files and source expressions:
+
+```sh
+python3 crates/benilla-world-runtime/tools/verify_owner_ignore_pathfinding_source.py /path/to/mangos-classic-8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+```
+
+This guard is not a full lifecycle oracle. The receipt grants no MMap config,
+calculate completion, Route admission or playable-world capability.
 
 ## Initialization and callbacks
 
@@ -83,7 +108,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 28, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 29, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -163,14 +188,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 28 changes experimental simulation checkpoints/records, not
+typed. Native format 29 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 28 does not change character/profile files.
+remains rejected. Native format 29 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.

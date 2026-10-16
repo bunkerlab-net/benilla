@@ -6,6 +6,7 @@ struct Spatial<'a, 'b, A: Authority> {
     frame: &'a mut Frame<'b, A>,
     npc: NpcId,
     capabilities: Option<CreatureCapabilityWitness>,
+    owner_ignore_pathfinding: Option<OwnerIgnorePathfindingReceipt>,
     collision_width: Option<CreatureCollisionWidthWitness>,
     collision_height: Option<CreatureCollisionHeightWitness>,
     failure: Option<NativeError>,
@@ -72,6 +73,7 @@ impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
                 MotionQuery::Route(Box::new(CreatureRouteRequest {
                     request: request.clone(),
                     owner: owner.clone(),
+                    owner_ignore_pathfinding: self.owner_ignore_pathfinding.clone(),
                     target_player_water: match self.frame.player_target_water(request) {
                         Ok(witness) => witness,
                         Err(error) => {
@@ -142,9 +144,12 @@ impl<A: Authority> Frame<'_, A> {
         }
         CreatureCollisionWidthState::validate_optional(collision_width, self.profile, id)?;
         CreatureCollisionHeightState::validate_optional(collision_height, self.profile, id)?;
+        let owner_ignore_pathfinding =
+            OwnerIgnorePathfindingReceipt::mint(self.profile, self.state, id, capabilities)?;
         let mut adapter = Spatial {
             frame: self,
             npc: id,
+            owner_ignore_pathfinding,
             capabilities: capabilities.map(|state| state.witness().clone()),
             collision_width: collision_width.map(|state| state.witness().clone()),
             collision_height: collision_height.map(|state| state.witness().clone()),

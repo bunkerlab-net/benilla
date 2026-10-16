@@ -615,17 +615,17 @@ fn source_contract_rejects_published_format_ten_and_source_profile_substitution(
     p.initialize_spell_authority(&initial_input, source)
         .unwrap();
     assert!(NativeWorld::restore_synthetic_component_test(p, initial).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 28);
+    assert_eq!(NATIVE_FORMAT_VERSION, 29);
 }
 
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v28\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v29\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v28\0",
+        b"benilla-native-checkpoint-v29\0",
         &(&state, digest, tip),
     ))
     .unwrap();

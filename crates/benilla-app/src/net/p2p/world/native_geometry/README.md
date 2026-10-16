@@ -466,7 +466,7 @@ route production unavailable. They verify exact retry and no runtime/store/
 projection publication. The production mailbox still rejects Route; these tests do
 not activate that mailbox or populated-world entry.
 
-## Runtime-width-bound warm straight calculation
+## Runtime-owned width and ignore-pathfinding warm calculation
 
 `SourceRouteStraightPathProvider` is a loaded calculation dependency for an existing
 runtime-owned warm Chase request. Its session, profile, map/content, source epoch,
@@ -479,6 +479,18 @@ remains unavailable.
 
 Before either calculation, the exact source coordinate predicate validates the
 original destination then start (finite XY within the source map bound, finite Z).
+Each attempt next validates `CreatureRouteRequest::require_owner_ignore_pathfinding`
+and retains its typed `OwnerIgnorePathfindingReceipt`. The runtime privately mints
+this receipt from the current NPC capability generation, the explicit zero
+`InteractionCatalog` seed and the bounded lifecycle closure. It proves only that
+`UNIT_STAT_IGNORE_PATHFINDING` (`0x10000000`) is clear. It does not assert the full
+UnitState mask, source `ExtraFlags`, `m_ignoreMMAP` or global/map configuration.
+Missing evidence is unavailable; edited owner generation, profile, source or receipt
+bindings fail closed before any tile or filter observation. Coordinate rejection
+still precedes receipt consumption. The source's intervening `SetCurrentNavMesh`
+configuration and nav/query checks remain open, so this is a named dependency,
+not an authenticated complete calculate prefix.
+
 The loaded `HaveTile` dependency then queries source `calcTileLoc`/`getTileAt`
 layer zero at the original XYZ pair on the same native mesh: start first, and
 only when present, destination. Exactly coordinate -1 is the source sentinel;
@@ -492,9 +504,11 @@ liquid observations only after both tiles are present, and passes the immutable 
 endpoints and exact width bits into the native straight calculation. A returned
 NOPATH or INCOMPLETE result can continue privately through a fresh loaded tile
 pair, second filter update, fresh warm lookup and terminal smooth calculation.
-Both successful dependencies retain opaque, native-instance-bound tile evidence.
-All nine possible tickets are reserved before the first observation; the initial
-pair, two filter observations and straight query precede the retry pair, two new
+Both successful dependencies retain the separately validated runtime-owned bit
+receipt and opaque, native-instance-bound tile evidence. Retry repeats coordinate
+validation and owner-bit validation before its fresh tile pair. These validations
+consume no geometry ticket. All nine possible tickets are reserved before the first
+observation; the initial pair, two filter observations and straight query precede the retry pair, two new
 filter observations, warm lookup and point query. The continuation uses the
 straight result's complete terminal backing storage, inactive tail and path type;
 it restores the original requested goal rather than using the clipped straight
@@ -555,8 +569,9 @@ navigation handle later consumed by the provider; reloading identical inventory
 bytes does not transfer the native mesh capability. Wet navigation, cold-cache repair, transports, other route
 kinds, normalization, Route publication and native admission remain unavailable.
 The full calculate prefix remains incomplete: global pathfinding enable,
-map-disabled configuration, Unit ignore-pathfinding state and dungeon context are
-not authenticated by these dependencies. Loaded `HaveTile` observations establish
+map-disabled configuration, nav/query ownership and dungeon context are
+not authenticated by these dependencies. The bounded owned IGNORE_PATHFINDING bit
+is independently authenticated on each attempted calculation. Loaded `HaveTile` observations establish
 only their named predicate on the retained mesh. A nearby polygon can exist when
 an endpoint tile is absent. There is no production admission or cold-distance repair.
 

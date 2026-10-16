@@ -228,6 +228,27 @@ impl Profile {
     }
 }
 impl InteractionCatalog {
+    pub(super) fn owner_ignore_pathfinding_source(
+        &self,
+        profile: &Profile,
+        npc: NpcId,
+    ) -> Result<(crate::Digest, u32), NativeError> {
+        self.validate(profile)?;
+        let entry = profile
+            .npc(npc.spawn)
+            .ok_or(NativeError::AuthorityBinding)?
+            .entry;
+        let row = self.npcs.get(&entry).ok_or(NativeError::AuthorityBinding)?;
+        // The explicit source seed and all mutation exclusions were validated above.
+        // This is not a claim that the executing Unit's complete state stays zero.
+        Ok((
+            crate::digest(
+                b"benilla-owner-unit-state-source-v1\0",
+                &(self.policy, row, &self.audit),
+            ),
+            row.control.unit_state & UNIT_STAT_IGNORE_PATHFINDING,
+        ))
+    }
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         self.audit.validate()?;
         if let Some(facing) = &self.facing_authority {
@@ -361,7 +382,7 @@ impl InteractionCatalog {
     }
 }
 
-fn validate_abilities(abilities: &[Ability]) -> Result<(), NativeError> {
+pub(super) fn validate_abilities(abilities: &[Ability]) -> Result<(), NativeError> {
     for ability in abilities {
         if let AbilityAdmission::Available(spec) = &ability.admission {
             for effect in spec.effects {

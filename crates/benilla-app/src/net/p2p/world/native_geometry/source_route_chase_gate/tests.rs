@@ -100,6 +100,11 @@ fn setup(
             environment.environment_catalog().clone(),
         )
         .unwrap();
+    profile
+        .initialize_interactions(
+            benilla_world_runtime::native::synthetic_combat_fixture::source_rows(&profile),
+        )
+        .unwrap();
     let source = profile.source_motion.as_ref().unwrap();
     let session = Session {
         world: [8; 16],
@@ -277,6 +282,12 @@ fn actual_dry_gate_orders_distinct_los_owner_cache_then_fresh_calculate_queries(
     assert_eq!(water.reply.status, LiquidStatus::NoWater);
     assert_eq!(Some(target), route.target_player_water.as_ref());
     let straight = result.straight_dependency().unwrap();
+    assert_eq!(
+        straight.owner_ignore_pathfinding_dependency(),
+        route
+            .require_owner_ignore_pathfinding(world.profile())
+            .unwrap()
+    );
     assert_eq!(straight.request().first_ticket, 43);
     assert_eq!(straight.tile_dependency().request().ticket, 43);
     assert!(straight.tile_dependency().result().both_present());
@@ -313,6 +324,7 @@ fn strict_numeric_short_circuit_leaves_geometry_and_cached_water_unobserved() {
         let mut context = context.clone();
         route(&mut context).request.goal = goal;
         route(&mut context).target_player_water = None;
+        route(&mut context).owner_ignore_pathfinding = None;
         let bound = provider.begin(&session, &context).unwrap();
         let mut observed = vec![];
         let result = bound
@@ -341,6 +353,7 @@ fn actual_wall_and_m2_hits_choose_unavailable_normal_route_before_any_water() {
         let (_, session, mut context, provider) = setup(owner);
         route(&mut context).request.goal = goal;
         route(&mut context).target_player_water = None;
+        route(&mut context).owner_ignore_pathfinding = None;
         let bound = provider.begin(&session, &context).unwrap();
         let mut observed = vec![];
         let result = bound
@@ -587,4 +600,52 @@ fn bind_rejects_actual_cross_inventory_or_epoch_and_missing_explicit_selections(
             "edit {edit}"
         );
     }
+}
+
+#[test]
+fn selected_chase_requires_runtime_owned_bit_after_water_before_any_calculate_dependency() {
+    let (world, session, context, provider) = setup(point(-400., -430., 0.));
+    let before = world.checkpoint().unwrap();
+    for edit in 0..4 {
+        let mut changed = context.clone();
+        let q = route(&mut changed);
+        if edit == 0 {
+            q.owner_ignore_pathfinding = None;
+        } else {
+            let mut value =
+                serde_json::to_value(q.owner_ignore_pathfinding.as_ref().unwrap()).unwrap();
+            match edit {
+                1 => value["npc"]["generation"] = (q.owner.npc().generation + 1).into(),
+                2 => {
+                    value["profile_binding"][0] =
+                        (value["profile_binding"][0].as_u64().unwrap() ^ 1).into()
+                }
+                _ => {
+                    value["projected_unit_state"] =
+                        benilla_world_runtime::native::UNIT_STAT_IGNORE_PATHFINDING.into()
+                }
+            }
+            q.owner_ignore_pathfinding = Some(serde_json::from_value(value).unwrap());
+        }
+        let bound = provider.begin(&session, &changed).unwrap();
+        let mut observed = vec![];
+        assert_eq!(
+            bound.query_observed(request(&provider, &changed), deadline(), |o| observed
+                .push(o)),
+            Err(if edit == 0 {
+                Failure::MissingGeometry
+            } else {
+                Failure::Binding
+            })
+        );
+        assert!(matches!(
+            &observed[..],
+            [
+                Observation::LineOfSight(_),
+                Observation::OwnerWater(_),
+                Observation::TargetWater(false)
+            ]
+        ));
+    }
+    assert_eq!(world.checkpoint().unwrap(), before);
 }

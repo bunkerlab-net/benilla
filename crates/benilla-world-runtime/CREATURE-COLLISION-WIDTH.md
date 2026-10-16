@@ -50,9 +50,9 @@ owner. Later-generation width queries fail rather than relabeling or cloning the
 initial width. Checkpoint restore rejects initial witnesses retained, forged or
 re-labeled for any later generation. Width-independent routes can still proceed.
 
-Native format **28**, policy `benilla-native-surface-player-environment-v28`, retains
+Native format **29**, policy `benilla-native-owner-ignore-pathfinding-v29`, retains
 `Profile.creature_collision_widths`, the NPC checkpoint `source_collision_width`,
-and typed Route `collision_width`, with v28 profile/state/record/checkpoint/melee
+and typed Route `collision_width`, with v29 profile/state/record/checkpoint/melee
 digest domains. New optional serialized fields require explicit null when absent;
 omission does not manufacture a default. Native24 and earlier experimental saves
 and records are rejected rather than migrated. OriginalFixture v2 and exploration

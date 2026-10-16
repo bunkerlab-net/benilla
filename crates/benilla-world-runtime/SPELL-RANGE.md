@@ -59,7 +59,7 @@ inputs, clocks, casts, scheduler, RNG and journal; a retry executes once.
 
 The source spell policy is v2 and binds a private range-policy algorithm and
 normalized `Spell.cpp` / `Object.cpp` hashes into the profile digest. Native
-checkpoint/record format 28 (`benilla-native-surface-player-environment-v28`) and v28 digest
+checkpoint/record format 29 (`benilla-native-owner-ignore-pathfinding-v29`) and v29 digest
 domains refuse format 19 external-range history without migration. Character
 profile saves and OriginalFixture format 2 are unchanged. `NativeCapability`
 remains uninhabited, production startup remains closed, and no native producer,

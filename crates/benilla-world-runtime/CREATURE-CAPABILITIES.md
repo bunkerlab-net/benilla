@@ -116,11 +116,55 @@ The actual GetNearPoint collision configuration, source candidate arithmetic,
 selection/fallback sequencing, LOS and complete provider remain unavailable; no
 guessed config or dry fallback is supplied.
 
+## Single-bit owner pathfinding closure
+
+`CreatureRouteRequest.owner_ignore_pathfinding` is a required-option transcript
+field. It is `None` when the optional interaction catalog is absent; missing
+schema fields reject. Capability/model catalogs alone do not mint this receipt.
+When selected source data is present but invalid, it errors rather than being
+silently treated as missing. `require_owner_ignore_pathfinding(profile)` validates
+request owner identity and returns the typed `OwnerIgnorePathfindingReceipt`.
+
+The private mint runs inside `Frame::source_spatial`, borrowing the actual staged
+`CreatureCapabilityState` even when the NPC has been removed from the state map.
+It uses the immutable interaction source row with explicit `control.unit_state=0`,
+all interaction exclusions (including absent external mutation, controlled/summoned
+units and NPC aura/script hooks), complete capability exclusions, validated NPC
+motion/Home audits and the actual `State::abilities(profile)` executable set.
+The frozen ability list includes learned/ranked changes, rather than relying only
+on initial profile abilities. Available effects are closed to damage/periodic
+semantics; unavailable abilities cannot execute. Invalid live effects reject.
+
+Only `UNIT_STAT_IGNORE_PATHFINDING=0x10000000` is projected. This is not complete
+UnitState and does not mean that a chasing or melee-attacking NPC has state zero.
+Chase/ChaseMove and melee set other bits. Home clears `ALL_DYN_STATES`, whose source
+mask explicitly preserves IGNORE_PATHFINDING; it does not reset that bit to zero.
+The explicit initial zero and closed supported lifecycle preserve this one bit.
+Respawn uses the rebound capability owner after the actual generation increment.
+There is no second mutable UnitState owner or checkpoint field.
+
+The receipt binds policy, profile, immutable source closure, capability source and
+current `NpcId`, and validates request map/content/geometry/spawn identity.
+`owner_position` remains `request.origin` (current Unit map position), independently
+of Home's potentially different `launch_origin`. The invariant does not depend on
+path goal or prior polygon cache; the outer authority context binds the exact query.
+Deserialized receipts are transcript consistency evidence, not authentication or
+live-state constructors. Replay regenerates them from the executing state.
+
+The six complete LF-normalized source hashes in
+`OWNER_IGNORE_PATHFINDING_SOURCE_SHA256` cover Unit.h, Unit.cpp, Creature.cpp,
+HomeMovementGenerator.cpp, TargetedMovementGenerator.cpp and PathFinder.cpp from
+the pinned source. `tools/verify_owner_ignore_pathfinding_source.py` verifies them
+and the reviewed source expressions. This source guard and numeric mask tests do
+not claim to execute the full C++ Unit lifecycle. Creature ExtraFlags 0x2000/0x4000,
+`m_ignoreMMAP`, MMap configuration, tile presence and route admission are separate
+dependencies; this receipt supplies none of them.
+
 ## Persistence and checks
 
-Native format 28 (`benilla-native-surface-player-environment-v28`) binds the typed route owner
+Native format 29 (`benilla-native-owner-ignore-pathfinding-v29`) binds the typed route owner
 transcript through profile, state, record, checkpoint and source-action digest
-domains. Format 21 and earlier saves/records are rejected rather than rewriting
+domains. Format 28 and earlier saves/records are rejected rather than rewriting
 `Spatial(Route)` receipts or inventing an owner witness. The original fixture
 format 2, equipment format and character/profile file schemas are unchanged. Source
 policy IDs and all five hashes are retained in the catalog/profile and each source

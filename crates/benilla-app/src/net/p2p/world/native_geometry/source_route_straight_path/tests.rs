@@ -76,6 +76,23 @@ fn setup_seed(
             .unwrap(),
         ]))
         .unwrap();
+    // Explicit authored control rows feed the real runtime bit receipt. Preserve
+    // the existing movement fixture while adding its required player initialization.
+    let initialized = f::initialized_profile();
+    profile.npcs[0].combat = initialized.npcs[0].combat.clone();
+    if let benilla_world_runtime::native::AbilityAdmission::Available(spec) =
+        &mut profile.abilities[0].admission
+    {
+        spec.spell_rank = 1;
+    }
+    profile
+        .initialize_player(&f::initialized_starter_input(), f::float(100.), 1)
+        .unwrap();
+    profile
+        .initialize_interactions(
+            benilla_world_runtime::native::synthetic_combat_fixture::source_rows(&profile),
+        )
+        .unwrap();
     let motion = profile.source_motion.as_ref().unwrap();
     let session = Session {
         world: [8; 16],
@@ -266,6 +283,12 @@ fn owned_width_bits_and_actual_same_polygon_straight_do_not_publish_or_retry() {
         .unwrap()
         .width()
         .bits();
+    let receipt = route
+        .require_owner_ignore_pathfinding(world.profile())
+        .unwrap();
+    assert_eq!(result.owner_ignore_pathfinding_dependency(), receipt);
+    assert_eq!(receipt.npc(), route.owner.npc());
+    assert!(!receipt.ignore_pathfinding());
     let straight = result.straight_dependency();
     assert_eq!(straight.request().collision_width_bits, expected);
     assert_eq!(straight.result().collision_width_bits(), expected);
@@ -639,6 +662,11 @@ fn source_no_path_that_clears_active_without_tail_keeps_cold_retry_unavailable()
 
 fn observed_ticket(observation: Observation<'_>) -> (&'static str, u64) {
     match observation {
+        Observation::OwnerIgnorePathfinding(receipt, ticket) => {
+            assert!(!receipt.ignore_pathfinding());
+            assert_eq!(receipt.projected_unit_state(), 0);
+            ("owner-ignore-pathfinding", ticket)
+        }
         Observation::Tiles(reply) => ("tiles", reply.request().ticket),
         Observation::Filter(reply) => ("filter", reply.request().first_ticket),
         Observation::Straight(reply) => ("straight", reply.request().ticket),
@@ -662,14 +690,33 @@ fn actual_tile_pairs_precede_each_filter_and_retry_keeps_original_unsnapped_goal
     assert_eq!(
         observed,
         [
+            ("owner-ignore-pathfinding", 41),
             ("tiles", 41),
             ("filter", 42),
             ("straight", 44),
+            ("owner-ignore-pathfinding", 45),
             ("tiles", 45),
             ("filter", 46),
             ("warm", 48),
             ("points", 49),
         ]
+    );
+    let receipt = result.owner_ignore_pathfinding_dependency();
+    assert_eq!(
+        receipt,
+        result
+            .fallback_dependency()
+            .unwrap()
+            .owner_ignore_pathfinding_dependency()
+    );
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        unreachable!()
+    };
+    assert_eq!(
+        receipt,
+        route
+            .require_owner_ignore_pathfinding(world.profile())
+            .unwrap()
     );
     let first = result.tile_dependency();
     let second = result.fallback_dependency().unwrap().tile_dependency();
@@ -742,7 +789,7 @@ fn loaded_missing_endpoint_short_circuits_before_filters_despite_nearby_polygon(
             }),
             Err(Failure::MissingGeometry)
         );
-        assert_eq!(observed, [("tiles", 41)]);
+        assert_eq!(observed, [("owner-ignore-pathfinding", 41), ("tiles", 41)]);
         assert_eq!(world.checkpoint().unwrap(), before);
     }
 }
@@ -771,14 +818,16 @@ fn expired_tile_prefix_never_reaches_its_filter_including_fresh_retry() {
             Err(Failure::MissingGeometry)
         );
         let expected = [
+            ("owner-ignore-pathfinding", 41),
             ("tiles", 41),
             ("filter", 42),
             ("straight", 44),
+            ("owner-ignore-pathfinding", 45),
             ("tiles", 45),
         ];
         assert_eq!(
             observed,
-            expected[..if expire_ticket == 41 { 1 } else { 4 }]
+            expected[..if expire_ticket == 41 { 2 } else { 6 }]
         );
         assert_eq!(world.checkpoint().unwrap(), before);
     }
@@ -812,4 +861,105 @@ fn source_invalid_coordinates_and_full_ticket_reservation_precede_observations()
     let result = bound.query(query, deadline()).unwrap();
     assert_eq!(result.tile_dependency().request().ticket, u64::MAX - 8);
     assert_eq!(result.straight_dependency().request().ticket, u64::MAX - 5);
+}
+
+#[test]
+fn owned_ignore_pathfinding_missing_or_edited_receipt_stops_before_tiles_or_filter() {
+    let products = products::authored_route_smoothing();
+    let config = configuration();
+    let (world, session, context, navigation, lineage) = setup(&products, config, origin());
+    let before = world.checkpoint().unwrap();
+    let provider = provider(&products, &world, &session, navigation, lineage, config);
+    for edit in 0..8 {
+        let mut changed = context.clone();
+        let q = route(&mut changed);
+        if edit == 0 {
+            q.owner_ignore_pathfinding = None;
+        } else {
+            let mut value =
+                serde_json::to_value(q.owner_ignore_pathfinding.as_ref().unwrap()).unwrap();
+            match edit {
+                1 => value["npc"]["generation"] = (q.owner.npc().generation + 1).into(),
+                2..=4 => {
+                    let field =
+                        ["profile_binding", "source_binding", "capability_binding"][edit - 2];
+                    value[field][0] = (value[field][0].as_u64().unwrap() ^ 1).into();
+                }
+                5 => value["policy"] = "forged-owner-policy".into(),
+                6 => {
+                    value["projected_unit_state"] =
+                        benilla_world_runtime::native::UNIT_STAT_IGNORE_PATHFINDING.into()
+                }
+                _ => value["live_abilities"][0]["id"] = 60009.into(),
+            }
+            q.owner_ignore_pathfinding = Some(serde_json::from_value(value).unwrap());
+        }
+        let bound = provider.begin(&session, &changed).unwrap();
+        let mut observed = vec![];
+        assert_eq!(
+            bound.query_observed(request(&provider, &changed), deadline(), |o| observed
+                .push(observed_ticket(o))),
+            Err(if edit == 0 {
+                Failure::MissingGeometry
+            } else {
+                Failure::Binding
+            }),
+            "edit {edit}"
+        );
+        assert!(observed.is_empty(), "edit {edit}");
+    }
+    // Source coordinate rejection still wins when the owner receipt is missing.
+    let mut changed = context.clone();
+    let q = route(&mut changed);
+    q.owner_ignore_pathfinding = None;
+    q.request.goal = ai::Point::new(17_067., 0., 0.).unwrap();
+    let mut observed = vec![];
+    assert_eq!(
+        provider.begin(&session, &changed).unwrap().query_observed(
+            request(&provider, &changed),
+            deadline(),
+            |o| observed.push(observed_ticket(o))
+        ),
+        Err(Failure::Invalid)
+    );
+    assert!(observed.is_empty());
+    assert_eq!(world.checkpoint().unwrap(), before);
+}
+
+#[test]
+fn expiry_after_owned_bit_validation_stops_each_attempt_before_have_tile() {
+    for expire_ticket in [41, 45] {
+        let config = configuration();
+        let (products, world, session, context, navigation, lineage) = snake_setup(config, 0.1);
+        let before = world.checkpoint().unwrap();
+        let provider = provider(&products, &world, &session, navigation, lineage, config);
+        let bound = provider.begin(&session, &context).unwrap();
+        let expires = Instant::now() + Duration::from_millis(30);
+        let mut observed = vec![];
+        assert_eq!(
+            bound.query_observed(request(&provider, &context), expires, |o| {
+                let event = observed_ticket(o);
+                observed.push(event);
+                if event == ("owner-ignore-pathfinding", expire_ticket) {
+                    std::thread::sleep(
+                        expires.saturating_duration_since(Instant::now())
+                            + Duration::from_millis(1),
+                    );
+                }
+            }),
+            Err(Failure::MissingGeometry)
+        );
+        let expected = [
+            ("owner-ignore-pathfinding", 41),
+            ("tiles", 41),
+            ("filter", 42),
+            ("straight", 44),
+            ("owner-ignore-pathfinding", 45),
+        ];
+        assert_eq!(
+            observed,
+            expected[..if expire_ticket == 41 { 1 } else { 5 }]
+        );
+        assert_eq!(world.checkpoint().unwrap(), before);
+    }
 }

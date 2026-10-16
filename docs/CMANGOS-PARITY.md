@@ -169,12 +169,18 @@ is meaningful without a bounded content/mechanics inventory.
   owner dry-liquid observations. One immutable inventory can project proved-dry
   navigation without admitting wet geometry. Passing this gate reaches retained
   warm straight/retry dependencies; a rejected gate selects unavailable normal
-  routing. Each bounded calculate attempt validates exact source map coordinates
-  and observes endpoint tile presence on the same loaded native mesh before its
-  filter update. Actual tile absence stays unavailable even when nearby polygons
-  or the retained cache can be found. An independent unchanged-source oracle
-  covers these nontransport predicates; owner/configuration selection and the
-  complete calculate prefix remain separate gates. Controller tests preserve the explicitly synthetic initial warm seed
+  routing. Each bounded calculate attempt validates exact source map coordinates,
+  requires the staged owner's generation-bound IGNORE_PATHFINDING receipt, and
+  observes endpoint tile presence on the same loaded native mesh before its
+  filter update. The receipt proves only that single bit is clear under the
+  explicit control/script/aura closure, including current executable abilities;
+  it does not claim complete UnitState or effective MMap settings. Native record
+  format 29 retains this required-option evidence and rejects earlier formats.
+  Actual tile absence stays unavailable even when nearby polygons or the retained
+  cache can be found. An independent unchanged-source oracle covers coordinate
+  and nontransport tile predicates. Configuration/query selection and the complete
+  calculate prefix remain separate gates. Controller tests preserve the
+  explicitly synthetic initial warm seed
   and verify complete rollback at the still-unavailable full Route boundary.
   Cold owner initialization, complete Route evidence and gameplay admission remain
   separate gates; see the [geometry contract](../crates/benilla-app/src/net/p2p/world/native_geometry/README.md).

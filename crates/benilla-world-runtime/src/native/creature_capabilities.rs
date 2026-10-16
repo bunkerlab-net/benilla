@@ -309,6 +309,10 @@ pub struct CreatureNearPointRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreatureRouteRequest {
+    /// Single-bit lifecycle receipt minted from the executing staged NPC. Explicit
+    /// absence is not a constructor default or source proof.
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub owner_ignore_pathfinding: Option<OwnerIgnorePathfindingReceipt>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     pub target_player_water: Option<PlayerEnvironmentTarget>,
     pub request: benilla_sim::creature_motion::RouteRequest,

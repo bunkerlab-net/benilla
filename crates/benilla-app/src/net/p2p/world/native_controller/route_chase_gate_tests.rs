@@ -205,6 +205,9 @@ fn setup(
     let player_id = Selection::from_profile(&h.profile, &h.character)
         .unwrap()
         .player;
+    profile
+        .initialize_interactions(n::synthetic_combat_fixture::source_rows(&profile))
+        .unwrap();
     let mut session = base.session;
     session.profile = profile.digest();
     session.content = profile.content_digest;
@@ -322,7 +325,7 @@ fn setup(
             match mode {
                 2 => actual_session.geometry[0] ^= 1,
                 3 => actual_session.player_environment = None,
-                4..=13 => {
+                4..=13 | 17..=24 => {
                     let n::Query::SourceMotion(n::MotionQuery::Route(route)) =
                         &mut actual_context.query
                     else {
@@ -362,6 +365,7 @@ fn setup(
                         }
                         12 => route.request.binding.now_ms += u64::from(worker_profile.tick_ms),
                         13 => route.request.prior_cache.as_mut().unwrap().poly_refs[0] ^= 1,
+                        17..=24 => edit_owner_ignore_pathfinding(route, (mode - 17) as u8),
                         _ => unreachable!(),
                     }
                 }
@@ -585,6 +589,7 @@ fn cached_player_gate_and_actual_straight_retry_leave_unavailable_route_transact
     assert_eq!(queries.len(), 4);
     assert!(queries.iter().all(|q| q == &queries[0]));
     let route = route_query(&queries[0]).unwrap();
+    let owner_bit = assert_owner_ignore_pathfinding(route, &profile);
     assert_eq!(route.request.prior_cache.as_deref(), Some(&before.cache));
     let target = route
         .require_target_water(&profile, [8; 16], c.world.state().player)
@@ -626,6 +631,11 @@ fn cached_player_gate_and_actual_straight_retry_leave_unavailable_route_transact
         [51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
     );
     let straight = observed.straight.as_ref().unwrap();
+    assert_eq!(straight.owner_ignore_pathfinding, owner_bit);
+    assert_eq!(
+        straight.fallback.as_ref().unwrap().owner_ignore_pathfinding,
+        owner_bit
+    );
     assert_eq!(straight.tiles.request.ticket, 53);
     assert_eq!(
         straight.tiles.request.from,
@@ -712,7 +722,7 @@ fn missing_and_stale_gate_witnesses_sessions_and_generation_never_publish() {
     if !benilla_native_nav::SUPPORTED_ABI {
         return;
     }
-    for mode in 2..=16 {
+    for mode in 2..=24 {
         let h = Harness::new();
         let (mut c, _, controls) = create(&h, 0, snake_to());
         c.initial_events().unwrap();
@@ -724,7 +734,7 @@ fn missing_and_stale_gate_witnesses_sessions_and_generation_never_publish() {
         assert_eq!(out.ticks, 0, "mode {mode}");
         assert!(out.events.is_empty());
         assert!(out.saved.is_none());
-        let recoverable = matches!(mode, 4..=7);
+        let recoverable = matches!(mode, 4..=7 | 17);
         assert!(
             matches!(out.pause.unwrap().kind, PauseKind::Authority) == recoverable,
             "mode {mode}"

@@ -27,7 +27,8 @@ use benilla_native_nav::{
 };
 use benilla_sim::creature_motion::RouteKind;
 use benilla_world_runtime::native::{
-    AuthorityRequest, MotionQuery, Profile, Query, CREATURE_COLLISION_WIDTH_POLICY,
+    AuthorityRequest, CreatureRouteRequest, MotionQuery, OwnerIgnorePathfindingReceipt, Profile,
+    Query, CREATURE_COLLISION_WIDTH_POLICY, OWNER_IGNORE_PATHFINDING_POLICY,
 };
 use sha2::{Digest, Sha256};
 use std::time::Instant;
@@ -79,12 +80,16 @@ pub(crate) struct StraightPathRequest {
 }
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StraightFallbackDependency {
+    owner_ignore_pathfinding: OwnerIgnorePathfindingReceipt,
     tiles: SourceTileReply,
     filter: RouteFilterUpdateDependency,
     polygons: SourceStraightWarmReply,
     points: SourcePointReply,
 }
 impl StraightFallbackDependency {
+    pub(crate) fn owner_ignore_pathfinding_dependency(&self) -> &OwnerIgnorePathfindingReceipt {
+        &self.owner_ignore_pathfinding
+    }
     pub(crate) fn tile_dependency(&self) -> &SourceTileReply {
         &self.tiles
     }
@@ -104,12 +109,16 @@ impl StraightFallbackDependency {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StraightPathDependency {
     request: StraightPathRequest,
+    owner_ignore_pathfinding: OwnerIgnorePathfindingReceipt,
     tiles: SourceTileReply,
     filter: RouteFilterUpdateDependency,
     straight: SourceStraightReply,
     fallback: Option<StraightFallbackDependency>,
 }
 impl StraightPathDependency {
+    pub(crate) fn owner_ignore_pathfinding_dependency(&self) -> &OwnerIgnorePathfindingReceipt {
+        &self.owner_ignore_pathfinding
+    }
     pub(crate) fn tile_dependency(&self) -> &SourceTileReply {
         &self.tiles
     }
@@ -264,6 +273,7 @@ impl SourceRouteStraightPathProvider {
 /// Observations follow real queries and cannot replace their answers.
 #[derive(Debug, PartialEq, Eq)]
 enum Observation<'a> {
+    OwnerIgnorePathfinding(&'a OwnerIgnorePathfindingReceipt, u64),
     Tiles(&'a SourceTileReply),
     Filter(&'a RouteFilterUpdateDependency),
     Straight(&'a SourceStraightReply),
@@ -308,11 +318,12 @@ impl BoundStraightPathQuery<'_> {
             .as_ref()
             .ok_or(Failure::MissingGeometry)?;
         let bits = |p: benilla_sim::creature_ai::Point| [p.x.bits(), p.y.bits(), p.z.bits()];
-        benilla_native_nav::source_map_coord_pair(
-            bits(route.request.origin),
-            bits(route.request.goal),
-        )
-        .map_err(|_| Failure::Invalid)?;
+        let owner_ignore_pathfinding = self.observe_owner_ignore_pathfinding(
+            route,
+            request.first_ticket,
+            deadline,
+            &mut observe,
+        )?;
         let tiles = self.observe_tiles(
             SourceTileRequest {
                 snapshot: request.snapshot.navigation,
@@ -363,8 +374,14 @@ impl BoundStraightPathQuery<'_> {
         require_time(deadline)?;
         // TargetedMovementGenerator.cpp:536. SHORT alone must not enter this retry.
         let fallback = if straight.result().path_type() & (8 | 4) != 0 {
-            // calculate runs HaveTile again before its own updateFilter, even
-            // with immutable loaded tiles and the same original requested goal.
+            // A fresh calculate repeats the coordinate and owned-bit gates before
+            // HaveTile/updateFilter, retaining the original requested goal.
+            let owner_ignore_pathfinding = self.observe_owner_ignore_pathfinding(
+                route,
+                request.first_ticket + 4,
+                deadline,
+                &mut observe,
+            )?;
             let tiles = self.observe_tiles(
                 SourceTileRequest {
                     ticket: request.first_ticket + 4,
@@ -421,6 +438,7 @@ impl BoundStraightPathQuery<'_> {
             }
             observe(Observation::Points(&points));
             Some(StraightFallbackDependency {
+                owner_ignore_pathfinding,
                 tiles,
                 filter: updated,
                 polygons,
@@ -434,11 +452,42 @@ impl BoundStraightPathQuery<'_> {
         }
         Ok(StraightPathDependency {
             request,
+            owner_ignore_pathfinding,
             tiles,
             filter,
             straight,
             fallback,
         })
+    }
+    fn observe_owner_ignore_pathfinding(
+        &self,
+        route: &CreatureRouteRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        observe: &mut impl FnMut(Observation<'_>),
+    ) -> Result<OwnerIgnorePathfindingReceipt, Failure> {
+        require_time(deadline)?;
+        let bits = |p: benilla_sim::creature_ai::Point| [p.x.bits(), p.y.bits(), p.z.bits()];
+        benilla_native_nav::source_map_coord_pair(
+            bits(route.request.origin),
+            bits(route.request.goal),
+        )
+        .map_err(|_| Failure::Invalid)?;
+        // PathFinder::calculate checks coordinates, then source nav/config, then
+        // IGNORE_PATHFINDING, then HaveTile. Nav/config is still an open dependency;
+        // this receipt proves only the owned 0x10000000 bit, never ExtraFlags/m_ignoreMMAP.
+        let receipt = route
+            .require_owner_ignore_pathfinding(&self.provider.profile)
+            .map_err(|error| match error {
+                benilla_world_runtime::native::NativeError::AuthorityUnavailable(_) => {
+                    Failure::MissingGeometry
+                }
+                _ => Failure::Binding,
+            })?
+            .clone();
+        observe(Observation::OwnerIgnorePathfinding(&receipt, first_ticket));
+        require_time(deadline)?;
+        Ok(receipt)
     }
     fn observe_tiles(
         &self,
@@ -484,14 +533,15 @@ pub(crate) fn geometry_revision(
         configuration.point_configuration(),
     )?;
     let mut hash = Sha256::new();
-    hash.update(b"benilla-source-warm-straight-loaded-tile-retry-dependency-v2");
+    hash.update(b"benilla-source-warm-straight-owned-ignore-pathfinding-tile-retry-dependency-v3");
     hash.update(point);
     hash.update(SOURCE_WARM_STRAIGHT_PATH_POLICY.to_le_bytes());
     hash.update(benilla_native_nav::SOURCE_TILE_PRESENCE_POLICY.to_le_bytes());
     hash.update(CREATURE_COLLISION_WIDTH_POLICY.as_bytes());
+    hash.update(OWNER_IGNORE_PATHFINDING_POLICY.as_bytes());
     hash.update(benilla_sim::creature_init::CREATURE_COLLISION_WIDTH_POLICY_ID.as_bytes());
     hash.update(
-        b"loaded-start-then-end-HaveTile-before-retained-ground-dry-updateFilter-each-calculate-original-goal-terminal-cache-type",
+        b"coordinates-then-runtime-owned-ignore-pathfinding-clear-then-loaded-start-end-HaveTile-before-retained-ground-dry-updateFilter-each-calculate-original-goal-terminal-cache-type",
     );
     for value in [
         configuration.budget.lookup_primitives,
