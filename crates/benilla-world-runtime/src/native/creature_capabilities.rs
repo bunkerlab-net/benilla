@@ -302,6 +302,8 @@ pub enum AllowedPositionZBranch {
 pub struct CreatureNearPointRequest {
     pub request: benilla_sim::creature_motion::NearPointRequest,
     pub searcher: CreatureCapabilityWitness,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub target_player_height: Option<PlayerCollisionHeightTarget>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,6 +311,8 @@ pub struct CreatureNearPointRequest {
 pub struct CreatureRouteRequest {
     pub request: benilla_sim::creature_motion::RouteRequest,
     pub owner: CreatureCapabilityWitness,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub target_player_height: Option<PlayerCollisionHeightTarget>,
     /// Frozen current-generation width; absent until a genuine model selection exists.
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     pub collision_width: Option<CreatureCollisionWidthWitness>,

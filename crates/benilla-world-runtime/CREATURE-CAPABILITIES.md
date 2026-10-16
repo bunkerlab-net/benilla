@@ -118,7 +118,7 @@ guessed config or dry fallback is supplied.
 
 ## Persistence and checks
 
-Native format 25 (`benilla-native-initial-model-height-v25`) binds the typed route owner
+Native format 26 (`benilla-native-initial-player-model-height-v26`) binds the typed route owner
 transcript through profile, state, record, checkpoint and source-action digest
 domains. Format 21 and earlier saves/records are rejected rather than rewriting
 `Spatial(Route)` receipts or inventing an owner witness. The original fixture

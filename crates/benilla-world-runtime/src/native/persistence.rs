@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v25\0", self)
+        crate::digest(b"benilla-native-record-v26\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +53,8 @@ struct NpcState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StateCheckpoint {
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    source_player_collision_height: Option<player_collision_height::PlayerCollisionHeightSnapshot>,
     admin: AdminState,
     player_slow: Option<player_slow::PlayerSlowSnapshot>,
     player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,
@@ -208,10 +210,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v25\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v26\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v25\0",
+                    b"benilla-native-checkpoint-v26\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -223,6 +225,10 @@ impl Checkpoint {
 }
 pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> StateCheckpoint {
     StateCheckpoint {
+        source_player_collision_height: state
+            .source_player_collision_height
+            .as_ref()
+            .map(PlayerCollisionHeightState::snapshot),
         admin: state.admin.clone(),
         player_slow: state.player_slow.as_ref().map(PlayerSlowState::snapshot),
         player_movement_flags: state.player_movement_flags,
@@ -327,8 +333,14 @@ impl NativeWorld {
         state: &State,
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
+        PlayerCollisionHeightState::validate_optional(
+            state.source_player_collision_height.as_ref(),
+            &self.profile,
+            state.world,
+            state.player,
+        )?;
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v25\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v26\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -338,7 +350,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v25\0",
+            b"benilla-native-checkpoint-v26\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -366,10 +378,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v25\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v26\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v25\0",
+                    b"benilla-native-checkpoint-v26\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -758,6 +770,12 @@ impl NativeWorld {
             _ => return Err(NativeError::InvalidCheckpoint),
         };
         let state = State {
+            source_player_collision_height: PlayerCollisionHeightState::restore(
+                s.source_player_collision_height,
+                &profile,
+                s.world,
+                s.player,
+            )?,
             admin: s.admin,
             player_slow,
             player_movement_flags: s.player_movement_flags,
@@ -900,9 +918,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v25\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v26\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v25\0",
+            b"benilla-native-checkpoint-v26\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

@@ -35,6 +35,9 @@ pub mod npc_melee;
 /// Bounded source-derived player death and corpse lifecycle.
 pub mod player_death;
 
+/// Bounded source-derived initial player model scale and collision height.
+pub mod player_model;
+
 /// Source-derived strongest-negative player speed rates and movement-mode selection.
 pub mod player_slow;
 

@@ -15,3 +15,6 @@ crates/benilla-sim/tests/fixtures/creature_capabilities_cmangos.test-fixture tex
 # License digest and multiline dispatch source contract are exact LF inputs.
 crates/benilla-sim/src/source_atan/GLIBC-LICENSE.txt text eol=lf
 crates/benilla-sim/src/creature_motion/state.rs text eol=lf
+
+# Player model oracle is an exact-byte numeric fixture.
+crates/benilla-sim/tests/fixtures/player_model_cmangos.test-fixture text eol=lf

@@ -90,6 +90,7 @@ pub struct InitialAuraMetadata {
 /// Only the source initializer can construct this value. It is not an admission token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CombatGenesis {
+    pub(super) starter_identity: PlayerStarterIdentity,
     pub(super) stats: CharacterStats,
     pub(super) initial_health: u32,
     pub(super) initial_mana: u32,
@@ -135,6 +136,9 @@ impl Profile {
         durability_hit_chance: spell::SpellFloat,
         defense_gain: u16,
     ) -> Result<(), NativeError> {
+        if self.player_collision_height.is_some() {
+            self.validate()?;
+        }
         let mut next = self.clone();
         next.initialize_player_inner(input, durability_hit_chance, defense_gain)?;
         *self = next;
@@ -251,6 +255,11 @@ impl Profile {
         self.player.normal_mana_per_second = stats.normal_regen;
         self.player.interrupted_mana_per_second = stats.interrupted_regen;
         self.combat = Some(CombatGenesis {
+            starter_identity: PlayerStarterIdentity {
+                race: input.race,
+                class: input.class,
+                gender: input.gender,
+            },
             stats,
             initial_health: mage.resources.health,
             initial_mana: mage.resources.mana,

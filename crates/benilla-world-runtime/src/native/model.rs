@@ -87,6 +87,7 @@ pub struct Profile {
     pub creature_capabilities: Option<CreatureCapabilityCatalog>,
     pub creature_collision_widths: Option<CreatureCollisionWidthCatalog>,
     pub creature_collision_heights: Option<CreatureCollisionHeightCatalog>,
+    pub player_collision_height: Option<PlayerCollisionHeightSource>,
     pub interactions: Option<InteractionCatalog>,
     pub quest_progression: Option<QuestProgressionGenesis>,
     pub combat: Option<CombatGenesis>,
@@ -103,7 +104,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v25\0",
+            b"benilla-native-profile-v26\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -165,6 +166,9 @@ impl Profile {
         }
         if let Some(catalog) = &self.creature_collision_heights {
             catalog.validate(self)?;
+        }
+        if let Some(source) = &self.player_collision_height {
+            source.validate(self)?;
         }
         let p = &self.player;
         if self.content_digest == [0; 32]
@@ -303,6 +307,7 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) source_player_collision_height: Option<PlayerCollisionHeightState>,
     pub admin: AdminState,
     pub player_slow: Option<PlayerSlowState>,
     pub player_movement_flags: Option<benilla_sim::creature_motion::GroundMovementFlags>,

@@ -201,7 +201,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 25. This is not production content
+and native simulation checkpoint/record format 26. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request
@@ -209,5 +209,5 @@ Bearing, mutual melee arcs and caster spell facing derivation with pinned
 software numeric policy. Other spatial dependencies remain external.
 
 See [initial NPC collision-height ownership](CREATURE-COLLISION-HEIGHT.md) for the
-explicit native25 height catalog derived from the retained width/model source,
+explicit native26 height catalog derived from the retained width/model source,
 atomic motion-height initialization, generation ownership and persistence boundary.

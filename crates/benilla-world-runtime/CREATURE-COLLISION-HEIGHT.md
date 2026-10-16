@@ -48,16 +48,18 @@ is implemented, respawn clears both initial width and height ownership. Later
 NPC generations cannot reuse or relabel generation-zero height. Height-independent
 routes continue with explicit `None`.
 
-Native format **25**, policy `benilla-native-initial-model-height-v25`, retains
+Native format **26**, policy `benilla-native-initial-player-model-height-v26`, retains
 optional profile height catalog, checkpoint `source_collision_height`, and typed
 Route `collision_height`. Every serialized optional field must exist, using
 explicit null for absence. Profile/state/record/checkpoint/melee digest domains
-are v25; native24 and every earlier experimental format are rejected without
+are v26; native25 and every earlier experimental format are rejected without
 migration defaults. OriginalFixture v2 and character/profile transports are
 unchanged. Native admission remains uninhabited.
 
-This owns initial NPC height only. Source player collision height, current
-forms/mounts/scales, Chase vertical-gate provenance, full Route production and a
+This path owns initial NPC height only. Current forms/mounts/scales, cached player
+water state, Chase vertical-gate provenance, full Route production and a
 private artifact compiler are not supplied. Runtime/controller tests use authored
 Plan inputs and MPQ/DBC bytes through the real loader; they establish the bounded
 ownership mechanism, not authenticated source completeness or playable admission.
+
+Player initial-model ownership is a separate optional path; see [Player collision height](PLAYER-COLLISION-HEIGHT.md). It does not enable cached water or full Route consumers.

@@ -26,8 +26,8 @@ mod characters;
 pub use characters::{
     equip_blits, equip_column, equip_region_candidates, equip_tex_dir, equip_tile, forearm_dressed,
     BlitSource, CharCreateCatalog, CharSections, CharacterGeosets, ChrRaceRow, CompositePlan,
-    DialRanges, EmblemLayer, EquipBlit, EquipGeosets, GuildEmblem, NameGenRow, StartOutfitItem,
-    VisibleGeosets,
+    DialRanges, EmblemLayer, EquipBlit, EquipGeosets, GuildEmblem, NameGenRow,
+    NativePlayerDisplayRow, StartOutfitItem, VisibleGeosets,
 };
 mod camera_shakes;
 mod cinematics;
@@ -930,3 +930,8 @@ mod tests {
         let _ = std::fs::remove_file(&out);
     }
 }
+
+// Authored MPQ fixtures share the permissive reader's test-only encoder.
+#[cfg(test)]
+#[path = "../../benilla-mpq/src/crypto.rs"]
+mod authored_mpq_crypto;

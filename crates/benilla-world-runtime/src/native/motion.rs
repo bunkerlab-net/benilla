@@ -239,10 +239,31 @@ impl NpcMotion {
         {
             return Err(NativeError::InvalidCheckpoint);
         }
-        // A retained spline must carry the same NPC scalar used by the runtime
-        // when it created the route, including profiles without height ownership.
+        // Source dispatch passes None only for Home; every Chase/Backpedal uses
+        // Some(player). Preserve that presence and both owners' original bounds.
         if s.motion.spline.as_ref().is_some_and(|spline| {
             spline.route_request.owner_collision_height != g.npc_policy.settings.collision_height
+                || matches!(
+                    spline.route_request.kind,
+                    motion::RouteKind::HomeForceDestination
+                ) != spline.route_request.target.is_none()
+                || !matches!(
+                    (spline.route_request.kind, spline.facing),
+                    (
+                        motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan,
+                        motion::Facing::Target(SOLO_UNIT)
+                    ) | (motion::RouteKind::Backpedal, motion::Facing::Tangent)
+                        | (
+                            motion::RouteKind::HomeForceDestination,
+                            motion::Facing::Angle(_)
+                        )
+                )
+                || spline.route_request.target.as_ref().is_some_and(|target| {
+                    target.id != SOLO_UNIT
+                        || target.collision_height != g.player_collision_height
+                        || target.bounding_radius != profile.player.bounding_radius
+                        || target.combat_reach != profile.player.combat_reach
+                })
         }) {
             return Err(NativeError::InvalidCheckpoint);
         }

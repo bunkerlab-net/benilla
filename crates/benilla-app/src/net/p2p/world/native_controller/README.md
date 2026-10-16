@@ -130,7 +130,7 @@ a later independent scalar change invalidates the selected profile.
 Generation-zero NPC state owns both source-bound width and height witnesses. The
 real controller Chase and moving-target replan freeze both in the typed Route
 request; height validation checks the shared model source, profile, generation
-and exact `owner_collision_height`. Native format 25 retains the witness through
+and exact `owner_collision_height`. Native format 26 retains the witness through
 checkpoint, journal replay and reopen. A missing schema field fails to decode;
 explicit null denotes an unavailable dependency. Initial receipts survive corpse
 reopen but are cleared at respawn, and relabeling one cannot authorize a later
@@ -142,9 +142,33 @@ failed-save retry and reopen. Forged scalar, model, source, profile, generation 
 missing dependency echoes cannot mutate, persist or publish a tick. Changed or
 stale catalogs cannot reopen or rewrite the saved world. The successful spatial
 answers remain explicitly `SyntheticFixture`, including player movement and
-routes. These tests establish initial NPC model-height ownership only; player
-height, complete source Route production, actual geometry and native production
-admission remain unproven.
+routes. These tests establish initial NPC model-height ownership; complete source
+Route production, actual geometry and native production admission remain unproven.
+
+## Initial player collision height
+
+The optional initial-player source is selected from the identity retained by the
+real successful `StarterInput` initializer, strict MPQ-loaded `ChrRaces` selection,
+and the actual loaded CDI/CMD rows. It retains the raw scale operands and derives
+stored object scale, the exact-zero getter repair, and collision height separately.
+Callers cannot supply a final height or substitute NPC width, player radius or a
+renderer model. Selecting the source atomically derives the player motion scalar;
+edited scalars, changed source catalogs and a different starter identity fail closed.
+
+The actual controller freezes the selected player's world/character identity,
+source binding and exact sampled target pose, flags and dimensions into typed
+NearPoint and Route requests. Native format 26 retains ownership through journal
+replay, checkpoint and reopen. Tests exercise chase and moving-target replan,
+source/identity/pose/height/width echo forgery, atomic controller/store/projection
+failure, exact authority retry, single publication after a store retry, and both
+signed-zero scale-getter and raw-height fallback cases. Recomputed checkpoint
+hashes cannot authorize a changed retained-spline target height, identity or body
+bounds; a valid historical target pose may differ from the player's current pose.
+
+All fixture DBC/MPQ bytes are authored, successful spatial responses remain
+`SyntheticFixture`, and only initial unshapeshifted player ownership is covered.
+These tests supply neither a production reader/admission proof nor real geometry,
+server-row completeness, transforms, shapeshift, mounts or later model mutation.
 
 ## Commands and movement orders
 

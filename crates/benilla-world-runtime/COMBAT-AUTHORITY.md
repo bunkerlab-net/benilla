@@ -92,8 +92,8 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 25 and
-`benilla-native-initial-model-height-v25`, with separate v25 profile, state,
+This profile/receipt contract uses native format 26 and
+`benilla-native-initial-player-model-height-v26`, with separate v26 profile, state,
 record, checkpoint and melee-action/chain hash domains. Published native formats 9, 10 and 11
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source

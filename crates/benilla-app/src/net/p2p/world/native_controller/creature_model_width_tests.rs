@@ -199,7 +199,7 @@ fn initial_model_width_binds_controller_chase_replan_replay_and_reopen() {
     let events = pump_to(&mut c, 2);
     let records = n::decode_records(&n::encode_records(c.world.records()).unwrap()).unwrap();
     assert_eq!(records, c.world.records());
-    assert!(records.iter().all(|record| record.version == 25));
+    assert!(records.iter().all(|record| record.version == 26));
     let reply = records
         .iter()
         .flat_map(|record| &record.replies)

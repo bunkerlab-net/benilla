@@ -277,8 +277,8 @@ fn encrypt(words: &mut [u32], mut key: u32) {
             .wrapping_add(3);
     }
 }
-fn archive(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
-    let slots = 8_u32;
+pub(super) fn archive(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    let slots = 16_u32;
     let hash_pos = 32_u32;
     let block_pos = hash_pos + slots * 16;
     let mut data_pos = block_pos + entries.len() as u32 * 16;

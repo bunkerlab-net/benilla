@@ -13,6 +13,12 @@ struct Spatial<'a, 'b, A: Authority> {
 impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
     fn resolve(&mut self, query: &m::Query) -> Result<m::Reply, m::MotionError> {
         if let m::Query::Route(request) = query {
+            if matches!(request.kind, m::RouteKind::HomeForceDestination)
+                != request.target.is_none()
+            {
+                self.failure = Some(NativeError::AuthorityBinding);
+                return Err(m::MotionError::Invalid("route player target presence"));
+            }
             if let Some(cache) = &request.prior_cache {
                 if let Err(error) = self.validate_cache_owner(cache) {
                     self.failure = Some(error);
@@ -39,17 +45,34 @@ impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
                 ));
             }
         }
+        let target = match query {
+            m::Query::NearPoint(q) => Some(&q.target),
+            m::Query::Route(q) => q.target.as_ref(),
+            _ => None,
+        };
+        let target_player_height = match target
+            .map(|target| self.frame.player_target_height(target))
+            .transpose()
+        {
+            Ok(witness) => witness.flatten(),
+            Err(error) => {
+                self.failure = Some(error);
+                return Err(m::MotionError::Invalid("player target model binding"));
+            }
+        };
         let query = match (query, &self.capabilities) {
             (m::Query::NearPoint(request), Some(searcher)) => {
                 MotionQuery::NearPoint(CreatureNearPointRequest {
                     request: request.clone(),
                     searcher: searcher.clone(),
+                    target_player_height: target_player_height.clone(),
                 })
             }
             (m::Query::Route(request), Some(owner)) => {
                 MotionQuery::Route(Box::new(CreatureRouteRequest {
                     request: request.clone(),
                     owner: owner.clone(),
+                    target_player_height: target_player_height.clone(),
                     collision_width: self.collision_width.clone(),
                     collision_height: self.collision_height.clone(),
                     // Motion dispatch builds origin from its executing map_pose after
@@ -144,8 +167,40 @@ impl<A: Authority> Frame<'_, A> {
                 .ok_or(NativeError::InvalidState)?,
             combat_reach: self.profile.player.combat_reach,
             bounding_radius: self.profile.player.bounding_radius,
-            collision_height: g.player_collision_height,
+            collision_height: match self.state.source_player_collision_height.as_ref() {
+                Some(source) => {
+                    PlayerCollisionHeightState::validate_optional(
+                        Some(source),
+                        self.profile,
+                        self.state.world,
+                        self.state.player,
+                    )?;
+                    ai::Real::from_bits(source.witness().height().bits())?
+                }
+                None => {
+                    PlayerCollisionHeightState::validate_optional(
+                        None,
+                        self.profile,
+                        self.state.world,
+                        self.state.player,
+                    )?;
+                    g.player_collision_height
+                }
+            },
         })
+    }
+    fn player_target_height(
+        &self,
+        target: &m::Target,
+    ) -> Result<Option<PlayerCollisionHeightTarget>, NativeError> {
+        if target != &self.source_target()? {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(self
+            .state
+            .source_player_collision_height
+            .as_ref()
+            .map(|source| PlayerCollisionHeightTarget::new(source, *target)))
     }
     fn source_input(&self, npc: &Npc) -> Result<m::UnitInputs, NativeError> {
         let p = self

@@ -122,7 +122,7 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 25, `benilla-native-initial-model-height-v25`, with v25 profile/state/
+format 26, `benilla-native-initial-player-model-height-v26`, with v26 profile/state/
 record/checkpoint/action hash domains. Published formats 10 through 19 reject without an
 implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace

@@ -42,9 +42,9 @@ fn rehashed(w: &NativeWorld, edit: impl FnOnce(&mut serde_json::Value)) -> Check
     let mut state = serde_json::to_value(&c.state).unwrap();
     edit(&mut state);
     c.state = serde_json::from_value(state).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v25\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v26\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v25\0",
+        b"benilla-native-checkpoint-v26\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -494,11 +494,11 @@ fn height_independent_routes_need_explicit_none_and_never_default_missing_schema
 }
 
 #[test]
-fn native24_and_all_earlier_checkpoints_records_and_replay_are_refused() {
+fn native25_and_all_earlier_checkpoints_records_and_replay_are_refused() {
     let mut w = world(profile());
     let initial = w.checkpoint().unwrap();
     step(&mut w, &mut motion::SyntheticMotionAuthority::default());
-    for version in 0..25 {
+    for version in 0..26 {
         let mut old = serde_json::to_value(&initial).unwrap();
         old["version"] = version.into();
         old["state"]["version"] = version.into();
@@ -517,7 +517,7 @@ fn native24_and_all_earlier_checkpoints_records_and_replay_are_refused() {
         assert!(replay.replay(&records).is_err());
         assert_eq!(replay.checkpoint().unwrap(), initial);
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 25);
+    assert_eq!(NATIVE_FORMAT_VERSION, 26);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

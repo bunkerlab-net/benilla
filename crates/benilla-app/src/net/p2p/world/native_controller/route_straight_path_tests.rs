@@ -624,7 +624,7 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
             assert_eq!(cache.active_len, 2);
             let records =
                 n::decode_records(&n::encode_records(c.world.records()).unwrap()).unwrap();
-            assert!(records.iter().all(|record| record.version == 25));
+            assert!(records.iter().all(|record| record.version == 26));
             let first = route_reply(&records);
             let first_route = route_query(&first.request).unwrap();
             let width = assert_width(first_route, &data);

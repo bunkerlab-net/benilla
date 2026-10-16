@@ -5,9 +5,7 @@ use super::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-// Reuse the permissive MPQ crate's test-only encoder rather than another crypto algorithm.
-#[path = "../../../benilla-mpq/src/crypto.rs"]
-mod crypto;
+use crate::authored_mpq_crypto as crypto;
 
 const MODEL_STRINGS: &[u8] = b"\0Authored\\HeightFixture.mdx\0";
 

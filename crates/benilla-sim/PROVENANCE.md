@@ -717,3 +717,15 @@ XY/trig profile accepts raw angles from -PI through binary32(TAU+PI), without
 changing existing initial-candidate or VMap policies. These are numerical
 prerequisites only; sequential loaded-height/LOS fallback composition, complete
 OwnerPathFinder behavior and production admission remain separate.
+
+## Initial player model scale and collision height
+
+[`player_model`](PLAYER-MODEL.md) translates fresh player `InitDisplayIds`,
+`GetNativeScale`, initial field-setter semantics, `GetObjectScale` and
+`GetCollisionHeight` from the pinned CMaNGOS Classic revision. Raw scale product,
+fresh stored scale and effective getter scale remain distinct; software binary32
+rounds scale and height products separately. Source copyright CMaNGOS Project
+contributors, GPL-2.0-or-later; translation and authored host GPL-3.0-or-later.
+Complete normalized source hashes, unchanged source-extracted oracle, numeric
+domain and lifecycle exclusions are linked in the contract. The arithmetic
+receipt is neither loaded-data provenance nor runtime/native-world admission.

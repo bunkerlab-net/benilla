@@ -980,6 +980,9 @@ mod creature_model_width_tests;
 #[path = "creature_model_height_tests.rs"]
 mod creature_model_height_tests;
 
+#[path = "player_model_height_tests.rs"]
+mod player_model_height_tests;
+
 #[path = "near_point_primary_tests.rs"]
 mod near_point_primary_tests;
 
