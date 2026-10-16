@@ -33,7 +33,7 @@ pub fn source(p: &Profile) -> SpellAuthorityInput {
             w[18] = 901;
             w[19] = s.recovery_ms;
             w[20] = s.category_recovery_ms;
-            w[21] = u32::from(s.damage_pushback) * 2 + u32::from(s.movement_interrupts) * 8;
+            w[21] = u32::from(s.damage_pushback) * 2 + u32::from(s.movement_interrupts);
             w[32] = s.mana_cost;
             w[36] = 902;
             w[37] = s.projectile_speed.bits();

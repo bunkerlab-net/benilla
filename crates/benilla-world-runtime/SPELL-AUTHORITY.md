@@ -21,6 +21,41 @@ world-boss target-level overrides and partial-resistance paths remain excluded.
 Historical source-authority preparation/release/aura witnesses use the same
 level-60 ceiling, including after reload.
 
+### Interrupt flag boundary
+
+SpellEntry word 21 is `InterruptFlags`, distinct from words 22/23's aura/channel
+flags. The pinned `SpellDefines.h:351–357` defines movement as `0x01`, player
+damage pushback as `0x02`, stun as `0x04`, combat as `0x08`, and player damage
+cancellation as `0x10`. Only movement and pushback, independently or together,
+are admitted here. `Spell::update` (`Spell.cpp:3537–3547`) tests the movement bit
+on position change; `Spell::Delayed` (`6812`) tests the pushback bit.
+
+Every other bit rejects before catalog installation. In particular, `0x08` is
+not movement: `Spell.h:589` and `Spell.cpp:3446–3453` use it to reset mainhand
+and applicable offhand timers; `Spell.cpp:7474` also uses it for interruptibility.
+Those source callbacks are not supplied by this spell host. The source labels
+`0x04` unimplemented pending research; rejection makes no claim that stun
+semantics are inert. `0x10` selects the distinct damage-cancel branch in
+`Unit.cpp:1284–1287` and remains excluded from selected spell authority even
+though the unselected generic combat component has a separate implementation.
+Unknown bits reject as well. Actual Fireball's `0x0f` mask is therefore still
+unsupported; this correction does not admit its other raw fields or content.
+
+The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v4`.
+It is serialized into the selected Profile digest. Old v3 catalogs fail profile
+validation, and old selected-profile checkpoint/record identities fail restore
+and replay, including after recomputing native35 outer hashes. This also rejects
+old contexts whose raw flags were zero and only the policy changed. There is no
+defaulted migration or interpretation of old `0x08` as movement. Global native
+format 35 stays unchanged: unselected profiles have no spell-authority catalog,
+and their execution, state format and identity inputs are unchanged.
+
+The interrupt regressions cover all 32 combinations of defined bits, each
+unsupported bit through bit 31 combined with every supported mask, all raw/spec
+boolean pairs, transactional initialization failure, actual scheduled movement
+and turn handling, and NPC damage/pushback plus replay and checkpoint restore.
+These authored fixtures are not a stock Fireball or full C++ lifecycle oracle.
+
 ## Raw closure and ownership
 
 Inputs retain all 173 numeric SpellEntry words **after spell_template overrides**,

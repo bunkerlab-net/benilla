@@ -7,7 +7,7 @@ fn world(distance: f32) -> n::NativeWorld {
     let (mut profile, mut initial, mut rows) = source::inputs();
     profile.npcs[0].ai.spawn = f::point(distance);
     rows.spells[0].range.minimum = f::float(5.0);
-    rows.spells[0].words[21] &= !8;
+    rows.spells[0].words[21] &= !1;
     initial.spells[0].words[21] = rows.spells[0].words[21];
     let n::AbilityAdmission::Available(spec) = &mut profile.abilities[0].admission else {
         unreachable!()

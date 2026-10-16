@@ -56,7 +56,7 @@ fn profile(minimum: f32, maximum: f32, distance: f32, cost: u32) -> n::Profile {
     rows.spells[0].range.minimum = fixture::float(minimum);
     rows.spells[0].range.maximum = fixture::float(maximum);
     // Authored raw variant permits moving the caster between real source phases.
-    rows.spells[0].words[21] &= !8;
+    rows.spells[0].words[21] &= !1;
     rows.spells[0].words[32] = cost;
     initial.spells[0].words[21] = rows.spells[0].words[21];
     initial.spells[0].words[32] = cost;

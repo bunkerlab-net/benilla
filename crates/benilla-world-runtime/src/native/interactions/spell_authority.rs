@@ -7,8 +7,15 @@ use super::*;
 use benilla_sim::starter_init as init;
 use std::collections::BTreeSet;
 
-pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v3";
+#[cfg(test)]
+#[path = "spell_interrupt_tests.rs"]
+mod interrupt_tests;
+
+pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v4";
 const CANT_CRIT: u32 = 0x2000_0000;
+// SpellDefines.h:351–357. Aura/channel interrupt flags are different enums.
+const INTERRUPT_MOVEMENT: u32 = 0x01;
+const INTERRUPT_DAMAGE_PUSHBACK: u32 = 0x02;
 
 /// Complete applicable source rows, including an observed empty result. Unknown
 /// is never absence. These data inputs are not a raw-producer certification.
@@ -543,8 +550,15 @@ impl SpellAuthoritySource {
                 ));
             }
         }
+        // STUN (0x04) is unimplemented in the pinned core. COMBAT (0x08)
+        // resets melee timers and gates interruptibility; it is not movement.
+        // DAMAGE_CANCELS (0x10) and unknown flags also remain outside this host.
+        if w[21] & !(INTERRUPT_MOVEMENT | INTERRUPT_DAMAGE_PUSHBACK) != 0 {
+            return Err(NativeError::UnsupportedMechanic(
+                "raw spell interrupt lifecycle",
+            ));
+        }
         if !matches!(w[13], 0 | 2)
-            || w[21] & !0x0a != 0
             || w[58] != u32::MAX
             || w[40..58].iter().any(|x| *x != 0)
             || w[165] > 1
@@ -552,7 +566,7 @@ impl SpellAuthoritySource {
             || self.facing_flags & !1 != 0
         {
             return Err(NativeError::UnsupportedMechanic(
-                "raw spell item, interrupt or targeting constraint",
+                "raw spell item or targeting constraint",
             ));
         }
         // Positive source-audited ID boundary, not an incomplete denylist of
@@ -674,8 +688,8 @@ impl SpellAuthoritySource {
             || w[37] != spec.projectile_speed.bits()
             || w[157] != spec.global_category
             || w[158] != spec.global_recovery_ms
-            || (w[21] & 8 != 0) != spec.movement_interrupts
-            || (w[21] & 2 != 0) != spec.damage_pushback
+            || (w[21] & INTERRUPT_MOVEMENT != 0) != spec.movement_interrupts
+            || (w[21] & INTERRUPT_DAMAGE_PUSHBACK != 0) != spec.damage_pushback
             || spell::cast_time(
                 self.cast_time.base_ms,
                 self.cast_time.per_level_ms,
