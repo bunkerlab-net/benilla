@@ -169,6 +169,28 @@ impl SourceRouteFilterProvider {
         Self::bind_revision(session, profile, snapshot, expected)
     }
 
+    /// Exact Chase composition, still restricted to the existing ground/dry owner.
+    pub(super) fn bind_with_chase_gate(
+        session: &Session,
+        profile: &Profile,
+        snapshot: DryLiquidSnapshot,
+        navigation: super::products::navigation::SnapshotBinding,
+        vmap: super::products::vmap::SnapshotBinding,
+        configuration: super::source_route_chase_gate::ChaseGateConfiguration,
+    ) -> Result<Self, Failure> {
+        let expected = super::source_route_chase_gate::geometry_revision(
+            snapshot.binding(),
+            navigation,
+            vmap,
+            configuration,
+        )?;
+        Self::bind_revision(session, profile, snapshot, expected)
+    }
+
+    pub(super) fn dry_liquid(&self) -> &DryLiquidSnapshot {
+        &self.snapshot
+    }
+
     fn bind_revision(
         session: &Session,
         profile: &Profile,
@@ -222,6 +244,7 @@ impl SourceRouteFilterProvider {
             || session.static_los != self.session.static_los
             || session.primary_near_point != self.session.primary_near_point
             || session.empty_selector_near_point != self.session.empty_selector_near_point
+            || session.player_environment != self.session.player_environment
         {
             return Err(Failure::Binding);
         }

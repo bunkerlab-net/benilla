@@ -646,3 +646,26 @@ fn corrupt_or_missing_area_bytes_fail_without_publishing_a_snapshot() {
         .is_err());
     assert_eq!(old.query(request, deadline()).unwrap(), expected);
 }
+
+#[test]
+fn forged_dry_projection_proof_fields_or_tile_set_cannot_load_navigation() {
+    let products = super::super::dry_route::tests::products();
+    for field in 0..7 {
+        let mut proof = products.inventory.load_dry_liquid().unwrap();
+        match field {
+            0 => proof.binding.map += 1,
+            1 => proof.binding.content[0] ^= 1,
+            2 => proof.binding.source_epoch[0] ^= 1,
+            3 => proof.binding.inventory[0] ^= 1,
+            4 => proof.binding.policy[0] ^= 1,
+            5 => proof.tiles.clear(),
+            _ => {
+                proof.tiles.insert(TileId { x: 31, y: 31 });
+            }
+        }
+        assert!(matches!(
+            products.inventory.load_dry_route_navigation(&proof),
+            Err(Error::Identity)
+        ));
+    }
+}

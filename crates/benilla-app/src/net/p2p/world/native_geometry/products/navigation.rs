@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Loaded dry MMap query product. Successful routes describe this snapshot only.
-use super::{Error, Hash, InventoriedProducts, ProductId};
+use super::{liquid::DryLiquidSnapshot, Error, Hash, InventoriedProducts, ProductId};
 use benilla_native_nav::{
     LoadedSourceSmooth, Mesh, Route, SourceOwnerFilter, SourceSmoothingBudget,
     SourceSmoothingError, TileInput,
@@ -198,6 +198,30 @@ impl InventoriedProducts {
         {
             return Err(Error::Unsupported);
         }
+        self.load_ground_navigation(b"benilla-pinned-dry-detour-nearest-sliced-funnel-v1", None)
+    }
+
+    /// Separate opt-in path; possession of a matching actual-byte dry proof is
+    /// mandatory. Never relabel these products as a conservative inventory.
+    pub(super) fn load_dry_route_navigation(
+        &self,
+        proof: &DryLiquidSnapshot,
+    ) -> Result<NavigationSnapshot, Error> {
+        if !self.vmap_liquid_profile {
+            return Err(Error::Unsupported);
+        }
+        proof.verify_inventory(self)?;
+        self.load_ground_navigation(
+            b"benilla-pinned-detour-complete-dry-liquid-projection-v1",
+            Some(proof.binding().policy),
+        )
+    }
+
+    fn load_ground_navigation(
+        &self,
+        policy: &[u8],
+        dry_proof: Option<Hash>,
+    ) -> Result<NavigationSnapshot, Error> {
         let params = self.inventoried_bytes(self.map, &ProductId::MmapParams)?;
         let mut tiles = Vec::new();
         for (id, p) in &self.products {
@@ -217,10 +241,13 @@ impl InventoriedProducts {
             _ => Error::Format,
         })?;
         let mut hash = Sha256::new();
-        hash.update(b"benilla-pinned-dry-detour-nearest-sliced-funnel-v1");
+        hash.update(policy);
         hash.update(self.revision());
         hash.update(super::SOURCE_PIN);
         hash.update(super::DETOUR_TREE);
+        if let Some(proof) = dry_proof {
+            hash.update(proof);
+        }
         Ok(NavigationSnapshot {
             binding: SnapshotBinding {
                 map: self.map,

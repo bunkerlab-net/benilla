@@ -1209,3 +1209,6 @@ fn loaded_short_alone_keeps_retry_absent_and_does_not_publish_cleared_terminal_c
     assert!(seen[0].fallback.is_none());
     assert!(retained(&c).active_len > 0);
 }
+
+#[path = "route_chase_gate_tests.rs"]
+mod route_chase_gate_tests;

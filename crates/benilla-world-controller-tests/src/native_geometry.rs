@@ -99,3 +99,17 @@ mod source_player_environment;
 pub(crate) use products::authored_player_environment;
 #[cfg(test)]
 pub(crate) use source_player_environment::SourcePlayerEnvironmentProvider;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_chase_gate.rs"]
+mod source_route_chase_gate;
+
+#[cfg(test)]
+pub(crate) use products::dry_route::tests::{
+    environment as authored_dry_chase_environment,
+    snake_products as authored_dry_chase_snake_products,
+};
+#[cfg(test)]
+pub(crate) use source_route_chase_gate::{
+    geometry_revision as authored_chase_gate_revision, ChaseGateConfiguration, ChaseGateRejection,
+    ChaseGateRequest, ChaseGateSelection, SourceRouteChaseGateProvider,
+};

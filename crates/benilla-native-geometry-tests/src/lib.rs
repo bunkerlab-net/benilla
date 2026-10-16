@@ -139,3 +139,6 @@ mod production_item_order;
 
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_player_environment.rs"]
 mod source_player_environment;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_chase_gate.rs"]
+mod source_route_chase_gate;

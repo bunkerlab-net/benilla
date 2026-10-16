@@ -488,12 +488,61 @@ endpoint. A bridge error or unsupported source domain is not a source path resul
 and does not authorize a successful fallback. Neither attempt commits a runtime
 cache revision or publishes a Route fact.
 
-This dependency does not choose whether Chase may attempt straight movement. That
-source decision still needs its exact reach-expanded distance and vertical tests,
-owner-eye line of sight including M2 geometry, owner water and target water, in
-source order. Active allowed-Z normalization, transports, Home's fresh owner,
-cold-cache initialization and complete movement evidence remain separate. The
-production mailbox and native entry admission remain unchanged.
+This calculation dependency does not itself choose whether Chase may attempt
+straight movement. The separately selected loaded gate below supplies that choice.
+Active allowed-Z normalization, transports, Home's fresh owner, cold-cache
+initialization and complete movement evidence remain separate. The production
+mailbox and native entry admission remain unchanged.
+
+## Explicit dry Chase straight gate
+
+`SourceRouteChaseGateProvider` composes the pinned
+`TargetedMovementGenerator.cpp:502` selection with the existing warm straight
+calculation. `ChaseGateConfiguration` requires explicit enabled source LOS and
+normalization-disabled straight configuration; there is no default-enabled setting.
+This policy and the actual loaded VMap policy are hashed into a distinct revision.
+The selection and inventory hashes establish consistency, not certification of a
+producer's recorded effective configuration or a live source-epoch lease.
+
+Only `ChaseInitial` and `ChaseReplan` are accepted. The complete session, selected
+player environment, world/player identity, immutable profile, source owner generation,
+clock, current pose, route endpoints, full prior cache and configuration are frozen.
+The runtime's current-generation collision-width witness validates the retained
+model-selection receipt, including NPC combat reach. Owned NPC/player height
+witnesses supply the two eye heights; no free reach or height scalar is accepted.
+The model receipt and witnesses remain in the returned dependency evidence.
+
+The exact binary32 distance test is strict squared distance below
+`(200 + owner combat reach)^2`, followed by strict absolute Z difference below 5.
+Only after those pass does a real loaded static VMap ray run from the current owner
+plus its own height to the requested route goal plus the target's own height. The
+ray includes M2 (`ignore_m2=false`), unlike the existing spell/sight route. Independent
+non-render participant exclusion and the existing complete static-domain limits
+remain required; renderer rays and walking corridors cannot supply this answer.
+
+A clear ray is followed by the actual `DryLiquidSnapshot` query at the owner,
+recording source mask 15 and default liquid collision-height bits. Its actual
+full-inventory NO_WATER proof is not a caller boolean. General source NPC water
+means any nonzero terrain status, including ABOVE_WATER and WATER_WALK. Only then
+is `require_target_water` consumed: the target's current owned player-environment
+cache, which is never resampled at the target's position or at the route goal.
+Every rejection stops the remaining observations. The dependency returns typed
+`NormalRouteUnavailable(reason)` without inventing NOPATH or a normal route.
+
+Only a passed gate invokes warm straight calculation. LOS and owner-water use the
+first two tickets, followed by the existing seven-ticket calculate/retry range;
+overflow is rejected before observations. The gate's water result is not reused by
+`updateFilter`: fresh mask-15 then mask-10 owner observations still precede each
+calculate, including retry. Original filter bits, path cache storage, source goal
+and NOPATH-or-INCOMPLETE retry rules remain unchanged; SHORT alone never retries.
+The original opt-in product inventory is preserved by the separately named complete
+`DryRouteProjection`. The retained lineage must be minted on the very same loaded
+navigation handle later consumed by the provider; reloading identical inventory
+bytes does not transfer the native mesh capability. Wet navigation, cold-cache repair, transports, other route
+kinds, normalization, Route publication and native admission remain unavailable.
+The full calculate prefix also remains separate: a warm lookup is not proof of
+source nav-selection/ignore-pathfinding state or `HaveTile` at both endpoints.
+A nearby polygon can exist even when an endpoint tile is absent.
 
 ## Loaded player-environment observations
 

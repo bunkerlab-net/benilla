@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded GridMap liquid queries and the separate exact dry TerrainInfo proof.
 //! Not player environment state, accessibility, source authenticity or session admission.
-use super::{terrain::GRID_SIZE, Error, Hash, InventoriedProducts, ProductId, TileId};
+use super::{terrain::GRID_SIZE, vmap, Error, Hash, InventoriedProducts, ProductId, TileId};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, time::Instant};
 
@@ -42,6 +42,12 @@ pub(crate) struct DryLiquidSnapshot {
 }
 impl InventoriedProducts {
     pub(crate) fn load_dry_liquid(&self) -> Result<DryLiquidSnapshot, Error> {
+        self.load_dry_liquid_and_vmap().map(|(liquid, _)| liquid)
+    }
+
+    pub(super) fn load_dry_liquid_and_vmap(
+        &self,
+    ) -> Result<(DryLiquidSnapshot, vmap::VmapSnapshot), Error> {
         // The real VMap decoder rejects LIQU payloads, malformed/unknown models and
         // non-tiled/worldspawn domains. Require every tree slot, not only a ray's visits.
         let vmap = self.load_static_vmap()?;
@@ -60,23 +66,50 @@ impl InventoriedProducts {
         if tiles.is_empty() {
             return Err(Error::Missing);
         }
-        let source = vmap.binding();
-        let mut digest = Sha256::new();
-        digest.update(POLICY);
-        digest.update(source.policy);
-        Ok(DryLiquidSnapshot {
-            binding: SnapshotBinding {
-                map: source.map,
-                content: source.content,
-                source_epoch: source.source_epoch,
-                inventory: source.inventory,
-                policy: digest.finalize().into(),
+        Ok((
+            DryLiquidSnapshot {
+                binding: dry_binding(self),
+                tiles,
             },
-            tiles,
-        })
+            vmap,
+        ))
     }
 }
+
+fn dry_binding(products: &InventoriedProducts) -> SnapshotBinding {
+    let mut digest = Sha256::new();
+    digest.update(POLICY);
+    digest.update(vmap::dry_policy(products.revision()));
+    SnapshotBinding {
+        map: products.map,
+        content: products.content,
+        source_epoch: products.source_epoch,
+        inventory: products.revision(),
+        policy: digest.finalize().into(),
+    }
+}
+
 impl DryLiquidSnapshot {
+    /// Only the owning decoder can mint this capability. Recheck all identity and
+    /// policy fields before another reader projects its exact immutable inventory.
+    pub(super) fn verify_inventory(&self, products: &InventoriedProducts) -> Result<(), Error> {
+        if self.binding != dry_binding(products)
+            || self.tiles.is_empty()
+            || self.tiles
+                != products
+                    .products
+                    .keys()
+                    .filter_map(|id| match id {
+                        ProductId::Terrain(tile) => Some(*tile),
+                        _ => None,
+                    })
+                    .collect()
+        {
+            return Err(Error::Identity);
+        }
+        Ok(())
+    }
+
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
     }

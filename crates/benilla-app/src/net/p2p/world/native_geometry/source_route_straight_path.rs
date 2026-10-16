@@ -158,6 +158,41 @@ impl SourceRouteStraightPathProvider {
             configuration,
         })
     }
+    /// Only the typed loaded Chase gate may select its combined geometry policy.
+    pub(super) fn bind_with_chase_gate(
+        session: &Session,
+        profile: &Profile,
+        liquid: DryLiquidSnapshot,
+        navigation: NavigationSnapshot,
+        vmap: super::products::vmap::SnapshotBinding,
+        lineage: WarmCacheLineage,
+        configuration: super::source_route_chase_gate::ChaseGateConfiguration,
+    ) -> Result<Self, Failure> {
+        configuration.straight.validate()?;
+        if lineage.binding() != navigation.binding() {
+            return Err(Failure::Binding);
+        }
+        let filter = SourceRouteFilterProvider::bind_with_chase_gate(
+            session,
+            profile,
+            liquid,
+            navigation.binding(),
+            vmap,
+            configuration,
+        )?;
+        Ok(Self {
+            filter,
+            profile: profile.clone(),
+            navigation,
+            lineage,
+            configuration: configuration.straight,
+        })
+    }
+
+    pub(super) fn dry_liquid(&self) -> &DryLiquidSnapshot {
+        self.filter.dry_liquid()
+    }
+
     pub(crate) fn binding(&self) -> StraightPathBinding {
         StraightPathBinding {
             liquid: self.filter.binding(),

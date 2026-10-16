@@ -23,3 +23,10 @@ crates/benilla-sim/tests/fixtures/player_model_cmangos.test-fixture text eol=lf
 crates/benilla-sim/tools/hostile_reference_source/** text eol=lf
 crates/benilla-sim/tests/fixtures/hostile_reference_cmangos.test-fixture text eol=lf
 crates/benilla-world-runtime/tools/fixtures/water-aura-selection.tsv text eol=lf
+
+# Chase gate oracle source extraction and numeric fixture are exact LF inputs.
+crates/benilla-sim/tools/chase_gate_oracle.cpp text eol=lf
+crates/benilla-sim/tools/chase_gate_source_hashes.sha256 text eol=lf
+crates/benilla-sim/tools/generate_chase_gate_fixture.py text eol=lf
+crates/benilla-sim/tools/test_chase_gate_oracle.py text eol=lf
+crates/benilla-sim/tests/fixtures/chase_gate_cmangos.test-fixture text eol=lf

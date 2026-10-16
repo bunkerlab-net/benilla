@@ -12,6 +12,7 @@ mod source_navigation;
 mod source_near_point;
 mod source_near_point_empty;
 mod source_player_environment;
+mod source_route_chase_gate;
 mod source_route_filter;
 mod source_route_point_path;
 mod source_route_smoothing;
@@ -500,6 +501,17 @@ pub(crate) use products::navigation::tests::straight_ground_products as authored
 pub(crate) use products::authored_player_environment;
 #[cfg(test)]
 pub(crate) use source_player_environment::SourcePlayerEnvironmentProvider;
+
+#[cfg(test)]
+pub(crate) use products::dry_route::tests::{
+    environment as authored_dry_chase_environment,
+    snake_products as authored_dry_chase_snake_products,
+};
+#[cfg(test)]
+pub(crate) use source_route_chase_gate::{
+    geometry_revision as authored_chase_gate_revision, ChaseGateConfiguration, ChaseGateRejection,
+    ChaseGateRequest, ChaseGateSelection, SourceRouteChaseGateProvider,
+};
 
 #[cfg(test)]
 mod tests {

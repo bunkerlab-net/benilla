@@ -25,6 +25,13 @@ const MAX_SPAWNS: usize = 16_384;
 pub(crate) const MAX_QUERY_WORK: usize = 32_768;
 const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v2-glibc-2.41-bounded-trig";
 
+pub(super) fn dry_policy(inventory: Hash) -> Hash {
+    let mut hash = Sha256::new();
+    hash.update(POLICY);
+    hash.update(inventory);
+    hash.finalize().into()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SnapshotBinding {
     pub map: u32,
@@ -205,20 +212,21 @@ impl VmapSnapshot {
             .collect();
         tree.validate_bounds(&bounds)?;
         let inventory = products.revision();
-        let mut h = Sha256::new();
-        h.update(if allow_liquid {
-            b"benilla-static-vmap-liquid-geometry-v1-glibc-2.41-bounded-trig".as_slice()
+        let policy = if allow_liquid {
+            let mut h = Sha256::new();
+            h.update(b"benilla-static-vmap-liquid-geometry-v1-glibc-2.41-bounded-trig");
+            h.update(inventory);
+            h.finalize().into()
         } else {
-            POLICY
-        });
-        h.update(inventory);
+            dry_policy(inventory)
+        };
         Ok(Self {
             binding: SnapshotBinding {
                 map: products.map,
                 content: products.content,
                 source_epoch: products.source_epoch,
                 inventory,
-                policy: h.finalize().into(),
+                policy,
             },
             tree,
             models,

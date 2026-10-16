@@ -516,10 +516,11 @@ produces a privately owned `vmap::liquid::LiquidSnapshot`. The separately bound
 area and wet TerrainInfo readers below also use this opt-in inventory.
 There is no conversion into `InventoriedProducts` and no public access to its
 internal geometry. Existing inventory, static ray/height/location, dry liquid and TerrainInfo
-dry-VMap composite readers retain their nonempty-LIQU rejection. Navigation
-continues to rely on conservative inventory; an explicit private profile check
-also prevents the opt-in inventory from feeding that reader internally. The
-new wrapper exposes no navigation route and relaxes no admission gate.
+dry-VMap composite readers retain their nonempty-LIQU rejection. Ordinary navigation
+continues to require conservative inventory; its explicit private profile check
+rejects this opt-in envelope even when every product happens to be dry. The
+separately named complete-dry projection below does not relax that reader or any
+admission gate.
 
 The reader handles the pinned writer's real serialization quirk. A nonempty LIQU
 header declares `20 + 4*(width+1)*(height+1) + width*height` bytes, but its payload
@@ -773,3 +774,38 @@ with complete immutable profile/session, source capability witness, outer/inner
 request, both poses, candidate position and ticket binding. It does not compute
 candidate XY, implement NearPoint fallback/LOS selection, or add a complete movement
 fact to the service. See the [provider boundary](../README.md).
+
+
+## Same-inventory complete-dry route projection
+
+`VmapLiquidProducts::load_dry_route_projection` first acquires an owned
+`DryLiquidSnapshot` using the actual conservative static VMap decoder and every
+fully decoded terrain tile. Nonempty WMO LIQU payloads, any terrain liquid section,
+and unresolved map-tree slots reject the projection before navigation loads. The
+projection retains the same decoded `VmapSnapshot` that established completeness;
+no successful-host or caller-supplied dry boolean substitutes for this proof.
+
+A private navigation entry requires that owned proof and verifies its map, content,
+source epoch, original inventory, dry-policy hash, and exact terrain tile set. It
+loads the same immutable MMap bytes through the unchanged ground-only Detour
+validator. Its separately named policy includes the complete-dry proof policy.
+Neither the inventory profile nor its hash is rewritten: a general owned
+`TerrainLiquidSnapshot` and the projected dry liquid, static ray, and navigation
+readers can all retain one original `VmapLiquidProducts` identity. The old
+`load_navigation` still rejects this envelope and any wet terrain, and its policy
+hash is unchanged.
+
+This is composition of the pinned dry branches documented above, not new liquid
+semantics or wet navigation. The projected static reader executes the existing
+actual-triangle ray query, including M2 geometry when `ignore_m2` is false; it is
+not a Map LOS authority or an always-clear gate. Source route selection, cached
+player environment state, participant checks, deadline/ticket binding and native
+admission remain separate responsibilities. No production admission is enabled.
+
+Authored-byte tests load the real filesystem inventory, remove staging files, and
+query general environment, dry liquid, actual wall/M2 rays and ground navigation
+with the same retained identity. They also reject wet terrain/WMO, incomplete
+VMaps, cross-profile/cross-inventory and altered proof fields/tile sets. Their
+shared fixture contains unchanged source-oracle wall and M2 model triangles with
+new authored placements in the existing ground-nav tile; no installed assets are
+used.

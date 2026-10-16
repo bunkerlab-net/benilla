@@ -6,6 +6,7 @@
     dead_code,
     reason = "native production session admission remains closed"
 )]
+pub(crate) mod dry_route;
 mod envelopes;
 pub(crate) mod ground_height;
 pub(crate) mod height;
@@ -237,7 +238,8 @@ pub(crate) struct InventoriedProducts {
 }
 /// Explicit opt-in envelope for bounded WMO liquid bytes and raw VMap area queries.
 /// It exposes separately bound raw area/liquid and data-present TerrainInfo liquid
-/// readers, never dry rays, standalone heights, navigation or a conservative inventory.
+/// readers, plus a separately proved complete-dry route projection. It never exposes
+/// a conservative inventory or treats wet products as dry navigation.
 /// Bytes remain immutable; no query grants admission.
 #[derive(Debug)]
 pub(crate) struct VmapLiquidProducts {

@@ -40,6 +40,7 @@ exclusions are documented in:
 - [Fresh mage initialization and first-entry replay](../crates/benilla-sim/STARTER-INIT.md)
 - [Ordinary NPC melee](../crates/benilla-sim/NPC-MELEE.md)
 - [Creature initialization](../crates/benilla-sim/CREATURE-INIT.md)
+- [Bounded Chase straight-selection gate](../crates/benilla-sim/CHASE-GATE.md)
 - [Player death/corpse lifecycle reducer](../crates/benilla-sim/PLAYER-DEATH.md)
 - [Integrated bounded native death](../crates/benilla-world-runtime/src/native/DEATH.md)
 - [Bounded mage XP/level transitions](../crates/benilla-sim/PLAYER-PROGRESSION.md)
@@ -163,6 +164,15 @@ is meaningful without a bounded content/mechanics inventory.
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player
   movement, NPC navigation, melee reach or line-of-sight validation.
+- **Bounded native components:** source-owned model and cached player-environment
+  witnesses feed exact Chase distance/vertical predicates, actual static LOS and
+  owner dry-liquid observations. One immutable inventory can project proved-dry
+  navigation without admitting wet geometry. Passing this gate reaches retained
+  warm straight/retry dependencies; a rejected gate selects unavailable normal
+  routing. Controller tests preserve the explicitly synthetic initial warm seed
+  and verify complete rollback at the still-unavailable full Route boundary.
+  Cold owner initialization, complete Route evidence and gameplay admission remain
+  separate gates; see the [geometry contract](../crates/benilla-app/src/net/p2p/world/native_geometry/README.md).
 - **Dependencies:** common map geometry, collision/height/liquid queries,
   navigation data, speed/root/knockback state, transport transforms, spatial
   indexing and deterministic simulation time. Rendering geometry alone is not

@@ -79,3 +79,6 @@ pub mod near_point;
 
 /// Ground-only dry source filter prerequisite; no routing or movement admission.
 pub mod route_filter;
+
+/// Exact numeric Chase straight-attempt predicates; real ordered geometry is separate.
+pub mod chase_gate;

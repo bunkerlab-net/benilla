@@ -373,14 +373,31 @@ in command order, including unchanged-position and rotation-only calls. The
 100 ms gate counts down after those commands; stationary expiry never queries
 terrain. The last accepted pose and the earlier cached-query pose remain distinct.
 
-Native format 27 stores the cache and monotone phase sequence in the native
+Native format 28 stores the cache and monotone phase sequence in the native
 checkpoint, without a nested standalone environment journal. The controller saves
 every enabled environment tick before publishing, including countdown-only ticks.
 A failed save retains the committed tick and withholds projection until retry;
 a geometry failure never commits the staged pose, cache, receipt or input sequence.
 
-This boundary only admits callback-free nonhazard observations and inactive
-mirror timers. Wet, high-sea, hazard and environment-triggered spell/aura or
-threat transitions remain unavailable. A cached target-water witness is an input to future complete source
-Chase dispatch; it does not establish the missing distance/LOS/owner-water gates,
-complete Route evidence, native content admission, or playable wet movement.
+The explicitly selected surface callback domain supports ordinary nonhazard
+InWater, AboveWater, WaterWalk and NoWater transitions with actual owned slow-aura
+removal and hostile-reference callbacks. Underwater breathing, high-sea, hazards,
+liquid self-casts and active mirror timers remain unavailable. Its cached target
+water bit does not itself certify navigation or playable wet movement.
+
+## Loaded dry Chase selection
+
+The Chase tests compose exact source binary32 distance and vertical predicates,
+real static VMap rays (including M2), an actual owner dry-liquid query and the
+runtime's owned cached player-water witness. LOS uses the requested route goal,
+not the current target pose, and independently authenticated owner/target heights.
+A single immutable inventory supplies environment, dry navigation and VMap;
+loading a dry projection cannot relabel another inventory or admit wet navigation.
+
+Gate success reaches the loaded warm straight/retry dependencies, with fresh
+calculate-time liquid observations. Gate rejection selects unavailable normal
+routing, never fabricated NOPATH. Both paths still withhold complete Route facts.
+The controller tests keep the initial warm seed and surrounding movement/combat
+explicitly synthetic, then require complete world, store, cache, journal and
+projection rollback on the genuine dependency boundary. Neither cold owner
+initialization nor production entry is opened.
