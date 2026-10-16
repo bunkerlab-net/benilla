@@ -221,6 +221,16 @@ pub(crate) trait RouteCommitSink: Send {
 pub(crate) mod authored_conflicts {
     use super::RouteCommitNotice;
 
+    pub(crate) fn crossed_owner_heads(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        let [a, b] = wrong.boundary.heads.as_mut_slice() else {
+            panic!("authored conflict requires exactly two genuine owners");
+        };
+        assert!(a.cache.is_some() && b.cache.is_some());
+        std::mem::swap(&mut a.construction, &mut b.construction);
+        std::mem::swap(&mut a.cache, &mut b.cache);
+        wrong
+    }
     pub(crate) fn wrong_record(notice: &RouteCommitNotice) -> RouteCommitNotice {
         let mut wrong = notice.clone();
         wrong.boundary.record[0] ^= 1;

@@ -17,14 +17,14 @@ use benilla_world_runtime::native::{
     Authority, AuthorityReply, CreatureCollisionWidthRows, CreatureCollisionWidthSource,
     EffectiveDisabledMMapSet, NativeError, NativeWorld, SelectedMMapConfiguration,
 };
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 fn point(x: f32, y: f32, z: f32) -> Point {
     Point::new(x, y, z).unwrap()
 }
 pub(super) fn until() -> Instant {
     Instant::now() + Duration::from_secs(10)
 }
-fn config() -> SamePolygonConfiguration {
+pub(super) fn config() -> SamePolygonConfiguration {
     SamePolygonConfiguration {
         normalization: SourceSamePolygonConfig {
             normalize_z: false,
@@ -406,13 +406,25 @@ pub(crate) fn source_session(p: &Profile) -> Session {
         content: p.content_digest,
         geometry: p.geometry_revision,
         map: p.map_id,
-        bodies: BTreeMap::from([(
-            2,
-            Body {
-                radius: p.npcs[0].ai.bounding_radius,
-                height: source.npc(2).unwrap().npc_policy.settings.collision_height,
-            },
-        )]),
+        bodies: p
+            .npcs
+            .iter()
+            .map(|npc| {
+                let spawn = npc.ai.creature_id;
+                (
+                    spawn,
+                    Body {
+                        radius: npc.ai.bounding_radius,
+                        height: source
+                            .npc(spawn)
+                            .unwrap()
+                            .npc_policy
+                            .settings
+                            .collision_height,
+                    },
+                )
+            })
+            .collect(),
         player: Some(PlayerMotion {
             body: Body {
                 radius: p.player.bounding_radius,

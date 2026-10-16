@@ -151,105 +151,116 @@ impl StaticLosPolicy {
 /// Explicit primary-candidate mailbox route bound to the selected source owners.
 /// It grants no geometry fact: the retained product provider still validates the
 /// complete source witness, candidate, ground and LOS for each staged request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq)]
 pub(crate) struct PrimaryNearPointPolicy {
-    profile: Digest,
-    map: u32,
-    content: Digest,
-    geometry: Digest,
-    authority: Digest,
-    npc: u64,
-    npc_body: Body,
+    profile: Arc<Profile>,
+    profile_digest: Digest,
+    npc_bodies: BTreeMap<u64, Body>,
     player_body: Body,
-    player_combat_reach: ai::Real,
-    tick_ms: u32,
-    clock_origin_ms: u64,
+}
+impl PartialEq for PrimaryNearPointPolicy {
+    fn eq(&self, other: &Self) -> bool {
+        self.profile_digest == other.profile_digest
+            && self.npc_bodies == other.npc_bodies
+            && self.player_body == other.player_body
+            && (Arc::ptr_eq(&self.profile, &other.profile) || self.profile == other.profile)
+    }
 }
 impl PrimaryNearPointPolicy {
     pub(crate) fn from_profile(profile: &Profile) -> Result<Self, Failure> {
+        // Profile validation requires exact motion/capability catalog coverage and
+        // the explicitly selected visitor catalog for the two-owner domain.
         profile.validate().map_err(|_| Failure::Binding)?;
         let source = profile
             .source_motion
             .as_ref()
             .ok_or(Failure::UnsupportedQuery)?;
-        if profile.creature_capabilities.is_none() || profile.npcs.len() != 1 {
+        if profile.creature_capabilities.is_none() || !matches!(profile.npcs.len(), 1 | 2) {
             return Err(Failure::UnsupportedQuery);
         }
-        let npc = &profile.npcs[0];
-        let npc_motion = source
-            .npc(npc.ai.creature_id)
-            .map_err(|_| Failure::UnresolvedBody)?;
-        let npc_body = Body {
-            radius: npc.ai.bounding_radius,
-            height: npc_motion.npc_policy.settings.collision_height,
-        };
+        let npc_bodies = profile
+            .npcs
+            .iter()
+            .map(|npc| {
+                let npc_motion = source
+                    .npc(npc.ai.creature_id)
+                    .map_err(|_| Failure::UnresolvedBody)?;
+                let body = Body {
+                    radius: npc.ai.bounding_radius,
+                    height: npc_motion.npc_policy.settings.collision_height,
+                };
+                if !body.validate() {
+                    return Err(Failure::UnresolvedBody);
+                }
+                Ok((npc.ai.creature_id, body))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
         let player_body = Body {
             radius: profile.player.bounding_radius,
             height: source.player_collision_height,
         };
-        if !npc_body.validate() || !player_body.validate() {
+        if !player_body.validate() {
             return Err(Failure::UnresolvedBody);
         }
         Ok(Self {
-            profile: profile.digest(),
-            map: profile.map_id,
-            content: profile.content_digest,
-            geometry: profile.geometry_revision,
-            authority: profile.authority_policy,
-            npc: npc.ai.creature_id,
-            npc_body,
+            profile: Arc::new(profile.clone()),
+            profile_digest: profile.digest(),
+            npc_bodies,
             player_body,
-            player_combat_reach: profile.player.combat_reach,
-            tick_ms: profile.tick_ms,
-            clock_origin_ms: profile.clock_origin_ms,
         })
     }
-    fn check(self, session: &Session) -> Result<(), Failure> {
-        if self.profile != session.profile
-            || self.map != session.map
-            || self.content != session.content
-            || self.geometry != session.geometry
-            || self.authority != session.policy
+    fn check(&self, session: &Session) -> Result<(), Failure> {
+        let profile = &self.profile;
+        if self.profile_digest != session.profile
+            || profile.map_id != session.map
+            || profile.content_digest != session.content
+            || profile.geometry_revision != session.geometry
+            || profile.authority_policy != session.policy
         {
             return Err(Failure::Binding);
         }
+        // Validate the whole frozen roster, including owners other than this query.
         if session.player.is_none_or(|p| p.body != self.player_body)
-            || session.bodies.len() != 1
-            || session.bodies.get(&self.npc) != Some(&self.npc_body)
+            || session.bodies != self.npc_bodies
         {
             return Err(Failure::UnresolvedBody);
         }
         Ok(())
     }
-    fn body(self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
+    fn body(&self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
         self.check(session)?;
         let Query::SourceMotion(MotionQuery::NearPoint(near)) = &request.query else {
             return Err(Failure::UnsupportedQuery);
         };
         let npc = request.binding.npc.ok_or(Failure::Binding)?;
+        let npc_body = self.npc_bodies.get(&npc.spawn).ok_or(Failure::Binding)?;
+        // The selected source catalog and exact generation are part of the receipt;
+        // matching a stable spawn or equal body dimensions cannot substitute it.
+        near.searcher
+            .validate_for(&self.profile, npc)
+            .map_err(|_| Failure::Binding)?;
         let q = &near.request;
+        let profile = &self.profile;
         let now = request
             .binding
             .tick
-            .checked_mul(u64::from(self.tick_ms))
-            .and_then(|elapsed| self.clock_origin_ms.checked_add(elapsed))
+            .checked_mul(u64::from(profile.tick_ms))
+            .and_then(|elapsed| profile.clock_origin_ms.checked_add(elapsed))
             .ok_or(Failure::Invalid)?;
-        if npc.spawn != self.npc
-            || near.searcher.npc() != npc
-            || q.binding.identity.creature != npc.spawn
-            || q.binding.identity.map != self.map
-            || q.binding.identity.content.0 != self.content
-            || q.binding.identity.geometry.0 != self.geometry
+        if q.binding.identity.creature != npc.spawn
+            || q.binding.identity.map != profile.map_id
+            || q.binding.identity.content.0 != profile.content_digest
+            || q.binding.identity.geometry.0 != profile.geometry_revision
             || q.binding.query_id == 0
             || q.binding.now_ms != now
             || q.target.id != SOLO_UNIT
         {
             return Err(Failure::Binding);
         }
-        if q.owner_bounding_radius != self.npc_body.radius
+        if q.owner_bounding_radius != npc_body.radius
             || q.target.bounding_radius != self.player_body.radius
             || q.target.collision_height != self.player_body.height
-            || q.target.combat_reach != self.player_combat_reach
+            || q.target.combat_reach != profile.player.combat_reach
         {
             return Err(Failure::UnresolvedBody);
         }
@@ -258,22 +269,26 @@ impl PrimaryNearPointPolicy {
         if q.distance.as_f32() < 0.0 {
             return Err(Failure::Invalid);
         }
-        Ok(self.npc_body)
+        Ok(*npc_body)
     }
 }
 
 /// Distinct empty-selector mailbox route with the same frozen source-owner contract.
 /// Selecting it does not authorize an occupied selector or establish geometry parity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EmptySelectorNearPointPolicy(PrimaryNearPointPolicy);
 impl EmptySelectorNearPointPolicy {
     pub(crate) fn from_profile(profile: &Profile) -> Result<Self, Failure> {
+        // Fallback source-order certification is still the separate singleton slice.
+        if profile.npcs.len() != 1 {
+            return Err(Failure::UnsupportedQuery);
+        }
         PrimaryNearPointPolicy::from_profile(profile).map(Self)
     }
-    fn check(self, session: &Session) -> Result<(), Failure> {
+    fn check(&self, session: &Session) -> Result<(), Failure> {
         self.0.check(session)
     }
-    fn body(self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
+    fn body(&self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
         self.0.body(session, request)
     }
 }
@@ -542,7 +557,10 @@ impl Session {
                 return self.player.map(|p| p.body).ok_or(Failure::UnresolvedBody);
             }
             Query::SourceMotion(MotionQuery::NearPoint(_)) => {
-                return match (self.primary_near_point, self.empty_selector_near_point) {
+                return match (
+                    self.primary_near_point.as_ref(),
+                    self.empty_selector_near_point.as_ref(),
+                ) {
                     (Some(policy), None) => policy.body(self, request),
                     (None, Some(policy)) => policy.body(self, request),
                     (None, None) => Err(Failure::UnsupportedQuery),
@@ -620,9 +638,11 @@ impl Session {
                 .is_none_or(|p| p.check(self).is_ok())
             && self
                 .primary_near_point
+                .as_ref()
                 .is_none_or(|p| p.check(self).is_ok())
             && self
                 .empty_selector_near_point
+                .as_ref()
                 .is_none_or(|p| p.check(self).is_ok())
     }
 }

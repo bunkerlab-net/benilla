@@ -714,6 +714,17 @@ impl SourceSamePolygonRouteProvider {
             .map(|candidate| (Rc::as_ptr(candidate) as usize, &candidate.after_cache))
     }
     #[cfg(test)]
+    pub(super) fn committed_candidate_for(
+        &self,
+        npc: NpcId,
+    ) -> Option<(usize, &motion::PathFinderCache)> {
+        self.candidates
+            .iter()
+            .filter(|entry| entry.npc == npc)
+            .find_map(|entry| entry.committed.as_ref())
+            .map(|candidate| (Rc::as_ptr(candidate) as usize, &candidate.after_cache))
+    }
+    #[cfg(test)]
     pub(super) fn candidate_identity(&self, reply: &AuthorityReply) -> Option<usize> {
         self.candidates
             .iter()
@@ -1291,3 +1302,7 @@ pub(crate) mod tests;
 #[cfg(test)]
 #[path = "source_route_same_polygon/staged_tests.rs"]
 mod staged_tests;
+
+#[cfg(test)]
+#[path = "source_route_same_polygon/two_owner_tests.rs"]
+pub(super) mod two_owner_tests;

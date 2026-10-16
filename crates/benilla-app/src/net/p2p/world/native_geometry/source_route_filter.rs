@@ -98,6 +98,12 @@ pub(super) struct OwnedRouteFilterContext {
     context: AuthorityRequest,
 }
 
+impl OwnedRouteFilterContext {
+    pub(super) fn matches_context(&self, context: &AuthorityRequest) -> bool {
+        self.context == *context
+    }
+}
+
 pub(crate) struct BoundRouteFilterQuery<'a> {
     provider: &'a SourceRouteFilterProvider,
     context: AuthorityRequest,

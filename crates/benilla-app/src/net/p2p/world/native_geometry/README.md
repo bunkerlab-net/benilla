@@ -357,6 +357,12 @@ queries. Existing production entry and participant constructors remain closed. T
 explicit `install_with_primary_near_point` now retains the owned provider in the
 main-thread geometry mailbox. Its private-field policy is constructed from a
 validated profile and freezes the exact source-motion bodies, clock and identities.
+The primary policy accepts the existing one-owner slice or an explicitly selected
+complete two-owner visitor scene. It retains the whole validated profile and exact
+body roster, rejects missing, extra or crossed bodies even for an unrequested peer,
+and checks each searcher's source catalog and exact generation. Stable spawn IDs
+or equal dimensions alone cannot replace the source capability witness. The
+separate empty-selector fallback and StaticLos policies remain singleton-only.
 Only matching NearPoint requests and exactly echoed NearPoint replies are admitted;
 other motion queries remain unsupported. Queue cancellation, replacement, absolute
 deadlines and per-frame budgets still apply. The installer receives already-loaded
@@ -709,11 +715,12 @@ A committed head counts toward the same total cap of four; after acknowledgement
 it leaves room for at most three uncommitted candidates. Loaded native rehydration
 after reopening remains separately unsupported.
 
-The app geometry identity is `benilla-owned-dry-same-polygon-chase-commit-v2`,
-including the outer-commit acknowledgement and total-cap-four policy. The earlier
-uncommitted-proposal identity is incompatible. Commit-head delivery itself does not
-alter the native payload schema; the current payload is format 32 for per-owner
-motion genesis.
+The app geometry identity is
+`benilla-owned-dry-same-polygon-chase-commit-continuation-v3`, including the
+outer-commit acknowledgement, total-cap-four and bounded original-job policies.
+Earlier uncommitted-proposal and monolithic-commit identities are incompatible.
+Commit-head delivery itself does not alter the native payload schema; the current
+payload is format 33 for complete authored one/two-owner source visitors.
 `install_with_same_polygon` returns a proposal authority and an explicit paired
 commit sink. The selected mailbox refuses queries until the controller attaches
 that sink at the actual cache-free world boundary. A fresh opaque attachment and
@@ -791,6 +798,28 @@ acknowledgement retry barrier using an explicit authored sink; they do not subst
 for the real physics/Service tests. This bounded lifecycle sustains same-polygon
 replanning across acknowledged ticks, not arbitrary per-tick chains, generator
 churn, multi-polygon navigation, saved-query rehydration or production admission.
+
+The two-owner authored composition initializes distinct owner radii, source model
+widths/heights, speeds and orientations before loading the shared query providers.
+An initially hostile A and raw-neutral Aggressive B retain the native33 visitor and
+combat semantics: a deliberate supported hit makes B retaliate. Both source-owned
+NearPoint callbacks use the actual loaded MapHeight/VMap readers, and app-only
+fixtures require the installed Service and concrete LocalCorridor for both Routes.
+Other visibility, membership, spell/combat and player-input callbacks remain
+explicitly authored. In particular, nearby NPCs do not imply a new crowd-avoidance
+branch; the pinned used-position visitor is disabled.
+
+Candidates, constructor handles, current heads and original pending-job leases
+stay owner/generation/construction-specific. Acknowledgement checks the complete
+two-owner boundary before promoting or pruning either native candidate. Private
+prepared-state assertions also keep each retained constructor and filter context
+paired with its original request/live dispatch; these are internal invariants,
+not publicly mutable capability fields. Cancellation and replacement never renew
+the peer's absolute expiry. Death and cache-free respawn retire only the departed
+owner's cache; cleared model witnesses still do not authorize fresh respawn routing.
+Two-owner app fixtures cover acknowledged replans past the per-generator cap,
+late-B failure/retry, crossed heads and generation-bound facts. Full app CI is
+required to establish those fixtures' concrete physics/Service results.
 
 The sustained authored trajectory keeps the selected combat host's required
 backpedal policy and fanning behavior. It waits for actual spline completion,

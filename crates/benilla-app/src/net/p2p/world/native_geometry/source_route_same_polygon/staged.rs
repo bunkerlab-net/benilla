@@ -75,6 +75,12 @@ impl SourceSamePolygonRouteProvider {
         &mut self,
         prepared: &PreparedCalculation,
     ) -> Result<(), SamePolygonError> {
+        check_owned_context(
+            &prepared.context,
+            &prepared.dispatch,
+            &prepared.constructor,
+            &prepared.filter_context,
+        )?;
         self.filter.reborrow(&prepared.filter_context)?;
         self.queries.reborrow(&prepared.constructor)?;
         let entry = self
@@ -105,6 +111,15 @@ impl SourceSamePolygonRouteProvider {
         &self,
         proposal: &SamePolygonProposal,
     ) -> Result<(), SamePolygonError> {
+        check_owned_context(
+            &proposal.context,
+            &proposal.dispatch,
+            &proposal.constructor,
+            &proposal.filter_context,
+        )?;
+        if proposal.candidate.context != proposal.context {
+            return Err(Failure::Binding.into());
+        }
         self.filter.reborrow(&proposal.filter_context)?;
         let entry = self
             .candidates
@@ -281,4 +296,27 @@ fn same_dispatch(a: &AuthorityRequest, b: &AuthorityRequest) -> bool {
         .as_ref()
         .zip(b.pathfinder_dispatch.as_ref())
         .is_some_and(|(a, b)| a.same_live_dispatch(b))
+}
+
+// These fields can only be assembled internally. Preserve their exact pairing
+// explicitly when a prepared phase outlives the call that validated it.
+fn check_owned_context(
+    context: &AuthorityRequest,
+    dispatch: &PathfinderDispatchReceipt,
+    constructor: &RegisteredConstructorHandle,
+    filter: &OwnedRouteFilterContext,
+) -> Result<(), SamePolygonError> {
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return Err(Failure::Binding.into());
+    };
+    if !constructor.matches_context(context)
+        || !filter.matches_context(context)
+        || !route
+            .pathfinder_dispatch
+            .as_ref()
+            .is_some_and(|current| dispatch.same_live_dispatch(current))
+    {
+        return Err(Failure::Binding.into());
+    }
+    Ok(())
 }

@@ -71,6 +71,33 @@ pub(super) struct RegisteredConstructorHandle {
     to: [u32; 3],
 }
 
+impl RegisteredConstructorHandle {
+    /// Private retained-state invariant: a valid handle from another owner or
+    /// dispatch must not be substituted into this calculation's prepared fields.
+    pub(super) fn matches_context(&self, context: &AuthorityRequest) -> bool {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return false;
+        };
+        context.binding.npc == Some(self.npc)
+            && route.pathfinder_dispatch.as_ref().is_some_and(|dispatch| {
+                self.dispatch.same_live_dispatch(dispatch)
+                    && self.construction == dispatch.construction_binding()
+            })
+            && self.from
+                == [
+                    route.request.origin.x.bits(),
+                    route.request.origin.y.bits(),
+                    route.request.origin.z.bits(),
+                ]
+            && self.to
+                == [
+                    route.request.goal.x.bits(),
+                    route.request.goal.y.bits(),
+                    route.request.goal.z.bits(),
+                ]
+    }
+}
+
 pub(crate) fn geometry_revision(binding: SnapshotBinding) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(b"benilla-owned-pathfinder-constructor-query-v1");
