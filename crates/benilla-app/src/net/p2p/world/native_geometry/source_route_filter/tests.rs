@@ -354,7 +354,7 @@ fn both_observations_share_one_absolute_deadline_and_expiration_discards_the_dep
     let mut observations = 0;
     assert_eq!(
         bound.query_observed(query.clone(), Instant::now(), |_| observations += 1),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     assert_eq!(observations, 0);
     let until = Instant::now() + Duration::from_millis(100);
@@ -362,7 +362,7 @@ fn both_observations_share_one_absolute_deadline_and_expiration_discards_the_dep
         observations += 1;
         std::thread::sleep(until.saturating_duration_since(Instant::now()));
     });
-    assert_eq!(result, Err(Failure::MissingGeometry));
+    assert_eq!(result, Err(Failure::Deadline));
     assert_eq!(observations, 1);
 }
 

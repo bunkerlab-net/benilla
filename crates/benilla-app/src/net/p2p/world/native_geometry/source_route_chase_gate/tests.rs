@@ -484,7 +484,7 @@ fn complete_session_request_snapshot_and_deadline_are_bound() {
     }
     assert_eq!(
         bound.query(request(&provider, &context), Instant::now()),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     let mut cfg = config();
     cfg.line_of_sight_enabled = false;
@@ -531,7 +531,7 @@ fn actual_unloaded_owner_liquid_and_post_ray_expiry_do_not_become_a_dry_gate() {
                 );
             }
         }),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     assert!(matches!(&observed[..], [Observation::LineOfSight(_)]));
 }

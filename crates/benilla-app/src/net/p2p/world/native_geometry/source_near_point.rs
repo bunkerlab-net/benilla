@@ -142,7 +142,7 @@ impl SourceNearPointProvider {
         };
         let result = vmap
             .query_with_budget(ray, &mut budget)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::product)?;
         if result.request != ray {
             return Err(Failure::Binding);
         }
@@ -152,7 +152,7 @@ impl SourceNearPointProvider {
         // Independent participant exclusion, required by the ground provider,
         // establishes the empty dynamic tree. Selector emptiness does not.
         let point = exact_point(to)?;
-        budget.complete().map_err(|_| Failure::MissingGeometry)?;
+        budget.complete().map_err(Failure::product)?;
         Ok(Facts::SourceMotion(MotionFacts::Spatial(Box::new(
             motion::Reply {
                 request: motion::Query::NearPoint(q.clone()),

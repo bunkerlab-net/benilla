@@ -119,7 +119,7 @@ impl SourceVmapProvider {
         let reply = self
             .snapshot
             .query(query, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::product)?;
         if reply.request != query {
             return Err(Failure::Binding);
         }
@@ -201,7 +201,7 @@ impl<C: Corridor> Corridor for SourceVmapCorridor<'_, C> {
             .provider
             .snapshot
             .query(query, self.deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::product)?;
         if reply.request != query {
             return Err(Failure::Binding);
         }

@@ -156,7 +156,7 @@ fn expired_deadline_or_unloaded_neighbor_is_unavailable_never_no_water() {
     let (_, session, request, provider) = setup();
     assert_eq!(
         provider.resolve(&session, &request, Instant::now() - Duration::from_secs(1)),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     let (_, session, request, provider) = setup_at(0.125, 31.);
     assert_eq!(

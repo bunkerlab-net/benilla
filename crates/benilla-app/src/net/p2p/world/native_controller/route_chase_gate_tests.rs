@@ -583,7 +583,7 @@ fn cached_player_gate_and_actual_straight_retry_leave_unavailable_route_transact
     }
     assert_eq!(
         *controls.failures.lock().unwrap(),
-        [Failure::MissingGeometry; 2]
+        [Failure::Deadline, Failure::MissingGeometry]
     );
     let queries = warm_queries(&controls);
     assert_eq!(queries.len(), 4);

@@ -13,6 +13,7 @@ struct EmptyProduct {
     fault: Arc<AtomicU64>,
     observed: Arc<Mutex<Vec<n::AuthorityRequest>>>,
     failures: Arc<Mutex<Vec<Failure>>>,
+    service_step: Arc<Mutex<()>>,
     other: source::SyntheticMotionAuthority,
 }
 
@@ -49,6 +50,7 @@ fn empty_setup(z: f32, wall: bool) -> (n::Profile, EmptyProduct) {
             fault: base.fault,
             observed: base.observed,
             failures: base.failures,
+            service_step: Arc::new(Mutex::new(())),
             other: base.other,
         },
     )
@@ -61,6 +63,7 @@ fn empty_mailbox(product: EmptyProduct) -> MailboxAuthority {
         fault,
         observed,
         failures,
+        service_step,
         other,
     } = product;
     let (local, mailbox) = core::mailbox(session).unwrap();
@@ -70,6 +73,8 @@ fn empty_mailbox(product: EmptyProduct) -> MailboxAuthority {
     let service = std::thread::spawn(move || {
         assert_ne!(std::thread::current().id(), controller_thread);
         while !service_stop.load(Ordering::Acquire) {
+            // Tests can drain a callback still running when the request timer expires.
+            let step = service_step.lock().unwrap();
             let count = mailbox.serve_queries_until(1, |session, request, _, deadline| {
                 observed.lock().unwrap().push(request.clone());
                 let mode = fault.load(Ordering::SeqCst);
@@ -105,6 +110,7 @@ fn empty_mailbox(product: EmptyProduct) -> MailboxAuthority {
                 Ok(facts)
             });
             assert!(count <= 1);
+            drop(step);
             if count == 0 {
                 std::thread::sleep(Duration::from_millis(1));
             }
@@ -335,6 +341,7 @@ fn empty_selector_unavailable_retry_and_failed_save_publish_exact_staged_tick_on
     let fault = Arc::clone(&product.fault);
     let observed = Arc::clone(&product.observed);
     let failures = Arc::clone(&product.failures);
+    let service_step = Arc::clone(&product.service_step);
     let mut c = create(&h, data.clone(), empty_mailbox(product));
     c.initial_events().unwrap();
     pump_to(&mut c, 1);
@@ -370,11 +377,23 @@ fn empty_selector_unavailable_retry_and_failed_save_publish_exact_staged_tick_on
         assert_eq!(c.position_xyz(), [MID - 50., MID - 1., 11.]);
     }
     let pending = pending.unwrap();
-    assert_eq!(*failures.lock().unwrap(), vec![Failure::MissingGeometry; 2]);
-    assert_eq!(observed.lock().unwrap().len(), 2);
+    // Absolute expiry can wake the controller before the final callback returns.
+    let step = service_step.lock().unwrap();
+    let failed_attempts = failures.lock().unwrap();
+    assert_eq!(failed_attempts.first(), Some(&Failure::MissingGeometry));
+    assert!(failed_attempts.len() >= 2);
+    assert!(failed_attempts[1..]
+        .iter()
+        .all(|failure| *failure == Failure::Deadline));
+    let failed_count = failed_attempts.len();
+    drop(failed_attempts);
+    assert_eq!(observed.lock().unwrap().len(), failed_count);
+    drop(step);
     assert_eq!(c.pump(Duration::from_secs(60)).ticks, 0);
-    assert_eq!(observed.lock().unwrap().len(), 2);
+    let step = service_step.lock().unwrap();
+    assert_eq!(observed.lock().unwrap().len(), failed_count);
     fault.store(0, Ordering::SeqCst);
+    drop(step);
     fs::write(
         h.path().join(".world-checkpoint.pending"),
         b"authored empty-selector save fault",
@@ -406,14 +425,23 @@ fn empty_selector_unavailable_retry_and_failed_save_publish_exact_staged_tick_on
         n::decode_records(&n::encode_records(std::slice::from_ref(&record)).unwrap()).unwrap();
     replay.replay(&encoded).unwrap();
     assert_eq!(replay.checkpoint().unwrap(), c.world.checkpoint().unwrap());
+    let step = service_step.lock().unwrap();
+    let failed_attempts = failures.lock().unwrap();
+    assert!(failed_attempts[failed_count..]
+        .iter()
+        .all(|failure| *failure == Failure::Deadline));
     let attempts = observed.lock().unwrap();
-    assert_eq!(attempts.len(), 3);
+    // Any further slice-expiry attempts still culminate in exactly one success.
+    let completed_count = attempts.len();
+    assert_eq!(completed_count, failed_attempts.len() + 1);
+    drop(failed_attempts);
     assert!(attempts.iter().all(|attempt| attempt == &attempts[0]));
     assert_eq!(
         near_reply(std::slice::from_ref(&record)).request,
         attempts[0]
     );
     drop(attempts);
+    drop(step);
     let digest = c.world.state_digest();
     fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
     c.retry_checkpoint().unwrap();
@@ -429,7 +457,7 @@ fn empty_selector_unavailable_retry_and_failed_save_publish_exact_staged_tick_on
         ai::Point::new(MID - 52.25, MID - 1., 7.).unwrap(),
     );
     assert!(c.pump(Duration::ZERO).events.is_empty());
-    assert_eq!(observed.lock().unwrap().len(), 3);
+    assert_eq!(observed.lock().unwrap().len(), completed_count);
     assert_eq!(c.world.state().next_sequence, 1);
     assert!(c.world.records().is_empty());
     c.shutdown().unwrap();

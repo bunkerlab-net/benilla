@@ -280,6 +280,20 @@ pub(crate) enum SamePolygonError {
     /// No support-only adapter or source NORMAL bit may fill this missing proof.
     StrictProductionCorridorUnavailable,
 }
+impl SamePolygonError {
+    pub(super) fn failure(self) -> Failure {
+        match self {
+            Self::Dependency(failure) => failure,
+            Self::Constructor(ConstructorQueryError::Native(
+                benilla_native_nav::Error::Deadline,
+            ))
+            | Self::Native(SourceSamePolygonError::Boundary(benilla_native_nav::Error::Deadline)) => {
+                Failure::Deadline
+            }
+            _ => Failure::MissingGeometry,
+        }
+    }
+}
 impl From<Failure> for SamePolygonError {
     fn from(error: Failure) -> Self {
         Self::Dependency(error)
@@ -397,10 +411,7 @@ impl SourceSamePolygonRouteProvider {
             to,
             ignore_m2: false,
         };
-        let reply = self
-            .vmap
-            .query(ray, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+        let reply = self.vmap.query(ray, deadline).map_err(Failure::product)?;
         if reply.request != ray {
             return Err(Failure::Binding.into());
         }
@@ -775,7 +786,7 @@ fn require_time(deadline: Instant) -> Result<(), Failure> {
             std::panic::Location::caller(),
             Instant::now().saturating_duration_since(deadline),
         );
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     } else {
         Ok(())
     }

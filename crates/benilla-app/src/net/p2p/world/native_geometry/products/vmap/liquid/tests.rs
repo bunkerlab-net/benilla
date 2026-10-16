@@ -401,7 +401,7 @@ fn liquid_mask_is_raw_classic_mapping_including_zero_and_unknown() {
 fn one_budget_covers_complete_location_and_liquid_and_expiry_never_becomes_absence() {
     let mut snapshot = snapshot();
     let query = request(&snapshot);
-    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
     let position = query.position.map(f32::from_bits);
     let mut shared = budget();
     let before = shared.remaining;
@@ -417,7 +417,7 @@ fn one_budget_covers_complete_location_and_liquid_and_expiry_never_becomes_absen
     assert_eq!(snapshot.liquid(position, 0, &mut shared), Ok(result));
     assert_eq!(shared.remaining, 0);
     shared.deadline = Instant::now();
-    assert_eq!(shared.complete(), Err(Error::Budget));
+    assert_eq!(shared.complete(), Err(Error::Deadline));
     snapshot.geometry.spawns[0] = None;
     assert_eq!(
         snapshot.query(

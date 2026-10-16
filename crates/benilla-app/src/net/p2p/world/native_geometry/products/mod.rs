@@ -42,6 +42,7 @@ const POLICY: &[u8] = b"benilla-native-product-inventory-v1";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Error {
     Budget,
+    Deadline,
     Identity,
     Missing,
     Unexpected,

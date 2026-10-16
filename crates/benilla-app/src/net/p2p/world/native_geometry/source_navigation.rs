@@ -96,7 +96,7 @@ impl<C: Corridor> Corridor for SourceNavigationCorridor<'_, C> {
             .provider
             .snapshot
             .query(request, self.deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::navigation)?;
         if reply.request != request {
             return Err(Failure::Binding);
         }
@@ -118,7 +118,7 @@ impl<C: Corridor> Corridor for SourceNavigationCorridor<'_, C> {
             return Err(Failure::UnsupportedNavigation);
         }
         if Instant::now() >= self.deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         Ok(())
     }

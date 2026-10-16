@@ -294,7 +294,7 @@ impl BoundGroundHeightQuery<'_, '_> {
             .provider
             .snapshot
             .query_with_budget(query, budget)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::product)?;
         if reply.request != query {
             return Err(Failure::Binding);
         }

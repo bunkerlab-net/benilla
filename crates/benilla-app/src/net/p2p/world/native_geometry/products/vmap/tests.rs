@@ -164,7 +164,7 @@ fn static_and_map_height_then_ray_share_one_cumulative_work_allowance() {
         shared.deadline = Instant::now();
         assert_eq!(
             geometry.query_with_budget(ray_request, &mut shared),
-            Err(Error::Budget)
+            Err(Error::Deadline)
         );
         assert_eq!(shared.remaining, remaining);
     }
@@ -239,7 +239,7 @@ fn source_bound_queries_reject_stale_epoch_content_revision_and_deadline() {
         }
         assert_eq!(snapshot.query(q, budget().deadline), Err(Error::Identity));
     }
-    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
     let mut bad = query;
     bad.from[0] = f32::NAN.to_bits();
     assert_eq!(snapshot.query(bad, budget().deadline), Err(Error::Format));
@@ -404,7 +404,7 @@ fn already_computed_ray_result_cannot_extend_an_absolute_deadline() {
     ] {
         assert_eq!(
             complete_query(request, result, Instant::now()),
-            Err(Error::Budget)
+            Err(Error::Deadline)
         );
         assert_eq!(
             complete_query(request, result, budget().deadline),

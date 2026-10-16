@@ -273,7 +273,7 @@ fn projected_static_los_uses_real_wall_and_m2_triangles_with_fail_closed_queries
         StaticRay::Miss
     );
     request.ignore_m2 = false;
-    assert_eq!(vmap.query(request, Instant::now()), Err(Error::Budget));
+    assert_eq!(vmap.query(request, Instant::now()), Err(Error::Deadline));
     request.snapshot.inventory[0] ^= 1;
     assert_eq!(vmap.query(request, deadline()), Err(Error::Identity));
 }

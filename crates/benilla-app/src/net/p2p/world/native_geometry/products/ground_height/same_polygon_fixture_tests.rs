@@ -111,7 +111,10 @@ fn same_arc_and_source_identity_survive_owned_dry_height_projection() {
             height: 0f32.to_bits()
         }
     );
-    assert_eq!(snapshot.query(request, Instant::now()), Err(Error::Budget));
+    assert_eq!(
+        snapshot.query(request, Instant::now()),
+        Err(Error::Deadline)
+    );
     drop(environment);
     drop(products);
     assert_eq!(

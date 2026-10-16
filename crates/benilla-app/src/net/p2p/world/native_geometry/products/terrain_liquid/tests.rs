@@ -388,7 +388,10 @@ fn binding_and_echo_cover_every_snapshot_and_query_input() {
         assert_eq!(reply.request, query);
         assert_ne!(reply.request, original);
     }
-    assert_eq!(snapshot.query(original, Instant::now()), Err(Error::Budget));
+    assert_eq!(
+        snapshot.query(original, Instant::now()),
+        Err(Error::Deadline)
+    );
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         for field in 0..4 {
             let mut query = original;
@@ -459,7 +462,7 @@ fn all_phases_share_one_nonrenewing_work_budget_and_deadline() {
     let mut budget = QueryBudget::new(expired);
     assert_eq!(
         snapshot.query_with_budget(query, &mut budget),
-        Err(Error::Budget)
+        Err(Error::Deadline)
     );
 }
 

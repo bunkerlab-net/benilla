@@ -803,7 +803,7 @@ mod tests {
         expired.deadline = std::time::Instant::now();
         assert_eq!(
             leaf.intersect(ray, &mut 10.0, &mut expired, |_, _, _| Ok(false)),
-            Err(Error::Budget)
+            Err(Error::Deadline)
         );
         let mut invalid_distance = f32::NAN;
         assert_eq!(
@@ -883,7 +883,7 @@ mod tests {
         expired.deadline = std::time::Instant::now();
         assert_eq!(
             leaf.intersect_point([0.0; 3], &mut expired, |_, _| Ok(())),
-            Err(Error::Budget)
+            Err(Error::Deadline)
         );
         assert_eq!(
             leaf.intersect_point([0.0; 3], &mut budget(1000), |_, _| Err(Error::Missing)),

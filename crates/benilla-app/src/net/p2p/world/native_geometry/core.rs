@@ -586,11 +586,25 @@ pub(crate) enum Failure {
     UnsupportedNearPointFallback,
     UnsupportedPointRepresentation,
     MissingGeometry,
+    /// The supplied execution deadline expired, not missing or unsupported geometry.
+    Deadline,
     Obstacle,
     Water,
     UnsupportedGround,
 }
 impl Failure {
+    pub(super) fn product(error: super::products::Error) -> Self {
+        match error {
+            super::products::Error::Deadline => Self::Deadline,
+            _ => Self::MissingGeometry,
+        }
+    }
+    pub(super) fn navigation(error: benilla_native_nav::Error) -> Self {
+        match error {
+            benilla_native_nav::Error::Deadline => Self::Deadline,
+            _ => Self::MissingGeometry,
+        }
+    }
     fn native(self) -> NativeError {
         match self {
             Self::UnprovenParticipants => NativeError::AuthorityUnavailable(
@@ -603,6 +617,9 @@ impl Failure {
             }
             Self::UnresolvedBody => {
                 NativeError::AuthorityUnavailable("native collision dimensions unresolved")
+            }
+            Self::Deadline => {
+                NativeError::AuthorityUnavailable("local geometry execution deadline exceeded")
             }
             Self::MissingGeometry => {
                 NativeError::AuthorityUnavailable("local geometry coverage incomplete")
@@ -650,6 +667,8 @@ pub(crate) struct LocalAuthority {
 pub(crate) struct Mailbox {
     session: Session,
     rx: Receiver<Work>,
+    /// Retry at the same bounded FIFO tail; no second queue or renewed job lifetime.
+    retry: Sender<Work>,
     active: Arc<AtomicBool>,
     _cancellation: Sender<()>,
 }
@@ -677,7 +696,7 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
     Ok((
         LocalAuthority {
             session: session.clone(),
-            tx,
+            tx: tx.clone(),
             ticket: 0,
             active: active.clone(),
             cancelled,
@@ -685,6 +704,7 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
         Mailbox {
             session,
             rx,
+            retry: tx,
             active,
             _cancellation: cancellation,
         },
@@ -751,16 +771,17 @@ fn receive_reply_until(
     deadline: Instant,
 ) -> Result<Reply, NativeError> {
     let unavailable = || NativeError::AuthorityUnavailable("local geometry reply unavailable");
+    let expired = || NativeError::AuthorityUnavailable("local geometry request deadline exceeded");
     let timeout = crossbeam_channel::at(deadline);
     let reply = crossbeam_channel::select_biased! {
         recv(cancelled) -> _ => return Err(unavailable()),
         recv(rx) -> result => result.map_err(|_| unavailable())?,
-        recv(timeout) -> _ => return Err(unavailable()),
+        recv(timeout) -> _ => return Err(expired()),
     };
     // Channel receives may return an already-buffered reply after their deadline. A driver
     // descheduled after enqueue must not renew the request's authority window when it resumes.
     if Instant::now() >= deadline {
-        return Err(unavailable());
+        return Err(expired());
     }
     Ok(reply)
 }
@@ -790,13 +811,22 @@ impl Mailbox {
             geometry(session, request, body)
         })
     }
-    /// Product-backed queries inherit the original job and frame deadlines, never renew them.
+    /// A slice expiry retries the exact work in a later invocation. The original
+    /// job expiry remains absolute; repeatedly oversized work eventually times out.
     pub(crate) fn serve_queries_until(
         &self,
         limit: usize,
         mut geometry: impl FnMut(&Session, &AuthorityRequest, Body, Instant) -> Result<Facts, Failure>,
     ) -> usize {
         let deadline = Instant::now() + Duration::from_millis(2);
+        self.serve_query_slice(limit, deadline, &mut geometry)
+    }
+    fn serve_query_slice(
+        &self,
+        limit: usize,
+        deadline: Instant,
+        mut geometry: impl FnMut(&Session, &AuthorityRequest, Body, Instant) -> Result<Facts, Failure>,
+    ) -> usize {
         let mut count = 0;
         while count < limit.min(PER_FRAME) {
             if count > 0 && Instant::now() >= deadline {
@@ -804,7 +834,7 @@ impl Mailbox {
             }
             let Ok(work) = self.rx.try_recv() else { break };
             count += 1;
-            if Instant::now() >= work.deadline {
+            if !self.active.load(Ordering::Acquire) || Instant::now() >= work.deadline {
                 continue;
             }
             #[cfg(test)]
@@ -852,16 +882,33 @@ impl Mailbox {
                     deadline.saturating_duration_since(ended),
                 );
             }
-            if Instant::now() >= work.deadline {
-                continue;
+            if self.finish_query(work, result, deadline) {
+                break;
             }
-            let _ = work.reply.try_send(Reply {
-                ticket: work.ticket,
-                request: work.request,
-                result,
-            });
         }
         count
+    }
+    /// True ends this invocation after deferring one still-live request. Real
+    /// failures retain their meaning even when the clock expired during them.
+    fn finish_query(&self, mut work: Work, result: Result<Facts, Failure>, slice: Instant) -> bool {
+        let now = Instant::now();
+        if !self.active.load(Ordering::Acquire) || now >= work.deadline {
+            return false;
+        }
+        if matches!(result, Err(Failure::Deadline)) && now >= slice && slice < work.deadline {
+            match self.retry.try_send(work) {
+                Ok(()) => return true,
+                // A concurrent enqueue may consume the vacated slot. Do not
+                // exceed capacity, drop another job, or renew this one's expiry.
+                Err(error) => work = error.into_inner(),
+            }
+        }
+        let _ = work.reply.try_send(Reply {
+            ticket: work.ticket,
+            request: work.request,
+            result,
+        });
+        false
     }
 }
 

@@ -50,7 +50,7 @@ pub(super) fn resolve(
             context.binding.tick,
             Instant::now().saturating_duration_since(deadline),
         );
-        return Err(Failure::MissingGeometry.into());
+        return Err(Failure::Deadline.into());
     }
     // Real raw coverage, membership, body sweep, elevated LOS and whole swept
     // rectangle support/dry proof, including exact feet at both endpoints.
@@ -74,7 +74,7 @@ pub(super) fn resolve(
             context.binding.tick,
             Instant::now().saturating_duration_since(deadline),
         );
-        return Err(Failure::MissingGeometry.into());
+        return Err(Failure::Deadline.into());
     }
     let mut identity = Sha256::new();
     identity.update(b"benilla-source-owned-same-polygon-real-corridor-route-v1");

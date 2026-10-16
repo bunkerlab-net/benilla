@@ -103,8 +103,22 @@ rounding. The driver independently rechecks the same budget on accepted replies.
 This is a conservative local movement policy, not CMaNGOS client anti-cheat parity.
 
 The off-thread `LocalAuthority` uses a bounded 16-job queue and a 500ms absolute
-request deadline. The main-thread NonSend service never blocks; at most eight jobs
-run per rendered frame, with a 2ms soft limit checked between jobs. Each player job
+request deadline. The main-thread NonSend service never waits on a channel; at most
+eight attempts run per rendered frame, with a 2ms soft execution slice. Explicit
+clock expiry is a typed app-local `Deadline`, distinct from missing geometry or
+primitive/memory-budget exhaustion. While the original job remains live, frame
+expiry requeues its unchanged request, ticket and reply endpoint at the same
+bounded FIFO tail, then ends that service invocation. A concurrent refill may
+exhaust that slot; this returns deadline-unavailable rather than exceeding capacity.
+Actual missing/unsupported/binding errors are terminal even if time also elapsed.
+Repeatedly oversized work may still exhaust the original 500ms lifetime; retries
+are bounded availability attempts, not guaranteed progress or resumable native work.
+No provider witness or partial Route is reused as completed authority. Generic
+callbacks keep their prior successful-result semantics: the slice limits scheduling,
+while the original job expiry and cancellation fence still govern delivery. Only an
+explicit provider deadline failure is retried; elapsed time never reclassifies a result.
+These error variants are crate-private and nonserialized; native state, facts,
+wire formats and work limits are unchanged. Each player job
 contains at most 64 segments. Structural limits are checked before request cloning
 or enqueueing. One corridor caps loaded hull members at 4,096 and aggregate hull
 vertices/triangles at 262,144 before transformed allocation. The full-map loader caps

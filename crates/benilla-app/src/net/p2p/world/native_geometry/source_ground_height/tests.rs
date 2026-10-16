@@ -239,7 +239,7 @@ fn every_frozen_pose_query_identity_and_candidate_z_ticket_stays_bound() {
     }
     assert_eq!(
         bound.query_initial_candidate(query.clone(), Instant::now()),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     let mut uncovered = query.clone();
     uncovered.position[0] = 0f32.to_bits();
@@ -298,7 +298,7 @@ fn actual_runtime_candidate_derives_xy_and_consumes_loaded_height_without_publis
     );
     assert_eq!(
         bound.derive_initial_candidate(7, Instant::now()),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
 }
 

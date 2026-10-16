@@ -143,7 +143,7 @@ impl SourceEmptySelectorNearPointProvider {
                 };
                 let result = vmap
                     .query_with_budget(ray, budget)
-                    .map_err(|_| Failure::MissingGeometry)?;
+                    .map_err(Failure::product)?;
                 if result.request != ray {
                     return Err(Failure::Binding);
                 }
@@ -157,7 +157,7 @@ impl SourceEmptySelectorNearPointProvider {
             // The source returns here, even when the final exhausted point is
             // obstructed. Representation failure cannot select another point.
             let point = source_near_point::exact_point(to)?;
-            budget.complete().map_err(|_| Failure::MissingGeometry)?;
+            budget.complete().map_err(Failure::product)?;
             return Ok(Facts::SourceMotion(MotionFacts::Spatial(Box::new(
                 motion::Reply {
                     request: motion::Query::NearPoint(q.clone()),

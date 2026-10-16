@@ -123,7 +123,10 @@ fn request_binds_map_content_epoch_inventory_policy_ticket_and_exact_pose() {
         snapshot.query(moved, deadline()).unwrap()
     );
     assert_eq!(snapshot.query(moved, deadline()).unwrap().request, moved);
-    assert_eq!(snapshot.query(original, Instant::now()), Err(Error::Budget));
+    assert_eq!(
+        snapshot.query(original, Instant::now()),
+        Err(Error::Deadline)
+    );
     for position in [
         [f32::NAN, 800., 7.],
         [0., f32::INFINITY, 7.],
@@ -409,7 +412,10 @@ fn gridmap_replies_bind_all_geometry_dbc_identity_pose_and_query_inputs() {
     let mut query = request;
     query.query.ticket = 0;
     assert_eq!(snapshot.query(query, deadline()), Err(Error::Identity));
-    assert_eq!(snapshot.query(request, Instant::now()), Err(Error::Budget));
+    assert_eq!(
+        snapshot.query(request, Instant::now()),
+        Err(Error::Deadline)
+    );
     query = request;
     query.query.position[0] = (-0f32).to_bits();
     query.collision_height = 0f32.to_bits();

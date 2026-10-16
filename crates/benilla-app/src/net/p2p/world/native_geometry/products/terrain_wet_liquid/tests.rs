@@ -460,7 +460,7 @@ fn every_budget_cut_rejects_without_partial_output_in_wet_and_fallback_paths() {
                 );
             }
         }
-        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
     }
 }
 

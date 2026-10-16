@@ -129,7 +129,10 @@ fn nonfinite_out_of_profile_and_expired_requests_never_become_absence() {
             assert_eq!(snapshot.query(query, deadline()), Err(Error::Unsupported));
         }
     }
-    assert_eq!(snapshot.query(original, Instant::now()), Err(Error::Budget));
+    assert_eq!(
+        snapshot.query(original, Instant::now()),
+        Err(Error::Deadline)
+    );
 }
 
 #[test]
@@ -259,7 +262,7 @@ fn one_budget_covers_all_steps_and_never_publishes_partial_area_outputs() {
     assert_eq!(snapshot.area(position, &mut budget), Ok(expected));
     assert_eq!(budget.remaining, 0);
     budget.deadline = Instant::now();
-    assert_eq!(budget.complete(), Err(Error::Budget));
+    assert_eq!(budget.complete(), Err(Error::Deadline));
     assert_eq!(snapshot.area(position, &mut budget), Err(Error::Budget));
 }
 

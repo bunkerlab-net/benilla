@@ -154,14 +154,14 @@ fn four_height_probes_share_work_and_an_absolute_deadline() {
     // Finishing exactly at the work limit is valid; a subsequent ray is not.
     assert_eq!(budget.complete(), Ok(()));
     budget.deadline = Instant::now();
-    assert_eq!(budget.complete(), Err(Error::Budget));
+    assert_eq!(budget.complete(), Err(Error::Deadline));
     assert_eq!(
         snapshot.height(world, 20.0, &mut budget),
         Err(Error::Budget)
     );
     assert_eq!(
         snapshot.query_height(request(&snapshot, [0.0, 0.0, 10.0], 20.0), Instant::now()),
-        Err(Error::Budget)
+        Err(Error::Deadline)
     );
 }
 

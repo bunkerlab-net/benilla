@@ -1,6 +1,9 @@
 use super::*;
 use benilla_world_runtime::{native::Binding, NpcId};
 
+#[path = "deadline_tests.rs"]
+mod deadline_tests;
+
 fn body() -> Body {
     Body {
         radius: ai::Real::new(0.5).unwrap(),
@@ -628,10 +631,7 @@ fn loaded_vmap_is_an_additional_bound_corridor_veto_never_a_support_proof() {
     let mut corridor = provider
         .corridor(&s, &request, Proof(Ok(())), Instant::now())
         .unwrap();
-    assert_eq!(
-        corridor.certify(a, b, body()),
-        Err(Failure::MissingGeometry)
-    );
+    assert_eq!(corridor.certify(a, b, body()), Err(Failure::Deadline));
 }
 
 #[test]
@@ -802,7 +802,7 @@ fn loaded_navigation_composes_all_previous_gates_and_cannot_grant_support() {
             .corridor(&s, &request, Proof(Ok(())), Instant::now())
             .unwrap()
             .certify(from, to, body()),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     let mut changed = s.clone();
     changed.participants = None;
@@ -1089,7 +1089,7 @@ fn source_los_uses_distinct_endpoint_heights_and_ignores_m2_without_movement_sup
     r.binding.geometry = s.geometry;
     assert_eq!(
         provider.line_of_sight(&s, &r, Instant::now()),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     let mut changed = s.clone();
     changed.player.as_mut().unwrap().body.height = body().height;

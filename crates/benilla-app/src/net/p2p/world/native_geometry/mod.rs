@@ -328,10 +328,7 @@ fn process(
                     request.binding.tick,
                     std::time::Instant::now() >= deadline,
                 );
-                match error {
-                    source_route_same_polygon::SamePolygonError::Dependency(failure) => failure,
-                    _ => Failure::MissingGeometry,
-                }
+                error.failure()
             });
         }
         let mut corridor = LocalCorridor {

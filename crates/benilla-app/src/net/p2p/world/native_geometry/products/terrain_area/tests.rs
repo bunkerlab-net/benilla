@@ -547,7 +547,7 @@ fn one_budget_covers_geometry_terrain_all_store_scans_and_parent_lookup() {
         snapshot.query_with_budget(query, &mut budget),
         Err(Error::Budget)
     );
-    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
     // Exhaustion inside a complete DBC scan must not publish even raw area output.
     let rows: Vec<_> = (1..=vmap::MAX_QUERY_WORK as u32)
         .map(|id| area(id, 1, 0, 1, 0))

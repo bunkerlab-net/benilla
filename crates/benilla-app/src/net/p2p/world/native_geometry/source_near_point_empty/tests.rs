@@ -589,7 +589,7 @@ fn expired_original_deadline_is_not_renewed_between_rejected_candidates() {
     let mut trace = Trace::default();
     assert_eq!(
         provider.resolve_observed(&session, &request, Instant::now(), |e| trace.observe(e)),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     assert!(trace.ground.is_empty());
     assert!(trace.rays.is_empty());
@@ -599,7 +599,7 @@ fn expired_original_deadline_is_not_renewed_between_rejected_candidates() {
             trace.observe(event);
             std::thread::sleep(expires.saturating_duration_since(Instant::now()));
         }),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
     assert_eq!(trace.ground.len(), 1);
     assert_eq!(trace.ground[0].phase, CandidatePhase::Primary);

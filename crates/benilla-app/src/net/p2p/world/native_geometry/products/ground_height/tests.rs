@@ -71,7 +71,7 @@ fn owned_and_borrowed_map_height_readers_retain_the_same_binding_and_configurati
     }
     for snapshot in [&borrowed, &owned] {
         let query = request(snapshot, 10.);
-        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
         let mut bad = query;
         bad.position = [0f32, 0., 10.].map(f32::to_bits);
         assert_eq!(snapshot.query(bad, deadline()), Err(Error::Missing));
@@ -231,7 +231,7 @@ fn exact_identity_coverage_budget_and_existing_numeric_bounds_precede_publicatio
         }
         assert_eq!(snapshot.query(bad, deadline()), Err(Error::Identity));
     }
-    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
     for z in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         assert_eq!(
             snapshot.query(request(&snapshot, z), deadline()),

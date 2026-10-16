@@ -187,11 +187,11 @@ fn expired_budget_poison_cannot_be_repaired_by_skipping_the_failed_probe() {
         }
         assert_eq!(
             sequence.next_with_budget(&mut QueryBudget::new(Instant::now())),
-            Err(Failure::MissingGeometry)
+            Err(Failure::Deadline)
         );
         assert_eq!(
             sequence.next_with_budget(&mut QueryBudget::new(deadline())),
-            Err(Failure::MissingGeometry)
+            Err(Failure::Deadline)
         );
     }
 }

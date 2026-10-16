@@ -395,7 +395,7 @@ impl BoundRouteFilterQuery<'_> {
             (route_filter::LiquidMask::WaterOrOcean, second_ticket),
         ] {
             if Instant::now() >= deadline {
-                return Err(Failure::MissingGeometry);
+                return Err(Failure::Deadline);
             }
             let query = LiquidRequest {
                 snapshot: request.snapshot,
@@ -406,7 +406,7 @@ impl BoundRouteFilterQuery<'_> {
                 .provider
                 .snapshot
                 .query(query, deadline)
-                .map_err(|_| Failure::MissingGeometry)?;
+                .map_err(Failure::product)?;
             if reply.request != query {
                 return Err(Failure::Binding);
             }
@@ -418,7 +418,7 @@ impl BoundRouteFilterQuery<'_> {
             observations.push(RouteLiquidObservation { mask, reply });
         }
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         Ok(RouteFilterUpdateDependency {
             request,
@@ -455,7 +455,7 @@ impl BoundRouteFilterQuery<'_> {
             .checked_add(1)
             .ok_or(Failure::Invalid)?;
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         let Query::SourceMotion(MotionQuery::Route(route)) = &self.context.query else {
             return Err(Failure::UnsupportedQuery);
@@ -483,7 +483,7 @@ impl BoundRouteFilterQuery<'_> {
                 .provider
                 .snapshot
                 .query(query, deadline)
-                .map_err(|_| Failure::MissingGeometry)?;
+                .map_err(Failure::product)?;
             if reply.request != query {
                 return Err(Failure::Binding);
             }
@@ -509,7 +509,7 @@ impl BoundRouteFilterQuery<'_> {
             return Err(Failure::Binding);
         }
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         let [first, second] = liquid;
         Ok(RouteFilterDependency {

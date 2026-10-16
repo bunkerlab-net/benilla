@@ -121,7 +121,7 @@ fn loaded_primary_fact_echoes_real_request_and_leaves_owner_unchanged() {
     assert_eq!(world.checkpoint().unwrap(), before);
     assert_eq!(
         provider.resolve(&session, &request, Instant::now()),
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     );
 }
 #[test]

@@ -135,7 +135,7 @@ fn nonfinite_out_of_profile_and_expired_requests_never_become_absence() {
     }
     assert_eq!(
         snapshot.query_location(original, Instant::now()),
-        Err(Error::Budget)
+        Err(Error::Deadline)
     );
 }
 
@@ -177,7 +177,7 @@ fn location_and_height_share_work_and_absolute_deadline() {
     );
     assert_eq!(budget.complete(), Ok(()));
     budget.deadline = Instant::now();
-    assert_eq!(budget.complete(), Err(Error::Budget));
+    assert_eq!(budget.complete(), Err(Error::Deadline));
     assert_eq!(snapshot.location(position, &mut budget), Err(Error::Budget));
 }
 

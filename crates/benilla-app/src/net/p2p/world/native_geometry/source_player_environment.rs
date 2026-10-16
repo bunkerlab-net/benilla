@@ -58,7 +58,7 @@ impl SourcePlayerEnvironmentProvider {
         deadline: Instant,
     ) -> Result<Facts, Failure> {
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         if session.world != self.world || session.player_environment.as_ref() != Some(&self.policy)
         {
@@ -76,11 +76,12 @@ impl SourcePlayerEnvironmentProvider {
             .query_environment(query.liquid_query(), deadline)
             .map_err(|error| match error {
                 Error::Identity => Failure::Binding,
+                Error::Deadline => Failure::Deadline,
                 _ => Failure::MissingGeometry,
             })?;
         let facts = PlayerEnvironmentFacts::new(query, result).map_err(|_| Failure::Binding)?;
         if Instant::now() >= deadline {
-            return Err(Failure::MissingGeometry);
+            return Err(Failure::Deadline);
         }
         Ok(Facts::PlayerEnvironment(facts))
     }

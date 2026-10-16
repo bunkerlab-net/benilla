@@ -187,7 +187,7 @@ impl<'a> MapHeightSnapshot<'a> {
                 // DynamicMapTree::getHeight returns -G3D::inf() after an empty
                 // tree traversal. Only the independent participant token permits it.
                 if Instant::now() >= deadline {
-                    return Err(Error::Budget);
+                    return Err(Error::Deadline);
                 }
                 Ok(f32::NEG_INFINITY)
             },

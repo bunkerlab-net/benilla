@@ -86,7 +86,7 @@ fn owned_and_borrowed_readers_bind_and_reply_identically() {
             }
             assert_eq!(snapshot.query(bad, deadline()), Err(Error::Identity));
         }
-        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+        assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
         let mut bad = query;
         bad.position = [0f32, 0., 10.].map(f32::to_bits);
         assert_eq!(snapshot.query(bad, deadline()), Err(Error::Missing));
@@ -187,7 +187,7 @@ fn static_height_binds_every_input_and_rejects_stale_or_unavailable_geometry() {
         }
         assert_eq!(snapshot.query(wrong, deadline()), Err(Error::Identity));
     }
-    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Budget));
+    assert_eq!(snapshot.query(query, Instant::now()), Err(Error::Deadline));
     let mut missing = query;
     missing.position = [0f32, 0., 10.].map(f32::to_bits);
     assert_eq!(snapshot.query(missing, deadline()), Err(Error::Missing));

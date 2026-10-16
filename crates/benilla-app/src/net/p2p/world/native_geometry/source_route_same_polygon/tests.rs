@@ -104,6 +104,8 @@ struct Consumer<'a> {
     observations: Vec<Observation>,
     requests: Vec<AuthorityRequest>,
     errors: Vec<SamePolygonError>,
+    expire_after_terminal: bool,
+    retry_same_dispatch: bool,
 }
 impl Authority for Consumer<'_> {
     fn resolve(&mut self, context: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
@@ -132,12 +134,28 @@ impl Authority for Consumer<'_> {
             }
             Query::SourceMotion(MotionQuery::Route(_)) => {
                 self.requests.push(context.clone());
+                // Use the ordinary direct-provider window to reach Terminal;
+                // the failure hook then deliberately crosses that exact deadline.
+                let deadline = until();
                 match self
                     .routes
-                    .calculate_observed(self.session, context, 1, until(), |o| {
-                        self.observations.push(o)
+                    .calculate_observed(self.session, context, 1, deadline, |o| {
+                        self.observations.push(o);
+                        if self.expire_after_terminal && o == Observation::Terminal {
+                            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                        }
                     }) {
-                    Ok(proposal) => self.proposals.push(proposal),
+                    Ok(proposal) => {
+                        if self.retry_same_dispatch {
+                            let repeated = self
+                                .routes
+                                .calculate(self.session, context, 1, until())
+                                .expect("same live callback must remain retryable");
+                            assert!(Rc::ptr_eq(&proposal.candidate, &repeated.candidate));
+                            self.proposals.push(repeated);
+                        }
+                        self.proposals.push(proposal);
+                    }
                     Err(error) => self.errors.push(error),
                 }
                 // No fabricated route advances the runtime past missing strict proof.
@@ -163,6 +181,8 @@ fn consumer<'a>(setup: &'a mut Setup) -> (&'a mut NativeWorld, Consumer<'a>) {
             observations: vec![],
             requests: vec![],
             errors: vec![],
+            expire_after_terminal: false,
+            retry_same_dispatch: false,
         },
     )
 }
@@ -291,7 +311,7 @@ fn exhausted_lookup_and_deadline_leave_zero_candidate_and_retry_is_cold() {
             .routes
             .calculate(consumer.session, &consumer.requests[0], 1, Instant::now())
             .err(),
-        Some(SamePolygonError::Dependency(Failure::MissingGeometry))
+        Some(SamePolygonError::Dependency(Failure::Deadline))
     );
     assert!(consumer.routes.candidates[0].proposals.is_empty());
 }
@@ -515,4 +535,59 @@ fn shared_components_execute_genuine_near_point_before_source_ordered_route() {
         route.request.binding.query_id += 1;
     }
     assert!(consumer.session.body(&changed).is_err());
+}
+
+#[test]
+fn deadline_after_actual_terminal_keeps_world_uncommitted_and_retry_claims_fresh_dispatch() {
+    let mut setup = setup(config());
+    let (world, mut consumer) = consumer(&mut setup);
+    consumer.expire_after_terminal = true;
+    drive_first(world, &mut consumer);
+    assert_eq!(consumer.observations.last(), Some(&Observation::Terminal));
+    assert_eq!(
+        consumer.errors,
+        [SamePolygonError::Dependency(Failure::Deadline)]
+    );
+    assert!(consumer.proposals.is_empty());
+    assert_eq!(consumer.routes.candidates.len(), 1);
+    assert!(consumer.routes.candidates[0].proposals.is_empty());
+    let first = consumer.requests[0].clone();
+    let before = world.checkpoint().unwrap();
+    consumer.expire_after_terminal = false;
+    // This still refuses Route publication: only the real LocalCorridor may
+    // convert the actual candidate. The second native calculation is genuine.
+    assert!(world
+        .step(world.state().tick + 1, None, &mut consumer)
+        .is_err());
+    assert_eq!(world.checkpoint().unwrap(), before);
+    assert_eq!(consumer.proposals.len(), 1);
+    assert_eq!(consumer.routes.candidates[0].proposals.len(), 1);
+    assert_eq!(consumer.proposals[0].after_cache().revision, 1);
+    let retry = consumer.requests.last().unwrap();
+    assert_eq!(retry, &first);
+    assert!(!first
+        .require_pathfinder_dispatch(world.profile())
+        .unwrap()
+        .same_live_dispatch(retry.require_pathfinder_dispatch(world.profile()).unwrap()));
+}
+
+#[test]
+fn same_live_dispatch_repeats_real_calculation_without_another_constructor_or_candidate() {
+    let mut setup = setup(config());
+    let (world, mut consumer) = consumer(&mut setup);
+    consumer.retry_same_dispatch = true;
+    drive_first(world, &mut consumer);
+    assert!(consumer.errors.is_empty());
+    assert_eq!(consumer.proposals.len(), 2);
+    assert_eq!(consumer.routes.queries.constructor_count(), 1);
+    assert_eq!(consumer.routes.candidates.len(), 1);
+    assert_eq!(consumer.routes.candidates[0].proposals.len(), 1);
+    assert!(Rc::ptr_eq(
+        &consumer.proposals[0].candidate,
+        &consumer.proposals[1].candidate
+    ));
+    assert_eq!(
+        consumer.proposals[0].after_cache(),
+        consumer.proposals[1].after_cache()
+    );
 }

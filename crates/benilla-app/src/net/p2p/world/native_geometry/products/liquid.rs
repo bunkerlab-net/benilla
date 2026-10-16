@@ -122,7 +122,7 @@ impl DryLiquidSnapshot {
             return Err(Error::Identity);
         }
         if Instant::now() >= deadline {
-            return Err(Error::Budget);
+            return Err(Error::Deadline);
         }
         let p = request.position.map(f32::from_bits);
         if p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
@@ -137,7 +137,7 @@ impl DryLiquidSnapshot {
         // before height, holes, area/DBC overrides or collision-height arithmetic.
         // This is a source branch proof, not "no visible water" or clear navigation.
         if Instant::now() >= deadline {
-            return Err(Error::Budget);
+            return Err(Error::Deadline);
         }
         Ok(LiquidReply {
             request,
@@ -260,7 +260,7 @@ impl GridLiquidSnapshot<'_> {
             return Err(Error::Identity);
         }
         if Instant::now() >= deadline {
-            return Err(Error::Budget);
+            return Err(Error::Deadline);
         }
         let p = request.query.position.map(f32::from_bits);
         if p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
@@ -281,7 +281,7 @@ impl GridLiquidSnapshot<'_> {
             },
         )?;
         if Instant::now() >= deadline {
-            return Err(Error::Budget);
+            return Err(Error::Deadline);
         }
         Ok(GridLiquidReply { request, result })
     }

@@ -338,7 +338,7 @@ fn loaded_filter_and_deadline_never_publish_a_route_or_consume_the_staged_tick()
         assert!(waiting.events.is_empty());
         assert_eq!(queries.lock().unwrap().len(), query_count);
     }
-    assert_eq!(*failures.lock().unwrap(), [Failure::MissingGeometry]);
+    assert_eq!(*failures.lock().unwrap(), [Failure::Deadline]);
     let queries = queries.lock().unwrap();
     let routes: Vec<_> = queries
         .iter()

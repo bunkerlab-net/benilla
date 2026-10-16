@@ -382,10 +382,7 @@ impl LoadedChaseGate<'_> {
             to,
             ignore_m2: false,
         };
-        let reply = self
-            .vmap
-            .query(ray, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+        let reply = self.vmap.query(ray, deadline).map_err(Failure::product)?;
         if reply.request != ray {
             return Err(Failure::Binding);
         }
@@ -403,7 +400,7 @@ impl LoadedChaseGate<'_> {
         let reply = self
             .liquid
             .query(liquid, deadline)
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(Failure::product)?;
         if reply.request != liquid {
             return Err(Failure::Binding);
         }
@@ -436,7 +433,7 @@ impl LoadedChaseGate<'_> {
 }
 fn require_time(deadline: Instant) -> Result<(), Failure> {
     if Instant::now() >= deadline {
-        Err(Failure::MissingGeometry)
+        Err(Failure::Deadline)
     } else {
         Ok(())
     }

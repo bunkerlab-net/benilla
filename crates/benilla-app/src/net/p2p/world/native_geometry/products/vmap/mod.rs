@@ -339,7 +339,7 @@ fn complete_query(
 ) -> Result<RayReply, Error> {
     // A completed last work step does not renew a caller's authority window after descheduling.
     if Instant::now() >= deadline {
-        return Err(Error::Budget);
+        return Err(Error::Deadline);
     }
     Ok(RayReply { request, result })
 }
@@ -368,7 +368,7 @@ impl QueryBudget {
     /// A completed last work step never renews the caller's absolute deadline.
     pub(crate) fn complete(&self) -> Result<(), Error> {
         if Instant::now() >= self.deadline {
-            return Err(Error::Budget);
+            return Err(Error::Deadline);
         }
         Ok(())
     }
@@ -376,9 +376,10 @@ impl QueryBudget {
         self.deadline
     }
     pub(super) fn take(&mut self) -> Result<(), Error> {
-        if self.remaining == 0 || Instant::now() >= self.deadline {
+        if self.remaining == 0 {
             return Err(Error::Budget);
         }
+        self.complete()?;
         self.remaining -= 1;
         Ok(())
     }
