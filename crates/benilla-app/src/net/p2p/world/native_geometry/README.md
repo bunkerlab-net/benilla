@@ -716,7 +716,7 @@ it leaves room for at most three uncommitted candidates. Loaded native rehydrati
 after reopening remains separately unsupported.
 
 The app geometry identity is
-`benilla-owned-dry-same-polygon-chase-commit-continuation-v3`, including the
+`benilla-owned-dry-same-polygon-chase-commit-continuation-v4`, including the
 outer-commit acknowledgement, total-cap-four and bounded original-job policies.
 Earlier uncommitted-proposal and monolithic-commit identities are incompatible.
 Commit-head delivery itself does not alter the native payload schema; the current

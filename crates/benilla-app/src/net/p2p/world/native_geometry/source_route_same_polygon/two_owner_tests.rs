@@ -753,31 +753,71 @@ fn two_owner_private_prepared_handles_cannot_cross_requests() {
     providers.route.check_prepared(&a_prepared).unwrap();
     providers.route.check_prepared(&b_prepared).unwrap();
     // Adversarial private-state invariant tests, not a publicly mutable capability.
-    std::mem::swap(&mut a_prepared.constructor, &mut b_prepared.constructor);
-    assert!(providers.route.check_prepared(&a_prepared).is_err());
-    assert!(providers.route.check_prepared(&b_prepared).is_err());
-    std::mem::swap(&mut a_prepared.constructor, &mut b_prepared.constructor);
     std::mem::swap(
-        &mut a_prepared.filter_context,
-        &mut b_prepared.filter_context,
+        &mut a_prepared.dependencies.constructor,
+        &mut b_prepared.dependencies.constructor,
     );
     assert!(providers.route.check_prepared(&a_prepared).is_err());
     assert!(providers.route.check_prepared(&b_prepared).is_err());
     std::mem::swap(
-        &mut a_prepared.filter_context,
-        &mut b_prepared.filter_context,
+        &mut a_prepared.dependencies.constructor,
+        &mut b_prepared.dependencies.constructor,
     );
-    std::mem::swap(&mut a_prepared.dispatch, &mut b_prepared.dispatch);
+    std::mem::swap(
+        &mut a_prepared.validation.filter_context,
+        &mut b_prepared.validation.filter_context,
+    );
     assert!(providers.route.check_prepared(&a_prepared).is_err());
     assert!(providers.route.check_prepared(&b_prepared).is_err());
-    std::mem::swap(&mut a_prepared.dispatch, &mut b_prepared.dispatch);
-    a_prepared.prior = Some(Rc::clone(&b.candidate));
+    std::mem::swap(
+        &mut a_prepared.validation.filter_context,
+        &mut b_prepared.validation.filter_context,
+    );
+    std::mem::swap(
+        &mut a_prepared.validation.dispatch,
+        &mut b_prepared.validation.dispatch,
+    );
     assert!(providers.route.check_prepared(&a_prepared).is_err());
-    a_prepared.prior = None;
+    assert!(providers.route.check_prepared(&b_prepared).is_err());
+    std::mem::swap(
+        &mut a_prepared.validation.dispatch,
+        &mut b_prepared.validation.dispatch,
+    );
+    a_prepared.dependencies.prior = Some(Rc::clone(&b.candidate));
+    assert!(providers.route.check_prepared(&a_prepared).is_err());
+    a_prepared.dependencies.prior = None;
     providers.route.check_prepared(&a_prepared).unwrap();
     providers.route.check_prepared(&b_prepared).unwrap();
     assert_eq!(providers.route.retained_candidate_count(), 2);
     assert_eq!(providers.route.certified_candidate_count(), 0);
+}
+
+#[test]
+fn two_owner_validated_contexts_cannot_cross_requests_before_constructor() {
+    let (profile, session, mut providers) = setup(2, 3, [2, 3]);
+    let (_, a, _) = capture_owner(&profile, &session, &mut providers, 2);
+    let (_, b, _) = capture_owner(&profile, &session, &mut providers, 3);
+    let until = || Instant::now() + Duration::from_secs(10);
+    let mut a = providers
+        .route
+        .validate_calculation(&session, &a.context, 1, until())
+        .unwrap();
+    let mut b = providers
+        .route
+        .validate_calculation(&session, &b.context, 1, until())
+        .unwrap();
+    providers.route.check_validated(&a).unwrap();
+    providers.route.check_validated(&b).unwrap();
+    std::mem::swap(&mut a.filter_context, &mut b.filter_context);
+    assert!(providers.route.check_validated(&a).is_err());
+    assert!(providers.route.check_validated(&b).is_err());
+    std::mem::swap(&mut a.filter_context, &mut b.filter_context);
+    std::mem::swap(&mut a.dispatch, &mut b.dispatch);
+    assert!(providers.route.check_validated(&a).is_err());
+    assert!(providers.route.check_validated(&b).is_err());
+    std::mem::swap(&mut a.dispatch, &mut b.dispatch);
+    providers.route.check_validated(&a).unwrap();
+    providers.route.check_validated(&b).unwrap();
 }
 
 #[test]
@@ -840,7 +880,7 @@ fn pending_two_owner_cancellation_and_replacement_preserve_peer_job_and_expiry()
         assert_eq!(providers.route.pending_job_count(), 1);
         assert!(peer_lease.is_active());
         assert_eq!(peer_lease.deadline(), peer_deadline);
-        for _ in 0..3 {
+        for _ in 0..4 {
             assert_eq!(advance(&peer_mailbox, &mut providers.route), 1);
         }
         providers.route.reap_jobs();
@@ -855,7 +895,7 @@ fn pending_two_owner_cancellation_and_replacement_preserve_peer_job_and_expiry()
             .enqueue_service_test_request(3, cancel_request)
             .unwrap();
         assert!(!replacement.same_job(&cancel_lease));
-        for _ in 0..5 {
+        for _ in 0..6 {
             assert_eq!(advance(&replacement_mailbox, &mut providers.route), 1);
         }
         providers.route.reap_jobs();

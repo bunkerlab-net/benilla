@@ -8,9 +8,10 @@ const MAX_PENDING_JOBS: usize = 16;
 pub(super) struct PendingCalculation {
     lease: JobLease,
     first_ticket: u64,
-    phase: Phase,
+    pub(super) phase: Phase,
 }
-enum Phase {
+pub(super) enum Phase {
+    Validated(Box<ValidatedCalculation>),
     Prepared(Box<PreparedCalculation>),
     Gated(Box<PreparedCalculation>, Box<GateDependencies>),
     Terminal(Box<SamePolygonProposal>),
@@ -18,18 +19,19 @@ enum Phase {
 impl Phase {
     fn context(&self) -> &AuthorityRequest {
         match self {
-            Self::Prepared(prepared) | Self::Gated(prepared, _) => &prepared.context,
+            Self::Validated(validation) => &validation.context,
+            Self::Prepared(prepared) | Self::Gated(prepared, _) => &prepared.validation.context,
             Self::Terminal(proposal) => &proposal.context,
         }
     }
     fn reservation(&self, npc: NpcId, construction: motion::QueryBinding) -> bool {
         let prepared = match self {
             Self::Prepared(prepared) | Self::Gated(prepared, _) => prepared,
-            Self::Terminal(_) => return false,
+            Self::Validated(_) | Self::Terminal(_) => return false,
         };
-        prepared.reserved
-            && prepared.context.binding.npc == Some(npc)
-            && prepared.dispatch.construction_binding() == construction
+        prepared.dependencies.reserved
+            && prepared.validation.context.binding.npc == Some(npc)
+            && prepared.validation.dispatch.construction_binding() == construction
     }
 }
 impl SourceSamePolygonRouteProvider {
@@ -71,27 +73,49 @@ impl SourceSamePolygonRouteProvider {
             .count()
     }
 
+    pub(super) fn check_validated(
+        &self,
+        validation: &ValidatedCalculation,
+    ) -> Result<(), SamePolygonError> {
+        self.check_current_boundary(&validation.context)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &validation.context.query else {
+            return Err(Failure::Binding.into());
+        };
+        if !validation
+            .filter_context
+            .matches_context(&validation.context)
+            || !route
+                .pathfinder_dispatch
+                .as_ref()
+                .is_some_and(|dispatch| validation.dispatch.same_live_dispatch(dispatch))
+        {
+            return Err(Failure::Binding.into());
+        }
+        self.filter.reborrow(&validation.filter_context)?;
+        Ok(())
+    }
+
     pub(super) fn check_prepared(
         &mut self,
         prepared: &PreparedCalculation,
     ) -> Result<(), SamePolygonError> {
         check_owned_context(
-            &prepared.context,
-            &prepared.dispatch,
-            &prepared.constructor,
-            &prepared.filter_context,
+            &prepared.validation.context,
+            &prepared.validation.dispatch,
+            &prepared.dependencies.constructor,
+            &prepared.validation.filter_context,
         )?;
-        self.filter.reborrow(&prepared.filter_context)?;
-        self.queries.reborrow(&prepared.constructor)?;
+        self.filter.reborrow(&prepared.validation.filter_context)?;
+        self.queries.reborrow(&prepared.dependencies.constructor)?;
         let entry = self
             .candidates
             .iter()
             .find(|entry| {
-                Some(entry.npc) == prepared.context.binding.npc
-                    && entry.construction == prepared.dispatch.construction_binding()
+                Some(entry.npc) == prepared.validation.context.binding.npc
+                    && entry.construction == prepared.validation.dispatch.construction_binding()
             })
             .ok_or(Failure::Binding)?;
-        if prepared.prior.as_ref().is_some_and(|prior| {
+        if prepared.dependencies.prior.as_ref().is_some_and(|prior| {
             !entry
                 .proposals
                 .iter()
@@ -180,21 +204,16 @@ impl SourceSamePolygonRouteProvider {
                 .try_reserve(1)
                 .map_err(|_| SamePolygonError::CandidateBudget)?;
             #[cfg(test)]
-            job.record_phase("prepare");
-            let prepared = self.prepare_calculation(
-                job.session(),
-                job.request(),
-                first_ticket,
-                deadline,
-                &mut observe,
-            )?;
+            job.record_phase("validate_context");
+            let validation =
+                self.validate_calculation(job.session(), job.request(), first_ticket, deadline)?;
             if !lease.is_active() {
                 return Err(Failure::Deadline.into());
             }
             self.pending.push(PendingCalculation {
                 lease,
                 first_ticket,
-                phase: Phase::Prepared(Box::new(prepared)),
+                phase: Phase::Validated(Box::new(validation)),
             });
             return Ok(false);
         };
@@ -207,45 +226,57 @@ impl SourceSamePolygonRouteProvider {
         }
         #[cfg(test)]
         job.record_phase(match &pending.phase {
+            Phase::Validated(_) => "prepare_constructor",
             Phase::Prepared(_) => "gate",
             Phase::Gated(..) => "native_terminal",
             Phase::Terminal(_) => "final_certification",
         });
         let result = match &pending.phase {
-            Phase::Prepared(prepared) => self
-                .check_prepared(prepared)
-                .and_then(|()| self.calculate_gate(prepared, deadline, &mut observe))
-                .map(Some),
-            Phase::Gated(prepared, _) => self.check_prepared(prepared).map(|()| None),
-            Phase::Terminal(proposal) => self.check_terminal(proposal).map(|()| None),
-        };
-        let result = match result {
-            Ok(Some(gate)) => {
-                let Phase::Prepared(prepared) = pending.phase else {
-                    unreachable!()
-                };
-                pending.phase = Phase::Gated(prepared, Box::new(gate));
-                Ok(false)
-            }
-            Ok(None) => match &pending.phase {
-                Phase::Gated(prepared, gate) => {
-                    match self.calculate_terminal(prepared, gate, deadline, &mut observe) {
-                        Ok(terminal) => {
-                            let Phase::Gated(prepared, gate) = pending.phase else {
-                                unreachable!()
-                            };
-                            pending.phase = Phase::Terminal(Box::new(Self::assemble_proposal(
-                                *prepared, *gate, terminal,
-                            )));
-                            Ok(false)
-                        }
-                        Err(error) => Err(error),
+            Phase::Validated(validation) => {
+                match self.prepare_constructor(validation, deadline, &mut observe) {
+                    Ok(dependencies) => {
+                        let Phase::Validated(validation) = pending.phase else {
+                            unreachable!()
+                        };
+                        pending.phase = Phase::Prepared(Box::new(PreparedCalculation {
+                            validation: *validation,
+                            dependencies,
+                        }));
+                        Ok(false)
                     }
+                    Err(error) => Err(error),
                 }
-                Phase::Terminal(_) => Ok(true),
-                Phase::Prepared(_) => unreachable!(),
-            },
-            Err(error) => Err(error),
+            }
+            Phase::Prepared(prepared) => {
+                match self
+                    .check_prepared(prepared)
+                    .and_then(|()| self.calculate_gate(prepared, deadline, &mut observe))
+                {
+                    Ok(gate) => {
+                        let Phase::Prepared(prepared) = pending.phase else {
+                            unreachable!()
+                        };
+                        pending.phase = Phase::Gated(prepared, Box::new(gate));
+                        Ok(false)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            Phase::Gated(prepared, gate) => {
+                match self.calculate_terminal(prepared, gate, deadline, &mut observe) {
+                    Ok(terminal) => {
+                        let Phase::Gated(prepared, gate) = pending.phase else {
+                            unreachable!()
+                        };
+                        pending.phase = Phase::Terminal(Box::new(Self::assemble_proposal(
+                            *prepared, *gate, terminal,
+                        )));
+                        Ok(false)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            Phase::Terminal(proposal) => self.check_terminal(proposal).map(|()| true),
         };
         // Only earlier successful phases survive an incomplete deadline. Complete
         // remains Terminal until mailbox validation/publication retires this Work.

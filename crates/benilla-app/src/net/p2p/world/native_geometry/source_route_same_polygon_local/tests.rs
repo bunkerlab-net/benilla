@@ -1204,7 +1204,7 @@ fn serve_real_stage(mailbox: &core::Mailbox, consumer: &mut Consumer, deadline: 
 }
 
 #[test]
-fn staged_real_corridor_publishes_only_after_all_five_phases() {
+fn staged_real_corridor_publishes_only_after_all_six_phases() {
     let (mut world, mut consumer) = setup();
     let expected = real_first_reply(&mut world, &mut consumer);
     let before = world.checkpoint().unwrap();
@@ -1212,7 +1212,7 @@ fn staged_real_corridor_publishes_only_after_all_five_phases() {
     let (lease, reply) = mailbox
         .enqueue_service_test_request(1, expected.request)
         .unwrap();
-    for _ in 0..4 {
+    for _ in 0..5 {
         serve_real_stage(
             &mailbox,
             &mut consumer,
@@ -1249,7 +1249,7 @@ fn staged_final_physics_rechecks_membership_assets_transforms_layers_and_disable
         let (lease, reply) = mailbox
             .enqueue_service_test_request(1, expected.request)
             .unwrap();
-        for _ in 0..4 {
+        for _ in 0..5 {
             serve_real_stage(
                 &mailbox,
                 &mut consumer,
@@ -1332,7 +1332,7 @@ fn late_real_clearance_retains_terminal_and_retries_fresh_physics_before_publica
     let (lease, reply) = mailbox
         .enqueue_service_test_request(1, expected.request)
         .unwrap();
-    for _ in 0..4 {
+    for _ in 0..5 {
         serve_real_stage(
             &mailbox,
             &mut consumer,
@@ -1526,7 +1526,7 @@ fn retained_job_cannot_switch_between_providers_with_genuine_equal_byte_native_p
         reply.try_result(),
         Err(crossbeam_channel::TryRecvError::Empty)
     ));
-    for _ in 0..2 {
+    for _ in 0..3 {
         serve_real_stage(
             &mailbox,
             &mut owner,
@@ -1542,11 +1542,18 @@ fn retained_job_cannot_switch_between_providers_with_genuine_equal_byte_native_p
 }
 
 #[test]
-fn same_dispatch_commit_reaps_cache_free_prepared_job_without_replacing_its_constructor() {
+fn same_dispatch_commit_reaps_cache_free_context_and_prepared_jobs() {
+    for stages in [2, 3] {
+        same_dispatch_commit_reaps_cache_free_job(stages);
+    }
+}
+
+fn same_dispatch_commit_reaps_cache_free_job(stages: usize) {
     struct PrepareDuringRoute<'a> {
         consumer: &'a mut Consumer,
         mailbox: &'a core::Mailbox,
         pending: Option<(core::JobLease, core::ServiceTestReply)>,
+        stages: usize,
     }
     impl Authority for PrepareDuringRoute<'_> {
         fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
@@ -1561,7 +1568,7 @@ fn same_dispatch_commit_reaps_cache_free_prepared_job_without_replacing_its_cons
                         .enqueue_service_test_request(1, request.clone())
                         .unwrap(),
                 );
-                for _ in 0..2 {
+                for _ in 0..self.stages {
                     assert_eq!(
                         self.mailbox.serve_service_test_slice(
                             1,
@@ -1596,6 +1603,7 @@ fn same_dispatch_commit_reaps_cache_free_prepared_job_without_replacing_its_cons
         consumer: &mut consumer,
         mailbox: &mailbox,
         pending: None,
+        stages,
     };
     for _ in 0..8 {
         world

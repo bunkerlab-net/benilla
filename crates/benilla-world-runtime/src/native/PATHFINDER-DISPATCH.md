@@ -56,17 +56,18 @@ successful Route calculation.
 
 ## Bounded app Route continuation
 
-The app geometry policy `benilla-owned-dry-same-polygon-chase-commit-continuation-v3`
-binds the selected installed same-polygon Service to five bounded phases under
+The app geometry policy `benilla-owned-dry-same-polygon-chase-commit-continuation-v4`
+binds the selected installed same-polygon Service to six bounded phases under
 one original mailbox job:
 
 1. Complete immutable Session/body/request validation.
-2. Validate provider, dispatch, model and native ancestry; retain the original
-   constructor and reserve candidate capacity.
-3. Complete constructor filter and the entire source-ordered Chase gate.
-4. Select the original query, check owner-ignore and both tiles, perform fresh
+2. Validate the immutable provider/context, dispatch and collision model.
+3. Recheck current native ancestry and candidate capacity; validate and retain the
+   original constructor, then reserve candidate capacity.
+4. Complete constructor filter and the entire source-ordered Chase gate.
+5. Select the original query, check owner-ignore and both tiles, perform fresh
    updateFilter, then produce the actual cold/retained native terminal candidate.
-5. Certify current concrete physics/coverage and loaded segment LOS, validate the
+6. Certify current concrete physics/coverage and loaded segment LOS, validate the
    complete Route facts, then publish the reply in the same invocation.
 
 A successful phase yields the same Work to the bounded FIFO tail and ends that
@@ -89,7 +90,9 @@ profile serialization, new constructor claims or saved-query rehydration. Raw
 and direct calls still perform full validation. No borrowed native query, physics
 view or attempt-local validation token survives an invocation.
 
-Pending jobs are owner-thread-only and bounded to 16. Distinct live jobs reserve
+Pending jobs are owner-thread-only and bounded to 16. The validated-context phase
+owns no native candidate or capacity reservation. After constructor preparation,
+distinct live jobs reserve
 separate slots within the existing four-candidate cap until an actual immutable
 candidate is shared; terminal proposals remain counted in that registry. The
 constructor registry's existing bound is unchanged. Cancellation, expiry,

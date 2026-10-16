@@ -143,8 +143,8 @@ impl SamePolygonBinding {
     }
     pub(crate) fn geometry_revision(self) -> Result<[u8; 32], Failure> {
         self.geometry_revision_for_policy(
-            b"benilla-owned-dry-same-polygon-chase-commit-continuation-v3",
-            b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;outer-commit-ack;total-cap4;bounded-original-job-five-phase",
+            b"benilla-owned-dry-same-polygon-chase-commit-continuation-v4",
+            b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;outer-commit-ack;total-cap4;bounded-original-job-six-phase",
         )
     }
     fn geometry_revision_for_policy(
@@ -373,15 +373,21 @@ impl SamePolygonProposal {
         &self.candidate.after_cache
     }
 }
-struct PreparedCalculation {
+struct ValidatedCalculation {
     context: AuthorityRequest,
     first_ticket: u64,
     dispatch: PathfinderDispatchReceipt,
     model: ChaseGateModel,
+    filter_context: OwnedRouteFilterContext,
+}
+struct ConstructorDependencies {
     prior: Option<Rc<SamePolygonCandidate>>,
     constructor: RegisteredConstructorHandle,
-    filter_context: OwnedRouteFilterContext,
     reserved: bool,
+}
+struct PreparedCalculation {
+    validation: ValidatedCalculation,
+    dependencies: ConstructorDependencies,
 }
 struct GateDependencies {
     constructor_filter: Option<RouteFilterDependency>,
@@ -941,6 +947,21 @@ impl SourceSamePolygonRouteProvider {
         deadline: Instant,
         mut observe: impl FnMut(Observation),
     ) -> Result<PreparedCalculation, SamePolygonError> {
+        let validation = self.validate_calculation(session, context, first_ticket, deadline)?;
+        let dependencies = self.prepare_constructor(&validation, deadline, &mut observe)?;
+        Ok(PreparedCalculation {
+            validation,
+            dependencies,
+        })
+    }
+
+    fn validate_calculation(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+    ) -> Result<ValidatedCalculation, SamePolygonError> {
         self.check_current_boundary(context)?;
         if first_ticket == 0 {
             return Err(Failure::Binding.into());
@@ -963,6 +984,29 @@ impl SourceSamePolygonRouteProvider {
             .require_pathfinder_dispatch(&self.profile)
             .map_err(|_| Failure::Binding)?;
         let model = gate_model(&self.profile, session.world, self.player, route)?;
+        require_time(deadline)?;
+        Ok(ValidatedCalculation {
+            context: context.clone(),
+            first_ticket,
+            dispatch: event.clone(),
+            model,
+            filter_context,
+        })
+    }
+
+    fn prepare_constructor(
+        &mut self,
+        validation: &ValidatedCalculation,
+        deadline: Instant,
+        mut observe: impl FnMut(Observation),
+    ) -> Result<ConstructorDependencies, SamePolygonError> {
+        require_time(deadline)?;
+        self.check_validated(validation)?;
+        let context = &validation.context;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        let event = &validation.dispatch;
         let npc = route.owner.npc();
         let construction = event.construction_binding();
         let index = if let Some(index) = self
@@ -1029,14 +1073,9 @@ impl SourceSamePolygonRouteProvider {
         let constructor = self.queries.prepare_constructor(context)?;
         observe(Observation::ConstructorQuery);
         require_time(deadline)?;
-        Ok(PreparedCalculation {
-            context: context.clone(),
-            first_ticket,
-            dispatch: event.clone(),
-            model,
+        Ok(ConstructorDependencies {
             prior,
             constructor,
-            filter_context,
             reserved: retry.is_none(),
         })
     }
@@ -1048,10 +1087,10 @@ impl SourceSamePolygonRouteProvider {
         mut observe: impl FnMut(Observation),
     ) -> Result<GateDependencies, SamePolygonError> {
         require_time(deadline)?;
-        let context = &prepared.context;
-        let first_ticket = prepared.first_ticket;
-        let bound_filter = self.filter.reborrow(&prepared.filter_context)?;
-        let constructor_filter = if prepared.dispatch.first_construction() {
+        let context = &prepared.validation.context;
+        let first_ticket = prepared.validation.first_ticket;
+        let bound_filter = self.filter.reborrow(&prepared.validation.filter_context)?;
+        let constructor_filter = if prepared.validation.dispatch.first_construction() {
             let result = bound_filter.query(
                 RouteFilterRequest {
                     snapshot: self.binding.liquid,
@@ -1070,7 +1109,7 @@ impl SourceSamePolygonRouteProvider {
             player: self.player,
             liquid: self.filter.dry_liquid(),
             vmap: &self.vmap,
-            model: &prepared.model,
+            model: &prepared.validation.model,
         }
         .query(context, first_ticket + 2, deadline, |gate| {
             observe(Observation::Gate(gate))
@@ -1094,20 +1133,20 @@ impl SourceSamePolygonRouteProvider {
     ) -> Result<TerminalDependencies, SamePolygonError> {
         require_time(deadline)?;
         self.check_prepared(prepared)?;
-        let context = &prepared.context;
+        let context = &prepared.validation.context;
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery.into());
         };
         let npc = route.owner.npc();
-        let prior = &prepared.prior;
-        let event = &prepared.dispatch;
-        let first_ticket = prepared.first_ticket;
+        let prior = &prepared.dependencies.prior;
+        let event = &prepared.validation.dispatch;
+        let first_ticket = prepared.validation.first_ticket;
         let constructor_filter = &dependencies.constructor_filter;
-        let bound_filter = self.filter.reborrow(&prepared.filter_context)?;
+        let bound_filter = self.filter.reborrow(&prepared.validation.filter_context)?;
         // PathFinder.cpp: destination/start checks and selection, owned ignore bit,
         // both HaveTile calls, then a fresh updateFilter. Constructor queries above
         // are separate observations, before TargetedMovementGenerator's Chase gate.
-        let mut constructor = self.queries.reborrow(&prepared.constructor)?;
+        let mut constructor = self.queries.reborrow(&prepared.dependencies.constructor)?;
         let selected = constructor.select_for_calculate(deadline)?;
         observe(Observation::SelectedQuery);
         let owner_ignore = route
@@ -1213,7 +1252,8 @@ impl SourceSamePolygonRouteProvider {
             .candidates
             .iter()
             .position(|entry| {
-                entry.npc == npc && entry.construction == prepared.dispatch.construction_binding()
+                entry.npc == npc
+                    && entry.construction == prepared.validation.dispatch.construction_binding()
             })
             .ok_or(Failure::Binding)?;
         let entry = &mut self.candidates[index];
@@ -1260,13 +1300,13 @@ impl SourceSamePolygonRouteProvider {
         terminal: TerminalDependencies,
     ) -> SamePolygonProposal {
         SamePolygonProposal {
-            prior: prepared.prior,
-            context: prepared.context,
-            dispatch: prepared.dispatch,
-            filter_context: prepared.filter_context,
-            constructor: prepared.constructor,
+            prior: prepared.dependencies.prior,
+            context: prepared.validation.context,
+            dispatch: prepared.validation.dispatch,
+            filter_context: prepared.validation.filter_context,
+            constructor: prepared.dependencies.constructor,
             constructor_filter: gate.constructor_filter,
-            model: prepared.model,
+            model: prepared.validation.model,
             gate: gate.gate,
             owner_ignore: terminal.owner_ignore,
             tiles: terminal.tiles,
