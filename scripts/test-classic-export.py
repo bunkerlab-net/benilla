@@ -16,7 +16,7 @@ import warnings
 import getpass
 
 from classic_export.capture import Query, capture, validate_bundle
-from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA
+from classic_export.columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS
 from classic_export import starter
 from classic_export.core import (ExportError, MAX_ROWS, Selection, TEXT_COLUMNS,
                                  canonical, decode_json, digest, normalize_cell,
@@ -34,15 +34,15 @@ def schema():
             kind = "text" if name in TEXT_COLUMNS.get(table, set()) else "bigint"
             if name in FLOAT_FIELDS:
                 kind = "decimal(40,20)"
-            if table == "creature_ai_scripts":
-                kind = "int unsigned" if name == "id" else "int"
             columns.append({"name": name, "type": kind, "nullable": False, "ordinal": ordinal})
-        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA):
+        if table in (LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA):
             columns = [{"name": name, "type": kind, "nullable": nullable, "ordinal": ordinal}
-                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA)[table], 1)]
+                       for ordinal, (name, kind, nullable) in enumerate((LEARNING_SCHEMA | SPAWN_SCHEMA | REGISTRY_SCHEMA | EVENT_TEXT_SCHEMA)[table], 1)]
         tables[table] = {"engine": "InnoDB", "table_type": "BASE TABLE", "columns": columns}
         if table in REGISTRY_SCHEMA:
             tables[table]["primary_key"] = ["Id"]
+        if table in EVENT_TEXT_PRIMARY_KEYS:
+            tables[table]["primary_key"] = EVENT_TEXT_PRIMARY_KEYS[table].copy()
     return {"format_version": 1, "tables": tables}
 
 def row(table, **changes):
@@ -51,6 +51,12 @@ def row(table, **changes):
         result[name] = Decimal("0")
     result.update(changes)
     return result
+
+def refresh_event_text(bundle):
+    from classic_export.event_text import evidence
+    if "event_text_capture" in bundle:
+        bundle["event_text_capture"] = evidence(bundle)
+
 
 def selection():
     return Selection.parse({"format_version": 1, "map_id": 0,
@@ -728,16 +734,17 @@ class EventAiCaptureTests(unittest.TestCase):
     def test_complete_query_covers_both_entry_and_guid_without_event_filters(self):
         source = starter_source()
         source.rows["creature_ai_scripts"] = [
-            {"id": 950001, "creature_id": 900001},
-            {"id": 950002, "creature_id": -1},
-            {"id": 950003, "creature_id": -2},
-            {"id": 950004, "creature_id": 900002},
+            row("creature_ai_scripts", id=950001, creature_id=900001),
+            row("creature_ai_scripts", id=950002, creature_id=-1),
+            row("creature_ai_scripts", id=950003, creature_id=-2),
+            row("creature_ai_scripts", id=950004, creature_id=900002),
         ]
         bundle = capture(source, starter_selection())
         self.assertEqual(bundle["event_ai_capture"]["selectors"], [-1, 900001])
         self.assertEqual(bundle["tables"]["creature_ai_scripts"], source.rows["creature_ai_scripts"][:2])
         sql, args = next(q for q in source.queries if "FROM `creature_ai_scripts`" in q[0])
-        self.assertEqual(sql, "SELECT `id` AS `id`,`creature_id` AS `creature_id` FROM `creature_ai_scripts` "
+        columns = ",".join(f"`{name}` AS `{name}`" for name in COLUMNS["creature_ai_scripts"])
+        self.assertEqual(sql, f"SELECT {columns} FROM `creature_ai_scripts` "
                              "WHERE `creature_id` IN (%s,%s) ORDER BY `id` LIMIT %s")
         self.assertEqual(args, (-1, 900001, MAX_ROWS+1))
         self.assertEqual(len([i for i in bundle["report"]["unsupported"]
@@ -765,7 +772,7 @@ class EventAiCaptureTests(unittest.TestCase):
         class WrongRows(FakeSource):
             def fetch(self, query):
                 if query.mode == "event_ai_selectors":
-                    return [{"id": 950001, "creature_id": -2}]
+                    return [row("creature_ai_scripts", id=950001, creature_id=-2)]
                 return super().fetch(query)
         source = starter_source()
         source.__class__ = WrongRows
@@ -777,10 +784,15 @@ class EventAiCaptureTests(unittest.TestCase):
         from classic_export.capture import full_report
         bundle = capture(starter_source(), starter_selection())
         bundle.pop("event_ai_capture")
+        bundle.pop("event_text_capture")
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            bundle["tables"].pop(table)
+            bundle["table_sha256"].pop(table)
         bundle["tables"].pop("creature_ai_scripts")
         bundle["table_sha256"].pop("creature_ai_scripts")
         bundle["schema"]["tables"].pop("creature_ai_scripts")
         bundle["schema_sha256"] = digest(bundle["schema"])
+        refresh_event_text(bundle)
         if "spell_script_capture" in bundle:
             from classic_export.spell_registry import evidence as registry_evidence
             bundle["spell_script_capture"] = registry_evidence(bundle)
@@ -797,7 +809,7 @@ class EventAiCaptureTests(unittest.TestCase):
         for kind in ("int unsigned", "bigint", "float"):
             source = starter_source()
             source.inventory["tables"]["creature_ai_scripts"]["columns"][1]["type"] = kind
-            with self.subTest(kind=kind), self.assertRaisesRegex(ExportError, "schema.event_ai_type"):
+            with self.subTest(kind=kind), self.assertRaisesRegex(ExportError, "schema.event_text_type"):
                 capture(source, starter_selection())
 
     def test_event_table_uses_existing_snapshot_and_row_budgets(self):
@@ -806,7 +818,7 @@ class EventAiCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ExportError, "quiescent"):
             capture(source, starter_selection())
         source = starter_source()
-        source.rows["creature_ai_scripts"] = [{"id": i+1, "creature_id": -1} for i in range(MAX_ROWS+1)]
+        source.rows["creature_ai_scripts"] = [row("creature_ai_scripts", id=i+1, creature_id=-1) for i in range(MAX_ROWS+1)]
         with self.assertRaisesRegex(ExportError, "rows.limit:creature_ai_scripts"):
             capture(source, starter_selection())
         self.assertTrue(source.finished)
@@ -1079,6 +1091,7 @@ class NativeSpawnCaptureTests(unittest.TestCase):
             bundle["table_sha256"].pop(table)
             bundle["schema"]["tables"].pop(table)
         bundle["schema_sha256"] = digest(bundle["schema"])
+        refresh_event_text(bundle)
         if "spell_script_capture" in bundle:
             from classic_export.spell_registry import evidence as registry_evidence
             bundle["spell_script_capture"] = registry_evidence(bundle)
@@ -1315,6 +1328,7 @@ class SpellRegistryCaptureTests(unittest.TestCase):
         bundle["table_sha256"].pop("spell_scripts")
         bundle["schema"]["tables"].pop("spell_scripts")
         bundle["schema_sha256"] = digest(bundle["schema"])
+        refresh_event_text(bundle)
         bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
         validate_bundle(bundle)
         self.assertIsNone(spell_registry.scope(bundle, 930001))
@@ -1354,6 +1368,314 @@ class RecursiveModelCaptureTests(unittest.TestCase):
         result = capture(source, starter_selection())
         self.assertEqual(result["required_ids"]["creature_model_info"], [940001, 940002, 940003])
         self.assertEqual(result["tables"]["creature_spawn_data_template"][0]["ModelId"], 949999)
+
+
+class EventTextCaptureTests(unittest.TestCase):
+    """Authored IDs/text exercise the real loader shape without copying world rows."""
+    def source(self):
+        source = starter_source()
+        source.rows["creature_ai_scripts"] = [row("creature_ai_scripts", id=950001,
+            creature_id=900001, event_type=4, event_inverse_phase_mask=-1,
+            event_chance=0, event_flags=0xffffffff, event_param1=-0x80000000,
+            event_param2=0x7fffffff, event_param3=-7, event_param4=11,
+            event_param5=13, event_param6=17, action1_type=1,
+            action1_param1=960001, action1_param2=960002,
+            comment="Original synthetic text dependency case")]
+        source.rows["broadcast_text"] = [row("broadcast_text", Id=960001,
+            Text="Original α message", Text1=None, LanguageID=7, Flags=1, VerifiedBuild=123),
+            row("broadcast_text", Id=960002, Text="Original second message", Text1="")]
+        source.rows["broadcast_text_locale"] = [row("broadcast_text_locale", Id=960001,
+            Locale="frFR", Text_lang="Original e\u0301 text", Text1_lang=None, VerifiedBuild=123),
+            row("broadcast_text_locale", Id=960001, Locale="deDE", Text_lang="", Text1_lang="")]
+        return source
+
+    def captured(self, source=None):
+        return capture(source or self.source(), starter_selection())
+
+    def rehash(self, bundle, *, dependencies=True):
+        from classic_export import event_text, spell_registry, native_spawn
+        bundle["schema_sha256"] = digest(bundle["schema"])
+        bundle["table_sha256"] = {t: digest(rows) for t, rows in bundle["tables"].items()}
+        bundle["spell_script_capture"] = spell_registry.evidence(bundle)
+        bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
+        if dependencies:
+            bundle["event_text_capture"] = event_text.evidence(bundle)
+
+    def test_full_schema_preserves_parameters_text_nulls_and_metadata(self):
+        from classic_export import event_text
+        source = self.source(); bundle = self.captured(source)
+        validate_bundle(bundle)
+        self.assertEqual(bundle["tables"]["creature_ai_scripts"], source.rows["creature_ai_scripts"])
+        self.assertEqual(bundle["tables"]["broadcast_text"], source.rows["broadcast_text"])
+        self.assertEqual(bundle["tables"]["broadcast_text_locale"], sorted(
+            source.rows["broadcast_text_locale"], key=lambda r: (r["Id"], r["Locale"])))
+        evidence = bundle["event_text_capture"]
+        self.assertEqual(evidence["status"], "complete")
+        self.assertEqual(evidence["references"], [{"event_id":950001, "creature_id":900001,
+            "action_index":1, "parameter_index":i, "broadcast_id":960000+i} for i in (1,2)])
+        self.assertEqual(event_text.scope(bundle)["status"], "complete")
+        self.assertFalse(bundle["revision_claims_verified_against_installation"])
+        self.assertFalse(bundle["report"]["runnable"])
+        self.assertFalse(bundle["report"]["capture_complete"])
+        self.assertIn("creature.event_ai_matching_row_requires_execution",
+                      {finding["reason"] for finding in bundle["report"]["unsupported"]})
+
+    def test_every_text_slot_is_derived_without_chance_phase_debug_filters(self):
+        source = self.source()
+        event = source.rows["creature_ai_scripts"][0]
+        event.update(action1_param3=960001, action2_type=1, action2_param1=960002,
+                     action2_param2=0, action2_param3=960001, action3_type=1, action3_param3=960002)
+        source.rows["creature_ai_scripts"].append(row("creature_ai_scripts", id=950002,
+            creature_id=-1, event_type=255, action3_type=1, action3_param1=960001))
+        bundle = self.captured(source)
+        refs = bundle["event_text_capture"]["references"]
+        self.assertEqual([(r["event_id"],r["action_index"],r["parameter_index"]) for r in refs],
+                         [(950001,1,1),(950001,1,2),(950001,1,3),(950001,2,1),
+                          (950001,2,3),(950001,3,3),(950002,3,1)])
+        self.assertEqual(bundle["event_text_capture"]["tables"]["broadcast_text"]["requested_ids"], [960001,960002])
+        for sql, args in source.queries:
+            if "FROM `broadcast_text" in sql:
+                self.assertEqual(args, (960001, 960002, MAX_ROWS+1))
+                self.assertNotIn("960001", sql)
+                self.assertNotIn("event_chance", sql)
+
+    def test_negative_text_and_other_actions_stay_unresolved_and_unmodified(self):
+        source = self.source()
+        source.rows["creature_ai_scripts"][0].update(action1_param3=-19, action2_type=2,
+                                                    action2_param1=970001)
+        bundle = self.captured(source); evidence = bundle["event_text_capture"]
+        self.assertEqual(evidence["status"], "unknown")
+        self.assertEqual(evidence["unresolved_negative_text_parameters"][0]["broadcast_id"], -19)
+        self.assertEqual(evidence["other_actions_not_resolved"][0]["action_type"], 2)
+        self.assertEqual(evidence["tables"]["broadcast_text"]["requested_ids"], [960001,960002])
+        self.assertEqual(bundle["tables"]["creature_ai_scripts"], source.rows["creature_ai_scripts"])
+        self.assertIn("event_text.other_action_dependencies_not_captured",
+                      {r["reason"] for r in bundle["report"]["unsupported"]})
+
+    def test_missing_base_is_unresolved_even_with_locale_and_empty_locale_is_valid(self):
+        source = self.source(); source.rows["broadcast_text"] = source.rows["broadcast_text"][1:]
+        bundle = self.captured(source)
+        self.assertEqual(bundle["event_text_capture"]["status"], "missing")
+        self.assertEqual(bundle["event_text_capture"]["tables"]["broadcast_text"]["missing_ids"], [960001])
+        self.assertTrue(bundle["tables"]["broadcast_text_locale"])
+        self.assertIn("event_text.base_row_missing", {r["reason"] for r in bundle["report"]["unsupported"]})
+        source = self.source(); source.rows["broadcast_text_locale"] = []
+        bundle = self.captured(source)
+        self.assertEqual(bundle["event_text_capture"]["status"], "complete")
+        self.assertEqual(bundle["event_text_capture"]["tables"]["broadcast_text_locale"]["returned_keys"], [])
+        self.assertTrue(bundle["event_text_capture"]["tables"]["broadcast_text_locale"]["query_performed"])
+
+    def test_missing_tables_are_unknown_including_zero_reference_case(self):
+        from classic_export.event_text import scope
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            for zero in (False, True):
+                source = self.source(); source.inventory["tables"].pop(table)
+                if zero: source.rows["creature_ai_scripts"] = []
+                bundle = self.captured(source)
+                self.assertNotIn(table, bundle["tables"])
+                evidence = bundle["event_text_capture"]["tables"][table]
+                self.assertEqual(evidence["status"], "unknown")
+                self.assertIsNone(evidence["returned_keys"])
+                self.assertIsNone(evidence["query_sha256"])
+                self.assertEqual(scope(bundle)["status"], "unknown")
+        self.assertEqual(scope(capture(FakeSource(), selection()))["status"], "unknown")
+
+    def test_zero_references_are_complete_without_invalid_empty_in_query(self):
+        source = self.source(); source.rows["creature_ai_scripts"] = []
+        bundle = self.captured(source)
+        self.assertEqual(bundle["event_text_capture"]["status"], "complete")
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            evidence = bundle["event_text_capture"]["tables"][table]
+            self.assertEqual(evidence["returned_keys"], [])
+            self.assertEqual(evidence["requested_ids"], [])
+            self.assertFalse(evidence["query_performed"])
+            self.assertFalse(any(f"FROM `{table}`" in sql for sql, _ in source.queries))
+
+    def test_exact_reviewed_schema_variants_reject_hybrid_width_null_order_and_keys(self):
+        for unsigned in (False, True):
+            source = self.source()
+            source.inventory["tables"]["creature_ai_scripts"]["columns"][0]["type"] = "int(11)" + (" unsigned" if unsigned else "")
+            bundle = self.captured(source)
+            self.assertIn("unsigned" if unsigned else "int", bundle["schema"]["tables"]["creature_ai_scripts"]["columns"][0]["type"])
+        for table in ("creature_ai_scripts", "broadcast_text", "broadcast_text_locale"):
+            mutations = [lambda m: m.update(primary_key=[]), lambda m: m.update(table_type="VIEW"),
+                lambda m: m.update(engine="MEMORY"), lambda m: m["columns"][0].update(type="bigint"),
+                lambda m: m["columns"][0].update(nullable=True),
+                lambda m: m["columns"][0].update(ordinal=500), lambda m: m["columns"].pop()]
+            for edit in mutations:
+                source = self.source(); edit(source.inventory["tables"][table])
+                with self.subTest(table=table, edit=edit), self.assertRaises(ExportError): self.captured(source)
+                self.assertFalse(source.started)
+        for index in (1,3,6,13):
+            source = self.source()
+            source.inventory["tables"]["creature_ai_scripts"]["columns"][index]["type"] = "int unsigned"
+            with self.assertRaisesRegex(ExportError, "schema.event_text_type"): self.captured(source)
+        source = self.source(); source.inventory["tables"]["creature_ai_scripts"]["columns"][4]["type"] = "int"
+        with self.assertRaisesRegex(ExportError, "schema.event_text_type"): self.captured(source)
+
+    def test_explicit_locale_aliases_are_preserved_and_arbitrary_case_is_rejected(self):
+        source = self.source(); meta = source.inventory["tables"]["broadcast_text_locale"]
+        meta["columns"][0]["name"] = "ID"; meta["columns"][1]["name"] = "locale"
+        meta["primary_key"] = ["ID","locale"]
+        bundle = self.captured(source)
+        sql, args = next(q for q in source.queries if "FROM `broadcast_text_locale`" in q[0])
+        self.assertIn("`ID` AS `Id`,`locale` AS `Locale`", sql)
+        self.assertIn("WHERE `ID` IN (%s,%s) ORDER BY `ID`,`locale`", sql)
+        self.assertEqual(bundle["event_text_capture"]["tables"]["broadcast_text_locale"]["source_columns"]["Locale"], "locale")
+        for name in ("id", "iD"):
+            source = self.source(); source.inventory["tables"]["broadcast_text_locale"]["columns"][0]["name"] = name
+            with self.assertRaisesRegex(ExportError, "schema.event_text_spelling"): self.captured(source)
+        source = self.source(); source.inventory["tables"]["broadcast_text_locale"]["columns"].append(
+            {"name":"locale", "type":"varchar(10)", "nullable":False, "ordinal":6})
+        with self.assertRaisesRegex(ExportError, "schema.duplicate_column"): self.captured(source)
+
+    def test_legacy_uncaptured_schema_cannot_be_mistaken_for_full_event_rows(self):
+        bundle = capture(FakeSource(), selection())
+        meta = bundle["schema"]["tables"]["creature_ai_scripts"]
+        meta["columns"] = meta["columns"][:2]
+        meta.pop("primary_key")
+        bundle["schema_sha256"] = digest(bundle["schema"])
+        validate_bundle(bundle)
+        source = self.source()
+        source.inventory["tables"]["creature_ai_scripts"] = copy.deepcopy(meta)
+        with self.assertRaises(ExportError): self.captured(source)
+
+    def test_malformed_inventory_has_controlled_schema_errors_before_read(self):
+        for inventory in ({}, {"format_version":1,"tables":None}, None):
+            source = self.source(); source.inventory = inventory
+            with self.assertRaisesRegex(ExportError,"schema."): self.captured(source)
+            self.assertFalse(source.started)
+
+    def test_fixed_query_modes_signed_ids_and_parameterization(self):
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            sql, args = Query(table, "event_text_selectors", (17,19), limit=23).sql()
+            self.assertEqual(args, (17,19,24)); self.assertIn("WHERE `Id` IN (%s,%s)", sql)
+            for query in [Query(table,"ids",(17,)), Query(table,"event_text_selectors",()),
+                Query(table,"event_text_selectors",(0,)), Query(table,"event_text_selectors",(-1,)),
+                Query(table,"event_text_selectors",(0x80000000,)), Query(table,"event_text_selectors",(True,)),
+                Query(table,"event_text_selectors",("17 OR 1=1",)), Query(table,"event_text_selectors",(19,17)),
+                Query(table,"event_text_selectors",(17,17)), Query(table,"event_text_selectors",(17,), source_names=("bad",))]:
+                with self.subTest(query=query), self.assertRaises(ExportError): query.sql()
+
+    def test_duplicate_keys_nullability_ranges_text_bytes_and_lengths_reject(self):
+        for table in ("creature_ai_scripts", "broadcast_text", "broadcast_text_locale"):
+            for conflict in (False, True):
+                source = self.source(); duplicate = copy.deepcopy(source.rows[table][0])
+                if conflict: duplicate[COLUMNS[table][-1]] = "different" if table == "creature_ai_scripts" else 29
+                source.rows[table].append(duplicate)
+                with self.subTest(table=table), self.assertRaisesRegex(ExportError, "duplicate_key"): self.captured(source)
+                self.assertTrue(source.finished)
+        for table, field, value in [("creature_ai_scripts","event_type",256),
+            ("creature_ai_scripts","event_chance",-1), ("creature_ai_scripts","event_param1",0x80000000),
+            ("creature_ai_scripts","action1_param1",0x80000000), ("creature_ai_scripts","comment","x"*256),
+            ("broadcast_text","Id",0x80000000), ("broadcast_text","Flags",None),
+            ("broadcast_text","Text","α"*8193), ("broadcast_text","Text","a\0b"),
+            ("broadcast_text_locale","Locale",None), ("broadcast_text_locale","Locale",""),
+            ("broadcast_text_locale","Locale","x"*11)]:
+            source = self.source(); source.rows[table][0][field] = value
+            # Keys outside the selected set are normally omitted by the driver.
+            if field == "Id":
+                with self.assertRaises(ExportError): normalize_rows(table, source.rows[table], schema_profile(source.inventory,{table})[table],MAX_ROWS)
+            else:
+                with self.subTest(table=table,field=field), self.assertRaises(ExportError): self.captured(source)
+
+    def test_truncation_and_selector_and_aggregate_byte_budgets_reject_and_rollback(self):
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            source = self.source(); original = source.fetch
+            def overflow(query, table=table):
+                return [row(table, Id=960001, **({"Locale":str(i)} if table.endswith("locale") else {}))
+                        for i in range(MAX_ROWS+1)] if query.table == table else original(query)
+            source.fetch = overflow
+            with self.assertRaisesRegex(ExportError, f"rows.limit:{table}"): self.captured(source)
+            self.assertTrue(source.finished)
+        source = self.source(); source.rows["creature_ai_scripts"] = []
+        for index in range(MAX_ROWS//9+1):
+            fields = {f"action{a}_type":1 for a in range(1,4)}
+            fields.update({f"action{a}_param{p}":1+9*index+3*(a-1)+(p-1) for a in range(1,4) for p in range(1,4)})
+            source.rows["creature_ai_scripts"].append(row("creature_ai_scripts", id=index+1, creature_id=-1, **fields))
+        with self.assertRaisesRegex(ExportError, "event_text.selector_limit"): self.captured(source)
+        self.assertFalse(any("FROM `broadcast_text`" in sql for sql,_ in source.queries))
+        source = self.source()
+        with mock.patch("classic_export.capture.MAX_BUNDLE_BYTES", len(canonical(source.inventory))+500), self.assertRaisesRegex(ExportError,"aggregate_byte_limit"):
+            self.captured(source)
+        self.assertTrue(source.finished)
+
+    def test_snapshot_engine_version_and_cleanup_cover_both_new_tables(self):
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            source = self.source(); source.inventory["tables"][table]["engine"] = "MyISAM"
+            with self.assertRaisesRegex(ExportError,"quiescent"): self.captured(source)
+            source = self.source(); source.inventory["tables"][table]["engine"] = "MyISAM"
+            bundle = capture(source, starter_selection(), quiescent=True)
+            self.assertEqual(bundle["event_text_capture"]["snapshot"]["consistency"], "operator_quiescent_snapshot")
+            bundle["consistency"] = "transactional_snapshot"; self.rehash(bundle)
+            with self.assertRaisesRegex(ExportError,"myisam_consistency"): validate_bundle(bundle)
+        source = self.source(); original = source.fetch
+        def guarded(query):
+            self.assertTrue(source.started); self.assertFalse(source.finished); self.assertEqual(source.versions,1)
+            return original(query)
+        source.fetch = guarded; self.captured(source); self.assertEqual(source.versions,2)
+        source = self.source(); source.mutate_version = True
+        with self.assertRaisesRegex(ExportError,"snapshot.version_changed"): self.captured(source)
+        self.assertTrue(source.finished)
+
+    def test_missing_evidence_tables_and_identity_only_rows_reject(self):
+        edits = [lambda b:b.pop("event_text_capture"),
+                 lambda b:b["tables"].pop("broadcast_text"),
+                 lambda b:b["tables"].pop("broadcast_text_locale"),
+                 lambda b:b["tables"]["creature_ai_scripts"][0].pop("action3_param3")]
+        for edit in edits:
+            bundle = self.captured(); edit(bundle)
+            bundle["table_sha256"] = {t:digest(rows) for t,rows in bundle["tables"].items()}
+            with self.assertRaises(ExportError): validate_bundle(bundle)
+
+    def test_outer_rehash_cannot_hide_changed_or_dropped_source_rows(self):
+        edits = [lambda b:b["tables"]["broadcast_text"][0].update(Text="modified"),
+                 lambda b:b["tables"]["broadcast_text"].pop(),
+                 lambda b:b["tables"]["broadcast_text_locale"].pop(),
+                 lambda b:b["tables"]["creature_ai_scripts"][0].update(action1_param2=0)]
+        for edit in edits:
+            bundle = self.captured(); edit(bundle); self.rehash(bundle, dependencies=False)
+            with self.assertRaisesRegex(ExportError,"event_text.(coverage_mismatch|unselected_row)"): validate_bundle(bundle)
+
+    def test_all_public_hashes_recomputed_still_reject_semantic_orphans_and_forged_closure(self):
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            bundle = self.captured(); bundle["tables"][table][-1]["Id"] = 960099
+            self.rehash(bundle)
+            with self.assertRaisesRegex(ExportError,"event_text.unselected_row"): validate_bundle(bundle)
+        bundle = self.captured(); bundle["tables"]["creature_ai_scripts"][0]["action1_param2"] = 0
+        self.rehash(bundle)
+        with self.assertRaisesRegex(ExportError,"event_text.unselected_row"): validate_bundle(bundle)
+        bundle = self.captured(); bundle["tables"]["broadcast_text"].pop(); self.rehash(bundle)
+        bundle["event_text_capture"]["status"] = "complete"
+        bundle["event_text_capture"]["tables"]["broadcast_text"].update(status="complete", missing_ids=[])
+        with self.assertRaisesRegex(ExportError,"event_text.coverage_mismatch"): validate_bundle(bundle)
+        for edit in [lambda e:e["references"].pop(),
+                     lambda e:e["references"][0].update(parameter_index=3),
+                     lambda e:e["tables"]["broadcast_text"].update(requested_ids=[960001]),
+                     lambda e:e["tables"]["broadcast_text_locale"].update(returned_keys=[]),
+                     lambda e:e["tables"]["broadcast_text_locale"].update(query_performed=False),
+                     lambda e:e["tables"]["broadcast_text_locale"].update(row_limit=1)]:
+            bundle = self.captured(); self.rehash(bundle); edit(bundle["event_text_capture"])
+            with self.assertRaisesRegex(ExportError,"event_text.coverage_mismatch"): validate_bundle(bundle)
+
+    def test_driver_probes_exact_keys_for_event_and_both_broadcast_tables(self):
+        instance = LocalSqlSource.__new__(LocalSqlSource); inventory = self.source().inventory
+        names = ("creature_ai_scripts", "broadcast_text", "broadcast_text_locale")
+        calls = []
+        def select(sql, params, limit):
+            calls.append((sql,params,limit))
+            if "information_schema.TABLES" in sql:
+                return [{"name":t,"engine":"InnoDB","table_type":"BASE TABLE"} for t in names]
+            if "information_schema.COLUMNS" in sql:
+                return [{"table_name":t,**{**c,"nullable":"YES" if c["nullable"] else "NO"}}
+                        for t in names for c in inventory["tables"][t]["columns"]]
+            self.assertIn("information_schema.KEY_COLUMN_USAGE",sql)
+            return [{"name":n,"ordinal":i} for i,n in enumerate(EVENT_TEXT_PRIMARY_KEYS[params[0]],1)]
+        instance._select = select; inspected = instance.inspect()
+        self.assertEqual({t:m["primary_key"] for t,m in inspected["tables"].items()}, EVENT_TEXT_PRIMARY_KEYS)
+        for sql,params,_ in calls:
+            self.assertTrue(sql.startswith("SELECT ")); self.assertNotIn(";",sql)
+            if "KEY_COLUMN_USAGE" in sql: self.assertEqual(params[1],"PRIMARY")
 
 
 if __name__ == "__main__":

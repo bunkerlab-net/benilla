@@ -278,11 +278,13 @@ impl InteractionCatalog {
             .ok_or(NativeError::UnsupportedMechanic(
                 "interaction host requires source player initialization",
             ))?;
-        if combat
-            .initial_auras
-            .iter()
-            .any(|a| !matches!(a.aura_type, 22 | 29 | 30 | 80 | 83 | 98 | 101 | 137 | 142))
-        {
+        profile.validate_retained_reputation_auras()?;
+        if combat.initial_auras.iter().any(|a| {
+            !matches!(
+                a.aura_type,
+                22 | 29 | 30 | 80 | 83 | 98 | 101 | 137 | 142 | 156
+            )
+        }) {
             return Err(NativeError::UnsupportedMechanic(
                 "interaction-changing player aura",
             ));

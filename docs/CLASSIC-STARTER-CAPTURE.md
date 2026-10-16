@@ -131,9 +131,12 @@ loader behavior are not established by these two tables.
 
 ### Additive EventAI selector evidence
 
-New v2 captures also require `creature_ai_scripts` and read only `id` (nonnull
-uint32 SQL int) and `creature_id` (nonnull signed int32 SQL int). Existing v2
-bundles remain valid without this addition, but cannot claim EventAI absence.
+New v2 captures require the full reviewed `creature_ai_scripts` schema,
+including every event/action parameter and comment. The pinned ClassicDB dump
+uses signed INT `id`; the pinned core base's unsigned INT `id` is a separate
+reviewed variant. All other widths, signedness, order, nullability and primary
+keys are exact. Legacy bundles without captured EventAI rows remain unproven;
+old ID-only projections require recapture rather than invented full rows.
 The fixed parameterized query selects every matching row for both all captured
 positive creature-template entries and all negative captured spawn GUIDs, in
 `id` order with the existing row cap plus one. It runs in the same snapshot;
@@ -149,9 +152,13 @@ row blocks the no-events capability, including alleged zero-chance, inactive or
 debug-only events; no event fields are used to manufacture absence. Empty rows
 prove only this captured query's result, not database authenticity or behavior
 after random/pool/event entry substitution. Other AI hooks, groups/linking,
-addons, assistance, movement and server settings remain blocked. Additional
-event/action columns are retained as unreviewed schema metadata, not interpreted
-or silently supported. No EventAI action executes here.
+addons, assistance, movement and server settings remain blocked. Full raw rows
+now derive positive ACTION_T_TEXT references with event/action/parameter
+provenance and bounded base/locale reads in the same snapshot. Missing base rows
+and unknown tables never become complete-empty evidence. See the
+[EventAI text dependency contract](../scripts/classic_export/EVENT-TEXT.md) for
+schema variants, exact aliases, readback validation and incomplete states.
+No EventAI action executes here, and no production capability is issued.
 
 Custom creation items and item-type actions (128) require item_template rows.
 Initial spells and spell-type actions (0) require spell_template rows. For v2,

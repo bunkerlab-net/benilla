@@ -13,6 +13,7 @@ PINS = {
     "Server/DBCStructure.h": "354013c7508d7891f19a1856cd7bbafda19f18388bc20671f5692efa57ebdf50",
     "Globals/SharedDefines.h": "4832b8e0da45211143acae7c42173fea42732e2acdbf190692725e51b020bfe8",
     "Globals/ObjectMgr.h": "27648698cb0ed86a6354cf737895ccd3752de1847f89ee70b49260954d903229",
+    "Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
     "Entities/Player.cpp": "d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e",
     "Entities/Player.h": "acd3ff726fafecd582673ec918157584d71fde6e3a1f59e26f0374b379cdffbb",
     "Tools/Formulas.h": "ca8b55fd022b0c0191255bc457574ccafce5eeb2f99a447466ba75be4717652c",
@@ -30,6 +31,15 @@ def main():
     decls=[("Globals/SharedDefines.h","enum ReputationRank\n"),("Reputation/ReputationMgr.h","enum FactionFlags\n"),("Reputation/ReputationMgr.h","struct FactionState\n"),("Server/DBCStructure.h","struct FactionEntry\n"),("Globals/ObjectMgr.h","struct RepRewardRate\n"),("Globals/ObjectMgr.h","struct RepSpilloverTemplate\n"),("Entities/Player.h","enum ReputationSource\n")]
     constants=cpp[cpp.index("const int32 ReputationMgr::PointsInRank"):cpp.index("ReputationRank ReputationMgr::ReputationToRank")]
     pieces={"DECLS":"\n".join(body(source[f],s)+";" for f,s in decls),"METHODS":constants+"\n"+"\n".join(body(cpp,s) for s in methods)+"\n"+body(source["Entities/Player.cpp"],"int32 Player::CalculateReputationGain(")+"\n"+body(source["Entities/Player.cpp"],"void Player::RewardReputation(Quest const*"),"XP":"\n".join(body(source["Tools/Formulas.h"],s) for s in ["inline bool IsTrivialLevelDifference(","inline uint32 GetQuestGreenRange("])}
+    aura_methods=[]
+    for signature,pin in [
+        ("int32 Unit::GetTotalAuraModifier(","625431382f30063e4c9163488c2956c737b02ff04122980a5f1cf699cc9a7d4f"),
+        ("int32 Unit::GetTotalAuraModifierByMiscValue(","b8a321d0463fefcfe72837efa06603afd63ff5124c9b0f1e1fb1e422ebcf33b6"),
+    ]:
+        method=body(source["Entities/Unit.cpp"],signature)
+        assert hashlib.sha256(method.encode()).hexdigest()==pin,signature
+        aura_methods.append(method)
+    pieces["AURA_METHODS"]="\n".join(aura_methods)
     reward=body(source["Entities/Player.cpp"],"void Player::RewardQuest(")
     assert reward.index("RewardReputation(pQuest);")<reward.index("SetQuestSlot(log_slot, 0);")<reward.index("GiveXP(xp, nullptr);")
     harness=Path(__file__).with_name("reputation_oracle.cpp").read_text()
@@ -38,7 +48,7 @@ def main():
     with tempfile.TemporaryDirectory() as temp:
         cpp,exe=Path(temp)/"oracle.cpp",Path(temp)/"oracle";cpp.write_text(harness)
         subprocess.run(["g++","-std=c++17","-O2","-Wall","-Wextra","-Werror","-fno-fast-math","-ffp-contract=off","-fsanitize=undefined,float-cast-overflow","-fno-sanitize-recover=all",str(cpp),"-o",str(exe)],check=True)
-        outputs={"reputation.tsv":subprocess.check_output([str(exe)]),"reputation_gain.tsv":subprocess.check_output([str(exe),"--gain"]),"reputation_host.tsv":subprocess.check_output([str(exe),"--host"])}
+        outputs={"reputation.tsv":subprocess.check_output([str(exe)]),"reputation_gain.tsv":subprocess.check_output([str(exe),"--gain"]),"reputation_host.tsv":subprocess.check_output([str(exe),"--host"]),"reputation_aura_gain.tsv":subprocess.check_output([str(exe),"--aura-gain"]),"reputation_aura.tsv":subprocess.check_output([str(exe),"--aura-state"]),"reputation_aura_host.tsv":subprocess.check_output([str(exe),"--aura-host"])}
     for name,output in outputs.items():
         path=Path(__file__).parents[1]/"tests/fixtures"/name
         if args.check: assert path.read_bytes()==output,name

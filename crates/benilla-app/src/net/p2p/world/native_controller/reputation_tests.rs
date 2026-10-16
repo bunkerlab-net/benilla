@@ -5,11 +5,13 @@ use benilla_sim::quest_lifecycle as q;
 use n::synthetic_reputation_fixture as rep;
 struct ReputationCatalog {
     rows: std::collections::BTreeMap<u32, q::QuestRow>,
+    modifier_spell: bool,
 }
 impl ReputationCatalog {
     fn new(profile: &n::Profile) -> Self {
         let g = profile.quest_progression.as_ref().unwrap();
         Self {
+            modifier_spell: g.spell_ids().any(|id| id == rep::MODIFIER_SPELL),
             rows: g
                 .quest_ids()
                 .map(|id| (id, g.quest(id).unwrap().clone()))
@@ -34,7 +36,7 @@ impl ClientCatalog for ReputationCatalog {
         Catalog.contains_item_display(id)
     }
     fn contains_spell(&self, id: u32) -> bool {
-        Catalog.contains_spell(id)
+        Catalog.contains_spell(id) || (self.modifier_spell && id == rep::MODIFIER_SPELL)
     }
     fn player_power_type(&self, id: PlayerId) -> Option<u8> {
         Catalog.player_power_type(id)
@@ -90,8 +92,12 @@ impl n::Authority for FailOnce {
         self.inner.resolve(request)
     }
 }
-fn enter(h: &Harness, open: bool, fail: bool) -> NativeController {
-    let profile = rep::profile();
+fn enter(h: &Harness, open: bool, fail: bool, modifier: bool) -> NativeController {
+    let profile = if modifier {
+        rep::profile_with_modifier(10)
+    } else {
+        rep::profile()
+    };
     let catalog = ReputationCatalog::new(&profile);
     NativeController::enter_component_test(
         &h.root,
@@ -142,8 +148,13 @@ fn reputation(c: &NativeController) -> i32 {
 }
 #[test]
 fn initial_reputation_ack_waits_for_natural_tick_and_survives_authority_save_failure() {
+    check_initial_reputation_ack(false);
+    check_initial_reputation_ack(true);
+}
+fn check_initial_reputation_ack(modifier: bool) {
+    let gained = if modifier { 240 } else { 200 };
     let h = Harness::new();
-    let mut c = enter(&h, false, false);
+    let mut c = enter(&h, false, false, modifier);
     assert_eq!(c.tick(), 0);
     assert_eq!(
         c.initial_events()
@@ -163,7 +174,7 @@ fn initial_reputation_ack_waits_for_natural_tick_and_survives_authority_save_fai
     let tick = c.tick();
     drop(c);
     for _ in 0..8 {
-        let mut c = enter(&h, true, false);
+        let mut c = enter(&h, true, false, modifier);
         assert_eq!(c.tick(), tick);
         assert_eq!(c.world.state().now_ms, now);
         assert_eq!(c.world.state_digest(), digest);
@@ -178,7 +189,7 @@ fn initial_reputation_ack_waits_for_natural_tick_and_survives_authority_save_fai
         );
         assert_eq!(c.pump(Duration::ZERO).ticks, 0);
     }
-    let mut c = enter(&h, true, true);
+    let mut c = enter(&h, true, true, modifier);
     c.initial_events().unwrap();
     accept(&mut c, rep::GRANT);
     reward(&mut c, rep::GRANT);
@@ -221,7 +232,7 @@ fn initial_reputation_ack_waits_for_natural_tick_and_survives_authority_save_fai
         }
     ));
     assert!(failed.events.is_empty());
-    assert_eq!(reputation(&c), 200);
+    assert_eq!(reputation(&c), gained);
     assert!(!c.world.reputation_initial_ack_needed());
     assert_eq!(c.tick(), tick + 1);
     assert_eq!(
@@ -259,13 +270,13 @@ fn initial_reputation_ack_waits_for_natural_tick_and_survives_authority_save_fai
     assert!(c.pump(Duration::ZERO).events.is_empty());
     assert_eq!(c.world.state_digest(), committed);
     drop(c);
-    let mut c = enter(&h, true, false);
+    let mut c = enter(&h, true, false, modifier);
     assert_eq!(c.world.state_digest(), committed);
     assert!(!c.initial_reputation_ack);
     let initial = c.initial_events().unwrap();
     assert!(initial
         .iter()
-        .any(|e| matches!(e,SessionEvent::Reputations{standings} if standings[7]==(1,200))));
+        .any(|e| matches!(e,SessionEvent::Reputations{standings} if standings[7]==(1,gained))));
     assert!(!initial.iter().any(|e| matches!(
         e,
         SessionEvent::ReputationDelta { .. } | SessionEvent::XpGain(_)
@@ -277,19 +288,24 @@ fn initial_reputation_ack_waits_for_natural_tick_and_survives_authority_save_fai
         e,
         SessionEvent::ReputationDelta { .. } | SessionEvent::XpGain(_)
     )));
-    assert_eq!(reputation(&c), 200);
+    assert_eq!(reputation(&c), gained);
 }
 #[test]
 fn unacknowledged_and_failed_reward_reopen_keeps_last_durable_reputation() {
+    check_failed_reputation_reopen(false);
+    check_failed_reputation_reopen(true);
+}
+fn check_failed_reputation_reopen(modifier: bool) {
+    let gained = if modifier { 240 } else { 200 };
     let h = Harness::new();
-    let mut c = enter(&h, false, false);
+    let mut c = enter(&h, false, false, modifier);
     c.initial_events().unwrap();
     accept(&mut c, rep::OBJECTIVE);
     accept(&mut c, rep::OTHER_OBJECTIVE);
     assert!(c.pump(c.tick_duration()).pause.is_none());
     let digest = c.world.state_digest();
     drop(c);
-    let mut c = enter(&h, true, false);
+    let mut c = enter(&h, true, false, modifier);
     c.initial_events().unwrap();
     accept(&mut c, rep::GRANT);
     reward(&mut c, rep::GRANT);
@@ -299,10 +315,10 @@ fn unacknowledged_and_failed_reward_reopen_keeps_last_durable_reputation() {
     )
     .unwrap();
     assert!(c.pump(c.tick_duration()).events.is_empty());
-    assert_eq!(reputation(&c), 200);
+    assert_eq!(reputation(&c), gained);
     drop(c);
     fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
-    let mut c = enter(&h, true, false);
+    let mut c = enter(&h, true, false, modifier);
     assert_eq!(c.world.state_digest(), digest);
     assert_eq!(reputation(&c), 0);
     assert!(c.initial_reputation_ack);
@@ -318,5 +334,5 @@ fn unacknowledged_and_failed_reward_reopen_keeps_last_durable_reputation() {
             .count(),
         3
     );
-    assert_eq!(reputation(&c), 200);
+    assert_eq!(reputation(&c), gained);
 }

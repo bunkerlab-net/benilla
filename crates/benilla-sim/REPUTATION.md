@@ -9,8 +9,9 @@ module contains no game-install assets or world-database rows.
 ## Input and replay contract
 
 `Catalog` privately owns sorted faction rows, exact binary32 world rates, explicit
-present/absent reward-rate and spillover results for every present faction, and
-an `Audit`. Known absent faction IDs are listed separately. An unlisted faction
+present/absent reward-rate and spillover results for every present faction, an
+`Audit`, and an ordered immutable list of `GeneralReputationAura` records.
+Known absent faction IDs are listed separately. An unlisted faction
 lookup returns `Unresolved`; missing data is never inferred to be absent. Every
 nonzero spillover target must have a resolved lookup. `Faction` preserves all four
 race masks, class masks, base values and flag values, plus reputation index and
@@ -24,7 +25,11 @@ not acquire, inspect or certify raw databases. Catalog serialization rejects
 unknown fields; `validate` must be called on decoded data before use. Every reducer
 validates the catalog and state. Public read queries reject a mismatched catalog
 hash. The canonical hash binds all supplied rows, explicit absence, rates and audit
-fields to `POLICY_ID`. State binds that hash and its race/class masks, reputation
+fields to `POLICY_ID` (`cmangos-8ec338a1-reputation-fixed-initial-aura156-v2`).
+The hash also binds the list length and every aura's spell ID, effect index, aura
+opcode, signed misc/amount, attributes, extended attributes, caster aura state,
+interrupt flags, effective duration, and exact source-spell fingerprint, in supplied
+order. State binds that hash and its race/class masks, reputation
 index map, stored deltas, flags, and send/save dirtiness. Caller-owned command and
 quest inputs must also be bound into its replay/content identity.
 
@@ -37,6 +42,25 @@ NaNs, infinities, subnormals, arithmetic exceptions and signed conversion/operat
 overflow fail instead of reproducing undefined C++. Intermediate binary32
 operations use the existing pinned `rustc_apfloat` dependency, nearest-even rounding,
 and final int32 conversions truncate toward zero. No host float math is used.
+
+`Catalog::new` retains its four-argument, explicit-absence-only contract. A present
+general modifier requires `new_with_general_reputation_auras` and its actual list;
+`Present` with an empty list, `Absent` with a nonempty list, and `Unknown` all fail.
+The list is a required serialized field even when empty. At most 256 effects may
+be retained; each needs a nonzero source-spell fingerprint, positive spell ID and
+effect index below three. Duplicate spell/effect sources fail. Aura 156 must be an
+unconditional passive with supported attributes, no extended-attribute/lifecycle
+or interrupt condition, and effective permanent duration -1. The owner resolves
+the source passive/index-zero duration rule before supplying that duration. This
+does not authorize substituting -1 for an unresolved duration lookup. Signed misc
+values are retained and hashed but never filter 156's general sum.
+
+The owner must derive these records from its source initializer and cross-check
+the full list against its retained combat genesis and original spell records.
+Typed records and caller-supplied fingerprints alone are not evidence of raw source
+closure. Modifiers cannot be edited through `State`, commands, or saved standing
+fields. Initial reconstruction reinstates the same passive once; dynamic aura
+application/removal and mutable aura persistence are outside this policy.
 
 ## Source mechanics preserved
 
@@ -64,10 +88,19 @@ and final int32 conversions truncate toward zero. No host float math is used.
   changed. Its state-send event starts with the primary row and appends dirty
   other rows in reputation-index order, then clears their send flags
 - Quest/kill/spell gain uses source-specific rates and source operation order.
+  `Unit::GetTotalAuraModifier` sums retained 156 amounts as signed int32 in list
+  order; every prefix must fit, including a prefix followed by cancelling values.
+  Convert that sum to binary32, or use zero when `no_aura_bonus`; positive rewards
+  add it to 100%, while nonpositive rewards subtract it. The separate kill-only 190
+  addition remains explicitly excluded; `no_aura_bonus` does not disable 190 in
+  the pinned source. Percentage at or below zero returns zero after the penalty.
   Kill and quest low-level thresholds are distinct. Target level zero skips the
   penalty. A present zero faction rate disables that reward; no row does not.
   Final multiplication is global rate, signed reward, percentage, then division
   by 100, with binary32 rounding after every operation
+- The modifier applies once to calculated rewards, before ordered spillover.
+  An authored +10 modifier turns 75 into 82 and 250 into 275 at unit rates; a 25%
+  spillover then receives 20 or 68. Raw `Command::Set` is never amplified
 - Quest rewards skip zero faction or zero value slots, preserve duplicates and
   slot-specific no-spillover bits, and use current player level for nonpositive
   quest levels. A computed zero gain still performs the source reputation update
@@ -102,13 +135,12 @@ adapter must apply the source `PlayerLoading` suppression. `SendInitial` emits t
 existing faction states; filling the missing entries in the 64-slot packet belongs
 to the network adapter.
 
-General reputation auras, faction-specific reputation auras, forced reactions and
-unimplemented script-driven effects require explicit `Evidence::Absent` for this
-version. `Present` and `Unknown` are errors, never silently treated as zero or no-op.
-`no_aura_bonus` is retained as source command input; it is numerically inert only
-because both aura dependencies have been explicitly excluded. Native aura and
-forced-reaction support requires a new reviewed input/reducer policy, not fabricated
-empty effects. These bounded exclusions are not a claim of full Classic gameplay.
+Faction-specific aura 190, forced reactions and unimplemented script-driven effects
+still require explicit `Evidence::Absent`. `Present` and `Unknown` for those
+dependencies are errors, never silently treated as zero or no-op. Numeric Kill and
+Spell cases share 156 arithmetic, but this does not implement native on-kill rewards
+or the EffectReputation executor. These bounded exclusions are not a claim of full
+Classic gameplay or native content admission.
 
 ## Independent verification
 
@@ -116,6 +148,11 @@ empty effects. These bounded exclusions are not a claim of full Classic gameplay
 actual C++ declarations and method bodies into the authored harness. It compiles
 with `-fno-fast-math -ffp-contract=off`, `FE_TONEAREST`, undefined-behavior and
 float-conversion sanitizers. It never calls the Rust implementation.
+The aura adapter owns actual retained effect records. Both original
+`Unit::GetTotalAuraModifier` and `GetTotalAuraModifierByMiscValue` bodies are extracted
+unchanged and individually hash-checked; no getter substitutes a constant zero.
+A source-only boundary assertion checks that `noAuraBonus` still permits 190's
+kill-specific modifier, without admitting that dependency into the Rust catalog.
 
 - `reputation_gain.tsv`: 8,192 signed/zero, source, level and rate cases
 - `reputation.tsv`: 2,048 initialization, absolute/incremental, flag, spillover and
@@ -123,6 +160,14 @@ float-conversion sanitizers. It never calls the Rust implementation.
 - `reputation_host.tsv`: 256 synchronous reentrant callback sequences. An authored
   callback changes a spillover target's rank and player level; subsequent slots and
   rewards must observe both changes
+- `reputation_aura_gain.tsv`: 25,200 authored cases across all three sources,
+  positive/negative/zero rewards, 15 retained amount lists, both `noAuraBonus`
+  states, ten level/threshold pairs and four absence/zero/nonunit-rate contexts.
+  Includes binary32 integer-conversion boundaries, signed sum cancellation,
+  zero/negative percentages, global rates and target-level zero
+- `reputation_aura.tsv` and `reputation_aura_host.tsv`: the same 2,048 state and 256
+  reentrant sequences with a retained authored +10 modifier. The original three
+  no-aura fixtures remain unchanged
 
 Additional Rust tests cover wildcard ordering, unmatched slots, rank boundaries,
 clamps, explicitly absent versus unresolved data, duplicate reputation indices,
@@ -147,6 +192,7 @@ All paths below are relative to `src/game` at the pinned upstream commit.
 - `Globals/ObjectMgr.cpp`: `dd27915ca363f81885d20783fc4f6c0392df20c4e3dfa031faa1a30df7a4b78b` (loader review only)
 - `Entities/Player.cpp`: `d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e`
 - `Entities/Player.h`: `acd3ff726fafecd582673ec918157584d71fde6e3a1f59e26f0374b379cdffbb`
+- `Entities/Unit.cpp`: `03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0`
 - `Tools/Formulas.h`: `ca8b55fd022b0c0191255bc457574ccafce5eeb2f99a447466ba75be4717652c`
 
 The authored-input native quest runtime supplies the synchronous host, persistence

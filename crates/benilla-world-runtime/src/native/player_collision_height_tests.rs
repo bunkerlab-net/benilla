@@ -527,3 +527,94 @@ fn retained_routes_require_chase_target_and_home_explicit_none() {
         break;
     }
 }
+
+// Source-shaped authored initializer and loaded model rows, never real DBC evidence.
+fn reputation_height_profile(modifier: bool) -> Profile {
+    let (mut p, input, mut rows) = if modifier {
+        synthetic_reputation_fixture::setup_with_modifier(10)
+    } else {
+        synthetic_reputation_fixture::setup()
+    };
+    // Keep the existing singleton motion domain; this case exercises height ownership.
+    p.npcs.truncate(1);
+    rows.quests.clear();
+    rows.relations.starters.clear();
+    rows.relations.finishers.clear();
+    rows.npc_rows = vec![QuestNpcRow {
+        entry: p.npcs[0].entry,
+        npc_flags: 0,
+        unit_flags: 0,
+    }];
+    rows.kill.creatures.truncate(1);
+    p.initialize_quest_progression(&input, rows).unwrap();
+    p.source_motion = Some(motion::genesis(&p, 2));
+    p.initialize_creature_capabilities(motion::creature_capability_sources(&p))
+        .unwrap();
+    p.initialize_player_collision_height(&models::catalog(), &creatures::catalog())
+        .unwrap();
+    p
+}
+#[test]
+fn retained_general_reputation_preserves_owned_player_dimensions_and_exact_binding() {
+    let absent = reputation_height_profile(false);
+    let present = reputation_height_profile(true);
+    let source = present.player_collision_height.as_ref().unwrap();
+    assert_eq!(source, absent.player_collision_height.as_ref().unwrap());
+    assert_eq!(present.source_motion, absent.source_motion);
+    assert_eq!(source.initial_height().height(), f::float(12.578125));
+    assert_ne!(present.digest(), absent.digest());
+    let w = world(present.clone());
+    let witness = w.state().player_collision_height().unwrap().witness();
+    assert_eq!(witness.height(), source.initial_height().height());
+    witness
+        .validate_for(&present, w.state().world, w.state().player)
+        .unwrap();
+    let checkpoint = w.checkpoint().unwrap();
+    let reopened =
+        NativeWorld::restore_synthetic_component_test(present.clone(), checkpoint.clone()).unwrap();
+    assert_eq!(reopened.checkpoint().unwrap(), checkpoint);
+    for variant in [
+        "missing_genesis",
+        "wrong_genesis",
+        "amount",
+        "duplicate",
+        "active",
+        "interrupt",
+        "unknown",
+        "dropped",
+        "retyped",
+    ] {
+        let mut changed = present.clone();
+        let combat = changed.combat.as_mut().unwrap();
+        let index = combat
+            .initial_auras
+            .iter()
+            .position(|a| a.aura_type == 156)
+            .unwrap();
+        match variant {
+            "missing_genesis" => changed.quest_progression = None,
+            "wrong_genesis" => changed.quest_progression = absent.quest_progression.clone(),
+            "amount" => combat.initial_auras[index].amount += 1,
+            "duplicate" => combat
+                .initial_auras
+                .push(combat.initial_auras[index].clone()),
+            "active" => combat.initial_auras[index].attributes &= !0x40,
+            "interrupt" => combat.initial_auras[index].aura_interrupt_flags = 0x400,
+            "unknown" => combat.initial_auras[index].aura_type = 61,
+            "dropped" => {
+                combat.initial_auras.remove(index);
+            }
+            "retyped" => combat.initial_auras[index].aura_type = 22,
+            _ => unreachable!(),
+        }
+        assert!(source.validate(&changed).is_err(), "{variant}");
+        let before = changed.clone();
+        assert!(
+            changed
+                .initialize_player_collision_height(&models::catalog(), &creatures::catalog())
+                .is_err(),
+            "{variant}"
+        );
+        assert_eq!(changed, before);
+    }
+}

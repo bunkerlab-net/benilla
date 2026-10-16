@@ -11,7 +11,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .columns import COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA, INITIAL_HOOK_SCHEMA
+from .columns import (COLUMNS, STARTER_SCHEMA, LEARNING_SCHEMA, SPAWN_SCHEMA, REGISTRY_SCHEMA,
+                      INITIAL_HOOK_SCHEMA, EVENT_TEXT_SCHEMA, EVENT_TEXT_PRIMARY_KEYS, EVENT_TEXT_ALIASES)
 
 FORMAT = "benilla-classic-source-slice-v1"
 STARTER_FORMAT = "benilla-classic-source-slice-v2"
@@ -39,6 +40,7 @@ KEYS = {
     "creature_template_addon": ("entry",),
     "spell_chain": ("spell_id",), "spell_learn_spell": ("entry", "SpellID"),
     "creature_ai_scripts": ("id",),
+    "broadcast_text": ("Id",), "broadcast_text_locale": ("Id", "Locale"),
     "creature": ("guid",), "creature_template": ("Entry",),
     "creature_model_info": ("modelid",), "quest_template": ("entry",),
     "creature_questrelation": ("id", "quest"),
@@ -56,6 +58,9 @@ KEYS = {
     "player_levelstats": ("race", "class", "level"), "player_xp_for_level": ("lvl",),
 }
 TEXT_COLUMNS = {
+    "creature_ai_scripts": {"comment"},
+    "broadcast_text": {"Text", "Text1"},
+    "broadcast_text_locale": {"Locale", "Text_lang", "Text1_lang"},
     "spell_scripts": {"ScriptName"},
     "creature_spawn_data_template": {"Name"},
     "pool_creature": {"description"}, "pool_creature_template": {"description"},
@@ -193,7 +198,7 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
     profiles = {}
     for table, meta in inventory["tables"].items():
         fields = {"engine", "table_type", "columns"}
-        if table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA) and type(meta) is dict and "primary_key" in meta:
+        if table in (REGISTRY_SCHEMA | INITIAL_HOOK_SCHEMA | EVENT_TEXT_SCHEMA) and type(meta) is dict and "primary_key" in meta:
             fields.add("primary_key")
         check(type(meta) is dict and set(meta) == fields, "schema.table_fields")
         if table in REGISTRY_SCHEMA and table in required:
@@ -229,15 +234,32 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
                     equal = (observed[0], observed[3]) == (expected[0], expected[3])
                 check(equal and actual["nullable"] == nullable and actual["ordinal"] == ordinal,
                       f"schema.starter_type:{table}:{name}")
+        if table in EVENT_TEXT_SCHEMA and table in required:
+            check(wanted == set(by_name), f"schema.event_text_columns:{table}")
+            source_names = {}
+            for ordinal, (name, kind, nullable) in enumerate(EVENT_TEXT_SCHEMA[table], 1):
+                actual = by_name[name.casefold()]
+                allowed = EVENT_TEXT_ALIASES.get(table, {}).get(name, (name,))
+                check(actual["name"] in allowed, f"schema.event_text_spelling:{table}:{name}")
+                observed, expected = sql_type(actual["type"]), sql_type(kind)
+                equal = observed == expected
+                if expected[0] in INTEGER_SQL:
+                    equal = (observed[0], observed[3]) == (expected[0], expected[3])
+                # The core base and the pinned ClassicDB dump differ
+                # only in id signedness. Never generalize this to parameters.
+                if table == "creature_ai_scripts" and name == "id":
+                    equal = observed[0] == "int"
+                check(equal and actual["nullable"] == nullable and actual["ordinal"] == ordinal,
+                      f"schema.event_text_type:{table}:{name}")
+                source_names[name] = actual["name"]
+            check(meta.get("primary_key") == [source_names[name] for name in EVENT_TEXT_PRIMARY_KEYS[table]],
+                  f"schema.event_text_primary_key:{table}")
         checked_columns = {}
         for name in COLUMNS[table]:
             if name.casefold() not in by_name:
                 continue
             column = by_name[name.casefold()]
             family, precision, scale, unsigned = sql_type(column["type"])
-            if table == "creature_ai_scripts":
-                check(family in {"int", "integer"} and unsigned == (name == "id")
-                      and column["nullable"] is False, f"schema.event_ai_type:{name}")
             text = name in TEXT_COLUMNS.get(table, set())
             check(family in (TEXT_SQL if text else INTEGER_SQL | DECIMAL_SQL), f"schema.type_family:{table}:{name}")
             if (table == "creature" and name in {"position_x", "position_y", "position_z", "orientation", "spawndist"}) or (table == "creature_model_info" and name in {"bounding_radius", "combat_reach", "SpeedWalk", "SpeedRun"}):
@@ -246,6 +268,11 @@ def schema_profile(inventory: Any, required: set[str]) -> dict[str, Any]:
         profiles[table] = {"columns": checked_columns,
                            "unreviewed_columns": sorted(set(by_name) - wanted),
                            "engine": meta["engine"]}
+        if table in EVENT_TEXT_SCHEMA and table in required:
+            profiles[table]["source_names"] = source_names
+            profiles[table]["schema_variant"] = (
+                "core_base_unsigned_event_id" if table == "creature_ai_scripts"
+                and sql_type(by_name["id"]["type"])[3] else "classic_db")
     return profiles
 
 
@@ -331,9 +358,11 @@ def normalize_rows(table: str, rows: list[dict[str, Any]], profile: dict[str, An
                      "playercreateinfo_skills": {"raceMask", "classMask"},
                      "creature_spawn_data_template": {"Entry"},
                      "spell_area": {"area", "quest_start", "quest_start_active", "racemask", "gender"}}.get(table, set())
-        check(all(type(row_value) is int and row_value >= (-32768 if table == "game_event_creature" and name == "event"
+        check(all((type(row_value) is str and 0 < len(row_value) <= 10)
+                  if table == "broadcast_text_locale" and name == "Locale" else
+                  (type(row_value) is int and row_value >= (-32768 if table == "game_event_creature" and name == "event"
                                else -0x800000 if table == "spell_area" and name == "aura_spell"
-                               else 0 if name in zero_keys else 1)
+                               else 0 if name in zero_keys else 1))
                   for name, row_value in zip(KEYS[table], key)), f"row.key:{table}")
         check(key not in keys, f"row.duplicate_key:{table}")
         keys.add(key)

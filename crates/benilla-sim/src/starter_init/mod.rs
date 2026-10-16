@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub use training::{
     LiveTraining, TrainingCallSnapshot, TrainingSnapshot, TrainingView, LIVE_TRAINING_POLICY_ID,
 };
-pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v2";
+pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v3";
 pub type Result<T> = std::result::Result<T, InitError>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitError {
@@ -85,6 +85,36 @@ pub struct SpellRow {
     pub learned_spells: Rows<LearnSpell>,
     /// True if any script/condition/custom proc/affect hook can change initial casting.
     pub external_initial_hooks: bool,
+}
+impl SpellRow {
+    /// Canonical identity of all supplied raw words and resolved source relationships.
+    /// This binds provenance within a caller's capture; it does not certify that capture.
+    pub fn source_hash(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(b"cmangos-8ec338a1-initial-spell-source-v1\0");
+        h.update(self.id.to_le_bytes());
+        for word in self.words {
+            h.update(word.to_le_bytes());
+        }
+        for optional in [self.duration_ms.map(|v| v as u32), self.previous_rank] {
+            h.update([u8::from(optional.is_some())]);
+            h.update(optional.unwrap_or(0).to_le_bytes());
+        }
+        h.update([u8::from(self.talent), u8::from(self.external_initial_hooks)]);
+        match &self.learned_spells {
+            Rows::Missing => h.update([0]),
+            Rows::Complete(rows) => {
+                h.update([1]);
+                h.update((rows.len() as u64).to_le_bytes());
+                for row in rows {
+                    h.update(row.spell_id.to_le_bytes());
+                    h.update([u8::from(row.active), u8::from(row.auto_learned)]);
+                }
+            }
+        }
+        h.finalize().into()
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -661,6 +691,17 @@ impl Init<'_> {
                                 .map_err(|_| InitError::Numeric("initial skill aura amount"))?;
                             self.skill_auras.push((skill, amount, aura == 98));
                             self.skill_bonus(skill, amount, aura == 98)?;
+                        }
+                        // HandleNoImmediateEffect retains this amount for
+                        // Player::CalculateReputationGain; it changes no stat cell.
+                        156 => {
+                            if w[6] & 0x40 == 0 || w[11] != 0 || w[22] != 0 {
+                                return Err(unsupported(
+                                    "initial reputation aura lifecycle",
+                                    id,
+                                    aura,
+                                ));
+                            }
                         }
                         _ => return Err(unsupported("initial aura", id, aura)),
                     }

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Protocol
 
-from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA
-from . import event_ai, starter, learning, native_spawn, spell_registry, initial_hooks
+from .columns import COLUMNS, STARTER_SCHEMA, INITIAL_HOOK_SCHEMA, EVENT_TEXT_ALIASES
+from . import event_ai, event_text, starter, learning, native_spawn, spell_registry, initial_hooks
 from .core import (CORE_REVISION, DATABASE_REVISION, FORMAT, STARTER_FORMAT, KEYS, MAX_BUNDLE_BYTES,
                    MAX_ITEMS, MAX_QUESTS, MAX_ROWS, MAX_SCHEMA_BYTES, MAX_SPELLS, Selection,
                    canonical, check, digest, integer, normalize_rows, normalize_version_notes,
@@ -21,6 +21,7 @@ class Query:
     ids: tuple[int, ...] = ()
     selection: Selection | None = None
     limit: int = MAX_ROWS
+    source_names: tuple[str, ...] = ()
 
     def sql(self) -> tuple[str, tuple[Any, ...]]:
         check(self.table in COLUMNS and self.table in KEYS, "query.unreviewed_table")
@@ -32,9 +33,18 @@ class Query:
               "query.spell_registry_mode")
         check(self.table not in initial_hooks.TABLES or self.mode == "initial_hook_selectors",
               "query.initial_hook_mode")
+        check(self.table not in event_text.TABLES or self.mode == event_text.MODE,
+              "query.event_text_mode")
+        check(not self.source_names or self.table in event_text.TABLES, "query.source_names")
         integer(self.limit, 1, MAX_ROWS, "query.limit")
-        columns = ",".join(f"`{name}` AS `{name}`" for name in COLUMNS[self.table])
-        order = ",".join(f"`{name}`" for name in KEYS[self.table])
+        names = self.source_names or tuple(COLUMNS[self.table])
+        check(len(names) == len(COLUMNS[self.table]), "query.source_names")
+        for name, source in zip(COLUMNS[self.table], names):
+            check(source in EVENT_TEXT_ALIASES.get(self.table, {}).get(name, (name,)),
+                  "query.source_names")
+        mapped = dict(zip(COLUMNS[self.table], names))
+        columns = ",".join(f"`{mapped[name]}` AS `{name}`" for name in COLUMNS[self.table])
+        order = ",".join(f"`{mapped[name]}`" for name in KEYS[self.table])
         if self.table in STARTER_SCHEMA:
             check(self.mode == "starter" and self.selection is not None and not self.ids,
                   "query.starter")
@@ -50,6 +60,15 @@ class Query:
                 integer(value, -0x7fffffff, 0x7fffffff, "query.event_ai_selector")
                 check(value != 0, "query.event_ai_zero_selector")
             where = f"`creature_id` IN ({','.join(['%s']*len(self.ids))})"
+            params = self.ids
+        elif self.mode == event_text.MODE:
+            check(self.table in event_text.TABLES and self.selection is None
+                  and 0 < len(self.ids) <= MAX_ROWS, "query.event_text_selectors")
+            check(len(set(self.ids)) == len(self.ids), "query.duplicate_ids")
+            for value in self.ids:
+                integer(value, 1, 0x7fffffff, "query.event_text_selector")
+            check(tuple(sorted(self.ids)) == self.ids, "query.event_text_order")
+            where = f"`{mapped['Id']}` IN ({','.join(['%s']*len(self.ids))})"
             params = self.ids
         elif self.mode == "native_spawn_selectors":
             check(self.table in native_spawn.TABLES and self.selection is None
@@ -126,6 +145,9 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
     check(type(capture_initial_hooks) is bool, "initial_hooks.request_boolean")
     check(not capture_initial_hooks or selection.starter is not None, "initial_hooks.starter_selection_required")
     minimum = required_tables(selection)
+    if (selection.starter is not None and type(inventory) is dict
+            and type(inventory.get("tables")) is dict):
+        minimum.update(set(event_text.TABLES) & set(inventory["tables"]))
     if capture_initial_hooks:
         minimum.update(INITIAL_HOOK_SCHEMA)
     profiles = schema_profile(inventory, minimum)
@@ -147,7 +169,9 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             if not ids:
                 return []
             check(table in profiles, f"schema.missing_table:{table}")
-            query = Query(table, mode, tuple(sorted(ids)), limit=limit)
+            names = (tuple(profiles[table]["source_names"][name] for name in COLUMNS[table])
+                     if table in event_text.TABLES else ())
+            query = Query(table, mode, tuple(sorted(ids)), limit=limit, source_names=names)
             query.sql()  # Validate even fake drivers and non-SQL consumers.
             rows = source.fetch(query)
             return account(normalize_rows(table, rows, profiles[table], limit))
@@ -212,6 +236,11 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
             rows = source.fetch(query) if selected else []
             tables[event_ai.TABLE] = account(normalize_rows(event_ai.TABLE, rows,
                                                             profiles[event_ai.TABLE], MAX_ROWS))
+            event_ai.validate(event_ai.evidence(tables), tables)
+            broadcast_ids = set(event_text.selected_ids(tables))
+            for table in event_text.TABLES:
+                if table in profiles:
+                    tables[table] = get(table, broadcast_ids, mode=event_text.MODE)
         if selection.starter is not None:
             # These reads share the same transaction/quiescent snapshot and budgets
             # as creature rows. Read all rows, including neutral-looking hooks.
@@ -325,6 +354,7 @@ def capture(source: ReadSource, selection: Selection, quiescent: bool = False,
         if selection.starter is not None:
             bundle["starter_required_keys"] = starter.keys(tables)
             bundle["event_ai_capture"] = event_ai.evidence(tables)
+            bundle["event_text_capture"] = event_text.evidence(bundle, profiles)
             bundle["native_spawn_capture"] = native_spawn.evidence(bundle)
             bundle["spell_script_capture"] = spell_registry.evidence(bundle)
             bundle["learning_capture"] = learning.evidence(tables, dependency_request, global_learning_rows)
@@ -346,6 +376,8 @@ def validate_bundle(bundle: Any) -> None:
         expected.add("starter_required_keys")
         if "event_ai_capture" in bundle:
             expected.add("event_ai_capture")
+        if "event_text_capture" in bundle:
+            expected.add("event_text_capture")
         if "learning_capture" in bundle:
             expected.add("learning_capture")
         if "native_spawn_capture" in bundle:
@@ -395,6 +427,12 @@ def validate_bundle(bundle: Any) -> None:
     if "event_ai_capture" in bundle:
         check(selection.starter is not None, "event_ai.starter_selection_required")
         event_ai.validate(bundle["event_ai_capture"], bundle["tables"])
+    check((event_ai.TABLE in bundle["tables"]) == ("event_text_capture" in bundle),
+          "event_text.coverage_required_with_events")
+    check(not (set(event_text.TABLES) & set(bundle["tables"])) or "event_text_capture" in bundle,
+          "event_text.orphan_tables")
+    if "event_text_capture" in bundle:
+        event_text.validate(bundle, profiles)
     check(bool(set(learning.TABLES) & set(bundle["tables"])) == ("learning_capture" in bundle),
           "learning.coverage_required_with_tables")
     if "learning_capture" in bundle:
@@ -475,7 +513,7 @@ def validate_bundle(bundle: Any) -> None:
 
 
 def full_report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any], selection: Selection) -> list[dict[str, Any]]:
-    findings = report(tables, profiles) + starter.blockers(tables, selection)
+    findings = report(tables, profiles) + starter.blockers(tables, selection) + event_text.blockers(tables)
     needed_stats = set()
     for row in tables["creature_template"]:
         low = integer(row["MinLevel"], 1, 65, "creature.min_level")

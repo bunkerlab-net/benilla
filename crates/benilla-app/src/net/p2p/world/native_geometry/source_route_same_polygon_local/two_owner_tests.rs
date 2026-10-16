@@ -6,7 +6,9 @@ use super::super::{
     core,
     real_corridor_fixture::Fixture,
     route_commit::{authored_conflicts, RouteCommitBoundary, RouteCommitNotice, RouteCommitSink},
-    source_route_same_polygon::two_owner_tests::{composed_inputs, source_session},
+    source_route_same_polygon::two_owner_tests::{
+        composed_inputs, lifecycle_tests::configure_lifecycle_profile, source_session,
+    },
     Service,
 };
 use super::*;
@@ -747,12 +749,8 @@ fn installed_two_owner_cancellation_death_and_respawn_preserve_peer_native_head(
         3,
         [2, 3],
         |profile| {
-            profile
-                .npcs
-                .iter_mut()
-                .find(|npc| npc.ai.creature_id == 2)
-                .unwrap()
-                .max_health = 1;
+            configure_lifecycle_profile(profile);
+            assert_eq!(profile.tick_ms, 100);
         },
         |run| {
             let neutral_health = run.world.state().npcs[&3].health;
@@ -833,12 +831,27 @@ fn installed_two_owner_cancellation_death_and_respawn_preserve_peer_native_head(
             assert_ne!(both.committed[&a].0, both.committed[&b].0);
             let peer = both.committed[&b].clone();
             assert_eq!(run.world.state().npcs[&3].ai.phase(), ai::Phase::Combat);
+            assert!(
+                run.world
+                    .state()
+                    .position
+                    .distance_squared(run.world.state().npcs[&2].ai.position())
+                    .unwrap()
+                    .as_f32()
+                    <= 25.
+            );
+            // Source bound at 100ms/tick: settled by 60; command 1 tick,
+            // 200ms cast + at most two 200ms pushbacks + event alignment 7,
+            // max(5yd, distance)/4 projectile 13, respawn <=20. Total <=101.
+            // The authored 2000ms swings cannot repeat during the cast window.
             run.step(vec![run.cast(2)]);
             let mut phases = vec![];
             while run.world.state().npcs[&2].id.generation == 0 {
                 assert!(
                     run.world.state().tick < 110,
-                    "projectile, corpse decay and respawn are bounded"
+                    "projectile, corpse decay and respawn are bounded: state={:?}, last_tick={:?}",
+                    run.world.state(),
+                    run.world.last_tick()
                 );
                 run.step(vec![]);
                 let state = run.world.state();

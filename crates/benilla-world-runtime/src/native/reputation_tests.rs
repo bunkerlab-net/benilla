@@ -41,7 +41,16 @@ fn restore(w: &NativeWorld) -> NativeWorld {
 }
 #[test]
 fn source_spillover_callbacks_toggle_objective_before_log_clear_xp_and_level() {
-    let mut w = fixture::world();
+    source_spillover_callbacks(None);
+}
+#[test]
+fn retained_general_modifier_callbacks_toggle_objective_before_log_clear_xp_and_level() {
+    source_spillover_callbacks(Some(10));
+}
+fn source_spillover_callbacks(modifier: Option<i32>) {
+    let mut w = modifier.map_or_else(fixture::world, fixture::world_with_modifier);
+    let gained = if modifier.is_some() { 240 } else { 200 };
+    let lost = if modifier.is_some() { 450 } else { 500 };
     let initial = w.checkpoint().unwrap();
     let mut a = synthetic_quest_fixture::QuestAuthority::default();
     accept(&mut w, &mut a, fixture::OBJECTIVE);
@@ -80,8 +89,8 @@ fn source_spillover_callbacks_toggle_objective_before_log_clear_xp_and_level() {
     reward(&mut w, &mut a, fixture::GRANT);
     let p = progress(&w);
     let g = w.profile().quest_progression.as_ref().unwrap();
-    assert_eq!(p.reputation(g, fixture::PRIMARY).unwrap(), 100);
-    assert_eq!(p.reputation(g, fixture::SPILLOVER).unwrap(), 200);
+    assert_eq!(p.reputation(g, fixture::PRIMARY).unwrap(), gained - 100);
+    assert_eq!(p.reputation(g, fixture::SPILLOVER).unwrap(), gained);
     let reputation = p.reputation.as_ref().unwrap().view();
     assert_eq!(
         reputation
@@ -170,13 +179,21 @@ fn source_spillover_callbacks_toggle_objective_before_log_clear_xp_and_level() {
                 fixture::SPILLOVER
             )
             .unwrap(),
-        -300
+        gained - lost
     );
     restore(&w);
 }
 #[test]
 fn saved_reputation_and_callback_witness_cannot_be_reblessed_by_outer_hashes() {
-    let mut w = fixture::world();
+    check_saved_reputation_and_callback(false);
+    check_saved_reputation_and_callback(true);
+}
+fn check_saved_reputation_and_callback(modifier: bool) {
+    let mut w = if modifier {
+        fixture::world_with_modifier(10)
+    } else {
+        fixture::world()
+    };
     let mut a = synthetic_quest_fixture::QuestAuthority::default();
     accept(&mut w, &mut a, fixture::OBJECTIVE);
     accept(&mut w, &mut a, fixture::GRANT);
@@ -302,7 +319,15 @@ fn closure_is_explicit_and_bound_and_initial_ack_has_no_duplicate_packets() {
 
 #[test]
 fn later_reputation_slot_failure_rolls_back_objectives_standing_and_outer_tick() {
-    let (mut profile, input, mut rows) = fixture::setup();
+    check_reputation_slot_rollback(false);
+    check_reputation_slot_rollback(true);
+}
+fn check_reputation_slot_rollback(modifier: bool) {
+    let (mut profile, input, mut rows) = if modifier {
+        fixture::setup_with_modifier(10)
+    } else {
+        fixture::setup()
+    };
     rows.quests[0].excluded.reward_rep_value[1] = i32::MAX;
     profile.initialize_quest_progression(&input, rows).unwrap();
     let mut w =

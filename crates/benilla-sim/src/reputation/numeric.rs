@@ -40,6 +40,7 @@ pub(super) fn spillover(standing: i32, rate: SpellFloat) -> Result<i32> {
 pub(super) fn gain(
     config: Config,
     rates: Option<&Resolved<RewardRates>>,
+    general_modifier: i32,
     input: GainInput,
 ) -> Result<i32> {
     let level = Level::new(input.player_level).ok_or(Error::Invalid("player_level"))?;
@@ -47,7 +48,24 @@ pub(super) fn gain(
     if input.target_level > i32::MAX as u32 {
         return Err(Error::Invalid("target_level"));
     }
-    let mut percent = n(100)?; // Aura absence was explicitly validated by Catalog.
+    let mut modifier = if input.no_aura_bonus {
+        Single::ZERO
+    } else {
+        n(general_modifier.into())?
+    };
+    if input.source == Source::Kill {
+        // noAuraBonus excludes only 156. The separate kill-specific 190 input
+        // remains explicitly absent in this catalog policy, even in this branch.
+        modifier = check(modifier.add_r(Single::ZERO, R))?;
+    }
+    let mut percent = check(n(100)?.add_r(
+        if input.reputation > 0 {
+            modifier
+        } else {
+            -modifier
+        },
+        R,
+    ))?;
     let minimum = match input.source {
         Source::Kill => nonnegative(config.low_level_kill_rate)?,
         Source::Quest => nonnegative(config.low_level_quest_rate)?,

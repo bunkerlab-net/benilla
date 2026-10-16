@@ -331,8 +331,12 @@ is meaningful without a bounded content/mechanics inventory.
   reputation gates and source-ordered initial/visibility/standing events before XP.
   Source-operation replay rejects forged standing/flags and callback snapshots;
   controller tests cover failed-save/reopen and session initialization without an
-  extra gameplay tick. Combat reactions, kill/spell reputation and raw-data
-  admission remain separate, unavailable capabilities.
+  extra gameplay tick. An immutable source-bound initial aura156 list applies
+  the retained signed modifier before binary32 gain/penalties/rates and ordered
+  spillover. Current tracked-faction interaction queries observe the resulting
+  standing/rank/at-war state. Dynamic reputation auras, faction-specific190,
+  native kill/spell reputation execution and raw-data admission remain closed.
+  Actual Diplomacy DurationIndex21 and client asset closure are unresolved.
 - **Dependencies:** prerequisites/exclusive groups, reputation/race/class/level,
   timed/repeatable state, inventory, spells, exploration, escort/game-object
   scripts, group sharing/credit, condition evaluation and persistent quest log.

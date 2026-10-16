@@ -87,6 +87,21 @@ pub struct InitialAuraMetadata {
     pub caster_aura_state: u32,
     pub aura_interrupt_flags: u32,
 }
+impl InitialAuraMetadata {
+    pub(super) fn from_source(aura: &init::InitialAura, raw: &init::SpellRow) -> Self {
+        Self {
+            spell_id: aura.spell_id,
+            effect_index: aura.effect_index,
+            aura_type: aura.aura_type,
+            misc_value: aura.misc_value,
+            amount: aura.amount,
+            attributes: raw.words[6],
+            attributes_ex3: raw.words[9],
+            caster_aura_state: raw.words[16],
+            aura_interrupt_flags: raw.words[22],
+        }
+    }
+}
 /// Only the source initializer can construct this value. It is not an admission token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CombatGenesis {
@@ -276,17 +291,7 @@ impl Profile {
                         .iter()
                         .find(|s| s.id == a.spell_id)
                         .expect("initializer checked aura spell");
-                    InitialAuraMetadata {
-                        spell_id: a.spell_id,
-                        effect_index: a.effect_index,
-                        aura_type: a.aura_type,
-                        misc_value: a.misc_value,
-                        amount: a.amount,
-                        attributes: raw.words[6],
-                        attributes_ex3: raw.words[9],
-                        caster_aura_state: raw.words[16],
-                        aura_interrupt_flags: raw.words[22],
-                    }
+                    InitialAuraMetadata::from_source(a, raw)
                 })
                 .collect(),
             initial_inventory: mage.inventory.iter().map(|i| (i.item, i.count)).collect(),

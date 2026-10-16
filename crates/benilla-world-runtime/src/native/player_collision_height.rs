@@ -127,11 +127,15 @@ impl PlayerCollisionHeightSource {
         }
         // This exhaustive executable domain cannot change native display/object scale.
         // Unknown initial auras, transforms, shapeshift and scale effects fail closed.
-        if combat
-            .initial_auras
-            .iter()
-            .any(|a| !matches!(a.aura_type, 22 | 29 | 30 | 80 | 83 | 98 | 101 | 137 | 142))
-        {
+        // General reputation modifies only gain arithmetic; the exact retained
+        // source-bound branch has no display/scale consumer in the pinned source.
+        profile.validate_retained_reputation_auras()?;
+        if combat.initial_auras.iter().any(|a| {
+            !matches!(
+                a.aura_type,
+                22 | 29 | 30 | 80 | 83 | 98 | 101 | 137 | 142 | 156
+            )
+        }) {
             return Err(NativeError::UnsupportedMechanic(
                 "initial player model-changing aura",
             ));

@@ -847,3 +847,40 @@ fn real_training_closure_and_item_recipe_rebase_through_sixty() {
     missing.spells.retain(|r| r.id != TRAINED);
     assert!(LiveTraining::from_initializer(&missing, &mage).is_err());
 }
+
+#[test]
+fn learning_a_new_general_reputation_passive_rejects_without_mutating_training_or_player() {
+    let mut input = input();
+    input.spells[1] = aura(TRAINED, 156, 0, 10);
+    let mage = initialize_mage(&input).unwrap();
+    assert!(mage.initial_auras.is_empty());
+    let fresh = LiveTraining::from_initializer(&input, &mage).unwrap();
+    let mut live = fresh.clone();
+    let before = live.snapshot();
+    let view = trained_view(&input, &mage);
+    let before_view = view.clone();
+    assert!(matches!(
+        live.apply(&callback(&view), &view),
+        Err(InitError::Unsupported {
+            domain: "live training changed fixed modifiers/passives",
+            ..
+        })
+    ));
+    assert_eq!(live.snapshot(), before);
+    assert_eq!(view, before_view);
+    assert!(!live.abilities().contains_key(&TRAINED));
+    let mut forged = before;
+    forged.abilities.push(KnownAbility {
+        spell_id: TRAINED,
+        active: true,
+        availability: AbilityAvailability::PassiveApplied,
+    });
+    forged.calls.push(TrainingCallSnapshot {
+        id: 95,
+        value: view.skills[0].value,
+        step: view.skills[0].step,
+        view: view.clone(),
+        learned_spells: vec![TRAINED],
+    });
+    assert!(LiveTraining::restore_authoritative(&fresh, &forged, &view).is_err());
+}

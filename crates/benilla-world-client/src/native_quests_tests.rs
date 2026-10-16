@@ -8,6 +8,7 @@ pub(in crate::native) struct Catalog {
     bytes: Option<u32>,
     greeting: bool,
     greeting_row: bool,
+    modifier_spell: bool,
     presentation: Option<crate::NativeQuestPresentation>,
 }
 impl Catalog {
@@ -73,6 +74,9 @@ impl Catalog {
             bytes: Some(0x7fabcdef),
             greeting: true,
             greeting_row: true,
+            modifier_spell: g
+                .spell_ids()
+                .any(|id| id == n::synthetic_reputation_fixture::MODIFIER_SPELL),
             presentation: Some(crate::NativeQuestPresentation {
                 details_emotes: [(0, 0); 4],
                 offer_emotes: [(0, 0); 4],
@@ -102,6 +106,7 @@ impl ClientCatalog for Catalog {
     }
     fn contains_spell(&self, id: u32) -> bool {
         matches!(id, 60001 | 60002 | 60004 | 60005)
+            || (self.modifier_spell && id == n::synthetic_reputation_fixture::MODIFIER_SPELL)
     }
     fn player_power_type(&self, _: PlayerId) -> Option<u8> {
         Some(0)
@@ -1107,9 +1112,31 @@ fn reward_during_prepare_projects_original_start_and_delayed_source_release() {
 
 #[test]
 fn native_reputation_packets_preserve_intermediate_callbacks_and_pre_xp_order() {
+    check_native_reputation_packets(false);
+    check_native_reputation_packets(true);
+}
+fn check_native_reputation_packets(modifier: bool) {
     use n::synthetic_reputation_fixture as rep;
-    let mut w = rep::world();
-    let mut p = NativeProjection::new(&w, w.state().player, &Catalog::new(&w)).unwrap();
+    let mut w = if modifier {
+        rep::world_with_modifier(10)
+    } else {
+        rep::world()
+    };
+    let expected = if modifier {
+        [220, 130, 240]
+    } else {
+        [200, 100, 200]
+    };
+    let mut catalog = Catalog::new(&w);
+    if modifier {
+        catalog.modifier_spell = false;
+        assert!(matches!(
+            NativeProjection::new(&w, w.state().player, &catalog),
+            Err(Error::UnboundSpell(rep::MODIFIER_SPELL))
+        ));
+        catalog.modifier_spell = true;
+    }
+    let mut p = NativeProjection::new(&w, w.state().player, &catalog).unwrap();
     let mut a = fixture::QuestAuthority::default();
     let giver = giver(&w);
     let initial = p.initial_events(&w).unwrap();
@@ -1179,9 +1206,9 @@ fn native_reputation_packets_preserve_intermediate_callbacks_and_pre_xp_order() 
     assert_eq!(
         deltas,
         vec![
-            vec![(3, 200), (7, 200)],
-            vec![(3, 100), (7, 100)],
-            vec![(3, 200), (7, 200)]
+            vec![(3, expected[0]), (7, expected[0])],
+            vec![(3, expected[1]), (7, expected[1])],
+            vec![(3, expected[2]), (7, expected[2])]
         ]
     );
     let toggles: Vec<_> = rewarded
@@ -1218,7 +1245,7 @@ fn native_reputation_packets_preserve_intermediate_callbacks_and_pre_xp_order() 
             .unwrap()
             .initial_events(&restored)
             .unwrap();
-    assert!(reopened.iter().any(|e|matches!(e,SessionEvent::Reputations{standings} if standings[3]==(1,200)&&standings[7]==(1,200))));
+    assert!(reopened.iter().any(|e|matches!(e,SessionEvent::Reputations{standings} if standings[3]==(1,expected[2])&&standings[7]==(1,expected[2]))));
     assert!(!reopened.iter().any(|e| matches!(
         e,
         SessionEvent::ReputationDelta { .. }

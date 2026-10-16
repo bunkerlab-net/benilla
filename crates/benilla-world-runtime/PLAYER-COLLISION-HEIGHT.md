@@ -42,7 +42,12 @@ operations implemented by this bounded executor:
 
 - `starter_init` validates its closed initial spell/equipment path; executable
   passives are stat/resistance/skill auras 22, 29, 30, 80, 83, 98, 101, 137, 142
-  and the runtime repeats that whitelist for owned model sources
+  and the fixed permanent general reputation aura156. Owned model sources admit
+  156 only after independently revalidating its exact reputation-bearing source
+  genesis, including missing/retyped/duplicated-holder rejection. The pinned
+  `Unit::GetCollisionHeight` (Unit.cpp:11930–11957) reads object scale and native
+  model height; `GetObjectScaleMod` (10278–10294) sums aura61, while aura156 has
+  no immediate handler and is consumed only by reputation-gain arithmetic
 - `MageEffect` execution is empty/direct damage/periodic damage only; unsupported
   effects are refused, including transform/shapeshift/scale effects
 - First-entry passive reconstruction and live training require unchanged initial,

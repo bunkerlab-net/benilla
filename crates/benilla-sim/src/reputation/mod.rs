@@ -5,10 +5,11 @@ mod numeric;
 use crate::classic_spell::SpellFloat;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const UPSTREAM_COMMIT: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
-pub const POLICY_ID: &str = "cmangos-8ec338a1-reputation-v1";
+pub const POLICY_ID: &str = "cmangos-8ec338a1-reputation-fixed-initial-aura156-v2";
+pub const MAX_GENERAL_REPUTATION_AURAS: usize = 256;
 pub const CAP: i32 = 42_999;
 pub const BOTTOM: i32 = -42_000;
 pub const VISIBLE: u32 = 1;
@@ -59,7 +60,6 @@ pub struct Audit {
 impl Audit {
     fn validate(&self) -> Result<()> {
         if [
-            self.general_reputation_auras,
             self.faction_reputation_auras,
             self.forced_reactions,
             self.reputation_scripts,
@@ -68,6 +68,45 @@ impl Audit {
         .any(|e| e != Evidence::Absent)
         {
             return Err(Error::Unsupported("reputation_dependency_not_absent"));
+        }
+        Ok(())
+    }
+}
+/// A retained permanent, unconditional initial passive, in source application order.
+/// The owner must derive and cross-check this evidence against its original spell
+/// row and initializer; supplying a fingerprint alone does not prove that closure.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneralReputationAura {
+    pub spell_id: u32,
+    pub effect_index: u8,
+    pub aura_type: u32,
+    pub misc_value: i32,
+    pub amount: i32,
+    pub attributes: u32,
+    pub attributes_ex3: u32,
+    pub caster_aura_state: u32,
+    pub aura_interrupt_flags: u32,
+    /// Effective duration after the source passive/index-zero permanence rule.
+    pub duration_ms: i32,
+    pub source_spell_hash: [u8; 32],
+}
+impl GeneralReputationAura {
+    fn validate(&self) -> Result<()> {
+        if self.spell_id == 0 || self.effect_index >= 3 || self.source_spell_hash == [0; 32] {
+            return Err(Error::Invalid("general_reputation_aura_source"));
+        }
+        // The same admitted passive attributes as starter_init; lifecycle changes
+        // require a different context rather than an editable saved aura.
+        if self.aura_type != 156
+            || self.attributes & 0x40 == 0
+            || self.attributes & !0x800001d0 != 0
+            || self.attributes_ex3 != 0
+            || self.caster_aura_state != 0
+            || self.aura_interrupt_flags != 0
+            || self.duration_ms != -1
+        {
+            return Err(Error::Unsupported("general_reputation_aura_lifecycle"));
         }
         Ok(())
     }
@@ -163,6 +202,8 @@ pub struct Catalog {
     rows: BTreeMap<u32, Resolved<Row>>,
     config: Config,
     audit: Audit,
+    // No serde default: a missing binding must never become an absent modifier.
+    general_reputation_auras: Vec<GeneralReputationAura>,
 }
 impl Catalog {
     pub fn new(
@@ -170,6 +211,15 @@ impl Catalog {
         absent_factions: Vec<u32>,
         config: Config,
         audit: Audit,
+    ) -> Result<Self> {
+        Self::new_with_general_reputation_auras(rows, absent_factions, config, audit, vec![])
+    }
+    pub fn new_with_general_reputation_auras(
+        rows: Vec<Row>,
+        absent_factions: Vec<u32>,
+        config: Config,
+        audit: Audit,
+        general_reputation_auras: Vec<GeneralReputationAura>,
     ) -> Result<Self> {
         let mut resolved = BTreeMap::new();
         for row in rows {
@@ -189,6 +239,7 @@ impl Catalog {
             rows: resolved,
             config,
             audit,
+            general_reputation_auras,
         };
         out.validate()?;
         Ok(out)
@@ -203,8 +254,40 @@ impl Catalog {
     pub fn config(&self) -> Config {
         self.config
     }
+    pub fn general_reputation_auras(&self) -> &[GeneralReputationAura] {
+        &self.general_reputation_auras
+    }
+    fn general_reputation_modifier(&self) -> Result<i32> {
+        // Unit::GetTotalAuraModifier uses signed int32 addition, in list order.
+        // Reject every overflowing prefix instead of sorting or saturating it.
+        self.general_reputation_auras
+            .iter()
+            .try_fold(0i32, |sum, aura| {
+                sum.checked_add(aura.amount)
+                    .ok_or(Error::Numeric("general_reputation_aura_sum"))
+            })
+    }
     pub fn validate(&self) -> Result<()> {
         self.audit.validate()?;
+        match self.audit.general_reputation_auras {
+            Evidence::Absent if self.general_reputation_auras.is_empty() => {}
+            Evidence::Present if !self.general_reputation_auras.is_empty() => {}
+            Evidence::Unknown => {
+                return Err(Error::Unsupported("general_reputation_auras_unknown"));
+            }
+            _ => return Err(Error::Invalid("general_reputation_aura_evidence")),
+        }
+        if self.general_reputation_auras.len() > MAX_GENERAL_REPUTATION_AURAS {
+            return Err(Error::Invalid("general_reputation_aura_count"));
+        }
+        let mut sources = BTreeSet::new();
+        for aura in &self.general_reputation_auras {
+            aura.validate()?;
+            if !sources.insert((aura.spell_id, aura.effect_index)) {
+                return Err(Error::Invalid("duplicate_general_reputation_aura"));
+            }
+        }
+        self.general_reputation_modifier()?;
         for rate in [
             self.config.gain_rate,
             self.config.low_level_kill_rate,
@@ -253,6 +336,20 @@ impl Catalog {
             self.audit.reputation_scripts,
         ] {
             h.update([e as u8]);
+        }
+        h.update((self.general_reputation_auras.len() as u64).to_le_bytes());
+        for aura in &self.general_reputation_auras {
+            h.update(aura.spell_id.to_le_bytes());
+            h.update([aura.effect_index]);
+            h.update(aura.aura_type.to_le_bytes());
+            h.update(aura.misc_value.to_le_bytes());
+            h.update(aura.amount.to_le_bytes());
+            h.update(aura.attributes.to_le_bytes());
+            h.update(aura.attributes_ex3.to_le_bytes());
+            h.update(aura.caster_aura_state.to_le_bytes());
+            h.update(aura.aura_interrupt_flags.to_le_bytes());
+            h.update(aura.duration_ms.to_le_bytes());
+            h.update(aura.source_spell_hash);
         }
         h.update((self.rows.len() as u64).to_le_bytes());
         for (&id, resolved) in &self.rows {
@@ -325,7 +422,12 @@ impl Catalog {
     pub fn calculate_gain(&self, input: GainInput) -> Result<i32> {
         self.validate()?;
         let row = self.row(input.faction)?;
-        numeric::gain(self.config, row.map(|r| &r.reward_rates), input)
+        numeric::gain(
+            self.config,
+            row.map(|r| &r.reward_rates),
+            self.general_reputation_modifier()?,
+            input,
+        )
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

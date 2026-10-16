@@ -23,7 +23,7 @@ pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillP
 pub use reputation::NativeReputationState;
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-reputation-reconstruction-v4";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v5";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -152,8 +152,14 @@ impl QuestProgressionGenesis {
         }
         rows.derived_audit.validate()?;
         rows.kill.validate(profile, rows.loot.is_some())?;
-        reputation::validate_input(rows.reputation.as_ref(), &rows.quests, input)?;
         let mage = init::initialize_mage(input)?;
+        reputation::validate_input(
+            rows.reputation.as_ref(),
+            &rows.quests,
+            input,
+            &mage,
+            initial_combat,
+        )?;
         let loot = rows
             .loot
             .map(|r| NativeLootGenesis::build(profile, input, &mage, r))
@@ -340,7 +346,7 @@ impl QuestProgressionGenesis {
         }
         capacity::validate(&out, &host, probe.view())?;
         out.identity = crate::digest(
-            b"benilla-native-quest-progression-genesis-v4\0",
+            b"benilla-native-quest-progression-genesis-v5\0",
             &(
                 (
                     QUEST_PROGRESSION_POLICY,
@@ -444,6 +450,12 @@ impl QuestProgressionGenesis {
         if let Some(l) = &self.loot {
             l.validate_immutable(self.training.input())?;
         }
+        reputation::validate_binding(
+            self.reputation.as_ref(),
+            self.training.input(),
+            &init::initialize_mage(self.training.input())?,
+            &combat,
+        )?;
         self.kill.validate(profile, self.loot.is_some())
     }
     pub(in crate::native) fn admin_supported_maximum(&self) -> u32 {

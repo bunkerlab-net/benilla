@@ -1538,3 +1538,136 @@ fn level_rebased_recipe_break_restore_uses_current_create_rows_and_crit() {
     assert!(fresh.rebase(60, create, 89, 123).is_ok());
     assert!(fresh.rebase(61, create, 89, 123).is_err());
 }
+
+#[test]
+fn initial_general_reputation_passive_is_retained_once_without_stat_changes() {
+    let base = input();
+    let plain = initialize_mage(&base).unwrap();
+    let mut i = base.clone();
+    // Authored source-shaped fields; this permanent duration is synthetic, not
+    // an observation of actual Diplomacy DurationIndex21 or any client DBC.
+    let mut s = aura(900_000_221, 156, 0, 10);
+    s.words[6] = 0x50;
+    s.words[25] = 101;
+    s.words[167] = 1.0f32.to_bits();
+    i.default_spells = Rows::Complete(vec![s.id, s.id]);
+    i.spells.push(s.clone());
+    let created = initialize_mage(&i).unwrap();
+    assert_eq!(created.resources, plain.resources);
+    assert_eq!(created.effective_attributes, plain.effective_attributes);
+    assert_eq!(created.resistances, plain.resistances);
+    assert_eq!(created.skills, plain.skills);
+    assert_eq!(created.stat_recipe.snapshot(), plain.stat_recipe.snapshot());
+    assert_eq!(
+        created.initial_auras,
+        vec![InitialAura {
+            spell_id: s.id,
+            effect_index: 0,
+            aura_type: 156,
+            misc_value: 0,
+            amount: 10,
+        }]
+    );
+    assert_eq!(created.abilities.len(), 1);
+    first_entry(&i, &created).unwrap();
+    first_entry(&i, &created).unwrap();
+    assert_eq!(initialize_mage(&i).unwrap(), created);
+    let mut changed = created.clone();
+    changed.initial_auras[0].amount = 11;
+    assert!(first_entry(&i, &changed).is_err());
+    changed = created.clone();
+    changed.initial_auras.clear();
+    assert!(first_entry(&i, &changed).is_err());
+}
+
+#[test]
+fn initial_general_reputation_aura_keeps_unknown_lifecycle_and_other_aura_gates_closed() {
+    let mut base = input();
+    let s = aura(900_000_222, 156, 0, 10);
+    base.default_spells = Rows::Complete(vec![s.id]);
+    base.spells.push(s);
+    for field in [
+        "active",
+        "stance",
+        "interrupt",
+        "trigger",
+        "duration",
+        "unknown_duration",
+        "scaling",
+        "random",
+        "conditional",
+        "190",
+        "147",
+        "hook",
+        "stack",
+    ] {
+        let mut i = base.clone();
+        match field {
+            "active" => {
+                i.spells[0].words[6] = 0;
+                i.spells[0].words[7] = 0x8000_0000;
+            }
+            "stance" => {
+                i.spells[0].words[11] = 1;
+                i.spells[0].words[8] = 0x80000;
+            }
+            "interrupt" => i.spells[0].words[22] = 4096,
+            "trigger" => i.spells[0].words[109] = 900_000_224,
+            "duration" => i.spells[0].duration_ms = Some(1000),
+            "unknown_duration" => i.spells[0].duration_ms = None,
+            "scaling" => i.spells[0].words[73] = 1.0f32.to_bits(),
+            "random" => i.spells[0].words[64] = 2,
+            "conditional" => i.spells[0].words[16] = 1,
+            "190" => i.spells[0].words[91] = 190,
+            "147" => i.spells[0].words[91] = 147,
+            "hook" => i.spells[0].external_initial_hooks = true,
+            "stack" => {
+                i.spells.push(aura(900_000_223, 156, 0, 10));
+                i.default_spells = Rows::Complete(vec![900_000_222, 900_000_223]);
+            }
+            _ => unreachable!(),
+        }
+        assert!(initialize_mage(&i).is_err(), "{field}");
+    }
+}
+
+#[test]
+fn initial_spell_source_identity_binds_all_words_and_resolved_relationships() {
+    let source = aura(900_000_225, 156, 0, 10);
+    let original = source.source_hash();
+    for index in 0..173 {
+        let mut changed = source.clone();
+        changed.words[index] ^= 1;
+        assert_ne!(original, changed.source_hash(), "word {index}");
+    }
+    for field in [
+        "id",
+        "duration",
+        "duration_missing",
+        "rank",
+        "talent",
+        "learning_missing",
+        "learning",
+        "hook",
+    ] {
+        let mut changed = source.clone();
+        match field {
+            "id" => changed.id += 1,
+            "duration" => changed.duration_ms = Some(0),
+            "duration_missing" => changed.duration_ms = None,
+            "rank" => changed.previous_rank = Some(0),
+            "talent" => changed.talent = true,
+            "learning_missing" => changed.learned_spells = Rows::Missing,
+            "learning" => {
+                changed.learned_spells = Rows::Complete(vec![LearnSpell {
+                    spell_id: 900_000_226,
+                    active: true,
+                    auto_learned: false,
+                }])
+            }
+            "hook" => changed.external_initial_hooks = true,
+            _ => unreachable!(),
+        }
+        assert_ne!(original, changed.source_hash(), "{field}");
+    }
+}

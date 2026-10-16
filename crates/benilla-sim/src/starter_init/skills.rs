@@ -684,6 +684,11 @@ pub fn first_entry(
             .initial_auras
             .iter()
             .any(|a| !created.initial_auras.contains(a))
+        || !replay
+            .initial_auras
+            .iter()
+            .filter(|a| a.aura_type == 156)
+            .eq(created.initial_auras.iter().filter(|a| a.aura_type == 156))
         || replay.weapon_proficiency != created.weapon_proficiency
         || replay.armor_proficiency != created.armor_proficiency
         || replay.can_parry != created.can_parry

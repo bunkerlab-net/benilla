@@ -21,6 +21,9 @@ use benilla_world_runtime::native::{
 };
 use std::time::Duration;
 
+#[path = "two_owner_lifecycle_tests.rs"]
+pub(crate) mod lifecycle_tests;
+
 pub(crate) fn composed_inputs(
     products: Arc<VmapLiquidProducts>,
     raw_geometry: [u8; 32],
@@ -47,7 +50,20 @@ pub(crate) fn quest_inputs(
     let mut profile = quest::profile_with_spawns(hostile, giver, order);
     // A starts outside melee range; B remains within source quest interaction range.
     profile.player.start = Point::new(5., 6.5, 0.).unwrap();
+    // The selected melee host does not admit rear hits. Author the initial
+    // player looking at A before its chase can enter melee range.
+    let spawn = owner_spawn(true);
+    profile.player.orientation = benilla_world_runtime::native::Orientation::new(
+        (spawn.y.as_f32() - profile.player.start.y.as_f32())
+            .atan2(spawn.x.as_f32() - profile.player.start.x.as_f32())
+            .rem_euclid(std::f32::consts::TAU),
+    )
+    .unwrap();
     profile_inputs(profile, products, raw_geometry, maps, hostile, order)
+}
+
+fn owner_spawn(hostile: bool) -> Point {
+    Point::new(if hostile { 2. } else { 8. }, 2., 0.).unwrap()
 }
 
 fn profile_inputs(
@@ -64,16 +80,7 @@ fn profile_inputs(
     for npc in &mut profile.npcs {
         npc.ai.map_id = profile.map_id;
         npc.ai.content_revision = ai::movement::Revision(profile.content_digest);
-        npc.ai.spawn = Point::new(
-            if npc.ai.creature_id == hostile {
-                2.
-            } else {
-                8.
-            },
-            2.,
-            0.,
-        )
-        .unwrap();
+        npc.ai.spawn = owner_spawn(npc.ai.creature_id == hostile);
         npc.display_id = if npc.ai.creature_id == hostile {
             31
         } else {

@@ -9,8 +9,9 @@ production admission and contains only authored placeholder test rows.
 
 `QuestProgressionInput.reputation` supplies the exact typed reputation catalog.
 Its hash binds faction rows, their four race/class slots, explicit resolved reward
-rates and spillover results, world rates, and excluded dependencies into quest
-progression genesis v4 and native format 33. Quest lifecycle v3 binds all reputation
+rates and spillover results, world rates, the ordered retained initial aura156
+list with exact raw-spell fingerprints, and excluded dependencies into quest
+progression genesis v5 and native format 33. Quest lifecycle v3 binds all reputation
 reward slots/flags, min/max eligibility gates and objective columns. Every relevant
 faction lookup must resolve; unlisted lookup is an error. `None` means unavailable
 and is accepted only when all reputation columns in the selected quest closure are
@@ -18,6 +19,22 @@ zero. It is not evidence that a database contains no factions or reputation effe
 
 Initialization uses the source race/class masks and `SendInitialReputations` flag
 transition. The current bounded quest-level domain remains unsigned 0..=255.
+The initializer is executed before reputation binding. Each modifier must match
+its retained CombatGenesis source spell/effect/opcode/misc/amount, passive
+attributes and resolved permanent lifecycle, plus the complete raw SpellRow
+fingerprint. Missing, changed or extra catalog effects reject, as do audit/list
+contradictions. Profile validation repeats the initializer cross-check. A source
+row with identical numerical effect but changed provenance still changes the
+binding. The catalog is immutable; no editable saved percentage or aura list
+can override it. Passive holders survive the supported death/corpse/reopen
+continuation exactly once. Spirit release/reclaim is still unavailable.
+
+Live interaction and owned player-model height classifiers accept aura156 only
+through the same independently revalidated, reputation-bearing source genesis.
+The retained modifier changes no physical dimensions; arbitrary, duplicated or
+dynamic holders and unknown model-changing auras still reject. The height test
+selects authored loaded model rows and does not establish real client DBC values.
+
 The runtime does not certify the supplied initialization set or invent raw absence
 proofs. The full native raw producer remains separate and `NativeCapability`
 remains uninhabited.
@@ -37,6 +54,13 @@ faction visible before writing the quest-log slot. Client menu/status queries us
 the source reputation query, never the client `FactionInfo` race-slot helper.
 
 ## Persistence and session delivery
+
+Reputation policy v2, initializer policy v3 and quest genesis v5 are bound through
+the existing native33 profile/genesis hashes. The native checkpoint, journal and
+client packet field layouts are unchanged; earlier-context saves reject even for
+no-aura inputs. A recomputed outer checksum cannot repair stale nested catalog,
+training or quest-policy identities. The separate character/profile format is
+unchanged and no migration is provided.
 
 The persisted primitive state is reconstructed from the immutable catalog and a
 bounded source-operation history. It is not trusted merely because checkpoint
@@ -86,18 +110,25 @@ source `UpdateForQuestWorldObjects` affects gameobjects, which this domain exclu
 
 ## Boundaries
 
-This adds quest reputation state and query semantics. It does not claim tracked
-faction combat reactions, NPC hostility or interaction-authority admission; those
-require the separate source `classic_targets` relationship closure. Kill reputation,
-spell reputation, client at-war/inactive commands, reputation auras, forced
-reactions, repeatable/auto-reward quests and scripts remain unavailable under their
-existing explicit exclusions. A future callback that performs nested rewards or
+Quest reputation state and query semantics compose with the separately bound
+`classic_targets` relationship closure: current standing/rank/at-war are queried
+for each interaction, including immediately after a boosted reward. The fixed
+initial aura156 modifier is applied in CalculateReputationGain before source
+penalties/rates/truncation and once before ordered spillover. It is not applied
+to raw SetReputation commands. Positive 75 becomes 82 and 250 becomes 275 at unit
+rates; authored 25% spillover receives 20 and 68. Negative gains subtract the
+modifier from 100%, and noAuraBonus disables only156. Aura190 remains excluded.
+Kill/spell reputation arithmetic shares the modifier, but native kill awards
+with present on-kill reputation and effect103 execution remain unavailable.
+Dynamic aura applications/removals, client at-war/inactive commands, forced
+reactions, repeatable/auto-reward quests and scripts remain explicitly excluded. A future callback that performs nested rewards or
 level changes must extend the replay witness and policy, not silently reuse an
 observation-only callback path.
 
 ## Verification
 
-- 10,496 pinned reputation oracle cases from the simulation primitive
+- Preserved zero-aura reputation oracle cases plus retained-aura signed/rate/
+  penalty/rounding and callback matrices from the pinned original C++ bodies
 - 1,212 additional hash-pinned quest reputation gate/callback/order oracle cases
 - Authored runtime tests for three sequential spillover changes toggling one logged
   objective complete/incomplete/complete before XP, rank/at-war transitions, admission
@@ -107,3 +138,14 @@ observation-only callback path.
 - Actual app-controller tests for repeated bootstrap without clock advance,
   internal acknowledgement before multiple queued actions, authority failure,
   failed-save retry, dropped failed save, duplicate reward and reopen
+
+- Authored retained+10 controller/projection variants preserve pre-XP callback
+  order, current interaction reactions, initial 64-entry bootstrap, failed-save
+  publication retry and exact reopen; original absent-modifier variants remain
+- Raw-source/catalog/effect/amount forgery, rechecksummed state corruption,
+  unknown/dynamic dependencies and old-context rejection remain fail-closed
+
+The public-row motivation and unresolved DurationIndex21/client evidence are
+recorded in [starter initialization](../../../benilla-sim/STARTER-INIT.md).
+These tests do not certify a real Human Mage/Northshire profile, loaded-cache
+reopening, production startup or native capability admission.

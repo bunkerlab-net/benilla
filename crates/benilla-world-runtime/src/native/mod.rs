@@ -429,6 +429,8 @@ impl From<benilla_sim::reputation::Error> for NativeError {
     }
 }
 #[cfg(test)]
+mod diplomacy_tests;
+#[cfg(test)]
 mod regeneration_tests;
 #[cfg(test)]
 mod reputation_tests;

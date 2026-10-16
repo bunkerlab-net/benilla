@@ -9,6 +9,7 @@
 #include <cstring>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -22,7 +23,18 @@ using RepListID=uint32;
 using FactionStateList=std::map<RepListID,FactionState>;
 struct FactionStore {std::map<uint32,FactionEntry> rows;const FactionEntry*LookupEntry(uint32 id)const{auto it=rows.find(id);return it==rows.end()?nullptr:&it->second;}uint32 GetNumRows()const{return rows.empty()?0:rows.rbegin()->first+1;}}sFactionStore;
 struct ObjectMgr {std::map<uint32,RepRewardRate> rates;std::map<uint32,RepSpilloverTemplate> spills;const RepRewardRate*GetRepRewardRate(uint32 id)const{auto it=rates.find(id);return it==rates.end()?nullptr:&it->second;}const RepSpilloverTemplate*GetRepSpilloverTemplate(uint32 id)const{auto it=spills.find(id);return it==spills.end()?nullptr:&it->second;}}sObjectMgr;
-enum {CONFIG_FLOAT_RATE_REPUTATION_GAIN,CONFIG_FLOAT_RATE_REPUTATION_LOWLEVEL_KILL,CONFIG_FLOAT_RATE_REPUTATION_LOWLEVEL_QUEST,SPELL_AURA_MOD_REPUTATION_GAIN,SPELL_AURA_MOD_FACTION_REPUTATION_GAIN};
+enum {CONFIG_FLOAT_RATE_REPUTATION_GAIN,CONFIG_FLOAT_RATE_REPUTATION_LOWLEVEL_KILL,CONFIG_FLOAT_RATE_REPUTATION_LOWLEVEL_QUEST};
+enum AuraType {SPELL_AURA_MOD_REPUTATION_GAIN=156,SPELL_AURA_MOD_FACTION_REPUTATION_GAIN=190};
+struct Modifier {int32 m_amount,m_miscvalue;};
+struct Aura {uint32 spell_id;uint8 effect_index;Modifier modifier;Modifier*GetModifier(){return &modifier;}};
+struct Unit {
+ using AuraList=std::vector<Aura*>;
+ std::vector<std::unique_ptr<Aura>> retained;std::map<AuraType,AuraList> lists;AuraList empty;
+ const AuraList&GetAurasByType(AuraType type)const{auto i=lists.find(type);return i==lists.end()?empty:i->second;}
+ void retain(AuraType type,int32 amount,int32 misc=0){auto a=std::make_unique<Aura>(Aura{900000+uint32(retained.size()),0,{amount,misc}});lists[type].push_back(a.get());retained.push_back(std::move(a));}
+ int32 GetTotalAuraModifier(AuraType)const;int32 GetTotalAuraModifierByMiscValue(AuraType,int32)const;
+};
+// PINNED_AURA_METHODS
 struct World {float gain=1,kill=.2f,quest=.2f;float getConfig(int id)const{return id==CONFIG_FLOAT_RATE_REPUTATION_GAIN?gain:id==CONFIG_FLOAT_RATE_REPUTATION_LOWLEVEL_KILL?kill:quest;}}sWorld;
 enum {SMSG_SET_FACTION_STANDING,SMSG_INITIALIZE_FACTIONS,SMSG_SET_FACTION_VISIBLE};
 struct WorldPacket {int type;std::vector<uint32> values;WorldPacket(int t,int):type(t){}size_t wpos()const{return values.size();}WorldPacket&operator<<(uint32 n){values.push_back(n);return *this;}template<class T>void put(size_t p,T n){values[p]=n;}};
@@ -39,10 +51,9 @@ struct ReputationMgr {
  void SendState(const FactionState*);void SendInitialReputations();void SendVisible(const FactionState*)const;
 };
 struct Quest {uint32 RewRepFaction[5]={};int32 RewRepValue[5]={};uint32 flags=0;int32 level=1;uint32 GetRewFactionFlags()const{return flags;}int32 GetQuestLevel()const{return level;}};
-struct Player {
+struct Player : Unit {
  ReputationMgr rep{this};bool reentrant=false,triggered=false;uint32 level=1,race=1,klass=128;std::vector<std::string>events;Session session;
  uint32 GetLevel()const{return level;}uint32 getRaceMask()const{return race;}uint32 getClassMask()const{return klass;}Session*GetSession(){return &session;}
- int GetTotalAuraModifier(int)const{return 0;}int GetTotalAuraModifierByMiscValue(int,int)const{return 0;}
  ReputationRank GetReputationRank(uint32 id)const{return rep.GetRank(sFactionStore.LookupEntry(id));}ReputationMgr&GetReputationMgr(){return rep;}
  uint32 GetQuestLevelForPlayer(const Quest*q)const{return q&&q->GetQuestLevel()>0?q->GetQuestLevel():GetLevel();}
  int32 CalculateReputationGain(ReputationSource,int32,int32,uint32,bool=false)const;void RewardReputation(const Quest*);
@@ -64,6 +75,33 @@ void seed(uint32 c){sFactionStore.rows.clear();sObjectMgr.rates.clear();sObjectM
  if(c%3){sObjectMgr.rates[100]={bits(rates[(c/19)%8]),bits(rates[(c/23)%8]),bits(rates[(c/29)%8])};}
  configure(c);
 }
-int main(int argc,char**argv){std::fesetround(FE_TONEAREST);bool reentrant=argc>1&&std::string(argv[1])=="--host";if(argc>1&&!reentrant){for(uint32 c=0;c<8192;++c){seed(c);Player p;p.level=1+c%63;uint32 target=(c*7)%66;auto source=ReputationSource(c%3);int32 value=values[(c/9)%9];int32 result=p.CalculateReputationGain(source,value,100,target,c%2);std::cout<<c<<'\t'<<result<<'\n';}return 0;}
- for(uint32 c=0;c<(reentrant?256u:2048u);++c){seed(c);Player p;p.reentrant=reentrant;p.level=1+c%63;p.rep.Initialize();if(c%2)p.rep.SendInitialReputations();p.events.clear();int32 value=values[(c/9)%9];bool increase=p.rep.SetReputation(sFactionStore.LookupEntry(100),value,(c/2)%2,(c/4)%2);p.rep.SetAtWar(RepListID(2),(c/8)%2);p.rep.SetInactive(RepListID(1),(c/16)%2);p.rep.SetVisible(sFactionStore.LookupEntry(103));Quest q;q.level=c%7==0?-1:1+(c*7)%63;q.flags=c%32;q.RewRepFaction[0]=100;q.RewRepFaction[1]=101;q.RewRepFaction[2]=100;q.RewRepFaction[3]=103;q.RewRepValue[0]=value;q.RewRepValue[1]=-value;q.RewRepValue[2]=value/3;q.RewRepValue[3]=0;p.RewardReputation(&q);std::cout<<c<<'\t'<<increase<<'\t'<<p.snapshot()<<'\t';for(const auto&e:p.events)std::cout<<e<<'|';std::cout<<'\t';for(uint32 i=0;i<4;++i){auto*f=sFactionStore.LookupEntry(100+i);std::cout<<p.rep.GetBaseReputation(f)<<':'<<p.rep.GetReputation(f)<<':'<<p.rep.GetRank(f)<<':'<<p.rep.IsAtWar(f)<<',';}std::cout<<'\n';}
+// All amounts, identities and level/rate combinations below are original authored inputs.
+const std::array<std::vector<int32>,15> aura_amounts={{{10},{-10},{0},{7,3},{99},{100},{101},{-99},{-100},{-101},{1},{-1},{16777217},{-16777217},{16777217,1,-16777217}}};
+const std::array<int32,7> aura_values={-1001,-250,-75,0,75,250,16777217};
+const std::array<std::array<uint32,2>,10> aura_levels={{{60,0},{60,60},{60,55},{60,54},{60,50},{60,49},{60,45},{10,4},{1,1},{63,1}}};
+void verify_aura_source_boundary(){
+ sObjectMgr.rates.clear();sWorld.gain=1;Player p;
+ p.retain(SPELL_AURA_MOD_REPUTATION_GAIN,10,999);
+ p.retain(SPELL_AURA_MOD_FACTION_REPUTATION_GAIN,20,100);
+ p.retain(SPELL_AURA_MOD_FACTION_REPUTATION_GAIN,70,999);
+ assert(p.CalculateReputationGain(REPUTATION_SOURCE_KILL,100,100,0,true)==120);
+ assert(p.CalculateReputationGain(REPUTATION_SOURCE_KILL,100,100,0,false)==130);
+ assert(p.CalculateReputationGain(REPUTATION_SOURCE_QUEST,100,100,0,true)==100);
+ assert(p.CalculateReputationGain(REPUTATION_SOURCE_SPELL,100,100,0,false)==110);
+}
+void aura_gain_matrix(){
+ constexpr uint32 count=3*7*15*2*10*4;
+ for(uint32 c=0;c<count;++c){
+  uint32 n=c;auto source=ReputationSource(n%3);n/=3;uint32 v=n%7;n/=7;uint32 a=n%15;n/=15;bool no=n%2;n/=2;uint32 l=n%10;n/=10;uint32 r=n%4;
+  int32 value=aura_values[v];if(a>=12&&v==6)value=101; // Keep the source int32 cast defined.
+  sObjectMgr.rates.clear();sWorld.gain=1;sWorld.kill=.2f;sWorld.quest=.2f;
+  if(r==1)sObjectMgr.rates[100]={0,0,0};
+  if(r==2){sObjectMgr.rates[100]={bits(0x3f8ccccd),bits(0x3f000000),bits(0x3f7fffff)};sWorld.gain=1.5f;sWorld.kill=0;sWorld.quest=.5f;}
+  if(r==3){sObjectMgr.rates[100]={1,1,1};sWorld.gain=bits(0x40551eb8);sWorld.kill=1;sWorld.quest=0;}
+  Player p;p.level=aura_levels[l][0];for(auto amount:aura_amounts[a])p.retain(SPELL_AURA_MOD_REPUTATION_GAIN,amount,int32(p.retained.size())-1);
+  std::cout<<c<<'\t'<<p.CalculateReputationGain(source,value,100,aura_levels[l][1],no)<<'\n';
+ }
+}
+int main(int argc,char**argv){std::fesetround(FE_TONEAREST);verify_aura_source_boundary();std::string mode=argc>1?argv[1]:"";if(mode=="--aura-gain"){aura_gain_matrix();return 0;}bool reentrant=mode=="--host"||mode=="--aura-host";bool with_aura=mode=="--aura-state"||mode=="--aura-host";if(mode=="--gain"){for(uint32 c=0;c<8192;++c){seed(c);Player p;p.level=1+c%63;uint32 target=(c*7)%66;auto source=ReputationSource(c%3);int32 value=values[(c/9)%9];int32 result=p.CalculateReputationGain(source,value,100,target,c%2);std::cout<<c<<'\t'<<result<<'\n';}return 0;}
+ for(uint32 c=0;c<(reentrant?256u:2048u);++c){seed(c);Player p;if(with_aura)p.retain(SPELL_AURA_MOD_REPUTATION_GAIN,10);p.reentrant=reentrant;p.level=1+c%63;p.rep.Initialize();if(c%2)p.rep.SendInitialReputations();p.events.clear();int32 value=values[(c/9)%9];bool increase=p.rep.SetReputation(sFactionStore.LookupEntry(100),value,(c/2)%2,(c/4)%2);p.rep.SetAtWar(RepListID(2),(c/8)%2);p.rep.SetInactive(RepListID(1),(c/16)%2);p.rep.SetVisible(sFactionStore.LookupEntry(103));Quest q;q.level=c%7==0?-1:1+(c*7)%63;q.flags=c%32;q.RewRepFaction[0]=100;q.RewRepFaction[1]=101;q.RewRepFaction[2]=100;q.RewRepFaction[3]=103;q.RewRepValue[0]=value;q.RewRepValue[1]=-value;q.RewRepValue[2]=value/3;q.RewRepValue[3]=0;p.RewardReputation(&q);std::cout<<c<<'\t'<<increase<<'\t'<<p.snapshot()<<'\t';for(const auto&e:p.events)std::cout<<e<<'|';std::cout<<'\t';for(uint32 i=0;i<4;++i){auto*f=sFactionStore.LookupEntry(100+i);std::cout<<p.rep.GetBaseReputation(f)<<':'<<p.rep.GetReputation(f)<<':'<<p.rep.GetRank(f)<<':'<<p.rep.IsAtWar(f)<<',';}std::cout<<'\n';}
 }

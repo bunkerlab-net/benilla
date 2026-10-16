@@ -157,11 +157,22 @@ fn source_extracted_gain_sequences() {
 }
 #[test]
 fn source_extracted_state_and_callback_sequences() {
+    check_source_state_and_callback_sequences(include_str!("fixtures/reputation.tsv"), false);
+}
+#[test]
+fn source_extracted_aura_state_and_callback_sequences() {
+    check_source_state_and_callback_sequences(include_str!("fixtures/reputation_aura.tsv"), true);
+}
+fn check_source_state_and_callback_sequences(fixture: &str, with_aura: bool) {
     let mut count = 0;
-    for line in include_str!("fixtures/reputation.tsv").lines() {
+    for line in fixture.lines() {
         let cells: Vec<_> = line.split('\t').collect();
         let c: usize = cells[0].parse().unwrap();
-        let cat = catalog(c);
+        let cat = if with_aura {
+            aura_catalog(c, &[10])
+        } else {
+            catalog(c)
+        };
         let mut state = cat.initialize(identity()).unwrap();
         if !c.is_multiple_of(2) {
             state = state.reduce(&cat, Command::SendInitial).unwrap().state;
@@ -441,11 +452,22 @@ impl Host for ReentrantHost {
 }
 #[test]
 fn source_extracted_reentrant_callback_order_and_host_level_changes() {
+    check_source_reentrant_callbacks(include_str!("fixtures/reputation_host.tsv"), false);
+}
+#[test]
+fn source_extracted_aura_reentrant_callback_order_and_host_level_changes() {
+    check_source_reentrant_callbacks(include_str!("fixtures/reputation_aura_host.tsv"), true);
+}
+fn check_source_reentrant_callbacks(fixture: &str, with_aura: bool) {
     let mut count = 0;
-    for line in include_str!("fixtures/reputation_host.tsv").lines() {
+    for line in fixture.lines() {
         let cells: Vec<_> = line.split('\t').collect();
         let c: usize = cells[0].parse().unwrap();
-        let cat = catalog(c);
+        let cat = if with_aura {
+            aura_catalog(c, &[10])
+        } else {
+            catalog(c)
+        };
         let mut state = cat.initialize(identity()).unwrap();
         let mut host = ReentrantHost {
             triggered: false,
@@ -536,4 +558,442 @@ fn callback_failure_rolls_back_reputation_and_host() {
     assert_eq!(result.unwrap_err(), Error::Callback("authored_failure"));
     assert_eq!(state, before);
     assert_eq!(host, original);
+}
+
+// Original authored aura records. These identifiers/fingerprints are not game rows.
+fn aura(index: usize, amount: i32) -> GeneralReputationAura {
+    GeneralReputationAura {
+        spell_id: 900000 + index as u32,
+        effect_index: 0,
+        aura_type: 156,
+        misc_value: index as i32 - 1,
+        amount,
+        attributes: 0x40,
+        attributes_ex3: 0,
+        caster_aura_state: 0,
+        aura_interrupt_flags: 0,
+        duration_ms: -1,
+        source_spell_hash: [1 + (index % 255) as u8; 32],
+    }
+}
+fn bound_catalog(rows: Vec<Row>, config: Config, amounts: &[i32]) -> Catalog {
+    let mut evidence = audit();
+    evidence.general_reputation_auras = Evidence::Present;
+    Catalog::new_with_general_reputation_auras(
+        rows,
+        vec![999],
+        config,
+        evidence,
+        amounts
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| aura(i, n))
+            .collect(),
+    )
+    .unwrap()
+}
+fn aura_catalog(c: usize, amounts: &[i32]) -> Catalog {
+    bound_catalog(rows(c), config(c), amounts)
+}
+fn unit_config() -> Config {
+    Config {
+        gain_rate: SpellFloat::ONE,
+        low_level_kill_rate: float(0x3e4ccccd),
+        low_level_quest_rate: float(0x3e4ccccd),
+    }
+}
+const AURA_AMOUNTS: [&[i32]; 15] = [
+    &[10],
+    &[-10],
+    &[0],
+    &[7, 3],
+    &[99],
+    &[100],
+    &[101],
+    &[-99],
+    &[-100],
+    &[-101],
+    &[1],
+    &[-1],
+    &[16777217],
+    &[-16777217],
+    &[16777217, 1, -16777217],
+];
+const AURA_VALUES: [i32; 7] = [-1001, -250, -75, 0, 75, 250, 16777217];
+const AURA_LEVELS: [(u8, u32); 10] = [
+    (60, 0),
+    (60, 60),
+    (60, 55),
+    (60, 54),
+    (60, 50),
+    (60, 49),
+    (60, 45),
+    (10, 4),
+    (1, 1),
+    (63, 1),
+];
+#[test]
+fn source_extracted_retained_aura_gain_matrix() {
+    let mut count = 0;
+    for line in include_str!("fixtures/reputation_aura_gain.tsv").lines() {
+        let (case, expected) = line.split_once('\t').unwrap();
+        let c: usize = case.parse().unwrap();
+        assert_eq!(c, count);
+        let mut n = c;
+        let source = [Source::Kill, Source::Quest, Source::Spell][n % 3];
+        n /= 3;
+        let v = n % 7;
+        n /= 7;
+        let a = n % 15;
+        n /= 15;
+        let no_aura_bonus = !n.is_multiple_of(2);
+        n /= 2;
+        let (player_level, target_level) = AURA_LEVELS[n % 10];
+        n /= 10;
+        let mut cfg = unit_config();
+        let mut rs = rows(0);
+        rs[0].reward_rates = match n % 4 {
+            0 => Resolved::Absent,
+            1 => Resolved::Present(RewardRates {
+                quest: SpellFloat::ZERO,
+                creature: SpellFloat::ZERO,
+                spell: SpellFloat::ZERO,
+            }),
+            2 => {
+                cfg.gain_rate = float(0x3fc00000);
+                cfg.low_level_kill_rate = SpellFloat::ZERO;
+                cfg.low_level_quest_rate = float(0x3f000000);
+                Resolved::Present(RewardRates {
+                    quest: float(0x3f8ccccd),
+                    creature: float(0x3f000000),
+                    spell: float(0x3f7fffff),
+                })
+            }
+            _ => {
+                cfg.gain_rate = float(0x40551eb8);
+                cfg.low_level_kill_rate = SpellFloat::ONE;
+                cfg.low_level_quest_rate = SpellFloat::ZERO;
+                Resolved::Present(RewardRates {
+                    quest: SpellFloat::ONE,
+                    creature: SpellFloat::ONE,
+                    spell: SpellFloat::ONE,
+                })
+            }
+        };
+        let input = GainInput {
+            source,
+            reputation: if a >= 12 && v == 6 {
+                101
+            } else {
+                AURA_VALUES[v]
+            },
+            faction: 100,
+            player_level,
+            target_level,
+            no_aura_bonus,
+        };
+        assert_eq!(
+            bound_catalog(rs, cfg, AURA_AMOUNTS[a])
+                .calculate_gain(input)
+                .unwrap(),
+            expected.parse::<i32>().unwrap(),
+            "aura case {c}"
+        );
+        count += 1;
+    }
+    assert_eq!(count, 25200);
+}
+#[test]
+fn retained_modifier_sign_no_aura_and_source_rules() {
+    for (amount, positive, negative) in [
+        (10, 82, -67),
+        (-10, 67, -82),
+        (0, 75, -75),
+        (100, 150, 0),
+        (-100, 0, -150),
+        (101, 150, 0),
+        (-101, 0, -150),
+    ] {
+        let cat = bound_catalog(rows(0), unit_config(), &[amount]);
+        for source in [Source::Kill, Source::Quest, Source::Spell] {
+            for (reputation, expected) in [(75, positive), (-75, negative), (0, 0)] {
+                let input = GainInput {
+                    source,
+                    reputation,
+                    faction: 100,
+                    player_level: 60,
+                    target_level: 0,
+                    no_aura_bonus: false,
+                };
+                assert_eq!(cat.calculate_gain(input).unwrap(), expected);
+                assert_eq!(
+                    cat.calculate_gain(GainInput {
+                        no_aura_bonus: true,
+                        ..input
+                    })
+                    .unwrap(),
+                    reputation
+                );
+            }
+        }
+    }
+}
+#[test]
+fn amplified_quest_gain_is_applied_once_before_spillover_and_never_to_set() {
+    for (reward, expected, spill) in [(75, 82, 20), (250, 275, 68), (-75, -67, -16)] {
+        let mut rs = rows(0);
+        for row in &mut rs {
+            row.faction.base_values = [0; 4];
+            row.faction.flags = [0; 4];
+        }
+        rs[0].spillover = Resolved::Present([
+            Spillover {
+                faction: 101,
+                rate: float(0x3e800000),
+                maximum_rank: Rank::Exalted,
+            },
+            Spillover {
+                faction: 102,
+                rate: float(0x3e800000),
+                maximum_rank: Rank::Exalted,
+            },
+            Spillover {
+                faction: 103,
+                rate: float(0x3e800000),
+                maximum_rank: Rank::Exalted,
+            },
+            Spillover {
+                faction: 0,
+                rate: SpellFloat::ZERO,
+                maximum_rank: Rank::Hated,
+            },
+        ]);
+        let cat = bound_catalog(rs, unit_config(), &[10]);
+        let initial = cat.initialize(identity()).unwrap();
+        let t = initial
+            .reward_quest(
+                &cat,
+                QuestReward {
+                    factions: [100, 0, 0, 0, 0],
+                    values: [reward, 0, 0, 0, 0],
+                    faction_flags: 0,
+                    quest_level: 60,
+                },
+                60,
+            )
+            .unwrap();
+        assert_eq!(t.state.current(&cat, 100).unwrap(), expected);
+        for faction in 101..104 {
+            assert_eq!(t.state.current(&cat, faction).unwrap(), spill);
+        }
+        let set = initial
+            .reduce(
+                &cat,
+                Command::Set {
+                    faction: 100,
+                    standing: reward,
+                    incremental: true,
+                    no_spillover: true,
+                },
+            )
+            .unwrap();
+        assert_eq!(set.state.current(&cat, 100).unwrap(), reward);
+    }
+}
+#[test]
+fn fixed_aura_binding_is_explicit_bounded_and_source_identified() {
+    let mut evidence = audit();
+    evidence.general_reputation_auras = Evidence::Present;
+    let build = |evidence: Audit, effects| {
+        Catalog::new_with_general_reputation_auras(
+            rows(0),
+            vec![],
+            unit_config(),
+            evidence,
+            effects,
+        )
+    };
+    assert!(Catalog::new(rows(0), vec![], unit_config(), evidence.clone()).is_err());
+    assert!(build(evidence.clone(), vec![]).is_err());
+    assert!(build(audit(), vec![aura(0, 10)]).is_err());
+    let mut unknown = evidence.clone();
+    unknown.general_reputation_auras = Evidence::Unknown;
+    assert!(build(unknown, vec![aura(0, 10)]).is_err());
+    for excluded in 0..3 {
+        for value in [Evidence::Present, Evidence::Unknown] {
+            let mut e = evidence.clone();
+            match excluded {
+                0 => e.faction_reputation_auras = value,
+                1 => e.forced_reactions = value,
+                _ => e.reputation_scripts = value,
+            }
+            assert!(build(e, vec![aura(0, 10)]).is_err());
+        }
+    }
+    assert!(build(evidence.clone(), vec![aura(0, 10), aura(0, 20)]).is_err());
+    let mut other_effect = aura(0, 20);
+    other_effect.effect_index = 1;
+    assert!(build(evidence.clone(), vec![aura(0, 10), other_effect]).is_ok());
+    for field in [
+        "spell_id",
+        "effect_index",
+        "aura_type",
+        "attributes",
+        "attributes_ex3",
+        "caster_aura_state",
+        "aura_interrupt_flags",
+        "duration_ms",
+        "source_spell_hash",
+    ] {
+        let mut encoded = serde_json::to_value(aura(0, 10)).unwrap();
+        encoded[field] = match field {
+            "spell_id" | "attributes" | "duration_ms" => serde_json::json!(0),
+            "effect_index" => serde_json::json!(3),
+            "aura_type" => serde_json::json!(190),
+            "source_spell_hash" => serde_json::to_value([0u8; 32]).unwrap(),
+            _ => serde_json::json!(1),
+        };
+        let changed = serde_json::from_value(encoded).unwrap();
+        assert!(build(evidence.clone(), vec![changed]).is_err(), "{field}");
+    }
+    let effects: Vec<_> = (0..MAX_GENERAL_REPUTATION_AURAS)
+        .map(|i| aura(i, 0))
+        .collect();
+    assert!(build(evidence.clone(), effects.clone()).is_ok());
+    let mut too_many = effects;
+    too_many.push(aura(MAX_GENERAL_REPUTATION_AURAS, 0));
+    assert!(build(evidence, too_many).is_err());
+}
+#[test]
+fn signed_aura_sum_checks_every_source_order_prefix() {
+    let mut evidence = audit();
+    evidence.general_reputation_auras = Evidence::Present;
+    let build = |amounts: &[i32]| {
+        Catalog::new_with_general_reputation_auras(
+            rows(0),
+            vec![],
+            unit_config(),
+            evidence.clone(),
+            amounts
+                .iter()
+                .enumerate()
+                .map(|(i, &n)| aura(i, n))
+                .collect(),
+        )
+    };
+    for amounts in [&[i32::MAX, 1, -1][..], &[i32::MIN, -1, 1][..]] {
+        assert_eq!(
+            build(amounts).unwrap_err(),
+            Error::Numeric("general_reputation_aura_sum")
+        );
+    }
+    assert!(build(&[i32::MAX, -1, 1]).is_ok());
+    assert!(build(&[i32::MIN, 1, -1]).is_ok());
+    let cat = build(&[i32::MAX]).unwrap();
+    assert!(cat
+        .calculate_gain(GainInput {
+            source: Source::Spell,
+            reputation: i32::MAX,
+            faction: 100,
+            player_level: 1,
+            target_level: 0,
+            no_aura_bonus: false
+        })
+        .is_err());
+}
+#[test]
+fn aura_hash_binds_order_and_every_field_and_decoding_requires_list() {
+    let cat = bound_catalog(rows(0), unit_config(), &[7, 3]);
+    let state = cat.initialize(identity()).unwrap();
+    let encoded = serde_json::to_value(&cat).unwrap();
+    let restored: Catalog = serde_json::from_value(encoded.clone()).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(restored, cat);
+    let mut missing = encoded.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("general_reputation_auras");
+    assert!(serde_json::from_value::<Catalog>(missing).is_err());
+    let mut reversed = encoded.clone();
+    reversed["general_reputation_auras"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    let reversed: Catalog = serde_json::from_value(reversed).unwrap();
+    reversed.validate().unwrap();
+    assert_ne!(cat.hash(), reversed.hash());
+    assert!(state.validate(&reversed).is_err());
+    for field in [
+        "spell_id",
+        "effect_index",
+        "aura_type",
+        "misc_value",
+        "amount",
+        "attributes",
+        "attributes_ex3",
+        "caster_aura_state",
+        "aura_interrupt_flags",
+        "duration_ms",
+        "source_spell_hash",
+    ] {
+        let mut changed = encoded.clone();
+        let value = &mut changed["general_reputation_auras"][0][field];
+        if field == "source_spell_hash" {
+            *value = serde_json::to_value([2u8; 32]).unwrap();
+        } else {
+            *value = serde_json::json!(value.as_i64().unwrap() + 1);
+        }
+        let changed: Catalog = serde_json::from_value(changed).unwrap();
+        assert_ne!(cat.hash(), changed.hash(), "{field}");
+        assert!(state.validate(&changed).is_err(), "{field}");
+    }
+}
+#[test]
+fn amplified_callback_failure_keeps_both_states_unchanged() {
+    let cat = bound_catalog(rows(0), unit_config(), &[10]);
+    let state = cat.initialize(identity()).unwrap();
+    let before = state.clone();
+    let host = ReentrantHost {
+        triggered: false,
+        level: 60,
+        reject: true,
+    };
+    let original = host.clone();
+    let result = state.reward_quest_with_host(
+        &cat,
+        QuestReward {
+            factions: [100, 0, 0, 0, 0],
+            values: [75, 0, 0, 0, 0],
+            faction_flags: 0,
+            quest_level: 60,
+        },
+        &host,
+    );
+    assert_eq!(result.unwrap_err(), Error::Callback("authored_failure"));
+    assert_eq!(state, before);
+    assert_eq!(host, original);
+}
+
+#[test]
+fn canonical_fixed_aura_catalog_hash() {
+    let mut evidence = audit();
+    evidence.general_reputation_auras = Evidence::Present;
+    let cat = Catalog::new_with_general_reputation_auras(
+        vec![],
+        vec![],
+        unit_config(),
+        evidence,
+        vec![aura(0, 10)],
+    )
+    .unwrap();
+    // Independent SHA256 of the documented little-endian field stream.
+    assert_eq!(
+        cat.hash(),
+        [
+            0x8b, 0x2e, 0xac, 0xd8, 0x4b, 0x08, 0xa6, 0x1a, 0xe8, 0xf9, 0x3d, 0xd0, 0x89, 0x7d,
+            0x50, 0x3c, 0x88, 0xbf, 0xff, 0xb0, 0x99, 0xeb, 0xa3, 0x4d, 0xdf, 0xe7, 0xaf, 0x1c,
+            0xa0, 0x0f, 0x44, 0x93,
+        ]
+    );
 }

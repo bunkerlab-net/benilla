@@ -223,7 +223,14 @@ fn hello_requires_any_npc_flag_but_accept_requires_questgiver() {
     );
 }
 fn reputation_world() -> NativeWorld {
-    let (mut profile, input, mut rows) = synthetic_reputation_fixture::setup();
+    reputation_world_with_modifier(false)
+}
+fn reputation_world_with_modifier(modifier: bool) -> NativeWorld {
+    let (mut profile, input, mut rows) = if modifier {
+        synthetic_reputation_fixture::setup_with_modifier(10)
+    } else {
+        synthetic_reputation_fixture::setup()
+    };
     profile.npcs[0].faction_template = 2;
     profile.npcs[0].ai.spawn = point(2.0);
     profile.npcs[0].ai.reaction = ai::Reaction::Passive;
@@ -247,8 +254,109 @@ fn reputation_world() -> NativeWorld {
     NativeWorld::synthetic_component_test(profile, [1; 16], player(), 42).unwrap()
 }
 #[test]
+fn interaction_general_reputation_holder_requires_exact_immutable_source_binding() {
+    let profile = reputation_world_with_modifier(true).profile().clone();
+    profile
+        .interactions
+        .as_ref()
+        .unwrap()
+        .validate(&profile)
+        .unwrap();
+    for variant in [
+        "missing_genesis",
+        "wrong_genesis",
+        "amount",
+        "duplicate",
+        "active",
+        "interrupt",
+        "faction_aura",
+        "dropped",
+        "retyped",
+    ] {
+        let mut changed = profile.clone();
+        let combat = changed.combat.as_mut().unwrap();
+        let index = combat
+            .initial_auras
+            .iter()
+            .position(|a| a.aura_type == 156)
+            .unwrap();
+        match variant {
+            "missing_genesis" => changed.quest_progression = None,
+            "wrong_genesis" => {
+                changed.quest_progression =
+                    synthetic_reputation_fixture::profile().quest_progression
+            }
+            "amount" => combat.initial_auras[index].amount += 1,
+            "duplicate" => combat
+                .initial_auras
+                .push(combat.initial_auras[index].clone()),
+            "active" => combat.initial_auras[index].attributes &= !0x40,
+            "interrupt" => combat.initial_auras[index].aura_interrupt_flags = 0x400,
+            "faction_aura" => combat.initial_auras[index].aura_type = 190,
+            "dropped" => {
+                combat.initial_auras.remove(index);
+            }
+            "retyped" => combat.initial_auras[index].aura_type = 22,
+            _ => unreachable!(),
+        }
+        assert!(
+            changed
+                .interactions
+                .as_ref()
+                .unwrap()
+                .validate(&changed)
+                .is_err(),
+            "{variant}"
+        );
+    }
+    for dynamic_control in [true, false] {
+        let mut changed = profile.clone();
+        let mut semantic = source_input(&changed);
+        semantic
+            .factions
+            .push(faction(2, synthetic_reputation_fixture::PRIMARY, Some(3)));
+        // First prove this exact public input reconstructs the admitted catalog.
+        changed.initialize_interactions(semantic.clone()).unwrap();
+        assert_eq!(changed, profile);
+        if dynamic_control {
+            semantic.player.control.aura_flags = 1;
+            assert!(matches!(
+                changed.initialize_interactions(semantic),
+                Err(NativeError::UnsupportedMechanic(
+                    "initial interaction control state"
+                ))
+            ));
+        } else {
+            semantic.audit.forced_reactions = InteractionEvidence::Present;
+            assert!(matches!(
+                changed.initialize_interactions(semantic),
+                Err(NativeError::InteractionEvidence {
+                    dependency: "forced interaction reactions",
+                    observed: InteractionEvidence::Present,
+                })
+            ));
+        }
+        assert_eq!(changed, profile);
+    }
+    let (mut profile, input, _) = synthetic_reputation_fixture::setup_with_modifier(10);
+    let (_, _, mut rows) = synthetic_quest_fixture::setup();
+    rows.reputation = None;
+    profile.initialize_quest_progression(&input, rows).unwrap();
+    let semantic = source_input(&profile);
+    assert!(matches!(
+        profile.initialize_interactions(semantic),
+        Err(NativeError::UnsupportedMechanic(
+            "retained reputation aura requires bound source genesis"
+        ))
+    ));
+}
+#[test]
 fn reward_then_interaction_uses_current_reputation_and_exact_reply_order() {
-    let mut w = reputation_world();
+    check_reward_then_interaction(false);
+    check_reward_then_interaction(true);
+}
+fn check_reward_then_interaction(modifier: bool) {
+    let mut w = reputation_world_with_modifier(modifier);
     let initial = w.checkpoint().unwrap();
     let giver = w.state.npcs[&3].id;
     let tracked = w.state.npcs[&2].id;

@@ -4,7 +4,7 @@
 use super::*;
 use benilla_sim::reputation as rep;
 
-pub const POLICY_ID: &str = "benilla-native-quest-reputation-v1";
+pub const POLICY_ID: &str = "benilla-native-quest-reputation-v2";
 const MAX_CALLS: usize = 2048;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,11 +149,85 @@ fn related(row: &q::QuestRow) -> impl Iterator<Item = u32> {
     .chain(row.excluded.reward_rep_faction)
     .filter(|id| *id != 0)
 }
+/// The source initializer owns application membership and order. A catalog's audit
+/// assertion alone cannot replace the retained holder list or its raw source row.
+pub(super) fn validate_binding(
+    catalog: Option<&rep::Catalog>,
+    input: &init::StarterInput,
+    mage: &init::InitializedMage,
+    combat: &CombatGenesis,
+) -> Result<(), NativeError> {
+    let mut expected = vec![];
+    let mut metadata = vec![];
+    for aura in &mage.initial_auras {
+        let raw = input
+            .spells
+            .iter()
+            .find(|raw| raw.id == aura.spell_id)
+            .ok_or(NativeError::InvalidProfile)?;
+        let retained = InitialAuraMetadata::from_source(aura, raw);
+        if aura.aura_type == 156 {
+            // initialize_mage already proved -1 or passive index-zero duration-zero.
+            expected.push(rep::GeneralReputationAura {
+                spell_id: retained.spell_id,
+                effect_index: retained.effect_index,
+                aura_type: retained.aura_type,
+                misc_value: retained.misc_value,
+                amount: retained.amount,
+                attributes: retained.attributes,
+                attributes_ex3: retained.attributes_ex3,
+                caster_aura_state: retained.caster_aura_state,
+                aura_interrupt_flags: retained.aura_interrupt_flags,
+                duration_ms: -1,
+                source_spell_hash: raw.source_hash(),
+            });
+        }
+        metadata.push(retained);
+    }
+    if metadata != combat.initial_auras {
+        return Err(NativeError::InvalidProfile);
+    }
+    if let Some(catalog) = catalog {
+        catalog.validate()?;
+        if catalog.general_reputation_auras() != expected {
+            return Err(NativeError::InvalidProfile);
+        }
+    }
+    // With no catalog, all reputation consumers remain unavailable. Retaining the
+    // passive never authorizes a later consumer with an empty substitute context.
+    Ok(())
+}
+impl Profile {
+    /// Semantic classifiers cannot admit an arbitrary holder merely by its aura156 tag.
+    /// Revalidate the exact source-bound genesis even outside Profile::validate.
+    pub(in crate::native) fn validate_retained_reputation_auras(&self) -> Result<(), NativeError> {
+        let combat = self.combat.as_ref().ok_or(NativeError::InvalidProfile)?;
+        let expected = self
+            .quest_progression
+            .as_ref()
+            .and_then(QuestProgressionGenesis::reputation_catalog)
+            .is_some_and(|c| !c.general_reputation_auras().is_empty());
+        if expected || combat.initial_auras.iter().any(|a| a.aura_type == 156) {
+            let genesis = self
+                .quest_progression
+                .as_ref()
+                .filter(|g| g.reputation_catalog().is_some())
+                .ok_or(NativeError::UnsupportedMechanic(
+                    "retained reputation aura requires bound source genesis",
+                ))?;
+            genesis.validate(self)?;
+        }
+        Ok(())
+    }
+}
 pub(super) fn validate_input(
     catalog: Option<&rep::Catalog>,
     rows: &[q::QuestRow],
     input: &init::StarterInput,
+    mage: &init::InitializedMage,
+    combat: &CombatGenesis,
 ) -> Result<(), NativeError> {
+    validate_binding(catalog, input, mage, combat)?;
     match catalog {
         Some(catalog) => {
             catalog.validate()?;

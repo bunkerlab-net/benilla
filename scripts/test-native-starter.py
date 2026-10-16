@@ -103,6 +103,7 @@ def rehash_source(bundle):
     from classic_export.core import Selection, schema_profile
     from classic_export.starter import keys
     bundle["table_sha256"] = {name: digest(rows) for name, rows in bundle["tables"].items()}
+    export_tests.refresh_event_text(bundle)
     bundle["starter_required_keys"] = keys(bundle["tables"])
     if "spell_script_capture" in bundle:
         from classic_export.spell_registry import evidence
@@ -455,6 +456,9 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("creature.unexported_groups_assistance_context",
                       {i["reason"] for i in result["unsupported"]})
         self.source.pop("event_ai_capture")
+        self.source.pop("event_text_capture")
+        for table in ("broadcast_text", "broadcast_text_locale"):
+            self.source["tables"].pop(table)
         self.source["tables"].pop("creature_ai_scripts")
         rehash_source(self.source)
         result = self.compile()
@@ -464,7 +468,8 @@ class CompilerTests(unittest.TestCase):
 
     def test_event_ai_entry_and_spawn_rows_both_block(self):
         self.source["tables"]["creature_ai_scripts"] = [
-            {"id": 950001, "creature_id": 900001}, {"id": 950002, "creature_id": -1}]
+            export_tests.row("creature_ai_scripts", id=950001, creature_id=900001),
+            export_tests.row("creature_ai_scripts", id=950002, creature_id=-1)]
         rehash_source(self.source)
         result = self.compile()
         self.assertEqual(result["creatures"][0]["event_ai_capture"]["matching_rows"],

@@ -21,18 +21,46 @@ fn loaded_environment_mailbox_retains_exact_query_and_original_deadline() {
             service.active.clone(),
         ))
         .unwrap();
-    assert_eq!(
-        service.serve_queries_until(1, |session, observed, body, until| {
-            assert_eq!(observed, &request);
-            assert!(until <= original);
-            assert_eq!(body.height.bits(), 2f32.to_bits());
-            provider.resolve(session, observed, until)
-        }),
-        1
-    );
-    let reply = authority
-        .finish_reply(&request, receive.recv().unwrap())
-        .unwrap();
+    let mut force_slice_expiry = true;
+    let mut deferred = false;
+    let reply = loop {
+        assert!(
+            Instant::now() < original,
+            "original environment job expired"
+        );
+        assert_eq!(
+            service.serve_queries_until(1, |session, observed, body, until| {
+                assert_eq!(observed, &request);
+                assert!(until <= original);
+                assert_eq!(body.height.bits(), 2f32.to_bits());
+                if force_slice_expiry {
+                    force_slice_expiry = false;
+                    std::thread::sleep(
+                        until.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
+                    );
+                }
+                provider.resolve(session, observed, until)
+            }),
+            1
+        );
+        match receive.try_recv() {
+            Ok(reply) => {
+                assert!(
+                    Instant::now() < original,
+                    "environment reply arrived too late"
+                );
+                break authority.finish_reply(&request, reply).unwrap();
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                // Drive the same queued Work on its next slice; never block
+                // waiting for a reply while the only service driver is idle.
+                deferred = true;
+                std::thread::yield_now();
+            }
+            Err(error) => panic!("environment job terminated without a reply: {error:?}"),
+        }
+    };
+    assert!(deferred, "the forced expired slice must retain the job");
     assert_eq!(reply.request, request);
     let Facts::PlayerEnvironment(facts) = reply.facts else {
         panic!()

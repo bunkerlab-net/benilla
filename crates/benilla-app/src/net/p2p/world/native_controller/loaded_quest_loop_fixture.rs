@@ -653,13 +653,61 @@ fn flush(
     assert_eq!(observed.controls.calls.load(Ordering::SeqCst), calls);
     published.events
 }
-fn copy_durable_store(h: &Harness, name: &str) -> PathBuf {
+fn copy_durable_store(h: &Harness, world: &n::NativeWorld, name: &str) -> PathBuf {
     let path = h.root.join(name);
-    fs::create_dir(&path).unwrap();
+    let genesis = n::NativeWorld::synthetic_component_test(
+        world.profile().clone(),
+        world.state().world,
+        world.state().player,
+        7,
+    )
+    .unwrap();
+    // Let the real store establish its private directory and file modes, then
+    // replace only the fixture payloads with the actual published envelopes.
+    drop(NativeStore::create(&path, &genesis).unwrap());
     for file in ["world.checkpoint", "world.previous"] {
         fs::copy(h.path().join(file), path.join(file)).unwrap();
+        assert_eq!(
+            fs::read(path.join(file)).unwrap(),
+            fs::read(h.path().join(file)).unwrap(),
+            "copied {file} must contain the original durable bytes"
+        );
     }
     path
+}
+
+#[test]
+fn copied_durable_fixture_reopens_exact_published_bytes() {
+    let h = Harness::new();
+    let mut c = enter(&h, loop_fixture::profile(), false, Controls::default());
+    step(&mut c);
+    let checkpoint = c.world.checkpoint().unwrap();
+    let path = copy_durable_store(&h, &c.world, "copy-regression");
+    let published: Vec<_> = ["world.checkpoint", "world.previous"]
+        .map(|file| {
+            let bytes = fs::read(h.path().join(file)).unwrap();
+            assert_eq!(fs::read(path.join(file)).unwrap(), bytes);
+            (file, bytes)
+        })
+        .into();
+    let mut restored_base = false;
+    let result = NativeStore::open(&path, Identity::of(&checkpoint), |base| {
+        let world =
+            n::NativeWorld::restore_synthetic_component_test(c.world.profile().clone(), base);
+        restored_base |= world.is_ok();
+        world
+    });
+    assert!(
+        result.is_ok(),
+        "copied fixture must reach runtime restore, got {:?}",
+        result.as_ref().err()
+    );
+    let (_store, restored) = result.unwrap();
+    assert!(restored_base);
+    assert_eq!(restored.checkpoint().unwrap(), checkpoint);
+    for (file, bytes) in published {
+        assert_eq!(fs::read(path.join(file)).unwrap(), bytes);
+    }
 }
 fn reject_checkpoint_reopen(
     h: &Harness,
@@ -679,7 +727,7 @@ fn reject_checkpoint_reopen(
         checkpoint.clone()
     )
     .is_err());
-    let path = copy_durable_store(h, name);
+    let path = copy_durable_store(h, world, name);
     reject_open(
         &path,
         Identity::of(&checkpoint),
@@ -690,7 +738,7 @@ fn reject_checkpoint_reopen(
 fn reject_journal_reopen(h: &Harness, before: &n::NativeWorld, after: &n::NativeWorld) {
     assert_eq!(before.validate_saved_session_reopen(), Ok(()));
     assert!(!after.records().is_empty());
-    let path = copy_durable_store(h, "loaded-from-journal");
+    let path = copy_durable_store(h, before, "loaded-from-journal");
     let identity = Identity::of(&before.checkpoint().unwrap());
     let (mut store, restored) = NativeStore::open(&path, identity.clone(), |checkpoint| {
         n::NativeWorld::restore_synthetic_component_test(before.profile().clone(), checkpoint)
@@ -709,25 +757,25 @@ fn reject_open(path: &Path, identity: Identity, profile: &n::Profile, base_must_
         let result = NativeStore::open(path, identity.clone(), |checkpoint| {
             let result =
                 n::NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint);
-            restored_base = result.is_ok();
+            restored_base |= result.is_ok();
             result
         });
         if base_must_restore {
             assert!(matches!(
-                result,
+                &result,
                 Err(benilla_world_store::native::Error::Runtime(
                     n::NativeError::UnsupportedMechanic(
                         "saved native PathFinder cache rehydration"
                     )
                 ))
-            ));
+            ), "cached journal must reach the post-replay reopen guard; restored_base={restored_base}, error={:?}", result.as_ref().err());
         } else {
             assert!(matches!(
-                result,
+                &result,
                 Err(benilla_world_store::native::Error::Runtime(
                     n::NativeError::InvalidCheckpoint
                 ))
-            ));
+            ), "cached base must fail runtime restoration; restored_base={restored_base}, error={:?}", result.as_ref().err());
         }
         assert_eq!(restored_base, base_must_restore);
         assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), bytes);

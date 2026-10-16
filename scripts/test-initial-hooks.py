@@ -35,6 +35,7 @@ def captured(s=None):
 def repair(b):
     b["schema_sha256"] = digest(b["schema"])
     b["table_sha256"] = {k: digest(v) for k, v in b["tables"].items()}
+    t.refresh_event_text(b)
     b["spell_script_capture"] = spell_registry.evidence(b)
     b["native_spawn_capture"] = native_spawn.evidence(b)
     b["initial_hook_capture"] = initial_hooks.evidence(b)

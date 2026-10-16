@@ -2,18 +2,21 @@
 
 `starter_init::initialize_mage` is a pure, transactional translation of a bounded
 fresh level-one mage initialization path. Its policy is
-`cmangos-8ec338a1-level1-mage-init-softfloat-v2`. It includes no native character
+`cmangos-8ec338a1-level1-mage-init-softfloat-v3`. It includes no native character
 rows, game assets, assumed race abilities, or class/race stat presets.
 
 ## Policy compatibility
 
-Policy v2 adds only the admitted passive DurationIndex0/resolved-duration0
-permanence branch described below. The initializer policy is included in the
-native runtime profile digest. Profiles bound under v1 have a different identity;
-their checkpoints and journals must reject as incompatible under v2. There is
-no automatic migration or rebase, even for inputs whose resulting stats are
-unchanged. Recreate a compatible profile and fresh state from the validated
-inputs; never relabel an old digest or checkpoint to bypass this boundary.
+Policy v3 retains unconditional, permanent, self-applied initial aura156 for the
+reputation consumer described below. Policy v2 added the passive
+DurationIndex0/resolved-duration0 permanence branch. The initializer policy is
+included in the native runtime profile digest and live-training identity.
+Profiles bound under v1 or v2 have different identities; their checkpoints and
+journals reject under v3 even if a particular input has no reputation aura and
+its resulting stats are unchanged. The native33 checkpoint field layout is
+unchanged: compatibility is rejected through its mandatory profile/genesis
+contracts. There is no automatic migration or rebase. Recreate a compatible
+profile and fresh state from validated inputs; never relabel an old digest.
 
 ## Input and trust boundary
 
@@ -127,6 +130,9 @@ modifier handling, total-percent nonpositive clamp, stamina/intellect break at
 - Stat aura 29, base-percent stat aura 80, total-percent stat aura 137
 - Resistance aura 22, base resistance 83, total resistance percent 101,
   base resistance percent 142; all seven schools are retained
+- Unconditional permanent self-applied initial aura156, retained by source spell,
+  effect, opcode, misc and calculated amount for the reputation consumer; no stat
+  cell changes, dynamic application/removal or faction-specific aura190
 - Temporary/permanent skill auras 30/98, including retained aura records when
   the skill is not yet learned; SetSkill reapplies these after recursive learning
 - Proficiency effect 60, parry/block effects 22/23, learn-spell effect 36,
@@ -199,7 +205,7 @@ expansion; it does **not** claim any selected race/class actually has these rows
 | Aura opcode | Source state or consumer that must be implemented or explicitly gated |
 | --- | --- |
 | 17 | HandleModStealthDetect and visibility/stealth detection |
-| 156, 190 | Player::CalculateReputationGain, including faction-specific rewards |
+| 190 | Player::CalculateReputationGain faction-specific kill reward modifiers |
 | 117, 178 | Unit::MagicSpellHitResult mechanic/debuff resistance |
 | 59, 168 | Unit melee/spell damage bonuses against creature types |
 | 169 | Crit-versus consumers in DealDamageBySchool, DoAttackDamage, SpellCriticalBonus |
@@ -212,12 +218,41 @@ expansion; it does **not** claim any selected race/class actually has these rows
 | 44, 45, 151 | Creature/resource/stealth tracking fields and affected visibility/UI |
 
 `HandleNoImmediateEffect` is not a no-op: it retains an aura consumed later by
-the named subsystem. A future deferred-passive mechanism must retain the actual
-spell/effect/opcode/misc/amount and relevant attributes, with source provenance,
-and prohibit every affected unavailable consumer. For example, reputation-gain
-state cannot vanish merely because combat works; reputation rewards must remain
-unavailable until that modifier is applied. The current patch provides no such
-deferral and grants no neutral substitute for rejected passive state.
+the named subsystem. Aura156 is retained without modifying stat cells, including
+first-entry reconstruction. Its source-order list must match again on first
+entry; live skill training and level-up cannot change this fixed initial list.
+The [reputation catalog](REPUTATION.md) binds exact amounts, effect identities,
+passive lifecycle metadata and `SpellRow::source_hash()`. That domain-tagged
+SHA-256 includes all 173 supplied words, duration/rank resolution, talent/hook
+observations and ordered learned-spell relationships, distinguishing missing
+from explicitly empty relationships. It is a mechanical binding, not proof of
+capture completeness. Native quest construction cross-checks it against the
+initializer and CombatGenesis; an absent reputation catalog keeps all reached
+reputation consumers unavailable.
+
+The bounded aura156 path requires the passive flag, no stance restriction or
+caster aura state, no aura-interrupt removal, self target, permanent resolved
+duration, constant effect amount and the existing trigger/proc/hook exclusions.
+It preserves misc metadata without using it as a faction filter. Other aura
+opcodes in the inventory above remain unsupported.
+
+### Actual-row motivation and unresolved client evidence
+
+The public [Classic-DB creation spell source][creation-db] at
+`ec4f596146be6467ea93c57397858e329e2db852` includes Human Mage Diplomacy 20599.
+The pinned [core Spell.sql][diplomacy-source] row has passive attributes 0x50,
+effect 6/aura156, base points 9 and base dice 1: the constant amount is 10.
+ProcChance 101 and the nonzero damage/bonus coefficients are not a reason to
+change this amount; reputation consumes the retained amount directly.
+DurationIndex21, RangeIndex1 and CastingTimeIndex1 are references, not resolved
+DBC values. No actual client duration/range/cast-time row or real playable
+Human/Northshire profile is established here. Source-shaped tests use invented
+IDs and explicitly synthetic resolved durations; they are not copied game rows.
+A full compatible installed database also requires its installer updates and
+core migrations; a public base dump is not a completed capture or admission.
+
+[creation-db]: https://github.com/cmangos/classic-db/blob/ec4f596146be6467ea93c57397858e329e2db852/Full_DB/ClassicDB_1_12_1_z2815.sql.gz
+[diplomacy-source]: https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/sql/base/dbc/original_data/Spell.sql
 
 ## Verification
 

@@ -113,6 +113,11 @@ schema/key/selector/snapshot hashes are validated. Legacy missing coverage stays
 unknown. IDs outside 1..INT32_MAX reject before the registry query because the
 native signed-SQL-to-uint32 cast would otherwise permit false absence.
 
+New v2 captures retain full reviewed EventAI rows and selected
+[broadcast text dependency evidence](EVENT-TEXT.md), including all associated
+locales. Missing base rows remain missing; absent broadcast tables remain
+unknown. No event or text action executes, and no production profile is issued.
+
 Not captured: other event override/group/linking state; gameobjects; loot rows;
 conditions; other AI/script data; local starter outfits/DBC records; quest chains
 beyond referenced fields; spell procs/stacking or the local client DBCs.

@@ -351,7 +351,8 @@ pub(super) fn verify_first_entry_modifiers(
                     }
                 }
             }
-            30 | 98 => {}
+            // Retained general reputation modifiers do not enter numeric stat cells.
+            30 | 98 | 156 => {}
             _ => {
                 return Err(super::unsupported(
                     "first-entry unknown aura",

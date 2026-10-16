@@ -3,7 +3,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 COLUMNS = {
-  "creature_ai_scripts": ["id", "creature_id"],
   "creature": [
     "guid",
     "id",
@@ -650,3 +649,39 @@ INITIAL_HOOK_SCHEMA = {
 }
 COLUMNS.update({table: [column[0] for column in columns]
                 for table, columns in INITIAL_HOOK_SCHEMA.items()})
+
+
+# Pinned ClassicDB dump schema, not imported rows. Core sql/base/mangos.sql has
+# the same EventAI columns except unsigned id; retain that explicit variant.
+EVENT_AI_SCHEMA = [
+    ("id", "int", False), ("creature_id", "int", False),
+    ("event_type", "tinyint unsigned", False),
+    ("event_inverse_phase_mask", "int", False),
+    ("event_chance", "int unsigned", False), ("event_flags", "int unsigned", False),
+    *[(f"event_param{i}", "int", False) for i in range(1, 7)],
+    *[column for i in range(1, 4) for column in
+      [(f"action{i}_type", "tinyint unsigned", False),
+       *[(f"action{i}_param{j}", "int", False) for j in range(1, 4)]]],
+    ("comment", "varchar(255)", False),
+]
+EVENT_TEXT_SCHEMA = {
+    "creature_ai_scripts": EVENT_AI_SCHEMA,
+    "broadcast_text": [
+        ("Id", "int", False), ("Text", "text", True), ("Text1", "text", True),
+        *[(name, "int", False) for name in
+          ("ChatTypeID", "LanguageID", "ConditionID", "EmotesID", "Flags",
+           "SoundEntriesID1", "SoundEntriesID2", "EmoteID1", "EmoteID2", "EmoteID3",
+           "EmoteDelay1", "EmoteDelay2", "EmoteDelay3", "VerifiedBuild")]],
+    "broadcast_text_locale": [
+        ("Id", "int", False), ("Locale", "varchar(10)", False),
+        ("Text_lang", "text", True), ("Text1_lang", "text", True),
+        ("VerifiedBuild", "int", False)],
+}
+EVENT_TEXT_PRIMARY_KEYS = {"creature_ai_scripts": ["id"], "broadcast_text": ["Id"],
+                           "broadcast_text_locale": ["Id", "Locale"]}
+# Explicit spellings observed in the pinned dump and locale SQL. No arbitrary
+# case folding: preserve raw names in schema and alias only these identifiers.
+EVENT_TEXT_ALIASES = {"broadcast_text_locale": {"Id": ("Id", "ID"),
+                                                "Locale": ("Locale", "locale")}}
+COLUMNS.update({table: [column[0] for column in columns]
+                for table, columns in EVENT_TEXT_SCHEMA.items()})
