@@ -531,6 +531,43 @@ fn loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_cert
                         ))
                     );
                     assert_eq!(world.checkpoint().unwrap(), before);
+                    // Exercise the same loaded quest body through the real 2ms service slices.
+                    // Only the existing source provider may propose a native route, and only
+                    // concrete app physics may certify one; this callback supplies no facts.
+                    let (_authority, mailbox) = core::mailbox(session.clone()).unwrap();
+                    let (lease, reply) = mailbox
+                        .enqueue_service_test_request(17, proposal.context.clone())
+                        .unwrap();
+                    let original_deadline = lease.deadline();
+                    let mut calls = 0;
+                    let mut attempts = 0;
+                    loop {
+                        attempts += 1;
+                        assert_eq!(
+                            mailbox.serve_service_queries_until(1, true, |query, _| {
+                                let core::ServiceQuery::Route(job) = query else {
+                                    panic!("unstaged loaded quest Route")
+                                };
+                                calls += 1;
+                                assert!(job.lease().same_job(&lease));
+                                assert_eq!(job.lease().deadline(), original_deadline);
+                                assert_eq!(job.request(), &proposal.context);
+                                assert_eq!(job.body(), session.bodies[&hostile]);
+                                Err(Failure::MissingGeometry)
+                            }),
+                            1
+                        );
+                        match reply.try_result() {
+                            Err(crossbeam_channel::TryRecvError::Empty) => assert!(lease.is_active()),
+                            Ok(result) => { assert_eq!(result, Err(Failure::MissingGeometry)); break; },
+                            other => panic!("loaded quest body expired before the provider: {other:?}; attempts={attempts}"),
+                        }
+                    }
+                    assert_eq!(calls, 1);
+                    assert!(!lease.is_active());
+                    eprintln!(
+                        "loaded quest body completed within original lease: attempts={attempts}"
+                    );
                     assert_eq!(proposal.context.binding.npc.unwrap().spawn, hostile);
                     assert!(proposal.dispatch.first_construction());
                     assert_eq!(

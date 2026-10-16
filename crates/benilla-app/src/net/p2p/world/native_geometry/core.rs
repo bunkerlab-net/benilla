@@ -399,6 +399,15 @@ impl SamePolygonRoutePolicy {
         Ok(())
     }
     fn body(&self, session: &Session, context: &AuthorityRequest) -> Result<Body, Failure> {
+        self.validate_context(session, context)?;
+        self.validate_model(session, context)?;
+        self.resolve_owner_body(session, context)
+    }
+    fn validate_context(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+    ) -> Result<(), Failure> {
         self.check(session)?;
         let profile = &self.environment.profile;
         super::source_route_filter::validate_route_context(session, profile, context)?;
@@ -435,12 +444,29 @@ impl SamePolygonRoutePolicy {
             }
             _ => return Err(Failure::Binding),
         }
+        Ok(())
+    }
+    fn validate_model(&self, session: &Session, context: &AuthorityRequest) -> Result<(), Failure> {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
         super::source_route_chase_gate::gate_model(
-            profile,
+            &self.environment.profile,
             session.world,
             self.environment.player,
             route,
         )?;
+        Ok(())
+    }
+    fn resolve_owner_body(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+    ) -> Result<Body, Failure> {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        let profile = &self.environment.profile;
         if route
             .require_owner_ignore_pathfinding(profile)
             .map_err(|_| Failure::Binding)?
@@ -513,7 +539,7 @@ impl Session {
             body,
         })
     }
-    pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
+    fn check_request_binding(&self, request: &AuthorityRequest) -> Result<(), Failure> {
         self.check_participants()?;
         let b = &request.binding;
         if b.world != self.world
@@ -524,6 +550,11 @@ impl Session {
         {
             return Err(Failure::Binding);
         }
+        Ok(())
+    }
+    pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
+        self.check_request_binding(request)?;
+        let b = &request.binding;
         let m = match &request.query {
             Query::Movement(m) => m,
             Query::SourceMotion(MotionQuery::Route(_)) => {
@@ -764,33 +795,64 @@ struct OwnedRouteValidation {
 }
 impl OwnedRouteValidation {
     fn check(&self, session: &Session, work: &Work) -> Result<(), Failure> {
-        if self.session != *session
-            || self.request != work.request
-            || !self.lease.same_job(&work.lease())
-        {
-            return Err(Failure::Binding);
+        check_owned_route(&self.session, &self.request, &self.lease, session, work)
+    }
+}
+fn check_owned_route(
+    saved_session: &Session,
+    saved_request: &AuthorityRequest,
+    lease: &JobLease,
+    session: &Session,
+    work: &Work,
+) -> Result<(), Failure> {
+    if saved_session != session || saved_request != &work.request || !lease.same_job(&work.lease())
+    {
+        return Err(Failure::Binding);
+    }
+    // Equal transcript bytes cannot replace the original live dispatch allocation.
+    let (
+        Query::SourceMotion(MotionQuery::Route(saved)),
+        Query::SourceMotion(MotionQuery::Route(current)),
+    ) = (&saved_request.query, &work.request.query)
+    else {
+        return Err(Failure::Binding);
+    };
+    if !saved
+        .pathfinder_dispatch
+        .as_ref()
+        .zip(current.pathfinder_dispatch.as_ref())
+        .is_some_and(|(a, b)| a.same_live_dispatch(b))
+    {
+        return Err(Failure::Binding);
+    }
+    if !lease.is_active() {
+        return Err(Failure::Deadline);
+    }
+    Ok(())
+}
+
+/// Completed immutable subparts remain owned by this original queued Work. No
+/// provider, geometry fact, constructor or native cache can use a partial body.
+struct OwnedRouteBodyProgress {
+    session: Session,
+    request: AuthorityRequest,
+    lease: JobLease,
+    next: RouteBodyPhase,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RouteBodyPhase {
+    Context,
+    Model,
+    OwnerState,
+}
+impl RouteBodyPhase {
+    #[cfg(test)]
+    fn name(self) -> &'static str {
+        match self {
+            Self::Context => "body_context_dispatch",
+            Self::Model => "body_model",
+            Self::OwnerState => "body_owner_state",
         }
-        // Request equality deliberately does not establish the allocation identity
-        // of a dispatch. A decoded or fresh equal-byte seal cannot reuse this receipt.
-        let (
-            Query::SourceMotion(MotionQuery::Route(saved)),
-            Query::SourceMotion(MotionQuery::Route(current)),
-        ) = (&self.request.query, &work.request.query)
-        else {
-            return Err(Failure::Binding);
-        };
-        if !saved
-            .pathfinder_dispatch
-            .as_ref()
-            .zip(current.pathfinder_dispatch.as_ref())
-            .is_some_and(|(a, b)| a.same_live_dispatch(b))
-        {
-            return Err(Failure::Binding);
-        }
-        if !self.lease.is_active() {
-            return Err(Failure::Deadline);
-        }
-        Ok(())
     }
 }
 /// An invocation-local view of the core's completed immutable Route validation.
@@ -866,6 +928,7 @@ pub(super) enum ServiceStep {
 }
 struct Work {
     owner: JobOwner,
+    route_body: Option<OwnedRouteBodyProgress>,
     route_validation: Option<OwnedRouteValidation>,
     reply: Sender<Reply>,
 }
@@ -885,6 +948,7 @@ impl Work {
                 attachment,
                 owner_alive: AtomicBool::new(true),
             })),
+            route_body: None,
             route_validation: None,
             reply,
         }
@@ -1451,10 +1515,14 @@ impl Mailbox {
                     })
             };
             #[cfg(test)]
-            let phase = work
-                .route_validation
-                .as_ref()
-                .map_or(timing.3, |validation| validation.phase.get());
+            let phase = work.route_validation.as_ref().map_or_else(
+                || {
+                    work.route_body
+                        .as_ref()
+                        .map_or(timing.3, |body| body.next.name())
+                },
+                |validation| validation.phase.get(),
+            );
             let pending = matches!(&result, Ok(ServiceStep::Pending));
             let disposition = match result {
                 Ok(ServiceStep::Pending) => self.defer_route_query(work),
@@ -1491,21 +1559,7 @@ impl Mailbox {
             return Err(Failure::Deadline);
         }
         if work.route_validation.is_none() {
-            let body = self.session.body(&work.request)?;
-            // Save the owned receipt only after this whole phase completes in time.
-            let validation = OwnedRouteValidation {
-                session: self.session.clone(),
-                request: work.request.clone(),
-                body,
-                lease: work.lease(),
-                selected_provider: OnceLock::new(),
-                #[cfg(test)]
-                phase: std::cell::Cell::new("body"),
-            };
-            if !work.active_for(&self.active) || Instant::now() >= slice {
-                return Err(Failure::Deadline);
-            }
-            work.route_validation = Some(validation);
+            self.advance_route_body(work, slice, Instant::now, |_, _| {})?;
             return Ok(ServiceStep::Pending);
         }
         let validation = work.route_validation.as_ref().ok_or(Failure::Binding)?;
@@ -1525,6 +1579,88 @@ impl Mailbox {
             return Err(Failure::Deadline);
         }
         Ok(step)
+    }
+    fn advance_route_body(
+        &self,
+        work: &mut Work,
+        slice: Instant,
+        mut now: impl FnMut() -> Instant,
+        mut observed: impl FnMut(RouteBodyPhase, bool),
+    ) -> Result<(), Failure> {
+        if work.route_body.is_none() {
+            work.route_body = Some(OwnedRouteBodyProgress {
+                session: self.session.clone(),
+                request: work.request.clone(),
+                lease: work.lease(),
+                next: RouteBodyPhase::Context,
+            });
+        }
+        loop {
+            let progress = work.route_body.as_ref().ok_or(Failure::Binding)?;
+            check_owned_route(
+                &progress.session,
+                &progress.request,
+                &progress.lease,
+                &self.session,
+                work,
+            )?;
+            if !work.active_for(&self.active) || now() >= slice {
+                return Err(Failure::Deadline);
+            }
+            let policy = progress
+                .session
+                .same_polygon_route
+                .as_ref()
+                .ok_or(Failure::UnsupportedQuery)?;
+            let phase = progress.next;
+            let body = match phase {
+                RouteBodyPhase::Context => {
+                    progress.session.check_request_binding(&progress.request)?;
+                    policy.validate_context(&progress.session, &progress.request)?;
+                    None
+                }
+                RouteBodyPhase::Model => {
+                    policy.validate_model(&progress.session, &progress.request)?;
+                    None
+                }
+                RouteBodyPhase::OwnerState => {
+                    Some(policy.resolve_owner_body(&progress.session, &progress.request)?)
+                }
+            };
+            observed(phase, false);
+            // A real validation failure above keeps its provenance even if time expired.
+            // Only a complete, timely subpart is retained; its original input is immutable.
+            check_owned_route(
+                &progress.session,
+                &progress.request,
+                &progress.lease,
+                &self.session,
+                work,
+            )?;
+            if !work.active_for(&self.active) || now() >= slice {
+                return Err(Failure::Deadline);
+            }
+            if let Some(body) = body {
+                let progress = work.route_body.take().ok_or(Failure::Binding)?;
+                work.route_validation = Some(OwnedRouteValidation {
+                    session: progress.session,
+                    request: progress.request,
+                    body,
+                    lease: progress.lease,
+                    selected_provider: OnceLock::new(),
+                    #[cfg(test)]
+                    phase: std::cell::Cell::new("body_complete"),
+                });
+                observed(phase, true);
+                return Ok(());
+            }
+            work.route_body.as_mut().ok_or(Failure::Binding)?.next = match phase {
+                RouteBodyPhase::Context => RouteBodyPhase::Model,
+                RouteBodyPhase::Model => RouteBodyPhase::OwnerState,
+                RouteBodyPhase::OwnerState => unreachable!(),
+            };
+            observed(phase, true);
+        }
     }
     fn defer_route_query(&self, work: Work) -> QueryDisposition {
         if !work.active_for(&self.active) {
@@ -2145,3 +2281,7 @@ mod route_commit_mailbox_tests;
 #[cfg(test)]
 #[path = "staged_job_tests.rs"]
 mod staged_job_tests;
+
+#[cfg(test)]
+#[path = "route_body_tests.rs"]
+mod route_body_tests;

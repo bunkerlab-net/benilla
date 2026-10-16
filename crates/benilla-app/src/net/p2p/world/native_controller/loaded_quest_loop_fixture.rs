@@ -188,7 +188,10 @@ impl Fixture {
             let first = observed.loaded.lock().unwrap().len();
             let out = c.pump(c.tick_duration());
             if let Some(pause) = out.pause {
-                assert!(faults && !rolled_back);
+                assert!(faults && !rolled_back,
+                    "unexpected loaded quest pause before intended rollback: tick={}, faults={faults}, rolled_back={rolled_back}, pause={pause:?}", c.tick());
+                assert!(pause.message.contains("authored late giver after loaded geometry"),
+                    "loaded quest paused before the injected late-giver failure: tick={}, loaded_replies={}, pause={pause:?}", c.tick(), observed.loaded.lock().unwrap().len() - first);
                 assert_eq!(out.ticks, 0);
                 assert!(out.events.is_empty());
                 assert_eq!(pause.kind, PauseKind::Authority);
@@ -206,7 +209,8 @@ impl Fixture {
                     })
                     .cloned()
                     .collect();
-                assert_eq!(attempted.len(), 1);
+                assert_eq!(attempted.len(), 1,
+                    "injected late-giver rollback must follow exactly one loaded Route: tick={}, pause={pause:?}", c.tick());
                 assert_eq!(attempted[0].request.binding.npc, Some(a));
                 let heads = inspect(&boundary(&c), &attempted, false);
                 assert!(heads.committed.is_empty());
