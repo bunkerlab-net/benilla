@@ -20,8 +20,11 @@ pub(crate) enum EnvironmentPhase {
 pub(crate) struct EnvironmentStateSnapshot {
     pub(super) flags: u8,
     pub(super) timer_ms: u32,
+    #[serde(deserialize_with = "super::super::creature_collision_width::required_option")]
     pub(super) last_liquid: Option<u32>,
+    #[serde(deserialize_with = "super::super::creature_collision_width::required_option")]
     pub(super) last_position: Option<EnvironmentPose>,
+    #[serde(deserialize_with = "super::super::creature_collision_width::required_option")]
     pub(super) cached_query: Option<EnvironmentQuery>,
     pub(super) mirrors: [mirror::MirrorTimerSnapshot; 4],
 }

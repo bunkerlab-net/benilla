@@ -366,6 +366,17 @@ fn resisted_hostile_spell_can_launch_chase_without_damage_and_unknown_detection_
             }) {
                 assert_eq!(visibility, ai::movement::Check::Passed);
                 assert_eq!(w.state().npcs[&2].health, 1000);
+                let reference = w.state().npcs[&2].ai.hostile_reference().unwrap();
+                assert_eq!(reference.target_guid(), SOLO_UNIT);
+                assert!(reference.valid() && reference.online());
+                assert_eq!(reference.threat(), ai::Real::ZERO);
+                assert_eq!(w.state().npcs[&2].ai.target(), Some(SOLO_UNIT));
+                let restored = NativeWorld::restore_synthetic_component_test(
+                    w.profile().clone(),
+                    w.checkpoint().unwrap(),
+                )
+                .unwrap();
+                assert_eq!(restored.state_digest(), w.state_digest());
                 assert!(w.last_tick().unwrap().events.iter().any(|e| matches!(
                     e,
                     Event::NpcMotion {
@@ -517,9 +528,9 @@ fn altered_checkpoint(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Valu
     let mut value = serde_json::to_value(&checkpoint.state).unwrap();
     mutate(&mut value);
     checkpoint.state = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v27\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v28\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v27\0",
+        b"benilla-native-checkpoint-v28\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

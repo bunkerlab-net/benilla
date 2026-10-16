@@ -5,7 +5,7 @@ for **one ordinary outdoor creature and one authoritative player threat referenc
 It does not activate the native-world gate, replace the existing original fixture
 runtime, execute melee damage, or establish a playable starter zone. There are no
 Blizzard rows, client assets, database dumps, fixed-damage attacks or teleports here.
-The compatibility identity is `cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-v1`.
+The compatibility identity is `cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-events-v5`.
 
 ## Actual upstream selection and accepted domain
 
@@ -42,7 +42,9 @@ and runtime gate must independently enforce these prerequisites. `Unsupported`
 variants and errors never guess defaults or silently drop unsupported behavior.
 Passive sight/retaliation suppression is supported; damage-driven passive combat
 is explicitly rejected. Periodic threat requires existing combat. Multi-reference
-threat, offline-list recovery, taunt, fixation and suppression are not implemented.
+threat, taunt, fixation and suppression are not implemented. The one owned reference
+can move between online/offline membership and recover an invalid link only when
+the authority resolves that same GUID.
 
 ## What is translated
 
@@ -194,3 +196,30 @@ unreachable recovery, home arrival, corpse/respawn sequencing and transactional
 replay/unsupported/malformed movement rejection. Synthetic geometry tests exercise
 the contract, not an actual terrain provider. No live-native or visual parity is
 established, and no user-local DB/install was available to select a real starter mob.
+
+## Owned single-target hostile reference
+
+`hostile_reference::HostileReferences` owns the reference, its online/offline
+container membership, valid target link, binary32 threat, current-victim identity,
+and source dirty state. AI target/chase is separate from ThreatManager current
+victim. AttackStart inserts a zero reference before CombatStarted/Motion, threat
+receipts reuse it, and TriggerCombatTimer alone never creates one. Offline status
+preserves threat and AI target/chase, clears matching current victim, and moving
+online never selects a victim. Selection clears dirty even with one reference.
+Target death removes references synchronously, including the borrowed mainhand
+attacker before callback return; evade/death clear them and respawn stays empty.
+
+Checkpoint version 5 requires the owned state and rejects missing fields, scalar
+threat migration, invalid online links, mismatched current victims and phase/ref
+contradictions. The sole same-frame detached-victim exception keeps target/chase
+without a reference; receipt tokens still compare all other prepared state.
+
+Native source-combat online inputs come from the selected complete interaction
+and combat catalogs: successful feign-death Unit state and CreatureStaticFlags2
+IGNORE_FEIGN_DEATH. Terrain accessibility is not an online predicate. Current
+catalog admission rejects feign-changing operations, scripts, shared-threat hooks
+and target mutation. Under that closure, updates to independent NPC-owned
+references commute; permutation tests compare complete AI states. This projection
+does not claim HostileRefManager's front-insertion traversal order. Any expansion
+with callback observers or shared mutations needs genuine registration-order
+ownership before admission. Surface-water gameplay remains unsupported.

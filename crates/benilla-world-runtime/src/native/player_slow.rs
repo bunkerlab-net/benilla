@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 pub(super) mod host;
 pub(super) mod source;
+#[cfg(test)]
+mod water_tests;
 pub use host::{PlayerSlowCasterSource, PlayerSlowHostSource};
 pub use source::{PlayerSlowCatalog, PlayerSlowSource};
 #[cfg(any(test, feature = "synthetic-native-tests"))]
@@ -128,6 +130,8 @@ pub struct PlayerSlowHolder {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayerSlowRemoval {
+    /// Source AURA_REMOVE_BY_DEFAULT (including water and spell-ID callbacks).
+    Default,
     Stack,
     Expire,
     Death,
@@ -234,6 +238,76 @@ impl PlayerSlowState {
             reason,
             slot_level,
         }));
+        Ok(())
+    }
+    /// Unit::RemoveAurasWithInterruptFlags restarts at begin after each removal.
+    /// The immutable catalog is the SpellProto source, never snapshot-supplied flags.
+    pub(super) fn remove_interrupt_auras(
+        &mut self,
+        mask: u32,
+        profile: &Profile,
+        npcs: &BTreeMap<u64, Npc>,
+        events: &mut Vec<Event>,
+    ) -> Result<(), NativeError> {
+        if mask & !source::WATER_INTERRUPT_FLAGS != 0 {
+            return Err(NativeError::UnsupportedMechanic(
+                "slow non-water aura interrupt callback",
+            ));
+        }
+        // These recipes have no mutable holder or stat/resource unapplication.
+        if profile
+            .combat
+            .as_ref()
+            .is_some_and(|g| g.initial_auras.iter().any(|a| a.aura_interrupt_flags != 0))
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "source motion interruptible initial player auras",
+            ));
+        }
+        let catalog = &profile
+            .player_slow
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?
+            .catalog;
+        loop {
+            let mut selected = None;
+            for holder in self.holders.values() {
+                if catalog.interrupt_flags(holder.spell_id)? & mask != 0 {
+                    selected = Some(holder.id);
+                    break;
+                }
+            }
+            let Some(id) = selected else { return Ok(()) };
+            let level = self.removal_level(id, profile, npcs)?;
+            self.remove(id, PlayerSlowRemoval::Default, level, events)?;
+        }
+    }
+    /// Unit::RemoveAurasDueToSpell refreshes the spell bounds after each removal.
+    pub(super) fn remove_spell_auras(
+        &mut self,
+        spell_id: u32,
+        profile: &Profile,
+        npcs: &BTreeMap<u64, Npc>,
+        events: &mut Vec<Event>,
+    ) -> Result<(), NativeError> {
+        if profile
+            .combat
+            .as_ref()
+            .is_some_and(|g| g.initial_auras.iter().any(|a| a.spell_id == spell_id))
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "initial player passive aura removal",
+            ));
+        }
+        while let Some(id) = self
+            .holders
+            .range((spell_id, 0)..=(spell_id, u64::MAX))
+            .next()
+            .map(|(_, holder)| holder.id)
+        {
+            let level = self.removal_level(id, profile, npcs)?;
+            self.remove(id, PlayerSlowRemoval::Default, level, events)?;
+        }
         Ok(())
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]

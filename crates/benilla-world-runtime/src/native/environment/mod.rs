@@ -3,16 +3,18 @@
 //! CMaNGOS Classic 8ec338a1 Player.cpp:1105–1140,1483–1489,6069–6075,19113–19175,
 //! copyright CMaNGOS contributors, upstream GPL-2.0-or-later.
 //! This is the environment phase AFTER accepted relocation, not full SetPosition.
-//! NativeWorld selects its narrower callback-free owner explicitly; gameplay admission stays closed.
+//! NativeWorld selects its callback domain explicitly; gameplay admission stays closed.
 mod catalog;
 pub mod mirror;
 mod persistence;
 mod reducer;
+mod surface;
 pub use catalog::{LiquidCatalog, LiquidCatalogError, LiquidTypeRow};
 use mirror::{MirrorTimer, MirrorTimerType};
 pub use persistence::{EnvironmentCheckpoint, EnvironmentRecord};
 pub(crate) use reducer::{EnvironmentPhase, EnvironmentStateSnapshot};
 use serde::{Deserialize, Serialize};
+pub(crate) use surface::NativeEnvironmentEffects;
 
 pub const ENVIRONMENT_POLICY: &str = "cmangos-8ec338a1-player-environment-component-mirror-v2";
 pub const MAX_ENVIRONMENT_RECORDS: usize = 2048;
@@ -41,6 +43,8 @@ pub enum EnvironmentError {
     Limit,
     /// No production executor is present for this exact source-ordered operation.
     CallbacksUnavailable(EnvironmentCallback),
+    /// The selected native executor failed; its owner retains the original error.
+    CallbackFailed(EnvironmentCallback),
 }
 impl std::fmt::Display for EnvironmentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

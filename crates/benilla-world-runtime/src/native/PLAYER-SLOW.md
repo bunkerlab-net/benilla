@@ -16,7 +16,10 @@ never means empty. The audited ID domain includes 1604 without supplying any
 stock amount, duration, flags or stacking values; fixture IDs 61004/61005 are
 explicitly authored. Unsupported attributes, effects, rank/group conflicts,
 periodicity, heartbeat resistance, dispel/proc/script hooks, stacking and random
-effect dice reject. The recipe derives NPC-level effect value and the finite
+effect dice reject. Source policy v2 admits only the two water interruption bits
+in effective SpellEntry word22 (`0x80` and `0x100`); every other raw-field and
+source-hook restriction is unchanged. These bits are authored in the 61004/61005
+tests, not inferred for stock1604. The recipe derives NPC-level effect value and the finite
 absolute Duration[0], assigning both current and maximum holder duration.
 
 Host inputs bind NPC spawn/entry/level/raw unit flags and control state to the
@@ -61,6 +64,18 @@ Death combines passive and active holders in source spell order and runs active
 removal at the existing RemoveAuraByDeath action. Modifiers are removed and
 speeds restored before the slot clear; no extra death root order is invented.
 
+The private water interruption callback implements Unit.cpp:5211–5223: inspect
+live holders in spell-ID/holder-ID order, remove the first matching source mask,
+and restart from the beginning. Spell-ID removal uses the analogous source
+bounds/restart loop. Both use `AURA_REMOVE_BY_DEFAULT`, erase the holder, recompute
+RUN/RUN_BACK/SWIM from the remaining live holders, then clear its slot. Intermediate
+rates and every slot clear remain ordered native events. Repeated calls emit no
+second removal. Mask lookup uses the immutable validated catalog, with no redundant
+snapshot-supplied flag. These callbacks do not authorize liquid self-casts or a
+new aura producer. Initial passive stat recipes are not mutable slow holders;
+nonzero passive interruption metadata and matching passive spell removal fail
+closed until actual stat/resource unapplication exists.
+
 Caster death does not remove the target's holder. Its captured generation remains
 historical after caster respawn. Removal writes the actual persistent source Unit
 level across ordinary DEAD/respawn, otherwise the explicit configured fallback
@@ -96,7 +111,7 @@ A crash after saving reconstructs state, not historical notifications.
 
 ## Persistence and evidence limits
 
-Experimental native format 27 and the player-slow policy bind this state and the
+Experimental native format 28 and the player-slow policy bind this state and the
 numeric policy. Prior native formats are rejected without replacing/deleting
 current or previous files. Character/profile files and OriginalFixture World 2
 are unchanged. Runtime, client, store, geometry and the actual controller source
@@ -106,3 +121,13 @@ general auras, NPC triggered spells or multiplayer scheduling.
 
 The separate [NPC SpellStart host](../../NPC-SPELLS.md) reaches this private effect
 seam after source target/hit checks. Its authored triggers do not enable spell1604.
+
+The [water selection oracle](../../tools/generate_water_aura_selection_fixture.py)
+extracts the two complete pinned Unit.cpp selection/restart bodies and source
+removal-mode enum. Its 112 authored cases establish selection and default mode
+only: the C++ removal leaf erases/records, and is not proof of actual aura effects.
+Separate Rust tests invoke the real state methods and check source order against
+those rows, strongest-to-weaker-to-base speed transitions, speed-before-slot
+ordering, caster-level residue, exact snapshot/reopen behavior and source-mask
+binding. The existing source-extracted numeric oracle supplies the binary32
+speed arithmetic evidence.

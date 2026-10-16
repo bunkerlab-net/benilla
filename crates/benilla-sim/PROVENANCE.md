@@ -324,6 +324,26 @@ Its 52,394-row numeric fixture SHA-256 is
 `44aad873e287900435c2c5a91cf36af85a905589cc1c21ccd098a2d0f1d8caa7`.
 No native database rows, game assets, EventAI rows or Playerbots code are bundled.
 
+## Owned single-target hostile references
+
+`creature_ai/hostile_reference.rs` translates the same pinned CMaNGOS
+`HostileReference`, online/offline `ThreatContainer` and `ThreatManager` ownership
+and current-victim transitions. The source grant is GPL-2.0-or-later, Copyright
+CMaNGOS Project contributors; this Rust translation and authored recording host
+are GPL-3.0-or-later, Copyright 2026 Benilla fork contributors. The complete
+bounded domain and exclusions are in [CREATURE-AI.md](CREATURE-AI.md).
+
+The [exact-source oracle](tools/hostile_reference_source/README.md) retains
+original source headers and functions with per-file/excerpt SHA-256 identities
+in its hash-pinned manifest. It executes actual intrusive reverse links and
+online/offline containers, and records original status dispatches through an
+authored forwarding observer. Its 611 observations cover single-reference
+lifecycle state and raw successful-feign/ignore flag predicates. Native tests
+replay the 528 raw predicate observations against the private catalog evaluator.
+The recording host is bounded evidence, not full Unit death/respawn, terrain,
+multi-target selection or global callback-order parity. No database rows, game
+assets, full server or external recording is included.
+
 ## Mage current skills, crit and resource updates
 
 `src/mage_resource.rs` translates bounded current-skill/rank, mage stat-derived

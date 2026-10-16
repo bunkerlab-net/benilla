@@ -9,7 +9,13 @@ use environment::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const PLAYER_ENVIRONMENT_POLICY: &str = "cmangos-8ec338a1-native-player-environment-v1";
+pub const PLAYER_ENVIRONMENT_POLICY: &str = "cmangos-8ec338a1-native-player-environment-v2";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+enum EnvironmentExecution {
+    CacheOnly,
+    SurfaceCallbacks,
+}
 
 /// Explicit selected source and complete DBC. Neither hashes nor this selection admit
 /// a native game; the loaded terrain provider still has to answer every due query.
@@ -20,6 +26,7 @@ pub const PLAYER_ENVIRONMENT_POLICY: &str = "cmangos-8ec338a1-native-player-envi
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PlayerEnvironmentSource {
     policy: &'static str,
+    execution: EnvironmentExecution,
     snapshot: EnvironmentSnapshotBinding,
     height_source: crate::Digest,
     // The complete catalog's intrinsic digest is in snapshot. It is not caller rows.
@@ -27,6 +34,58 @@ pub struct PlayerEnvironmentSource {
     catalog: LiquidCatalog,
 }
 impl PlayerEnvironmentSource {
+    pub fn surface_callbacks_selected(&self) -> bool {
+        self.execution == EnvironmentExecution::SurfaceCallbacks
+    }
+    pub(super) fn validate_surface_sources(profile: &Profile) -> Result<(), NativeError> {
+        if !profile.source_combat_authority() {
+            return Err(NativeError::AuthorityUnavailable(
+                "environment hostile-reference source closure",
+            ));
+        }
+        profile
+            .interactions
+            .as_ref()
+            .ok_or(NativeError::InvalidProfile)?
+            .validate(profile)?;
+        profile
+            .player_slow
+            .as_ref()
+            .ok_or(NativeError::AuthorityUnavailable(
+                "environment owned player aura source closure",
+            ))?
+            .validate(profile)?;
+        if profile
+            .combat
+            .as_ref()
+            .is_none_or(|g| g.initial_auras.iter().any(|a| a.aura_interrupt_flags != 0))
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "environment mutable passive aura lifecycle",
+            ));
+        }
+        // Complete interaction validation above also validates every combat row.
+        Ok(())
+    }
+    fn restore_state(
+        &self,
+        snapshot: EnvironmentStateSnapshot,
+        sequence: u64,
+    ) -> Result<EnvironmentState, NativeError> {
+        Ok(if self.surface_callbacks_selected() {
+            snapshot.restore_native_surface(self.snapshot, &self.catalog, sequence)?
+        } else {
+            snapshot.restore(self.snapshot, &self.catalog, sequence)?
+        })
+    }
+    fn validate_state(&self, state: &EnvironmentState) -> Result<(), NativeError> {
+        if self.surface_callbacks_selected() {
+            state.validate_native_surface(&self.catalog)?;
+        } else {
+            state.validate_native_lifecycle(&self.catalog)?;
+        }
+        Ok(())
+    }
     pub fn snapshot(&self) -> EnvironmentSnapshotBinding {
         self.snapshot
     }
@@ -37,7 +96,7 @@ impl PlayerEnvironmentSource {
         &self.catalog
     }
     pub fn binding(&self) -> crate::Digest {
-        crate::digest(b"benilla-player-environment-source-v1\0", self)
+        crate::digest(b"benilla-player-environment-source-v2\0", self)
     }
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         let height =
@@ -56,10 +115,28 @@ impl PlayerEnvironmentSource {
             return Err(NativeError::InvalidProfile);
         }
         EnvironmentState::new(self.snapshot, &self.catalog)?;
+        if self.surface_callbacks_selected() {
+            Self::validate_surface_sources(profile)?;
+        }
         Ok(())
     }
 }
 impl Profile {
+    /// Select actual owned hostile-reference and aura callbacks. This does not admit
+    /// a native world, underwater timers, hazards or liquid self-casting.
+    pub fn initialize_player_environment_surface_callbacks(&mut self) -> Result<(), NativeError> {
+        let mut next = self.clone();
+        next.player_environment
+            .as_mut()
+            .ok_or(NativeError::AuthorityUnavailable(
+                "selected player environment source",
+            ))?
+            .execution = EnvironmentExecution::SurfaceCallbacks;
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+
     pub fn initialize_player_environment(
         &mut self,
         snapshot: EnvironmentSnapshotBinding,
@@ -77,6 +154,10 @@ impl Profile {
             .binding();
         let source = PlayerEnvironmentSource {
             policy: PLAYER_ENVIRONMENT_POLICY,
+            execution: self
+                .player_environment
+                .as_ref()
+                .map_or(EnvironmentExecution::CacheOnly, |s| s.execution),
             snapshot,
             height_source,
             catalog,
@@ -164,7 +245,7 @@ impl PlayerEnvironmentState {
         self.sequence
     }
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-player-environment-state-v1\0", &self.snapshot())
+        crate::digest(b"benilla-player-environment-state-v2\0", &self.snapshot())
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn new(
@@ -203,15 +284,10 @@ impl PlayerEnvironmentState {
             .player_environment
             .as_ref()
             .ok_or(NativeError::InvalidState)?;
-        if self.state
-            != self
-                .state
-                .snapshot()
-                .restore(source.snapshot, &source.catalog, self.sequence)?
-        {
+        if self.state != source.restore_state(self.state.snapshot(), self.sequence)? {
             return Err(NativeError::InvalidState);
         }
-        self.state.validate_native_lifecycle(&source.catalog)?;
+        source.validate_state(&self.state)?;
         if self.updated_tick > crate::MAX_TICK || self.sequence < self.updated_tick {
             return Err(NativeError::InvalidState);
         }
@@ -281,10 +357,8 @@ impl PlayerEnvironmentState {
         match (snapshot, profile.player_environment.as_ref()) {
             (None, None) => Ok(None),
             (Some(s), Some(source)) => {
-                let state = s
-                    .state
-                    .restore(source.snapshot, &source.catalog, s.sequence)?;
-                state.validate_native_lifecycle(&source.catalog)?;
+                let state = source.restore_state(s.state, s.sequence)?;
+                source.validate_state(&state)?;
                 Ok(Some(Self {
                     owner: s.owner,
                     sequence: s.sequence,
@@ -327,6 +401,26 @@ impl PlayerEnvironmentState {
         phase: EnvironmentPhase,
         kind: PlayerEnvironmentPhase,
     ) -> Result<PlayerEnvironmentReceipt, NativeError> {
+        self.apply_inner(profile, tick, phase, kind, None)
+    }
+    pub(super) fn apply_surface(
+        &mut self,
+        profile: &Profile,
+        tick: u64,
+        phase: EnvironmentPhase,
+        kind: PlayerEnvironmentPhase,
+        effects: &mut dyn environment::NativeEnvironmentEffects,
+    ) -> Result<PlayerEnvironmentReceipt, NativeError> {
+        self.apply_inner(profile, tick, phase, kind, Some(effects))
+    }
+    fn apply_inner(
+        &mut self,
+        profile: &Profile,
+        tick: u64,
+        phase: EnvironmentPhase,
+        kind: PlayerEnvironmentPhase,
+        effects: Option<&mut dyn environment::NativeEnvironmentEffects>,
+    ) -> Result<PlayerEnvironmentReceipt, NativeError> {
         let source = profile
             .player_environment
             .as_ref()
@@ -334,12 +428,33 @@ impl PlayerEnvironmentState {
         if self.updated_tick.checked_add(1) != Some(tick) || tick > crate::MAX_TICK {
             return Err(NativeError::InvalidState);
         }
-        phase.validate_native_lifecycle(&source.catalog)?;
         let before = self.digest();
-        let (state, sequence) =
+        let (state, sequence) = if source.surface_callbacks_selected() {
+            phase.validate_native_surface(&source.catalog)?;
+            if let Some(effects) = effects {
+                self.state.reduce_native_surface(
+                    source.snapshot,
+                    &source.catalog,
+                    self.sequence,
+                    &phase,
+                    effects,
+                )?
+            } else if matches!(phase, EnvironmentPhase::Update { .. }) {
+                // Countdown has no callbacks. It stays at the later Player::Update hook;
+                // this is not mirror activation, ticking, or expiration.
+                self.state
+                    .reduce(source.snapshot, &source.catalog, self.sequence, &phase)?
+            } else {
+                return Err(NativeError::AuthorityUnavailable(
+                    "owned environment callback executor",
+                ));
+            }
+        } else {
+            phase.validate_native_lifecycle(&source.catalog)?;
             self.state
-                .reduce(source.snapshot, &source.catalog, self.sequence, &phase)?;
-        state.validate_native_lifecycle(&source.catalog)?;
+                .reduce(source.snapshot, &source.catalog, self.sequence, &phase)?
+        };
+        source.validate_state(&state)?;
         match kind {
             PlayerEnvironmentPhase::Position { pose, .. } => self.last_pose = Some(pose),
             PlayerEnvironmentPhase::Update { .. } => self.updated_tick = tick,
@@ -563,11 +678,7 @@ impl PlayerEnvironmentTarget {
             sequence: self.snapshot.sequence,
             updated_tick: self.snapshot.updated_tick,
             last_pose: self.snapshot.last_pose,
-            state: self.snapshot.state.clone().restore(
-                source.snapshot,
-                &source.catalog,
-                self.snapshot.sequence,
-            )?,
+            state: source.restore_state(self.snapshot.state.clone(), self.snapshot.sequence)?,
         };
         state.validate(profile, world, player)?;
         let expected_ms = self

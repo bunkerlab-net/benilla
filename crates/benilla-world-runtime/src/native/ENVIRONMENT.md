@@ -67,7 +67,7 @@ there is no intervening binary32 rounding.
 
 The exact reducer represents ordered threat updates, interrupt/spell aura
 removals, mirror scaling, HasAura/interval reads and self-triggered spell casts.
-The private production callback host executes `SetMirrorScale` against actual
+The standalone production callback host executes `SetMirrorScale` against actual
 owned source MirrorTimer states. Every other operation returns its typed
 `CallbacksUnavailable` intent. A staged transition that encounters an unavailable callback is discarded without changing flags,
 refresh timer, last liquid, cache, mirror states, sequence, history tip or journal.
@@ -90,9 +90,11 @@ reducer and staged host rollback; it is not the game's effect implementation.
 
 The standalone component does not supply a live world-feed producer, NPC
 accessibility admission, spell/threat authority, damage/drowning/fatigue
-implementation, or playable-world claim. The explicit native owner below has a
-narrower callback-free domain. Full callback implementations are
-follow-on engineering work, not implicitly denied permission. Concrete seams:
+implementation, or playable-world claim. The explicit native owner below selects
+its callback execution domain separately.
+The original callback-free domain is unchanged; the native surface executor adds
+a crate-private seam for the actual staged threat/aura owners. Remaining lifecycles
+are follow-on engineering work, not implicitly denied permission. Concrete seams:
 
 - Threat updates need the actual hostile-reference container lifecycle:
   HostileRefManager::updateThreatTables calls HostileReference::updateOnlineStatus,
@@ -129,12 +131,27 @@ Native events retain each position phase's input sequence and one countdown
 receipt. Existing staged native replay covers requests, facts, ordered receipts
 and full state; later NPC/RNG/checkpoint failures discard the entire staged frame.
 
-The native domain accepts initial/repeated NoWater, and callback-free nonhazardous
-AboveWater/WaterWalk observations from the selected provider. Wet, hazardous,
-high-sea and spell-bearing results remain closed because their player callback
-and mirror activation/expiration lifecycles are absent. Even an above-water to
-NoWater transition fails when the source combined clear requires threat/aura
-callbacks. No placeholder predicate or callback receipt substitutes for execution.
+The original native callback-free domain accepts initial/repeated NoWater and
+nonhazardous AboveWater/WaterWalk observations; its lifecycle guard and restore
+remain unchanged. The separately selected native surface executor additionally
+accepts ordinary InWater and dry exits when the actual staged NativeWorld adapter
+owns threat and aura-removal execution. Its crate-private effects interface has
+no public caller-provided successful host and no Clone-based rollback contract.
+The environment reducer stages its own state only; callback mutations belong to
+the outer native frame transaction. A typed CallbackFailed intent preserves the
+failure boundary while the adapter retains its original native error.
+
+Surface state permits only IN_WATER, HIGH_LIQUID and LIQUID flags. UnderWater,
+magma/slime type bits, deep-water/high-sea, nonzero-spell rows, active mirrors and
+spell/interval reads remain closed. The owned wrapper executes mirror scale
+changes itself. A NoWater combined clear runs the unchanged source sequence,
+including fatigue, breath and environmental scale 10 even from LIQUID alone.
+Restore preserves those exact inactive timer mutations and the constructor
+FeignDeath timer, requiring a phase sequence capable of the clear and any later
+re-entry. The refresh countdown never starts or ticks a mirror: source
+UpdateMirrorTimers at Player.cpp:1409 is a separate, earlier lifecycle. Test-only
+callback probes establish reducer ordering, not production threat/aura effects.
+No placeholder predicate or callback receipt substitutes for execution.
 
 Chase route requests carry a frozen `PlayerEnvironmentTarget` dependency for the
 last `!i_target->IsInWater()` clause of TargetedMovementGenerator.cpp:502. It uses
@@ -148,23 +165,55 @@ last countdown tick rather than moving that source callback or timer phase. Dist
 separate dependencies; this witness does not select straightPath or certify that
 the complete Chase gate ran. Home and Backpedal carry explicit absence.
 
-Native format 27 and `benilla-native-owned-player-environment-v27` include the
+Native format 28 and `benilla-native-surface-player-environment-v28` include the
 optional owned cache, required optional latest-pose and route-witness fields,
-and v27 profile/state/record/checkpoint/melee domains. Missing fields and older
+and v28 profile/state/record/checkpoint/melee domains. Missing fields and older
 native checkpoints reject rather than fabricate initial state. Independent
 component v2 encoding, exploration character data and raw native admission stay
 unchanged. Hashes establish consistency, never historical authenticity; complete
 journal replay is required to verify the supplied history.
 
+## Owned surface callbacks
+
+`initialize_player_environment_surface_callbacks` separately selects the bounded
+surface executor after the cache source has been initialized. It requires the
+complete source interaction/combat catalogs and actual player-slow host/catalog,
+even when the live holder registry is empty. Source selection is part of the
+profile digest and environment source policy v2. Native format28 rejects older
+experimental saves; there is no inferred hostile-reference or aura migration.
+
+The actual frame borrows its staged NPC references, player holders and events.
+UpdateThreatTables updates every owned hostile reference against the source
+IsOfflineTarget predicate (successful feign death and the NPC ignore-feign flag),
+not water accessibility. The selected source closure excludes feign-changing
+scripts; restore rejects unresolved or source-inconsistent native membership.
+Manager current victim is separate from the AI/Unit target. Independent reference
+updates commute in this single-player closed callback domain: they do not mutate
+shared threat, select a target, run hooks or advance clocks. BTree iteration does
+not claim general HostileRefManager front-insertion ordering. That ordering must
+be owned before admitting callbacks with cross-reference observable effects.
+
+HIGH_LIQUID entry and exit execute real default removal with masks0x80/0x100.
+The holder multimap is scanned in spell order and restarted after each removal;
+actual RUN/RUN_BACK/SWIM rates and persistent slot levels change before the
+following environment receipt. Immutable initial passives must prove zero
+interrupt masks. Tests use authored61004/61005 rows, not a claim about stock1604.
+If any callback or later phase fails, the enclosing frame discards NPC membership,
+holders, rates, slots, environment state, RNG, events and journal changes together.
+No callback receipt or successful external predicate substitutes for this state.
+
 ## Independent persistence and evidence
 
-The crate-private state reducer stages one phase and returns owned state plus
-a checked monotone sequence; it owns no journal or external callback host.
-Initialization, query construction and validated snapshots share that boundary.
-The standalone `EnvironmentMachine` wraps it with its existing atomic journal
-limits and v2 encoding. Native lifecycle guards are separate and narrower: they
-reject wet/hazard/high-sea phases and noninitial mirrors without changing the
-standalone component's supported source transitions.
+The crate-private state reducers stage one phase and return owned state plus
+a checked monotone sequence; they own no journal. The surface reducer borrows
+only the selected native frame's effect adapter and cannot independently roll
+back its effects. Initialization, query construction and validated snapshots
+share the source reducer. The standalone `EnvironmentMachine` retains its
+existing callback boundary, atomic journal limits and v2 encoding. Separate
+surface restore cannot widen standalone restore: importing native wet state or
+dry-clear mirror mutations into component v2 fails. Existing optional snapshot
+fields must be present (explicit null is valid); omission cannot silently become
+constructor state. Valid component v2 serialized bytes remain unchanged.
 
 Component checkpoint/journal formats have their own version/policy and do not
 change native world saves. Environment component v2 deliberately rejects v1

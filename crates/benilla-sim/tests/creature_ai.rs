@@ -809,3 +809,236 @@ fn interaction_distance_uses_source_strict_three_dimensional_reach_sum() {
     .unwrap());
     assert!(within_interaction_distance(point(0.), point(0.), real(-1.), real(1.5)).is_err());
 }
+
+#[test]
+fn source_sight_and_resisted_retaliation_own_zero_reference_before_chase() {
+    for sight in [false, true] {
+        let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
+        let mut o = observation(1, 100, 2.);
+        let effects = if sight {
+            ai.source_sight_event(&o).unwrap()
+        } else {
+            o.receipts.push(Receipt {
+                id: 1,
+                event: CombatEvent::AttackedBy { target: 2 },
+            });
+            ai.source_combat_event(&o).unwrap()
+        };
+        let reference = ai.hostile_reference().unwrap().clone();
+        assert_eq!(reference.target_guid(), 2);
+        assert!(reference.valid() && reference.online());
+        assert_eq!(reference.threat(), Real::ZERO);
+        assert_eq!(ai.current_victim(), None);
+        assert_eq!(serde_json::to_value(ai.checkpoint()).unwrap()["now_ms"], 0);
+        assert_eq!(effects[0], Effect::CombatStarted { target: 2 });
+        assert!(matches!(effects[1], Effect::Motion(_)));
+        let mut timer = observation(1, 100, 2.);
+        timer.receipts.push(Receipt {
+            id: 2,
+            event: CombatEvent::CombatTimerTriggered { target: 2 },
+        });
+        ai.source_combat_event(&timer).unwrap();
+        assert_eq!(ai.hostile_reference().unwrap(), &reference);
+    }
+    let mut idle = SoloCreatureAi::new(profile(Reaction::Defensive)).unwrap();
+    let mut timer = observation(1, 100, 2.);
+    timer.receipts.push(Receipt {
+        id: 1,
+        event: CombatEvent::CombatTimerTriggered { target: 2 },
+    });
+    assert!(idle.source_combat_event(&timer).is_err());
+    assert!(idle.hostile_reference().is_none());
+}
+
+#[test]
+fn online_callback_preserves_owned_threat_target_chase_and_timers_without_selecting() {
+    let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
+    let mut o = observation(1, 100, 2.);
+    o.receipts.push(Receipt {
+        id: 1,
+        event: CombatEvent::Threat {
+            target: 2,
+            amount: real(7.),
+            kind: ThreatKind::DirectDamage,
+        },
+    });
+    step(&mut ai, o).unwrap();
+    assert_eq!(ai.current_victim(), Some(2));
+    let before = ai.checkpoint();
+    assert!(ai.update_online_status(2, Some(2), true).unwrap());
+    assert!(!ai.hostile_reference().unwrap().online());
+    assert_eq!(ai.current_victim(), None);
+    assert_eq!(ai.threat(), real(7.));
+    assert_eq!(ai.target(), Some(2));
+    assert_eq!(
+        ai.motion().unwrap().purpose,
+        MovementPurpose::Chase { target: 2 }
+    );
+    assert_eq!(ai.mainhand_timer_ms(), 2000);
+    assert_eq!(
+        serde_json::to_value(ai.checkpoint()).unwrap()["now_ms"],
+        serde_json::to_value(&before).unwrap()["now_ms"]
+    );
+    assert_eq!(
+        serde_json::to_value(ai.checkpoint()).unwrap()["sequence"],
+        serde_json::to_value(&before).unwrap()["sequence"]
+    );
+    assert!(!ai.update_online_status(2, None, true).unwrap());
+    assert!(ai.update_online_status(2, None, false).unwrap());
+    assert_eq!(ai.current_victim(), None);
+    let restored =
+        SoloCreatureAi::restore(ai.checkpoint(), profile(Reaction::Aggressive), 100, 1, 2).unwrap();
+    assert_eq!(restored, ai);
+    step(&mut ai, observation(2, 100, 2.)).unwrap();
+    assert_eq!(ai.current_victim(), Some(2));
+}
+
+#[test]
+fn owned_reference_checkpoint_requires_fields_and_rejects_phase_link_current_forgery() {
+    let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
+    step(&mut ai, observation(1, 100, 2.)).unwrap();
+    let value = serde_json::to_value(ai.checkpoint()).unwrap();
+    for path in ["hostile_references", "reference", "current_victim", "dirty"] {
+        let mut forged = value.clone();
+        if path == "hostile_references" {
+            forged.as_object_mut().unwrap().remove(path);
+        } else {
+            forged["hostile_references"]
+                .as_object_mut()
+                .unwrap()
+                .remove(path);
+        }
+        assert!(
+            serde_json::from_value::<AiCheckpoint>(forged).is_err(),
+            "{path}"
+        );
+    }
+    for case in [
+        "old",
+        "missing",
+        "wrong_target",
+        "invalid_online",
+        "offline_current",
+        "detached",
+        "idle",
+    ] {
+        let mut forged = value.clone();
+        match case {
+            "old" => forged["version"] = 4.into(),
+            "missing" => forged["hostile_references"]["reference"] = serde_json::Value::Null,
+            "wrong_target" => forged["hostile_references"]["reference"]["target_guid"] = 3.into(),
+            "invalid_online" => forged["hostile_references"]["reference"]["valid"] = false.into(),
+            "offline_current" => {
+                forged["hostile_references"]["reference"]["membership"] = "Offline".into()
+            }
+            "detached" => forged["victim_detached_at_ms"] = 100.into(),
+            "idle" => forged["phase"] = "Idle".into(),
+            _ => unreachable!(),
+        }
+        let checkpoint = serde_json::from_value(forged).unwrap();
+        assert!(
+            SoloCreatureAi::restore(checkpoint, profile(Reaction::Aggressive), 100, 1, 2).is_err(),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn lethal_hook_deletes_owned_reference_and_current_before_return_and_restore() {
+    let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
+    let o = observation(1, 100, 2.);
+    let token = ai.begin_receipts(&o).unwrap();
+    ai.finish_receipts(o, token, &mut |_, _, _| Ok(MainhandResult::TargetDied))
+        .unwrap();
+    assert_eq!(ai.phase(), Phase::Combat);
+    assert_eq!(ai.target(), Some(2));
+    assert!(ai.hostile_reference().is_none());
+    assert_eq!(ai.current_victim(), None);
+    assert_eq!(ai.victim_detached_at_ms(), Some(100));
+    assert_eq!(ai.threat(), Real::ZERO);
+    assert_eq!(
+        SoloCreatureAi::restore(ai.checkpoint(), profile(Reaction::Aggressive), 100, 1, 2).unwrap(),
+        ai
+    );
+    assert_eq!(
+        serde_json::to_value(ai.checkpoint()).unwrap()["hostile_references"]["dirty"],
+        true
+    );
+    step(&mut ai, observation(2, 100, 2.)).unwrap();
+    assert_eq!(ai.phase(), Phase::ReturningHome);
+    assert_eq!(
+        serde_json::to_value(ai.checkpoint()).unwrap()["hostile_references"]["dirty"],
+        true
+    );
+}
+
+#[test]
+fn independent_owned_online_callbacks_commute_without_observers_or_shared_mutation() {
+    let mut a = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
+    let mut p = profile(Reaction::Aggressive);
+    p.creature_id = 9;
+    let mut b = SoloCreatureAi::new(p).unwrap();
+    let o = observation(1, 100, 2.);
+    a.source_sight_event(&o).unwrap();
+    b.source_sight_event(&o).unwrap();
+    let initial = [a, b];
+    for offline in [false, true] {
+        let mut forward = initial.clone();
+        let mut reverse = initial.clone();
+        for index in [0, 1] {
+            forward[index]
+                .update_online_status(2, Some(2), offline)
+                .unwrap();
+        }
+        for index in [1, 0] {
+            reverse[index]
+                .update_online_status(2, Some(2), offline)
+                .unwrap();
+        }
+        assert_eq!(forward, reverse);
+        for ai in &forward {
+            assert_eq!(ai.target(), Some(2));
+            assert_eq!(ai.current_victim(), None);
+            assert_eq!(ai.hostile_reference().unwrap().online(), !offline);
+        }
+    }
+}
+
+#[test]
+fn acquired_reference_is_deleted_by_death_and_not_recreated_by_corpse_or_respawn() {
+    let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
+    step(&mut ai, observation(1, 20, 2.)).unwrap();
+    assert!(ai.hostile_reference().is_some());
+    let mut death = observation(2, 20, 2.);
+    death.receipts.push(Receipt {
+        id: 1,
+        event: CombatEvent::Died,
+    });
+    step(&mut ai, death).unwrap();
+    for (sequence, elapsed, phase) in [(3, 3000, Phase::Despawned), (4, 2000, Phase::Idle)] {
+        assert!(ai.hostile_reference().is_none());
+        assert_eq!(ai.current_victim(), None);
+        step(&mut ai, observation(sequence, elapsed, 2.)).unwrap();
+        assert_eq!(ai.phase(), phase);
+        assert!(ai.hostile_reference().is_none());
+        assert_eq!(ai.threat(), Real::ZERO);
+    }
+}
+
+#[test]
+fn online_callback_rejects_wrong_target_or_receipt_interlude_transactionally() {
+    let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
+    step(&mut ai, observation(1, 100, 2.)).unwrap();
+    let before = ai.clone();
+    assert!(ai.update_online_status(3, Some(3), true).is_err());
+    assert_eq!(ai, before);
+    assert!(ai.update_online_status(2, Some(3), true).is_err());
+    assert_eq!(ai, before);
+    let o = observation(2, 100, 2.);
+    let token = ai.begin_source_receipts(&o, false).unwrap();
+    let prepared = ai.clone();
+    assert!(ai.update_online_status(2, Some(2), true).is_err());
+    assert_eq!(ai, prepared);
+    ai.finish_receipts(o, token, &mut |_, _, _| Ok(MainhandResult::Unchanged))
+        .unwrap();
+}

@@ -18,3 +18,8 @@ crates/benilla-sim/src/creature_motion/state.rs text eol=lf
 
 # Player model oracle is an exact-byte numeric fixture.
 crates/benilla-sim/tests/fixtures/player_model_cmangos.test-fixture text eol=lf
+
+# Hostile-reference retained source/manifest and selection fixtures are exact LF inputs.
+crates/benilla-sim/tools/hostile_reference_source/** text eol=lf
+crates/benilla-sim/tests/fixtures/hostile_reference_cmangos.test-fixture text eol=lf
+crates/benilla-world-runtime/tools/fixtures/water-aura-selection.tsv text eol=lf

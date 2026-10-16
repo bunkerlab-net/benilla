@@ -10,8 +10,10 @@ use benilla_sim::classic_spell::{EffectValue, SpellFloat};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const PLAYER_SLOW_SOURCE_POLICY: &str = "cmangos-8ec338a1-player-slow-source-v1";
+pub const PLAYER_SLOW_SOURCE_POLICY: &str = "cmangos-8ec338a1-player-slow-source-v2";
 const DEBUFF: u32 = 0x0400_0000;
+// Player::SetEnvironmentFlags: HIGH_LIQUID apply/clear only.
+pub(super) const WATER_INTERRUPT_FLAGS: u32 = 0x180;
 const MAX_DURATION_MS: u32 = 3_600_000;
 
 /// Full SpellEntry after spell_template overrides plus dependencies not carried
@@ -107,6 +109,13 @@ impl PlayerSlowCatalog {
     pub fn source(&self, spell_id: u32) -> Option<&PlayerSlowSource> {
         self.sources.get(&spell_id)
     }
+    pub(super) fn interrupt_flags(&self, spell_id: u32) -> Result<u32, NativeError> {
+        self.source(spell_id)
+            .map(|source| source.spell.words[22])
+            .ok_or(NativeError::AuthorityUnavailable(
+                "player decrease-speed effective spell source",
+            ))
+    }
     pub fn spell_ids(&self) -> impl Iterator<Item = u32> + '_ {
         self.sources.keys().copied()
     }
@@ -131,7 +140,7 @@ impl PlayerSlowCatalog {
             attributes: w[6],
             attributes_ex3: w[9],
             caster_aura_state: w[16],
-            binding: crate::digest(b"benilla-player-slow-source-v1", source),
+            binding: crate::digest(b"benilla-player-slow-source-v2", source),
             client_spell_words: w.clone(),
         })
     }
@@ -238,15 +247,20 @@ impl PlayerSlowSource {
         // Every word is classified. Text/visual words are retained; priority119
         // is semantic (debuff limit), so it remains zero. All unlisted words must
         // be zero, including family/rank flags, mechanics, passive/death-persist,
-        // proc/heartbeat/interruption, cost, cooldown, item and triggered effects.
+        // proc/heartbeat, non-water interruptions, cost, cooldown, item and triggered effects.
         for (index, &word) in w.iter().enumerate() {
-            let retained = matches!(index, 0 | 1 | 3 | 6 | 13 | 18 | 27..=30 | 36 | 38 | 58
+            let retained = matches!(index, 0 | 1 | 3 | 6 | 13 | 18 | 22 | 27..=30 | 36 | 38 | 58
                 | 61..=114 | 115..=118 | 120..=155 | 164 | 166 | 167..=169);
             if !retained && word != 0 {
                 return Err(NativeError::UnsupportedMechanic(
                     "slow raw spell semantic field",
                 ));
             }
+        }
+        if w[22] & !WATER_INTERRUPT_FLAGS != 0 {
+            return Err(NativeError::UnsupportedMechanic(
+                "slow non-water aura interrupt flags",
+            ));
         }
         if w[6] & !DEBUFF != 0
             || !matches!(w[13], 0 | 2)
@@ -441,6 +455,48 @@ mod tests {
             source.spell.words[6] |= attributes;
             assert!(PlayerSlowCatalog::validate_sources(vec![source]).is_err());
         }
+    }
+    #[test]
+    fn only_source_water_interrupt_bits_expand_the_admitted_domain() {
+        for id in [61004, 61005] {
+            for mask in [0, 0x80, 0x100, 0x180] {
+                let mut source = synthetic_source(id, -37, 1703);
+                source.spell.words[22] = mask;
+                let catalog = PlayerSlowCatalog::validate_sources(vec![source.clone()]).unwrap();
+                assert_eq!(catalog.interrupt_flags(id).unwrap(), mask);
+                assert_eq!(catalog.recipe(id, 10).unwrap().client_spell_words[22], mask);
+                // Water flags cannot enable scripts, procs, linked spells or extra effects.
+                for mutation in 0..6 {
+                    let mut changed = source.clone();
+                    match mutation {
+                        0 => {
+                            changed.aura_scripts = SpellSourceRows::Complete(vec!["script".into()])
+                        }
+                        1 => changed.spell.hooks.spell_proc_event = SpellSourceRows::Unknown,
+                        2 => changed.linked_spells = SpellSourceRows::Complete(vec![61005]),
+                        3 => changed.modifier_spells = SpellSourceRows::Complete(vec![61005]),
+                        4 => changed.spell.words[62] = 6,
+                        _ => changed.spell.words[79] = 7, // effect mechanic / diminishing returns
+                    }
+                    assert!(PlayerSlowCatalog::validate_sources(vec![changed]).is_err());
+                }
+            }
+        }
+        for bit in (0..32)
+            .map(|n| 1_u32 << n)
+            .filter(|bit| bit & WATER_INTERRUPT_FLAGS == 0)
+        {
+            let mut source = synthetic_source(61004, -37, 1703);
+            source.spell.words[22] = bit | WATER_INTERRUPT_FLAGS;
+            assert!(
+                PlayerSlowCatalog::validate_sources(vec![source]).is_err(),
+                "bit={bit:x}"
+            );
+        }
+        let mut old =
+            PlayerSlowCatalog::validate_sources(vec![synthetic_source(61004, -37, 1703)]).unwrap();
+        old.policy = "cmangos-8ec338a1-player-slow-source-v1";
+        assert_eq!(old.validate(), Err(NativeError::InvalidProfile));
     }
     #[test]
     fn rejects_missing_rows_extra_effects_periodicity_and_effect_rng() {

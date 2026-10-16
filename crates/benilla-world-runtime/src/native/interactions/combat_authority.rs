@@ -138,6 +138,62 @@ impl Profile {
         *self = next;
         Ok(())
     }
+    /// Unit::IsOfflineTarget reads successful feign state and Creature's ignore flag.
+    /// The selected complete catalogs currently reject every feign-changing operation.
+    pub(in crate::native) fn source_player_offline_target(
+        &self,
+        id: NpcId,
+    ) -> Result<bool, NativeError> {
+        let catalog = self
+            .interactions
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        catalog.validate(self)?;
+        let combat = catalog
+            .combat_authority
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic(
+                "hostile reference online status requires source combat authority",
+            ))?;
+        let npc = self.npc(id.spawn).ok_or(NativeError::UnknownTarget)?;
+        let row = combat
+            .npcs
+            .get(&npc.entry)
+            .ok_or(NativeError::InvalidState)?;
+        Ok(player_offline_target(
+            catalog.player.control.unit_state,
+            row.static_flags2,
+        ))
+    }
+    /// Validate the complete closure once for a whole manager/persistence pass.
+    pub(in crate::native) fn source_player_offline_targets(
+        &self,
+    ) -> Result<BTreeMap<u64, bool>, NativeError> {
+        let catalog = self
+            .interactions
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        catalog.validate(self)?;
+        let combat = catalog
+            .combat_authority
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic(
+                "hostile reference online status requires source combat authority",
+            ))?;
+        self.npcs
+            .iter()
+            .map(|npc| {
+                let row = combat
+                    .npcs
+                    .get(&npc.entry)
+                    .ok_or(NativeError::InvalidState)?;
+                Ok((
+                    npc.ai.creature_id,
+                    player_offline_target(catalog.player.control.unit_state, row.static_flags2),
+                ))
+            })
+            .collect()
+    }
     pub(in crate::native) fn source_combat_authority(&self) -> bool {
         self.interactions
             .as_ref()
@@ -263,7 +319,9 @@ impl<'a> WorkingNpc<'a> {
                         // interaction source audits reject their external introduction.
                         target_evading_home: false,
                         source_ignores_feign_death: row.static_flags2 & IGNORE_FEIGN_DEATH != 0,
-                        target_feigning_death_successfully: false,
+                        target_feigning_death_successfully: view.catalog.player.control.unit_state
+                            & 0x4
+                            != 0,
                     },
                 ))?,
             ))
@@ -426,4 +484,46 @@ pub enum CombatFacts {
     MeleeFront(ai::movement::Check),
     MeleeDamage(MeleeCombatFacts),
     MeleeCombatEntry(MeleeEntryFacts),
+}
+
+// Unit.h IsFeigningDeathSuccessfully: UNIT_STAT_FEIGN_DEATH = 0x4.
+fn player_offline_target(player_unit_state: u32, creature_static_flags2: u32) -> bool {
+    creature_static_flags2 & IGNORE_FEIGN_DEATH == 0 && player_unit_state & 0x4 != 0
+}
+
+#[cfg(test)]
+mod hostile_reference_tests {
+    use super::*;
+    #[test]
+    fn offline_target_matches_exact_source_raw_bit_corpus() {
+        let mut count = 0;
+        for line in include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../benilla-sim/tests/fixtures/hostile_reference_cmangos.test-fixture"
+        ))
+        .lines()
+        {
+            if !line.starts_with("P ") {
+                continue;
+            }
+            let (input, output) = line.split_once(" | ").unwrap();
+            let input: Vec<_> = input.split_whitespace().collect();
+            let expected = output.split_whitespace().next().unwrap() == "1";
+            assert_eq!(
+                player_offline_target(input[2].parse().unwrap(), input[3].parse().unwrap()),
+                expected,
+                "{line}"
+            );
+            count += 1;
+        }
+        assert_eq!(count, 528);
+    }
+    #[test]
+    fn offline_target_uses_successful_feign_and_actual_ignore_flag_only() {
+        assert!(!player_offline_target(0, 0));
+        assert!(player_offline_target(0x4, 0));
+        assert!(!player_offline_target(0x4, IGNORE_FEIGN_DEATH));
+        assert!(!player_offline_target(0x8, 0));
+        assert!(player_offline_target(0x4, NO_WOUNDED_SLOWDOWN));
+    }
 }

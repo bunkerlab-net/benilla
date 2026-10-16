@@ -292,11 +292,11 @@ fn altered_receipt_policy_and_unreceipted_xp_lock_fail_restore() {
         }
         let state: super::persistence::StateCheckpoint =
             serde_json::from_value(forged["state"].clone()).unwrap();
-        let digest = crate::digest(b"benilla-native-state-v27\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v28\0", &state);
         forged["digest"] = serde_json::to_value(digest).unwrap();
         let tip: crate::Digest = serde_json::from_value(forged["history_tip"].clone()).unwrap();
         forged["checksum"] = serde_json::to_value(crate::digest(
-            b"benilla-native-checkpoint-v27\0",
+            b"benilla-native-checkpoint-v28\0",
             &(state, digest, tip),
         ))
         .unwrap();

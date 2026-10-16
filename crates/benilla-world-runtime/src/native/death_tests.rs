@@ -226,6 +226,8 @@ fn two_npc_event_time_damage_then_lethal_detaches_before_later_ai_and_rolls_back
     assert_eq!(w.state.npcs[&3].ai.phase(), ai::Phase::ReturningHome);
     assert_eq!(w.state.npcs[&2].ai.phase(), ai::Phase::Combat);
     assert_eq!(w.state.npcs[&2].ai.threat(), ai::Real::ZERO);
+    assert!(w.state.npcs[&2].ai.hostile_reference().is_none());
+    assert_eq!(w.state.npcs[&2].ai.current_victim(), None);
     assert_eq!(w.state.npcs[&2].ai.target(), Some(SOLO_UNIT));
     assert_eq!(w.state.npcs[&2].ai.victim_detached_at_ms(), Some(1600));
     let r = w.last_tick().unwrap();
@@ -251,6 +253,8 @@ fn existing_threat_is_removed_and_dead_caster_dot_does_not_deadlock_next_frame()
     assert_eq!(w.state.health, 0);
     // B's aura is removed by its normal same-frame evade, not by player's death.
     assert_eq!(w.state.npcs[&3].ai.phase(), ai::Phase::ReturningHome);
+    assert!(w.state.npcs[&3].ai.hostile_reference().is_none());
+    assert_eq!(w.state.npcs[&3].ai.current_victim(), None);
     run(&mut w, 23, &mut a);
     reload(&w);
 }
@@ -315,9 +319,9 @@ fn resigned_death_clock_killer_and_detached_state_tamper_is_rejected() {
             _ => unreachable!(),
         }
         let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v27\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v28\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v27\0",
+            b"benilla-native-checkpoint-v28\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(
@@ -410,4 +414,45 @@ fn receipt_token_rejects_another_same_id_prepared_state_before_emitting_effects(
     assert!(!called);
     assert_eq!(living.checkpoint(), before);
     assert_eq!(living.phase(), ai::Phase::Idle);
+}
+
+#[test]
+fn rehashed_owned_hostile_reference_forgery_is_rejected() {
+    let (mut w, mut a) = two(20);
+    let i = command(&w, 3);
+    w.step(1, Some(i), &mut a).unwrap();
+    run(&mut w, 19, &mut a);
+    assert!(w.state.npcs[&3].ai.hostile_reference().is_some());
+    for case in [
+        "missing",
+        "target",
+        "invalid_online",
+        "offline_current",
+        "detach",
+        "version",
+    ] {
+        let mut v = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
+        let ai = &mut v["state"]["npcs"]["3"]["ai"];
+        match case {
+            "missing" => ai["hostile_references"]["reference"] = serde_json::Value::Null,
+            "target" => ai["hostile_references"]["reference"]["target_guid"] = 42.into(),
+            "invalid_online" => ai["hostile_references"]["reference"]["valid"] = false.into(),
+            "offline_current" => {
+                ai["hostile_references"]["reference"]["membership"] = "Offline".into()
+            }
+            "detach" => ai["victim_detached_at_ms"] = w.state.now_ms.into(),
+            "version" => ai["version"] = 4.into(),
+            _ => unreachable!(),
+        }
+        let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
+        checkpoint.digest = crate::digest(b"benilla-native-state-v28\0", &checkpoint.state);
+        checkpoint.checksum = crate::digest(
+            b"benilla-native-checkpoint-v28\0",
+            &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
+        );
+        assert!(
+            NativeWorld::restore_synthetic_component_test(w.profile.clone(), checkpoint).is_err(),
+            "{case}"
+        );
+    }
 }

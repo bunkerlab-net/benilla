@@ -307,7 +307,15 @@ impl<A: Authority> Frame<'_, A> {
                 bounding_radius: self.profile.player.bounding_radius,
                 moving_and_running: flags.moving_and_running(),
                 alive: self.state.health > 0,
-                online: true,
+                // Once linked, only the owned HostileReference callback changes online state.
+                // Before acquisition, the selected source catalogs independently resolve it.
+                online: match npc.ai.hostile_reference() {
+                    Some(reference) => reference.online(),
+                    None if self.profile.source_combat_authority() => {
+                        !self.profile.source_player_offline_target(npc.id)?
+                    }
+                    None => true, // legacy source-motion adapter without source combat authority
+                },
                 can_attack_in_combat: facts.can_attack_in_combat,
                 can_attack_on_sight: facts.can_attack_on_sight,
                 visible: facts.visible,

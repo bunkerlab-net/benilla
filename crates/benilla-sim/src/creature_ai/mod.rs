@@ -8,7 +8,9 @@
 //! generation, scripts, roaming, health/regen and native row resolution are external.
 //! No wire decoding, wallclock, assets, fixed damage, teleport or stationary chase.
 
+pub mod hostile_reference;
 pub mod movement;
+use hostile_reference::{HostileReference, HostileReferences};
 mod numeric;
 use movement::{BlockReason, MovementPurpose, MovementResult, Revision, ValidatedMovement};
 pub use numeric::{
@@ -17,7 +19,7 @@ pub use numeric::{
 };
 
 pub const CREATURE_AI_POLICY_ID: &str =
-    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-events-v4";
+    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-events-v5";
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
 
@@ -304,7 +306,7 @@ pub struct SoloCreatureAi {
     target: Option<u64>,
     victim_detached_at_ms: Option<u64>,
     pending_receipts: Option<(u64, u64)>,
-    threat: Real,
+    hostile_references: HostileReferences,
     now_ms: u64,
     sequence: u64,
     receipt_id: u64,
@@ -376,7 +378,7 @@ impl SoloCreatureAi {
             target: None,
             victim_detached_at_ms: None,
             pending_receipts: None,
-            threat: Real::ZERO,
+            hostile_references: HostileReferences::new(),
             sequence: 0,
             receipt_id: 0,
             movement_request_id: 0,
@@ -414,7 +416,29 @@ impl SoloCreatureAi {
         self.target
     }
     pub fn threat(&self) -> Real {
-        self.threat
+        self.hostile_reference()
+            .map_or(Real::ZERO, HostileReference::threat)
+    }
+    pub fn hostile_reference(&self) -> Option<&HostileReference> {
+        self.hostile_references.reference()
+    }
+    pub fn current_victim(&self) -> Option<u64> {
+        self.hostile_references.current_victim()
+    }
+    /// HostileRefManager::updateThreatTables callback; no Unit clock or timer advance.
+    pub fn update_online_status(
+        &mut self,
+        target: u64,
+        rebound_target: Option<u64>,
+        offline: bool,
+    ) -> Result<bool, AiError> {
+        if self.pending_receipts.is_some() {
+            return Err(AiError::Invalid("online status during receipt prelude"));
+        }
+        Ok(!self
+            .hostile_references
+            .update_online_status(target, rebound_target, offline)?
+            .is_empty())
     }
     pub fn mainhand_timer_ms(&self) -> u32 {
         self.mainhand_ms
@@ -631,7 +655,7 @@ impl SoloCreatureAi {
             && self.target == Some(target)
             && self.victim_detached_at_ms.is_none();
         if stopped {
-            self.threat = Real::ZERO;
+            self.hostile_references.remove(target)?;
             self.victim_detached_at_ms = Some(event_ms);
         }
         Ok(stopped)
@@ -786,8 +810,23 @@ impl SoloCreatureAi {
         if self.phase != Phase::Combat {
             return Ok(effects);
         }
+        // Unit::SelectHostileTarget calls getHostileTarget only for a nonempty
+        // online container; an offline/removed reference does not clear dirty.
+        if self
+            .hostile_reference()
+            .is_some_and(HostileReference::online)
+        {
+            self.hostile_references.select_current_victim();
+        }
         let Some(t) = o.target.as_ref().filter(|t| {
-            t.alive && t.online && Some(t.id) == self.target && self.victim_detached_at_ms.is_none()
+            t.alive
+                && t.online
+                && Some(t.id) == self.target
+                && self.victim_detached_at_ms.is_none()
+                && self
+                    .hostile_references
+                    .reference()
+                    .is_some_and(|r| r.valid() && r.online())
         }) else {
             self.evade(EvadeReason::NoTarget, &mut effects)?;
             return Ok(effects);
@@ -948,7 +987,7 @@ impl SoloCreatureAi {
             self.phase = Phase::Corpse;
             self.target = None;
             self.victim_detached_at_ms = None;
-            self.threat = Real::ZERO;
+            self.hostile_references.clear();
             self.motion = None;
             self.unreachable_ms = 0;
             self.corpse_at_ms = self
@@ -1006,7 +1045,8 @@ impl SoloCreatureAi {
                     return Err(AiError::Invalid("periodic threat without combat"));
                 }
                 self.attack_start(t, effects)?;
-                self.threat = self.threat.add(*amount)?;
+                self.hostile_references
+                    .add_threat(t.id, *amount, !t.online)?;
                 if *kind == ThreatKind::DirectDamage {
                     self.refresh_pursuit();
                 }
@@ -1026,7 +1066,8 @@ impl SoloCreatureAi {
         self.target = Some(t.id);
         self.victim_detached_at_ms = None;
         self.combat_start = self.position;
-        self.threat = Real::ZERO;
+        self.hostile_references
+            .add_threat(t.id, Real::ZERO, !t.online)?;
         self.refresh_pursuit();
         self.combat_tick_ms = COMBAT_TICK_MS;
         effects.push(Effect::CombatStarted { target: t.id });
@@ -1068,7 +1109,7 @@ impl SoloCreatureAi {
         }
         self.target = None;
         self.victim_detached_at_ms = None;
-        self.threat = Real::ZERO;
+        self.hostile_references.clear();
         self.unreachable_ms = 0;
         self.pursuit_ms = 0;
         self.phase = Phase::ReturningHome;

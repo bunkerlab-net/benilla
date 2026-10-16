@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v27\0", self)
+        crate::digest(b"benilla-native-record-v28\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,10 +212,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v27\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v28\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v27\0",
+                    b"benilla-native-checkpoint-v28\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -351,7 +351,7 @@ impl NativeWorld {
             state,
         )?;
         let state = self.snapshot_of(state);
-        let digest = crate::digest(b"benilla-native-state-v27\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v28\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -361,7 +361,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v27\0",
+            b"benilla-native-checkpoint-v28\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -389,10 +389,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v27\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v28\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v27\0",
+                    b"benilla-native-checkpoint-v28\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -509,6 +509,10 @@ impl NativeWorld {
         if resources.last_mana_use_timer_ms() != expected_mana_timer {
             return Err(NativeError::InvalidCheckpoint);
         }
+        let offline_targets = profile
+            .source_combat_authority()
+            .then(|| profile.source_player_offline_targets())
+            .transpose()?;
         let mut npcs = BTreeMap::new();
         for (id, n) in s.npcs {
             let p = profile.npc(id).ok_or(NativeError::InvalidCheckpoint)?;
@@ -528,6 +532,21 @@ impl NativeWorld {
             }
             let ai = ai::SoloCreatureAi::restore(n.ai, p.ai.clone(), s.now_ms, s.tick, SOLO_UNIT)?;
             ai.validate_fixed_step(profile.tick_ms)?;
+            // The selected native source domain owns the available player and excludes
+            // feign-changing hooks. Generic AI offline/unresolved links are not reachable here.
+            if let Some(offline_targets) = &offline_targets {
+                if let Some(reference) = ai.hostile_reference() {
+                    if !reference.valid()
+                        || reference.online()
+                            == *offline_targets
+                                .get(&n.id.spawn)
+                                .ok_or(NativeError::InvalidCheckpoint)?
+                    {
+                        return Err(NativeError::InvalidCheckpoint);
+                    }
+                }
+            }
+
             if profile.source_motion.is_none() && ai.has_pre_unit_death() {
                 return Err(NativeError::InvalidCheckpoint);
             }
@@ -939,9 +958,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v27\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v28\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v27\0",
+            b"benilla-native-checkpoint-v28\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

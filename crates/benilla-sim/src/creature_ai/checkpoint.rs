@@ -2,7 +2,7 @@
 //! Checked AI checkpoints, separate from live non-deserializable authority state.
 use super::*;
 use serde::{Deserialize, Serialize};
-pub const AI_CHECKPOINT_VERSION: u32 = 4;
+pub const AI_CHECKPOINT_VERSION: u32 = 5;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiCheckpoint {
@@ -14,7 +14,7 @@ pub struct AiCheckpoint {
     target: Option<u64>,
     victim_detached_at_ms: Option<u64>,
     pending_receipts: Option<(u64, u64)>,
-    threat: Real,
+    hostile_references: HostileReferences,
     now_ms: u64,
     sequence: u64,
     receipt_id: u64,
@@ -45,7 +45,7 @@ impl SoloCreatureAi {
             target: self.target,
             victim_detached_at_ms: self.victim_detached_at_ms,
             pending_receipts: self.pending_receipts,
-            threat: self.threat,
+            hostile_references: self.hostile_references.clone(),
             now_ms: self.now_ms,
             sequence: self.sequence,
             receipt_id: self.receipt_id,
@@ -77,10 +77,13 @@ impl SoloCreatureAi {
         for point in [s.position, s.combat_start, s.last_refresh] {
             point.validate()?;
         }
-        s.threat.nonnegative("checkpoint threat")?;
+        s.hostile_references.validate(solo_target)?;
         if s.pending_receipts.is_some()
             || s.victim_detached_at_ms.is_some_and(|at| {
-                at != now_ms || s.phase != Phase::Combat || s.threat != Real::ZERO
+                at != now_ms
+                    || s.phase != Phase::Combat
+                    || s.hostile_references.reference().is_some()
+                    || s.hostile_references.current_victim().is_some()
             })
             || s.version != AI_CHECKPOINT_VERSION
             || s.now_ms != now_ms
@@ -137,12 +140,15 @@ impl SoloCreatureAi {
         let phase_ok = match s.phase {
             Phase::Idle => {
                 s.target.is_none()
-                    && s.threat == Real::ZERO
+                    && s.hostile_references.reference().is_none()
+                    && s.hostile_references.current_victim().is_none()
                     && s.motion.is_none()
                     && s.unreachable_ms == 0
             }
             Phase::Combat => {
                 s.target == Some(solo_target)
+                    && (s.hostile_references.reference().is_some()
+                        == s.victim_detached_at_ms.is_none())
                     && s.motion.as_ref().is_some_and(|m| {
                         m.purpose
                             == MovementPurpose::Chase {
@@ -153,7 +159,8 @@ impl SoloCreatureAi {
             }
             Phase::ReturningHome => {
                 s.target.is_none()
-                    && s.threat == Real::ZERO
+                    && s.hostile_references.reference().is_none()
+                    && s.hostile_references.current_victim().is_none()
                     && s.unreachable_ms == 0
                     && s.motion.as_ref().is_some_and(|m| {
                         m.purpose == MovementPurpose::Home && m.home == Some(s.combat_start)
@@ -161,7 +168,8 @@ impl SoloCreatureAi {
             }
             Phase::Corpse | Phase::Despawned => {
                 s.target.is_none()
-                    && s.threat == Real::ZERO
+                    && s.hostile_references.reference().is_none()
+                    && s.hostile_references.current_victim().is_none()
                     && s.motion.is_none()
                     && s.unreachable_ms == 0
                     && s.corpse_at_ms >= profile.clock_origin_ms
@@ -182,7 +190,7 @@ impl SoloCreatureAi {
             target: s.target,
             victim_detached_at_ms: s.victim_detached_at_ms,
             pending_receipts: None,
-            threat: s.threat,
+            hostile_references: s.hostile_references,
             now_ms: s.now_ms,
             sequence: s.sequence,
             receipt_id: s.receipt_id,
