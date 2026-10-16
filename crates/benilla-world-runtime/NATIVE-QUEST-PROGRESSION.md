@@ -169,6 +169,41 @@ or concurrent-store state requires reopen. A crash after durable save but before
 publication can omit a transient notification; there is no unacknowledged network
 exactly-once delivery claim. Durable quest/XP/money awards themselves remain once.
 
+## Distinct-actor source-selected component loop
+
+The authored native33 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
+composes the selected interaction, combat, spell-133, current-pose facing, complete
+visitor, quest, progression and loot hosts. A is the hostile kill target; neutral-to-all
+B is both starter and finisher with matching QUESTGIVER flags and relations. B keeps
+ordinary Aggressive empty-AI/script EventAI selection, full motion/event ownership
+and retaliation. The external adapter supplies only expressly synthetic spatial
+observations and refuses escaped semantic quest, loot, combat or legacy spell requests.
+The raw 173-word spell rows, initializer, progression recipe and motion hit metadata
+match each other; all rows and the spell values are original test inputs.
+
+The quest requires both one A kill and one ordinary positive-chance corpse item,
+with the source loader's exact KILL | SPEAK | DELIVER flags. Both creature entries
+have complete kill and loot rows, and the progression catalog supplies the full
+configured level-1–60 stat/training closure. Killing alone is incomplete. Collection
+updates the objective before item storage, and turn-in destroys the required item
+before rewarding XP/money and updating reached levels.
+
+The [runtime guards](src/native/distinct_quest_tests.rs) cover stale/wrong actors,
+relations, flags, exact interaction range, missing closures, B retaliation and
+whole-frame rollback after a late B receipt at lethal-credit and reward ticks.
+The actual app [controller fixture](../benilla-app/src/net/p2p/world/native_controller/distinct_quest_loop_tests.rs)
+uses stock quest/spell/loot commands through NativeController, NativeProjection and
+NativeWorldStore. Its tests cover both owner schedules and reversed numeric roles,
+XP-before-kill-credit and requirement-destruction-before-reward ordering, checkpoint
+faults at kill/collection/reward, and save/reopen at accepted, post-kill, pre-loot,
+post-collection and post-reward boundaries. Save retries publish the already committed
+batch once without another authority call or gameplay replay.
+
+This component contract does not establish installed data, graphical playability or
+loaded geometry for the combined quest loop. Its positive reopen checks require
+synthetic spatial/cache authority. Loaded native PathFinder cache reopening and
+production NativeCapability/startup remain closed; neither is inferred from these tests.
+
 ## Explicit remaining native content blockers
 
 - Level-60 numeric progression is not complete melee support. The separate

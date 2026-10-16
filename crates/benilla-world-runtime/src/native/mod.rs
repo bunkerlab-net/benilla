@@ -67,6 +67,8 @@ pub use source_visitors::*;
 mod model;
 mod motion;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_distinct_quest_fixture;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
 pub mod synthetic_two_owner_fixture;
 pub use interactions::{
     CombatAuthorityCatalog, CombatFacts, CombatPhase, CombatQuery, CombatRequest, CombatWitness,
@@ -498,3 +500,6 @@ mod inventory_move_tests;
 
 #[cfg(test)]
 mod spell_range_tests;
+
+#[cfg(test)]
+mod distinct_quest_tests;

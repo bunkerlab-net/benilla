@@ -19,3 +19,11 @@ only the clear `0x10000000` bit from explicit interaction rows and the bounded o
 lifecycle. Missing or edited evidence cannot publish a route or mutate the retained
 cache. The initial warm seed remains `SyntheticFixture`; it is not an authenticated
 first PathFinder lifecycle, source nav/config proof or native admission.
+
+The [distinct-actor quest loop](../benilla-app/src/net/p2p/world/native_controller/distinct_quest_loop_tests.rs)
+composes native33 source-selected quest/combat/spell/loot semantics through that same
+controller. Authored hostile A and combatable neutral questgiver B retain independent
+full visitors and queues. Tests require both a kill and actual corpse-item collection,
+then source-ordered requirement destruction/reward, including late-owner rollback,
+durable publication faults and synthetic-spatial reopen boundaries. This composition
+does not certify installed world content or open the native cache/production gates.
