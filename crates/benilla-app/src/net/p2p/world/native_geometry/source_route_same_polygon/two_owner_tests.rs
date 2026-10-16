@@ -13,10 +13,11 @@ pub(crate) use super::tests::source_session;
 use super::*;
 use benilla_sim::{creature_ai as ai, creature_init};
 use benilla_world_runtime::native::{
-    synthetic_creature_model_fixture as models, synthetic_fixture as f,
-    synthetic_player_model_fixture as player_models, synthetic_two_owner_fixture as scene,
-    Authority, CreatureCollisionWidthRows, CreatureCollisionWidthSource, EffectiveDisabledMMapSet,
-    NativeError, NativeWorld, SelectedMMapConfiguration, SourceVisitorCatalog,
+    synthetic_creature_model_fixture as models, synthetic_distinct_quest_fixture as quest,
+    synthetic_fixture as f, synthetic_player_model_fixture as player_models,
+    synthetic_two_owner_fixture as scene, Authority, CreatureCollisionWidthRows,
+    CreatureCollisionWidthSource, EffectiveDisabledMMapSet, NativeError, NativeWorld,
+    SelectedMMapConfiguration, SourceVisitorCatalog,
 };
 use std::time::Duration;
 
@@ -28,11 +29,38 @@ pub(crate) fn composed_inputs(
     neutral: u64,
     order: [u64; 2],
 ) -> (Profile, Session, SamePolygonProducts) {
-    let environment = fixtures::environment(Arc::clone(&products));
     let mut profile = scene::profile_with_spawns(hostile, neutral, order);
+    profile.player.start = Point::new(5., 9.25, 0.).unwrap();
+    profile_inputs(profile, products, raw_geometry, maps, hostile, order)
+}
+
+/// Preserve the selected quest/combat/spell/facing hosts while loading the same
+/// geometry and model witnesses used by the complete two-owner fixture.
+pub(crate) fn quest_inputs(
+    products: Arc<VmapLiquidProducts>,
+    raw_geometry: [u8; 32],
+    maps: &benilla_formats::MapCatalog,
+    hostile: u64,
+    giver: u64,
+    order: [u64; 2],
+) -> (Profile, Session, SamePolygonProducts) {
+    let mut profile = quest::profile_with_spawns(hostile, giver, order);
+    // A starts outside melee range; B remains within source quest interaction range.
+    profile.player.start = Point::new(5., 6.5, 0.).unwrap();
+    profile_inputs(profile, products, raw_geometry, maps, hostile, order)
+}
+
+fn profile_inputs(
+    mut profile: Profile,
+    products: Arc<VmapLiquidProducts>,
+    raw_geometry: [u8; 32],
+    maps: &benilla_formats::MapCatalog,
+    hostile: u64,
+    order: [u64; 2],
+) -> (Profile, Session, SamePolygonProducts) {
+    let environment = fixtures::environment(Arc::clone(&products));
     profile.map_id = environment.binding().map;
     profile.content_digest = environment.binding().content;
-    profile.player.start = Point::new(5., 9.25, 0.).unwrap();
     for npc in &mut profile.npcs {
         npc.ai.map_id = profile.map_id;
         npc.ai.content_revision = ai::movement::Revision(profile.content_digest);
@@ -54,6 +82,8 @@ pub(crate) fn composed_inputs(
         npc.combat.as_mut().unwrap().minimum_damage = f::float(0.);
         npc.combat.as_mut().unwrap().maximum_damage = f::float(0.);
     }
+    // Remap the complete visitor catalog only after both owners have their
+    // loaded map/content and positions. Gameplay catalogs remain selected.
     profile.source_visitors = Some(
         SourceVisitorCatalog::validate_sources(scene::visitor_input(&profile, order.into()))
             .unwrap(),
@@ -146,7 +176,11 @@ pub(crate) fn composed_inputs(
     (profile, session, inputs)
 }
 
-fn setup(hostile: u64, neutral: u64, order: [u64; 2]) -> (Profile, Session, SamePolygonProviders) {
+fn loaded_fixture() -> (
+    Arc<VmapLiquidProducts>,
+    [u8; 32],
+    benilla_formats::MapCatalog,
+) {
     let raw = RawMap::new(TerrainKind::Flat);
     let (spec, files) = same_polygon_fixture::fixture(&raw);
     let products = fixtures::load(spec, &files);
@@ -162,21 +196,26 @@ fn setup(hostile: u64, neutral: u64, order: [u64; 2]) -> (Profile, Session, Same
         &[],
         inventory.source_digest(),
     );
+    (products, revision, raw.maps())
+}
+
+fn setup(hostile: u64, neutral: u64, order: [u64; 2]) -> (Profile, Session, SamePolygonProviders) {
+    let (products, revision, maps) = loaded_fixture();
     let (profile, session, inputs) =
-        composed_inputs(products, revision, &raw.maps(), hostile, neutral, order);
+        composed_inputs(products, revision, &maps, hostile, neutral, order);
     let providers = inputs.bind(&session, &profile, f::player()).unwrap();
     (profile, session, providers)
 }
 
-struct Capture<'a> {
+struct Capture<'a, A = scene::CompleteAuthority> {
     session: &'a Session,
     providers: &'a mut SamePolygonProviders,
-    other: scene::CompleteAuthority,
+    other: A,
     near: Vec<AuthorityReply>,
     proposals: Vec<SamePolygonProposal>,
     observations: Vec<Observation>,
 }
-impl Authority for Capture<'_> {
+impl<A: Authority> Authority for Capture<'_, A> {
     fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
         self.other.observe_derived(reply)
     }
@@ -234,7 +273,7 @@ fn capture_owner(
     let mut world =
         NativeWorld::synthetic_component_test(profile.clone(), session.world, f::player(), 1234)
             .unwrap();
-    let mut capture = Capture {
+    let mut capture = Capture::<scene::CompleteAuthority> {
         session,
         providers,
         other: Default::default(),
@@ -275,6 +314,274 @@ fn capture_owner(
         result.unwrap();
     }
     panic!("owner {owner} did not request genuine geometry");
+}
+
+#[test]
+fn loaded_quest_profile_preserves_selected_semantics_and_exact_body_witnesses() {
+    use benilla_world_runtime::native::{AbilityAdmission, Rejection, SourceVisitorRows};
+    let (products, revision, maps) = loaded_fixture();
+    for (hostile, giver) in [(2, 3), (3, 2)] {
+        for order in [[2, 3], [3, 2]] {
+            let selected = quest::profile_with_spawns(hostile, giver, order);
+            let (profile, session, inputs) = quest_inputs(
+                Arc::clone(&products),
+                revision,
+                &maps,
+                hostile,
+                giver,
+                order,
+            );
+            profile.validate().unwrap();
+            assert_eq!(profile.interactions, selected.interactions);
+            assert_eq!(profile.combat, selected.combat);
+            assert_eq!(profile.quest_progression, selected.quest_progression);
+            assert_eq!(profile.abilities, selected.abilities);
+            assert_eq!(
+                profile.source_motion.as_ref().unwrap().spell_hits,
+                selected.source_motion.as_ref().unwrap().spell_hits
+            );
+            assert!(profile.has_source_spell_authority());
+            assert_eq!(
+                profile
+                    .abilities
+                    .iter()
+                    .filter(|ability| matches!(ability.admission, AbilityAdmission::Available(_)))
+                    .map(|ability| ability.id)
+                    .collect::<Vec<_>>(),
+                vec![quest::SPELL]
+            );
+            let progression = profile.quest_progression.as_ref().unwrap();
+            assert!(progression.loot.is_some());
+            assert_eq!(progression.npc_flags(quest::HOSTILE_ENTRY), Some(0));
+            assert_eq!(progression.npc_flags(quest::GIVER_ENTRY), Some(2));
+            assert_eq!(profile.npc(hostile).unwrap().max_health, 10);
+            assert_eq!(profile.player.start, Point::new(5., 6.5, 0.).unwrap());
+            assert_eq!(
+                profile.npc(hostile).unwrap().ai.spawn,
+                Point::new(2., 2., 0.).unwrap()
+            );
+            assert_eq!(
+                profile.npc(giver).unwrap().ai.spawn,
+                Point::new(8., 2., 0.).unwrap()
+            );
+            let neutral = profile.npc(giver).unwrap();
+            assert!(neutral.ai.neutral_to_all);
+            assert_eq!(neutral.ai.reaction, ai::Reaction::Aggressive);
+            assert!(profile.npc_motion(giver).unwrap().npc_can_enter_combat);
+            assert!(!neutral.combat.as_ref().unwrap().creature_is_critter);
+            let visitors = profile.source_visitors.as_ref().unwrap();
+            assert_eq!(visitors.owner_order(), order);
+            let owner = visitors.owner(giver).unwrap();
+            assert!(owner.ai_name.is_empty() && owner.script_name.is_empty());
+            assert_eq!(owner.script_id, 0);
+            assert_eq!(owner.spell_list_id, 0);
+            assert_eq!(owner.entry_events, SourceVisitorRows::Complete(vec![]));
+            assert_eq!(owner.guid_events, SourceVisitorRows::Complete(vec![]));
+            assert_eq!(owner.overrides, SourceVisitorRows::Complete(vec![]));
+
+            assert_eq!(profile.map_id, inputs.environment.binding().map);
+            assert_eq!(profile.content_digest, inputs.environment.binding().content);
+            assert_eq!(
+                profile.geometry_revision,
+                inputs.binding().unwrap().geometry_revision().unwrap()
+            );
+            assert_eq!(session.profile, profile.digest());
+            let configuration = profile.pathfinder_configuration().unwrap();
+            assert_eq!(configuration.map_id(), profile.map_id);
+            assert!(configuration.selected().enabled);
+            assert_eq!(configuration.raw_instance_type(), 0);
+            assert!(!configuration.source_is_dungeon());
+            let providers = inputs.bind(&session, &profile, f::player()).unwrap();
+            assert_eq!(providers.route.certified_candidate_count(), 0);
+            let world = NativeWorld::synthetic_component_test(
+                profile.clone(),
+                session.world,
+                f::player(),
+                1234,
+            )
+            .unwrap();
+            for npc in &profile.npcs {
+                let live = &world.state().npcs[&npc.ai.creature_id];
+                let width = live.creature_collision_width().unwrap().witness();
+                let height = live.creature_collision_height().unwrap().witness();
+                width.validate_for(&profile, live.id).unwrap();
+                height.validate_for(&profile, live.id).unwrap();
+                assert_eq!(width.native_display_id(), npc.display_id);
+                assert_eq!(height.native_display_id(), width.native_display_id());
+                assert_eq!(height.width_source_binding(), width.source_binding());
+                assert_eq!(
+                    session.bodies[&live.id.spawn].radius,
+                    npc.ai.bounding_radius
+                );
+                assert_eq!(
+                    session.bodies[&live.id.spawn].height.bits(),
+                    height.height().bits()
+                );
+                assert_eq!(npc.combat.as_ref().unwrap().minimum_damage, f::float(0.));
+                assert_eq!(npc.combat.as_ref().unwrap().maximum_damage, f::float(0.));
+            }
+            assert_ne!(session.bodies[&hostile], session.bodies[&giver]);
+            let player_height = world.state().player_collision_height().unwrap().witness();
+            player_height
+                .validate_for(&profile, session.world, f::player())
+                .unwrap();
+            assert_eq!(
+                session.player.unwrap().body.height.bits(),
+                player_height.height().bits()
+            );
+            let mut authority = quest::spatial_only();
+            let before = world.checkpoint().unwrap();
+            let giver_id = world.state().npcs[&giver].id;
+            let hostile_id = world.state().npcs[&hostile].id;
+            assert!(world
+                .preview_quest_status(giver_id, &mut authority)
+                .unwrap());
+            assert_eq!(
+                world
+                    .preview_quest_interaction(giver_id, quest::QUEST, false, &mut authority)
+                    .unwrap(),
+                None
+            );
+            assert_eq!(
+                world
+                    .preview_quest_interaction(hostile_id, quest::QUEST, false, &mut authority)
+                    .unwrap(),
+                Some(Rejection::QuestInteraction)
+            );
+            assert_eq!(world.checkpoint().unwrap(), before);
+            assert!(
+                authority.queries.is_empty(),
+                "selected quest semantics must stay runtime-owned"
+            );
+
+            let mut missing_hit = profile.clone();
+            missing_hit
+                .source_motion
+                .as_mut()
+                .unwrap()
+                .spell_hits
+                .remove(&quest::SPELL);
+            assert!(missing_hit.validate().is_err());
+            let mut passive = profile;
+            passive
+                .npcs
+                .iter_mut()
+                .find(|npc| npc.ai.creature_id == giver)
+                .unwrap()
+                .ai
+                .reaction = ai::Reaction::Passive;
+            assert!(passive.validate().is_err());
+        }
+    }
+}
+
+#[test]
+fn loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_certificate() {
+    let (products, revision, maps) = loaded_fixture();
+    for (hostile, giver) in [(2, 3), (3, 2)] {
+        for order in [[2, 3], [3, 2]] {
+            let (profile, session, inputs) = quest_inputs(
+                Arc::clone(&products),
+                revision,
+                &maps,
+                hostile,
+                giver,
+                order,
+            );
+            let npc = profile.npc(hostile).unwrap();
+            assert!(!ai::in_melee_range(
+                npc.ai.spawn,
+                profile.player.start,
+                ai::combat_reach(npc.ai.combat_reach, profile.player.combat_reach).unwrap(),
+                f::real(0.),
+            )
+            .unwrap());
+            let mut providers = inputs.bind(&session, &profile, f::player()).unwrap();
+            let mut world = NativeWorld::synthetic_component_test(
+                profile.clone(),
+                session.world,
+                f::player(),
+                1234,
+            )
+            .unwrap();
+            let mut capture = Capture {
+                session: &session,
+                providers: &mut providers,
+                other: quest::spatial_only(),
+                near: vec![],
+                proposals: vec![],
+                observations: vec![],
+            };
+            let mut reached_terminal = false;
+            for _ in 0..50 {
+                let before = world.checkpoint().unwrap();
+                let result = world.step(world.state().tick + 1, None, &mut capture);
+                if let Some(proposal) = capture.proposals.last() {
+                    assert_eq!(
+                        result,
+                        Err(NativeError::AuthorityUnavailable(
+                            "concrete LocalCorridor required"
+                        ))
+                    );
+                    assert_eq!(world.checkpoint().unwrap(), before);
+                    assert_eq!(proposal.context.binding.npc.unwrap().spawn, hostile);
+                    assert!(proposal.dispatch.first_construction());
+                    assert_eq!(
+                        proposal.after_cache().source,
+                        motion::RouteSource::OwnerPathFinder
+                    );
+                    assert_eq!(proposal.after_cache().revision, 1);
+                    let end = proposal.terminal().actual_end().map(f32::from_bits);
+                    let endpoint = Point::new(end[0], end[1], end[2]).unwrap();
+                    eprintln!(
+                        "loaded quest terminal: hostile={hostile}, giver={giver}, order={order:?}, tick={}, endpoint={end:?}, player_distance={}, giver_distance={}",
+                        world.state().tick + 1,
+                        endpoint.distance_squared(profile.player.start).unwrap().as_f32().sqrt(),
+                        endpoint.distance_squared(profile.npc(giver).unwrap().ai.spawn).unwrap().as_f32().sqrt(),
+                    );
+                    assert_eq!(
+                        capture
+                            .near
+                            .last()
+                            .unwrap()
+                            .request
+                            .binding
+                            .npc
+                            .unwrap()
+                            .spawn,
+                        hostile
+                    );
+                    assert_eq!(capture.observations.last(), Some(&Observation::Terminal));
+                    assert_eq!(capture.providers.route.certified_candidate_count(), 0);
+                    assert!(capture
+                        .providers
+                        .route
+                        .committed_candidate_for(world.state().npcs[&hostile].id)
+                        .is_none());
+                    assert!(capture
+                        .providers
+                        .route
+                        .committed_candidate_for(world.state().npcs[&giver].id)
+                        .is_none());
+                    assert!(world
+                        .state()
+                        .quest_progression
+                        .as_ref()
+                        .unwrap()
+                        .quests
+                        .progress(quest::QUEST)
+                        .is_none());
+                    reached_terminal = true;
+                    break;
+                }
+                result.unwrap();
+            }
+            assert!(
+                reached_terminal,
+                "initial hostile chase never reached the loaded terminal"
+            );
+        }
+    }
 }
 
 #[test]

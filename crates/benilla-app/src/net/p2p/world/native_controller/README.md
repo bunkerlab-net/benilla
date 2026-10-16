@@ -431,6 +431,27 @@ reached unrepresented assistance or peer-attack continuation rejects the frame.
 The exact controller tests exercise two NPC GUIDs, A's motion/death/respawn without
 B identity churn, stale A handles, late-owner authority rollback, checkpoint
 publication failure/retry without redispatch, and synthetic replay/reopen. Loaded
-app body/geometry policies remain singleton-only. There is no loaded visitor
+app body/geometry policies cover both selected owners. There is no loaded visitor
 producer, graphical create-to-reopen evidence, production startup admission, or
 permission to reopen a retained native PathFinder cache.
+
+
+## Distinct quest loop with loaded geometry
+
+A separate app-only fixture composes the selected two-actor quest/combat/loot
+catalogs with the installed loaded Environment/NearPoint/same-polygon Route
+Service. The controller-selected identity is bound into the provider policies
+before installation. Natural hostile sight obtains A's native cache before B's
+quest is accepted; stock source-spell133, corpse collection and B reward commands
+then traverse the normal projection/store path. B remains an independent full
+neutral Aggressive owner, and semantic escapes to the synthetic spatial remainder
+fail closed.
+
+Shared controller assertions are also compiled by the headless controller harness,
+but only the app fixture executes the actual Service/LocalCorridor and checks its
+native candidate pointers. That fixture exercises late-owner rollback, pending
+input preservation, checkpoint publication retry without authority reexecution,
+and direct/post-journal native-cache reopening refusal. Cell membership,
+directional visibility, spell visibility/LOS and player pose acceptance remain
+authored. This is not a loaded visitor producer, supported native-cache reopening,
+production entry or an installed-content playability claim.

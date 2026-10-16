@@ -1282,4 +1282,4 @@ impl Driven for NativeController {
 }
 #[cfg(test)]
 #[path = "native_controller/tests.rs"]
-mod tests;
+pub(crate) mod tests;

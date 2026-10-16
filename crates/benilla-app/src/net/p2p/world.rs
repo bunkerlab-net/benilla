@@ -26,6 +26,10 @@ mod entry;
 mod native_controller;
 pub(super) use driver::{run, Control, Driven, Exit};
 pub(super) use entry::{dispatch, Request};
+#[cfg(test)]
+#[allow(unused_imports)]
+// The actual Service fixture is intentionally absent from the headless harness.
+pub(crate) use native_controller::tests::distinct_quest_loop_tests::loaded;
 
 const CHECKPOINT_PERIOD: Duration = Duration::from_secs(10);
 const MAX_ACTIONS: usize = 64;

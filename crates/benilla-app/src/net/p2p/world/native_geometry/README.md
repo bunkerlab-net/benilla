@@ -839,3 +839,33 @@ bounded host. The acknowledgement validator still checks an ordered full chain,
 but no manufactured candidate/notice chain substitutes for a reachable source
 execution. The cache-free respawn test stops before a new constructor: it proves
 obsolete-owner pruning, not constructor-registry churn support.
+
+The distinct-giver quest variant reuses the exact source-selected native33 quest,
+interaction, combat, facing, spell-133 and ordinary loot catalogs. Its app-only
+fixture installs the real Service and LocalCorridor, binds the controller's actual
+selected player into the environment and route policies, and pumps stock commands
+through NativeController, NativeProjection and NativeStore. Natural hostile sight
+must obtain A's first loaded native cache before accepting B's quest; no manually
+installed cache, extra actor or alternative semantic authority supplies that step.
+B stays a complete, independently clocked, combat-capable neutral Aggressive owner.
+
+Only player Environment, source NearPoint and same-polygon Route observations are
+loaded in this variant. The terrain, VMap, MMap and model rows themselves are
+original authored fixtures. Complete cell membership, directional visibility,
+combat accessibility/LOS, spell LOS/impact visibility, Collider(None), and player
+pose acceptance remain expressly synthetic observations. The in-place player turn
+is a stock movement command, not a loaded player movement proof. Semantic queries
+that escape the selected source hosts are rejected by the spatial adapter.
+
+The fixture checks actual candidate pointers and cache identities across controller
+commit acknowledgements, late-B rollback at cache acquisition, acceptance, lethal credit, collection and
+reward, and checkpoint faults at cache acquisition, lethal spell progression, item collection
+and reward. Native heads remain unpromoted until the successful tick's required
+save/publication barrier; checkpoint retry does not rerun commands or authority.
+Direct saved-cache reopening and reopening a cache-free base whose journal adds an
+actual loaded cache must both reject. A's death may clear its cache; this variant
+never treats that endpoint as proof of loaded-cache rehydration. The headless
+harness compiles the shared controller assertions and tests loaded input/proposal
+composition only. The actual installed Service/physics tests require full app CI;
+no production admission, installed private content, graphical playability or wider
+navigation domain follows from these authored component tests.

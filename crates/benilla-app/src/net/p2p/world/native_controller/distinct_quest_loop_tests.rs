@@ -7,10 +7,14 @@ use n::synthetic_distinct_quest_fixture as loop_fixture;
 
 struct LoopCatalog {
     quest: q::QuestRow,
+    map: u32,
+    displays: Vec<u32>,
 }
 impl LoopCatalog {
     fn new(profile: &n::Profile) -> Self {
         Self {
+            map: profile.map_id,
+            displays: profile.npcs.iter().map(|npc| npc.display_id).collect(),
             quest: profile
                 .quest_progression
                 .as_ref()
@@ -29,10 +33,10 @@ impl ClientCatalog for LoopCatalog {
         Catalog.manifest_digest()
     }
     fn contains_map(&self, id: u32) -> bool {
-        Catalog.contains_map(id)
+        id == self.map
     }
     fn contains_creature_display(&self, id: u32) -> bool {
-        matches!(id, 60001 | 96002)
+        self.displays.contains(&id)
     }
     fn contains_item_display(&self, id: u32) -> bool {
         matches!(id, 70002 | 900002)
@@ -111,6 +115,7 @@ impl ClientCatalog for LoopCatalog {
     }
     fn quest_metadata(&self, id: u32) -> Option<benilla_world_client::QuestMetadata> {
         let mut metadata = Catalog.quest_metadata(id)?;
+        metadata.template.point_map_id = self.map;
         for (i, objective) in metadata.template.objectives.iter_mut().enumerate() {
             objective.creature_or_go = self.quest.required_creature[i] as u32;
             objective.required_count = self.quest.required_creature_count[i];
@@ -326,3 +331,7 @@ fn assert_source_hosts(controls: &Controls) {
 mod fault_tests;
 #[path = "distinct_quest_loop_progress_tests.rs"]
 mod progress_tests;
+
+#[allow(dead_code)] // Invoked by the app-only loaded Service fixture; compiled by the controller harness.
+#[path = "loaded_quest_loop_fixture.rs"]
+pub(crate) mod loaded;
