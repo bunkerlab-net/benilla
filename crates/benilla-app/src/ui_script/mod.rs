@@ -391,6 +391,9 @@ impl Plugin for UiScriptPlugin {
                     login_options::escape,
                     // Off the walk that just ran, for the pick and the arbiter after the pass.
                     crate::vplates::seed_plate_hover,
+                    // Bindings also belong to UiInput: publish wheel ownership inside the
+                    // phase, after hover seeding and before those gameplay consumers.
+                    arbitrate_pointer_over_ui,
                 )
                     .chain()
                     .in_set(UiInput)
@@ -405,14 +408,6 @@ impl Plugin for UiScriptPlugin {
                     .in_set(UiPaint)
                     .after(crate::vplates::VPlateSet)
                     .before(crate::ui_pass::UiQuadAppend),
-            )
-            // After the hover is known and before gameplay reads `PointerOverUi`.
-            .add_systems(
-                Update,
-                arbitrate_pointer_over_ui
-                    .after(UiInput)
-                    .before(crate::bindings::BindingSet)
-                    .before(WorldStage::Input),
             );
 
         // A UI capture's synthetic unit snapshots, after the real feed so they win.

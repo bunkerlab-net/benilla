@@ -642,7 +642,7 @@ fn malformed_and_forged_peer_frames_disconnect_only_the_offender() {
                 protocol_version: benilla_p2p::PROTOCOL_VERSION,
                 network: config.0.network.clone(),
                 peer_id: identity.owner_id(),
-                ruleset_hash: config.1.fingerprint(),
+                ruleset_hash: config.0.timezone.exploration_fingerprint(config.1),
                 content_version: CONTENT_VERSION.into(),
             },
             identity,
@@ -651,8 +651,12 @@ fn malformed_and_forged_peer_frames_disconnect_only_the_offender() {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             assert!(Instant::now() < deadline, "attacker fixture handshake");
-            if matches!(network.try_recv(), Ok(Event::PeerJoined(_))) {
-                break;
+            match network.try_recv() {
+                Ok(Event::PeerJoined(_)) => break,
+                Ok(Event::Rejected { reason, .. }) => {
+                    panic!("attacker fixture handshake rejected: {reason}");
+                }
+                _ => {}
             }
             thread::sleep(Duration::from_millis(5));
         }

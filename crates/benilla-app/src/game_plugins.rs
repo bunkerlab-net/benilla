@@ -454,7 +454,12 @@ pub(crate) mod schedule_tests {
             }
             // Pass 2: build, and read what the build found. `is_send` is only known once a
             // system's params have registered their access, i.e. after this.
-            schedule.initialize(world).expect("the schedule builds");
+            schedule.initialize(world).unwrap_or_else(|error| {
+                panic!(
+                    "the schedule builds: {}",
+                    error.to_string(schedule.graph(), world)
+                )
+            });
             let mut non_send = Vec::new();
             for (key, system) in schedule.systems().expect("initialized") {
                 if !system.is_send() {
@@ -933,6 +938,10 @@ pub(crate) mod schedule_tests {
         for (producer, consumer) in [
             (
                 "::ui_script::input::feed_ui_input",
+                "::ui_script::arbitrate_pointer_over_ui",
+            ),
+            (
+                "::vplates::seed_plate_hover",
                 "::ui_script::arbitrate_pointer_over_ui",
             ),
             (
