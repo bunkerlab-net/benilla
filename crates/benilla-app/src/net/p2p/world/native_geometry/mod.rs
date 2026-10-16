@@ -321,9 +321,17 @@ fn process(
                 1,
                 deadline,
             )
-            .map_err(|error| match error {
-                source_route_same_polygon::SamePolygonError::Dependency(failure) => failure,
-                _ => Failure::MissingGeometry,
+            .map_err(|error| {
+                #[cfg(test)]
+                eprintln!(
+                    "native geometry service route failure: tick={} error={error:?} deadline_expired={}",
+                    request.binding.tick,
+                    std::time::Instant::now() >= deadline,
+                );
+                match error {
+                    source_route_same_polygon::SamePolygonError::Dependency(failure) => failure,
+                    _ => Failure::MissingGeometry,
+                }
             });
         }
         let mut corridor = LocalCorridor {
@@ -414,6 +422,8 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
             return Err(Failure::UnsupportedNavigation);
         }
         if !found_root {
+            #[cfg(test)]
+            eprintln!("native geometry corridor failure: stage=terrain collider membership error=missing terrain root");
             return Err(Failure::MissingGeometry);
         }
         let radius = body.radius.as_f32();
@@ -498,6 +508,8 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
     }
 }
 fn coverage_failure(error: CoverageError) -> Failure {
+    #[cfg(test)]
+    eprintln!("native geometry corridor failure: stage=raw coverage error={error:?}");
     // Unsupported is different from not-yet-loaded, but neither is an unreachable path.
     match error {
         CoverageError::InvalidInput | CoverageError::MalformedTerrain => Failure::Invalid,

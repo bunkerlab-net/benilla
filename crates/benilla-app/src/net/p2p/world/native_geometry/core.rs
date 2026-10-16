@@ -807,16 +807,51 @@ impl Mailbox {
             if Instant::now() >= work.deadline {
                 continue;
             }
+            #[cfg(test)]
+            let started = Instant::now();
+            #[cfg(test)]
+            let mut stage = "session.body";
             let result = self.session.body(&work.request).and_then(|body| {
+                #[cfg(test)]
+                {
+                    stage = "provider callback";
+                }
                 let facts = geometry(
                     &self.session,
                     &work.request,
                     body,
                     work.deadline.min(deadline),
                 )?;
+                #[cfg(test)]
+                {
+                    stage = "validate_facts";
+                }
                 validate_facts(&self.session, &work.request, &facts)?;
                 Ok(facts)
             });
+            #[cfg(test)]
+            if let Err(error) = &result {
+                let ended = Instant::now();
+                eprintln!(
+                    "native geometry mailbox failure: tick={} ticket={} query={:?} stage={stage} \
+                     error={error:?} elapsed={:?} job_expired_before={} job_expired_after={} \
+                     frame_expired_before={} frame_expired_after={} \
+                     job_remaining_before={:?} frame_remaining_before={:?} \
+                     job_remaining_after={:?} frame_remaining_after={:?}",
+                    work.request.binding.tick,
+                    work.ticket,
+                    work.request.query,
+                    ended.duration_since(started),
+                    started >= work.deadline,
+                    ended >= work.deadline,
+                    started >= deadline,
+                    ended >= deadline,
+                    work.deadline.saturating_duration_since(started),
+                    deadline.saturating_duration_since(started),
+                    work.deadline.saturating_duration_since(ended),
+                    deadline.saturating_duration_since(ended),
+                );
+            }
             if Instant::now() >= work.deadline {
                 continue;
             }

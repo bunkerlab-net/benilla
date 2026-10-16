@@ -481,7 +481,31 @@ impl SourceSamePolygonRouteProvider {
         first_ticket: u64,
         deadline: Instant,
     ) -> Result<SamePolygonProposal, SamePolygonError> {
-        self.calculate_observed(session, context, first_ticket, deadline, |_| {})
+        #[cfg(not(test))]
+        {
+            self.calculate_observed(session, context, first_ticket, deadline, |_| {})
+        }
+        #[cfg(test)]
+        {
+            let started = Instant::now();
+            let mut last_completed = None;
+            let result =
+                self.calculate_observed(session, context, first_ticket, deadline, |stage| {
+                    last_completed = Some(stage);
+                });
+            if let Err(error) = &result {
+                let ended = Instant::now();
+                eprintln!(
+                    "native geometry route calculate failure: tick={} last_completed={last_completed:?} \
+                     error={error:?} elapsed={:?} deadline_expired_before={} deadline_expired_after={}",
+                    context.binding.tick,
+                    ended.duration_since(started),
+                    started >= deadline,
+                    ended >= deadline,
+                );
+            }
+            result
+        }
     }
     fn calculate_observed(
         &mut self,
@@ -742,8 +766,15 @@ impl SourceSamePolygonRouteProvider {
 fn bits(point: Point) -> [u32; 3] {
     [point.x.bits(), point.y.bits(), point.z.bits()]
 }
+#[cfg_attr(test, track_caller)]
 fn require_time(deadline: Instant) -> Result<(), Failure> {
     if Instant::now() >= deadline {
+        #[cfg(test)]
+        eprintln!(
+            "native geometry route deadline failure: checkpoint={} overdue={:?}",
+            std::panic::Location::caller(),
+            Instant::now().saturating_duration_since(deadline),
+        );
         Err(Failure::MissingGeometry)
     } else {
         Ok(())

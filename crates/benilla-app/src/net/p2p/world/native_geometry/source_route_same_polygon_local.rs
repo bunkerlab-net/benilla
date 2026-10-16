@@ -44,6 +44,12 @@ pub(super) fn resolve(
     }
     let [from, to] = [q.origin, q.goal].map(|p| [p.x.as_f32(), p.y.as_f32(), p.z.as_f32()]);
     if Instant::now() >= deadline {
+        #[cfg(test)]
+        eprintln!(
+            "native geometry local route deadline failure: tick={} checkpoint=before corridor.certify overdue={:?}",
+            context.binding.tick,
+            Instant::now().saturating_duration_since(deadline),
+        );
         return Err(Failure::MissingGeometry.into());
     }
     // Real raw coverage, membership, body sweep, elevated LOS and whole swept
@@ -51,8 +57,23 @@ pub(super) fn resolve(
     corridor.certify(from, to, body)?;
     // This is separate from the Chase gate's owner-height / target-height ray.
     // Every route segment uses the owner's height at BOTH ends and includes M2.
-    provider.segment_line_of_sight(session, &proposal, segment_ticket, deadline)?;
+    let sight = provider.segment_line_of_sight(session, &proposal, segment_ticket, deadline);
+    #[cfg(test)]
+    if let Err(error) = &sight {
+        eprintln!(
+            "native geometry local route failure: tick={} stage=segment_line_of_sight error={error:?} deadline_expired={}",
+            context.binding.tick,
+            Instant::now() >= deadline,
+        );
+    }
+    sight?;
     if Instant::now() >= deadline {
+        #[cfg(test)]
+        eprintln!(
+            "native geometry local route deadline failure: tick={} checkpoint=after segment_line_of_sight overdue={:?}",
+            context.binding.tick,
+            Instant::now().saturating_duration_since(deadline),
+        );
         return Err(Failure::MissingGeometry.into());
     }
     let mut identity = Sha256::new();

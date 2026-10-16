@@ -170,7 +170,11 @@ fn real_corridor_first_route_survives_later_frame_failure_retry_and_retained_rep
                 tick: world.state().tick + 1,
                 player: world.state().player,
                 sequence: world.state().next_sequence,
-                command: Command::Move { destination },
+                command: Command::MovementPose {
+                    destination,
+                    orientation: world.state().orientation,
+                    movement_flags: motion::GroundMovementFlags::STOPPED,
+                },
             },
         };
         world
@@ -259,7 +263,16 @@ impl Authority for TransportConsumer {
             Query::PlayerEnvironment(_)
                 | Query::SourceMotion(MotionQuery::NearPoint(_) | MotionQuery::Route(_))
         ) {
-            let reply = self.local.resolve(request)?;
+            let started = Instant::now();
+            let reply = self.local.resolve(request).inspect_err(|error| {
+                eprintln!(
+                    "native geometry transport failure: tick={} query={:?} route_replies={} elapsed={:?} error={error:?}",
+                    request.binding.tick,
+                    request.query,
+                    self.replies.len(),
+                    started.elapsed(),
+                );
+            })?;
             if matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))) {
                 self.replies.push(reply.clone());
             }
@@ -345,7 +358,11 @@ fn installed_service_mailbox_executes_fresh_dispatch_retry_and_retained_route() 
                     tick: world.state().tick + 1,
                     player: world.state().player,
                     sequence: world.state().next_sequence,
-                    command: Command::Move { destination },
+                    command: Command::MovementPose {
+                        destination,
+                        orientation: world.state().orientation,
+                        movement_flags: motion::GroundMovementFlags::STOPPED,
+                    },
                 },
             };
             world
