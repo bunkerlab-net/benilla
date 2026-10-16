@@ -968,6 +968,49 @@ pub(crate) mod schedule_tests {
         }
     }
 
+    /// Recovery uses the shared glue art and this frame's window snapshot, like the settings
+    /// painter: after screen preparation and input, before pending video changes are committed.
+    #[test]
+    fn character_recovery_orders_shared_art_and_window_access() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !type_names_available(&graph) {
+            return;
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let recovery = "::char_select::recovery::drive";
+        for (producer, consumer) in [
+            ("::login::screen::materialize_screen", recovery),
+            ("::realm_select::screen::drive_screen", recovery),
+            ("::player::controller::control", recovery),
+            (recovery, "::video::apply_present_mode"),
+            (recovery, "::video::apply_window_mode"),
+        ] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&key(consumer)),
+                "{producer} must precede {consumer}"
+            );
+        }
+    }
+
     /// P2P zone publication observes both the resolved app zone and the service
     /// selected by this frame's login action; Present alone orders neither writer.
     #[test]

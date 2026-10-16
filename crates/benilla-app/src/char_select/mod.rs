@@ -107,7 +107,12 @@ impl Plugin for CharSelectPlugin {
                         screen::materialize_screen,
                         input::select_input.run_if(crate::ui_script::glue::native_glue),
                         input::rotate_model.run_if(crate::ui_script::glue::native_glue),
-                        recovery::drive.run_if(crate::ui_script::glue::native_glue),
+                        // Read the shared glue art after its loaders and snapshot the window
+                        // before the CVar flush commits any pending display-mode restart.
+                        recovery::drive
+                            .after(crate::login::login_input)
+                            .before(crate::cvars::sync_cvars)
+                            .run_if(crate::ui_script::glue::native_glue),
                         debug_select_dialog,
                         dialog::drive_delete_dialog.run_if(crate::ui_script::glue::native_glue),
                         // Ahead of the dialog driver, so a refused delete shows the frame it lands.
