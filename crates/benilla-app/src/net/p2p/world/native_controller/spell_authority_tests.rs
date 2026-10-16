@@ -193,6 +193,7 @@ fn real_static_los_missing_and_changed_geometry_pause_without_publication_then_r
         primary_near_point: None,
         empty_selector_near_point: None,
         player_environment: None,
+        same_polygon_route: None,
     };
     assert!(StaticLosPolicy::from_profile(&data, false).is_err());
     let mode = Arc::new(AtomicU64::new(1));

@@ -187,6 +187,18 @@ impl SourceRouteFilterProvider {
         Self::bind_revision(session, profile, snapshot, expected)
     }
 
+    pub(super) fn bind_with_same_polygon(
+        session: &Session,
+        profile: &Profile,
+        snapshot: DryLiquidSnapshot,
+        binding: super::source_route_same_polygon::SamePolygonBinding,
+    ) -> Result<Self, Failure> {
+        if snapshot.binding() != binding.liquid {
+            return Err(Failure::Binding);
+        }
+        Self::bind_revision(session, profile, snapshot, binding.geometry_revision()?)
+    }
+
     pub(super) fn dry_liquid(&self) -> &DryLiquidSnapshot {
         &self.snapshot
     }
@@ -245,90 +257,100 @@ impl SourceRouteFilterProvider {
             || session.primary_near_point != self.session.primary_near_point
             || session.empty_selector_near_point != self.session.empty_selector_near_point
             || session.player_environment != self.session.player_environment
+            || session.same_polygon_route != self.session.same_polygon_route
         {
             return Err(Failure::Binding);
         }
-        require_participants(session)?;
-        let b = &context.binding;
-        if b.world != session.world
-            || b.profile != session.profile
-            || b.authority_policy != session.policy
-            || b.geometry != session.geometry
-            || b.tick == 0
-        {
-            return Err(Failure::Binding);
-        }
-        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
-            return Err(Failure::UnsupportedQuery);
-        };
-        let npc = b.npc.ok_or(Failure::Binding)?;
-        route
-            .owner
-            .validate_for(&self.profile, npc)
-            .map_err(|_| Failure::Binding)?;
-        let q = &route.request;
-        let now = b
-            .tick
-            .checked_mul(u64::from(self.profile.tick_ms))
-            .and_then(|elapsed| self.profile.clock_origin_ms.checked_add(elapsed))
-            .ok_or(Failure::Invalid)?;
-        if q.binding.identity.creature != npc.spawn
-            || q.binding.identity.map != session.map
-            || q.binding.identity.content.0 != session.content
-            || q.binding.identity.geometry.0 != session.geometry
-            || q.binding.query_id == 0
-            || q.binding.now_ms != now
-            || route.owner_position != q.origin
-        {
-            return Err(Failure::Binding);
-        }
-        for point in [route.owner_position, q.origin, q.launch_origin, q.goal] {
-            Point::new(point.x.as_f32(), point.y.as_f32(), point.z.as_f32())
-                .map_err(|_| Failure::Invalid)?;
-        }
-        if !(2..=motion::MAX_PATH_POINTS).contains(&usize::from(q.point_limit)) {
-            return Err(Failure::Invalid);
-        }
-        let capabilities = route.owner.capabilities().map_err(|_| Failure::Binding)?;
-        if !capabilities.can_walk() || capabilities.can_swim() || capabilities.can_fly() {
-            return Err(Failure::UnsupportedQuery);
-        }
-        let source = self
-            .profile
-            .source_motion
-            .as_ref()
-            .ok_or(Failure::UnresolvedBody)?;
-        let npc_profile = self.profile.npc(npc.spawn).ok_or(Failure::Binding)?;
-        let body = session
-            .bodies
-            .get(&npc.spawn)
-            .ok_or(Failure::UnresolvedBody)?;
-        if body.radius != npc_profile.ai.bounding_radius
-            || body.height != source.npc_policy.settings.collision_height
-            || q.owner_collision_height != body.height
-        {
-            return Err(Failure::UnresolvedBody);
-        }
-        if let Some(target) = q.target {
-            let player = session.player.ok_or(Failure::UnresolvedBody)?;
-            if target.id != SOLO_UNIT {
-                return Err(Failure::Binding);
-            }
-            target.pose.validate().map_err(|_| Failure::Invalid)?;
-            if player.body.radius != self.profile.player.bounding_radius
-                || player.body.height != source.player_collision_height
-                || target.bounding_radius != player.body.radius
-                || target.collision_height != player.body.height
-                || target.combat_reach != self.profile.player.combat_reach
-            {
-                return Err(Failure::UnresolvedBody);
-            }
-        }
+        validate_route_context(session, &self.profile, context)?;
         Ok(BoundRouteFilterQuery {
             provider: self,
             context: context.clone(),
         })
     }
+}
+
+/// Shared request/body guards; this does not provide any loaded geometry evidence.
+pub(super) fn validate_route_context(
+    session: &Session,
+    profile: &Profile,
+    context: &AuthorityRequest,
+) -> Result<(), Failure> {
+    require_participants(session)?;
+    let b = &context.binding;
+    if b.world != session.world
+        || b.profile != session.profile
+        || b.authority_policy != session.policy
+        || b.geometry != session.geometry
+        || b.tick == 0
+    {
+        return Err(Failure::Binding);
+    }
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return Err(Failure::UnsupportedQuery);
+    };
+    let npc = b.npc.ok_or(Failure::Binding)?;
+    route
+        .owner
+        .validate_for(profile, npc)
+        .map_err(|_| Failure::Binding)?;
+    let q = &route.request;
+    let now = b
+        .tick
+        .checked_mul(u64::from(profile.tick_ms))
+        .and_then(|elapsed| profile.clock_origin_ms.checked_add(elapsed))
+        .ok_or(Failure::Invalid)?;
+    if q.binding.identity.creature != npc.spawn
+        || q.binding.identity.map != session.map
+        || q.binding.identity.content.0 != session.content
+        || q.binding.identity.geometry.0 != session.geometry
+        || q.binding.query_id == 0
+        || q.binding.now_ms != now
+        || route.owner_position != q.origin
+    {
+        return Err(Failure::Binding);
+    }
+    for point in [route.owner_position, q.origin, q.launch_origin, q.goal] {
+        Point::new(point.x.as_f32(), point.y.as_f32(), point.z.as_f32())
+            .map_err(|_| Failure::Invalid)?;
+    }
+    if !(2..=motion::MAX_PATH_POINTS).contains(&usize::from(q.point_limit)) {
+        return Err(Failure::Invalid);
+    }
+    let capabilities = route.owner.capabilities().map_err(|_| Failure::Binding)?;
+    if !capabilities.can_walk() || capabilities.can_swim() || capabilities.can_fly() {
+        return Err(Failure::UnsupportedQuery);
+    }
+    let source = profile
+        .source_motion
+        .as_ref()
+        .ok_or(Failure::UnresolvedBody)?;
+    let npc_profile = profile.npc(npc.spawn).ok_or(Failure::Binding)?;
+    let body = session
+        .bodies
+        .get(&npc.spawn)
+        .ok_or(Failure::UnresolvedBody)?;
+    if body.radius != npc_profile.ai.bounding_radius
+        || body.height != source.npc_policy.settings.collision_height
+        || q.owner_collision_height != body.height
+    {
+        return Err(Failure::UnresolvedBody);
+    }
+    if let Some(target) = q.target {
+        let player = session.player.ok_or(Failure::UnresolvedBody)?;
+        if target.id != SOLO_UNIT {
+            return Err(Failure::Binding);
+        }
+        target.pose.validate().map_err(|_| Failure::Invalid)?;
+        if player.body.radius != profile.player.bounding_radius
+            || player.body.height != source.player_collision_height
+            || target.bounding_radius != player.body.radius
+            || target.collision_height != player.body.height
+            || target.combat_reach != profile.player.combat_reach
+        {
+            return Err(Failure::UnresolvedBody);
+        }
+    }
+    Ok(())
 }
 
 impl BoundRouteFilterQuery<'_> {

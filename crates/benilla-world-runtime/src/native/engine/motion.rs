@@ -110,9 +110,27 @@ impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
             }
             _ => MotionQuery::Spatial(query.clone()),
         };
+        // Keep the actual runtime-minted event, not evidence supplied on a reply.
+        // Replay regenerates this event but still cannot load a native query.
+        let pathfinder_dispatch = match &query {
+            MotionQuery::Route(request) => request.pathfinder_dispatch.clone(),
+            _ => None,
+        };
         match self.frame.ask(Some(self.npc), Query::SourceMotion(query)) {
             Ok(Facts::SourceMotion(MotionFacts::Spatial(reply))) => {
                 if let m::Fact::RouteCalculation(calculation) = &reply.fact {
+                    if calculation.source == m::RouteSource::OwnerPathFinder {
+                        let valid = pathfinder_dispatch
+                            .as_ref()
+                            .ok_or(NativeError::AuthorityUnavailable(
+                                "owned pathfinder constructor dispatch",
+                            ))
+                            .and_then(|event| event.validate_for(self.frame.profile, self.npc));
+                        if let Err(error) = valid {
+                            self.failure = Some(error);
+                            return Err(m::MotionError::Invalid("native source cache dispatch"));
+                        }
+                    }
                     if let Err(error) = self.validate_cache_owner(&calculation.after_cache) {
                         self.failure = Some(error);
                         return Err(m::MotionError::Invalid("native pathfinder cache owner"));

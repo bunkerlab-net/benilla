@@ -45,6 +45,7 @@ fn setup() -> (Profile, Session, AuthorityRequest) {
         primary_near_point: None,
         empty_selector_near_point: None,
         player_environment: None,
+        same_polygon_route: None,
     };
     let mut world = NativeWorld::synthetic_component_test(
         profile.clone(),

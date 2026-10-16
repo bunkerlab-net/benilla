@@ -277,7 +277,8 @@ fn encrypt(words: &mut [u32], mut key: u32) {
             .wrapping_add(3);
     }
 }
-pub(super) fn archive(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+/// Encode original authored component-test entries, not installed game content.
+pub fn archive(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
     let slots = 16_u32;
     let hash_pos = 32_u32;
     let block_pos = hash_pos + slots * 16;

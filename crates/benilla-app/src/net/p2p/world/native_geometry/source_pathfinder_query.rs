@@ -71,6 +71,31 @@ impl SourcePathfinderQueryProvider {
         profile: &Profile,
         navigation: SourceMapQuerySnapshot,
     ) -> Result<Self, ConstructorQueryError> {
+        let expected = geometry_revision(navigation.binding());
+        Self::bind_revision(session, profile, navigation, expected)
+    }
+    pub(super) fn bind_with_same_polygon(
+        session: &Session,
+        profile: &Profile,
+        navigation: SourceMapQuerySnapshot,
+        binding: super::source_route_same_polygon::SamePolygonBinding,
+    ) -> Result<Self, ConstructorQueryError> {
+        if navigation.binding() != binding.navigation
+            || navigation.configuration_binding() != binding.selected_configuration
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        let expected = binding
+            .geometry_revision()
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        Self::bind_revision(session, profile, navigation, expected)
+    }
+    fn bind_revision(
+        session: &Session,
+        profile: &Profile,
+        navigation: SourceMapQuerySnapshot,
+        expected: [u8; 32],
+    ) -> Result<Self, ConstructorQueryError> {
         profile
             .validate()
             .map_err(|_| ConstructorQueryError::Binding)?;
@@ -83,7 +108,7 @@ impl SourcePathfinderQueryProvider {
             || session.policy != profile.authority_policy
             || session.content != profile.content_digest
             || session.geometry != profile.geometry_revision
-            || session.geometry != geometry_revision(binding)
+            || session.geometry != expected
             || session.map != profile.map_id
             || binding.map != profile.map_id
             || binding.content != profile.content_digest
@@ -254,6 +279,10 @@ impl SourceConstructorQuery<'_> {
         Ok(presence)
     }
 }
+
+#[cfg(test)]
+#[path = "source_pathfinder_query/test_archive.rs"]
+pub(crate) mod test_archive;
 
 #[cfg(test)]
 #[path = "source_pathfinder_query/tests.rs"]

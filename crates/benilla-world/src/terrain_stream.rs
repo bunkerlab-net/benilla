@@ -27,6 +27,8 @@ use benilla_assets::MapCatalogRes;
 use benilla_assets::RenderConfig;
 use benilla_assets::{m2_url, wmo_url};
 
+#[cfg(feature = "authored-native-fixtures")]
+pub mod authored_native_fixture;
 mod collider;
 mod furnish;
 pub mod merge;

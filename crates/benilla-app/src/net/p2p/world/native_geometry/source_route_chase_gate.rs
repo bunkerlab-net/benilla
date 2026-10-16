@@ -5,7 +5,10 @@ use super::{
     core::{Failure, PlayerEnvironmentPolicy, Session},
     products::{
         dry_route::DryRouteProjection,
-        liquid::{LiquidReply, LiquidRequest, LiquidStatus, SnapshotBinding as LiquidBinding},
+        liquid::{
+            DryLiquidSnapshot, LiquidReply, LiquidRequest, LiquidStatus,
+            SnapshotBinding as LiquidBinding,
+        },
         navigation::{SnapshotBinding as NavigationBinding, WarmCacheLineage},
         vmap::{RayReply, RayRequest, SnapshotBinding as VmapBinding, StaticRay, VmapSnapshot},
     },
@@ -18,9 +21,9 @@ use benilla_sim::{chase_gate, creature_init::ModelSelectionReceipt, creature_mot
 use benilla_world_runtime::{
     native::{
         AuthorityRequest, CreatureCollisionHeightWitness, CreatureCollisionWidthWitness,
-        MotionQuery, NativeError, PlayerCollisionHeightWitness, PlayerEnvironmentTarget, Profile,
-        Query, CREATURE_COLLISION_HEIGHT_POLICY, PLAYER_COLLISION_HEIGHT_POLICY,
-        PLAYER_ENVIRONMENT_POLICY,
+        CreatureRouteRequest, MotionQuery, NativeError, PlayerCollisionHeightWitness,
+        PlayerEnvironmentTarget, Profile, Query, CREATURE_COLLISION_HEIGHT_POLICY,
+        PLAYER_COLLISION_HEIGHT_POLICY, PLAYER_ENVIRONMENT_POLICY,
     },
     PlayerId,
 };
@@ -192,36 +195,17 @@ impl SourceRouteChaseGateProvider {
         // This checks the entire session (including selected environment), owner,
         // current pose, query generation/tick, ground-only capabilities and warm cache.
         let straight = self.straight.begin(session, context)?;
-        let width = route
-            .require_collision_width(&self.profile)
-            .map_err(native_failure)?;
-        let source = self
-            .profile
-            .creature_collision_widths
-            .as_ref()
-            .and_then(|catalog| catalog.source(route.owner.npc().spawn))
-            .ok_or(Failure::MissingGeometry)?;
-        let owner_height = route
-            .require_collision_height(&self.profile)
-            .map_err(native_failure)?;
-        let target_height = route
-            .require_target_collision_height(&self.profile, session.world, self.player)
-            .map_err(native_failure)?;
+        let model = gate_model(&self.profile, session.world, self.player, route)?;
         Ok(BoundChaseGateQuery {
             provider: self,
             straight,
             context: context.clone(),
-            model: ChaseGateModel {
-                selection: source.selection().clone(),
-                width: width.clone(),
-                owner_height: owner_height.clone(),
-                target_height: target_height.clone(),
-            },
+            model,
         })
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Observation {
+pub(super) enum Observation {
     LineOfSight(RayReply),
     OwnerWater(ChaseGateOwnerWater),
     TargetWater(bool),
@@ -254,20 +238,123 @@ impl BoundChaseGateQuery<'_> {
             .checked_add(10)
             .ok_or(Failure::Invalid)?;
         require_time(deadline)?;
-        let Query::SourceMotion(MotionQuery::Route(route)) = &request.context.query else {
-            return Err(Failure::UnsupportedQuery);
-        };
-        let bits = |p: benilla_sim::creature_ai::Point| [p.x.bits(), p.y.bits(), p.z.bits()];
-        let owner = bits(route.owner_position);
-        let goal = bits(route.request.goal);
+        let observed = LoadedChaseGate {
+            profile: &self.provider.profile,
+            player: self.provider.player,
+            liquid: self.provider.straight.dry_liquid(),
+            vmap: &self.provider.vmap,
+            model: &self.model,
+        }
+        .query(
+            &request.context,
+            request.first_ticket,
+            deadline,
+            &mut observe,
+        )?;
         let mut result = ChaseGateDependency {
             request: request.clone(),
             model: self.model.clone(),
+            selection: observed.selection,
+            line_of_sight: observed.line_of_sight,
+            owner_water: observed.owner_water,
+            target_water: observed.target_water,
+            straight: None,
+        };
+        if result.selection != ChaseGateSelection::Straight {
+            return Ok(result);
+        }
+        result.straight = Some(self.straight.query(
+            StraightPathRequest {
+                snapshot: request.snapshot.straight,
+                context: request.context,
+                first_ticket: request.first_ticket + 2,
+            },
+            deadline,
+        )?);
+        observe(Observation::Straight);
+        require_time(deadline)?;
+        Ok(result)
+    }
+}
+/// Shared gate-only observation path. It executes the same actual loaded LOS,
+/// fresh owner liquid and owned target cache before either calculate backend.
+pub(super) struct LoadedChaseGate<'a> {
+    pub profile: &'a Profile,
+    pub player: PlayerId,
+    pub liquid: &'a DryLiquidSnapshot,
+    pub vmap: &'a VmapSnapshot,
+    pub model: &'a ChaseGateModel,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ChaseGateObservations {
+    pub selection: ChaseGateSelection,
+    pub line_of_sight: Option<RayReply>,
+    pub owner_water: Option<ChaseGateOwnerWater>,
+    pub target_water: Option<PlayerEnvironmentTarget>,
+}
+impl ChaseGateObservations {
+    fn reject(mut self, reason: ChaseGateRejection) -> Self {
+        self.selection = ChaseGateSelection::NormalRouteUnavailable(reason);
+        self
+    }
+}
+pub(super) fn gate_model(
+    profile: &Profile,
+    world: [u8; 16],
+    player: PlayerId,
+    route: &CreatureRouteRequest,
+) -> Result<ChaseGateModel, Failure> {
+    let width = route
+        .require_collision_width(profile)
+        .map_err(native_failure)?;
+    let source = profile
+        .creature_collision_widths
+        .as_ref()
+        .and_then(|catalog| catalog.source(route.owner.npc().spawn))
+        .ok_or(Failure::MissingGeometry)?;
+    let owner_height = route
+        .require_collision_height(profile)
+        .map_err(native_failure)?;
+    let target_height = route
+        .require_target_collision_height(profile, world, player)
+        .map_err(native_failure)?;
+    Ok(ChaseGateModel {
+        selection: source.selection().clone(),
+        width: width.clone(),
+        owner_height: owner_height.clone(),
+        target_height: target_height.clone(),
+    })
+}
+impl LoadedChaseGate<'_> {
+    pub(super) fn query(
+        &self,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        mut observe: impl FnMut(Observation),
+    ) -> Result<ChaseGateObservations, Failure> {
+        if first_ticket == 0 {
+            return Err(Failure::Binding);
+        }
+        first_ticket.checked_add(1).ok_or(Failure::Invalid)?;
+        require_time(deadline)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        if !matches!(
+            route.request.kind,
+            RouteKind::ChaseInitial | RouteKind::ChaseReplan
+        ) {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let bits = |p: benilla_sim::creature_ai::Point| [p.x.bits(), p.y.bits(), p.z.bits()];
+        let owner = bits(route.owner_position);
+        let goal = bits(route.request.goal);
+        let mut result = ChaseGateObservations {
             selection: ChaseGateSelection::Straight,
             line_of_sight: None,
             owner_water: None,
             target_water: None,
-            straight: None,
         };
         let numeric =
             chase_gate::numeric_gate_bits(owner, goal, self.model.selection.combat_reach().bits())
@@ -289,14 +376,13 @@ impl BoundChaseGateQuery<'_> {
         )
         .map_err(|_| Failure::Invalid)?;
         let ray = RayRequest {
-            snapshot: request.snapshot.vmap,
-            ticket: request.first_ticket,
+            snapshot: self.vmap.binding(),
+            ticket: first_ticket,
             from,
             to,
             ignore_m2: false,
         };
         let reply = self
-            .provider
             .vmap
             .query(ray, deadline)
             .map_err(|_| Failure::MissingGeometry)?;
@@ -310,14 +396,12 @@ impl BoundChaseGateQuery<'_> {
             return Ok(result.reject(ChaseGateRejection::LineOfSight));
         }
         let liquid = LiquidRequest {
-            snapshot: request.snapshot.straight.liquid,
-            ticket: request.first_ticket + 1,
+            snapshot: self.liquid.binding(),
+            ticket: first_ticket + 1,
             position: owner,
         };
         let reply = self
-            .provider
-            .straight
-            .dry_liquid()
+            .liquid
             .query(liquid, deadline)
             .map_err(|_| Failure::MissingGeometry)?;
         if reply.request != liquid {
@@ -339,11 +423,7 @@ impl BoundChaseGateQuery<'_> {
         }
         // Player::IsInWater reads its current owned cache; never query target XYZ.
         let target = route
-            .require_target_water(
-                &self.provider.profile,
-                request.context.binding.world,
-                self.provider.player,
-            )
+            .require_target_water(self.profile, context.binding.world, self.player)
             .map_err(native_failure)?;
         result.target_water = Some(target.clone());
         observe(Observation::TargetWater(target.in_water()));
@@ -351,23 +431,7 @@ impl BoundChaseGateQuery<'_> {
         if target.in_water() {
             return Ok(result.reject(ChaseGateRejection::TargetWater));
         }
-        result.straight = Some(self.straight.query(
-            StraightPathRequest {
-                snapshot: request.snapshot.straight,
-                context: request.context,
-                first_ticket: request.first_ticket + 2,
-            },
-            deadline,
-        )?);
-        observe(Observation::Straight);
-        require_time(deadline)?;
         Ok(result)
-    }
-}
-impl ChaseGateDependency {
-    fn reject(mut self, reason: ChaseGateRejection) -> Self {
-        self.selection = ChaseGateSelection::NormalRouteUnavailable(reason);
-        self
     }
 }
 fn require_time(deadline: Instant) -> Result<(), Failure> {

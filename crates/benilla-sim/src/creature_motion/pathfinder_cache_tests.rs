@@ -160,6 +160,7 @@ impl Authority for SyntheticCache {
                         13 => {
                             calculation.source = RouteSource::OwnerPathFinder;
                             calculation.after_cache.source = RouteSource::OwnerPathFinder;
+                            calculation.after_cache.revision += 1;
                             if let RouteOutcome::Complete(path) = &mut calculation.outcome {
                                 path.source = RouteSource::OwnerPathFinder;
                             }
@@ -346,7 +347,7 @@ fn synthetic_fixture_later_bearing_failure_rolls_back_valid_no_path_proposal() {
     assert_eq!(s, before);
 }
 #[test]
-fn synthetic_fixture_seed_does_not_establish_initial_owner_source_producer() {
+fn malformed_typed_source_claim_cannot_skip_initial_revision_one() {
     let mut s = state();
     let before = s.clone();
     let mut a = SyntheticCache {
@@ -355,9 +356,7 @@ fn synthetic_fixture_seed_does_not_establish_initial_owner_source_producer() {
     };
     assert_eq!(
         s.start_chase(target(20.), false, input(), &mut a),
-        Err(MotionError::Missing(
-            "initial source pathfinder cache producer"
-        ))
+        Err(MotionError::Invalid("initial pathfinder calculation"))
     );
     assert_eq!(s, before);
 }
@@ -665,7 +664,15 @@ fn previous_motion_policy_and_missing_policy_are_rejected_even_when_idle() {
     let mut missing = serde_json::to_value(s.snapshot()).unwrap();
     missing.as_object_mut().unwrap().remove("policy");
     assert!(serde_json::from_value::<MotionSnapshot>(missing).is_err());
-    let mut old = s.snapshot();
-    old.policy = "cmangos-8ec338a1-ground-linear-motion-binary32-v1".into();
-    assert!(MotionState::restore(old).is_err());
+    for policy in [
+        "cmangos-8ec338a1-ground-linear-motion-binary32-v1",
+        "cmangos-8ec338a1-ground-linear-motion-constructor-dispatch-v2",
+    ] {
+        let mut old = s.snapshot();
+        old.policy = policy.into();
+        assert!(MotionState::restore(old).is_err());
+    }
 }
+
+#[path = "first_owned_cache_tests.rs"]
+mod first_owned_cache;

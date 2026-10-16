@@ -92,8 +92,8 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 30 and
-`benilla-native-pathfinder-constructor-dispatch-v30`, with separate v30 profile, state,
+This profile/receipt contract uses native format 31 and
+`benilla-native-first-owned-pathfinder-cache-v31`, with separate v31 profile, state,
 record, checkpoint and melee-action/chain hash domains. Published native formats 9, 10 and 11
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source

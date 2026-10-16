@@ -60,6 +60,10 @@ impl PathFinderCache {
             || self.poly_refs.len() > MAX_PATHFINDER_CACHE_REFS
             || self.active_len > self.point_limit
             || self.path_type & !0x3f != 0
+            // This contract admits a first source cache only after Complete NORMAL.
+            || (self.source == RouteSource::OwnerPathFinder
+                && self.revision == 1
+                && (self.path_type != 1 || self.active_len == 0))
             || self.include_flags != 1
             || self.exclude_flags != 0
         {
@@ -92,6 +96,9 @@ impl RouteCalculation {
         if self.prior_cache != request.prior_cache {
             return Err(MotionError::Invalid("pathfinder calculation prior state"));
         }
+        if self.source == RouteSource::OwnerPathFinder {
+            request.validate_source_cache_dispatch()?;
+        }
         self.after_cache.validate_for(request.binding.identity)?;
         if self.source != self.after_cache.source
             || self.after_cache.requested_end != request.goal
@@ -116,10 +123,11 @@ impl RouteCalculation {
             }
             None if self.source == RouteSource::SyntheticFixture
                 && self.after_cache.revision == 1 => {}
+            None if self.source == RouteSource::OwnerPathFinder
+                && self.after_cache.revision == 1
+                && matches!(self.outcome, RouteOutcome::Complete(_)) => {}
             None => {
-                return Err(MotionError::Missing(
-                    "initial source pathfinder cache producer",
-                ));
+                return Err(MotionError::Invalid("initial pathfinder calculation"));
             }
         }
         match &self.outcome {
@@ -130,6 +138,7 @@ impl RouteCalculation {
             {
                 Err(MotionError::Invalid("pathfinder complete outcome/source"))
             }
+            RouteOutcome::Complete(path) => super::protocol::validate_route(request, path),
             RouteOutcome::NoPath if self.after_cache.path_type != 8 => {
                 Err(MotionError::Invalid("pathfinder no-path outcome/type"))
             }

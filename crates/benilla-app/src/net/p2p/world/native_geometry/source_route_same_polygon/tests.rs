@@ -1,0 +1,518 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Actual loaded products and live runtime callback; synthetic non-Route world
+//! setup remains explicit. No successful Route fact is supplied by this harness.
+use super::super::{
+    core::{Body, NonRenderParticipants, PlayerMotion},
+    products::{
+        dry_route::tests as fixtures,
+        same_polygon_fixture::{self, RawMap, TerrainKind},
+    },
+    source_player_environment::SourcePlayerEnvironmentProvider,
+};
+use super::*;
+use benilla_sim::creature_ai as ai;
+use benilla_world_runtime::native::{
+    synthetic_creature_model_fixture as models, synthetic_fixture as f,
+    synthetic_motion_fixture as motion_fixture, synthetic_player_model_fixture as player_models,
+    Authority, AuthorityReply, CreatureCollisionWidthRows, CreatureCollisionWidthSource,
+    EffectiveDisabledMMapSet, NativeError, NativeWorld, SelectedMMapConfiguration,
+};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
+fn point(x: f32, y: f32, z: f32) -> Point {
+    Point::new(x, y, z).unwrap()
+}
+fn until() -> Instant {
+    Instant::now() + Duration::from_secs(10)
+}
+fn config() -> SamePolygonConfiguration {
+    SamePolygonConfiguration {
+        normalization: SourceSamePolygonConfig {
+            normalize_z: false,
+            ignore_normalization: false,
+        },
+        line_of_sight_enabled: true,
+        cold_budget: SourceSamePolygonBudget::default(),
+        retained_budget: SourceSamePolygonBudget {
+            lookup_primitives: SOURCE_RETAINED_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES,
+            terminal_primitives: 1,
+        },
+    }
+}
+struct Setup {
+    world: NativeWorld,
+    session: Session,
+    routes: SourceSamePolygonRouteProvider,
+    environment: SourcePlayerEnvironmentProvider,
+    near_point: Option<SourceNearPointProvider>,
+}
+fn setup(configuration: SamePolygonConfiguration) -> Setup {
+    let raw_map = RawMap::new(TerrainKind::Flat);
+    let (spec, files) = same_polygon_fixture::fixture(&raw_map);
+    let products = fixtures::load(spec, &files);
+    let environment = fixtures::environment(Arc::clone(&products));
+    let mut p = source_profile(&environment, &raw_map.maps());
+    let projection = products.load_source_query_projection(&p).unwrap();
+    // Read the actual raw inventory. This expected revision is not a Corridor
+    // certificate; only the real physics/coverage path may establish that proof.
+    let inventory = raw_map.inventory();
+    let tiles: Vec<_> = (30..=32)
+        .flat_map(|y| (30..=32).map(move |x| (x, y)))
+        .map(|tile| (tile, inventory.tile_digest(tile).unwrap()))
+        .collect();
+    let raw = super::super::core::geometry_revision(
+        p.map_id,
+        inventory.wdt_digest(),
+        &tiles.try_into().unwrap(),
+        &[],
+        inventory.source_digest(),
+    );
+    p.geometry_revision = SamePolygonBinding::from_projection(raw, &projection, configuration)
+        .unwrap()
+        .geometry_revision()
+        .unwrap();
+    let session = source_session(&p);
+    // Load and bind before constructing/driving the runtime. Every consume below
+    // occurs inside the real callback, never from a captured unclaimed event.
+    let routes = SourceSamePolygonRouteProvider::bind(
+        &session,
+        &p,
+        f::player(),
+        projection,
+        raw,
+        configuration,
+    )
+    .unwrap();
+    let environment =
+        SourcePlayerEnvironmentProvider::bind(&session, &p, f::player(), environment).unwrap();
+    let world = NativeWorld::synthetic_component_test(p, session.world, f::player(), 1234).unwrap();
+    Setup {
+        world,
+        session,
+        routes,
+        environment,
+        near_point: None,
+    }
+}
+struct Consumer<'a> {
+    session: &'a Session,
+    routes: &'a mut SourceSamePolygonRouteProvider,
+    environment: &'a SourcePlayerEnvironmentProvider,
+    near_point: Option<&'a SourceNearPointProvider>,
+    near_queries: usize,
+    base: motion_fixture::SyntheticMotionAuthority,
+    proposals: Vec<SamePolygonProposal>,
+    observations: Vec<Observation>,
+    requests: Vec<AuthorityRequest>,
+    errors: Vec<SamePolygonError>,
+}
+impl Authority for Consumer<'_> {
+    fn resolve(&mut self, context: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+        match &context.query {
+            Query::PlayerEnvironment(_) => {
+                let facts = self
+                    .environment
+                    .resolve(self.session, context, until())
+                    .unwrap();
+                Ok(AuthorityReply {
+                    request: context.clone(),
+                    facts,
+                })
+            }
+            Query::SourceMotion(MotionQuery::NearPoint(_)) if self.near_point.is_some() => {
+                self.near_queries += 1;
+                let facts = self
+                    .near_point
+                    .unwrap()
+                    .resolve(self.session, context, until())
+                    .unwrap();
+                Ok(AuthorityReply {
+                    request: context.clone(),
+                    facts,
+                })
+            }
+            Query::SourceMotion(MotionQuery::Route(_)) => {
+                self.requests.push(context.clone());
+                match self
+                    .routes
+                    .calculate_observed(self.session, context, 1, until(), |o| {
+                        self.observations.push(o)
+                    }) {
+                    Ok(proposal) => self.proposals.push(proposal),
+                    Err(error) => self.errors.push(error),
+                }
+                // No fabricated route advances the runtime past missing strict proof.
+                Err(NativeError::AuthorityUnavailable(
+                    "strict production Corridor unavailable",
+                ))
+            }
+            _ => self.base.resolve(context),
+        }
+    }
+}
+fn consumer<'a>(setup: &'a mut Setup) -> (&'a mut NativeWorld, Consumer<'a>) {
+    (
+        &mut setup.world,
+        Consumer {
+            session: &setup.session,
+            routes: &mut setup.routes,
+            environment: &setup.environment,
+            near_point: setup.near_point.as_ref(),
+            near_queries: 0,
+            base: Default::default(),
+            proposals: vec![],
+            observations: vec![],
+            requests: vec![],
+            errors: vec![],
+        },
+    )
+}
+fn drive_first(world: &mut NativeWorld, consumer: &mut Consumer<'_>) {
+    for _ in 0..8 {
+        let before = world.checkpoint().unwrap();
+        let result = world.step(world.state().tick + 1, None, consumer);
+        if !consumer.requests.is_empty() {
+            assert!(result.is_err());
+            assert_eq!(world.checkpoint().unwrap(), before);
+            return;
+        }
+        result.unwrap();
+    }
+    panic!("no genuine runtime Route callback");
+}
+#[test]
+fn preloaded_callback_orders_constructor_gate_have_tile_update_and_real_terminal() {
+    let mut setup = setup(config());
+    let (world, mut consumer) = consumer(&mut setup);
+    drive_first(world, &mut consumer);
+    assert!(consumer.errors.is_empty(), "{:?}", consumer.errors);
+    assert_eq!(consumer.proposals.len(), 1);
+    let p = &consumer.proposals[0];
+    assert!(p.dispatch.first_construction());
+    assert!(p
+        .context
+        .require_pathfinder_dispatch(world.profile())
+        .is_ok());
+    assert_eq!(p.terminal().query_capacity(), 1024);
+    assert_eq!(p.terminal().compatibility().initial_storage(), &[0; 74]);
+    assert_eq!(p.terminal().compatibility().initial_active_len(), 0);
+    assert_eq!(p.terminal().compatibility().storage().len(), 75);
+    assert_eq!(p.terminal().path_type(), 1);
+    assert_eq!(p.after_cache().revision, 1);
+    assert_eq!(p.after_cache().source, motion::RouteSource::OwnerPathFinder);
+    assert!(p.tiles.both_present());
+    assert!(f32::from_bits(p.model.owner_height.height().bits()) > 0.);
+    assert!(!p.owner_ignore.ignore_pathfinding());
+    let ctor = p.constructor_filter.as_ref().unwrap();
+    assert_eq!(ctor.request().first_ticket, 1);
+    assert_eq!(p.filter.request().first_ticket, 5);
+    assert_eq!(
+        consumer.observations,
+        vec![
+            Observation::ConstructorQuery,
+            Observation::ConstructorFilter,
+            Observation::Gate(GateObservation::LineOfSight(p.gate.line_of_sight.unwrap())),
+            Observation::Gate(GateObservation::OwnerWater(p.gate.owner_water.unwrap())),
+            Observation::Gate(GateObservation::TargetWater(false)),
+            Observation::SelectedQuery,
+            Observation::OwnerIgnore,
+            Observation::HaveTile,
+            Observation::CalculateFilter,
+            Observation::Terminal,
+        ]
+    );
+    let first = Rc::clone(&p.candidate);
+    let before = world.checkpoint().unwrap();
+    let tick = world.state().tick + 1;
+    assert!(world.step(tick, None, &mut consumer).is_err());
+    assert_eq!(world.checkpoint().unwrap(), before);
+    assert_eq!(consumer.requests[0], consumer.requests[1]);
+    assert!(!consumer.requests[0]
+        .require_pathfinder_dispatch(world.profile())
+        .unwrap()
+        .same_live_dispatch(
+            consumer.requests[1]
+                .require_pathfinder_dispatch(world.profile())
+                .unwrap()
+        ));
+    assert_eq!(consumer.proposals.len(), 2);
+    assert!(Rc::ptr_eq(&first, &consumer.proposals[1].candidate));
+    assert_eq!(consumer.routes.candidates[0].proposals.len(), 1);
+    assert_eq!(first.terminal.compatibility().storage().len(), 75);
+}
+#[test]
+fn source_terminal_still_returns_unavailable_and_cannot_become_a_route_fact() {
+    let mut setup = setup(config());
+    let (world, mut consumer) = consumer(&mut setup);
+    drive_first(world, &mut consumer);
+    assert!(consumer.errors.is_empty(), "{:?}", consumer.errors);
+    assert_eq!(
+        consumer
+            .routes
+            .resolve(consumer.session, &consumer.requests[0], 10, until()),
+        Err(SamePolygonError::StrictProductionCorridorUnavailable)
+    );
+    assert_eq!(consumer.routes.candidates[0].proposals.len(), 1);
+}
+#[test]
+fn changed_or_serialized_requests_cannot_select_native_candidates() {
+    let mut setup = setup(config());
+    let (world, mut consumer) = consumer(&mut setup);
+    drive_first(world, &mut consumer);
+    assert!(consumer.errors.is_empty(), "{:?}", consumer.errors);
+    let context = &consumer.requests[0];
+    let restored: AuthorityRequest =
+        serde_json::from_value(serde_json::to_value(context).unwrap()).unwrap();
+    assert!(consumer
+        .routes
+        .calculate(consumer.session, &restored, 1, until())
+        .is_err());
+    let mut forged = context.clone();
+    if let Query::SourceMotion(MotionQuery::Route(route)) = &mut forged.query {
+        route.request.prior_cache = Some(Box::new(consumer.proposals[0].after_cache().clone()));
+    }
+    assert!(consumer
+        .routes
+        .calculate(consumer.session, &forged, 1, until())
+        .is_err());
+    assert_eq!(consumer.routes.candidates[0].proposals.len(), 1);
+}
+#[test]
+fn exhausted_lookup_and_deadline_leave_zero_candidate_and_retry_is_cold() {
+    let mut c = config();
+    c.cold_budget.lookup_primitives = 0;
+    let mut setup = setup(c);
+    let (world, mut consumer) = consumer(&mut setup);
+    drive_first(world, &mut consumer);
+    assert!(consumer.proposals.is_empty());
+    assert!(!consumer.errors.is_empty());
+    assert!(consumer.routes.candidates[0].proposals.is_empty());
+    assert_eq!(
+        consumer
+            .routes
+            .calculate(consumer.session, &consumer.requests[0], 1, Instant::now())
+            .err(),
+        Some(SamePolygonError::Dependency(Failure::MissingGeometry))
+    );
+    assert!(consumer.routes.candidates[0].proposals.is_empty());
+}
+#[test]
+fn explicit_normalization_raw_geometry_and_tickets_are_bound() {
+    let mut setup = setup(config());
+    let original = setup.routes.binding;
+    assert_eq!(setup.routes.raw_geometry(), original.raw_geometry);
+    for field in 0..4 {
+        let mut changed = original;
+        match field {
+            0 => changed.raw_geometry[0] ^= 1,
+            1 => changed.selected_configuration[0] ^= 1,
+            2 => changed.vmap.policy[0] ^= 1,
+            _ => changed.configuration.retained_budget.lookup_primitives -= 1,
+        }
+        assert_ne!(
+            changed.geometry_revision().unwrap(),
+            original.geometry_revision().unwrap()
+        );
+    }
+    for ignore in [false, true] {
+        let mut changed = original;
+        if ignore {
+            changed.configuration.normalization.ignore_normalization = true
+        } else {
+            changed.configuration.normalization.normalize_z = true
+        }
+        assert_eq!(changed.geometry_revision(), Err(Failure::UnsupportedQuery));
+    }
+    let (world, mut consumer) = consumer(&mut setup);
+    drive_first(world, &mut consumer);
+    for ticket in [0, u64::MAX] {
+        assert!(consumer
+            .routes
+            .calculate(consumer.session, &consumer.requests[0], ticket, until())
+            .is_err());
+    }
+    assert_eq!(consumer.routes.candidates[0].proposals.len(), 1);
+}
+
+// Shared authored owner setup; geometry and Route success are never supplied here.
+pub(crate) fn source_profile(
+    environment: &super::super::products::terrain_wet_liquid::TerrainLiquidSnapshot<'_>,
+    maps: &benilla_formats::MapCatalog,
+) -> Profile {
+    let mut p = player_models::unowned_profile();
+    let b = environment.binding();
+    p.map_id = b.map;
+    p.content_digest = b.content;
+    p.npcs[0].ai.map_id = p.map_id;
+    p.npcs[0].ai.content_revision = ai::movement::Revision(p.content_digest);
+    p.npcs[0].ai.spawn = point(5., 5., 0.);
+    p.npcs[0].display_id = 34;
+    p.npcs[0].faction_template = 2;
+    p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
+    p.player.start = point(5., 13., 0.);
+    p.initialize_creature_capabilities(motion_fixture::creature_capability_sources(&p))
+        .unwrap();
+    let catalog = models::catalog_with_height_fields(1.375, 1.6, 2.5, 1.75, false);
+    p.initialize_creature_collision_widths(CreatureCollisionWidthRows::Complete(vec![
+        CreatureCollisionWidthSource::from_initial_model(2, models::selection(), &catalog).unwrap(),
+    ]))
+    .unwrap();
+    p.initialize_creature_collision_heights().unwrap();
+    p.initialize_player_collision_height(&player_models::catalog(), &catalog)
+        .unwrap();
+    p.initialize_player_environment(
+        environment.environment_binding(),
+        environment.environment_catalog().clone(),
+    )
+    .unwrap();
+    benilla_world_runtime::native::synthetic_combat_fixture::install(&mut p);
+    p.initialize_pathfinder_configuration(
+        SelectedMMapConfiguration {
+            enabled: true,
+            effective_disabled_maps: EffectiveDisabledMMapSet::Complete(Default::default()),
+            source_instance_id: 0,
+        },
+        maps,
+    )
+    .unwrap();
+    p
+}
+
+pub(crate) fn source_session(p: &Profile) -> Session {
+    let source = p.source_motion.as_ref().unwrap();
+    Session {
+        world: [8; 16],
+        profile: p.digest(),
+        policy: p.authority_policy,
+        content: p.content_digest,
+        geometry: p.geometry_revision,
+        map: p.map_id,
+        bodies: BTreeMap::from([(
+            2,
+            Body {
+                radius: p.npcs[0].ai.bounding_radius,
+                height: source.npc_policy.settings.collision_height,
+            },
+        )]),
+        player: Some(PlayerMotion {
+            body: Body {
+                radius: p.player.bounding_radius,
+                height: source.player_collision_height,
+            },
+            speed: ai::Real::new(7.).unwrap(),
+        }),
+        participants: Some(NonRenderParticipants::authored_fixture(
+            p.content_digest,
+            p.map_id,
+        )),
+        static_los: None,
+        primary_near_point: None,
+        empty_selector_near_point: None,
+        player_environment: Some(PlayerEnvironmentPolicy::from_profile(p, f::player()).unwrap()),
+        same_polygon_route: None,
+    }
+}
+
+pub(crate) fn composed_inputs(
+    products: Arc<super::super::products::VmapLiquidProducts>,
+    raw_geometry: [u8; 32],
+    maps: &benilla_formats::MapCatalog,
+) -> (Profile, Session, SamePolygonProducts) {
+    let environment = fixtures::environment(Arc::clone(&products));
+    let mut profile = source_profile(&environment, maps);
+    let participants =
+        NonRenderParticipants::authored_fixture(profile.content_digest, profile.map_id);
+    let height_configuration = same_polygon_fixture::height_configuration(&products);
+    let height = Arc::clone(&products)
+        .load_dry_map_height_owned(height_configuration, Some(&participants))
+        .unwrap();
+    let inputs = SamePolygonProducts {
+        projection: products.load_source_query_projection(&profile).unwrap(),
+        environment,
+        height,
+        raw_geometry,
+        configuration: config(),
+        near_configuration: SourceNearPointConfiguration {
+            height: height_configuration,
+            detect_position_collision: true,
+            vmap_line_of_sight_enabled: true,
+        },
+    };
+    let binding = inputs.binding().unwrap();
+    profile.geometry_revision = binding.geometry_revision().unwrap();
+    let mut session = source_session(&profile);
+    session.primary_near_point =
+        Some(super::super::core::PrimaryNearPointPolicy::from_profile(&profile).unwrap());
+    session.same_polygon_route = Some(
+        super::super::core::SamePolygonRoutePolicy::from_profile(&profile, f::player(), binding)
+            .unwrap(),
+    );
+    (profile, session, inputs)
+}
+
+#[test]
+fn shared_components_execute_genuine_near_point_before_source_ordered_route() {
+    let raw = RawMap::new(TerrainKind::Flat);
+    let (spec, files) = same_polygon_fixture::fixture(&raw);
+    let products = fixtures::load(spec, &files);
+    let inventory = raw.inventory();
+    let tiles: Vec<_> = (30..=32)
+        .flat_map(|y| (30..=32).map(move |x| (x, y)))
+        .map(|tile| (tile, inventory.tile_digest(tile).unwrap()))
+        .collect();
+    let revision = super::super::core::geometry_revision(
+        0,
+        inventory.wdt_digest(),
+        &tiles.try_into().unwrap(),
+        &[],
+        inventory.source_digest(),
+    );
+    let (profile, session, inputs) = composed_inputs(products, revision, &raw.maps());
+    let bound = inputs.bind(&session, &profile, f::player()).unwrap();
+    let mut setup = Setup {
+        world: NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234)
+            .unwrap(),
+        session,
+        routes: bound.route,
+        environment: bound.environment,
+        near_point: Some(bound.near_point),
+    };
+    let (world, mut consumer) = consumer(&mut setup);
+    drive_first(world, &mut consumer);
+    assert_eq!(consumer.near_queries, 1);
+    assert!(consumer.errors.is_empty(), "{:?}", consumer.errors);
+    let proposal = &consumer.proposals[0];
+    assert!(consumer.session.body(&proposal.context).is_ok());
+    let ray = consumer
+        .routes
+        .segment_line_of_sight(consumer.session, proposal, 7, until())
+        .unwrap();
+    let q = match &proposal.context.query {
+        Query::SourceMotion(MotionQuery::Route(route)) => &route.request,
+        _ => unreachable!(),
+    };
+    let height = q.owner_collision_height.as_f32();
+    assert_eq!(
+        ray.request.from[2],
+        (q.origin.z.as_f32() + height).to_bits()
+    );
+    assert_eq!(ray.request.to[2], (q.goal.z.as_f32() + height).to_bits());
+    assert!(!ray.request.ignore_m2);
+    assert_ne!(
+        ray.request.to[2],
+        proposal.gate.line_of_sight.unwrap().request.to[2]
+    );
+    let mut closed = consumer.session.clone();
+    closed.same_polygon_route = None;
+    assert_eq!(
+        closed.body(&proposal.context),
+        Err(Failure::UnsupportedQuery)
+    );
+    let mut changed = proposal.context.clone();
+    changed.binding.tick += 1;
+    assert!(consumer.session.body(&changed).is_err());
+    let mut changed = proposal.context.clone();
+    if let Query::SourceMotion(MotionQuery::Route(route)) = &mut changed.query {
+        route.request.binding.query_id += 1;
+    }
+    assert!(consumer.session.body(&changed).is_err());
+}

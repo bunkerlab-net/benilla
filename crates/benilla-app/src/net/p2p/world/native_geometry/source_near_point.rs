@@ -65,6 +65,21 @@ pub(crate) fn geometry_revision(
 }
 
 impl SourceNearPointProvider {
+    pub(super) fn bind_with_same_polygon(
+        session: &Session,
+        profile: &Profile,
+        snapshot: MapHeightSnapshot<'static>,
+        config: SourceNearPointConfiguration,
+        binding: super::source_route_same_polygon::SamePolygonBinding,
+    ) -> Result<Self, Failure> {
+        if session.empty_selector_near_point.is_some() || session.primary_near_point.is_none() {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let ground = SourceGroundHeightProvider::bind_with_same_polygon(
+            session, profile, snapshot, config, binding,
+        )?;
+        Ok(Self { ground })
+    }
     pub(crate) fn bind(
         session: &Session,
         profile: &Profile,

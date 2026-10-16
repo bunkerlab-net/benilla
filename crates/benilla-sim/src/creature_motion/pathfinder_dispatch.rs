@@ -57,6 +57,21 @@ impl PathfinderDispatch {
     }
 }
 impl RouteRequest {
+    /// Source cache admission needs the explicit constructor event, not an
+    /// inference from absent cache state. Native query ownership is checked by
+    /// the provider; this only validates the modeled transcript transition.
+    pub(super) fn validate_source_cache_dispatch(&self) -> Result<(), MotionError> {
+        self.validate_pathfinder_dispatch()?;
+        let dispatch = self.pathfinder_dispatch.ok_or(MotionError::Missing(
+            "source pathfinder constructor dispatch",
+        ))?;
+        if dispatch.first_construction() != self.prior_cache.is_none() {
+            return Err(MotionError::Invalid(
+                "source pathfinder cache dispatch phase",
+            ));
+        }
+        Ok(())
+    }
     /// Required presence is distinct from source/native ownership. Authored direct
     /// requests may carry null, but actual Chase dispatch always supplies the event.
     pub fn validate_pathfinder_dispatch(&self) -> Result<(), MotionError> {

@@ -175,7 +175,13 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 30 retains this required-option evidence and rejects earlier formats.
+  format 31 retains this required-option evidence and rejects earlier formats.
+  The first source-owner cache contract requires explicit first dispatch, revision
+  one and Complete NORMAL with exact endpoints/all segment predicates. Retained
+  use still requires exact prior and increment. Runtime-owned live dispatch is
+  mandatory; typed claim tests prove no native query or physics execution. Motion3
+  structural first-spline restore/replay is coherent while native loaded-cache
+  reopen and production admission remain closed.
   Actual Chase dispatch also records first construction or retained use after
   forced relocation and before the straight gate, independently of cache/result.
   Its runtime receipt binds generation and selected MMap configuration; a skipped

@@ -291,12 +291,16 @@ impl MotionState {
             LinearSpline::restore(s.spline.clone())?;
             validate_route(&s.route_request, &s.route)?;
             s.route_request.validate_pathfinder_dispatch()?;
-            if s.route.source == RouteSource::OwnerPathFinder
-                && s.route_request.prior_cache.is_none()
-            {
-                return Err(MotionError::Invalid(
-                    "saved source route without retained prior",
-                ));
+            if s.route.source == RouteSource::OwnerPathFinder {
+                s.route_request.validate_source_cache_dispatch()?;
+                if !matches!(&state.generator, Generator::Chase(c)
+                    if c.pathfinder_cache.as_ref().is_some_and(|cache|
+                        cache.source == RouteSource::OwnerPathFinder))
+                {
+                    return Err(MotionError::Invalid(
+                        "saved source route without source cache",
+                    ));
+                }
             }
             if let Some(cache) = &s.route_request.prior_cache {
                 cache.validate_for(state.identity)?;
@@ -382,6 +386,19 @@ impl MotionState {
                 }
                 if let Some(cache) = &c.pathfinder_cache {
                     cache.validate_for(state.identity)?;
+                    if cache.source == RouteSource::OwnerPathFinder {
+                        let construction = c.pathfinder_construction.unwrap();
+                        // Every accepted calculation consumes its own dispatch
+                        // query; unrelated queries cannot reset this sequence.
+                        if cache.revision - 1 > state.query_id - construction.query_id
+                            || state
+                                .spline
+                                .as_ref()
+                                .is_some_and(|s| s.route.source != RouteSource::OwnerPathFinder)
+                        {
+                            return Err(MotionError::Invalid("saved source cache sequence/source"));
+                        }
+                    }
                     if let Some(prior) = state
                         .spline
                         .as_ref()
@@ -398,6 +415,26 @@ impl MotionState {
                             || prior.poly_refs.len() > cache.poly_refs.len()
                         {
                             return Err(MotionError::Invalid("saved pathfinder cache lineage"));
+                        }
+                    }
+                    if let Some(spline) = state.spline.as_ref().filter(|s| {
+                        s.route.source == RouteSource::OwnerPathFinder
+                            && s.route_request.prior_cache.is_none()
+                    }) {
+                        if cache.revision == 1 {
+                            // The first current cache is the spline's complete
+                            // calculation. Later NoPath or unreachable Complete
+                            // may retain this spline with a newer current cache;
+                            // neither restores a loaded query.
+                            RouteCalculation {
+                                source: spline.route.source,
+                                outcome: RouteOutcome::Complete(spline.route.clone()),
+                                prior_cache: None,
+                                after_cache: (**cache).clone(),
+                            }
+                            .validate_for(&spline.route_request)?;
+                        } else if state.query_id <= spline.route_request.binding.query_id {
+                            return Err(MotionError::Invalid("saved source first cache sequence"));
                         }
                     }
                     if cache.revision > state.query_id

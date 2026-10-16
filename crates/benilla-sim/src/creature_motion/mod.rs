@@ -12,7 +12,7 @@ pub use numeric::chase_speed;
 pub use spline::{LinearSpline, SplineEvent, SplineSnapshot, MAX_PATH_POINTS};
 
 pub const CREATURE_MOTION_POLICY_ID: &str =
-    "cmangos-8ec338a1-ground-linear-motion-constructor-dispatch-v2";
+    "cmangos-8ec338a1-ground-linear-motion-first-owned-cache-v3";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MotionError {
     Invalid(&'static str),

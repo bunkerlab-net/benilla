@@ -4,7 +4,7 @@ Pinned reference: CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `PathFinder.cpp:306–383,410–789`, `PathFinder.h::clear`, and the Chase/Home
 movement-generator call sites. Existing source/license notices remain applicable.
 
-Native format **30**, policy `benilla-native-pathfinder-constructor-dispatch-v30`, retains the
+Native format **31**, policy `benilla-native-first-owned-pathfinder-cache-v31`, retains the
 optional retained cache to Chase snapshots, requests and completed calculation
 receipts. Older native checkpoints/records are incompatible; character/profile
 save formats are unchanged. An incompatible open preserves the existing files.
@@ -33,12 +33,34 @@ requested endpoint survives a failed calculation for speed-only replanning.
 Validation errors, missing authority and a later frame failure discard the whole
 staged update. Controller/store publication follows the existing atomic boundary.
 
-Accepted persistence/replay tests explicitly use `SyntheticFixture` calculations.
-A serialized vector is not loaded navigation authority. Source-owner cache
-restoration is refused until an actual owner-thread lineage rehydration contract
-exists. No initial source-owner cache producer is supplied here; a cache-free
-source-owner calculation remains unavailable. Existing cache-free bounded/synthetic
-fixtures remain usable, but cannot silently erase an existing cache.
+The first `OwnerPathFinder` calculation is admitted only with the explicit first
+`PathfinderDispatch`, exact request/constructor identity, revision one and a
+Complete NORMAL terminal cache with a nonempty active prefix. Missing cache state
+alone never establishes construction: a retained dispatch with no prior remains
+invalid, and a first dispatch cannot claim a retained prior. Every Complete result
+retains the existing finite-point, exact origin/goal, point-limit and one-segment-
+witness-per-edge validation. All five coverage/LOS/body/support/dry predicates must
+pass. Nonterminal initial source calculations, including NoPath, stay unavailable.
+Retained source calculations require the non-first event, full exact prior echo,
+unchanged binding and a single revision increment; retained NoPath remains valid.
+
+The native adapter preserves its actual request-side runtime-minted dispatch and
+requires it on source-owner replies. Missing selected configuration/live event
+cannot be replaced by reply-supplied metadata. These checks validate typed trusted-
+authority claims, not execution of native PathFinder or geometry. The app provider
+must independently bind the actual loaded constructor/query, source configuration,
+cache inventory/epoch/policy and real complete-segment evidence. The simulation's
+publicly serializable dispatch and cache hashes supply no loaded authority.
+
+Motion structural restore accepts a first source spline only with its matching
+first constructor and current source cache; revision-one terminal evidence is
+revalidated in full. A later retained NoPath or Complete calculation whose Chase
+endpoint is unreachable may leave that older first spline with a newer current cache. Exact recorded facts can replay after runtime dispatch
+is regenerated, without executing or rehydrating loaded queries. `NpcMotion::restore`
+still rejects every source-owner cache until an actual owner-thread rehydration
+contract exists. Contract tests deliberately supply synthetic typed claims and
+malformed variants; they establish no native/source/physics execution. Existing
+cache-free bounded/synthetic fixtures remain usable, but cannot erase a cache.
 
 ## Loaded warm polygon dependency
 

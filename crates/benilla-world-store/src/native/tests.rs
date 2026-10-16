@@ -398,3 +398,6 @@ fn native_npc_queue_pending_notify_is_durable_and_replays_exactly() {
 
 #[path = "admin_tests.rs"]
 mod admin_tests;
+
+#[path = "reopen_tests.rs"]
+mod reopen_tests;

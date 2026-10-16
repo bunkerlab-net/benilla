@@ -74,8 +74,8 @@ third-party database rows are included.
 
 ## Format boundary
 
-The experimental native simulation checkpoint/record contract is format 30,
-`benilla-native-pathfinder-constructor-dispatch-v30`, with v30 profile/state/record/checkpoint/
+The experimental native simulation checkpoint/record contract is format 31,
+`benilla-native-first-owned-pathfinder-cache-v31`, with v31 profile/state/record/checkpoint/
 melee-action/melee-chain hash domains. Published native format 11 is rejected by
 decode, restore and replay, with no reinterpretation or implicit migration.
 Incompatible store current and previous files remain intact on refusal.

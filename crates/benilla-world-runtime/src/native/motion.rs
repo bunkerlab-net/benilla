@@ -184,6 +184,29 @@ pub struct NpcMotionSnapshot {
     pub active: bool,
     pub combat_start: Option<motion::Pose>,
 }
+impl NpcMotionSnapshot {
+    pub(super) fn validate_saved_session_reopen(&self) -> Result<(), NativeError> {
+        let prior_cache = self
+            .motion
+            .spline
+            .as_ref()
+            .and_then(|s| s.route_request.prior_cache.as_ref());
+        let current_cache = match &self.motion.generator {
+            motion::Generator::Chase(chase) => chase.pathfinder_cache.as_ref(),
+            _ => None,
+        };
+        if prior_cache
+            .into_iter()
+            .chain(current_cache)
+            .any(|cache| cache.source != motion::RouteSource::SyntheticFixture)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "saved native PathFinder cache rehydration",
+            ));
+        }
+        Ok(())
+    }
+}
 impl NpcMotion {
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn new(profile: &Profile, npc: &NpcProfile) -> Result<Option<Self>, NativeError> {
@@ -269,6 +292,8 @@ impl NpcMotion {
         }
         // Runtime alone knows owner generation. These consistency checks do not
         // authenticate source refs or supply a production rehydration path.
+        s.validate_saved_session_reopen()
+            .map_err(|_| NativeError::InvalidCheckpoint)?;
         let prior_cache = s
             .motion
             .spline
@@ -281,7 +306,6 @@ impl NpcMotion {
         for cache in prior_cache.into_iter().chain(current_cache) {
             if cache.binding.owner_generation != npc.generation
                 || cache.binding.identity.creature != npc.spawn
-                || cache.source != motion::RouteSource::SyntheticFixture
                 || CreatureCapabilityState::new(profile, npc)?.is_none()
             {
                 return Err(NativeError::InvalidCheckpoint);
@@ -437,4 +461,4 @@ impl From<motion::MotionError> for NativeError {
 
 #[cfg(test)]
 #[path = "route_cache_tests.rs"]
-mod route_cache_tests;
+pub(super) mod route_cache_tests;

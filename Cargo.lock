@@ -1083,6 +1083,8 @@ dependencies = [
 name = "benilla-world-store"
 version = "0.2.0"
 dependencies = [
+ "benilla-formats",
+ "benilla-sim",
  "benilla-world-data",
  "benilla-world-runtime",
  "libc",

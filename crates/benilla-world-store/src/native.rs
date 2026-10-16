@@ -178,6 +178,9 @@ impl NativeStore {
         let bytes = storage.read()?;
         let envelope = Envelope::decode(&bytes)?;
         let mut world = envelope.restore(&identity, &mut restore)?;
+        // A cache-free base may replay into unsupported loaded native ownership.
+        // Check current state, not historical Route facts or the prior envelope.
+        world.validate_saved_session_reopen()?;
         let previous_digest = match storage.read_previous() {
             Ok(previous) => {
                 let prior = Envelope::decode(&previous)?;

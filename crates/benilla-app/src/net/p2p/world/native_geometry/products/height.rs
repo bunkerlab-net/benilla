@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Pinned TerrainInfo::GetHeightStatic with height calculation and VMaps enabled.
 //! Actual decoded terrain and static geometry only; not composite liquid or support.
-use super::{liquid::world_tile, vmap, Error, Hash, InventoriedProducts, PointHeight};
+use super::{
+    liquid::world_tile, vmap, Error, Hash, InventoriedProducts, PointHeight, VmapLiquidProducts,
+};
 use sha2::{Digest, Sha256};
 use std::{ops::Deref, sync::Arc, time::Instant};
 
@@ -42,6 +44,9 @@ pub(crate) struct StaticHeightSnapshot<'a> {
 enum Products<'a> {
     Borrowed(&'a InventoriedProducts),
     Owned(Arc<InventoriedProducts>),
+    // Preserve the original opt-in inventory/profile and the caller's allocation.
+    // This private arm is admitted only after complete GridMap and VMap dryness.
+    OwnedDryLiquid(Arc<VmapLiquidProducts>),
 }
 impl Deref for Products<'_> {
     type Target = InventoriedProducts;
@@ -50,6 +55,7 @@ impl Deref for Products<'_> {
         match self {
             Self::Borrowed(products) => products,
             Self::Owned(products) => products,
+            Self::OwnedDryLiquid(products) => &products.inventory,
         }
     }
 }
@@ -68,15 +74,34 @@ impl InventoriedProducts {
         StaticHeightSnapshot::load(Products::Owned(self))
     }
 }
+impl VmapLiquidProducts {
+    /// Retain the same source owner as environment/navigation readers. Only actual
+    /// complete dry data can project the opt-in envelope into this scalar reader.
+    pub(super) fn load_dry_static_height_owned(
+        self: Arc<Self>,
+    ) -> Result<StaticHeightSnapshot<'static>, Error> {
+        let (_, vmap) = self.inventory.load_dry_liquid_and_vmap()?;
+        Ok(StaticHeightSnapshot::with_vmap(
+            Products::OwnedDryLiquid(self),
+            vmap,
+        ))
+    }
+}
 impl<'a> StaticHeightSnapshot<'a> {
     fn load(products: Products<'a>) -> Result<Self, Error> {
         let vmap = products.load_static_vmap()?;
         vmap.require_complete_dry_map()?;
+        Ok(Self::with_vmap(products, vmap))
+    }
+
+    // Both callers have loaded this exact inventory and validated complete dry VMap.
+    // No public caller may supply a replacement geometry binding or source owner.
+    fn with_vmap(products: Products<'a>, vmap: vmap::VmapSnapshot) -> Self {
         let source = vmap.binding();
         let mut policy = Sha256::new();
         policy.update(POLICY);
         policy.update(source.policy);
-        Ok(Self {
+        Self {
             binding: SnapshotBinding {
                 map: source.map,
                 content: source.content,
@@ -86,7 +111,7 @@ impl<'a> StaticHeightSnapshot<'a> {
             },
             products,
             vmap,
-        })
+        }
     }
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding

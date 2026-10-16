@@ -134,6 +134,7 @@ fn setup(
         static_los: None,
         primary_near_point: None,
         empty_selector_near_point: None,
+        same_polygon_route: None,
         player_environment: Some(
             PlayerEnvironmentPolicy::from_profile(&profile, f::player()).unwrap(),
         ),

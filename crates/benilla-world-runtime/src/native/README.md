@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v30 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v31 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -34,7 +34,7 @@ UnitState bits are not projected. Consumers use
 The immutable captured abilities support transcript consistency checks. Replay
 regenerates the receipt from live staged abilities and compares the exact request;
 a self-consistent historical receipt alone does not establish current state.
-Native v30 requires the `owner_ignore_pathfinding` option field: explicit null is
+Native v31 requires the `owner_ignore_pathfinding` option field: explicit null is
 unavailable, omitted fields and v29 or earlier records/checkpoints reject.
 See [the full source contract](../../CREATURE-CAPABILITIES.md#single-bit-owner-pathfinding-closure).
 From the repository root, verify the six pinned source files and source expressions:
@@ -108,7 +108,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 30, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 31, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -188,14 +188,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 30 changes experimental simulation checkpoints/records, not
+typed. Native format 31 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 30 does not change character/profile files.
+remains rejected. Native format 31 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.
@@ -210,8 +210,16 @@ height scalars. Respawn clears it; current-model mutation and native admission r
 
 Optional fresh-player model height ownership is documented in [Player collision height](../../PLAYER-COLLISION-HEIGHT.md). It retains the actual starter identity and loaded selection, with no production admission or cached-water claim.
 
-Native v30 also requires actual first/retained Chase constructor dispatch evidence,
+Native v31 also requires actual first/retained Chase constructor dispatch evidence,
 independent of cache or route success. The private live receipt is paired with a
 separately loaded query; serialized replay evidence cannot recreate that lease.
 See [PathFinder constructor dispatch](PATHFINDER-DISPATCH.md) for timing, Home
-exclusion, one-use claims, transaction rollback and the native29 rejection.
+exclusion, one-use claims, transaction rollback and native30-and-earlier rejection.
+
+The first source-owner cache [contract](PATHFINDER-CACHE.md) admits only explicit
+first-dispatch/revision-one Complete NORMAL typed claims with exact endpoint and
+all segment checks. Retained replies still need exact prior state and increment.
+The runtime requires its own request-side live dispatch; this does not prove the
+app's native query, source calculation or geometry. Structural motion replay is
+separate from native loaded-cache restore, which remains rejected. No production
+session, participant or source-epoch admission is opened by native31.

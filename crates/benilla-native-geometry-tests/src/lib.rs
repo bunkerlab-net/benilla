@@ -145,3 +145,6 @@ mod source_route_chase_gate;
 
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_pathfinder_query.rs"]
 mod source_pathfinder_query;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_same_polygon.rs"]
+mod source_route_same_polygon;

@@ -44,6 +44,7 @@ fn setup() -> (Session, AuthorityRequest) {
         primary_near_point: Some(PrimaryNearPointPolicy::from_profile(&profile).unwrap()),
         empty_selector_near_point: None,
         player_environment: None,
+        same_polygon_route: None,
     };
     let mut world =
         NativeWorld::synthetic_component_test(profile, session.world, fixture::player(), 1234)

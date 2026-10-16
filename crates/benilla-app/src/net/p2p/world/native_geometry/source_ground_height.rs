@@ -77,6 +77,16 @@ impl<'products> SourceGroundHeightProvider<'products> {
         let expected = super::source_near_point_empty::geometry_revision(&snapshot, config)?;
         Self::bind_revision(session, profile, snapshot, expected)
     }
+    pub(super) fn bind_with_same_polygon(
+        session: &Session,
+        profile: &Profile,
+        snapshot: MapHeightSnapshot<'products>,
+        config: super::source_near_point::SourceNearPointConfiguration,
+        binding: super::source_route_same_polygon::SamePolygonBinding,
+    ) -> Result<Self, Failure> {
+        binding.check_near_point(&snapshot, config)?;
+        Self::bind_revision(session, profile, snapshot, binding.geometry_revision()?)
+    }
     fn bind_revision(
         session: &Session,
         profile: &Profile,
@@ -138,6 +148,8 @@ impl<'products> SourceGroundHeightProvider<'products> {
             || session.static_los != self.session.static_los
             || session.primary_near_point != self.session.primary_near_point
             || session.empty_selector_near_point != self.session.empty_selector_near_point
+            || session.player_environment != self.session.player_environment
+            || session.same_polygon_route != self.session.same_polygon_route
         {
             return Err(Failure::Binding);
         }

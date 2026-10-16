@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Authored rows exercise the actual runtime dispatch; they grant no native route admission.
+//! Authored rows exercise runtime dispatch/claim validation, not native queries or geometry.
 use super::*;
 use crate::native::{
     synthetic_combat_fixture as combat, synthetic_fixture as f, synthetic_motion_fixture as motion,
@@ -208,23 +208,28 @@ fn serialized_exact_replay_regenerates_events_without_rehydrating_queries() {
 }
 
 #[test]
-fn old_native29_and_missing_event_are_not_migrated() {
+fn old_native29_and_native30_are_not_migrated() {
     let (w, _) = captured(profile());
-    let mut old = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
-    old["version"] = 29.into();
-    old["state"]["version"] = 29.into();
-    old["state"]["policy"] = "benilla-native-owner-ignore-pathfinding-v29".into();
-    let old: Checkpoint = serde_json::from_value(old).unwrap();
-    assert!(Checkpoint::decode(&old.encode().unwrap()).is_err());
-    assert!(NativeWorld::restore_synthetic_component_test(w.profile().clone(), old).is_err());
-    let mut records = w.records().to_vec();
-    records[0].version = 29;
-    assert!(decode_records(&encode_records(&records).unwrap()).is_err());
-    assert!(world(w.profile().clone()).replay(&records).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 30);
+    for (version, policy) in [
+        (29, "benilla-native-owner-ignore-pathfinding-v29"),
+        (30, "benilla-native-pathfinder-constructor-dispatch-v30"),
+    ] {
+        let mut old = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
+        old["version"] = version.into();
+        old["state"]["version"] = version.into();
+        old["state"]["policy"] = policy.into();
+        let old: Checkpoint = serde_json::from_value(old).unwrap();
+        assert!(Checkpoint::decode(&old.encode().unwrap()).is_err());
+        assert!(NativeWorld::restore_synthetic_component_test(w.profile().clone(), old).is_err());
+        let mut records = w.records().to_vec();
+        records[0].version = version;
+        assert!(decode_records(&encode_records(&records).unwrap()).is_err());
+        assert!(world(w.profile().clone()).replay(&records).is_err());
+    }
+    assert_eq!(NATIVE_FORMAT_VERSION, 31);
     assert_eq!(
         NATIVE_POLICY,
-        "benilla-native-pathfinder-constructor-dispatch-v30"
+        "benilla-native-first-owned-pathfinder-cache-v31"
     );
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
@@ -382,4 +387,107 @@ fn live_event_cannot_be_relabeled_to_another_same_profile_world_or_tick() {
     let mut missing = serde_json::to_value(receipt).unwrap();
     missing.as_object_mut().unwrap().remove("world");
     assert!(serde_json::from_value::<PathfinderDispatchReceipt>(missing).is_err());
+}
+
+#[test]
+fn synthetic_typed_owner_claim_replays_exact_facts_but_cannot_reopen_loaded_cache() {
+    // This deliberately supplies authored cache and segment claims to test only
+    // runtime ownership/replay. No native query or real geometry executes here.
+    use crate::native::motion::route_cache_tests::{seed, SyntheticCacheAuthority};
+    let mut w = world(profile());
+    let initial = w.checkpoint().unwrap();
+    let mut a = SyntheticCacheAuthority::owner_claim();
+    seed(&mut w, &mut a);
+    let record = w
+        .records()
+        .iter()
+        .flat_map(|r| &r.replies)
+        .find(|r| matches!(&r.request.query, Query::SourceMotion(MotionQuery::Route(_))))
+        .unwrap();
+    let Query::SourceMotion(MotionQuery::Route(request)) = &record.request.query else {
+        unreachable!()
+    };
+    let receipt = record
+        .request
+        .require_pathfinder_dispatch(w.profile())
+        .unwrap();
+    assert!(receipt.first_construction());
+    assert!(request.request.prior_cache.is_none());
+    let Facts::SourceMotion(MotionFacts::Spatial(reply)) = &record.facts else {
+        unreachable!()
+    };
+    let m::Fact::RouteCalculation(calculation) = &reply.fact else {
+        unreachable!()
+    };
+    assert_eq!(calculation.source, m::RouteSource::OwnerPathFinder);
+    assert_eq!(calculation.after_cache.revision, 1);
+    let source = w.state().npcs[&2].source_motion.as_ref().unwrap();
+    m::MotionState::restore(source.motion.snapshot()).unwrap();
+    let records = decode_records(&encode_records(w.records()).unwrap()).unwrap();
+    let mut replay =
+        NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial).unwrap();
+    replay.replay(&records).unwrap();
+    assert_eq!(replay.state_digest(), w.state_digest());
+    assert_eq!(replay.records(), w.records());
+    assert!(NativeWorld::restore_synthetic_component_test(
+        w.profile().clone(),
+        w.checkpoint().unwrap()
+    )
+    .is_err());
+}
+
+#[test]
+fn synthetic_typed_owner_valid_first_calculation_later_failure_rolls_back_and_retries() {
+    // Authored typed claims exercise the transaction, not native/geometry execution.
+    use crate::native::motion::route_cache_tests::SyntheticCacheAuthority;
+    let mut w = world(profile());
+    let initial = w.checkpoint().unwrap();
+    let mut a = SyntheticCacheAuthority::owner_claim();
+    a.fail_after_route(true);
+    let failed = loop {
+        let before = w.checkpoint().unwrap();
+        let records = w.records().to_vec();
+        let result = w.step(w.state().tick + 1, None, &mut a);
+        if a.calculated() {
+            assert_eq!(
+                result,
+                Err(NativeError::AuthorityUnavailable(
+                    "synthetic later frame failure",
+                ))
+            );
+            assert_eq!(w.checkpoint().unwrap(), before);
+            assert_eq!(w.records(), records);
+            break a.last_route().unwrap().clone();
+        }
+        result.unwrap();
+        assert!(w.state().tick < 10);
+    };
+    a.fail_after_route(false);
+    w.step(w.state().tick + 1, None, &mut a).unwrap();
+    let retried = a.last_route().unwrap();
+    assert_eq!(retried, &failed);
+    assert!(!retried
+        .require_pathfinder_dispatch(w.profile())
+        .unwrap()
+        .same_live_dispatch(failed.require_pathfinder_dispatch(w.profile()).unwrap()));
+    let launches = w
+        .records()
+        .iter()
+        .flat_map(|r| &r.events)
+        .filter(|event| {
+            matches!(
+                event,
+                Event::NpcMotion {
+                    event: m::Event::SplineLaunched { .. },
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(launches, 1);
+    let records = decode_records(&encode_records(w.records()).unwrap()).unwrap();
+    let mut replay =
+        NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial).unwrap();
+    replay.replay(&records).unwrap();
+    assert_eq!(replay.checkpoint().unwrap(), w.checkpoint().unwrap());
 }

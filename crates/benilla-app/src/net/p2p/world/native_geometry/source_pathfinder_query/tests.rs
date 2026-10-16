@@ -19,8 +19,7 @@ use std::{
     time::Duration,
 };
 
-#[path = "test_archive.rs"]
-mod archive;
+use super::test_archive as archive;
 
 fn point(x: f32, y: f32, z: f32) -> ai::Point {
     ai::Point::new(x, y, z).unwrap()
@@ -113,6 +112,7 @@ fn session(p: &Profile) -> Session {
         primary_near_point: None,
         empty_selector_near_point: None,
         player_environment: None,
+        same_polygon_route: None,
     }
 }
 fn setup() -> (Profile, Session, SourcePathfinderQueryProvider) {

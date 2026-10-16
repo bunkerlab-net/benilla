@@ -2,7 +2,7 @@
 //! Pinned Map::GetHeight over actual static products and a proven empty dynamic tree.
 //! Height is a scalar source answer, including invalid sentinels, never body support.
 use super::super::core::NonRenderParticipants;
-use super::{height, vmap, Error, Hash, InventoriedProducts};
+use super::{height, vmap, Error, Hash, InventoriedProducts, VmapLiquidProducts};
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Instant};
 
@@ -89,6 +89,22 @@ impl InventoriedProducts {
             .filter(|proof| proof.matches(self.content, self.map))
             .cloned()
             .ok_or(Error::Profile)
+    }
+}
+impl VmapLiquidProducts {
+    /// Owned scalar Map::GetHeight over the exact opt-in source allocation, after
+    /// proving all inventoried GridMaps and VMaps dry. Never clones/relabels products.
+    /// Effective height configuration and independent participant proof remain required.
+    pub(crate) fn load_dry_map_height_owned(
+        self: Arc<Self>,
+        config: SourceHeightConfiguration,
+        participants: Option<&NonRenderParticipants>,
+    ) -> Result<MapHeightSnapshot<'static>, Error> {
+        let participants = self
+            .inventory
+            .map_height_participants(config, participants)?;
+        let height = self.load_dry_static_height_owned()?;
+        Ok(MapHeightSnapshot::new(height, config, participants))
     }
 }
 impl<'a> MapHeightSnapshot<'a> {
@@ -232,5 +248,7 @@ pub(crate) fn allowed_ground_z(mut z: f32, ground_z: f32) -> f32 {
 
 #[cfg(test)]
 mod oracle_tests;
+#[cfg(test)]
+mod same_polygon_fixture_tests;
 #[cfg(test)]
 pub(super) mod tests;

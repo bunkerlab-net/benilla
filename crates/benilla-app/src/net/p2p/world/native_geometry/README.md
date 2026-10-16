@@ -655,3 +655,79 @@ safety, fresh constructor-filter evidence or a completed calculation from this
 registry. Enabled-at-construction, fixed outdoor map/source slot zero and
 nontransport configuration are required. Disabled-then-enabled same-map default
 query reads remain excluded, as do all query replacement/map-change paths.
+
+## Source-ordered same-polygon proposal
+
+`SourceSamePolygonRouteProvider` composes the actual source1024 registry, loaded
+owner filter and shared Chase gate observations without a warm seed. Its typed
+binding includes the raw Corridor revision, the actual shared liquid/navigation/
+VMap inventory and epoch, selected MMap configuration, explicit false/false
+NormalizePath configuration, operational budgets, and the approved
+`cmangos-buildpolypath-zero-distance-v1` source policy.
+
+The provider must be loaded and bound before runtime execution and invoked inside
+the authority callback. First construction performs distinct `createFilter` water
+and underwater observations before the gate. The gate uses the actual loaded VMap
+ray, fresh owner water, and runtime-owned target water. Destination/start validation
+and selected-query ownership then precede the owned ignore bit and actual HaveTile;
+only afterward does a fresh calculate `updateFilter` run. Cold lookup starts from
+74 zero slots and active length zero under the named two-local compatibility
+amendment. Same-polygon completion preserves the searchable tail, restores active
+length one and NORMAL, and keeps exact `[origin, goal]` points. Retained calculation
+uses the exact private immutable prior on that same allocation with original
+warm lookup semantics. No raycast, findPath, smoothing, normal fallback or CutPath
+work is implied by this branch.
+
+Candidates are proposals rather than accepted cache mutations. Each of at most
+256 generator/generation entries retains at most four immutable candidates. Only
+an exact authenticated runtime next-prior can select one; serialized references
+cannot recreate it. Exact request retries repeat source observations and cold
+constructor work but reuse the identical immutable candidate. No ancestor is
+pruned on resolve or on observing a later prior, because another operation in the
+same outer frame can still fail. Saturation is unavailable, never eviction. A
+future explicit committed-frame acknowledgement belongs immediately after the
+controller's successful `world.step_batch`, before pending input retirement or
+projection; projection/checkpoint retry must never calculate again. Loaded native
+rehydration after reopening remains separately unsupported.
+
+The engine-free harness executes this composition from actual runtime callbacks
+and observes unchanged world checkpoints when the callback refuses the final
+Route. Its remaining non-Route world prerequisites are explicitly authored.
+The prefix-only `resolve` remains unavailable with
+`StrictProductionCorridorUnavailable`. Source NORMAL and parsed planar support
+alone cannot supply coverage, swept body, elevated LOS, continuous support and
+absence of liquid.
+
+The app-only `source_route_same_polygon_local` resolver accepts the concrete
+production `LocalCorridor`, never an arbitrary `Corridor` implementation. It checks
+the actual raw revision and exact terminal endpoints, obtains every strict raw
+coverage/body/elevated-LOS/continuous-dry-support check, then runs a separate loaded
+source VMap ray with the owner's height at both ends (including M2). Only after all
+these checks and the original deadline does it construct an OwnerPathFinder
+CompleteRoute with the exact prior/after cache and all five segment predicates.
+
+`install_with_same_polygon` installs an explicit bounded Session Route policy and
+already-loaded source readers before runtime driving. The Service routes actual
+jobs through this concrete resolver. Generic movement, other source branches and
+native production admission do not gain authority from this selection. Existing
+ticket/outer-inner echo, cancellation, deadlines, frame budget and participant
+checks remain in force. Complete replies additionally validate exact two-point
+endpoints, all segment predicates, owner generation, cache inventory/epoch/policy,
+first/retained constructor phase and revision transition.
+
+The same actual product owner supplies source NearPoint MapHeight and VMap, dry
+liquid, source1024 and runtime player-environment dependencies. A private typed
+composite binds their actual revisions/configuration under one geometry identity;
+it cannot relabel a provider with an arbitrary matching hash. The headless harness
+executes genuine NearPoint and source-order callbacks but cannot certify a Route.
+App-only tests exercise the real physics resolver and installed Service/mailbox
+first calculation, failed-frame retry with a fresh live dispatch, and retained
+replan. Those app tests require full Bevy/system-library CI and are unverified in
+the local environment without `libudev.pc`.
+
+The authored runtime/transport tests still use explicitly synthetic unrelated
+combat and other non-geometry callbacks; they do not admit a production session.
+Native checkpoint serialization is distinct from loaded-cache rehydration, which
+remains closed. No controller/store durable-session or reopen success is implied.
+The four-candidate bound and missing explicit commit acknowledgement mean this
+first-route slice is not sustained gameplay.

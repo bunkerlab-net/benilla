@@ -207,11 +207,11 @@ fn mutate_resigned(
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
     cp["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v30\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v31\0", &state)).unwrap();
     let digest: crate::Digest = serde_json::from_value(cp["digest"].clone()).unwrap();
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v30\0",
+        b"benilla-native-checkpoint-v31\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -375,7 +375,7 @@ fn original_fixture_snapshot_has_no_native_decode_path() {
     let original = br#"{"version":2,"content_digest":[],"rules_digest":[],"state":{}}"#;
     assert!(Checkpoint::decode(original).is_err());
     assert_eq!(crate::FORMAT_VERSION, 2);
-    assert_eq!(NATIVE_FORMAT_VERSION, 30);
+    assert_eq!(NATIVE_FORMAT_VERSION, 31);
     // The compiler token is uninhabited even when the synthetic feature is unified.
     assert_eq!(std::mem::size_of::<NativeCapability>(), 0);
 }

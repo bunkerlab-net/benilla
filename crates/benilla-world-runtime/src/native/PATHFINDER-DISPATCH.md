@@ -41,7 +41,10 @@ transaction failure a regenerated first event has a fresh seal: the provider mus
 claim it too while retaining or discarding its original dependency consistently.
 `same_live_dispatch` distinguishes repeated use of the same seal from a regenerated
 proposal with identical transcript bytes. Neither event nor configuration hashes
-can replace this loaded ownership. Full cold/owner Route admission stays closed.
+can replace this loaded ownership. The narrow initial OwnerPathFinder cache
+contract accepts a typed Complete NORMAL claim only with the first dispatch and
+revision one; actual source/query/geometry proof remains the app provider's duty.
+Production native session admission stays closed.
 
 The mutable simulation identity is staged with motion/world state. An authority,
 subsequent frame, or store-publication failure does not commit it. Retrying the
@@ -51,10 +54,11 @@ lease is not committed world state or a successful Route calculation.
 
 ## Persistence contract
 
-Native format **30**, `benilla-native-pathfinder-constructor-dispatch-v30`, and
-motion policy `cmangos-8ec338a1-ground-linear-motion-constructor-dispatch-v2` bind
-the new lifecycle. Profile/state/record/checkpoint/melee digest domains are v30.
-Native29 and earlier are rejected; no migration or serde default invents evidence.
+Native format **31**, `benilla-native-first-owned-pathfinder-cache-v31`, and
+motion policy `cmangos-8ec338a1-ground-linear-motion-first-owned-cache-v3` bind
+the first source-cache contract and constructor lifecycle. Profile/state/record/
+checkpoint/melee digest domains are v31. Native30/motion2 and earlier are rejected;
+no migration or serde default invents evidence.
 MotionSnapshot also requires its exact policy, including Idle snapshots.
 The new simulation snapshot/request options and native Route option are required
 fields, even when null. A Chase snapshot with cache or a spline from another
@@ -63,5 +67,10 @@ constructor is rejected.
 Serialized receipts preserve all evidence for exact replay, but their manual
 deserializer restores no live seal. Replay re-executes the source dispatch and
 compares every metadata field; it cannot rehydrate native queries from saved
-receipts or hashes. Fixture checkpoint restore remains explicitly synthetic.
+receipts or hashes. First source-cache typed claims may replay from recorded facts;
+loaded source-cache checkpoint reopen remains rejected. Saved-session open also
+checks the final state after journal replay, so a cache-free base cannot bypass
+the reopen guard. Historical Route facts alone do not reject a world whose owner
+cache was discarded by the modeled lifecycle. Fixture checkpoint restore remains
+explicitly synthetic.
 The `OriginalFixture` world and its v2 save format remain unchanged.

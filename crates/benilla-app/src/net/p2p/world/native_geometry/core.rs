@@ -337,6 +337,95 @@ impl PlayerEnvironmentPolicy {
     }
 }
 
+/// Explicit transport capability for the bounded loaded first/retained Chase path.
+/// This validates request ownership and domains, never raw geometry or native caches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SamePolygonRoutePolicy {
+    environment: PlayerEnvironmentPolicy,
+    binding: super::source_route_same_polygon::SamePolygonBinding,
+}
+impl SamePolygonRoutePolicy {
+    pub(crate) fn from_profile(
+        profile: &Profile,
+        player: PlayerId,
+        binding: super::source_route_same_polygon::SamePolygonBinding,
+    ) -> Result<Self, Failure> {
+        if binding.geometry_revision()? != profile.geometry_revision {
+            return Err(Failure::Binding);
+        }
+        Ok(Self {
+            environment: PlayerEnvironmentPolicy::from_profile(profile, player)?,
+            binding,
+        })
+    }
+    fn check(&self, session: &Session) -> Result<(), Failure> {
+        self.environment.check(session)?;
+        if session.player_environment.as_ref() != Some(&self.environment)
+            || session.geometry != self.binding.geometry_revision()?
+        {
+            return Err(Failure::Binding);
+        }
+        Ok(())
+    }
+    fn body(&self, session: &Session, context: &AuthorityRequest) -> Result<Body, Failure> {
+        self.check(session)?;
+        let profile = &self.environment.profile;
+        super::source_route_filter::validate_route_context(session, profile, context)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        let q = &route.request;
+        if !matches!(
+            q.kind,
+            motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan
+        ) || q.launch_origin != q.origin
+            || q.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
+            || q.target.is_none()
+        {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let dispatch = context
+            .require_pathfinder_dispatch(profile)
+            .map_err(|_| Failure::Binding)?;
+        match q.prior_cache.as_deref() {
+            None if dispatch.first_construction() => (),
+            Some(prior) if !dispatch.first_construction() => {
+                prior
+                    .validate_for(q.binding.identity)
+                    .map_err(|_| Failure::Binding)?;
+                if prior.source != motion::RouteSource::OwnerPathFinder
+                    || prior.binding.owner_generation != route.owner.npc().generation
+                    || prior.binding.inventory != self.binding.navigation.inventory
+                    || prior.binding.source_epoch != self.binding.navigation.source_epoch
+                    || prior.binding.navigation_policy != session.geometry
+                {
+                    return Err(Failure::Binding);
+                }
+            }
+            _ => return Err(Failure::Binding),
+        }
+        super::source_route_chase_gate::gate_model(
+            profile,
+            session.world,
+            self.environment.player,
+            route,
+        )?;
+        if route
+            .require_owner_ignore_pathfinding(profile)
+            .map_err(|_| Failure::Binding)?
+            .ignore_pathfinding()
+        {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let npc = context.binding.npc.ok_or(Failure::Binding)?;
+        session
+            .bodies
+            .get(&npc.spawn)
+            .copied()
+            .ok_or(Failure::UnresolvedBody)
+    }
+}
+
 /// Local session identity. Digests bind inputs; they do not attest that client collision
 /// equals CMaNGOS VMap data. Production admission must separately verify asset identity.
 #[derive(Clone)]
@@ -354,6 +443,7 @@ pub(crate) struct Session {
     pub primary_near_point: Option<PrimaryNearPointPolicy>,
     pub empty_selector_near_point: Option<EmptySelectorNearPointPolicy>,
     pub player_environment: Option<PlayerEnvironmentPolicy>,
+    pub same_polygon_route: Option<SamePolygonRoutePolicy>,
 }
 impl Session {
     pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
@@ -369,6 +459,13 @@ impl Session {
         }
         let m = match &request.query {
             Query::Movement(m) => m,
+            Query::SourceMotion(MotionQuery::Route(_)) => {
+                return self
+                    .same_polygon_route
+                    .as_ref()
+                    .ok_or(Failure::UnsupportedQuery)?
+                    .body(self, request);
+            }
             Query::PlayerEnvironment(_) => {
                 return self
                     .player_environment
@@ -463,6 +560,10 @@ impl Session {
             && !(self.primary_near_point.is_some() && self.empty_selector_near_point.is_some())
             && self
                 .player_environment
+                .as_ref()
+                .is_none_or(|p| p.check(self).is_ok())
+            && self
+                .same_polygon_route
                 .as_ref()
                 .is_none_or(|p| p.check(self).is_ok())
             && self
@@ -729,12 +830,59 @@ impl Mailbox {
     }
 }
 
-fn validate_facts(
+pub(super) fn validate_facts(
     session: &Session,
     request: &AuthorityRequest,
     facts: &Facts,
 ) -> Result<(), Failure> {
     match (&request.query, facts) {
+        (
+            Query::SourceMotion(MotionQuery::Route(route)),
+            Facts::SourceMotion(MotionFacts::Spatial(reply)),
+        ) => {
+            session.body(request)?;
+            if reply.request != motion::Query::Route(route.request.clone()) {
+                return Err(Failure::Binding);
+            }
+            let motion::Fact::RouteCalculation(calculation) = &reply.fact else {
+                return Err(Failure::Binding);
+            };
+            calculation
+                .validate_for(&route.request)
+                .map_err(|_| Failure::Binding)?;
+            let motion::RouteOutcome::Complete(path) = &calculation.outcome else {
+                return Err(Failure::Binding);
+            };
+            let passed = SegmentChecks {
+                loaded_coverage: Check::Passed,
+                line_of_sight: Check::Passed,
+                body_sweep: Check::Passed,
+                continuous_ground_support: Check::Passed,
+                dry_ground: Check::Passed,
+            };
+            let policy = session
+                .same_polygon_route
+                .as_ref()
+                .ok_or(Failure::UnsupportedQuery)?;
+            if calculation.source != motion::RouteSource::OwnerPathFinder
+                || path.source != motion::RouteSource::OwnerPathFinder
+                || path.path_identity == [0; 32]
+                || path.points != [route.request.origin, route.request.goal]
+                || path.segments != [passed]
+                || calculation.after_cache.binding.owner_generation
+                    != request.binding.npc.ok_or(Failure::Binding)?.generation
+                || calculation.after_cache.binding.navigation_policy != session.geometry
+                || calculation.after_cache.binding.inventory != policy.binding.navigation.inventory
+                || calculation.after_cache.binding.source_epoch
+                    != policy.binding.navigation.source_epoch
+                || calculation.after_cache.active_len != 1
+                || calculation.after_cache.include_flags != 1
+                || calculation.after_cache.exclude_flags != 0
+            {
+                return Err(Failure::Binding);
+            }
+            Ok(())
+        }
         (Query::Movement(m), Facts::Movement(outcome)) => validate_outcome(m, outcome),
         (Query::PlayerEnvironment(query), Facts::PlayerEnvironment(facts)) => {
             session.body(request)?;

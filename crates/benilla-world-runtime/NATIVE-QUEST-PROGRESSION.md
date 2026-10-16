@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native30 (`benilla-native-pathfinder-constructor-dispatch-v30`), quest genesis policy v4,
+is native31 (`benilla-native-first-owned-pathfinder-cache-v31`), quest genesis policy v4,
 and live training journal v2.
 Older policies are rejected rather than silently migrated.
 
@@ -92,7 +92,7 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 30 explicitly rejects prior schemas; cast checkpoints use version 2,
+Native format 31 explicitly rejects prior schemas; cast checkpoints use version 2,
 while common resource/aura checkpoints remain version 1. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! SyntheticFixture cache lifecycle only; no loaded/source cache producer.
+//! Authored typed cache claims and lifecycle only; no loaded/source cache producer.
 use crate::native::{synthetic_fixture as f, synthetic_motion_fixture as fixture, *};
 use benilla_sim::creature_motion as m;
 
@@ -13,11 +13,34 @@ fn world() -> NativeWorld {
     NativeWorld::synthetic_component_test(profile(), [8; 16], f::player(), 1234).unwrap()
 }
 #[derive(Default)]
-struct SyntheticCacheAuthority {
+pub(in crate::native) struct SyntheticCacheAuthority {
     inner: fixture::SyntheticMotionAuthority,
     corrupt_generation: bool,
+    typed_source_claim: bool,
     fail_after_route: bool,
     calculated: bool,
+}
+impl SyntheticCacheAuthority {
+    pub(in crate::native) fn owner_claim() -> Self {
+        Self {
+            typed_source_claim: true,
+            ..Default::default()
+        }
+    }
+    pub(in crate::native) fn fail_after_route(&mut self, enabled: bool) {
+        self.fail_after_route = enabled;
+        self.calculated = false;
+    }
+    pub(in crate::native) fn calculated(&self) -> bool {
+        self.calculated
+    }
+    pub(in crate::native) fn last_route(&self) -> Option<&AuthorityRequest> {
+        self.inner
+            .queries
+            .iter()
+            .rev()
+            .find(|request| matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))))
+    }
 }
 impl Authority for SyntheticCacheAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
@@ -66,9 +89,17 @@ impl Authority for SyntheticCacheAuthority {
         if self.corrupt_generation {
             after.binding.owner_generation += 1;
         }
+        let mut outcome = outcome.clone();
+        if self.typed_source_claim {
+            // Contract-only authored claim, never evidence of native execution.
+            after.source = m::RouteSource::OwnerPathFinder;
+            if let m::RouteOutcome::Complete(path) = &mut outcome {
+                path.source = m::RouteSource::OwnerPathFinder;
+            }
+        }
         inner.fact = m::Fact::RouteCalculation(Box::new(m::RouteCalculation {
-            source: m::RouteSource::SyntheticFixture,
-            outcome: outcome.clone(),
+            source: after.source,
+            outcome,
             prior_cache: q.request.prior_cache.clone(),
             after_cache: after,
         }));
@@ -76,7 +107,7 @@ impl Authority for SyntheticCacheAuthority {
         Ok(reply)
     }
 }
-fn seed(w: &mut NativeWorld, a: &mut SyntheticCacheAuthority) {
+pub(in crate::native) fn seed(w: &mut NativeWorld, a: &mut SyntheticCacheAuthority) {
     while !a.calculated {
         assert!(w.state().tick < 10);
         w.step(w.state().tick + 1, None, a).unwrap();
@@ -212,5 +243,58 @@ fn synthetic_fixture_native_adapter_rejects_stale_prior_before_external_route() 
             .filter(|r| matches!(r.query, Query::SourceMotion(MotionQuery::Route(_))))
             .count(),
         prior_calls
+    );
+}
+
+#[test]
+fn malicious_owner_claim_without_selected_config_and_live_dispatch_rolls_back() {
+    let mut w = world();
+    assert!(w.profile().pathfinder_configuration.is_none());
+    let mut a = SyntheticCacheAuthority {
+        typed_source_claim: true,
+        ..Default::default()
+    };
+    loop {
+        let before = w.checkpoint().unwrap();
+        let result = w.step(w.state().tick + 1, None, &mut a);
+        if a.calculated {
+            assert_eq!(
+                result,
+                Err(NativeError::AuthorityUnavailable(
+                    "owned pathfinder constructor dispatch",
+                ))
+            );
+            assert_eq!(w.checkpoint().unwrap(), before);
+            break;
+        }
+        result.unwrap();
+        assert!(w.state().tick < 10);
+    }
+}
+
+#[test]
+fn synthetic_structurally_valid_first_owner_snapshot_cannot_rehydrate_native_cache() {
+    let mut w = world();
+    let mut a = SyntheticCacheAuthority::default();
+    seed(&mut w, &mut a);
+    let npc = &w.state().npcs[&2];
+    let mut snapshot = npc.source_motion.as_ref().unwrap().snapshot();
+    let m::Generator::Chase(chase) = &mut snapshot.motion.generator else {
+        panic!("chase")
+    };
+    chase.pathfinder_cache.as_mut().unwrap().source = m::RouteSource::OwnerPathFinder;
+    let spline = snapshot.motion.spline.as_mut().unwrap();
+    assert!(spline.route_request.prior_cache.is_none());
+    assert!(spline
+        .route_request
+        .pathfinder_dispatch
+        .unwrap()
+        .first_construction());
+    spline.route.source = m::RouteSource::OwnerPathFinder;
+    spline.route_source = m::RouteSource::OwnerPathFinder;
+    m::MotionState::restore(snapshot.motion.clone()).unwrap();
+    assert_eq!(
+        NpcMotion::restore(snapshot, w.profile(), &npc.ai, w.state().now_ms, npc.id),
+        Err(NativeError::InvalidCheckpoint),
     );
 }

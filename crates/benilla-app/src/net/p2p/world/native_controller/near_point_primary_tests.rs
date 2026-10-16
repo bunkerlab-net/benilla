@@ -267,6 +267,7 @@ fn setup(z: f32) -> (n::Profile, ProductAuthority) {
         primary_near_point: Some(core::PrimaryNearPointPolicy::from_profile(&data).unwrap()),
         empty_selector_near_point: None,
         player_environment: None,
+        same_polygon_route: None,
     };
     let provider = SourceNearPointProvider::bind(&session, &data, snapshot, config).unwrap();
     let bound_session = session.clone();

@@ -203,6 +203,7 @@ fn setup(covered: bool) -> (n::Profile, ProductAuthority) {
         primary_near_point: None,
         empty_selector_near_point: None,
         player_environment: None,
+        same_polygon_route: None,
     };
     let provider = SourceRouteFilterProvider::bind(&session, &data, snapshot).unwrap();
     (

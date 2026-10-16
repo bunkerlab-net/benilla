@@ -10,7 +10,7 @@ production admission and contains only authored placeholder test rows.
 `QuestProgressionInput.reputation` supplies the exact typed reputation catalog.
 Its hash binds faction rows, their four race/class slots, explicit resolved reward
 rates and spillover results, world rates, and excluded dependencies into quest
-progression genesis v4 and native format 30. Quest lifecycle v3 binds all reputation
+progression genesis v4 and native format 31. Quest lifecycle v3 binds all reputation
 reward slots/flags, min/max eligibility gates and objective columns. Every relevant
 faction lookup must resolve; unlisted lookup is an error. `None` means unavailable
 and is accepted only when all reputation columns in the selected quest closure are

@@ -227,7 +227,7 @@ single-tick line segment. Counter wrap is outside the admitted numeric domain.
 
 ## Constructor dispatch identity
 
-Motion policy `cmangos-8ec338a1-ground-linear-motion-constructor-dispatch-v2`
+Motion policy `cmangos-8ec338a1-ground-linear-motion-first-owned-cache-v3`
 models TargetedMovementGenerator.cpp:498–499 at the actual dispatch boundary,
 after forced relocation and before the authority's straight gate. The required
 `pathfinder_dispatch` Route option identifies the first actual dispatch and each
@@ -239,3 +239,27 @@ metadata, never loaded query ownership or a successful route. Required-option
 snapshot/request fields reject older missing evidence rather than default it.
 See the runtime [constructor contract](../benilla-world-runtime/src/native/PATHFINDER-DISPATCH.md)
 for live receipt, replay and loaded-lease boundaries.
+
+### First source-owner cache admission
+
+A source-owner `RouteCalculation` requires an explicit, exact constructor/dispatch
+binding. First construction means no prior plus revision one and a Complete NORMAL
+terminal cache; retained use means a non-first event, exact prior echo and one
+revision increment. `prior_cache=None` alone cannot establish construction. Initial
+NoPath or other non-Complete source claims remain unavailable. The unchanged route
+validator requires exact endpoints and every independent coverage/LOS/body/support/
+dry witness; a NORMAL path type or nav polygon cannot replace those checks.
+
+This is validation of the trusted authority's typed claims, not proof of source
+execution, query allocation or geometry. The native adapter requires its actual
+runtime-minted event, and the app producer must prove the loaded query/configuration,
+cache and segment predicates. The explicitly authored contract fixtures exercise
+first/retained rejection, rollback and structural restore without native physics.
+
+Motion3 structural restore permits a first source spline only with matching first
+constructor metadata and a present source-owner cache. A revision-one current cache
+must validate as that exact complete result. Later retained NoPath or a Complete
+calculation whose Chase endpoint is unreachable may preserve the older spline and
+a newer current cache. The native loaded-cache reopen boundary
+still fails closed; exact fact replay does not rehydrate query ownership. Motion2
+and older policies or missing required fields are rejected without migration.
