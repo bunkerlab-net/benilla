@@ -354,14 +354,22 @@ initial route's replay and reopen; the real loaded dependencies never enter the
 accepted authority journal.
 
 Loaded straight rejection and clipping feed a typed continuation using the first
-terminal cache, terminal path type and original requested goal, with fresh ordered
-owner-liquid observations. Tests cover unchanged repeated requests, SHORT without
-fallback, deadline/work-budget refusal and forged width, generation, content or
-cache bindings. A successful dependency still pauses without committing or
-publishing changes to the world, checkpoint, journal, durable store, projection,
-delivered pose or pending input. Initial route/cache and surrounding NearPoint/player movement remain
-explicitly synthetic. Complete source Route production, cold initial-owner policy,
-checkpoint cache rehydration and production entry remain unavailable.
+terminal cache, terminal path type and original requested goal. Each calculation
+first validates source map coordinates, then observes source HaveTile on the same
+loaded mesh before its fresh ordered owner-liquid observations. First and retry
+tile replies retain the original unsnapped endpoints and distinct source-ordered
+tickets. Invalid coordinates or an absent endpoint tile leave the controller
+boundary and pending input unchanged, even where nearby cached polygon lookup can
+succeed. A missing start tile skips the destination observation and remains an
+unavailable shortcut, never a fabricated NOPATH. Tests cover unchanged repeated
+requests, SHORT without fallback, deadline/work-budget refusal and forged width,
+generation, content or cache bindings. A successful dependency still pauses without
+committing or publishing changes to the world, checkpoint, journal, durable store,
+projection, delivered pose or pending input. Initial route/cache and surrounding
+NearPoint/player movement remain explicitly synthetic. Complete source Route
+production, cold initial-owner policy, checkpoint cache rehydration and production
+entry remain unavailable. Production pathfinding-enable, ignore-state and dungeon
+context are still unresolved.
 
 ## Owned cached player environment
 

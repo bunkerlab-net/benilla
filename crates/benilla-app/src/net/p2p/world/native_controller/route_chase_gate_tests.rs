@@ -621,10 +621,20 @@ fn cached_player_gate_and_actual_straight_retry_leave_unavailable_route_transact
     assert_eq!(observed.selection, ChaseGateSelection::Straight);
     assert_eq!(observed.context, queries[0]);
     assert_eq!(observed.target_water.as_ref(), Some(target));
-    assert_eq!(observed.tickets, [51, 52, 53, 54, 55, 56, 57, 58, 59]);
+    assert_eq!(
+        observed.tickets,
+        [51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
+    );
     let straight = observed.straight.as_ref().unwrap();
+    assert_eq!(straight.tiles.request.ticket, 53);
+    assert_eq!(
+        straight.tiles.request.from,
+        point_bits(route.request.origin)
+    );
+    assert_eq!(straight.tiles.request.to, point_bits(route.request.goal));
     assert!(straight.path_type & (8 | 4) != 0);
     assert!(straight.fallback.is_some());
+    assert_eq!(straight.fallback.as_ref().unwrap().tiles.request.ticket, 57);
     assert_ne!(straight.after_storage, before.cache.poly_refs);
     assert_eq!(
         boundary(&c, &h),

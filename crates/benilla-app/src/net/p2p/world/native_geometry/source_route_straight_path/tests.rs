@@ -269,7 +269,7 @@ fn owned_width_bits_and_actual_same_polygon_straight_do_not_publish_or_retry() {
     let straight = result.straight_dependency();
     assert_eq!(straight.request().collision_width_bits, expected);
     assert_eq!(straight.result().collision_width_bits(), expected);
-    assert_eq!(straight.request().ticket, 43);
+    assert_eq!(straight.request().ticket, 44);
     assert_eq!(straight.result().path_type(), 1);
     assert!(straight.result().ray().is_none());
     assert_eq!(
@@ -278,6 +278,11 @@ fn owned_width_bits_and_actual_same_polygon_straight_do_not_publish_or_retry() {
     );
     assert_eq!(straight.result().after().storage(), old_cache.storage());
     assert!(result.fallback_dependency().is_none());
+    let tiles = result.tile_dependency();
+    assert_eq!(tiles.request().ticket, 41);
+    assert!(tiles.result().both_present());
+    assert_eq!(tiles.request().from, straight.request().from);
+    assert_eq!(tiles.request().to, straight.request().to);
     let filter = result.filter_dependency();
     assert_eq!(filter.request().context, context);
     assert_eq!(filter.owner_position(), straight.request().from);
@@ -285,7 +290,7 @@ fn owned_width_bits_and_actual_same_polygon_straight_do_not_publish_or_retry() {
     assert_eq!(filter.continued_from_ticket(), None);
     assert_eq!(
         filter.liquid_observations().map(|o| o.reply.request.ticket),
-        [41, 42]
+        [42, 43]
     );
     assert_eq!(world.checkpoint().unwrap(), before);
 }
@@ -318,21 +323,21 @@ fn clipped_and_no_path_terminals_retry_from_full_terminal_cache_type_and_origina
         );
         assert_eq!(
             fallback.filter_dependency().continued_from_ticket(),
-            Some(41)
+            Some(42)
         );
         assert_eq!(
             fallback
                 .filter_dependency()
                 .liquid_observations()
                 .map(|o| o.reply.request.ticket),
-            [44, 45]
+            [46, 47]
         );
         let warm = fallback.polygon_dependency();
-        assert_eq!(warm.request().ticket, 46);
+        assert_eq!(warm.request().ticket, 48);
         assert_eq!(warm.request().from, straight.request().from);
         assert_eq!(warm.request().to, straight.request().to);
         let smooth = fallback.point_dependency();
-        assert_eq!(smooth.request().ticket, 47);
+        assert_eq!(smooth.request().ticket, 49);
         assert_eq!(smooth.request().configuration.previous_path_type, expected);
         assert_eq!(
             smooth.result().path_type(),
@@ -420,7 +425,7 @@ fn missing_forged_generation_width_and_cache_or_context_edits_are_rejected() {
             2 => query.snapshot.liquid.inventory[0] ^= 1,
             3 => query.snapshot.configuration.optimize_path = false,
             4 => query.first_ticket = 0,
-            5 => query.first_ticket = u64::MAX - 5,
+            5 => query.first_ticket = u64::MAX - 7,
             6 => {
                 route(&mut query.context)
                     .request
@@ -534,7 +539,7 @@ fn typed_retry_rejects_clipped_goal_wrong_tickets_and_pre_straight_type() {
             .source_straight_point_path(&fallback.polygons, points, deadline()),
         Err(SourcePointError::Identity)
     );
-    for ticket in [41, 42, 43, 45] {
+    for ticket in [42, 43, 44, 45, 47] {
         let request = RouteFilterRequest {
             snapshot: provider.binding().liquid,
             context: context.clone(),
@@ -587,7 +592,7 @@ fn source_no_path_that_clears_active_without_tail_keeps_cold_retry_unavailable()
             &provider.lineage,
             SourceStraightRequest {
                 snapshot: provider.binding().navigation,
-                ticket: 43,
+                ticket: 44,
                 from,
                 to,
                 collision_width_bits: width,
@@ -611,7 +616,7 @@ fn source_no_path_that_clears_active_without_tail_keeps_cold_retry_unavailable()
             &straight,
             SourceWarmRequest {
                 snapshot: provider.binding().navigation,
-                ticket: 46,
+                ticket: 48,
                 from,
                 to,
                 budget: config.warm.budget,
@@ -630,4 +635,181 @@ fn source_no_path_that_clears_active_without_tail_keeps_cold_retry_unavailable()
         Err(Failure::MissingGeometry)
     );
     assert_eq!(world.checkpoint().unwrap(), before);
+}
+
+fn observed_ticket(observation: Observation<'_>) -> (&'static str, u64) {
+    match observation {
+        Observation::Tiles(reply) => ("tiles", reply.request().ticket),
+        Observation::Filter(reply) => ("filter", reply.request().first_ticket),
+        Observation::Straight(reply) => ("straight", reply.request().ticket),
+        Observation::Warm(reply) => ("warm", reply.request().ticket),
+        Observation::Points(reply) => ("points", reply.request().ticket),
+    }
+}
+
+#[test]
+fn actual_tile_pairs_precede_each_filter_and_retry_keeps_original_unsnapped_goal() {
+    let config = configuration();
+    let (products, world, session, context, navigation, lineage) = snake_setup(config, 0.1);
+    let provider = provider(&products, &world, &session, navigation, lineage, config);
+    let bound = provider.begin(&session, &context).unwrap();
+    let mut observed = vec![];
+    let result = bound
+        .query_observed(request(&provider, &context), deadline(), |o| {
+            observed.push(observed_ticket(o));
+        })
+        .unwrap();
+    assert_eq!(
+        observed,
+        [
+            ("tiles", 41),
+            ("filter", 42),
+            ("straight", 44),
+            ("tiles", 45),
+            ("filter", 46),
+            ("warm", 48),
+            ("points", 49),
+        ]
+    );
+    let first = result.tile_dependency();
+    let second = result.fallback_dependency().unwrap().tile_dependency();
+    assert_eq!(first.request().ticket, 41);
+    assert_eq!(second.request().ticket, 45);
+    assert_eq!(first.result(), second.result());
+    let straight = result.straight_dependency();
+    for tiles in [first, second] {
+        assert!(tiles.result().both_present());
+        assert_eq!(tiles.request().from, straight.request().from);
+        assert_eq!(tiles.request().to, straight.request().to);
+        assert_eq!(tiles.result().from(), straight.request().from);
+        assert_eq!(tiles.result().to(), straight.request().to);
+        assert!(tiles.result().start().present());
+        assert!(tiles.result().end().unwrap().present());
+        assert_ne!(tiles.request().to, straight.result().end());
+    }
+}
+
+#[test]
+fn loaded_missing_endpoint_short_circuits_before_filters_despite_nearby_polygon() {
+    use super::super::products::navigation::RouteRequest;
+    let products = products::authored_route_smoothing();
+    let config = configuration();
+    let outside = ai::Point::new(-400., -534., 0.).unwrap();
+    let inside = ai::Point::new(-400., -530., 0.).unwrap();
+    let bits = |p: ai::Point| [p.x.bits(), p.y.bits(), p.z.bits()];
+    for (from, to, missing_start) in [(outside, inside, true), (inside, outside, false)] {
+        let (world, session, mut context, navigation, lineage) = setup(&products, config, from);
+        route(&mut context).request.goal = to;
+        let nearby = navigation
+            .query(
+                RouteRequest {
+                    snapshot: navigation.binding(),
+                    ticket: 31,
+                    from: bits(from),
+                    to: bits(to),
+                },
+                deadline(),
+            )
+            .unwrap();
+        assert_ne!(
+            if missing_start {
+                nearby.route.start.point
+            } else {
+                nearby.route.end.point
+            },
+            bits(outside),
+            "a snapped polygon lookup is not the source HaveTile predicate"
+        );
+        let before = world.checkpoint().unwrap();
+        let provider = provider(&products, &world, &session, navigation, lineage, config);
+        let bound = provider.begin(&session, &context).unwrap();
+        let mut observed = vec![];
+        assert_eq!(
+            bound.query_observed(request(&provider, &context), deadline(), |o| {
+                if let Observation::Tiles(reply) = &o {
+                    assert!(!reply.result().both_present());
+                    assert_eq!(reply.result().start().present(), !missing_start);
+                    if missing_start {
+                        assert_eq!(reply.result().start().coordinates(), [-1, 0]);
+                        assert!(reply.result().end().is_none());
+                    } else {
+                        let end = reply.result().end().unwrap();
+                        assert_eq!(end.coordinates(), [-1, 0]);
+                        assert!(!end.present());
+                    }
+                }
+                observed.push(observed_ticket(o));
+            }),
+            Err(Failure::MissingGeometry)
+        );
+        assert_eq!(observed, [("tiles", 41)]);
+        assert_eq!(world.checkpoint().unwrap(), before);
+    }
+}
+
+#[test]
+fn expired_tile_prefix_never_reaches_its_filter_including_fresh_retry() {
+    for expire_ticket in [41, 45] {
+        let config = configuration();
+        let (products, world, session, context, navigation, lineage) = snake_setup(config, 0.1);
+        let before = world.checkpoint().unwrap();
+        let provider = provider(&products, &world, &session, navigation, lineage, config);
+        let bound = provider.begin(&session, &context).unwrap();
+        let expires = Instant::now() + Duration::from_millis(30);
+        let mut observed = vec![];
+        assert_eq!(
+            bound.query_observed(request(&provider, &context), expires, |o| {
+                let event = observed_ticket(o);
+                observed.push(event);
+                if event == ("tiles", expire_ticket) {
+                    std::thread::sleep(
+                        expires.saturating_duration_since(Instant::now())
+                            + Duration::from_millis(1),
+                    );
+                }
+            }),
+            Err(Failure::MissingGeometry)
+        );
+        let expected = [
+            ("tiles", 41),
+            ("filter", 42),
+            ("straight", 44),
+            ("tiles", 45),
+        ];
+        assert_eq!(
+            observed,
+            expected[..if expire_ticket == 41 { 1 } else { 4 }]
+        );
+        assert_eq!(world.checkpoint().unwrap(), before);
+    }
+}
+
+#[test]
+fn source_invalid_coordinates_and_full_ticket_reservation_precede_observations() {
+    let products = products::authored_route_smoothing();
+    let config = configuration();
+    let (world, session, context, navigation, lineage) = setup(&products, config, origin());
+    let provider = provider(&products, &world, &session, navigation, lineage, config);
+    for position in [origin(), ai::Point::new(17_067., 0., 0.).unwrap()] {
+        let mut changed = context.clone();
+        route(&mut changed).request.goal = position;
+        let bound = provider.begin(&session, &changed).unwrap();
+        let mut query = request(&provider, &changed);
+        if position == origin() {
+            query.first_ticket = u64::MAX - 7;
+        }
+        let mut observed = vec![];
+        assert_eq!(
+            bound.query_observed(query, deadline(), |o| observed.push(observed_ticket(o))),
+            Err(Failure::Invalid)
+        );
+        assert!(observed.is_empty());
+    }
+    // Full reservation ending exactly at MAX is legal, even without a retry.
+    let bound = provider.begin(&session, &context).unwrap();
+    let mut query = request(&provider, &context);
+    query.first_ticket = u64::MAX - 8;
+    let result = bound.query(query, deadline()).unwrap();
+    assert_eq!(result.tile_dependency().request().ticket, u64::MAX - 8);
+    assert_eq!(result.straight_dependency().request().ticket, u64::MAX - 5);
 }

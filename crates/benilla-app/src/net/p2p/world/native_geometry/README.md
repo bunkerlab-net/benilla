@@ -477,11 +477,25 @@ runtime for that owner generation. Bounding radius and rendering scale are not
 substitutes. Missing width, including after respawn without fresh model selection,
 remains unavailable.
 
+Before either calculation, the exact source coordinate predicate validates the
+original destination then start (finite XY within the source map bound, finite Z).
+The loaded `HaveTile` dependency then queries source `calcTileLoc`/`getTileAt`
+layer zero at the original XYZ pair on the same native mesh: start first, and
+only when present, destination. Exactly coordinate -1 is the source sentinel;
+other negative coordinates still receive their actual loaded lookup. A missing
+endpoint is an unavailable source shortcut branch, never an inferred NOPATH,
+NORMAL, complete Route, or a nearby-polygon substitute. Source-valid coordinates
+outside this native bridge's narrower numeric domain also remain unavailable.
+
 The first calculation updates the retained dry-ground filter from fresh loaded
-liquid observations and passes the immutable loaded cache lineage, original
+liquid observations only after both tiles are present, and passes the immutable loaded cache lineage, original
 endpoints and exact width bits into the native straight calculation. A returned
-NOPATH or INCOMPLETE result can continue privately through a second filter update,
-fresh warm lookup and terminal smooth calculation. The continuation uses the
+NOPATH or INCOMPLETE result can continue privately through a fresh loaded tile
+pair, second filter update, fresh warm lookup and terminal smooth calculation.
+Both successful dependencies retain opaque, native-instance-bound tile evidence.
+All nine possible tickets are reserved before the first observation; the initial
+pair, two filter observations and straight query precede the retry pair, two new
+filter observations, warm lookup and point query. The continuation uses the
 straight result's complete terminal backing storage, inactive tail and path type;
 it restores the original requested goal rather than using the clipped straight
 endpoint. A bridge error or unsupported source domain is not a source path result
@@ -530,7 +544,7 @@ Every rejection stops the remaining observations. The dependency returns typed
 `NormalRouteUnavailable(reason)` without inventing NOPATH or a normal route.
 
 Only a passed gate invokes warm straight calculation. LOS and owner-water use the
-first two tickets, followed by the existing seven-ticket calculate/retry range;
+first two tickets, followed by the nine-ticket calculate/retry range;
 overflow is rejected before observations. The gate's water result is not reused by
 `updateFilter`: fresh mask-15 then mask-10 owner observations still precede each
 calculate, including retry. Original filter bits, path cache storage, source goal
@@ -540,9 +554,11 @@ The original opt-in product inventory is preserved by the separately named compl
 navigation handle later consumed by the provider; reloading identical inventory
 bytes does not transfer the native mesh capability. Wet navigation, cold-cache repair, transports, other route
 kinds, normalization, Route publication and native admission remain unavailable.
-The full calculate prefix also remains separate: a warm lookup is not proof of
-source nav-selection/ignore-pathfinding state or `HaveTile` at both endpoints.
-A nearby polygon can exist even when an endpoint tile is absent.
+The full calculate prefix remains incomplete: global pathfinding enable,
+map-disabled configuration, Unit ignore-pathfinding state and dungeon context are
+not authenticated by these dependencies. Loaded `HaveTile` observations establish
+only their named predicate on the retained mesh. A nearby polygon can exist when
+an endpoint tile is absent. There is no production admission or cold-distance repair.
 
 ## Loaded player-environment observations
 

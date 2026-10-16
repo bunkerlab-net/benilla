@@ -67,7 +67,9 @@ pub(crate) use source_route_smoothing::{
 };
 
 #[cfg(test)]
-pub(crate) use products::navigation::SourceSmoothRequest;
+pub(crate) use products::navigation::{
+    SourceSmoothRequest, SourceTileReply, SourceTileRequest, SourceWarmRequest,
+};
 #[cfg(test)]
 pub(crate) use source_route_warm_cache::{
     geometry_revision as authored_warm_cache_revision, SourceRouteWarmCacheProvider,

@@ -356,7 +356,7 @@ impl BoundRouteFilterQuery<'_> {
         if let Some(previous) = previous {
             if previous.request.context != request.context
                 || previous.request.snapshot != request.snapshot
-                || previous.request.first_ticket.checked_add(3) != Some(request.first_ticket)
+                || previous.request.first_ticket.checked_add(4) != Some(request.first_ticket)
                 || previous.retained != retained
             {
                 return Err(Failure::Binding);

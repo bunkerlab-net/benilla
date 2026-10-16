@@ -278,14 +278,24 @@ fn actual_dry_gate_orders_distinct_los_owner_cache_then_fresh_calculate_queries(
     assert_eq!(Some(target), route.target_player_water.as_ref());
     let straight = result.straight_dependency().unwrap();
     assert_eq!(straight.request().first_ticket, 43);
+    assert_eq!(straight.tile_dependency().request().ticket, 43);
+    assert!(straight.tile_dependency().result().both_present());
+    assert_eq!(
+        straight.tile_dependency().request().from,
+        bits(route.request.origin)
+    );
+    assert_eq!(
+        straight.tile_dependency().request().to,
+        bits(route.request.goal)
+    );
     assert_eq!(
         straight
             .filter_dependency()
             .liquid_observations()
             .map(|o| (o.mask.bits(), o.reply.request.ticket)),
-        [(15, 43), (10, 44)]
+        [(15, 44), (10, 45)]
     );
-    assert_eq!(straight.straight_dependency().request().ticket, 45);
+    assert_eq!(straight.straight_dependency().request().ticket, 46);
     assert_eq!(
         straight.straight_dependency().request().to,
         bits(route.request.goal)
@@ -447,7 +457,7 @@ fn complete_session_request_snapshot_and_deadline_are_bound() {
         let mut query = request(&provider, &context);
         match edit {
             0 => query.first_ticket = 0,
-            1 => query.first_ticket = u64::MAX - 7,
+            1 => query.first_ticket = u64::MAX - 9,
             2 => query.snapshot.vmap.inventory[0] ^= 1,
             3 => query.snapshot.straight.liquid.source_epoch[0] ^= 1,
             4 => query.snapshot.straight.navigation.policy[0] ^= 1,
@@ -523,30 +533,16 @@ fn identical_inventory_does_not_transfer_a_lineage_to_a_reloaded_native_mesh() {
         first.navigation().binding(),
         reloaded.navigation().binding()
     );
-    let provider = SourceRouteChaseGateProvider::bind(
-        &session,
-        world.profile(),
-        f::player(),
-        reloaded,
-        lineage,
-        config(),
-    )
-    .unwrap();
-    assert_eq!(provider.binding(), original.binding());
-    let bound = provider.begin(&session, &context).unwrap();
-    let mut observed = vec![];
-    assert_eq!(
-        bound.query_observed(request(&provider, &context), deadline(), |o| observed
-            .push(o)),
-        Err(Failure::MissingGeometry)
-    );
     assert!(matches!(
-        &observed[..],
-        [
-            Observation::LineOfSight(_),
-            Observation::OwnerWater(_),
-            Observation::TargetWater(false)
-        ]
+        SourceRouteChaseGateProvider::bind(
+            &session,
+            world.profile(),
+            f::player(),
+            reloaded,
+            lineage,
+            config(),
+        ),
+        Err(Failure::Binding)
     ));
     // The original, still-owned mesh is healthy; failure is not a global geometry veto.
     assert_eq!(

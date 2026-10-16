@@ -28,6 +28,10 @@ ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}" "$build/direct-allocation" "$root
   -I"$root/native" "$root/tools/straight_path_boundary_test.cpp" \
   "$build/libnav_sanitized.a" -o "$build/straight-boundary"
 ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}" "$build/straight-boundary" "$root/tools/fixtures"
+"${CXX:-c++}" -std=c++20 -O1 -g -DDT_POLYREF64=1 -fno-fast-math -ffp-contract=off \
+  -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer -I"$root/native/Detour/Include" \
+  "$root/tools/source_tile_boundary_test.cpp" "$build/libnav_sanitized.a" -o "$build/tile-boundary"
+ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}" "$build/tile-boundary" "$root/tools/fixtures"
 if [[ "${1:-}" == --native-only ]]; then exit 0; fi
 rustc --edition 2021 --test --cfg benilla_native_detour "$root/src/lib.rs" -L "$build" \
   -l static=nav_sanitized -l stdc++ -l asan -l ubsan -o "$build/tests"

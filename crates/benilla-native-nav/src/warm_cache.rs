@@ -34,8 +34,8 @@ pub struct WarmCache {
     active_len: usize,
 }
 impl WarmCache {
-    #[cfg(benilla_native_detour)]
-    pub(crate) fn check_mesh(&self, mesh: &Mesh) -> Result<(), Error> {
+    /// Verify the exact loaded instance before any dependent native observation.
+    pub fn check_mesh(&self, mesh: &Mesh) -> Result<(), Error> {
         if self.mesh_id != mesh.instance_id {
             return Err(Error::Identity);
         }

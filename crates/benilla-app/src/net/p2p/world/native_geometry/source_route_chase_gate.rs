@@ -248,10 +248,10 @@ impl BoundChaseGateQuery<'_> {
         {
             return Err(Failure::Binding);
         }
-        // LOS and owner-water precede all seven calculate/retry tickets.
+        // LOS and owner-water precede all nine calculate/retry tickets.
         request
             .first_ticket
-            .checked_add(8)
+            .checked_add(10)
             .ok_or(Failure::Invalid)?;
         require_time(deadline)?;
         let Query::SourceMotion(MotionQuery::Route(route)) = &request.context.query else {
@@ -406,7 +406,7 @@ pub(crate) fn geometry_revision(
         return Err(Failure::Binding);
     }
     let mut hash = Sha256::new();
-    hash.update(b"benilla-source-dry-warm-chase-straight-gate-v1");
+    hash.update(b"benilla-source-dry-warm-chase-loaded-tile-straight-gate-v2");
     hash.update(source_route_straight_path::geometry_revision(
         liquid,
         navigation,

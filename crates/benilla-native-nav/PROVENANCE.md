@@ -563,3 +563,53 @@ environment, so it is disabled there; explicit
 release/allocation checks are narrower evidence, not a claim of a LeakSanitizer pass.
 These standalone/source checks do not establish Rust consumer tests, full workspace
 gates, other build targets or live game behavior.
+
+## Loaded nontransport endpoint tile presence
+
+`Mesh::source_tile_presence_pair` calls the actual loaded mesh's `calcTileLoc` and
+`getTileAt(tx,ty,0)`, with original world `{x,y,z}` mapped to `{y,z,x}`. The predicate
+is the nontransport branch of pinned `PathFinder.cpp:1122` `HaveTile`: exactly `-1`
+on either coordinate rejects; other negative coordinates are looked up. No nearest
+or cached polygon stands in for a loaded endpoint tile. The start observation is
+first; a false start leaves the destination unobserved. Its opaque read-only result
+retains original endpoint bits and the never-reused loaded `Mesh` identity.
+
+The separately exposed bit-based `source_map_coord_pair` implements pinned
+`GridDefines.h:177–190` and calculate's destination-first order: finite horizontal
+coordinates have magnitude at most `17066.166015625` (bits `0x46855455`); height only
+has to be finite. Source-invalid coordinates are `Format`. Source-valid heights
+outside the native validator's `+/-100000` bound are `Unsupported`, never mislabeled
+source-invalid. Deadlines are checked before and between observations and before
+return. The native call refuses non-nearest rounding and x86 FTZ/DAZ (or aarch64
+FPCR flush/alternate-handling modes) without changing the caller's environment.
+`FLT_EVAL_METHOD == 0` is required at compile time; excess-precision profiles are
+rejected, including an explicitly tested Linux x87 `-mfpmath=387` build.
+At most two read-only hash lookups inspect at most 64 loaded tiles; query filters,
+retained cache and native query state are unchanged. `WarmCache::check_mesh` permits
+consumers to verify the exact loaded dependency before any native observation.
+
+These are bounded loaded-mesh prerequisites, not complete source calculate or owner
+proof. Source nav/query selection and availability, transport/ignore-pathfinding
+state, global/disabled-map policy, dungeon classification, shortcut/path-type
+publication and gameplay admission remain outside this primitive. The cold
+uninitialized-distance path is unchanged. Authored Rust tests establish actual
+loaded tile versus nearby/cached polygon behavior, binary32 boundaries and
+nextafter values, exact `-1` versus loaded `-2`, layer-one loader refusal, coordinate
+validation, expired deadlines, retained cache and fresh-instance rejection.
+
+The [independent source observer](tools/tile_presence_README.md) compiles complete
+unchanged `HaveTile` and scalar/two-/three-axis `IsValidMapCoord` methods against
+original pinned Detour, never the production bridge. Its 91 rows include actual
+native coordinates, layer-zero presence, source predicate results, unobserved
+endpoints, and a successful real nearest query beside an absent endpoint tile.
+A clearly authored host with a null owner executes only the nontransport branch;
+complete calculate is retained as review context and is not compiled. Exact source
+and authored-input hashes, original notices/licenses, symbol checks and fail-closed
+mutation tests guard reproduction. Both the unchanged-original empirical lane
+(with its known tile raw-storage lifetime caveat) and a separate default-constructor-
+only repaired lane preserve all layout offsets and compare identical observations,
+under normal and UBSan/float-cast-overflow Linux x86-64 GCC 14.2 profiles. The Rust
+consumer compares all source coordinate observations and 60 admissible loaded
+mesh rows; 27 invalid-coordinate rows fail before querying, while empty/layer-one
+meshes and two out-of-native-domain heights remain explicitly rejected. This is
+platform-specific source evidence, not untested target or full-gameplay parity.

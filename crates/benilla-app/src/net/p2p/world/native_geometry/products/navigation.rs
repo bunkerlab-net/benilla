@@ -27,6 +27,27 @@ pub(crate) struct RouteReply {
     pub request: RouteRequest,
     pub route: Route,
 }
+/// Actual source HaveTile pair, before updateFilter; never a polygon lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SourceTileRequest {
+    pub snapshot: SnapshotBinding,
+    pub ticket: u64,
+    pub from: [u32; 3],
+    pub to: [u32; 3],
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SourceTileReply {
+    request: SourceTileRequest,
+    result: benilla_native_nav::LoadedSourceTilePresence,
+}
+impl SourceTileReply {
+    pub(crate) fn request(&self) -> SourceTileRequest {
+        self.request
+    }
+    pub(crate) fn result(&self) -> &benilla_native_nav::LoadedSourceTilePresence {
+        &self.result
+    }
+}
 /// Separate source-stage query; the conservative funnel/veto API stays unchanged.
 /// Endpoints are the original unsnapped world-coordinate binary32 inputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -264,6 +285,23 @@ impl NavigationSnapshot {
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
     }
+    /// Snapshot equality alone cannot transfer a capability to a reloaded mesh.
+    /// The straight provider checks this before binding, then privately retains
+    /// both owners without a mesh/lineage replacement API. Retry caches can only
+    /// come from that bound mesh's opaque straight result.
+    pub(crate) fn check_warm_lineage(
+        &self,
+        lineage: &WarmCacheLineage,
+    ) -> Result<(), benilla_native_nav::Error> {
+        if lineage.binding() != self.binding {
+            return Err(benilla_native_nav::Error::Identity);
+        }
+        let mesh = self
+            .mesh
+            .try_borrow()
+            .map_err(|_| benilla_native_nav::Error::Unavailable)?;
+        lineage.cache().check_mesh(&mesh)
+    }
     pub(crate) fn agent_dimensions(&self) -> [f32; 3] {
         self.mesh.borrow().agent_dimensions()
     }
@@ -284,6 +322,31 @@ impl NavigationSnapshot {
             return Err(benilla_native_nav::Error::Deadline);
         }
         Ok(RouteReply { request, route })
+    }
+
+    /// PathFinder::HaveTile uses original XYZ and layer zero on this exact mesh.
+    /// A missing start leaves the destination unqueried; neither negative is a route.
+    pub(crate) fn source_tile_presence(
+        &self,
+        request: SourceTileRequest,
+        deadline: Instant,
+    ) -> Result<SourceTileReply, benilla_native_nav::Error> {
+        if request.snapshot != self.binding || request.ticket == 0 {
+            return Err(benilla_native_nav::Error::Identity);
+        }
+        let mesh = self
+            .mesh
+            .try_borrow()
+            .map_err(|_| benilla_native_nav::Error::Unavailable)?;
+        let result = mesh.source_tile_presence_pair(request.from, request.to, deadline)?;
+        if Instant::now() >= deadline {
+            return Err(benilla_native_nav::Error::Deadline);
+        }
+        if result.from() != request.from || result.to() != request.to {
+            return Err(benilla_native_nav::Error::Identity);
+        }
+        result.check_mesh(&mesh)?;
+        Ok(SourceTileReply { request, result })
     }
 
     /// Mint only from an actual loaded bounded corridor. This is not a source
@@ -406,7 +469,7 @@ impl NavigationSnapshot {
     ) -> Result<SourceStraightWarmReply, SourceWarmError> {
         if straight.request.snapshot != self.binding
             || request.snapshot != self.binding
-            || straight.request.ticket.checked_add(3) != Some(request.ticket)
+            || straight.request.ticket.checked_add(4) != Some(request.ticket)
             || request.from != straight.request.from
             || request.to != straight.request.to
             || straight.result.path_type() & (8 | 4) == 0
@@ -648,6 +711,85 @@ pub(crate) mod tests {
         assert_eq!(
             snapshot.query(request, Instant::now()),
             Err(benilla_native_nav::Error::Deadline)
+        );
+    }
+
+    #[test]
+    fn source_tile_pair_keeps_original_bits_source_boundary_and_native_identity() {
+        let snapshot = products().load_navigation().unwrap();
+        let until = || Instant::now() + Duration::from_secs(5);
+        let grid = 533.3333f32;
+        let boundary = [-400., -grid, 1.].map(f32::to_bits);
+        let request = SourceTileRequest {
+            snapshot: snapshot.binding(),
+            ticket: 9,
+            from: boundary,
+            to: [-400., -530., 2.].map(f32::to_bits),
+        };
+        let reply = snapshot.source_tile_presence(request, until()).unwrap();
+        assert_eq!(reply.request(), request);
+        assert_eq!(reply.result().from(), request.from);
+        assert_eq!(reply.result().to(), request.to);
+        assert_eq!(reply.result().start().coordinates(), [0, 0]);
+        assert_eq!(reply.result().end().unwrap().coordinates(), [0, 0]);
+        assert!(reply.result().both_present());
+        reply.result().check_mesh(&snapshot.mesh.borrow()).unwrap();
+        let reloaded = products().load_navigation().unwrap();
+        assert_eq!(snapshot.binding(), reloaded.binding());
+        assert_eq!(
+            reply.result().check_mesh(&reloaded.mesh.borrow()),
+            Err(benilla_native_nav::Error::Identity)
+        );
+        let mut missing = request;
+        missing.from[1] = (-grid).to_bits() + 1;
+        let negative = snapshot.source_tile_presence(missing, until()).unwrap();
+        assert_eq!(negative.result().start().coordinates(), [-1, 0]);
+        assert!(!negative.result().start().present());
+        assert!(negative.result().end().is_none());
+        for edit in 0..6 {
+            let mut changed = request;
+            match edit {
+                0 => changed.snapshot.map += 1,
+                1 => changed.snapshot.content[0] ^= 1,
+                2 => changed.snapshot.source_epoch[0] ^= 1,
+                3 => changed.snapshot.inventory[0] ^= 1,
+                4 => changed.snapshot.policy[0] ^= 1,
+                _ => changed.ticket = 0,
+            }
+            assert_eq!(
+                snapshot.source_tile_presence(changed, until()),
+                Err(benilla_native_nav::Error::Identity)
+            );
+        }
+        assert_eq!(
+            snapshot.source_tile_presence(request, Instant::now()),
+            Err(benilla_native_nav::Error::Deadline)
+        );
+        let borrowing = snapshot.mesh.borrow_mut();
+        assert_eq!(
+            snapshot.source_tile_presence(request, until()),
+            Err(benilla_native_nav::Error::Unavailable)
+        );
+        drop(borrowing);
+        assert!(snapshot.source_tile_presence(request, until()).is_ok());
+    }
+
+    #[test]
+    fn source_valid_z_outside_native_domain_is_unsupported_not_a_tile_negative() {
+        let snapshot = products().load_navigation().unwrap();
+        let request = SourceTileRequest {
+            snapshot: snapshot.binding(),
+            ticket: 9,
+            from: [-400., -400., 0.].map(f32::to_bits),
+            to: [-400., -390., 100_001.].map(f32::to_bits),
+        };
+        assert_eq!(
+            benilla_native_nav::source_map_coord_pair(request.from, request.to),
+            Ok(())
+        );
+        assert_eq!(
+            snapshot.source_tile_presence(request, Instant::now() + Duration::from_secs(5)),
+            Err(benilla_native_nav::Error::Unsupported)
         );
     }
 

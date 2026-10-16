@@ -15,11 +15,18 @@
 #include <limits>
 #include <type_traits>
 #include <bit>
+#include <cfenv>
+#include <cfloat>
+#include <cmath>
+#if defined(__x86_64__) || defined(_M_X64)
+#include <xmmintrin.h>
+#endif
 static_assert(std::endian::native == std::endian::little, "little endian ABI");
 static_assert(std::is_trivially_default_constructible<dtMeshTile>::value && std::is_trivially_destructible<dtMeshTile>::value, "C++20 tile lifetime");
 static_assert(sizeof(dtMeshTile)==104 && alignof(dtMeshTile)==8, "native tile ABI");
 static_assert(sizeof(void*) == 8 && sizeof(float) == 4 && sizeof(int) == 4, "ABI");
 static_assert(std::numeric_limits<float>::is_iec559, "binary32");
+static_assert(FLT_EVAL_METHOD == 0, "source binary32 evaluation without excess precision");
 static_assert(sizeof(dtPolyRef)==8 && sizeof(dtTileRef)==8 && sizeof(dtNavMeshParams)==28, "ABI");
 static_assert(sizeof(dtMeshHeader)==100 && sizeof(dtPoly)==32 && sizeof(dtLink)==16, "ABI");
 static_assert(sizeof(dtPolyDetail)==12 && sizeof(dtBVNode)==16, "ABI");
@@ -79,6 +86,34 @@ unsigned benilla_nav_add(void* raw,const unsigned char* bytes,int size) {
     if (status!=DT_SUCCESS) { std::free(allocation); return status; }
     nav->allocations[nav->count++]=allocation;
     return status;
+}
+// Complete nontransport PathFinder::HaveTile predicate, on this exact loaded mesh.
+// The Rust boundary limits points/origins to 100000 and tile dimensions to GRID,
+// so calcTileLoc's original binary32 floorf-to-int conversions remain bounded.
+unsigned benilla_nav_source_tile_presence(const void* raw, const float* world,
+    int* coordinates, unsigned char* present) {
+    if (!raw || !world || !coordinates || !present) return DT_FAILURE | DT_INVALID_PARAM;
+    // Fail closed without changing the caller's rounding/flush environment.
+    if (std::fegetround() != FE_TONEAREST) return 0;
+#if defined(__x86_64__) || defined(_M_X64)
+    if ((_mm_getcsr() & 0xe040u) != 0) return 0; // rounding, FTZ, DAZ
+#elif defined(__aarch64__)
+    unsigned long long control = 0;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(control));
+    if ((control & ((3ull << 22) | (1ull << 24) | (1ull << 19) | 3ull)) != 0) return 0;
+#else
+    return 0;
+#endif
+    for (int i = 0; i != 3; ++i)
+        if (!std::isfinite(world[i]) || std::fabs(world[i]) > 100000.0f)
+            return DT_FAILURE | DT_INVALID_PARAM;
+    const auto* nav = static_cast<const BenillaNav*>(raw);
+    const float point[3] = {world[1], world[2], world[0]};
+    int tx = -1, ty = -1;
+    nav->mesh->calcTileLoc(point, &tx, &ty);
+    coordinates[0] = tx; coordinates[1] = ty;
+    *present = tx != -1 && ty != -1 && nav->mesh->getTileAt(tx, ty, 0) != nullptr ? 1 : 0;
+    return DT_SUCCESS;
 }
 unsigned benilla_nav_nearest(void* raw,const float* point,const float* extents,
                              dtPolyRef* ref,float* nearest,unsigned char* over) {

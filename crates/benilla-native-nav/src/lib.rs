@@ -2,11 +2,13 @@
 //! Private, bounded MMap/Detour reader. Queries describe only the loaded ground mesh;
 //! they never authorize body movement, sloped support, source epochs or live sessions.
 mod smoothing;
+mod tile_presence;
 mod validate;
 mod warm_cache;
 mod warm_point_path;
 mod warm_straight_path;
 pub use smoothing::*;
+pub use tile_presence::*;
 pub use warm_cache::*;
 pub use warm_point_path::*;
 pub use warm_straight_path::*;

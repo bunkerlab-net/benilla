@@ -30,3 +30,12 @@ crates/benilla-sim/tools/chase_gate_source_hashes.sha256 text eol=lf
 crates/benilla-sim/tools/generate_chase_gate_fixture.py text eol=lf
 crates/benilla-sim/tools/test_chase_gate_oracle.py text eol=lf
 crates/benilla-sim/tests/fixtures/chase_gate_cmangos.test-fixture text eol=lf
+
+# Loaded HaveTile/coordinate source oracle exact LF text; binary authored tiles remain binary.
+crates/benilla-native-nav/tools/tile_presence*.py text eol=lf
+crates/benilla-native-nav/tools/tile_presence*.cpp text eol=lf
+crates/benilla-native-nav/tools/tile_presence*.sha256 text eol=lf
+crates/benilla-native-nav/tools/tile_presence_README.md text eol=lf
+crates/benilla-native-nav/tools/tile_presence_source_fragments.test-fixture text eol=lf -whitespace
+crates/benilla-native-nav/tools/fixtures/tile-presence/*.test-fixture -text
+crates/benilla-native-nav/tools/fixtures/tile-presence/cases.test-fixture text eol=lf

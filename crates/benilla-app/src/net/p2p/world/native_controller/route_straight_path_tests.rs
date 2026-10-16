@@ -4,8 +4,9 @@
 use super::*;
 use crate::net::p2p::native_geometry::{
     authored_route_smoothing, authored_route_straight_ground, authored_straight_path_revision,
-    SourceRouteStraightPathProvider, SourceSmoothRequest, StraightPathConfiguration,
-    StraightPathDependency, StraightPathRequest, WarmCacheConfiguration,
+    SourceRouteStraightPathProvider, SourceSmoothRequest, SourceTileReply, SourceTileRequest,
+    SourceWarmRequest, StraightPathConfiguration, StraightPathDependency, StraightPathRequest,
+    WarmCacheConfiguration,
 };
 use n::synthetic_creature_model_fixture as model;
 use std::sync::mpsc;
@@ -16,6 +17,7 @@ struct Observation {
     width: n::CreatureCollisionWidthWitness,
     owner: [u32; 3],
     tickets: Vec<u64>,
+    tiles: TileObservation,
     from: [u32; 3],
     requested_end: [u32; 3],
     end: [u32; 3],
@@ -32,6 +34,7 @@ struct Observation {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FallbackObservation {
+    tiles: TileObservation,
     before_storage: Vec<u64>,
     before_active: usize,
     from: [u32; 3],
@@ -42,6 +45,26 @@ struct FallbackObservation {
     points: Vec<[u32; 3]>,
     actual_end: [u32; 3],
     path_type: u32,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TileObservation {
+    request: SourceTileRequest,
+    start: ([i32; 2], bool),
+    end: Option<([i32; 2], bool)>,
+    both_present: bool,
+}
+fn observe_tiles(reply: &SourceTileReply) -> TileObservation {
+    let request = reply.request();
+    let result = reply.result();
+    assert_eq!(result.from(), request.from);
+    assert_eq!(result.to(), request.to);
+    let start = result.start();
+    TileObservation {
+        request,
+        start: (start.coordinates(), start.present()),
+        end: result.end().map(|end| (end.coordinates(), end.present())),
+        both_present: result.both_present(),
+    }
 }
 struct StraightPathAuthority {
     send: mpsc::Sender<Option<n::AuthorityRequest>>,
@@ -272,6 +295,28 @@ fn setup_with_goal(
     Arc<AtomicU64>,
     Arc<Mutex<Vec<Observation>>>,
 ) {
+    setup_with_poses(
+        optimize_path,
+        crossing,
+        budget,
+        raw_snake_width,
+        synthetic_goal,
+        None,
+    )
+}
+fn setup_with_poses(
+    optimize_path: bool,
+    crossing: bool,
+    budget: u8,
+    raw_snake_width: Option<f32>,
+    synthetic_goal: Option<ai::Point>,
+    poses: Option<(ai::Point, ai::Point)>,
+) -> (
+    n::Profile,
+    StraightPathAuthority,
+    Arc<AtomicU64>,
+    Arc<Mutex<Vec<Observation>>>,
+) {
     let (mut data, base) = super::setup(true);
     let products = if raw_snake_width.is_some() {
         authored_route_straight_ground()
@@ -304,6 +349,10 @@ fn setup_with_goal(
             .as_mut()
             .unwrap()
             .creature_detection_range = 100;
+    }
+    if let Some((owner, player)) = poses {
+        data.npcs[0].ai.spawn = owner;
+        data.player.start = player;
     }
     data.initialize_creature_capabilities(source::creature_capability_sources(&data))
         .unwrap();
@@ -708,7 +757,9 @@ fn actual_width_straight_dependencies_retry_without_publishing_and_only_syntheti
             let result = &seen[0];
             assert_eq!(result.context, *warm[0]);
             assert_eq!(result.width, width);
-            assert_eq!(result.tickets, [51, 52, 53]);
+            assert_eq!(result.tickets, [51, 52, 53, 54]);
+            assert_eq!(result.tiles.start, ([0, 0], true));
+            assert_eq!(result.tiles.end, Some(([0, 0], true)));
             assert_eq!(result.owner, point_bits(route.owner_position));
             assert_eq!(result.from, point_bits(route.request.origin));
             assert_eq!(result.requested_end, point_bits(route.request.goal));
@@ -848,6 +899,236 @@ fn straight_operational_budget_refusals_retry_exact_request_without_publishing()
     }
 }
 
+#[test]
+fn source_invalid_runtime_route_coordinates_preserve_controller_boundary_and_pending_input() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    for (goal, poses, expected) in [
+        (
+            ai::Point::new(20_000., -390., 0.).unwrap(),
+            None,
+            benilla_native_nav::SourceMapCoordError::DestinationInvalid,
+        ),
+        (
+            ai::Point::new(-400., -20_000., 0.).unwrap(),
+            None,
+            benilla_native_nav::SourceMapCoordError::DestinationInvalid,
+        ),
+        (
+            ai::Point::new(-400., -390., 0.).unwrap(),
+            Some((
+                ai::Point::new(20_000., -400., 0.).unwrap(),
+                ai::Point::new(20_000., -390., 0.).unwrap(),
+            )),
+            benilla_native_nav::SourceMapCoordError::StartInvalid,
+        ),
+    ] {
+        let h = Harness::new();
+        // The runtime owns these Route endpoints. Only the surrounding initial
+        // pose, initial route and NearPoint goal are explicit synthetic fixtures.
+        let (data, authority, _, observations) =
+            setup_with_poses(true, false, 0, None, Some(goal), poses);
+        let queries = Arc::clone(&authority.queries);
+        let failures = Arc::clone(&authority.failures);
+        let mut c = create(&h, data, authority);
+        c.initial_events().unwrap();
+        pump_to(&mut c, 4);
+        stage_replan(&mut c);
+        let before = boundary(&c, &h);
+        let out = c.pump(c.tick_duration());
+        assert_eq!(out.ticks, 0);
+        assert!(out.events.is_empty());
+        assert!(out.saved.is_none());
+        assert!(matches!(out.pause.unwrap().kind, PauseKind::Simulation));
+        assert_eq!(boundary(&c, &h), before);
+        assert!(c.outbox.is_none());
+        assert!(c.actions.is_empty());
+        assert!(observations.lock().unwrap().is_empty());
+        assert_eq!(*failures.lock().unwrap(), [Failure::Invalid]);
+        let pending = c.pending.as_ref().unwrap();
+        let retained_input = (pending.inputs.clone(), pending.moving);
+        assert_eq!(retained_input.0.len(), 1);
+        assert!(matches!(c.retry_tick(), Err(Error::Paused)));
+        let count = queries.lock().unwrap().len();
+        assert_eq!(c.pump(Duration::from_secs(60)).ticks, 0);
+        assert_eq!(queries.lock().unwrap().len(), count);
+        let pending = c.pending.as_ref().unwrap();
+        assert_eq!((pending.inputs.clone(), pending.moving), retained_input);
+        assert_eq!(boundary(&c, &h), before);
+        let queries = queries.lock().unwrap();
+        let warm: Vec<_> = queries
+            .iter()
+            .filter_map(route_query)
+            .filter(|route| route.request.prior_cache.is_some())
+            .collect();
+        assert_eq!(warm.len(), 1);
+        let route = warm[0];
+        assert_eq!(route.request.goal, goal);
+        assert_eq!(route.owner_position, route.request.origin);
+        assert_eq!(route.request.prior_cache.as_deref(), Some(&before.cache));
+        assert_eq!(
+            benilla_native_nav::source_map_coord_pair(
+                point_bits(route.request.origin),
+                point_bits(route.request.goal),
+            ),
+            Err(expected)
+        );
+    }
+}
+
+fn nearby_polygon_does_not_replace_missing_tile(
+    route: &n::CreatureRouteRequest,
+    start_missing: bool,
+) {
+    // A separate loaded authored fixture diagnoses these exact runtime endpoints.
+    // This is raw polygon lookup evidence, not an admitted calculation or a way
+    // to recreate the controller's opaque native lineage from retained refs.
+    let navigation = authored_route_smoothing().load_navigation().unwrap();
+    let snapshot = navigation.binding();
+    let deadline = || Instant::now() + Duration::from_secs(5);
+    let request = SourceTileRequest {
+        snapshot,
+        ticket: 1,
+        from: point_bits(route.request.origin),
+        to: point_bits(route.request.goal),
+    };
+    let tiles = observe_tiles(
+        &navigation
+            .source_tile_presence(request, deadline())
+            .unwrap(),
+    );
+    assert!(!tiles.both_present);
+    assert_eq!(tiles.start.1, !start_missing);
+    if start_missing {
+        assert!(tiles.start.0.contains(&-1));
+        assert!(
+            tiles.end.is_none(),
+            "source short-circuits after missing start tile"
+        );
+    } else {
+        assert!(!tiles.end.unwrap().1);
+    }
+    let lineage = navigation
+        .seed_bounded_warm_lineage(
+            SourceSmoothRequest {
+                snapshot,
+                ticket: 2,
+                from: [-400f32, -400., 0.].map(f32::to_bits),
+                to: [-400f32, -200., 0.].map(f32::to_bits),
+                filter: benilla_native_nav::SourceOwnerFilter {
+                    include_flags: 1,
+                    exclude_flags: 0,
+                },
+                point_limit: 74,
+                budget: benilla_native_nav::SourceSmoothingBudget::default(),
+            },
+            deadline(),
+        )
+        .unwrap();
+    let cache = lineage.cache().clone();
+    let raw = navigation
+        .source_warm(
+            &lineage,
+            SourceWarmRequest {
+                snapshot,
+                ticket: 3,
+                from: request.from,
+                to: request.to,
+                budget: benilla_native_nav::SourceWarmCacheBudget::default(),
+            },
+            deadline(),
+        )
+        .unwrap();
+    assert_eq!(raw.result().from(), request.from);
+    assert_eq!(raw.result().to(), request.to);
+    assert!(raw.result().after().active_len() > 0);
+    assert_eq!(lineage.cache(), &cache);
+    assert_eq!(
+        observe_tiles(
+            &navigation
+                .source_tile_presence(request, deadline())
+                .unwrap()
+        ),
+        tiles,
+        "nearby cached polygons cannot manufacture an endpoint tile"
+    );
+}
+
+#[test]
+fn absent_endpoint_tile_near_cached_polygon_is_unavailable_and_retries_without_publication() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    for start_missing in [false, true] {
+        let h = Harness::new();
+        let (goal, poses) = if start_missing {
+            (
+                ai::Point::new(-530., -380., 0.).unwrap(),
+                Some((
+                    ai::Point::new(-534., -400., 0.).unwrap(),
+                    ai::Point::new(-534., -390., 0.).unwrap(),
+                )),
+            )
+        } else {
+            (ai::Point::new(-400., -534., 0.).unwrap(), None)
+        };
+        let (data, authority, _, observations) =
+            setup_with_poses(true, false, 0, None, Some(goal), poses);
+        let queries = Arc::clone(&authority.queries);
+        let failures = Arc::clone(&authority.failures);
+        let mut c = create(&h, data, authority);
+        c.initial_events().unwrap();
+        pump_to(&mut c, 4);
+        stage_replan(&mut c);
+        let before = boundary(&c, &h);
+        let mut pending = None;
+        for attempt in 0..2 {
+            if attempt > 0 {
+                c.retry_tick().unwrap();
+            }
+            let out = c.pump(if attempt == 0 {
+                c.tick_duration()
+            } else {
+                Duration::ZERO
+            });
+            assert_eq!(out.ticks, 0);
+            assert!(out.events.is_empty());
+            assert!(out.saved.is_none());
+            assert!(matches!(out.pause.unwrap().kind, PauseKind::Authority));
+            assert_eq!(boundary(&c, &h), before);
+            assert!(c.outbox.is_none());
+            assert!(c.actions.is_empty());
+            let current = c.pending.as_ref().unwrap();
+            let current = (current.inputs.clone(), current.moving);
+            if let Some(expected) = &pending {
+                assert_eq!(&current, expected);
+            } else {
+                assert_eq!(current.0.len(), 1);
+                pending = Some(current);
+            }
+            let count = queries.lock().unwrap().len();
+            assert_eq!(c.pump(Duration::from_secs(60)).ticks, 0);
+            assert_eq!(queries.lock().unwrap().len(), count);
+            assert_eq!(boundary(&c, &h), before);
+        }
+        assert!(observations.lock().unwrap().is_empty());
+        assert_eq!(*failures.lock().unwrap(), [Failure::MissingGeometry; 2]);
+        let queries = queries.lock().unwrap();
+        let warm: Vec<_> = queries
+            .iter()
+            .filter(|q| route_query(q).is_some_and(|r| r.request.prior_cache.is_some()))
+            .collect();
+        assert_eq!(warm.len(), 2);
+        assert_eq!(warm[0], warm[1]);
+        let route = route_query(warm[0]).unwrap();
+        assert_eq!(route.request.goal, goal);
+        assert_eq!(route.request.prior_cache.as_deref(), Some(&before.cache));
+        assert_eq!(before.cache.source, motion::RouteSource::SyntheticFixture);
+        nearby_polygon_does_not_replace_missing_tile(route, start_missing);
+    }
+}
+
 fn observe_dependency(
     dependency: &StraightPathDependency,
     profile: &n::Profile,
@@ -857,6 +1138,20 @@ fn observe_dependency(
     let route = route_query(context).unwrap();
     let width = assert_width(route, profile);
     let filter = dependency.filter_dependency();
+    let tiles = observe_tiles(dependency.tile_dependency());
+    assert_eq!(
+        tiles.request,
+        SourceTileRequest {
+            snapshot: dependency.request().snapshot.navigation,
+            ticket: dependency.request().first_ticket,
+            from: point_bits(route.request.origin),
+            to: point_bits(route.request.goal),
+        }
+    );
+    assert!(tiles.both_present);
+    assert!(tiles.start.1);
+    assert!(tiles.end.unwrap().1);
+    assert_eq!(filter.request().first_ticket, tiles.request.ticket + 1);
     assert_eq!(dependency.request().context, *context);
     assert_eq!(filter.request().context, *context);
     assert_eq!(filter.owner_position(), point_bits(route.owner_position));
@@ -868,22 +1163,20 @@ fn observe_dependency(
             route_filter::LiquidMask::WaterOrOcean
         ]
     );
-    let mut tickets: Vec<_> = filter
-        .liquid_observations()
-        .iter()
-        .map(|o| {
-            assert_eq!(
-                o.reply.request.snapshot,
-                dependency.request().snapshot.liquid
-            );
-            assert_eq!(o.reply.request.position, point_bits(route.owner_position));
-            o.reply.request.ticket
-        })
-        .collect();
+    let mut tickets = vec![tiles.request.ticket];
+    tickets.extend(filter.liquid_observations().iter().map(|o| {
+        assert_eq!(
+            o.reply.request.snapshot,
+            dependency.request().snapshot.liquid
+        );
+        assert_eq!(o.reply.request.position, point_bits(route.owner_position));
+        o.reply.request.ticket
+    }));
     let straight = dependency.straight_dependency();
     let query = straight.request();
     let result = straight.result();
     tickets.push(query.ticket);
+    assert_eq!(query.ticket, tiles.request.ticket + 3);
     assert_eq!(query.snapshot, dependency.request().snapshot.navigation);
     assert_eq!(query.from, point_bits(route.request.origin));
     assert_eq!(query.to, point_bits(route.request.goal));
@@ -905,7 +1198,23 @@ fn observe_dependency(
     assert!(!query.configuration.force_destination);
     assert_eq!(result.after().filter(), filter.filter());
     let fallback = dependency.fallback_dependency().map(|fallback| {
+        let retry_tiles = observe_tiles(fallback.tile_dependency());
+        assert_eq!(
+            retry_tiles.request,
+            SourceTileRequest {
+                ticket: tiles.request.ticket + 4,
+                ..tiles.request
+            }
+        );
+        assert!(retry_tiles.both_present);
+        assert_eq!(retry_tiles.start, tiles.start);
+        assert_eq!(retry_tiles.end, tiles.end);
+        tickets.push(retry_tiles.request.ticket);
         let update = fallback.filter_dependency();
+        assert_eq!(
+            update.request().first_ticket,
+            retry_tiles.request.ticket + 1
+        );
         assert_eq!(update.request().context, *context);
         assert_eq!(update.owner_position(), filter.owner_position());
         assert_eq!(
@@ -949,6 +1258,7 @@ fn observe_dependency(
         assert_eq!(terminal.warm(), warm);
         assert_eq!(terminal.after(), warm.after());
         FallbackObservation {
+            tiles: retry_tiles,
             before_storage: fallback.before_cache().storage().to_vec(),
             before_active: fallback.before_cache().active_len(),
             from: warm.from(),
@@ -967,6 +1277,7 @@ fn observe_dependency(
         width,
         owner: filter.owner_position(),
         tickets,
+        tiles,
         from: result.from(),
         requested_end: result.requested_end(),
         end: result.end(),
@@ -1060,7 +1371,7 @@ fn real_straight_rejection_or_clipping_continues_from_terminal_cache_type_and_or
                 point_bits(route_query(warm[0]).unwrap().request.origin)
             );
             assert_eq!(first.requested_end, point_bits(snake_to()));
-            assert_eq!(first.tickets, [51, 52, 53, 54, 55, 56, 57]);
+            assert_eq!(first.tickets, [51, 52, 53, 54, 55, 56, 57, 58, 59]);
             assert_eq!(
                 first.phase,
                 benilla_native_nav::SourceWarmPolyPhase::Replacement
@@ -1094,6 +1405,10 @@ fn real_straight_rejection_or_clipping_continues_from_terminal_cache_type_and_or
                 assert_eq!(first.actual_end, first.end);
             }
             let fallback = first.fallback.as_ref().unwrap();
+            assert_eq!(first.tiles.request.ticket, 51);
+            assert_eq!(fallback.tiles.request.ticket, 55);
+            assert_eq!(fallback.tiles.start, first.tiles.start);
+            assert_eq!(fallback.tiles.end, first.tiles.end);
             assert_eq!(fallback.before_storage, first.after_storage);
             assert_eq!(fallback.before_active, first.after_active);
             assert_eq!(fallback.previous_type, first.path_type);
@@ -1205,7 +1520,7 @@ fn loaded_short_alone_keeps_retry_absent_and_does_not_publish_cleared_terminal_c
     assert_eq!(seen[0].path_type, 32);
     assert_eq!(seen[0].after_active, 0);
     assert_eq!(seen[0].requested_end, point_bits(goal));
-    assert_eq!(seen[0].tickets, [51, 52, 53]);
+    assert_eq!(seen[0].tickets, [51, 52, 53, 54]);
     assert!(seen[0].fallback.is_none());
     assert!(retained(&c).active_len > 0);
 }

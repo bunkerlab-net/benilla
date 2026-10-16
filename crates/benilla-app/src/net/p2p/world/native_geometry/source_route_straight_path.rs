@@ -8,7 +8,8 @@ use super::{
         navigation::{
             NavigationSnapshot, SnapshotBinding as NavigationBinding, SourcePointReply,
             SourcePointRequest, SourceStraightReply, SourceStraightRequest,
-            SourceStraightWarmReply, SourceWarmReply, SourceWarmRequest, WarmCacheLineage,
+            SourceStraightWarmReply, SourceTileReply, SourceTileRequest, SourceWarmReply,
+            SourceWarmRequest, WarmCacheLineage,
         },
     },
     source_route_filter::{
@@ -78,11 +79,15 @@ pub(crate) struct StraightPathRequest {
 }
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StraightFallbackDependency {
+    tiles: SourceTileReply,
     filter: RouteFilterUpdateDependency,
     polygons: SourceStraightWarmReply,
     points: SourcePointReply,
 }
 impl StraightFallbackDependency {
+    pub(crate) fn tile_dependency(&self) -> &SourceTileReply {
+        &self.tiles
+    }
     pub(crate) fn before_cache(&self) -> &benilla_native_nav::WarmCache {
         self.polygons.before()
     }
@@ -99,11 +104,15 @@ impl StraightFallbackDependency {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StraightPathDependency {
     request: StraightPathRequest,
+    tiles: SourceTileReply,
     filter: RouteFilterUpdateDependency,
     straight: SourceStraightReply,
     fallback: Option<StraightFallbackDependency>,
 }
 impl StraightPathDependency {
+    pub(crate) fn tile_dependency(&self) -> &SourceTileReply {
+        &self.tiles
+    }
     pub(crate) fn request(&self) -> &StraightPathRequest {
         &self.request
     }
@@ -140,9 +149,9 @@ impl SourceRouteStraightPathProvider {
         configuration: StraightPathConfiguration,
     ) -> Result<Self, Failure> {
         configuration.validate()?;
-        if lineage.binding() != navigation.binding() {
-            return Err(Failure::Binding);
-        }
+        navigation
+            .check_warm_lineage(&lineage)
+            .map_err(|_| Failure::Binding)?;
         let filter = SourceRouteFilterProvider::bind_with_straight_path(
             session,
             profile,
@@ -169,9 +178,9 @@ impl SourceRouteStraightPathProvider {
         configuration: super::source_route_chase_gate::ChaseGateConfiguration,
     ) -> Result<Self, Failure> {
         configuration.straight.validate()?;
-        if lineage.binding() != navigation.binding() {
-            return Err(Failure::Binding);
-        }
+        navigation
+            .check_warm_lineage(&lineage)
+            .map_err(|_| Failure::Binding)?;
         let filter = SourceRouteFilterProvider::bind_with_chase_gate(
             session,
             profile,
@@ -252,11 +261,28 @@ impl SourceRouteStraightPathProvider {
         })
     }
 }
+/// Observations follow real queries and cannot replace their answers.
+#[derive(Debug, PartialEq, Eq)]
+enum Observation<'a> {
+    Tiles(&'a SourceTileReply),
+    Filter(&'a RouteFilterUpdateDependency),
+    Straight(&'a SourceStraightReply),
+    Warm(&'a SourceWarmReply),
+    Points(&'a SourcePointReply),
+}
 impl BoundStraightPathQuery<'_> {
     pub(crate) fn query(
         &self,
         request: StraightPathRequest,
         deadline: Instant,
+    ) -> Result<StraightPathDependency, Failure> {
+        self.query_observed(request, deadline, |_| {})
+    }
+    fn query_observed(
+        &self,
+        request: StraightPathRequest,
+        deadline: Instant,
+        mut observe: impl FnMut(Observation<'_>),
     ) -> Result<StraightPathDependency, Failure> {
         if request.snapshot != self.provider.binding()
             || request.context != self.context
@@ -268,21 +294,11 @@ impl BoundStraightPathQuery<'_> {
         // unavailable dependencies, never a fabricated NOPATH or retry instruction.
         request
             .first_ticket
-            .checked_add(6)
+            .checked_add(8)
             .ok_or(Failure::Invalid)?;
         if Instant::now() >= deadline {
             return Err(Failure::MissingGeometry);
         }
-        let filter = self.filter.query_retained_update(
-            RouteFilterRequest {
-                snapshot: request.snapshot.liquid,
-                context: request.context.clone(),
-                first_ticket: request.first_ticket,
-            },
-            self.provider.lineage.cache().filter(),
-            None,
-            deadline,
-        )?;
         let Query::SourceMotion(MotionQuery::Route(route)) = &request.context.query else {
             return Err(Failure::UnsupportedQuery);
         };
@@ -292,10 +308,37 @@ impl BoundStraightPathQuery<'_> {
             .as_ref()
             .ok_or(Failure::MissingGeometry)?;
         let bits = |p: benilla_sim::creature_ai::Point| [p.x.bits(), p.y.bits(), p.z.bits()];
+        benilla_native_nav::source_map_coord_pair(
+            bits(route.request.origin),
+            bits(route.request.goal),
+        )
+        .map_err(|_| Failure::Invalid)?;
+        let tiles = self.observe_tiles(
+            SourceTileRequest {
+                snapshot: request.snapshot.navigation,
+                ticket: request.first_ticket,
+                from: bits(route.request.origin),
+                to: bits(route.request.goal),
+            },
+            deadline,
+            &mut observe,
+        )?;
+        let filter = self.filter.query_retained_update(
+            RouteFilterRequest {
+                snapshot: request.snapshot.liquid,
+                context: request.context.clone(),
+                first_ticket: request.first_ticket + 1,
+            },
+            self.provider.lineage.cache().filter(),
+            None,
+            deadline,
+        )?;
+        observe(Observation::Filter(&filter));
+        require_time(deadline)?;
         let config = self.provider.configuration;
         let query = SourceStraightRequest {
             snapshot: request.snapshot.navigation,
-            ticket: request.first_ticket + 2,
+            ticket: request.first_ticket + 3,
             from: bits(route.request.origin),
             to: bits(route.request.goal),
             collision_width_bits: self.collision_width_bits,
@@ -316,21 +359,35 @@ impl BoundStraightPathQuery<'_> {
         if straight.request() != query {
             return Err(Failure::Binding);
         }
+        observe(Observation::Straight(&straight));
+        require_time(deadline)?;
         // TargetedMovementGenerator.cpp:536. SHORT alone must not enter this retry.
         let fallback = if straight.result().path_type() & (8 | 4) != 0 {
+            // calculate runs HaveTile again before its own updateFilter, even
+            // with immutable loaded tiles and the same original requested goal.
+            let tiles = self.observe_tiles(
+                SourceTileRequest {
+                    ticket: request.first_ticket + 4,
+                    ..tiles.request()
+                },
+                deadline,
+                &mut observe,
+            )?;
             let updated = self.filter.query_retained_update(
                 RouteFilterRequest {
                     snapshot: request.snapshot.liquid,
                     context: request.context.clone(),
-                    first_ticket: request.first_ticket + 3,
+                    first_ticket: request.first_ticket + 5,
                 },
                 straight.result().after().filter(),
                 Some(&filter),
                 deadline,
             )?;
+            observe(Observation::Filter(&updated));
+            require_time(deadline)?;
             let warm_query = SourceWarmRequest {
                 snapshot: query.snapshot,
-                ticket: request.first_ticket + 5,
+                ticket: request.first_ticket + 7,
                 from: query.from,
                 to: query.to,
                 budget: config.warm.budget,
@@ -343,9 +400,11 @@ impl BoundStraightPathQuery<'_> {
             if polygons.warm().request() != warm_query {
                 return Err(Failure::Binding);
             }
+            observe(Observation::Warm(polygons.warm()));
+            require_time(deadline)?;
             let point_query = SourcePointRequest {
                 warm: warm_query,
-                ticket: request.first_ticket + 6,
+                ticket: request.first_ticket + 8,
                 configuration: SourcePointPathConfig {
                     previous_path_type: straight.result().path_type(),
                     ..query.configuration
@@ -360,7 +419,9 @@ impl BoundStraightPathQuery<'_> {
             if points.request() != point_query {
                 return Err(Failure::Binding);
             }
+            observe(Observation::Points(&points));
             Some(StraightFallbackDependency {
+                tiles,
                 filter: updated,
                 polygons,
                 points,
@@ -373,10 +434,42 @@ impl BoundStraightPathQuery<'_> {
         }
         Ok(StraightPathDependency {
             request,
+            tiles,
             filter,
             straight,
             fallback,
         })
+    }
+    fn observe_tiles(
+        &self,
+        request: SourceTileRequest,
+        deadline: Instant,
+        observe: &mut impl FnMut(Observation<'_>),
+    ) -> Result<SourceTileReply, Failure> {
+        require_time(deadline)?;
+        let tiles = self
+            .provider
+            .navigation
+            .source_tile_presence(request, deadline)
+            .map_err(|_| Failure::MissingGeometry)?;
+        if tiles.request() != request {
+            return Err(Failure::Binding);
+        }
+        observe(Observation::Tiles(&tiles));
+        require_time(deadline)?;
+        if !tiles.result().both_present() {
+            // The source shortcut branch is known, but remains unavailable here:
+            // no guessed NOPATH/NORMAL, synthetic route, or nearest-poly substitute.
+            return Err(Failure::MissingGeometry);
+        }
+        Ok(tiles)
+    }
+}
+fn require_time(deadline: Instant) -> Result<(), Failure> {
+    if Instant::now() >= deadline {
+        Err(Failure::MissingGeometry)
+    } else {
+        Ok(())
     }
 }
 pub(crate) fn geometry_revision(
@@ -391,13 +484,14 @@ pub(crate) fn geometry_revision(
         configuration.point_configuration(),
     )?;
     let mut hash = Sha256::new();
-    hash.update(b"benilla-source-warm-straight-terminal-retry-dependency-v1");
+    hash.update(b"benilla-source-warm-straight-loaded-tile-retry-dependency-v2");
     hash.update(point);
     hash.update(SOURCE_WARM_STRAIGHT_PATH_POLICY.to_le_bytes());
+    hash.update(benilla_native_nav::SOURCE_TILE_PRESENCE_POLICY.to_le_bytes());
     hash.update(CREATURE_COLLISION_WIDTH_POLICY.as_bytes());
     hash.update(benilla_sim::creature_init::CREATURE_COLLISION_WIDTH_POLICY_ID.as_bytes());
     hash.update(
-        b"retained-ground-dry-updateFilter-each-calculate-original-goal-terminal-cache-type",
+        b"loaded-start-then-end-HaveTile-before-retained-ground-dry-updateFilter-each-calculate-original-goal-terminal-cache-type",
     );
     for value in [
         configuration.budget.lookup_primitives,
