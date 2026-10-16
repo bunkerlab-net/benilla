@@ -21,7 +21,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 fn point(x: f32, y: f32, z: f32) -> Point {
     Point::new(x, y, z).unwrap()
 }
-fn until() -> Instant {
+pub(super) fn until() -> Instant {
     Instant::now() + Duration::from_secs(10)
 }
 fn config() -> SamePolygonConfiguration {
@@ -38,12 +38,12 @@ fn config() -> SamePolygonConfiguration {
         },
     }
 }
-struct Setup {
-    world: NativeWorld,
-    session: Session,
-    routes: SourceSamePolygonRouteProvider,
-    environment: SourcePlayerEnvironmentProvider,
-    near_point: Option<SourceNearPointProvider>,
+pub(super) struct Setup {
+    pub(super) world: NativeWorld,
+    pub(super) session: Session,
+    pub(super) routes: SourceSamePolygonRouteProvider,
+    pub(super) environment: SourcePlayerEnvironmentProvider,
+    pub(super) near_point: Option<SourceNearPointProvider>,
 }
 fn setup(configuration: SamePolygonConfiguration) -> Setup {
     let raw_map = RawMap::new(TerrainKind::Flat);
@@ -93,19 +93,19 @@ fn setup(configuration: SamePolygonConfiguration) -> Setup {
         near_point: None,
     }
 }
-struct Consumer<'a> {
-    session: &'a Session,
-    routes: &'a mut SourceSamePolygonRouteProvider,
-    environment: &'a SourcePlayerEnvironmentProvider,
-    near_point: Option<&'a SourceNearPointProvider>,
-    near_queries: usize,
-    base: motion_fixture::SyntheticMotionAuthority,
-    proposals: Vec<SamePolygonProposal>,
-    observations: Vec<Observation>,
-    requests: Vec<AuthorityRequest>,
-    errors: Vec<SamePolygonError>,
-    expire_after_terminal: bool,
-    retry_same_dispatch: bool,
+pub(super) struct Consumer<'a> {
+    pub(super) session: &'a Session,
+    pub(super) routes: &'a mut SourceSamePolygonRouteProvider,
+    pub(super) environment: &'a SourcePlayerEnvironmentProvider,
+    pub(super) near_point: Option<&'a SourceNearPointProvider>,
+    pub(super) near_queries: usize,
+    pub(super) base: motion_fixture::SyntheticMotionAuthority,
+    pub(super) proposals: Vec<SamePolygonProposal>,
+    pub(super) observations: Vec<Observation>,
+    pub(super) requests: Vec<AuthorityRequest>,
+    pub(super) errors: Vec<SamePolygonError>,
+    pub(super) expire_after_terminal: bool,
+    pub(super) retry_same_dispatch: bool,
 }
 impl Authority for Consumer<'_> {
     fn resolve(&mut self, context: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
@@ -167,7 +167,7 @@ impl Authority for Consumer<'_> {
         }
     }
 }
-fn consumer<'a>(setup: &'a mut Setup) -> (&'a mut NativeWorld, Consumer<'a>) {
+pub(super) fn consumer<'a>(setup: &'a mut Setup) -> (&'a mut NativeWorld, Consumer<'a>) {
     (
         &mut setup.world,
         Consumer {
@@ -186,7 +186,7 @@ fn consumer<'a>(setup: &'a mut Setup) -> (&'a mut NativeWorld, Consumer<'a>) {
         },
     )
 }
-fn drive_first(world: &mut NativeWorld, consumer: &mut Consumer<'_>) {
+pub(super) fn drive_first(world: &mut NativeWorld, consumer: &mut Consumer<'_>) {
     for _ in 0..8 {
         let before = world.checkpoint().unwrap();
         let result = world.step(world.state().tick + 1, None, consumer);
@@ -469,7 +469,7 @@ pub(crate) fn composed_inputs(
     (profile, session, inputs)
 }
 
-fn composed_setup() -> Setup {
+pub(super) fn composed_setup() -> Setup {
     let raw = RawMap::new(TerrainKind::Flat);
     let (spec, files) = same_polygon_fixture::fixture(&raw);
     let products = fixtures::load(spec, &files);
@@ -592,21 +592,22 @@ fn commit_boundary_tracks_no_route_records_and_rejects_other_attachments_atomica
 }
 
 #[test]
-fn legacy_uncommitted_geometry_identity_cannot_initialize_commit_session() {
+fn earlier_uncommitted_and_monolithic_geometry_identities_cannot_initialize_commit_session() {
     let mut setup = setup(config());
-    let legacy = setup.routes.binding.geometry_revision_for_policy(
-        b"benilla-owned-dry-same-polygon-chase-proposal-v1",
-        b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;uncommitted",
-    ).unwrap();
-    assert_ne!(legacy, setup.session.geometry);
     let boundary = RouteCommitBoundary::capture_initial(&setup.world).unwrap();
-    let mut legacy_session = setup.session.clone();
-    legacy_session.geometry = legacy;
-    assert_eq!(
-        setup.routes.initialize_commit(&legacy_session, &boundary),
-        Err(Failure::Binding)
-    );
-    assert!(setup.routes.committed_boundary.is_none());
+    for (domain, policy) in [
+        (b"benilla-owned-dry-same-polygon-chase-proposal-v1".as_slice(),
+         b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;uncommitted".as_slice()),
+        (b"benilla-owned-dry-same-polygon-chase-commit-v2".as_slice(),
+         b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;outer-commit-ack;total-cap4".as_slice()),
+    ] {
+        let legacy = setup.routes.binding.geometry_revision_for_policy(domain, policy).unwrap();
+        assert_ne!(legacy, setup.session.geometry);
+        let mut legacy_session = setup.session.clone();
+        legacy_session.geometry = legacy;
+        assert_eq!(setup.routes.initialize_commit(&legacy_session, &boundary), Err(Failure::Binding));
+        assert!(setup.routes.committed_boundary.is_none());
+    }
 }
 
 #[test]
@@ -746,4 +747,100 @@ fn attempt_validation_retains_exact_route_binding_and_rejects_mutation_or_decodi
             assert!(foreign.routes.candidates.is_empty());
         })
         .unwrap();
+}
+
+/// Genuine unclaimed runtime dispatch for mailbox identity/continuation tests.
+/// No Route result or private source receipt is authored here.
+pub(crate) fn captured_route_request() -> (Session, AuthorityRequest) {
+    let mut setup = composed_setup();
+    struct Capture<'a> {
+        setup: &'a Setup,
+        request: Option<AuthorityRequest>,
+        other: motion_fixture::SyntheticMotionAuthority,
+    }
+    impl Authority for Capture<'_> {
+        fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+            let facts = match &request.query {
+                Query::PlayerEnvironment(_) => self
+                    .setup
+                    .environment
+                    .resolve(&self.setup.session, request, until())
+                    .unwrap(),
+                Query::SourceMotion(MotionQuery::NearPoint(_)) => self
+                    .setup
+                    .near_point
+                    .as_ref()
+                    .unwrap()
+                    .resolve(&self.setup.session, request, until())
+                    .unwrap(),
+                Query::SourceMotion(MotionQuery::Route(_)) => {
+                    self.request = Some(request.clone());
+                    return Err(NativeError::AuthorityUnavailable(
+                        "capture genuine staged Route",
+                    ));
+                }
+                _ => return self.other.resolve(request),
+            };
+            Ok(AuthorityReply {
+                request: request.clone(),
+                facts,
+            })
+        }
+    }
+    // Keep provider ownership before world construction exactly as composed_setup;
+    // move only the independently owned world so Capture can borrow its products.
+    let profile = setup.world.profile().clone();
+    let mut world = std::mem::replace(
+        &mut setup.world,
+        NativeWorld::synthetic_component_test(profile, setup.session.world, f::player(), 1234)
+            .unwrap(),
+    );
+    let mut capture = Capture {
+        setup: &setup,
+        request: None,
+        other: Default::default(),
+    };
+    for _ in 0..8 {
+        let result = world.step(world.state().tick + 1, None, &mut capture);
+        if let Some(request) = capture.request.take() {
+            assert!(result.is_err());
+            return (setup.session.clone(), request);
+        }
+        result.unwrap();
+    }
+    panic!("no genuine Route dispatch");
+}
+
+#[test]
+fn retained_filter_context_is_exact_provider_owned_and_raw_validation_still_rejects_changes() {
+    let fixture = composed_setup();
+    let (session, context) = captured_route_request();
+    let prepared = fixture
+        .routes
+        .filter
+        .prepare_context(&session, &context)
+        .unwrap();
+    assert!(fixture.routes.filter.reborrow(&prepared).is_ok());
+    let foreign = composed_setup();
+    assert!(foreign.routes.filter.begin(&session, &context).is_ok());
+    assert!(matches!(
+        foreign.routes.filter.reborrow(&prepared),
+        Err(Failure::Binding)
+    ));
+    let mut changed = context.clone();
+    changed.binding.tick += 1;
+    assert!(fixture
+        .routes
+        .filter
+        .prepare_context(&session, &changed)
+        .is_err());
+    let mut changed = session.clone();
+    changed.bodies.clear();
+    assert!(fixture
+        .routes
+        .filter
+        .prepare_context(&changed, &context)
+        .is_err());
+    // Failed raw attempts cannot mutate or replace the already-checked owned context.
+    assert!(fixture.routes.filter.reborrow(&prepared).is_ok());
 }

@@ -2,8 +2,10 @@
 //! The sole proposal-to-Route seam takes the concrete production LocalCorridor.
 //! A generic Corridor implementation cannot supply this conversion.
 use super::{
-    core::{Corridor, Failure, Session, ValidatedRequest},
-    source_route_same_polygon::{SamePolygonError, SourceSamePolygonRouteProvider},
+    core::{Body, Corridor, Failure, RouteJob, ServiceStep, Session, ValidatedRequest},
+    source_route_same_polygon::{
+        SamePolygonError, SamePolygonProposal, SourceSamePolygonRouteProvider,
+    },
     LocalCorridor,
 };
 use benilla_sim::{
@@ -46,6 +48,79 @@ pub(super) fn resolve_validated(
         return Err(Failure::Binding.into());
     }
     let proposal = provider.calculate(session, context, first_ticket, deadline)?;
+    let result = certify_proposal(
+        provider,
+        &proposal,
+        corridor,
+        CertificationInput {
+            session,
+            context,
+            body,
+            segment_ticket,
+            deadline,
+        },
+        false,
+    )?;
+    provider.certify(session, &proposal, &result)?;
+    #[cfg(test)]
+    proposal.report_timing();
+    Ok(result)
+}
+
+/// Staged native work never carries a concrete clearance proof across invocations.
+pub(super) fn resolve_job(
+    provider: &mut SourceSamePolygonRouteProvider,
+    job: RouteJob<'_>,
+    corridor: &mut LocalCorridor<'_, '_, '_>,
+    first_ticket: u64,
+    deadline: Instant,
+) -> Result<ServiceStep, SamePolygonError> {
+    let segment_ticket = first_ticket.checked_add(6).ok_or(Failure::Invalid)?;
+    if corridor.map != job.session().map || corridor.revision != provider.raw_geometry() {
+        return Err(Failure::Binding.into());
+    }
+    if !provider.advance_job(&job, first_ticket, deadline)? {
+        return Ok(ServiceStep::Pending);
+    }
+    let proposal = provider.terminal_for_job(&job)?;
+    let facts = certify_proposal(
+        provider,
+        proposal,
+        corridor,
+        CertificationInput {
+            session: job.session(),
+            context: job.request(),
+            body: job.body(),
+            segment_ticket,
+            deadline,
+        },
+        true,
+    )?;
+    provider.certify_job(&job, &facts)?;
+    Ok(ServiceStep::Complete(Box::new(facts)))
+}
+
+struct CertificationInput<'a> {
+    session: &'a Session,
+    context: &'a AuthorityRequest,
+    body: Body,
+    segment_ticket: u64,
+    deadline: Instant,
+}
+fn certify_proposal(
+    provider: &SourceSamePolygonRouteProvider,
+    proposal: &SamePolygonProposal,
+    corridor: &mut LocalCorridor<'_, '_, '_>,
+    input: CertificationInput<'_>,
+    staged: bool,
+) -> Result<Facts, SamePolygonError> {
+    let CertificationInput {
+        session,
+        context,
+        body,
+        segment_ticket,
+        deadline,
+    } = input;
     let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
         return Err(Failure::UnsupportedQuery.into());
     };
@@ -75,7 +150,11 @@ pub(super) fn resolve_validated(
     corridor.certify(from, to, body)?;
     // This is separate from the Chase gate's owner-height / target-height ray.
     // Every route segment uses the owner's height at BOTH ends and includes M2.
-    let sight = provider.segment_line_of_sight(session, &proposal, segment_ticket, deadline);
+    let sight = if staged {
+        provider.segment_line_of_sight_prepared(proposal, segment_ticket, deadline)
+    } else {
+        provider.segment_line_of_sight(session, proposal, segment_ticket, deadline)
+    };
     #[cfg(test)]
     if let Err(error) = &sight {
         eprintln!(
@@ -143,9 +222,6 @@ pub(super) fn resolve_validated(
         request: motion::Query::Route(q.clone()),
         fact: motion::Fact::RouteCalculation(Box::new(calculation)),
     })));
-    provider.certify(session, &proposal, &facts)?;
-    #[cfg(test)]
-    proposal.report_timing();
     Ok(facts)
 }
 

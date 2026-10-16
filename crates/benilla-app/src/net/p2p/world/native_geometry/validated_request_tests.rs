@@ -49,12 +49,13 @@ fn invalid_requests_never_enter_validated_callback() {
         let (reply, rx) = bounded(1);
         authority
             .tx
-            .try_send(Work {
-                ticket: 1,
-                request: changed,
-                deadline: Instant::now() + WAIT,
+            .try_send(Work::new(
+                1,
+                changed,
+                Instant::now() + WAIT,
                 reply,
-            })
+                service.active.clone(),
+            ))
             .unwrap();
         assert_eq!(
             service.serve_validated_queries_until(1, |_, _| {
@@ -95,12 +96,13 @@ fn validated_callback_preserves_non_route_facts_and_cancellation_fences() {
     let (reply, rx) = bounded(1);
     authority
         .tx
-        .try_send(Work {
-            ticket: 1,
-            request: request(),
-            deadline: Instant::now() + WAIT,
+        .try_send(Work::new(
+            1,
+            request(),
+            Instant::now() + WAIT,
             reply,
-        })
+            service.active.clone(),
+        ))
         .unwrap();
     service.serve_validated_queries_until(1, |validated, _| {
         service.active.store(false, Ordering::Release);

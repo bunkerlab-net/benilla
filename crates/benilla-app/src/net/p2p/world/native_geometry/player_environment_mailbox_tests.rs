@@ -13,12 +13,13 @@ fn loaded_environment_mailbox_retains_exact_query_and_original_deadline() {
     let (reply, receive) = bounded(1);
     authority
         .tx
-        .try_send(Work {
-            ticket: 1,
-            request: request.clone(),
-            deadline: original,
+        .try_send(Work::new(
+            1,
+            request.clone(),
+            original,
             reply,
-        })
+            service.active.clone(),
+        ))
         .unwrap();
     assert_eq!(
         service.serve_queries_until(1, |session, observed, body, until| {
@@ -134,12 +135,13 @@ fn environment_expired_jobs_are_not_queried_or_delivered_after_original_deadline
     let (reply, receive) = bounded(1);
     authority
         .tx
-        .try_send(Work {
-            ticket: 1,
-            request: request.clone(),
-            deadline: Instant::now() - WAIT,
+        .try_send(Work::new(
+            1,
+            request.clone(),
+            Instant::now() - WAIT,
             reply,
-        })
+            service.active.clone(),
+        ))
         .unwrap();
     assert_eq!(
         service.serve_queries_until(1, |_, _, _, _| panic!("expired request queried")),
@@ -153,12 +155,13 @@ fn environment_expired_jobs_are_not_queried_or_delivered_after_original_deadline
     let original = Instant::now() + Duration::from_millis(10);
     authority
         .tx
-        .try_send(Work {
-            ticket: 2,
+        .try_send(Work::new(
+            2,
             request,
-            deadline: original,
+            original,
             reply,
-        })
+            service.active.clone(),
+        ))
         .unwrap();
     assert_eq!(
         service.serve_queries_until(1, |_, _, _, until| {

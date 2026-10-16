@@ -609,3 +609,38 @@ fn actual_source_invalid_coordinate_dispatch_constructs_but_never_selects() {
     );
     assert!(!constructor.current_selected());
 }
+
+#[test]
+fn registered_handle_reborrows_exact_query_and_rejects_foreign_or_replaced_seal() {
+    let (profile, session, mut provider) = setup();
+    let request = first_unconsumed(&profile);
+    let handle = provider.prepare_constructor(&request).unwrap();
+    assert_eq!(provider.constructor_count(), 1);
+    assert!(!provider.reborrow(&handle).unwrap().current_selected());
+    provider
+        .reborrow(&handle)
+        .unwrap()
+        .select_and_check_tiles(until())
+        .unwrap();
+    assert!(provider.reborrow(&handle).unwrap().current_selected());
+    let mut foreign = replacement(&profile, &session);
+    assert_eq!(
+        foreign.reborrow(&handle).err(),
+        Some(ConstructorQueryError::Binding)
+    );
+    assert_eq!(foreign.constructor_count(), 0);
+    // Another actual runtime emits equal bytes with a different live allocation.
+    let replacement = first_unconsumed(&profile);
+    assert_eq!(request, replacement);
+    assert!(!request
+        .require_pathfinder_dispatch(&profile)
+        .unwrap()
+        .same_live_dispatch(replacement.require_pathfinder_dispatch(&profile).unwrap()));
+    let fresh = provider.prepare_constructor(&replacement).unwrap();
+    assert_eq!(provider.constructor_count(), 1);
+    assert_eq!(
+        provider.reborrow(&handle).err(),
+        Some(ConstructorQueryError::Binding)
+    );
+    assert!(provider.reborrow(&fresh).unwrap().current_selected());
+}

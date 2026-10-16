@@ -324,12 +324,13 @@ fn primary_queue_cancellation_expiry_and_frame_limit_are_unchanged() {
     for ticket in 0..QUEUE_CAPACITY {
         authority
             .tx
-            .try_send(Work {
-                ticket: ticket as u64,
-                request: request.clone(),
-                deadline: Instant::now() - WAIT,
-                reply: reply.clone(),
-            })
+            .try_send(Work::new(
+                ticket as u64,
+                request.clone(),
+                Instant::now() - WAIT,
+                reply.clone(),
+                service.active.clone(),
+            ))
             .unwrap();
     }
     drop(reply);

@@ -13,9 +13,10 @@ use benilla_world_runtime::native::{
     CREATURE_CAPABILITY_RUNTIME_SOURCE_SHA256, SOLO_UNIT,
 };
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 pub(crate) struct SourceRouteFilterProvider {
+    identity: Arc<()>,
     session: Session,
     profile: Profile,
     snapshot: DryLiquidSnapshot,
@@ -88,6 +89,13 @@ impl RouteFilterUpdateDependency {
     pub(crate) fn continued_from_ticket(&self) -> Option<u64> {
         self.continued_from_ticket
     }
+}
+
+/// Successful immutable context validation for one exact provider allocation.
+/// Only an original live Route job may retain this between bounded stages.
+pub(super) struct OwnedRouteFilterContext {
+    provider: Arc<()>,
+    context: AuthorityRequest,
 }
 
 pub(crate) struct BoundRouteFilterQuery<'a> {
@@ -228,6 +236,7 @@ impl SourceRouteFilterProvider {
         }
         require_participants(session)?;
         Ok(Self {
+            identity: Arc::new(()),
             session: session.clone(),
             profile: profile.clone(),
             snapshot,
@@ -236,6 +245,33 @@ impl SourceRouteFilterProvider {
 
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.snapshot.binding()
+    }
+
+    pub(super) fn prepare_context(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+    ) -> Result<OwnedRouteFilterContext, Failure> {
+        self.begin(session, context)?;
+        Ok(OwnedRouteFilterContext {
+            provider: Arc::clone(&self.identity),
+            context: context.clone(),
+        })
+    }
+
+    /// No replacement input can be paired with retained validation. The enclosing
+    /// original job independently checks attachment, session, request and expiry.
+    pub(super) fn reborrow(
+        &self,
+        context: &OwnedRouteFilterContext,
+    ) -> Result<BoundRouteFilterQuery<'_>, Failure> {
+        if !Arc::ptr_eq(&self.identity, &context.provider) {
+            return Err(Failure::Binding);
+        }
+        Ok(BoundRouteFilterQuery {
+            provider: self,
+            context: context.context.clone(),
+        })
     }
 
     /// Validate source consistency against the selected immutable profile. The

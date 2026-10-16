@@ -19,7 +19,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
     time::{Duration, Instant},
 };
@@ -67,7 +67,7 @@ impl PlayerMotion {
 /// are excluded, and the controller cannot create them while this token is installed.
 /// There is deliberately no production constructor until that complete input audit exists.
 /// Empty ADT references, empty entity queries and a digest alone cannot construct this token.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct NonRenderParticipants {
     content: Digest,
     map: u32,
@@ -280,12 +280,20 @@ impl EmptySelectorNearPointPolicy {
 
 /// Explicit environment selection bound to the actual initialized model owner.
 /// This equality policy cannot authenticate loaded spatial products by itself.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq)]
 pub(crate) struct PlayerEnvironmentPolicy {
     profile: Arc<Profile>,
     profile_digest: Digest,
     player: PlayerId,
     body: Body,
+}
+impl PartialEq for PlayerEnvironmentPolicy {
+    fn eq(&self, other: &Self) -> bool {
+        self.profile_digest == other.profile_digest
+            && self.player == other.player
+            && self.body == other.body
+            && (Arc::ptr_eq(&self.profile, &other.profile) || self.profile == other.profile)
+    }
 }
 impl PlayerEnvironmentPolicy {
     pub(crate) fn from_profile(profile: &Profile, player: PlayerId) -> Result<Self, Failure> {
@@ -436,7 +444,7 @@ impl SamePolygonRoutePolicy {
 
 /// Local session identity. Digests bind inputs; they do not attest that client collision
 /// equals CMaNGOS VMap data. Production admission must separately verify asset identity.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Session {
     pub world: WorldId,
     pub profile: Digest,
@@ -632,6 +640,8 @@ pub(crate) enum Failure {
     MissingGeometry,
     /// The supplied execution deadline expired, not missing or unsupported geometry.
     Deadline,
+    /// A concurrent enqueue filled the bounded FIFO before this job could yield.
+    QueueCapacity,
     Obstacle,
     Water,
     UnsupportedGround,
@@ -665,6 +675,7 @@ impl Failure {
             Self::Deadline => {
                 NativeError::AuthorityUnavailable("local geometry execution deadline exceeded")
             }
+            Self::QueueCapacity => NativeError::AuthorityUnavailable("local geometry queue full"),
             Self::MissingGeometry => {
                 NativeError::AuthorityUnavailable("local geometry coverage incomplete")
             }
@@ -686,16 +697,212 @@ impl Failure {
     }
 }
 
-struct Work {
+/// The sole owner stays in the cross-thread Work. Read-only leases never extend
+/// its lifetime, replace its attachment, or renew its original absolute expiry.
+struct JobIdentity {
     ticket: u64,
     request: AuthorityRequest,
     deadline: Instant,
+    attachment: Arc<AtomicBool>,
+    owner_alive: AtomicBool,
+}
+struct JobOwner(Arc<JobIdentity>);
+impl Drop for JobOwner {
+    fn drop(&mut self) {
+        self.0.owner_alive.store(false, Ordering::Release);
+    }
+}
+#[derive(Clone)]
+pub(super) struct JobLease(Arc<JobIdentity>);
+impl JobLease {
+    pub(super) fn same_job(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub(super) fn is_active(&self) -> bool {
+        self.0.owner_alive.load(Ordering::Acquire)
+            && self.0.attachment.load(Ordering::Acquire)
+            && Instant::now() < self.0.deadline
+    }
+    pub(super) fn request(&self) -> &AuthorityRequest {
+        &self.0.request
+    }
+    pub(super) fn ticket(&self) -> u64 {
+        self.0.ticket
+    }
+    pub(super) fn deadline(&self) -> Instant {
+        self.0.deadline
+    }
+}
+struct OwnedRouteValidation {
+    session: Session,
+    request: AuthorityRequest,
+    body: Body,
+    lease: JobLease,
+    selected_provider: OnceLock<Arc<()>>,
+    #[cfg(test)]
+    phase: std::cell::Cell<&'static str>,
+}
+impl OwnedRouteValidation {
+    fn check(&self, session: &Session, work: &Work) -> Result<(), Failure> {
+        if self.session != *session
+            || self.request != work.request
+            || !self.lease.same_job(&work.lease())
+        {
+            return Err(Failure::Binding);
+        }
+        // Request equality deliberately does not establish the allocation identity
+        // of a dispatch. A decoded or fresh equal-byte seal cannot reuse this receipt.
+        let (
+            Query::SourceMotion(MotionQuery::Route(saved)),
+            Query::SourceMotion(MotionQuery::Route(current)),
+        ) = (&self.request.query, &work.request.query)
+        else {
+            return Err(Failure::Binding);
+        };
+        if !saved
+            .pathfinder_dispatch
+            .as_ref()
+            .zip(current.pathfinder_dispatch.as_ref())
+            .is_some_and(|(a, b)| a.same_live_dispatch(b))
+        {
+            return Err(Failure::Binding);
+        }
+        if !self.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        Ok(())
+    }
+}
+/// An invocation-local view of the core's completed immutable Route validation.
+/// Providers can retain the read-only lease, never this borrowed receipt.
+pub(super) struct RouteJob<'call> {
+    validation: &'call OwnedRouteValidation,
+}
+impl<'call> RouteJob<'call> {
+    pub(super) fn session(&self) -> &'call Session {
+        &self.validation.session
+    }
+    pub(super) fn request(&self) -> &'call AuthorityRequest {
+        &self.validation.request
+    }
+    pub(super) fn body(&self) -> Body {
+        self.validation.body
+    }
+    pub(super) fn lease(&self) -> JobLease {
+        self.validation.lease.clone()
+    }
+    /// Pin the selected provider allocation to this original Work, including
+    /// retries before the provider has installed its first pending phase.
+    pub(super) fn bind_provider(&self, identity: &Arc<()>) -> Result<(), Failure> {
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        let selected = self
+            .validation
+            .selected_provider
+            .get_or_init(|| Arc::clone(identity));
+        if Arc::ptr_eq(selected, identity) {
+            Ok(())
+        } else {
+            Err(Failure::Binding)
+        }
+    }
+    /// Validate only facts for this original owned Route receipt. Replacement
+    /// session, request or body inputs cannot enter staged certification.
+    pub(super) fn validate_facts(&self, facts: &Facts) -> Result<(), Failure> {
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        let (
+            Query::SourceMotion(MotionQuery::Route(route)),
+            Facts::SourceMotion(MotionFacts::Spatial(reply)),
+        ) = (&self.validation.request.query, facts)
+        else {
+            return Err(Failure::Binding);
+        };
+        validate_route_facts(
+            &self.validation.session,
+            &self.validation.request,
+            route,
+            reply,
+        )?;
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(super) fn record_phase(&self, phase: &'static str) {
+        self.validation.phase.set(phase);
+    }
+}
+pub(super) enum ServiceQuery<'call> {
+    Immediate(ValidatedRequest<'call>),
+    Route(RouteJob<'call>),
+}
+pub(super) enum ServiceStep {
+    Pending,
+    Complete(Box<Facts>),
+}
+struct Work {
+    owner: JobOwner,
+    route_validation: Option<OwnedRouteValidation>,
     reply: Sender<Reply>,
+}
+impl Work {
+    fn new(
+        ticket: u64,
+        request: AuthorityRequest,
+        deadline: Instant,
+        reply: Sender<Reply>,
+        attachment: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            owner: JobOwner(Arc::new(JobIdentity {
+                ticket,
+                request,
+                deadline,
+                attachment,
+                owner_alive: AtomicBool::new(true),
+            })),
+            route_validation: None,
+            reply,
+        }
+    }
+    fn lease(&self) -> JobLease {
+        JobLease(self.owner.0.clone())
+    }
+    fn active_for(&self, attachment: &Arc<AtomicBool>) -> bool {
+        Arc::ptr_eq(&self.owner.0.attachment, attachment) && self.lease().is_active()
+    }
+}
+impl std::ops::Deref for Work {
+    type Target = JobIdentity;
+    fn deref(&self) -> &Self::Target {
+        &self.owner.0
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QueryDisposition {
+    Deferred,
+    Delivered,
+    Failed,
+    Retired,
 }
 struct Reply {
     ticket: u64,
     request: AuthorityRequest,
     result: Result<Facts, Failure>,
+}
+#[cfg(test)]
+pub(super) struct ServiceTestReply(Receiver<Reply>);
+#[cfg(test)]
+impl ServiceTestReply {
+    pub(super) fn try_result(
+        &self,
+    ) -> Result<Result<Facts, Failure>, crossbeam_channel::TryRecvError> {
+        self.0.try_recv().map(|reply| reply.result)
+    }
 }
 
 /// Control data for the same installed loaded owner. It never carries native objects
@@ -831,12 +1038,13 @@ impl Authority for LocalAuthority {
         let (tx, rx) = bounded(1);
         let deadline = Instant::now() + WAIT;
         self.tx
-            .try_send(Work {
-                ticket: self.ticket,
-                request: request.clone(),
+            .try_send(Work::new(
+                self.ticket,
+                request.clone(),
                 deadline,
-                reply: tx,
-            })
+                tx,
+                self.active.clone(),
+            ))
             .map_err(|e| match e {
                 TrySendError::Full(_) => {
                     NativeError::AuthorityUnavailable("local geometry queue full")
@@ -1111,6 +1319,207 @@ impl Mailbox {
         let deadline = Instant::now() + Duration::from_millis(2);
         self.serve_validated_query_slice(limit, deadline, geometry)
     }
+    /// Selected Route jobs retain only completed owned validation between calls.
+    /// Every yield spends one frame attempt and returns to the same bounded FIFO.
+    pub(super) fn serve_service_queries_until(
+        &self,
+        limit: usize,
+        stage_routes: bool,
+        geometry: impl for<'call> FnMut(ServiceQuery<'call>, Instant) -> Result<ServiceStep, Failure>,
+    ) -> usize {
+        self.serve_service_query_slice(
+            limit,
+            stage_routes,
+            Instant::now() + Duration::from_millis(2),
+            geometry,
+        )
+    }
+    #[cfg(test)]
+    pub(super) fn enqueue_service_test_request(
+        &self,
+        ticket: u64,
+        request: AuthorityRequest,
+    ) -> Result<(JobLease, ServiceTestReply), Failure> {
+        self.session.body(&request)?;
+        if !self.active.load(Ordering::Acquire) {
+            return Err(Failure::Binding);
+        }
+        let (reply, receive) = bounded(1);
+        let work = Work::new(
+            ticket,
+            request,
+            Instant::now() + WAIT,
+            reply,
+            self.active.clone(),
+        );
+        let lease = work.lease();
+        self.retry
+            .try_send(work)
+            .map_err(|_| Failure::QueueCapacity)?;
+        Ok((lease, ServiceTestReply(receive)))
+    }
+    #[cfg(test)]
+    pub(super) fn serve_service_test_slice(
+        &self,
+        limit: usize,
+        stage_routes: bool,
+        deadline: Instant,
+        geometry: impl for<'call> FnMut(ServiceQuery<'call>, Instant) -> Result<ServiceStep, Failure>,
+    ) -> usize {
+        self.serve_service_query_slice(limit, stage_routes, deadline, geometry)
+    }
+    fn serve_service_query_slice(
+        &self,
+        limit: usize,
+        stage_routes: bool,
+        deadline: Instant,
+        mut geometry: impl for<'call> FnMut(
+            ServiceQuery<'call>,
+            Instant,
+        ) -> Result<ServiceStep, Failure>,
+    ) -> usize {
+        let mut count = 0;
+        while count < limit.min(PER_FRAME) {
+            if count > 0 && Instant::now() >= deadline {
+                break;
+            }
+            let Ok(mut work) = self.rx.try_recv() else {
+                break;
+            };
+            count += 1;
+            if !work.active_for(&self.active) {
+                continue;
+            }
+            let staged = stage_routes
+                && matches!(
+                    &work.request.query,
+                    Query::SourceMotion(MotionQuery::Route(_))
+                );
+            #[cfg(test)]
+            let timing = (
+                Instant::now(),
+                work.ticket,
+                work.request.binding.tick,
+                if !staged {
+                    "immediate"
+                } else if work.route_validation.is_none() {
+                    "body"
+                } else {
+                    "provider"
+                },
+            );
+            #[cfg(test)]
+            if let Some(validation) = &work.route_validation {
+                validation.phase.set("resume_guard");
+            }
+            let result = if staged {
+                self.advance_route_query(&mut work, deadline, &mut geometry)
+            } else {
+                self.session
+                    .validated_request(&work.request)
+                    .and_then(|validated| {
+                        match geometry(
+                            ServiceQuery::Immediate(validated),
+                            work.deadline.min(deadline),
+                        )? {
+                            ServiceStep::Pending => Err(Failure::UnsupportedQuery),
+                            ServiceStep::Complete(facts) => {
+                                validate_facts(&self.session, &work.request, &facts)?;
+                                Ok(ServiceStep::Complete(facts))
+                            }
+                        }
+                    })
+            };
+            #[cfg(test)]
+            let phase = work
+                .route_validation
+                .as_ref()
+                .map_or(timing.3, |validation| validation.phase.get());
+            let pending = matches!(&result, Ok(ServiceStep::Pending));
+            let disposition = match result {
+                Ok(ServiceStep::Pending) => self.defer_route_query(work),
+                Ok(ServiceStep::Complete(facts)) => {
+                    self.finish_query_result(work, Ok(*facts), deadline, staged)
+                }
+                Err(error) => self.finish_query_result(work, Err(error), deadline, staged),
+            };
+            // Keep observation I/O outside all deadline-sensitive checks and publication.
+            #[cfg(test)]
+            if staged {
+                eprintln!(
+                    "native geometry Route job timing: tick={} ticket={} phase={} disposition={:?} elapsed={:?}",
+                    timing.2, timing.1, phase, disposition, timing.0.elapsed(),
+                );
+            }
+            // Pending always ends this invocation, including a full tail.
+            if pending || disposition == QueryDisposition::Deferred {
+                break;
+            }
+        }
+        count
+    }
+    fn advance_route_query(
+        &self,
+        work: &mut Work,
+        slice: Instant,
+        geometry: &mut impl for<'call> FnMut(
+            ServiceQuery<'call>,
+            Instant,
+        ) -> Result<ServiceStep, Failure>,
+    ) -> Result<ServiceStep, Failure> {
+        if !work.active_for(&self.active) || Instant::now() >= slice {
+            return Err(Failure::Deadline);
+        }
+        if work.route_validation.is_none() {
+            let body = self.session.body(&work.request)?;
+            // Save the owned receipt only after this whole phase completes in time.
+            let validation = OwnedRouteValidation {
+                session: self.session.clone(),
+                request: work.request.clone(),
+                body,
+                lease: work.lease(),
+                selected_provider: OnceLock::new(),
+                #[cfg(test)]
+                phase: std::cell::Cell::new("body"),
+            };
+            if !work.active_for(&self.active) || Instant::now() >= slice {
+                return Err(Failure::Deadline);
+            }
+            work.route_validation = Some(validation);
+            return Ok(ServiceStep::Pending);
+        }
+        let validation = work.route_validation.as_ref().ok_or(Failure::Binding)?;
+        validation.check(&self.session, work)?;
+        let step = geometry(
+            ServiceQuery::Route(RouteJob { validation }),
+            work.deadline.min(slice),
+        )?;
+        // Provider failure provenance above is preserved even if time also expired.
+        validation.check(&self.session, work)?;
+        if let ServiceStep::Complete(facts) = &step {
+            RouteJob { validation }.validate_facts(facts)?;
+        }
+        if !work.active_for(&self.active) || Instant::now() >= slice {
+            // The provider retains Terminal, not these facts. The next attempt must
+            // certify current physics again before it may publish a Complete result.
+            return Err(Failure::Deadline);
+        }
+        Ok(step)
+    }
+    fn defer_route_query(&self, work: Work) -> QueryDisposition {
+        if !work.active_for(&self.active) {
+            return QueryDisposition::Retired;
+        }
+        match self.retry.try_send(work) {
+            Ok(()) => QueryDisposition::Deferred,
+            Err(error) => self.finish_query_result(
+                error.into_inner(),
+                Err(Failure::QueueCapacity),
+                Instant::now(),
+                false,
+            ),
+        }
+    }
     fn serve_query_slice(
         &self,
         limit: usize,
@@ -1142,7 +1551,7 @@ impl Mailbox {
             }
             let Ok(work) = self.rx.try_recv() else { break };
             count += 1;
-            if !self.active.load(Ordering::Acquire) || Instant::now() >= work.deadline {
+            if !work.active_for(&self.active) {
                 continue;
             }
             #[cfg(test)]
@@ -1224,25 +1633,54 @@ impl Mailbox {
     }
     /// True ends this invocation after deferring one still-live request. Real
     /// failures retain their meaning even when the clock expired during them.
-    fn finish_query(&self, mut work: Work, result: Result<Facts, Failure>, slice: Instant) -> bool {
+    fn finish_query(&self, work: Work, result: Result<Facts, Failure>, slice: Instant) -> bool {
+        self.finish_query_result(work, result, slice, false) == QueryDisposition::Deferred
+    }
+    fn finish_query_result(
+        &self,
+        mut work: Work,
+        mut result: Result<Facts, Failure>,
+        slice: Instant,
+        staged: bool,
+    ) -> QueryDisposition {
+        // Clone the transport echo before the last time guards, not after them.
+        let request = work.request.clone();
+        if !work.active_for(&self.active) {
+            return QueryDisposition::Retired;
+        }
         let now = Instant::now();
-        if !self.active.load(Ordering::Acquire) || now >= work.deadline {
-            return false;
+        if staged && result.is_ok() && now >= slice {
+            result = Err(Failure::Deadline);
         }
         if matches!(result, Err(Failure::Deadline)) && now >= slice && slice < work.deadline {
             match self.retry.try_send(work) {
-                Ok(()) => return true,
+                Ok(()) => return QueryDisposition::Deferred,
                 // A concurrent enqueue may consume the vacated slot. Do not
                 // exceed capacity, drop another job, or renew this one's expiry.
-                Err(error) => work = error.into_inner(),
+                Err(error) => {
+                    work = error.into_inner();
+                    if staged {
+                        result = Err(Failure::QueueCapacity);
+                    }
+                }
             }
         }
-        let _ = work.reply.try_send(Reply {
+        if !work.active_for(&self.active) {
+            return QueryDisposition::Retired;
+        }
+        let disposition = if result.is_ok() {
+            QueryDisposition::Delivered
+        } else {
+            QueryDisposition::Failed
+        };
+        match work.reply.try_send(Reply {
             ticket: work.ticket,
-            request: work.request,
+            request,
             result,
-        });
-        false
+        }) {
+            Ok(()) => disposition,
+            Err(_) => QueryDisposition::Retired,
+        }
     }
 }
 
@@ -1272,47 +1710,7 @@ pub(super) fn validate_facts(
             Facts::SourceMotion(MotionFacts::Spatial(reply)),
         ) => {
             session.body(request)?;
-            if reply.request != motion::Query::Route(route.request.clone()) {
-                return Err(Failure::Binding);
-            }
-            let motion::Fact::RouteCalculation(calculation) = &reply.fact else {
-                return Err(Failure::Binding);
-            };
-            calculation
-                .validate_for(&route.request)
-                .map_err(|_| Failure::Binding)?;
-            let motion::RouteOutcome::Complete(path) = &calculation.outcome else {
-                return Err(Failure::Binding);
-            };
-            let passed = SegmentChecks {
-                loaded_coverage: Check::Passed,
-                line_of_sight: Check::Passed,
-                body_sweep: Check::Passed,
-                continuous_ground_support: Check::Passed,
-                dry_ground: Check::Passed,
-            };
-            let policy = session
-                .same_polygon_route
-                .as_ref()
-                .ok_or(Failure::UnsupportedQuery)?;
-            if calculation.source != motion::RouteSource::OwnerPathFinder
-                || path.source != motion::RouteSource::OwnerPathFinder
-                || path.path_identity == [0; 32]
-                || path.points != [route.request.origin, route.request.goal]
-                || path.segments != [passed]
-                || calculation.after_cache.binding.owner_generation
-                    != request.binding.npc.ok_or(Failure::Binding)?.generation
-                || calculation.after_cache.binding.navigation_policy != session.geometry
-                || calculation.after_cache.binding.inventory != policy.binding.navigation.inventory
-                || calculation.after_cache.binding.source_epoch
-                    != policy.binding.navigation.source_epoch
-                || calculation.after_cache.active_len != 1
-                || calculation.after_cache.include_flags != 1
-                || calculation.after_cache.exclude_flags != 0
-            {
-                return Err(Failure::Binding);
-            }
-            Ok(())
+            validate_route_facts(session, request, route, reply)
         }
         (Query::Movement(m), Facts::Movement(outcome)) => validate_outcome(m, outcome),
         (Query::PlayerEnvironment(query), Facts::PlayerEnvironment(facts)) => {
@@ -1356,6 +1754,56 @@ pub(super) fn validate_facts(
         }
         _ => Err(Failure::Binding),
     }
+}
+
+/// Shared exact Route result checks. Only the owned staged receipt may skip
+/// repeating Session::body; raw consumers and LocalAuthority still perform it.
+fn validate_route_facts(
+    session: &Session,
+    request: &AuthorityRequest,
+    route: &benilla_world_runtime::native::CreatureRouteRequest,
+    reply: &motion::Reply,
+) -> Result<(), Failure> {
+    if reply.request != motion::Query::Route(route.request.clone()) {
+        return Err(Failure::Binding);
+    }
+    let motion::Fact::RouteCalculation(calculation) = &reply.fact else {
+        return Err(Failure::Binding);
+    };
+    calculation
+        .validate_for(&route.request)
+        .map_err(|_| Failure::Binding)?;
+    let motion::RouteOutcome::Complete(path) = &calculation.outcome else {
+        return Err(Failure::Binding);
+    };
+    let passed = SegmentChecks {
+        loaded_coverage: Check::Passed,
+        line_of_sight: Check::Passed,
+        body_sweep: Check::Passed,
+        continuous_ground_support: Check::Passed,
+        dry_ground: Check::Passed,
+    };
+    let policy = session
+        .same_polygon_route
+        .as_ref()
+        .ok_or(Failure::UnsupportedQuery)?;
+    if calculation.source != motion::RouteSource::OwnerPathFinder
+        || path.source != motion::RouteSource::OwnerPathFinder
+        || path.path_identity == [0; 32]
+        || path.points != [route.request.origin, route.request.goal]
+        || path.segments != [passed]
+        || calculation.after_cache.binding.owner_generation
+            != request.binding.npc.ok_or(Failure::Binding)?.generation
+        || calculation.after_cache.binding.navigation_policy != session.geometry
+        || calculation.after_cache.binding.inventory != policy.binding.navigation.inventory
+        || calculation.after_cache.binding.source_epoch != policy.binding.navigation.source_epoch
+        || calculation.after_cache.active_len != 1
+        || calculation.after_cache.include_flags != 1
+        || calculation.after_cache.exclude_flags != 0
+    {
+        return Err(Failure::Binding);
+    }
+    Ok(())
 }
 
 /// Each accepted packet extends the same immutable path; even returning to the origin spends
@@ -1673,3 +2121,7 @@ mod player_environment_mailbox_tests;
 #[cfg(test)]
 #[path = "route_commit_mailbox_tests.rs"]
 mod route_commit_mailbox_tests;
+
+#[cfg(test)]
+#[path = "staged_job_tests.rs"]
+mod staged_job_tests;

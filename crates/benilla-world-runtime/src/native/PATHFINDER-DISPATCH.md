@@ -54,6 +54,60 @@ an uncommitted frame regenerates identical evidence with a fresh live claim. A
 provider's dependency-only lease is not itself committed world state or a
 successful Route calculation.
 
+## Bounded app Route continuation
+
+The app geometry policy `benilla-owned-dry-same-polygon-chase-commit-continuation-v3`
+binds the selected installed same-polygon Service to five bounded phases under
+one original mailbox job:
+
+1. Complete immutable Session/body/request validation.
+2. Validate provider, dispatch, model and native ancestry; retain the original
+   constructor and reserve candidate capacity.
+3. Complete constructor filter and the entire source-ordered Chase gate.
+4. Select the original query, check owner-ignore and both tiles, perform fresh
+   updateFilter, then produce the actual cold/retained native terminal candidate.
+5. Certify current concrete physics/coverage and loaded segment LOS, validate the
+   complete Route facts, then publish the reply in the same invocation.
+
+A successful phase yields the same Work to the bounded FIFO tail and ends that
+serving invocation. The next invocation may occur in the same render frame;
+shared accounting still permits only eight attempts per frame. Queue capacity 16,
+2 ms invocation slices and the original absolute 500 ms job lifetime are unchanged.
+Typed slice Deadline retries only the incomplete atomic phase. Missing data,
+primitive budgets, obstacles and unsupported domains remain terminal failures.
+An individually oversized phase still expires boundedly; it cannot extend its
+operation budget or job lifetime.
+
+The original job binds once to its exact provider allocation; an equal-byte provider
+cannot adopt it, including a retained replan that needs no new constructor claim.
+A core-private owner/lease binds the exact original attachment, immutable request,
+ticket and deadline. The completed validation receipt compares the full Session
+and request plus the actual dispatch allocation on resume. A decoded or equal-byte
+fresh dispatch cannot adopt another job. Private provider-bound filter and
+constructor handles reborrow already validated immutable work without repeated
+profile serialization, new constructor claims or saved-query rehydration. Raw
+and direct calls still perform full validation. No borrowed native query, physics
+view or attempt-local validation token survives an invocation.
+
+Pending jobs are owner-thread-only and bounded to 16. Distinct live jobs reserve
+separate slots within the existing four-candidate cap until an actual immutable
+candidate is shared; terminal proposals remain counted in that registry. The
+constructor registry's existing bound is unchanged. Cancellation, expiry,
+attachment replacement, permanent failure and failed requeue revoke the job;
+the owner thread reaps pending state even when frame allowance is zero. Existing
+rollback ancestors are never evicted to make space.
+
+No concrete physics result is retained across phases or retries. Terminal native
+state survives callback completion until the mailbox accepts all final checks
+and retires the Work. A late final success therefore repeats fresh physics, not
+an earlier source phase or stale clearance. Candidate production and callback
+publication do not commit NativeWorld or promote/prune its current cache; those
+remain tied to the separately successful outer batch lifecycle. Every resume and
+terminal access checks the current committed boundary and retained native ancestry;
+acknowledgement reaps obsolete pending state together with candidate pruning.
+Final job-bound certification reuses only the original owned body validation and
+runs the same Route fact and candidate checks as raw certification.
+
 ## Persistence contract
 
 Native format **33**, `benilla-native-complete-source-visitors-v33`, and

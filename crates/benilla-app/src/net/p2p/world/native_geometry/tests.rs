@@ -27,7 +27,7 @@ fn movement() -> MovementRequest {
         purpose: MovementPurpose::Chase { target: 1 },
     }
 }
-fn request() -> AuthorityRequest {
+pub(super) fn request() -> AuthorityRequest {
     AuthorityRequest {
         binding: Binding {
             world: [1; 16],
@@ -43,7 +43,7 @@ fn request() -> AuthorityRequest {
         query: Query::Movement(movement()),
     }
 }
-fn session() -> Session {
+pub(super) fn session() -> Session {
     Session {
         world: [1; 16],
         profile: [1; 32],
@@ -64,7 +64,7 @@ fn session() -> Session {
         same_polygon_route: None,
     }
 }
-struct Proof(Result<(), Failure>);
+pub(super) struct Proof(pub(super) Result<(), Failure>);
 impl Corridor for Proof {
     fn certify(&mut self, _: [f32; 3], _: [f32; 3], _: Body) -> Result<(), Failure> {
         self.0
@@ -182,12 +182,13 @@ fn worker_roundtrip_and_service_frame_limit() {
     for ticket in 0..QUEUE_CAPACITY {
         worker
             .tx
-            .try_send(Work {
-                ticket: ticket as u64,
-                request: request(),
-                deadline: Instant::now() + WAIT,
-                reply: tx.clone(),
-            })
+            .try_send(Work::new(
+                ticket as u64,
+                request(),
+                Instant::now() + WAIT,
+                tx.clone(),
+                service.active.clone(),
+            ))
             .unwrap();
     }
     assert_eq!(
@@ -203,12 +204,13 @@ fn overflow_closed_and_expired_jobs_are_fail_closed() {
     for ticket in 0..QUEUE_CAPACITY {
         worker
             .tx
-            .try_send(Work {
-                ticket: ticket as u64,
-                request: request(),
-                deadline: Instant::now() - WAIT,
-                reply: tx.clone(),
-            })
+            .try_send(Work::new(
+                ticket as u64,
+                request(),
+                Instant::now() - WAIT,
+                tx.clone(),
+                service.active.clone(),
+            ))
             .unwrap();
     }
     assert!(worker.resolve(&request()).is_err());
@@ -697,12 +699,13 @@ fn replacing_service_immediately_cancels_a_queued_live_reply_channel() {
     let (reply, receive) = bounded(1);
     authority
         .tx
-        .try_send(Work {
-            ticket: 1,
-            request: request(),
-            deadline: Instant::now() + WAIT,
+        .try_send(Work::new(
+            1,
+            request(),
+            Instant::now() + WAIT,
             reply,
-        })
+            service.active.clone(),
+        ))
         .unwrap();
     assert!(!service.rx.is_empty());
     assert!(matches!(

@@ -1165,3 +1165,503 @@ fn direct_route_resolver_still_rejects_replaced_session_and_decoded_request() {
     assert!(result.is_err());
     assert_eq!(world.checkpoint().unwrap(), before);
 }
+
+fn real_first_reply(world: &mut NativeWorld, consumer: &mut Consumer) -> AuthorityReply {
+    consumer.fail_after_route = true;
+    for _ in 0..8 {
+        let before = world.checkpoint().unwrap();
+        let result = world.step(world.state().tick + 1, None, consumer);
+        if let Some(reply) = consumer.replies.last() {
+            assert!(result.is_err());
+            assert_eq!(world.checkpoint().unwrap(), before);
+            return reply.clone();
+        }
+        result.unwrap();
+        consumer.acknowledge(world);
+    }
+    panic!("no genuine first Route");
+}
+
+fn serve_real_stage(mailbox: &core::Mailbox, consumer: &mut Consumer, deadline: Instant) {
+    let Consumer {
+        geometry,
+        providers,
+        ..
+    } = consumer;
+    assert_eq!(
+        mailbox.serve_service_test_slice(1, true, deadline, |query, until| {
+            let core::ServiceQuery::Route(job) = query else {
+                panic!("Route job")
+            };
+            geometry
+                .with_local_corridor(|corridor| {
+                    super::resolve_job(&mut providers.route, job, corridor, 1, until)
+                })
+                .map_err(SamePolygonError::failure)
+        }),
+        1
+    );
+}
+
+#[test]
+fn staged_real_corridor_publishes_only_after_all_five_phases() {
+    let (mut world, mut consumer) = setup();
+    let expected = real_first_reply(&mut world, &mut consumer);
+    let before = world.checkpoint().unwrap();
+    let (_authority, mailbox) = core::mailbox(consumer.session.clone()).unwrap();
+    let (lease, reply) = mailbox
+        .enqueue_service_test_request(1, expected.request)
+        .unwrap();
+    for _ in 0..4 {
+        serve_real_stage(
+            &mailbox,
+            &mut consumer,
+            Instant::now() + Duration::from_secs(10),
+        );
+        assert!(matches!(
+            reply.try_result(),
+            Err(crossbeam_channel::TryRecvError::Empty)
+        ));
+        assert!(lease.is_active());
+    }
+    serve_real_stage(
+        &mailbox,
+        &mut consumer,
+        Instant::now() + Duration::from_secs(10),
+    );
+    assert_eq!(reply.try_result().unwrap().unwrap(), expected.facts);
+    assert!(!lease.is_active());
+    consumer.providers.route.reap_jobs();
+    assert_eq!(consumer.providers.route.pending_job_count(), 0);
+    // Callback publication itself is still not a NativeWorld commit.
+    assert_eq!(world.checkpoint().unwrap(), before);
+}
+
+#[test]
+fn staged_final_physics_rechecks_membership_assets_transforms_layers_and_disabled_roots() {
+    use avian3d::prelude::{Collider, ColliderDisabled, CollisionLayers, RigidBody};
+    use bevy::prelude::{Assets, Transform};
+    for mutation in 0..5 {
+        let (mut world, mut consumer) = setup();
+        let expected = real_first_reply(&mut world, &mut consumer);
+        let before = world.checkpoint().unwrap();
+        let (_authority, mailbox) = core::mailbox(consumer.session.clone()).unwrap();
+        let (lease, reply) = mailbox
+            .enqueue_service_test_request(1, expected.request)
+            .unwrap();
+        for _ in 0..4 {
+            serve_real_stage(
+                &mailbox,
+                &mut consumer,
+                Instant::now() + Duration::from_secs(10),
+            );
+        }
+        let geometry = &mut consumer.geometry;
+        let root = geometry.roots[&(31, 31)];
+        let expected = match mutation {
+            0 => {
+                geometry.app.world_mut().spawn((
+                    Collider::cuboid(0.25, 3., 2.),
+                    RigidBody::Static,
+                    Transform::from_translation(benilla_assets::coords::wow_to_bevy([5., 7., 1.5])),
+                    CollisionLayers::DEFAULT,
+                ));
+                Failure::UnsupportedNavigation
+            }
+            1 => {
+                let neighbor = geometry.tiles[&(30, 30)].id();
+                geometry
+                    .app
+                    .world_mut()
+                    .resource_mut::<Assets<benilla_assets::AdtTile>>()
+                    .remove(neighbor)
+                    .unwrap();
+                Failure::MissingGeometry
+            }
+            2 => {
+                geometry
+                    .app
+                    .world_mut()
+                    .entity_mut(root)
+                    .insert(Transform::from_xyz(0., 0.25, 0.));
+                Failure::MissingGeometry
+            }
+            3 => {
+                geometry
+                    .app
+                    .world_mut()
+                    .entity_mut(root)
+                    .insert(CollisionLayers::new(0b10, u32::MAX));
+                Failure::MissingGeometry
+            }
+            4 => {
+                geometry
+                    .app
+                    .world_mut()
+                    .entity_mut(root)
+                    .insert(ColliderDisabled);
+                Failure::MissingGeometry
+            }
+            _ => unreachable!(),
+        };
+        serve_real_stage(
+            &mailbox,
+            &mut consumer,
+            Instant::now() + Duration::from_secs(10),
+        );
+        assert_eq!(
+            reply.try_result().unwrap(),
+            Err(expected),
+            "mutation {mutation}"
+        );
+        assert!(!lease.is_active());
+        consumer.providers.route.reap_jobs();
+        assert_eq!(consumer.providers.route.pending_job_count(), 0);
+        assert_eq!(world.checkpoint().unwrap(), before);
+    }
+}
+
+#[test]
+fn late_real_clearance_retains_terminal_and_retries_fresh_physics_before_publication() {
+    use avian3d::prelude::{Collider, CollisionLayers, RigidBody};
+    use bevy::prelude::Transform;
+    let (mut world, mut consumer) = setup();
+    let expected = real_first_reply(&mut world, &mut consumer);
+    let before = world.checkpoint().unwrap();
+    let (_authority, mailbox) = core::mailbox(consumer.session.clone()).unwrap();
+    let (lease, reply) = mailbox
+        .enqueue_service_test_request(1, expected.request)
+        .unwrap();
+    for _ in 0..4 {
+        serve_real_stage(
+            &mailbox,
+            &mut consumer,
+            Instant::now() + Duration::from_secs(10),
+        );
+    }
+    let slice = Instant::now() + Duration::from_millis(200);
+    assert!(slice < lease.deadline());
+    let Consumer {
+        geometry,
+        providers,
+        ..
+    } = &mut consumer;
+    assert_eq!(
+        mailbox.serve_service_test_slice(1, true, slice, |query, deadline| {
+            let core::ServiceQuery::Route(job) = query else {
+                panic!("Route job")
+            };
+            let result = geometry
+                .with_local_corridor(|corridor| {
+                    super::resolve_job(&mut providers.route, job, corridor, 1, deadline)
+                })
+                .map_err(SamePolygonError::failure)?;
+            let core::ServiceStep::Complete(facts) = &result else {
+                panic!("actual final Route")
+            };
+            assert_eq!(**facts, expected.facts);
+            std::thread::sleep(slice.saturating_duration_since(Instant::now()));
+            Ok(result)
+        }),
+        1
+    );
+    assert!(lease.is_active());
+    assert!(matches!(
+        reply.try_result(),
+        Err(crossbeam_channel::TryRecvError::Empty)
+    ));
+    assert_eq!(consumer.providers.route.pending_job_count(), 1);
+    consumer.geometry.app.world_mut().spawn((
+        Collider::cuboid(0.25, 3., 2.),
+        RigidBody::Static,
+        Transform::from_translation(benilla_assets::coords::wow_to_bevy([5., 7., 1.5])),
+        CollisionLayers::DEFAULT,
+    ));
+    // A single invocation is sufficient because Terminal survived; it must reject
+    // the newly inserted real collider instead of reusing the earlier clear fact.
+    serve_real_stage(
+        &mailbox,
+        &mut consumer,
+        Instant::now() + Duration::from_secs(10),
+    );
+    assert_eq!(
+        reply.try_result().unwrap(),
+        Err(Failure::UnsupportedNavigation)
+    );
+    consumer.providers.route.reap_jobs();
+    assert_eq!(consumer.providers.route.pending_job_count(), 0);
+    assert_eq!(world.checkpoint().unwrap(), before);
+}
+
+fn real_retained_reply(world: &mut NativeWorld, consumer: &mut Consumer) -> AuthorityReply {
+    let first = real_first_reply(world, consumer);
+    consumer.fail_after_route = false;
+    world.step(world.state().tick + 1, None, consumer).unwrap();
+    consumer.acknowledge(world);
+    consumer.fail_after_route = true;
+    assert_eq!(
+        calculation(consumer.replies.last().unwrap()),
+        calculation(&first)
+    );
+    let accepted = consumer.replies.len();
+    for _ in 0..12 {
+        let current = world.state().position;
+        let input = OwnedInput {
+            authenticated_owner: world.state().player.owner,
+            input: Input {
+                world: world.state().world,
+                tick: world.state().tick + 1,
+                player: world.state().player,
+                sequence: world.state().next_sequence,
+                command: Command::MovementPose {
+                    destination: benilla_sim::creature_ai::Point::new(
+                        current.x.as_f32() + 0.5,
+                        current.y.as_f32(),
+                        current.z.as_f32(),
+                    )
+                    .unwrap(),
+                    orientation: world.state().orientation,
+                    movement_flags: motion::GroundMovementFlags::STOPPED,
+                },
+            },
+        };
+        let before = world.checkpoint().unwrap();
+        let result = world.step(world.state().tick + 1, Some(input), consumer);
+        if consumer.replies.len() > accepted {
+            assert!(result.is_err());
+            assert_eq!(world.checkpoint().unwrap(), before);
+            let retained = consumer.replies.last().unwrap();
+            assert_eq!(
+                calculation(retained).prior_cache.as_deref(),
+                Some(&calculation(&first).after_cache)
+            );
+            assert_eq!(calculation(retained).after_cache.revision, 2);
+            return retained.clone();
+        }
+        result.unwrap();
+        consumer.acknowledge(world);
+    }
+    panic!("no genuine retained Route");
+}
+
+#[test]
+fn retained_job_cannot_switch_between_providers_with_genuine_equal_byte_native_priors() {
+    let (mut world, mut owner) = setup();
+    let (mut foreign_world, mut foreign) = setup();
+    let expected = real_retained_reply(&mut world, &mut owner);
+    let foreign_reply = real_retained_reply(&mut foreign_world, &mut foreign);
+    assert_eq!(expected, foreign_reply);
+    let Query::SourceMotion(MotionQuery::Route(a)) = &expected.request.query else {
+        panic!("retained Route")
+    };
+    let Query::SourceMotion(MotionQuery::Route(b)) = &foreign_reply.request.query else {
+        panic!("retained Route")
+    };
+    assert!(!a.pathfinder_dispatch.as_ref().unwrap().first_construction());
+    assert!(!a
+        .pathfinder_dispatch
+        .as_ref()
+        .unwrap()
+        .same_live_dispatch(b.pathfinder_dispatch.as_ref().unwrap()));
+    // The second provider genuinely owns an equal-byte native prior. Raw retained
+    // calculation accepts this request without the first-construction claim, so
+    // constructor claim rejection cannot accidentally satisfy this regression.
+    let foreign_calculation = foreign
+        .providers
+        .route
+        .calculate(
+            &foreign.session,
+            &expected.request,
+            1,
+            Instant::now() + Duration::from_secs(10),
+        )
+        .unwrap();
+    assert_eq!(
+        foreign_calculation.after_cache(),
+        &calculation(&expected).after_cache
+    );
+    let before = world.checkpoint().unwrap();
+    let foreign_before = foreign_world.checkpoint().unwrap();
+    let (_authority, mailbox) = core::mailbox(owner.session.clone()).unwrap();
+    let (lease, reply) = mailbox
+        .enqueue_service_test_request(1, expected.request.clone())
+        .unwrap();
+    for _ in 0..2 {
+        serve_real_stage(
+            &mailbox,
+            &mut owner,
+            Instant::now() + Duration::from_secs(10),
+        );
+    }
+    assert_eq!(
+        mailbox.serve_service_test_slice(
+            1,
+            true,
+            Instant::now() + Duration::from_secs(10),
+            |query, deadline| {
+                let core::ServiceQuery::Route(job) = query else {
+                    panic!("Route job")
+                };
+                assert_eq!(
+                    foreign.providers.route.advance_job(&job, 1, deadline),
+                    Err(SamePolygonError::Dependency(Failure::Binding))
+                );
+                assert!(matches!(
+                    foreign.providers.route.terminal_for_job(&job),
+                    Err(SamePolygonError::Dependency(Failure::Binding))
+                ));
+                assert!(!owner
+                    .providers
+                    .route
+                    .advance_job(&job, 1, deadline)
+                    .unwrap());
+                Ok(core::ServiceStep::Pending)
+            }
+        ),
+        1
+    );
+    assert_eq!(foreign.providers.route.pending_job_count(), 0);
+    assert_eq!(owner.providers.route.pending_job_count(), 1);
+    assert!(matches!(
+        reply.try_result(),
+        Err(crossbeam_channel::TryRecvError::Empty)
+    ));
+    for _ in 0..2 {
+        serve_real_stage(
+            &mailbox,
+            &mut owner,
+            Instant::now() + Duration::from_secs(10),
+        );
+    }
+    assert_eq!(reply.try_result().unwrap().unwrap(), expected.facts);
+    assert!(!lease.is_active());
+    owner.providers.route.reap_jobs();
+    assert_eq!(owner.providers.route.pending_job_count(), 0);
+    assert_eq!(world.checkpoint().unwrap(), before);
+    assert_eq!(foreign_world.checkpoint().unwrap(), foreign_before);
+}
+
+#[test]
+fn same_dispatch_commit_reaps_cache_free_prepared_job_without_replacing_its_constructor() {
+    struct PrepareDuringRoute<'a> {
+        consumer: &'a mut Consumer,
+        mailbox: &'a core::Mailbox,
+        pending: Option<(core::JobLease, core::ServiceTestReply)>,
+    }
+    impl Authority for PrepareDuringRoute<'_> {
+        fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
+            self.consumer.observe_derived(reply)
+        }
+        fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+            if let Query::SourceMotion(MotionQuery::Route(route)) = &request.query {
+                assert!(route.request.prior_cache.is_none());
+                assert!(self.pending.is_none());
+                self.pending = Some(
+                    self.mailbox
+                        .enqueue_service_test_request(1, request.clone())
+                        .unwrap(),
+                );
+                for _ in 0..2 {
+                    assert_eq!(
+                        self.mailbox.serve_service_test_slice(
+                            1,
+                            true,
+                            Instant::now() + Duration::from_secs(10),
+                            |query, deadline| {
+                                let core::ServiceQuery::Route(job) = query else {
+                                    panic!("Route job")
+                                };
+                                assert!(!self
+                                    .consumer
+                                    .providers
+                                    .route
+                                    .advance_job(&job, 1, deadline)
+                                    .unwrap());
+                                Ok(core::ServiceStep::Pending)
+                            }
+                        ),
+                        1
+                    );
+                }
+                assert_eq!(self.consumer.providers.route.pending_job_count(), 1);
+            }
+            // Complete this exact live dispatch through the real concrete path.
+            // There is no retry/new seal to invalidate the constructor handle.
+            self.consumer.resolve(request)
+        }
+    }
+    let (mut world, mut consumer) = setup();
+    let (_authority, mailbox) = core::mailbox(consumer.session.clone()).unwrap();
+    let mut observer = PrepareDuringRoute {
+        consumer: &mut consumer,
+        mailbox: &mailbox,
+        pending: None,
+    };
+    for _ in 0..8 {
+        world
+            .step(world.state().tick + 1, None, &mut observer)
+            .unwrap();
+        if observer.pending.is_some() {
+            break;
+        }
+        observer.consumer.acknowledge(&world);
+    }
+    let (lease, reply) = observer
+        .pending
+        .take()
+        .expect("genuine first dispatch was prepared");
+    let consumer = observer.consumer;
+    let accepted = consumer.replies.last().unwrap();
+    let identity = consumer
+        .providers
+        .route
+        .candidate_identity(accepted)
+        .unwrap();
+    assert!(calculation(accepted).prior_cache.is_none());
+    assert_eq!(consumer.providers.route.pending_job_count(), 1);
+    assert!(lease.is_active());
+    let notice = consumer.acknowledge(&world);
+    assert_eq!(notice.routes().len(), 1);
+    assert_eq!(consumer.providers.route.pending_job_count(), 0);
+    assert_eq!(
+        consumer.providers.route.committed_candidate().unwrap().0,
+        identity
+    );
+    assert_eq!(
+        mailbox.serve_service_test_slice(
+            1,
+            true,
+            Instant::now() + Duration::from_secs(10),
+            |query, deadline| {
+                let core::ServiceQuery::Route(job) = query else {
+                    panic!("Route job")
+                };
+                assert!(matches!(
+                    consumer.providers.route.terminal_for_job(&job),
+                    Err(SamePolygonError::Dependency(Failure::Binding))
+                ));
+                consumer
+                    .providers
+                    .route
+                    .advance_job(&job, 1, deadline)
+                    .map(|_| core::ServiceStep::Pending)
+                    .map_err(SamePolygonError::failure)
+            }
+        ),
+        1
+    );
+    assert_eq!(reply.try_result().unwrap(), Err(Failure::Binding));
+    assert!(!lease.is_active());
+    assert_eq!(consumer.providers.route.pending_job_count(), 0);
+    assert_eq!(
+        consumer.providers.route.committed_candidate().unwrap().0,
+        identity
+    );
+    world.step(world.state().tick + 1, None, consumer).unwrap();
+    let route_free = consumer.acknowledge(&world);
+    assert!(route_free.routes().is_empty());
+    assert_eq!(
+        consumer.providers.route.committed_candidate().unwrap().0,
+        identity
+    );
+}

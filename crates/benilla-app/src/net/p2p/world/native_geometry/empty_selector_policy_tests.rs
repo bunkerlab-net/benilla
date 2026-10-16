@@ -146,12 +146,13 @@ fn near_point_mailbox_requires_exactly_one_selected_route() {
         let (reply, receive) = bounded(1);
         authority
             .tx
-            .try_send(Work {
-                ticket: 1,
-                request: request.clone(),
-                deadline: Instant::now() + WAIT,
+            .try_send(Work::new(
+                1,
+                request.clone(),
+                Instant::now() + WAIT,
                 reply,
-            })
+                service.active.clone(),
+            ))
             .unwrap();
         assert_eq!(
             service.serve_queries_until(1, |session, actual, actual_body, _| {

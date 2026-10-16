@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-fn work(ticket: u64, deadline: Instant) -> (Work, Receiver<Reply>) {
+fn work(service: &Mailbox, ticket: u64, deadline: Instant) -> (Work, Receiver<Reply>) {
     let (reply, rx) = bounded(1);
     (
-        Work {
-            ticket,
-            request: request(),
-            deadline,
-            reply,
-        },
+        Work::new(ticket, request(), deadline, reply, service.active.clone()),
         rx,
     )
 }
@@ -23,7 +18,7 @@ fn expired_slice_retains_exact_ticket_request_reply_and_absolute_job_expiry() {
     let (mut authority, service) = mailbox(session()).unwrap();
     authority.ticket = 7;
     let deadline = Instant::now() + WAIT;
-    let (job, rx) = work(7, deadline);
+    let (job, rx) = work(&service, 7, deadline);
     authority.tx.try_send(job).unwrap();
     assert_eq!(
         service.serve_query_slice(PER_FRAME, Instant::now(), |_, _, _, until| {
@@ -59,8 +54,8 @@ fn expired_slice_retains_exact_ticket_request_reply_and_absolute_job_expiry() {
 fn deferred_work_goes_behind_other_jobs_and_every_attempt_spends_frame_count() {
     let (authority, service) = mailbox(session()).unwrap();
     let deadline = Instant::now() + WAIT;
-    let (first, first_rx) = work(1, deadline);
-    let (second, _second_rx) = work(2, deadline);
+    let (first, first_rx) = work(&service, 1, deadline);
+    let (second, _second_rx) = work(&service, 2, deadline);
     authority.tx.try_send(first).unwrap();
     authority.tx.try_send(second).unwrap();
     let mut frame = FrameBudget::default();
@@ -93,10 +88,10 @@ fn deferred_work_goes_behind_other_jobs_and_every_attempt_spends_frame_count() {
 fn concurrent_refill_cannot_expand_queue_or_discard_another_job() {
     let (authority, service) = mailbox(session()).unwrap();
     let deadline = Instant::now() + WAIT;
-    let (deferred, rx) = work(99, deadline);
+    let (deferred, rx) = work(&service, 99, deadline);
     let mut replies = vec![];
     for ticket in 0..QUEUE_CAPACITY {
-        let (job, reply) = work(ticket as u64, deadline);
+        let (job, reply) = work(&service, ticket as u64, deadline);
         authority.tx.try_send(job).unwrap();
         replies.push(reply);
     }
@@ -119,7 +114,7 @@ fn real_failures_are_never_reclassified_or_retried_when_the_slice_also_expired()
         Failure::UnsupportedNavigation,
         Failure::Obstacle,
     ] {
-        let (job, rx) = work(1, Instant::now() + WAIT);
+        let (job, rx) = work(&service, 1, Instant::now() + WAIT);
         assert!(!service.finish_query(job, Err(failure), Instant::now()));
         assert_eq!(rx.try_recv().unwrap().result, Err(failure));
         assert!(service.rx.is_empty());
@@ -143,7 +138,7 @@ fn actual_unloaded_product_result_remains_missing_when_delivery_slice_expires() 
     assert_eq!(missing, Err(products::Error::Missing));
     let result = missing.map(|_| facts()).map_err(Failure::product);
     let (_, service) = mailbox(session()).unwrap();
-    let (job, rx) = work(1, deadline);
+    let (job, rx) = work(&service, 1, deadline);
     assert!(!service.finish_query(job, result, Instant::now()));
     assert_eq!(rx.try_recv().unwrap().result, Err(Failure::MissingGeometry));
     assert!(service.rx.is_empty());
@@ -152,7 +147,7 @@ fn actual_unloaded_product_result_remains_missing_when_delivery_slice_expires() 
 #[test]
 fn successful_generic_callback_retains_original_job_deadline_semantics() {
     let (_, service) = mailbox(session()).unwrap();
-    let (job, rx) = work(1, Instant::now() + WAIT);
+    let (job, rx) = work(&service, 1, Instant::now() + WAIT);
     assert!(!service.finish_query(job, Ok(facts()), Instant::now()));
     assert_eq!(rx.try_recv().unwrap().result, Ok(facts()));
     assert!(service.rx.is_empty());
@@ -162,7 +157,7 @@ fn successful_generic_callback_retains_original_job_deadline_semantics() {
 fn deadline_without_actual_slice_expiry_is_terminal_and_cannot_spin() {
     let (_, service) = mailbox(session()).unwrap();
     let deadline = Instant::now() + WAIT;
-    let (job, rx) = work(1, deadline);
+    let (job, rx) = work(&service, 1, deadline);
     assert!(!service.finish_query(job, Err(Failure::Deadline), deadline));
     assert_eq!(rx.try_recv().unwrap().result, Err(Failure::Deadline));
     assert!(service.rx.is_empty());
@@ -172,7 +167,7 @@ fn deadline_without_actual_slice_expiry_is_terminal_and_cannot_spin() {
 fn absolute_job_expiry_stops_deferred_work_without_geometry_or_reply() {
     let (authority, service) = mailbox(session()).unwrap();
     let expired = Instant::now();
-    let (job, rx) = work(1, expired);
+    let (job, rx) = work(&service, 1, expired);
     authority.tx.try_send(job).unwrap();
     assert_eq!(
         service.serve_query_slice(PER_FRAME, Instant::now() + WAIT, |_, _, _, _| {
@@ -182,7 +177,7 @@ fn absolute_job_expiry_stops_deferred_work_without_geometry_or_reply() {
     );
     assert!(service.rx.is_empty());
     assert!(rx.try_recv().is_err());
-    let (job, rx) = work(2, expired);
+    let (job, rx) = work(&service, 2, expired);
     assert!(!service.finish_query(job, Err(Failure::Deadline), expired));
     assert!(service.rx.is_empty());
     assert!(rx.try_recv().is_err());
@@ -206,7 +201,7 @@ fn absolute_job_expiry_stops_deferred_work_without_geometry_or_reply() {
 fn cancellation_between_attempts_drops_pending_work_and_cannot_transfer_to_replacement() {
     let (mut authority, service) = mailbox(session()).unwrap();
     let deadline = Instant::now() + WAIT;
-    let (job, rx) = work(1, deadline);
+    let (job, rx) = work(&service, 1, deadline);
     authority.tx.try_send(job).unwrap();
     service.serve_query_slice(1, Instant::now(), |_, _, _, until| {
         assert!(Instant::now() >= until);

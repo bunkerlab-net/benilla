@@ -15,7 +15,7 @@ use benilla_world_runtime::{
     NpcId,
 };
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
 
 const MAX_CONSTRUCTORS: usize = 4096;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +32,7 @@ pub(crate) enum ConstructorQueryError {
 /// The native query uses Rc/RefCell: this provider stays on its owner thread and
 /// must use non-send placement, never an ordinary Send + Sync Bevy Resource.
 pub(crate) struct SourcePathfinderQueryProvider {
+    identity: Rc<()>,
     world: [u8; 16],
     profile: Profile,
     navigation: SourceMapQuerySnapshot,
@@ -47,9 +48,25 @@ struct RegisteredConstructor {
 /// This borrow is only the query fields of the actual modeled owner constructor.
 /// It is neither createFilter evidence nor proof that a whole calculate ran.
 pub(crate) struct SourceConstructorQuery<'a> {
+    provider: Rc<()>,
+    index: usize,
     entry: &'a mut RegisteredConstructor,
     snapshot: SnapshotBinding,
     dispatch: PathfinderDispatchReceipt,
+    from: [u32; 3],
+    to: [u32; 3],
+}
+
+/// A successfully validated registered constructor, never a second native query.
+/// Private fields retain the exact allocation and cannot adopt a replacement seal.
+pub(super) struct RegisteredConstructorHandle {
+    provider: Rc<()>,
+    index: usize,
+    npc: NpcId,
+    construction: QueryBinding,
+    first_event: PathfinderDispatchReceipt,
+    dispatch: PathfinderDispatchReceipt,
+    snapshot: SnapshotBinding,
     from: [u32; 3],
     to: [u32; 3],
 }
@@ -124,6 +141,7 @@ impl SourcePathfinderQueryProvider {
             return Err(ConstructorQueryError::Binding);
         }
         Ok(Self {
+            identity: Rc::new(()),
             world: session.world,
             profile: profile.clone(),
             navigation,
@@ -135,6 +153,60 @@ impl SourcePathfinderQueryProvider {
     }
     pub(crate) fn constructor_count(&self) -> usize {
         self.constructors.len()
+    }
+
+    pub(super) fn prepare_constructor(
+        &mut self,
+        context: &AuthorityRequest,
+    ) -> Result<RegisteredConstructorHandle, ConstructorQueryError> {
+        let query = self.retain_constructor(context)?;
+        Ok(RegisteredConstructorHandle {
+            provider: query.provider,
+            index: query.index,
+            npc: query.entry.npc,
+            construction: query.entry.construction,
+            first_event: query.entry.first_event.clone(),
+            dispatch: query.dispatch,
+            snapshot: query.snapshot,
+            from: query.from,
+            to: query.to,
+        })
+    }
+
+    /// Reborrow completed immutable constructor validation without another claim.
+    /// The caller must also retain the original live mailbox job lease.
+    pub(super) fn reborrow(
+        &mut self,
+        handle: &RegisteredConstructorHandle,
+    ) -> Result<SourceConstructorQuery<'_>, ConstructorQueryError> {
+        if !Rc::ptr_eq(&self.identity, &handle.provider)
+            || self.navigation.binding() != handle.snapshot
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        let entry = self
+            .constructors
+            .get_mut(handle.index)
+            .ok_or(ConstructorQueryError::MissingConstructor)?;
+        if entry.npc != handle.npc
+            || entry.construction != handle.construction
+            || !entry.first_event.same_live_dispatch(&handle.first_event)
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        entry
+            .query
+            .check_query(self.navigation.query())
+            .map_err(ConstructorQueryError::Native)?;
+        Ok(SourceConstructorQuery {
+            provider: Rc::clone(&self.identity),
+            index: handle.index,
+            entry,
+            snapshot: handle.snapshot,
+            dispatch: handle.dispatch.clone(),
+            from: handle.from,
+            to: handle.to,
+        })
     }
 
     /// Called at the Route dispatch boundary, before the straight gate. The native
@@ -221,6 +293,8 @@ impl SourcePathfinderQueryProvider {
             [point.x.bits(), point.y.bits(), point.z.bits()]
         }
         Ok(SourceConstructorQuery {
+            provider: Rc::clone(&self.identity),
+            index,
             entry: &mut self.constructors[index],
             snapshot: self.navigation.binding(),
             dispatch: event.clone(),

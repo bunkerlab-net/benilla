@@ -206,12 +206,13 @@ fn route_control_queue_is_one_slot_and_separate_from_query_capacity() {
         let (reply, _) = bounded(1);
         authority
             .tx
-            .try_send(Work {
-                ticket: ticket as u64,
-                request: request.clone(),
-                deadline: Instant::now() + WAIT,
+            .try_send(Work::new(
+                ticket as u64,
+                request.clone(),
+                Instant::now() + WAIT,
                 reply,
-            })
+                service.active.clone(),
+            ))
             .unwrap();
     }
     assert_eq!(service.rx.len(), QUEUE_CAPACITY);
@@ -466,12 +467,13 @@ fn cancellation_drains_both_queues_and_invalidates_equal_byte_replacement() {
     let (reply, geometry_reply) = bounded(1);
     authority
         .tx
-        .try_send(Work {
-            ticket: 1,
-            request: player_request(&session),
-            deadline: Instant::now() + WAIT,
+        .try_send(Work::new(
+            1,
+            player_request(&session),
+            Instant::now() + WAIT,
             reply,
-        })
+            service.active.clone(),
+        ))
         .unwrap();
     drop(service);
     assert!(pending.recv().is_err());

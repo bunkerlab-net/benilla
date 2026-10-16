@@ -14,15 +14,17 @@ use super::{
     },
     route_commit::{RouteCommitBoundary, RouteCommitNotice},
     source_near_point::{SourceNearPointConfiguration, SourceNearPointProvider},
-    source_pathfinder_query::{ConstructorQueryError, SourcePathfinderQueryProvider},
+    source_pathfinder_query::{
+        ConstructorQueryError, RegisteredConstructorHandle, SourcePathfinderQueryProvider,
+    },
     source_player_environment::SourcePlayerEnvironmentProvider,
     source_route_chase_gate::{
         gate_model, ChaseGateModel, ChaseGateObservations, ChaseGateRejection, ChaseGateSelection,
         LoadedChaseGate, Observation as GateObservation,
     },
     source_route_filter::{
-        RouteFilterDependency, RouteFilterRequest, RouteFilterUpdateDependency,
-        SourceRouteFilterProvider,
+        OwnedRouteFilterContext, RouteFilterDependency, RouteFilterRequest,
+        RouteFilterUpdateDependency, SourceRouteFilterProvider,
     },
 };
 use benilla_native_nav::{
@@ -42,7 +44,7 @@ use benilla_world_runtime::{
     NpcId, PlayerId,
 };
 use sha2::{Digest, Sha256};
-use std::{rc::Rc, time::Instant};
+use std::{rc::Rc, sync::Arc, time::Instant};
 
 const MAX_GENERATORS: usize = 256;
 const MAX_CANDIDATES_PER_GENERATOR: usize = 4;
@@ -141,8 +143,8 @@ impl SamePolygonBinding {
     }
     pub(crate) fn geometry_revision(self) -> Result<[u8; 32], Failure> {
         self.geometry_revision_for_policy(
-            b"benilla-owned-dry-same-polygon-chase-commit-v2",
-            b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;outer-commit-ack;total-cap4",
+            b"benilla-owned-dry-same-polygon-chase-commit-continuation-v3",
+            b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;outer-commit-ack;total-cap4;bounded-original-job-five-phase",
         )
     }
     fn geometry_revision_for_policy(
@@ -324,6 +326,9 @@ impl From<SourceSamePolygonError> for SamePolygonError {
 /// This proposal has no standalone Route conversion. It retains the
 /// native allocation and the exact constructor/configuration/loaded-cache lineage.
 pub(crate) struct SamePolygonProposal {
+    prior: Option<Rc<SamePolygonCandidate>>,
+    filter_context: OwnedRouteFilterContext,
+    constructor: RegisteredConstructorHandle,
     context: AuthorityRequest,
     dispatch: PathfinderDispatchReceipt,
     constructor_filter: Option<RouteFilterDependency>,
@@ -368,6 +373,30 @@ impl SamePolygonProposal {
         &self.candidate.after_cache
     }
 }
+struct PreparedCalculation {
+    context: AuthorityRequest,
+    first_ticket: u64,
+    dispatch: PathfinderDispatchReceipt,
+    model: ChaseGateModel,
+    prior: Option<Rc<SamePolygonCandidate>>,
+    constructor: RegisteredConstructorHandle,
+    filter_context: OwnedRouteFilterContext,
+    reserved: bool,
+}
+struct GateDependencies {
+    constructor_filter: Option<RouteFilterDependency>,
+    gate: ChaseGateObservations,
+}
+struct TerminalDependencies {
+    owner_ignore: OwnerIgnorePathfindingReceipt,
+    tiles: LoadedSourceTilePresence,
+    filter: RouteFilterUpdateDependency,
+    candidate: Rc<SamePolygonCandidate>,
+}
+
+#[path = "source_route_same_polygon/staged.rs"]
+mod staged;
+
 struct GeneratorCandidates {
     npc: NpcId,
     construction: motion::QueryBinding,
@@ -379,6 +408,7 @@ struct GeneratorCandidates {
 /// A captured unclaimed event alone does not establish this installation ordering.
 /// This non-Send provider owns the actual query registry, filter and VMap products.
 pub(crate) struct SourceSamePolygonRouteProvider {
+    identity: Arc<()>,
     profile: Profile,
     player: PlayerId,
     binding: SamePolygonBinding,
@@ -388,6 +418,7 @@ pub(crate) struct SourceSamePolygonRouteProvider {
     candidates: Vec<GeneratorCandidates>,
     committed_boundary: Option<RouteCommitBoundary>,
     last_notice: Option<RouteCommitNotice>,
+    pending: Vec<staged::PendingCalculation>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Observation {
@@ -425,6 +456,27 @@ impl SourceSamePolygonRouteProvider {
         facts: &Facts,
     ) -> Result<(), SamePolygonError> {
         super::core::validate_facts(session, &proposal.context, facts)?;
+        self.record_certified(&proposal.context, &proposal.candidate, facts)
+    }
+    /// Only the original live job may reuse its completed immutable body check.
+    pub(super) fn certify_job(
+        &mut self,
+        job: &super::core::RouteJob<'_>,
+        facts: &Facts,
+    ) -> Result<(), SamePolygonError> {
+        job.validate_facts(facts)?;
+        let proposal = self.terminal_for_job(job)?;
+        let context = proposal.context.clone();
+        let candidate = Rc::clone(&proposal.candidate);
+        self.record_certified(&context, &candidate, facts)
+    }
+    fn record_certified(
+        &mut self,
+        context: &AuthorityRequest,
+        candidate: &Rc<SamePolygonCandidate>,
+        facts: &Facts,
+    ) -> Result<(), SamePolygonError> {
+        self.check_current_boundary(context)?;
         let Facts::SourceMotion(benilla_world_runtime::native::MotionFacts::Spatial(reply)) = facts
         else {
             return Err(Failure::Binding.into());
@@ -432,7 +484,7 @@ impl SourceSamePolygonRouteProvider {
         let motion::Fact::RouteCalculation(calculation) = &reply.fact else {
             return Err(Failure::Binding.into());
         };
-        if calculation.after_cache != proposal.candidate.after_cache {
+        if calculation.after_cache != candidate.after_cache {
             return Err(Failure::Binding.into());
         }
         let entry = self
@@ -442,11 +494,11 @@ impl SourceSamePolygonRouteProvider {
                 entry
                     .proposals
                     .iter()
-                    .any(|candidate| Rc::ptr_eq(candidate, &proposal.candidate))
+                    .any(|entry| Rc::ptr_eq(entry, candidate))
             })
             .ok_or(Failure::Binding)?;
         let reply = AuthorityReply {
-            request: proposal.context.clone(),
+            request: context.clone(),
             facts: facts.clone(),
         };
         if let Some(prior) = entry
@@ -463,6 +515,16 @@ impl SourceSamePolygonRouteProvider {
                 .try_reserve(1)
                 .map_err(|_| SamePolygonError::CandidateBudget)?;
             entry.certified.push(reply);
+        }
+        Ok(())
+    }
+    fn check_current_boundary(&self, context: &AuthorityRequest) -> Result<(), Failure> {
+        if self
+            .committed_boundary
+            .as_ref()
+            .is_some_and(|boundary| boundary.tick().checked_add(1) != Some(context.binding.tick))
+        {
+            return Err(Failure::Binding);
         }
         Ok(())
     }
@@ -627,6 +689,7 @@ impl SourceSamePolygonRouteProvider {
         }
         self.committed_boundary = Some(boundary.clone());
         self.last_notice = Some(notice.clone());
+        self.reap_jobs();
         Ok(())
     }
     #[cfg(test)]
@@ -671,6 +734,15 @@ impl SourceSamePolygonRouteProvider {
         deadline: Instant,
     ) -> Result<RayReply, SamePolygonError> {
         self.filter.begin(session, &proposal.context)?;
+        self.segment_line_of_sight_prepared(proposal, ticket, deadline)
+    }
+    pub(super) fn segment_line_of_sight_prepared(
+        &self,
+        proposal: &SamePolygonProposal,
+        ticket: u64,
+        deadline: Instant,
+    ) -> Result<RayReply, SamePolygonError> {
+        self.filter.reborrow(&proposal.filter_context)?;
         if ticket == 0
             || !self.candidates.iter().any(|entry| {
                 entry
@@ -756,6 +828,7 @@ impl SourceSamePolygonRouteProvider {
             session, profile, navigation, binding,
         )?;
         Ok(Self {
+            identity: Arc::new(()),
             profile: profile.clone(),
             player,
             binding,
@@ -765,6 +838,7 @@ impl SourceSamePolygonRouteProvider {
             candidates: vec![],
             committed_boundary: None,
             last_notice: None,
+            pending: vec![],
         })
     }
     /// The prefix-only entry stays unavailable. The app-only LocalCorridor resolver
@@ -841,16 +915,28 @@ impl SourceSamePolygonRouteProvider {
         deadline: Instant,
         mut observe: impl FnMut(Observation),
     ) -> Result<SamePolygonProposal, SamePolygonError> {
-        if first_ticket == 0
-            || self.committed_boundary.as_ref().is_some_and(|boundary| {
-                boundary.tick().checked_add(1) != Some(context.binding.tick)
-            })
-        {
+        let prepared =
+            self.prepare_calculation(session, context, first_ticket, deadline, &mut observe)?;
+        let gate = self.calculate_gate(&prepared, deadline, &mut observe)?;
+        let terminal = self.calculate_terminal(&prepared, &gate, deadline, &mut observe)?;
+        Ok(Self::assemble_proposal(prepared, gate, terminal))
+    }
+
+    fn prepare_calculation(
+        &mut self,
+        session: &Session,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        mut observe: impl FnMut(Observation),
+    ) -> Result<PreparedCalculation, SamePolygonError> {
+        self.check_current_boundary(context)?;
+        if first_ticket == 0 {
             return Err(Failure::Binding.into());
         }
         first_ticket.checked_add(5).ok_or(Failure::Invalid)?;
         require_time(deadline)?;
-        let bound_filter = self.filter.begin(session, context)?;
+        let filter_context = self.filter.prepare_context(session, context)?;
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery.into());
         };
@@ -893,6 +979,7 @@ impl SourceSamePolygonRouteProvider {
             });
             self.candidates.len() - 1
         };
+        let reservations = self.reservations(npc, construction);
         let entry = &mut self.candidates[index];
         // The runtime-owned exact prior selects a native object, never rehydrates
         // serialized refs. Keep every uncommitted ancestor until the controller
@@ -920,7 +1007,7 @@ impl SourceSamePolygonRouteProvider {
             .iter()
             .position(|candidate| candidate.context == *context);
         if retry.is_none() {
-            if entry.proposals.len() == MAX_CANDIDATES_PER_GENERATOR {
+            if entry.proposals.len() + reservations >= MAX_CANDIDATES_PER_GENERATOR {
                 return Err(SamePolygonError::CandidateBudget);
             }
             entry
@@ -928,9 +1015,32 @@ impl SourceSamePolygonRouteProvider {
                 .try_reserve(1)
                 .map_err(|_| SamePolygonError::CandidateBudget)?;
         }
-        let mut constructor = self.queries.retain_constructor(context)?;
+        let constructor = self.queries.prepare_constructor(context)?;
         observe(Observation::ConstructorQuery);
-        let constructor_filter = if event.first_construction() {
+        require_time(deadline)?;
+        Ok(PreparedCalculation {
+            context: context.clone(),
+            first_ticket,
+            dispatch: event.clone(),
+            model,
+            prior,
+            constructor,
+            filter_context,
+            reserved: retry.is_none(),
+        })
+    }
+
+    fn calculate_gate(
+        &self,
+        prepared: &PreparedCalculation,
+        deadline: Instant,
+        mut observe: impl FnMut(Observation),
+    ) -> Result<GateDependencies, SamePolygonError> {
+        require_time(deadline)?;
+        let context = &prepared.context;
+        let first_ticket = prepared.first_ticket;
+        let bound_filter = self.filter.reborrow(&prepared.filter_context)?;
+        let constructor_filter = if prepared.dispatch.first_construction() {
             let result = bound_filter.query(
                 RouteFilterRequest {
                     snapshot: self.binding.liquid,
@@ -949,7 +1059,7 @@ impl SourceSamePolygonRouteProvider {
             player: self.player,
             liquid: self.filter.dry_liquid(),
             vmap: &self.vmap,
-            model: &model,
+            model: &prepared.model,
         }
         .query(context, first_ticket + 2, deadline, |gate| {
             observe(Observation::Gate(gate))
@@ -957,9 +1067,36 @@ impl SourceSamePolygonRouteProvider {
         if let ChaseGateSelection::NormalRouteUnavailable(reason) = gate.selection {
             return Err(SamePolygonError::GateRejected(reason));
         }
+        require_time(deadline)?;
+        Ok(GateDependencies {
+            constructor_filter,
+            gate,
+        })
+    }
+
+    fn calculate_terminal(
+        &mut self,
+        prepared: &PreparedCalculation,
+        dependencies: &GateDependencies,
+        deadline: Instant,
+        mut observe: impl FnMut(Observation),
+    ) -> Result<TerminalDependencies, SamePolygonError> {
+        require_time(deadline)?;
+        self.check_prepared(prepared)?;
+        let context = &prepared.context;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        let npc = route.owner.npc();
+        let prior = &prepared.prior;
+        let event = &prepared.dispatch;
+        let first_ticket = prepared.first_ticket;
+        let constructor_filter = &dependencies.constructor_filter;
+        let bound_filter = self.filter.reborrow(&prepared.filter_context)?;
         // PathFinder.cpp: destination/start checks and selection, owned ignore bit,
         // both HaveTile calls, then a fresh updateFilter. Constructor queries above
         // are separate observations, before TargetedMovementGenerator's Chase gate.
+        let mut constructor = self.queries.reborrow(&prepared.constructor)?;
         let selected = constructor.select_for_calculate(deadline)?;
         observe(Observation::SelectedQuery);
         let owner_ignore = route
@@ -1061,6 +1198,18 @@ impl SourceSamePolygonRouteProvider {
             .validate_for(route.request.binding.identity)
             .map_err(|_| Failure::Binding)?;
         require_time(deadline)?;
+        let index = self
+            .candidates
+            .iter()
+            .position(|entry| {
+                entry.npc == npc && entry.construction == prepared.dispatch.construction_binding()
+            })
+            .ok_or(Failure::Binding)?;
+        let entry = &mut self.candidates[index];
+        let retry = entry
+            .proposals
+            .iter()
+            .position(|candidate| candidate.context == *context);
         let candidate = if let Some(index) = retry {
             let previous = &entry.proposals[index];
             if previous.after_cache != after_cache
@@ -1071,6 +1220,9 @@ impl SourceSamePolygonRouteProvider {
             }
             Rc::clone(previous)
         } else {
+            if entry.proposals.len() >= MAX_CANDIDATES_PER_GENERATOR {
+                return Err(SamePolygonError::CandidateBudget);
+            }
             let candidate = Rc::new(SamePolygonCandidate {
                 context: context.clone(),
                 dispatch: event.clone(),
@@ -1082,19 +1234,36 @@ impl SourceSamePolygonRouteProvider {
         };
         // Repeated calculations reuse the immutable native candidate but return
         // fresh callback/constructor/filter observations, including its live seal.
-        Ok(SamePolygonProposal {
-            context: context.clone(),
-            dispatch: event.clone(),
-            constructor_filter,
-            model,
-            gate,
+        require_time(deadline)?;
+        Ok(TerminalDependencies {
             owner_ignore,
             tiles,
             filter,
             candidate,
+        })
+    }
+
+    fn assemble_proposal(
+        prepared: PreparedCalculation,
+        gate: GateDependencies,
+        terminal: TerminalDependencies,
+    ) -> SamePolygonProposal {
+        SamePolygonProposal {
+            prior: prepared.prior,
+            context: prepared.context,
+            dispatch: prepared.dispatch,
+            filter_context: prepared.filter_context,
+            constructor: prepared.constructor,
+            constructor_filter: gate.constructor_filter,
+            model: prepared.model,
+            gate: gate.gate,
+            owner_ignore: terminal.owner_ignore,
+            tiles: terminal.tiles,
+            filter: terminal.filter,
+            candidate: terminal.candidate,
             #[cfg(test)]
             timing: None,
-        })
+        }
     }
 }
 fn bits(point: Point) -> [u32; 3] {
@@ -1118,3 +1287,7 @@ fn require_time(deadline: Instant) -> Result<(), Failure> {
 #[cfg(test)]
 #[path = "source_route_same_polygon/tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "source_route_same_polygon/staged_tests.rs"]
+mod staged_tests;
