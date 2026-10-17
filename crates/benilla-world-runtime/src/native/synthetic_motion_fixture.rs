@@ -62,7 +62,7 @@ pub fn genesis(p: &Profile, spawn: u64) -> MotionGenesis {
                     home: HomeAudit {
                         reset_position_override: m::Evidence::Absent,
                         restore_temporary_faction: m::Evidence::Absent,
-                        addon_effects: m::Evidence::Absent,
+                        addon_closure: HomeAddonClosure::Absent,
                         scripted_home_events: m::Evidence::Absent,
                         temporary_summon_callback: m::Evidence::Absent,
                     },
@@ -111,6 +111,7 @@ pub fn creature_capability_sources(
                         string_id: 0,
                     },
                 ]),
+                addon_closure: CreatureCapabilityAddonClosure::Absent,
                 external_features: CreatureCapabilityRows::Complete(vec![]),
             })
             .collect(),

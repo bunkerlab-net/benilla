@@ -389,6 +389,17 @@ fn addon_sheath_is_stable_through_real_engage_evade_home_and_replay() {
             entry: sources[0].spawn_entry,
             addon: addon((sheath + 1) % 3),
         }]);
+        p.source_motion
+            .as_mut()
+            .unwrap()
+            .npcs
+            .get_mut(&2)
+            .unwrap()
+            .npc_policy
+            .home
+            .addon_closure = HomeAddonClosure::GenerationSource {
+            source_identity: sources[0].identity(),
+        };
         let mut w = world(install(p, sources, vec![2]), 7);
         let initial = w.checkpoint().unwrap();
         let id = w.state.npcs[&2].id;
@@ -489,17 +500,40 @@ fn independent_capability_no_addon_closure_rejects_addon_owners_in_both_installa
                     }]);
             }
             let mut p = base.clone();
+            let addon_identity = sources[0].identity();
             if capabilities_first {
                 p.initialize_creature_capabilities(
                     synthetic_motion_fixture::creature_capability_sources(&p),
                 )
                 .unwrap();
+                p.source_motion
+                    .as_mut()
+                    .unwrap()
+                    .npcs
+                    .get_mut(&2)
+                    .unwrap()
+                    .npc_policy
+                    .home
+                    .addon_closure = HomeAddonClosure::GenerationSource {
+                    source_identity: addon_identity,
+                };
                 let before = p.clone();
                 assert!(p
                     .initialize_creature_generations(init::Rows::Complete(sources), vec![2])
                     .is_err());
                 assert_eq!(p, before);
             } else {
+                p.source_motion
+                    .as_mut()
+                    .unwrap()
+                    .npcs
+                    .get_mut(&2)
+                    .unwrap()
+                    .npc_policy
+                    .home
+                    .addon_closure = HomeAddonClosure::GenerationSource {
+                    source_identity: addon_identity,
+                };
                 p.initialize_creature_generations(init::Rows::Complete(sources), vec![2])
                     .unwrap();
                 let before = p.clone();

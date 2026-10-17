@@ -16,6 +16,25 @@ impl Profile {
         *self = staged;
         Ok(())
     }
+
+    /// Install both source owners atomically, including capability references to
+    /// generation-owned addons. This does not authorize native world entry.
+    pub fn initialize_creature_generation_capabilities(
+        &mut self,
+        generation_rows: benilla_sim::creature_init::Rows<CreatureGenerationSource>,
+        cold_entry_order: Vec<u64>,
+        capability_rows: CreatureCapabilityRows<CreatureCapabilitySource>,
+    ) -> Result<(), NativeError> {
+        let generations =
+            CreatureGenerationCatalog::validate_sources(generation_rows, cold_entry_order)?;
+        let capabilities = CreatureCapabilityCatalog::validate_sources(capability_rows)?;
+        let mut staged = self.clone();
+        staged.creature_generations = Some(generations);
+        staged.creature_capabilities = Some(capabilities);
+        staged.validate()?;
+        *self = staged;
+        Ok(())
+    }
 }
 
 pub(super) fn validate_prefix(
@@ -184,8 +203,29 @@ pub(super) fn validate_other_sources(profile: &Profile) -> Result<(), NativeErro
             .source(*spawn)
             .ok_or(NativeError::AuthorityBinding)?;
         if let Some(capabilities) = &profile.creature_capabilities {
-            // The independently versioned capability source still proves absence
-            // of both addon tables; an owned sheath does not weaken that closure.
+            let capability = capabilities
+                .source(*spawn)
+                .ok_or(NativeError::AuthorityBinding)?;
+            validate_capability_source(Some(source), capability)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_capability_source(
+    source: Option<&CreatureGenerationSource>,
+    capability: &CreatureCapabilitySource,
+) -> Result<(), NativeError> {
+    let Some(source) = source else {
+        return match capability.addon_closure {
+            CreatureCapabilityAddonClosure::Absent => Ok(()),
+            CreatureCapabilityAddonClosure::GenerationSource { .. } => Err(
+                NativeError::AuthorityUnavailable("creature capability generation source"),
+            ),
+        };
+    };
+    match capability.addon_closure {
+        CreatureCapabilityAddonClosure::Absent => {
             if !matches!(&source.input.spawn_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
                 || !matches!(&source.input.template_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
             {
@@ -193,44 +233,41 @@ pub(super) fn validate_other_sources(profile: &Profile) -> Result<(), NativeErro
                     "creature capability addon closure",
                 ));
             }
-            let capability = capabilities
-                .source(*spawn)
-                .ok_or(NativeError::AuthorityBinding)?;
-            let benilla_sim::creature_init::Rows::Complete(raw_spawns) =
-                &source.input.spawn_template
-            else {
-                return Err(NativeError::AuthorityBinding);
-            };
-            let CreatureCapabilityRows::Complete(capability_spawns) = &capability.spawn_templates
-            else {
-                return Err(NativeError::AuthorityBinding);
-            };
-            let ([raw], [captured]) = (raw_spawns.as_slice(), capability_spawns.as_slice()) else {
-                return Err(NativeError::AuthorityBinding);
-            };
-            let benilla_sim::creature_init::Rows::Complete(raw_features) =
-                &source.input.external_features
-            else {
-                return Err(NativeError::AuthorityBinding);
-            };
-            let CreatureCapabilityRows::Complete(capability_features) =
-                &capability.external_features
-            else {
-                return Err(NativeError::AuthorityBinding);
-            };
-            if capability.spawn_id != source.spawn_id
-                || capability.spawn_entry != source.spawn_entry
-                || capability.requested_spawn_template_entry
-                    != source.requested_spawn_template_entry
-                || captured.entry != raw.entry
-                || captured.spawn_flags != raw.spawn_flags
-                || captured.relay_id != raw.relay_id
-                || captured.string_id != raw.string_id
-                || capability_features != raw_features
-            {
+        }
+        CreatureCapabilityAddonClosure::GenerationSource { source_identity } => {
+            if source_identity != source.identity() {
                 return Err(NativeError::AuthorityBinding);
             }
         }
+    }
+    let benilla_sim::creature_init::Rows::Complete(raw_spawns) = &source.input.spawn_template
+    else {
+        return Err(NativeError::AuthorityBinding);
+    };
+    let CreatureCapabilityRows::Complete(capability_spawns) = &capability.spawn_templates else {
+        return Err(NativeError::AuthorityBinding);
+    };
+    let ([raw], [captured]) = (raw_spawns.as_slice(), capability_spawns.as_slice()) else {
+        return Err(NativeError::AuthorityBinding);
+    };
+    let benilla_sim::creature_init::Rows::Complete(raw_features) = &source.input.external_features
+    else {
+        return Err(NativeError::AuthorityBinding);
+    };
+    let CreatureCapabilityRows::Complete(capability_features) = &capability.external_features
+    else {
+        return Err(NativeError::AuthorityBinding);
+    };
+    if capability.spawn_id != source.spawn_id
+        || capability.spawn_entry != source.spawn_entry
+        || capability.requested_spawn_template_entry != source.requested_spawn_template_entry
+        || captured.entry != raw.entry
+        || captured.spawn_flags != raw.spawn_flags
+        || captured.relay_id != raw.relay_id
+        || captured.string_id != raw.string_id
+        || capability_features != raw_features
+    {
+        return Err(NativeError::AuthorityBinding);
     }
     Ok(())
 }

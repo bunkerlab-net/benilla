@@ -1,6 +1,6 @@
 # Source-owned creature generations
 
-This optional native41 component owns ordinary creature initialization per life.
+This optional native42 component owns ordinary creature initialization per life.
 It does not open production admission, import a creature database, authenticate
 captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
@@ -64,10 +64,32 @@ The raw rows are bound by the existing initializer and generation source identit
 then recomputed for every selected life and historical restore. Selection adds no
 RNG draws. This is bounded source consistency, not proof of source capture
 completeness, real client rendering or production admission.
-The independent creature-capability catalog still requires both addon tables to
-be absent. Combining that catalog with any retained addon row rejects in either
-installation order, including all-zero and shadowed rows; its closure is not
-silently weakened by this initializer subset.
+
+## Capability, Home and visitor composition
+
+Each selected capability source, Home audit and ordinary visitor owner explicitly
+classifies its addon closure as `Absent` or `GenerationSource { source_identity }`.
+`Absent` requires both retained addon tables to be empty whenever a generation
+owner exists; all-zero and shadowed rows still count as present. A generation
+reference must resolve to the exact stable spawn and entry in the profile's
+validated immutable generation catalog and match its full source identity. A
+digest without that selected owner supplies no closure. Changing any retained
+row, including an overridden template row, changes the bound identity.
+
+The three consumers share the generation owner's validated sheath-only domain;
+they do not copy addon rows or accept a caller assertion that a row is harmless.
+Pinned Home completion reloads the same immutable selection, so its supported
+sheath write is idempotent. Captured `move_flags` are not applied by the pinned
+loader and cannot alter capability movement flags. Scripted Home events, reset
+overrides, temporary faction/summon callbacks, visitor addon override writers,
+auras, mounts and entry substitutions remain excluded. Profile validation checks
+the composed closure before execution and again on restore.
+
+This composition does not widen habitat support. Actual entry 6 has
+`InhabitType=3` (`GROUND|WATER`); it remains rejected by the executable ground-only
+capability, ground-height and route owners. Retained sheath state cannot turn a
+water-capable source into habitat 1 or certify dry geometry. Authored composition
+fixtures establish neither real geometry nor startup or content admission.
 
 ## Source order and RNG
 
@@ -93,9 +115,14 @@ not evidence of universal source grid iteration or a real Human entry order.
 
 ## Persistence and transaction boundary
 
-Native format 41, its policy and all native hash domains reject older envelopes.
-The RNG mapping itself is unchanged. Checkpoints require explicit source-owner
-option fields; absence cannot deserialize into a source-free fallback. Restore
+Native format 42, policy `benilla-native-addon-capabilities-v42`, and v42
+profile/state/record/checkpoint/melee/callback hash domains reject native41 and
+older envelopes without migration.
+Capability source policy v2 and ordinary visitor source policy v3 bind the
+explicit addon closure; Home's required closure is bound by native42. The RNG v2
+mapping, original World v2 and character saves are unchanged. Checkpoints require
+explicit source-owner option fields; absence cannot deserialize into a source-free
+fallback. Restore
 replays retained semantic spans against the world seed and retained source, then
 recomputes initialized values. It checks life order, actual corpse-removal markers,
 death-delay deadlines, current AI profile/generation/timestamps, initial ordered

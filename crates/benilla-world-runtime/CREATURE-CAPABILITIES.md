@@ -30,7 +30,7 @@ catalog does not authenticate an imported database GUID.
 
 Every lookup is explicitly `Missing` or `Complete`. Empty template/spawn queries
 are unavailable, not default rows. Complete-empty `creature_init::ExternalFeature`
-coverage is required, including both spawn/template addons, all pets, summons,
+coverage is required for unowned addon effects, all pets, summons,
 control/possession/client control, initial auras/modifiers, scripts and replacement
 AI, map creation hooks, forced/random/event/pool/group entry selection, and their
 respawn re-evaluation. Spawn relay and string IDs are retained and must be zero.
@@ -39,11 +39,24 @@ these few raw columns does not certify source completeness. Main catalog length
 is bounded before cloning; nested row cardinalities and empty exclusions are
 checked before source serialization or hashing.
 
+The required `CreatureCapabilityAddonClosure` is either `Absent` or
+`GenerationSource { source_identity }`. `Absent` excludes both spawn/template
+addon rows; if a generation catalog is selected, even an all-zero or overridden
+retained row contradicts absence. `GenerationSource` resolves the exact selected
+immutable generation source, including stable spawn, effective entry, full source
+identity and matching spawn-template/exclusion rows. The generation validator owns
+complete addon queries and the sheath-only supported subset. Missing owners,
+wrong identities and contradictory sources reject rather than supplying a fallback.
+The capability source policy and source-binding domain are v2.
+
 `Profile::initialize_creature_capabilities` atomically selects this host and
 requires existing source motion, exact catalog coverage of runtime NPCs, matching
 effective entries, actual habitat `GROUND=1`, and spawn flags containing only the
 supported RUN bit (0 or 1). Other valid habitat values can be retained in the
 independent catalog but cannot enter this first executable runtime domain.
+Actual entry 6 has raw habitat 3 (`GROUND|WATER`) and remains outside this domain,
+including the ground-height and route owners; addon composition does not relabel
+it as habitat 1 or establish a dry location.
 
 ## Current state and lifecycle
 
@@ -53,14 +66,17 @@ LEVITATING `0x400`, CAN_FLY `0x800000`, and HOVER `0x40000000`. It is not full
 `SetWalk(true, true)` adds WALK_MODE; InitEntry's RUN flag can clear WALK_MODE.
 Neither changes this projection. Actual GROUND causes `SetLevitate(false)` and
 short-circuits the WATER/IsSwimmable branch; no HOVER/gravity flags or excluded
-control/addon/script paths can set these three bits. The resulting owned initial
-projection is therefore zero. There is no public setter or independently
+control/script paths can set these three bits. A generation-owned sheath-only
+addon writes misc bytes, not these flags; its captured `move_flags` are unused by
+the pinned loader. The resulting owned initial projection is therefore zero.
+There is no public setter or independently
 writable CanWalk/CanSwim/CanFly boolean.
 
 Ordinary supported movement and damage/periodic-only NPC effects cannot mutate
 the projection. Death, corpse removal and despawn retain it. On respawn the
-source closure still excludes ResetEntry substitution and LoadCreatureAddon
-effects; SetWalk remains irrelevant to the owned bits. The state is validated,
+source closure still excludes ResetEntry substitution and unowned LoadCreatureAddon
+effects. The retained supported addon selection is reapplied without changing
+the owned bits; SetWalk remains irrelevant to them. The state is validated,
 then reset from the same captured source after the runtime increments the NPC
 generation. Source binding, raw habitat, projected flags and generation persist
 and are validated on restore. Rehashed contradictory values or missing state
@@ -162,10 +178,11 @@ dependencies; this receipt supplies none of them.
 
 ## Persistence and checks
 
-Native format 41 (`benilla-native-creature-addons-v41`) binds the typed route owner
-transcript through profile, state, record, checkpoint and source-action digest
-domains. Format 28 and earlier saves/records are rejected rather than rewriting
-`Spatial(Route)` receipts or inventing an owner witness. The original fixture
+Native format 42 (`benilla-native-addon-capabilities-v42`) binds the typed route owner
+transcript and explicit addon closures through v42 profile, state, record,
+checkpoint and source-action digest domains. Native41 and earlier saves/records
+are rejected rather than rewriting `Spatial(Route)` receipts or inventing an
+owner witness. The original fixture
 format 2, equipment format and character/profile file schemas are unchanged. Source
 policy IDs and all five hashes are retained in the catalog/profile and each source
 witness binding. Hashes are integrity/version bindings, not source authenticity.

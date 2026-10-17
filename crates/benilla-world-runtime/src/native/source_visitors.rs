@@ -8,7 +8,7 @@ use super::*;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-v2";
+pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-v3";
 
 /// A producer must explicitly classify every applicable row. Unknown or missing
 /// coverage cannot supply an empty EventAI or override lookup.
@@ -41,9 +41,20 @@ pub enum SourceVisitorOverride {
     Guard,
     PetTotemOrControl,
     Script,
+    /// An addon writer outside the selected immutable generation source.
     Addon,
     LinkingOrSpawnGroup,
     OtherCreationHook,
+}
+
+/// Both addon queries are either absent or owned by the selected immutable
+/// generation source. Other addon writers remain creation overrides.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum SourceVisitorAddonClosure {
+    /// Capture contract: neither the spawn nor the template addon row exists.
+    Absent,
+    /// Exact source retained by the profile's validated generation catalog.
+    GenerationSource { source_identity: crate::Digest },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -59,6 +70,7 @@ pub struct SourceVisitorOwner {
     /// Complete independently applicable entry and GUID EventAI event IDs.
     pub entry_events: SourceVisitorRows<u32>,
     pub guid_events: SourceVisitorRows<u32>,
+    pub addon_closure: SourceVisitorAddonClosure,
     pub overrides: SourceVisitorRows<SourceVisitorOverride>,
 }
 impl SourceVisitorOwner {
@@ -127,6 +139,40 @@ impl SourceVisitorOwner {
         }
         self.overrides
             .require_empty("complete empty visitor creation overrides")
+    }
+    fn validate_addon_closure(
+        &self,
+        generations: Option<&CreatureGenerationCatalog>,
+    ) -> Result<(), NativeError> {
+        let Some(generations) = generations else {
+            return match self.addon_closure {
+                SourceVisitorAddonClosure::Absent => Ok(()),
+                SourceVisitorAddonClosure::GenerationSource { .. } => Err(
+                    NativeError::AuthorityUnavailable("visitor addon generation source"),
+                ),
+            };
+        };
+        let source = generations
+            .source(self.spawn_id)
+            .ok_or(NativeError::AuthorityBinding)?;
+        if source.spawn_id != self.spawn_id || source.spawn_entry != self.entry {
+            return Err(NativeError::AuthorityBinding);
+        }
+        match self.addon_closure {
+            SourceVisitorAddonClosure::Absent => {
+                if !matches!(&source.input.spawn_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
+                    || !matches!(&source.input.template_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
+                {
+                    return Err(NativeError::UnsupportedMechanic("visitor addon closure"));
+                }
+            }
+            SourceVisitorAddonClosure::GenerationSource { source_identity } => {
+                if source_identity != source.identity() {
+                    return Err(NativeError::AuthorityBinding);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -219,7 +265,7 @@ impl SourceVisitorCatalog {
     pub fn outdoor(&self) -> bool {
         self.map_instance_type == 0
     }
-    /// Immutable identity coverage only; full dependencies are checked by Profile.
+    /// Immutable identity and source-owner coverage; full dependencies need Profile.
     pub(super) fn validate_scene(&self, profile: &Profile) -> Result<(), NativeError> {
         if self.policy != SOURCE_VISITOR_POLICY
             || !self.outdoor()
@@ -241,6 +287,11 @@ impl SourceVisitorCatalog {
         {
             return Err(NativeError::InvalidProfile);
         }
+        // Callers can validate a scene independently of Profile::validate. The
+        // immutable generation catalog owns full supported-addon validation.
+        if let Some(generations) = &profile.creature_generations {
+            generations.validate(profile)?;
+        }
         let mut entries = BTreeSet::new();
         for npc in &profile.npcs {
             let row = self
@@ -250,6 +301,7 @@ impl SourceVisitorCatalog {
             if row.entry != npc.entry || !entries.insert(npc.entry) {
                 return Err(NativeError::InvalidProfile);
             }
+            row.validate_addon_closure(profile.creature_generations.as_ref())?;
         }
         if let Some(runtime) = &self.event_ai {
             runtime.validate_scene(profile)?;
@@ -417,9 +469,17 @@ mod tests {
             SourceVisitorOverride::LinkingOrSpawnGroup,
             SourceVisitorOverride::OtherCreationHook,
         ] {
-            let mut input = input();
-            rows(&mut input)[1].overrides = SourceVisitorRows::Complete(vec![kind]);
-            assert!(SourceVisitorCatalog::validate_sources(input).is_err());
+            for addon_closure in [
+                SourceVisitorAddonClosure::Absent,
+                SourceVisitorAddonClosure::GenerationSource {
+                    source_identity: [7; 32],
+                },
+            ] {
+                let mut input = input();
+                rows(&mut input)[1].addon_closure = addon_closure;
+                rows(&mut input)[1].overrides = SourceVisitorRows::Complete(vec![kind]);
+                assert!(SourceVisitorCatalog::validate_sources(input).is_err());
+            }
         }
         let mut explicit_eventai = input();
         rows(&mut explicit_eventai)[1].ai_name = "EventAI".into();
@@ -495,6 +555,109 @@ mod tests {
         assert!(draft.validate().is_err());
     }
     #[test]
+    fn visitor_addon_reference_requires_its_selected_generation_owner() {
+        let mut profile = fixture::profile();
+        let original = profile.digest();
+        for source_identity in [[0; 32], [7; 32]] {
+            let mut input = fixture::visitor_input(&profile, vec![2, 3]);
+            rows(&mut input)[0].addon_closure =
+                SourceVisitorAddonClosure::GenerationSource { source_identity };
+            let catalog = SourceVisitorCatalog::validate_sources(input).unwrap();
+            assert_eq!(
+                catalog.validate_scene(&profile),
+                Err(NativeError::AuthorityUnavailable(
+                    "visitor addon generation source"
+                ))
+            );
+            profile.source_visitors = Some(catalog);
+            assert_ne!(profile.digest(), original);
+            assert!(profile.validate().is_err());
+        }
+    }
+    #[test]
+    fn visitor_addon_absence_and_reference_bind_both_retained_queries() {
+        use benilla_sim::creature_init as init;
+
+        let mut input = input();
+        let mut owner = rows(&mut input)[0].clone();
+        for (spawn_addon, template_addon) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let mut input = synthetic_creature_model_fixture::input();
+            input.spawn_id = owner.spawn_id;
+            input.template.entry = owner.entry;
+            let addon = init::Addon {
+                mount: 0,
+                stand_state: 0,
+                sheath_state: 2,
+                emote: 0,
+                move_flags: 0,
+                auras: vec![],
+            };
+            input.spawn_addons = init::Rows::Complete(
+                spawn_addon
+                    .then(|| init::SpawnAddonRow {
+                        guid: owner.spawn_id,
+                        addon: addon.clone(),
+                    })
+                    .into_iter()
+                    .collect(),
+            );
+            input.template_addons = init::Rows::Complete(
+                template_addon
+                    .then_some(init::TemplateAddonRow {
+                        entry: owner.entry,
+                        addon,
+                    })
+                    .into_iter()
+                    .collect(),
+            );
+            let source = CreatureGenerationSource {
+                spawn_id: owner.spawn_id,
+                spawn_entry: owner.entry,
+                requested_spawn_template_entry: 0,
+                respawn_delay_min_seconds: 0,
+                respawn_delay_max_seconds: 0,
+                input,
+            };
+            let catalog = CreatureGenerationCatalog::validate_sources(
+                init::Rows::Complete(vec![source.clone()]),
+                vec![owner.spawn_id],
+            )
+            .unwrap();
+            owner.addon_closure = SourceVisitorAddonClosure::Absent;
+            let absence = owner.validate_addon_closure(Some(&catalog));
+            if spawn_addon || template_addon {
+                assert_eq!(
+                    absence,
+                    Err(NativeError::UnsupportedMechanic("visitor addon closure"))
+                );
+            } else {
+                absence.unwrap();
+            }
+            owner.addon_closure = SourceVisitorAddonClosure::GenerationSource {
+                source_identity: source.identity(),
+            };
+            owner.validate_addon_closure(Some(&catalog)).unwrap();
+            for case in 0..3 {
+                let mut changed = owner.clone();
+                match case {
+                    0 => changed.spawn_id += 1,
+                    1 => changed.entry += 1,
+                    _ => {
+                        changed.addon_closure = SourceVisitorAddonClosure::GenerationSource {
+                            source_identity: [0; 32],
+                        }
+                    }
+                }
+                assert_eq!(
+                    changed.validate_addon_closure(Some(&catalog)),
+                    Err(NativeError::AuthorityBinding)
+                );
+            }
+        }
+    }
+    #[test]
     fn native32_decode_restore_and_replay_reject_even_after_valid_rehashes() {
         let mut world = f::world();
         let initial = world.checkpoint().unwrap();
@@ -537,8 +700,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 41);
-        assert_eq!(NATIVE_POLICY, "benilla-native-creature-addons-v41");
+        assert_eq!(NATIVE_FORMAT_VERSION, 42);
+        assert_eq!(NATIVE_POLICY, "benilla-native-addon-capabilities-v42");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

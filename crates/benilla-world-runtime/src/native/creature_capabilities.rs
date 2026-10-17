@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, Creature.h:643-646,
-// Creature.cpp:155/435-452/1699-1745 and ObjectMgr.cpp:520. Upstream GPL-2.0-or-later.
+// Creature.cpp:155/435-452/1699-1745/1912-1945/2296-2346 and ObjectMgr.cpp:520.
+// Upstream GPL-2.0-or-later.
 // Copyright CMaNGOS contributors; Rust translation GPL-3.0-or-later. No warranty.
 //! Explicit source closure and owned capability-relevant movement flags. This
 //! projection is not a complete MovementInfo, geometry provider or admission token.
@@ -8,7 +9,7 @@ use super::*;
 use benilla_sim::{creature_capabilities as source, creature_init::ExternalFeature};
 use serde::{Deserialize, Serialize};
 
-pub const CREATURE_CAPABILITY_POLICY: &str = "cmangos-8ec338a1-native-creature-capability-v1";
+pub const CREATURE_CAPABILITY_POLICY: &str = "cmangos-8ec338a1-native-creature-capability-v2";
 /// LF-normalized complete Creature.cpp and Unit.cpp. These source guards do not
 /// claim the scalar predicate oracle executes constructor or lifecycle callbacks.
 pub const CREATURE_CAPABILITY_RUNTIME_SOURCE_SHA256: [&str; 2] = [
@@ -65,6 +66,15 @@ pub struct CreatureCapabilitySpawnTemplateSource {
     pub relay_id: u32,
     pub string_id: u32,
 }
+/// Addon closure is either explicit absence or the exact immutable generation
+/// source that owns both addon queries. A digest alone cannot install that owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum CreatureCapabilityAddonClosure {
+    /// Capture contract: neither the spawn nor the template addon row exists.
+    Absent,
+    /// Exact source retained by the profile's validated generation catalog.
+    GenerationSource { source_identity: crate::Digest },
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CreatureCapabilitySource {
     /// Runtime stable spawn key (NpcId.spawn / ai.creature_id), not an independently
@@ -76,8 +86,9 @@ pub struct CreatureCapabilitySource {
     pub requested_spawn_template_entry: u32,
     pub templates: CreatureCapabilityRows<CreatureCapabilityTemplateSource>,
     pub spawn_templates: CreatureCapabilityRows<CreatureCapabilitySpawnTemplateSource>,
-    /// Complete coverage of creature_init's exclusions, including both spawn and
-    /// template addons, all pet/client-control/possession, DB and compiled scripts,
+    pub addon_closure: CreatureCapabilityAddonClosure,
+    /// Complete coverage of creature_init's exclusions, including unowned addon
+    /// effects, all pet/client-control/possession, DB and compiled scripts,
     /// creation hooks, entry overrides/random/event/group selection and respawn
     /// re-evaluation. All other captured fields/lookups must be classified here;
     /// the small raw projections above do not independently prove their absence.
@@ -125,7 +136,7 @@ impl CreatureCapabilitySource {
     }
     fn binding(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-creature-capability-source-v1\0",
+            b"benilla-creature-capability-source-v2\0",
             &(CREATURE_CAPABILITY_POLICY, SOURCE_POLICY, self),
         )
     }
@@ -193,6 +204,11 @@ impl CreatureCapabilityCatalog {
                 "complete creature capability spawn bindings",
             ));
         }
+        // Provider witnesses can validate without Profile::validate. Recheck the
+        // retained generation catalog before relying on its addon source closure.
+        if let Some(generations) = &profile.creature_generations {
+            generations.validate(profile)?;
+        }
         for npc in &profile.npcs {
             let row = self
                 .source(npc.ai.creature_id)
@@ -213,6 +229,13 @@ impl CreatureCapabilityCatalog {
                     "runtime creature capability habitat domain",
                 ));
             }
+            creature_generation_binding::validate_capability_source(
+                profile
+                    .creature_generations
+                    .as_ref()
+                    .and_then(|catalog| catalog.source(row.spawn_id)),
+                row,
+            )?;
         }
         Ok(())
     }
@@ -358,8 +381,10 @@ impl CreatureCapabilityState {
             .one("effective creature capability template")?;
         // MovementInfo starts at zero. Creature's constructor SetWalk(true) and
         // optional RUN_ON_SPAWN only touch WALK_MODE. Actual GROUND SetLevitate(false),
-        // absent hover/gravity flags and complete no-control/no-addon/no-script
-        // closure leave all three capability bits zero. No full flags are inferred.
+        // absent hover/gravity flags and complete no-control/no-script closure
+        // leave all three capability bits zero. The generation-owned addon domain
+        // only writes sheath; its retained move_flags are unused by the source.
+        // No full flags are inferred.
         Ok(Some(Self {
             witness: CreatureCapabilityWitness {
                 npc,
@@ -412,7 +437,7 @@ impl CreatureCapabilityState {
         }
         self.validate(profile, self.witness.npc)?;
         // JUST_ALIVED SetWalk/ResetEntry/LoadCreatureAddon cannot change these
-        // bits within the same complete no-substitution/no-addon source closure.
+        // bits within the same complete no-substitution and addon source closure.
         *self = Self::new(profile, npc)?.ok_or(NativeError::InvalidState)?;
         Ok(())
     }

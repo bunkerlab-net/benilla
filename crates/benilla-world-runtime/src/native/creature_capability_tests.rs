@@ -145,6 +145,42 @@ fn missing_or_non_singleton_source_queries_never_become_empty_proofs() {
 }
 
 #[test]
+fn a_generation_source_reference_without_its_owner_cannot_install_or_validate_a_witness() {
+    let w = world();
+    let witness = w.state().npcs[&2]
+        .creature_capabilities()
+        .unwrap()
+        .witness();
+    for source_identity in [[0; 32], [7; 32]] {
+        let mut p = w.profile().clone();
+        let before = p.clone();
+        let mut input = rows(&p);
+        input[0].addon_closure =
+            CreatureCapabilityAddonClosure::GenerationSource { source_identity };
+        assert_eq!(
+            p.initialize_creature_capabilities(CreatureCapabilityRows::Complete(input.clone())),
+            Err(NativeError::AuthorityUnavailable(
+                "creature capability generation source"
+            ))
+        );
+        assert_eq!(p, before);
+
+        // A structurally valid catalog is not a profile-bound owner. Providers
+        // must reject the missing dependency even without Profile::validate.
+        p.creature_capabilities = Some(
+            CreatureCapabilityCatalog::validate_sources(CreatureCapabilityRows::Complete(input))
+                .unwrap(),
+        );
+        assert_eq!(
+            witness.validate_for(&p, witness.npc()),
+            Err(NativeError::AuthorityUnavailable(
+                "creature capability generation source"
+            ))
+        );
+    }
+}
+
+#[test]
 fn actual_spawn_rows_are_required_and_only_the_run_bit_is_supported() {
     let mut p = fixture::profile();
     for flags in [0, 1] {
@@ -314,9 +350,9 @@ fn rehashed(w: &NativeWorld, change: impl FnOnce(&mut serde_json::Value)) -> Che
     let mut state = serde_json::to_value(&c.state).unwrap();
     change(&mut state);
     c.state = serde_json::from_value(state).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v41\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v42\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v41\0",
+        b"benilla-native-checkpoint-v42\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -438,6 +474,12 @@ fn catalog_retains_scalar_policy_and_constructor_lifecycle_source_hashes() {
     let p = profile();
     let catalog = serde_json::to_value(p.creature_capabilities.as_ref().unwrap()).unwrap();
     assert_eq!(
+        CREATURE_CAPABILITY_POLICY,
+        "cmangos-8ec338a1-native-creature-capability-v2"
+    );
+    assert_eq!(catalog["policy"], CREATURE_CAPABILITY_POLICY);
+    assert_eq!(catalog["spawns"]["2"]["addon_closure"], "Absent");
+    assert_eq!(
         catalog["source_policy"]["predicate"],
         benilla_sim::creature_capabilities::POLICY
     );
@@ -449,5 +491,74 @@ fn catalog_retains_scalar_policy_and_constructor_lifecycle_source_hashes() {
         catalog["source_policy"]["runtime_sources"],
         serde_json::json!(CREATURE_CAPABILITY_RUNTIME_SOURCE_SHA256)
     );
-    assert_eq!(NATIVE_FORMAT_VERSION, 41);
+    assert_eq!(NATIVE_FORMAT_VERSION, 42);
+}
+
+#[test]
+fn the_v2_witness_binding_rejects_an_exact_legacy_v1_source_hash() {
+    #[derive(serde::Serialize)]
+    struct Policy {
+        predicate: &'static str,
+        predicate_sources: [&'static str; 3],
+        runtime_sources: [&'static str; 2],
+    }
+    // The prior source schema had no addon closure. Preserve its field order to
+    // reproduce the actual old wire hash rather than only changing its domain.
+    #[derive(serde::Serialize)]
+    struct LegacySource<'a> {
+        spawn_id: u64,
+        spawn_entry: u32,
+        requested_spawn_template_entry: u32,
+        templates: &'a CreatureCapabilityRows<CreatureCapabilityTemplateSource>,
+        spawn_templates: &'a CreatureCapabilityRows<CreatureCapabilitySpawnTemplateSource>,
+        external_features: &'a CreatureCapabilityRows<ExternalFeature>,
+    }
+    let policy = Policy {
+        predicate: benilla_sim::creature_capabilities::POLICY,
+        predicate_sources: benilla_sim::creature_capabilities::SOURCE_SHA256,
+        runtime_sources: CREATURE_CAPABILITY_RUNTIME_SOURCE_SHA256,
+    };
+    let w = world();
+    let row = w
+        .profile()
+        .creature_capabilities
+        .as_ref()
+        .unwrap()
+        .source(2)
+        .unwrap();
+    let legacy = LegacySource {
+        spawn_id: row.spawn_id,
+        spawn_entry: row.spawn_entry,
+        requested_spawn_template_entry: row.requested_spawn_template_entry,
+        templates: &row.templates,
+        spawn_templates: &row.spawn_templates,
+        external_features: &row.external_features,
+    };
+    let old_binding = crate::digest(
+        b"benilla-creature-capability-source-v1\0",
+        &(
+            "cmangos-8ec338a1-native-creature-capability-v1",
+            &policy,
+            legacy,
+        ),
+    );
+    let witness = w.state().npcs[&2]
+        .creature_capabilities()
+        .unwrap()
+        .witness();
+    assert_eq!(
+        witness.source_binding(),
+        crate::digest(
+            b"benilla-creature-capability-source-v2\0",
+            &(CREATURE_CAPABILITY_POLICY, policy, row),
+        )
+    );
+    assert_ne!(witness.source_binding(), old_binding);
+    let mut stale = serde_json::to_value(witness).unwrap();
+    stale["source_binding"] = serde_json::to_value(old_binding).unwrap();
+    let stale: CreatureCapabilityWitness = serde_json::from_value(stale).unwrap();
+    assert_eq!(
+        stale.validate_for(w.profile(), witness.npc()),
+        Err(NativeError::AuthorityBinding)
+    );
 }

@@ -63,7 +63,11 @@ where
     deserializer.deserialize_map(Owners)
 }
 impl NpcMotionGenesis {
-    pub(super) fn validate_for(&self, npc: &NpcProfile) -> Result<(), NativeError> {
+    pub(super) fn validate_for(
+        &self,
+        profile: &Profile,
+        npc: &NpcProfile,
+    ) -> Result<(), NativeError> {
         if npc.ai.creature_id <= SOLO_UNIT || self.creature_detection_range > 1000 {
             return Err(NativeError::InvalidProfile);
         }
@@ -71,7 +75,7 @@ impl NpcMotionGenesis {
         self.npc_policy
             .input(npc.max_health, npc.max_health)
             .validate()?;
-        self.npc_policy.home.validate()?;
+        self.npc_policy.home.validate(profile, npc)?;
         if self.npc_stand_state != 0 {
             return Err(NativeError::UnsupportedMechanic(
                 "source hostile-hit stand state",
@@ -104,8 +108,11 @@ impl MotionGenesis {
         {
             return Err(NativeError::InvalidProfile);
         }
+        if let Some(generations) = &profile.creature_generations {
+            generations.validate(profile)?;
+        }
         for npc in &profile.npcs {
-            self.npc(npc.ai.creature_id)?.validate_for(npc)?;
+            self.npc(npc.ai.creature_id)?.validate_for(profile, npc)?;
             if self.aggro_rate != npc.ai.aggro_rate {
                 return Err(NativeError::InvalidProfile);
             }
@@ -468,24 +475,31 @@ impl NpcMotion {
         Ok(result)
     }
 }
-/// Explicit absence proofs for Home callbacks and alternative destination selection.
-/// Immutable captured callbacks/policy, valid only while the admitted state model
-/// cannot introduce those callbacks. Current health/control is checked separately.
+/// HomeMovementGenerator.cpp:88-97 reloads the immutable selected addon. The
+/// generation-owned sheath-only domain makes that reload idempotent; its raw
+/// move_flags remain unused. This reference is not a separately writable addon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum HomeAddonClosure {
+    Absent,
+    GenerationSource { source_identity: crate::Digest },
+}
+/// Explicit source closure for Home callbacks and alternative destination selection.
+/// Other callbacks must remain absent; current health/control is checked separately.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HomeAudit {
     pub reset_position_override: motion::Evidence,
     pub restore_temporary_faction: motion::Evidence,
-    pub addon_effects: motion::Evidence,
+    pub addon_closure: HomeAddonClosure,
     pub scripted_home_events: motion::Evidence,
     pub temporary_summon_callback: motion::Evidence,
 }
 impl HomeAudit {
-    pub(super) fn validate(&self) -> Result<(), NativeError> {
+    pub(super) fn validate(&self, profile: &Profile, npc: &NpcProfile) -> Result<(), NativeError> {
         for proof in [
             self.reset_position_override,
             self.restore_temporary_faction,
-            self.addon_effects,
             self.scripted_home_events,
             self.temporary_summon_callback,
         ] {
@@ -500,6 +514,35 @@ impl HomeAudit {
                     return Err(NativeError::AuthorityUnavailable(
                         "captured source Home lifecycle evidence",
                     ));
+                }
+            }
+        }
+        let source = profile
+            .creature_generations
+            .as_ref()
+            .and_then(|catalog| catalog.source(npc.ai.creature_id));
+        match (self.addon_closure, source) {
+            (HomeAddonClosure::Absent, None) => {}
+            (HomeAddonClosure::Absent, Some(source)) => {
+                if !matches!(&source.input.spawn_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
+                    || !matches!(&source.input.template_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
+                {
+                    return Err(NativeError::UnsupportedMechanic(
+                        "source Home addon closure",
+                    ));
+                }
+            }
+            (HomeAddonClosure::GenerationSource { .. }, None) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "source Home generation source",
+                ));
+            }
+            (HomeAddonClosure::GenerationSource { source_identity }, Some(source)) => {
+                if source.spawn_id != npc.ai.creature_id
+                    || source.spawn_entry != npc.entry
+                    || source.identity() != source_identity
+                {
+                    return Err(NativeError::AuthorityBinding);
                 }
             }
         }

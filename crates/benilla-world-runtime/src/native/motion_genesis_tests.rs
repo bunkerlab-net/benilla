@@ -27,7 +27,7 @@ fn second_owner(npc: &NpcProfile) -> NpcMotionGenesis {
             home: HomeAudit {
                 reset_position_override: m::Evidence::Absent,
                 restore_temporary_faction: m::Evidence::Absent,
-                addon_effects: m::Evidence::Absent,
+                addon_closure: HomeAddonClosure::Absent,
                 scripted_home_events: m::Evidence::Absent,
                 temporary_summon_callback: m::Evidence::Absent,
             },
@@ -318,4 +318,214 @@ fn authored_singleton_fixture_names_a_nondefault_owner_explicitly() {
             .creature,
         3
     );
+}
+
+fn home_audit(p: &mut Profile) -> &mut HomeAudit {
+    &mut p
+        .source_motion
+        .as_mut()
+        .unwrap()
+        .npcs
+        .get_mut(&2)
+        .unwrap()
+        .npc_policy
+        .home
+}
+
+fn home_generation_source(p: &Profile, sheath: Option<u32>) -> CreatureGenerationSource {
+    use benilla_sim::creature_init as init;
+    let npc = &p.npcs[0];
+    let mut input = synthetic_creature_model_fixture::input();
+    input.template.faction = npc.faction_template;
+    input.template.regenerate_stats = npc.health_regeneration.regenerate_stats;
+    input.spawn_addons = init::Rows::Complete(
+        sheath
+            .into_iter()
+            .map(|sheath_state| init::SpawnAddonRow {
+                guid: npc.ai.creature_id,
+                addon: init::Addon {
+                    mount: 0,
+                    stand_state: 0,
+                    sheath_state,
+                    emote: 0,
+                    move_flags: u32::MAX,
+                    auras: vec![],
+                },
+            })
+            .collect(),
+    );
+    CreatureGenerationSource {
+        spawn_id: npc.ai.creature_id,
+        spawn_entry: npc.entry,
+        requested_spawn_template_entry: 0,
+        respawn_delay_min_seconds: 2,
+        respawn_delay_max_seconds: 3,
+        input,
+    }
+}
+
+#[test]
+fn home_addon_absence_rejects_present_spawn_and_template_rows_without_installing() {
+    use benilla_sim::creature_init as init;
+    let mut empty = fixture::profile();
+    empty
+        .initialize_creature_generations(
+            init::Rows::Complete(vec![home_generation_source(&empty, None)]),
+            vec![2],
+        )
+        .unwrap();
+    for template in [false, true] {
+        let mut p = fixture::profile();
+        let mut raw = home_generation_source(&p, Some(2));
+        if template {
+            let init::Rows::Complete(rows) = &raw.input.spawn_addons else {
+                unreachable!()
+            };
+            raw.input.template_addons = init::Rows::Complete(vec![init::TemplateAddonRow {
+                entry: raw.spawn_entry,
+                addon: rows[0].addon.clone(),
+            }]);
+            raw.input.spawn_addons = init::Rows::Complete(vec![]);
+        }
+        let before = p.clone();
+        assert_eq!(
+            p.initialize_creature_generations(init::Rows::Complete(vec![raw.clone()]), vec![2]),
+            Err(NativeError::UnsupportedMechanic(
+                "source Home addon closure"
+            ))
+        );
+        assert_eq!(p, before);
+
+        home_audit(&mut p).addon_closure = HomeAddonClosure::GenerationSource {
+            source_identity: raw.identity(),
+        };
+        p.initialize_creature_generations(init::Rows::Complete(vec![raw]), vec![2])
+            .unwrap();
+        home_audit(&mut p).addon_closure = HomeAddonClosure::Absent;
+        assert_eq!(
+            p.validate(),
+            Err(NativeError::UnsupportedMechanic(
+                "source Home addon closure"
+            ))
+        );
+    }
+}
+
+#[test]
+fn home_source_closure_rejects_missing_stale_and_unrelated_generation_sources() {
+    use benilla_sim::creature_init as init;
+    for sheath in 0..=2 {
+        let mut p = fixture::profile();
+        let raw = home_generation_source(&p, Some(sheath));
+        home_audit(&mut p).addon_closure = HomeAddonClosure::GenerationSource {
+            source_identity: raw.identity(),
+        };
+        assert_eq!(
+            p.validate(),
+            Err(NativeError::AuthorityUnavailable(
+                "source Home generation source"
+            ))
+        );
+        p.initialize_creature_generations(init::Rows::Complete(vec![raw.clone()]), vec![2])
+            .unwrap();
+        let before = p.clone();
+        let mut changed = raw.clone();
+        let init::Rows::Complete(rows) = &mut changed.input.spawn_addons else {
+            unreachable!()
+        };
+        rows[0].addon.move_flags = 0;
+        assert_ne!(changed.identity(), raw.identity());
+        assert_eq!(
+            p.initialize_creature_generations(init::Rows::Complete(vec![changed]), vec![2]),
+            Err(NativeError::AuthorityBinding)
+        );
+        assert_eq!(p, before);
+
+        let mut unrelated = raw;
+        unrelated.spawn_id = 3;
+        unrelated.input.spawn_id = 3;
+        let init::Rows::Complete(rows) = &mut unrelated.input.spawn_addons else {
+            unreachable!()
+        };
+        rows[0].guid = 3;
+        CreatureGenerationCatalog::validate_sources(
+            init::Rows::Complete(vec![unrelated.clone()]),
+            vec![3],
+        )
+        .unwrap();
+        home_audit(&mut p).addon_closure = HomeAddonClosure::GenerationSource {
+            source_identity: unrelated.identity(),
+        };
+        assert_eq!(p.validate(), Err(NativeError::AuthorityBinding));
+    }
+}
+
+#[test]
+fn source_owned_home_addons_do_not_open_any_other_home_callback() {
+    use benilla_sim::creature_init as init;
+    let mut p = fixture::profile();
+    let raw = home_generation_source(&p, Some(2));
+    home_audit(&mut p).addon_closure = HomeAddonClosure::GenerationSource {
+        source_identity: raw.identity(),
+    };
+    p.initialize_creature_generations(init::Rows::Complete(vec![raw]), vec![2])
+        .unwrap();
+    for proof in [m::Evidence::Present, m::Evidence::Unknown] {
+        for field in 0..4 {
+            let mut changed = p.clone();
+            let home = home_audit(&mut changed);
+            match field {
+                0 => home.reset_position_override = proof,
+                1 => home.restore_temporary_faction = proof,
+                2 => home.scripted_home_events = proof,
+                3 => home.temporary_summon_callback = proof,
+                _ => unreachable!(),
+            }
+            let expected = match proof {
+                m::Evidence::Present => {
+                    NativeError::UnsupportedMechanic("source Home callbacks/reset override")
+                }
+                m::Evidence::Unknown => {
+                    NativeError::AuthorityUnavailable("captured source Home lifecycle evidence")
+                }
+                m::Evidence::Absent => unreachable!(),
+            };
+            assert_eq!(changed.validate(), Err(expected), "field {field}");
+        }
+    }
+}
+
+#[test]
+fn home_addon_closure_is_required_and_never_decoded_as_an_absence_default() {
+    let p = fixture::profile();
+    let encoded = serde_json::to_value(&p.source_motion).unwrap();
+    for case in 0..4 {
+        let mut changed = encoded.clone();
+        let home = changed["npcs"]["2"]["npc_policy"]["home"]
+            .as_object_mut()
+            .unwrap();
+        match case {
+            0 => {
+                home.remove("addon_closure");
+            }
+            1 => {
+                home.remove("addon_closure");
+                home.insert("addon_effects".into(), "Absent".into());
+            }
+            2 => {
+                home.insert("addon_closure".into(), "Present".into());
+            }
+            3 => {
+                home.insert(
+                    "addon_closure".into(),
+                    serde_json::json!({"GenerationSource": {}}),
+                );
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            serde_json::from_value::<MotionGenesis>(changed).is_err(),
+            "case {case}"
+        );
+    }
 }

@@ -93,10 +93,13 @@ An explicitly selected source capability catalog binds each spawn to its raw
 effective creature entry, actual `InhabitType`, requested/effective spawn-template
 row and complete source exclusions. Missing rows or exclusions cannot become
 empty/default lookups. The bounded runtime accepts actual habitat `1` and the
-supported RUN spawn flag, with no addon, script, control, entry-substitution or
-other capability mutation. Habitat `3` still has source `CanWalk`, but also permits
-swimming and is rejected by this ground-only execution boundary. Habitat `1` does
-not establish dry terrain at the creature's current position.
+supported RUN spawn flag, with explicit addon absence or an exact reference to
+the selected generation owner's validated sheath-only addon closure. Scripts,
+control, entry substitution and other capability mutation remain excluded.
+Retained addon movement flags are not applied by the pinned loader. Habitat `3`,
+including actual entry 6, still has source `CanWalk` but also permits swimming and
+is rejected by the ground-only capability, ground-height and route owners. Habitat
+`1` does not establish dry terrain at the creature's current position.
 
 The runtime owns only the capability-relevant current movement bits and derives
 `CanWalk`, `CanSwim`, `CanFly` and the allowed-position-Z branch from those bits
@@ -137,7 +140,7 @@ a later independent scalar change invalidates the selected profile.
 Generation-zero NPC state owns both source-bound width and height witnesses. The
 real controller Chase and moving-target replan freeze both in the typed Route
 request; height validation checks the shared model source, profile, generation
-and exact `owner_collision_height`. Native format 41 retains the witness through
+and exact `owner_collision_height`. Native format 42 retains the witness through
 checkpoint, journal replay and reopen. A missing schema field fails to decode;
 explicit null denotes an unavailable dependency. Initial receipts survive corpse
 reopen but are cleared at respawn, and relabeling one cannot authorize a later
@@ -164,7 +167,7 @@ edited scalars, changed source catalogs and a different starter identity fail cl
 
 The actual controller freezes the selected player's world/character identity,
 source binding and exact sampled target pose, flags and dimensions into typed
-NearPoint and Route requests. Native format 41 retains ownership through journal
+NearPoint and Route requests. Native format 42 retains ownership through journal
 replay, checkpoint and reopen. Tests exercise chase and moving-target replan,
 source/identity/pose/height/width echo forgery, atomic controller/store/projection
 failure, exact authority retry, single publication after a store retry, and both
@@ -356,7 +359,7 @@ The warm straight-calculation tests initialize collision width through Plan's
 opaque initial-model receipt and authored MPQ/DBC loading, then consume the exact
 runtime Route witness on the loaded navigation owner thread. Width is the source
 object-scale times raw field14, with no radius, display-scale or render-scale
-substitution. Native format 41 retains that witness in the explicitly synthetic
+substitution. Native format 42 retains that witness in the explicitly synthetic
 initial route's replay and reopen; the real loaded dependencies never enter the
 accepted authority journal.
 
@@ -396,7 +399,7 @@ in command order, including unchanged-position and rotation-only calls. The
 100 ms gate counts down after those commands; stationary expiry never queries
 terrain. The last accepted pose and the earlier cached-query pose remain distinct.
 
-Native format 41 stores the cache and monotone phase sequence in the native
+Native format 42 stores the cache and monotone phase sequence in the native
 checkpoint, without a nested standalone environment journal. The controller saves
 every enabled environment tick before publishing, including countdown-only ticks.
 A failed save retains the committed tick and withholds projection until retry;

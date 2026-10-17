@@ -99,7 +99,7 @@ fn owner_motion(
             home: HomeAudit {
                 reset_position_override: m::Evidence::Absent,
                 restore_temporary_faction: m::Evidence::Absent,
-                addon_effects: m::Evidence::Absent,
+                addon_closure: HomeAddonClosure::Absent,
                 scripted_home_events: m::Evidence::Absent,
                 temporary_summon_callback: m::Evidence::Absent,
             },
@@ -134,6 +134,7 @@ pub fn visitor_input(profile: &Profile, owner_order: Vec<u64>) -> SourceVisitorI
                     spell_list_id: 0,
                     entry_events: SourceVisitorRows::Complete(vec![]),
                     guid_events: SourceVisitorRows::Complete(vec![]),
+                    addon_closure: SourceVisitorAddonClosure::Absent,
                     overrides: SourceVisitorRows::Complete(vec![]),
                 })
                 .collect(),

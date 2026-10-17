@@ -5,6 +5,7 @@ use super::{synthetic_creature_model_fixture as models, synthetic_fixture as f, 
 use benilla_sim::creature_init as init;
 use std::collections::BTreeSet;
 
+mod addon_composition;
 mod addons;
 mod equipment;
 
@@ -196,9 +197,9 @@ fn assert_selection(w: &NativeWorld, spawn: u64) {
 }
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v41\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v42\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v41\0",
+        b"benilla-native-checkpoint-v42\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
