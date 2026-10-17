@@ -14,9 +14,9 @@ fn altered(w: &NativeWorld, change: impl FnOnce(&mut serde_json::Value)) -> Chec
     let mut state = serde_json::to_value(&checkpoint.state).unwrap();
     change(&mut state["npcs"]["2"]["events"]);
     checkpoint.state = serde_json::from_value(state).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v38\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v39\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v38\0",
+        b"benilla-native-checkpoint-v39\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

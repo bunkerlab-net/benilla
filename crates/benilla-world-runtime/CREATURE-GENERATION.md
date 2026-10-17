@@ -1,8 +1,8 @@
 # Source-owned creature generations
 
-This optional native38 component owns ordinary creature initialization per life.
+This optional native39 component owns ordinary creature initialization per life.
 It does not open production admission, import a creature database, authenticate
-captured rows, or resolve equipment/client assets. The raw arithmetic port and its
+captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
 
 ## Retained input and lifetime
@@ -21,7 +21,23 @@ regeneration, AI, damage/hit inputs, movement, rewards and client projection use
 that life. The authored `NpcProfile` remains a static identity/behavior scaffold;
 its copied level or damage is not a selected-source fallback. Historical event
 consumers select the retained life instead of the current respawned creature.
-Equipment remains outside the arithmetic domain. Combined player-slow ownership
+Mainhand-only equipment retains complete `creature_equip_template` and relevant
+`item_template` metadata, including explicit empty query results. Source selection
+uses the template equipment ID or the exact spawn override. Virtual display/info
+fields and `hasWeapon` are recomputed for every life. Static loaded disarm halves
+the armed creature's final floating-point damage before the ordinary integer roll;
+item damage and delay never replace creature damage or attack intervals. The
+creation sheath/misc bytes and selected virtual fields reach client projection.
+Shared item identities agree with retained starter, inventory and combat metadata
+and with every other creature source. Raw ExtraFlags independently bind initial
+AI reaction; unowned controls such as no-melee reject even without the optional
+combat-authority catalog.
+
+Offhand/ranged equipment, forced dual wield, dynamic disarm auras, loot-wielding,
+and later script/event equipment writers remain unsupported. Explicit spawn zero
+can retain zero equipment across respawn only within this immutable-source domain.
+Client display binding checks consistency; actual visual proof needs local assets.
+Combined player-slow ownership
 rejects until cleared aura-slot level residue has its own per-write provenance.
 
 ## Source order and RNG
@@ -48,7 +64,7 @@ not evidence of universal source grid iteration or a real Human entry order.
 
 ## Persistence and transaction boundary
 
-Native format 38, its policy and all native hash domains reject older envelopes.
+Native format 39, its policy and all native hash domains reject older envelopes.
 The RNG mapping itself is unchanged. Checkpoints require explicit source-owner
 option fields; absence cannot deserialize into a source-free fallback. Restore
 replays retained semantic spans against the world seed and retained source, then

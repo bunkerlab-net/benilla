@@ -174,6 +174,15 @@ fn ordinary_sight() -> OnSightState {
 
 #[test]
 fn pinned_cpp_reputation_relations_32768_vectors() {
+    relation_vectors(0);
+}
+
+#[test]
+fn pinned_cpp_static_npc_disarm_preserves_all_32768_relation_vectors() {
+    relation_vectors(unit_flags::DISARMED);
+}
+
+fn relation_vectors(npc_extra_flags: u32) {
     let mut hash = Sha256::new();
     for c in 0..32768u32 {
         let catalog = seed(c);
@@ -194,7 +203,7 @@ fn pinned_cpp_reputation_relations_32768_vectors() {
         }
         let mut input = input(&p, &n, &catalog, &state);
         input.units.player.unit_flags |= blocking(c / 64 % 32);
-        input.units.npc.unit_flags |= blocking(c / 1024 % 32);
+        input.units.npc.unit_flags |= blocking(c / 1024 % 32) | npc_extra_flags;
         input.units.player.alive = !(c / 7).is_multiple_of(2);
         input.units.npc.alive = !(c / 11).is_multiple_of(2);
         input.units.player.mounted = !(c / 13).is_multiple_of(2);
@@ -617,4 +626,99 @@ fn sight_feign_and_evade_checks_are_independent_of_liveness_and_mount() {
             TargetDecision::Denied(TargetDenial::TargetEvadingHome)
         );
     }
+}
+
+#[test]
+fn source_npc_disarm_preserves_both_attack_directions_and_real_blockers() {
+    let catalog = catalog(vec![row(1, -1), row(2, -1)], vec![]);
+    let state = state(&catalog);
+    let (mut player, mut npc) = (template(1), template(2));
+    player.enemies[0] = 2;
+    npc.enemies[0] = 1;
+    let mut input = input(&player, &npc, &catalog, &state);
+    let expected = source_player_npc_reactions(&input).unwrap();
+    input.units.npc.unit_flags = unit_flags::DISARMED;
+    assert_eq!(source_player_npc_reactions(&input), Ok(expected));
+    for source in [Side::Player, Side::Npc] {
+        assert_eq!(check_can_attack(&input, source), TargetDecision::Allowed);
+        assert_eq!(
+            check_can_attack_now(&input, source),
+            TargetDecision::Allowed
+        );
+        assert_eq!(
+            check_can_attack_on_sight(&input, source, ordinary_sight()),
+            TargetDecision::Allowed
+        );
+        assert_eq!(
+            check_can_attack_in_combat(&input, source),
+            TargetDecision::Allowed
+        );
+    }
+    assert!(can_initiate_attack(CreatureInitiateAttackInput {
+        unit_state: 0,
+        unit_flags: unit_flags::DISARMED,
+        force_attacking_capability: false,
+        can_aggro: true,
+    }));
+    for blocker in [
+        unit_flags::SPAWNING,
+        unit_flags::NOT_ATTACKABLE_1,
+        unit_flags::UNTARGETABLE,
+        unit_flags::TAXI_FLIGHT,
+        unit_flags::UNINTERACTIBLE,
+    ] {
+        let mut blocked = input;
+        blocked.units.npc.unit_flags |= blocker;
+        assert_eq!(
+            check_can_attack(&blocked, Side::Player),
+            TargetDecision::Denied(TargetDenial::TargetFlags { flags: blocker })
+        );
+        blocked.units.npc.unit_flags = unit_flags::DISARMED;
+        blocked.units.player.unit_flags |= blocker;
+        assert_eq!(
+            check_can_attack(&blocked, Side::Npc),
+            TargetDecision::Denied(TargetDenial::TargetFlags { flags: blocker })
+        );
+    }
+}
+
+#[test]
+fn source_npc_disarm_does_not_admit_player_legacy_or_other_unknown_flags() {
+    let catalog = catalog(vec![row(1, -1), row(2, -1)], vec![]);
+    let state = state(&catalog);
+    let (player, npc) = (template(1), template(2));
+    let mut input = input(&player, &npc, &catalog, &state);
+    input.units.npc.unit_flags = unit_flags::DISARMED;
+    assert_eq!(
+        player_npc_reactions(&input.units),
+        Err(TargetUnsupported::UnitFlags {
+            side: Side::Npc,
+            flags: unit_flags::DISARMED,
+        })
+    );
+    input.units.player.unit_flags |= unit_flags::DISARMED;
+    assert_eq!(
+        source_player_npc_reactions(&input),
+        Err(TargetUnsupported::UnitFlags {
+            side: Side::Player,
+            flags: unit_flags::DISARMED,
+        })
+    );
+    input.units.player.unit_flags = unit_flags::PLAYER_CONTROLLED;
+    for unsupported in [0x0004_0000, 0x0040_0000, 0x0080_0000, 0x1000_0000] {
+        input.units.npc.unit_flags = unit_flags::DISARMED | unit_flags::UNTARGETABLE | unsupported;
+        assert_eq!(
+            check_can_attack(&input, Side::Player),
+            TargetDecision::Unsupported(TargetUnsupported::UnitFlags {
+                side: Side::Npc,
+                flags: unsupported
+            })
+        );
+    }
+    input.units.npc.unit_flags = unit_flags::DISARMED;
+    input.units.context.special_state = ContextState::Unknown;
+    assert_eq!(
+        source_player_npc_reactions(&input),
+        Err(TargetUnsupported::SpecialState)
+    );
 }

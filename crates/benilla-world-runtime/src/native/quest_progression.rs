@@ -434,6 +434,10 @@ impl QuestProgressionGenesis {
             .collect();
         Ok((abilities, combat))
     }
+    pub(in crate::native) fn retained_starter_items(&self) -> &[init::ItemRow] {
+        &self.training.input().items
+    }
+
     pub(in crate::native) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         let mut combat = profile.combat.clone().ok_or(NativeError::InvalidProfile)?;
         combat.death = None;

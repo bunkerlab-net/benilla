@@ -5,8 +5,11 @@ use super::{synthetic_creature_model_fixture as models, synthetic_fixture as f, 
 use benilla_sim::creature_init as init;
 use std::collections::BTreeSet;
 
+mod equipment;
+
 fn source(spawn: u64, minimum: u8, maximum: u8) -> CreatureGenerationSource {
     let mut input = models::input();
+    input.template.extra_flags = 2;
     input.template.minimum_level = minimum;
     input.template.maximum_level = maximum;
     input.template.corpse_delay_seconds = 5;
@@ -191,9 +194,9 @@ fn assert_selection(w: &NativeWorld, spawn: u64) {
 }
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v38\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v39\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v38\0",
+        b"benilla-native-checkpoint-v39\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -459,6 +462,10 @@ fn rehashed_owner_roll_source_counter_generation_and_death_mutations_reject() {
     let base = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
     let mutations = [
         (
+            "/state/npcs/2/source_generation/policy",
+            serde_json::json!("cmangos-8ec338a1-native-creature-generation-v1"),
+        ),
+        (
             "/state/npcs/2/source_generation/source/0",
             serde_json::json!(255),
         ),
@@ -581,7 +588,7 @@ fn late_second_npc_failure_rolls_back_real_respawn_selection_history_rng_and_jou
     let mut p = f::initialized_profile();
     let mut second = p.npcs[0].clone();
     second.ai.creature_id = 7;
-    second.ai.reaction = ai::Reaction::Passive;
+    second.ai.reaction = ai::Reaction::Defensive;
     p.npcs.push(second);
     let mut w = world(
         install(p, vec![source(2, 1, 3), source(7, 1, 3)], vec![2, 7]),
@@ -621,20 +628,24 @@ fn late_second_npc_failure_rolls_back_real_respawn_selection_history_rng_and_jou
 }
 
 #[test]
-fn v37_checkpoints_and_records_cannot_synthesize_generation_owners() {
+fn old_checkpoints_and_records_cannot_synthesize_generation_owners() {
     let mut w = world(profile(source(2, 1, 3)), 7);
     let cp = w.checkpoint().unwrap();
-    let mut old = serde_json::to_value(&cp).unwrap();
-    old["version"] = 37.into();
-    old["state"]["version"] = 37.into();
-    rejects(&w, old);
+    for version in [37, 38] {
+        let mut old = serde_json::to_value(&cp).unwrap();
+        old["version"] = version.into();
+        old["state"]["version"] = version.into();
+        rejects(&w, old);
+    }
     step(&mut w, &mut f::KernelAuthority::default());
-    let mut records = w.records().to_vec();
-    records[0].version = 37;
-    let mut resumed =
-        NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp.clone()).unwrap();
-    assert!(resumed.replay(&records).is_err());
-    assert_eq!(resumed.checkpoint().unwrap(), cp);
+    for version in [37, 38] {
+        let mut records = w.records().to_vec();
+        records[0].version = version;
+        let mut resumed =
+            NativeWorld::restore_synthetic_component_test(w.profile.clone(), cp.clone()).unwrap();
+        assert!(resumed.replay(&records).is_err());
+        assert_eq!(resumed.checkpoint().unwrap(), cp);
+    }
 }
 
 #[test]
@@ -736,10 +747,12 @@ fn source_motion_lethal_callback_and_respawn_keep_owned_selection_and_replay() {
     respawn(&mut w, &mut authority);
     assert_eq!(w.state.npcs[&2].id.generation, 1);
     assert_selection(&w, 2);
-    assert!(w.records().iter().any(|record| record
-        .replies
-        .iter()
-        .any(|reply| matches!(reply.request.query, Query::SourceMotion(_)))));
+    assert!(w.records().iter().any(|record| {
+        record
+            .replies
+            .iter()
+            .any(|reply| matches!(reply.request.query, Query::SourceMotion(_)))
+    }));
     let mut replay =
         NativeWorld::restore_synthetic_component_test(w.profile.clone(), start).unwrap();
     replay.replay(w.records()).unwrap();
@@ -751,7 +764,11 @@ fn loot_setup() -> (
     benilla_sim::starter_init::StarterInput,
     QuestProgressionInput,
 ) {
-    let (p, input, quests) = synthetic_loot_fixture::setup();
+    let (mut p, input, quests) = synthetic_loot_fixture::setup();
+    // This immutable source has no script reaction writer.
+    p.npcs
+        .iter_mut()
+        .for_each(|npc| npc.ai.reaction = ai::Reaction::Defensive);
     let first = source(2, 1, 3);
     let mut giver = source(3, 1, 3);
     giver.spawn_entry = 60003;
@@ -872,8 +889,10 @@ fn removed_owner_native_melee_uses_selected_level_and_final_damage_range() {
         unreachable!()
     };
     rows[0].current_health = 0;
-    let mut p = profile(raw);
+    raw.input.template.extra_flags = 0;
+    let mut p = f::initialized_profile();
     p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
+    let p = install(p, vec![raw], vec![2]);
     let mut w = (0..64)
         .map(|seed| world(p.clone(), seed))
         .find(|w| owner(w, 2).result().level == 3)
@@ -992,6 +1011,11 @@ fn complete_scene_sources(p: &Profile) -> Vec<CreatureGenerationSource> {
         .iter()
         .map(|npc| {
             let mut raw = source(npc.ai.creature_id, 1, 1);
+            raw.input.template.extra_flags = match npc.ai.reaction {
+                ai::Reaction::Defensive => 2,
+                ai::Reaction::Aggressive => 0,
+                ai::Reaction::Passive => panic!("source fixture has no passive reaction writer"),
+            };
             raw.spawn_entry = npc.entry;
             raw.input.template.entry = npc.entry;
             raw.input.template.faction = npc.faction_template;
@@ -1450,5 +1474,27 @@ fn actual_loot_timer_chain_binds_duplicate_ai_metadata_and_prior_removal_boundar
         forged["state"]["npcs"]["2"]["source_generation"]["generations"][0]["corpse_removal_ai"]
             [field] = changed.into();
         rejects(&w, forged);
+    }
+}
+
+#[test]
+fn generation_extra_flags_bind_reaction_and_reject_unowned_melee_controls() {
+    let p = profile(source(2, 1, 1));
+    assert!(p.interactions.is_none());
+    let mut wrong_reaction = p.clone();
+    wrong_reaction.npcs[0].ai.reaction = ai::Reaction::Aggressive;
+    assert_eq!(wrong_reaction.validate(), Err(NativeError::InvalidProfile));
+    for flag in [0x0002_0000, 0x0008_0000, 0x8000_0000] {
+        let mut raw = source(2, 1, 1);
+        raw.input.template.extra_flags |= flag;
+        let before = p.clone();
+        let mut changed = p.clone();
+        assert_eq!(
+            changed.initialize_creature_generations(init::Rows::Complete(vec![raw]), vec![2]),
+            Err(NativeError::UnsupportedMechanic(
+                "unowned creature generation extra flags"
+            ))
+        );
+        assert_eq!(changed, before);
     }
 }

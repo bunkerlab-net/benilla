@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 HASHES = {
+    "Unit.h": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
     "Creature.cpp": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
     "StatSystem.cpp": "91aa0eb47c31aea9d97b64a97c1bdc350b4ea7e7fd30f1ce885a40b69112f1bb",
     "Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
@@ -32,6 +33,10 @@ def main():
         sources[name] = raw.decode()
     methods = "".join(body(sources[file], signature) for file, signature in [
         ("Creature.cpp", "void Creature::SelectLevel("),
+        ("Creature.cpp", "void Creature::SetVirtualItem("),
+        ("Creature.cpp", "bool Creature::hasWeapon("),
+        ("Creature.cpp", "void Creature::LoadEquipment("),
+        ("StatSystem.cpp", "float Creature::GetConditionalTotalPhysicalDamageModifier("),
         ("Creature.cpp", "void Creature::RegenerateAll("),
         ("Creature.cpp", "void Creature::RegenerateHealth("),
         ("Creature.cpp", "void Creature::RegeneratePower("),
@@ -76,6 +81,14 @@ def main():
     start = creature.index("    m_respawnDelay = data->GetRandomRespawnTime();")
     end = creature.index("    m_deathState = ALIVE;", start)
     harness = harness.replace("// PINNED_TIMING\n", creature[start:end])
+    harness = harness.replace("// PINNED_WEAPON_USABILITY\n", body(sources["Unit.h"], "bool CanUseEquippedWeapon("))
+    start = creature.index("    // Load creature equipment\n")
+    end = creature.index("    SetName(normalInfo->Name);", start)
+    harness = harness.replace("// PINNED_EQUIPMENT_SELECTION\n", creature[start:end])
+    header = sources["Creature.h"]
+    start = header.index("enum VirtualItemSlot")
+    end = header.index("struct CreatureCreatePos", start)
+    harness = harness.replace("// PINNED_VIRTUAL_ITEM_TYPES\n", header[start:end])
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
         (root / "oracle.cpp").write_text(harness)

@@ -43,6 +43,7 @@ fn input() -> Input {
             creature_type: 1,
             type_flags: 0,
             static_flags: [0; 4],
+            extra_flags: 0,
             regenerate_stats: 10,
             health_multiplier: SpellFloat::ONE,
             power_multiplier: SpellFloat::ONE,
@@ -120,6 +121,8 @@ fn input() -> Input {
             relay_id: 0,
             string_id: 0,
         }]),
+        equipment_templates: Rows::Complete(vec![]),
+        item_templates: Rows::Complete(vec![]),
         external_features: Rows::Complete(vec![]),
         rates: Rates {
             normal_health: SpellFloat::ONE,
@@ -190,6 +193,7 @@ fn serialization_retains_every_raw_field_and_original_rows() {
             "creature_type": 1,
             "type_flags": 0,
             "static_flags": [0, 0, 0, 0],
+            "extra_flags": 0,
             "regenerate_stats": 10,
             "health_multiplier": one,
             "power_multiplier": one,
@@ -234,6 +238,8 @@ fn serialization_retains_every_raw_field_and_original_rows() {
             "relay_id": 0,
             "string_id": 0,
         }]},
+        "equipment_templates": {"Complete": []},
+        "item_templates": {"Complete": []},
         "external_features": {"Complete": []},
         "rates": {"normal_health": one, "normal_damage": one, "normal_corpse_decay_seconds": 83},
     });
@@ -342,6 +348,8 @@ fn missing_and_captured_empty_are_distinct_for_every_source_collection() {
     check!(models);
     check!(displays);
     check!(spawn_template);
+    check!(equipment_templates);
+    check!(item_templates);
     check!(external_features);
     let mut empty_features = input();
     empty_features.external_features = Rows::Complete(vec![]);
@@ -472,6 +480,8 @@ fn initialized_serialization_covers_all_output_fields_and_nested_values() {
         },
         "faction": resolved.faction,
         "unit_flags": resolved.unit_flags,
+        "unit_bytes_2": resolved.unit_bytes_2,
+        "equipment": resolved.equipment,
         "npc_flags": resolved.npc_flags,
         "starts_running": resolved.starts_running,
         "no_crushing_blows": resolved.no_crushing_blows,
@@ -483,4 +493,69 @@ fn initialized_serialization_covers_all_output_fields_and_nested_values() {
         "power_regenerates_in_combat": resolved.power_regenerates_in_combat,
     });
     assert_eq!(serde_json::to_value(resolved).unwrap(), expected);
+}
+
+#[test]
+fn raw_equipment_metadata_fields_and_order_remain_source_bound() {
+    let mut source = input();
+    let item = ItemTemplateRow {
+        entry: 901,
+        display_id: 0,
+        class: 2,
+        subclass: 20,
+        material: -1,
+        inventory_type: 13,
+        sheath: 7,
+        delay_ms: u32::MAX,
+        damage: [ItemDamage {
+            minimum: SpellFloat::from_bits(0x8000_0000).unwrap(),
+            maximum: SpellFloat::ONE,
+            school: 6,
+        }; 5],
+    };
+    source.item_templates = Rows::Complete(vec![item, ItemTemplateRow { entry: 902, ..item }]);
+    source.equipment_templates = Rows::Complete(vec![
+        EquipmentTemplateRow {
+            entry: 7,
+            item_entries: [901, 0, 0],
+        },
+        EquipmentTemplateRow {
+            entry: 8,
+            item_entries: [0, 902, 901],
+        },
+    ]);
+    let raw = serde_json::to_value(&source).unwrap();
+    assert_eq!(
+        raw["item_templates"]["Complete"][0],
+        json!({
+            "entry": 901, "display_id": 0, "class": 2, "subclass": 20,
+            "material": -1, "inventory_type": 13, "sheath": 7, "delay_ms": u32::MAX,
+            "damage": (0..5).map(|_| json!({"minimum": 0x8000_0000u32, "maximum": SpellFloat::ONE.bits(), "school": 6})).collect::<Vec<_>>(),
+        })
+    );
+    assert_eq!(
+        raw["equipment_templates"]["Complete"],
+        json!([
+            {"entry": 7, "item_entries": [901, 0, 0]},
+            {"entry": 8, "item_entries": [0, 902, 901]},
+        ])
+    );
+    let expected = prepare(&source).unwrap().resolve(rolls()).unwrap();
+    let original = content(&source);
+    rows_mut(&mut source.item_templates).reverse();
+    rows_mut(&mut source.equipment_templates).reverse();
+    assert_ne!(content(&source), original);
+    assert_eq!(
+        prepare(&source).unwrap().resolve(rolls()).unwrap(),
+        expected
+    );
+    source.template.extra_flags = 2;
+    assert_eq!(
+        prepare(&source).unwrap().resolve(rolls()).unwrap(),
+        expected
+    );
+    assert_eq!(
+        serde_json::to_value(&source).unwrap()["template"]["extra_flags"],
+        2
+    );
 }

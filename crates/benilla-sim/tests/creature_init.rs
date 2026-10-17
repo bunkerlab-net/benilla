@@ -39,6 +39,7 @@ fn input() -> Input {
             creature_type: 1,
             type_flags: 0,
             static_flags: [0; 4],
+            extra_flags: 0,
             regenerate_stats: 10,
             health_multiplier: f(1.),
             power_multiplier: f(1.),
@@ -117,6 +118,8 @@ fn input() -> Input {
             relay_id: 0,
             string_id: 0,
         }]),
+        equipment_templates: Rows::Complete(vec![]),
+        item_templates: Rows::Complete(vec![]),
         external_features: Rows::Complete(vec![]),
         rates: Rates {
             normal_health: f(1.),
@@ -590,7 +593,7 @@ fn regeneration_preserves_native_five_second_single_tick_accumulator() {
 }
 #[test]
 fn pinned_cpp_differential() {
-    let mut counts = [0; 5];
+    let mut counts = [0; 6];
     for (line_number, line) in include_str!("fixtures/creature_init_cmangos.tsv")
         .lines()
         .enumerate()
@@ -600,6 +603,72 @@ fn pinned_cpp_differential() {
         let n: Vec<u32> = words.map(|w| w.parse().unwrap()).collect();
         let mut i = input();
         match kind {
+            "e" => {
+                assert_eq!(n.len(), 26);
+                counts[5] += 1;
+                i.template.equipment_template_id = 17;
+                i.template.unit_flags = n[5];
+                spawn(&mut i).equipment_id = n[6] as i32;
+                i.equipment_templates = Rows::Complete(vec![
+                    EquipmentTemplateRow {
+                        entry: 17,
+                        item_entries: [501, 0, 0],
+                    },
+                    EquipmentTemplateRow {
+                        entry: 18,
+                        item_entries: [0; 3],
+                    },
+                ]);
+                i.item_templates = Rows::Complete(vec![ItemTemplateRow {
+                    entry: 501,
+                    display_id: n[2],
+                    class: n[0],
+                    subclass: n[1],
+                    material: n[3] as i32,
+                    inventory_type: 13,
+                    sheath: n[4],
+                    delay_ms: n[7],
+                    damage: [ItemDamage {
+                        minimum: bits(n[8]),
+                        maximum: bits(n[9]),
+                        school: 6,
+                    }; 5],
+                }]);
+                let out = initialize(&i);
+                let mut fields = [0; 9];
+                if let Some(item) = out.equipment.mainhand {
+                    fields[0] = item.display_id;
+                    fields[3..5].copy_from_slice(&item.info);
+                }
+                let has_weapon = out.equipment.mainhand.is_some_and(|item| item.has_weapon);
+                assert_eq!(out.equipment.equipment_template_id, n[10]);
+                assert_eq!(
+                    fields,
+                    n[11..20],
+                    "source equipment fields line {}",
+                    line_number + 1
+                );
+                assert_eq!(u32::from(has_weapon), n[20]);
+                assert_eq!(
+                    if has_weapon && out.unit_flags & 0x0020_0000 != 0 {
+                        f(0.5)
+                    } else {
+                        f(1.)
+                    },
+                    bits(n[21])
+                );
+                assert_eq!(
+                    [
+                        out.stats.damage.attack_power,
+                        out.stats.damage.minimum.bits(),
+                        out.stats.damage.maximum.bits(),
+                        out.mainhand_interval_ms,
+                    ],
+                    n[22..26],
+                    "source equipped damage line {}",
+                    line_number + 1
+                );
+            }
             "s" => {
                 assert_eq!(n.len(), 49);
                 counts[0] += 1;
@@ -742,7 +811,7 @@ fn pinned_cpp_differential() {
             _ => panic!("unknown fixture row"),
         }
     }
-    assert_eq!(counts, [1057, 12, 1225, 1536, 256]);
+    assert_eq!(counts, [1057, 12, 1225, 1536, 256, 192]);
 }
 
 #[test]
@@ -1176,3 +1245,6 @@ fn initial_height_matches_unchanged_source_fixture_and_refuses_numeric_outside_d
     assert!(underflow_zero > 0);
     assert_eq!(exact_zero_default, 26);
 }
+
+#[path = "creature_init/equipment.rs"]
+mod equipment;

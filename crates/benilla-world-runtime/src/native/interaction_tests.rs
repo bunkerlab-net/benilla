@@ -861,7 +861,12 @@ fn repeated_status_queries_have_bounded_receipts_at_maximum_npc_count() {
             assert!(w.preview_quest_status(w.state.npcs[&3].id, &mut a).unwrap());
         }
         let elapsed = started.elapsed();
-        eprintln!("source_interaction_workload npcs={npc_count} checkpoint_bytes={checkpoint_bytes} queries={} full_hashes={} elapsed_ms={}", MAX_INPUTS_PER_TICK, MAX_INPUTS_PER_TICK * 2, elapsed.as_millis());
+        eprintln!(
+            "source_interaction_workload npcs={npc_count} checkpoint_bytes={checkpoint_bytes} queries={} full_hashes={} elapsed_ms={}",
+            MAX_INPUTS_PER_TICK,
+            MAX_INPUTS_PER_TICK * 2,
+            elapsed.as_millis()
+        );
         assert_eq!(a.derived.len(), MAX_INPUTS_PER_TICK);
         assert!(a.derived.windows(2).all(|pair| pair[0] == pair[1]));
         assert!(a
@@ -912,4 +917,106 @@ fn witness_guard_preserves_full_digest_and_rejects_oversize_before_authority() {
     assert!(a.order.is_empty());
     assert_eq!(w.state_digest(), before);
     assert!(w.records().is_empty());
+}
+
+#[test]
+fn static_disarm_interactions_require_exact_effective_creature_source_flags() {
+    use benilla_sim::creature_init as init;
+    for (override_flags, override_faction, override_npc_flags) in [
+        (-1, 0, -1),
+        (0, 0, -1),
+        (0x0020_0000, 0, -1),
+        (-1, 1, -1),
+        (-1, 0, 0),
+    ] {
+        let mut profile = synthetic_fixture::initialized_profile();
+        let mut input = synthetic_creature_model_fixture::input();
+        input.template.extra_flags = 2;
+        input.template.faction = profile.npcs[0].faction_template;
+        input.template.regenerate_stats = profile.npcs[0].health_regeneration.regenerate_stats;
+        input.template.unit_flags = 0x0020_0000;
+        let init::Rows::Complete(spawns) = &mut input.spawn_template else {
+            unreachable!()
+        };
+        spawns[0].unit_flags = override_flags;
+        spawns[0].faction = override_faction;
+        spawns[0].npc_flags = override_npc_flags;
+        let evidence = if override_flags != -1 || override_faction != 0 || override_npc_flags != -1
+        {
+            InteractionEvidence::Present
+        } else {
+            InteractionEvidence::Absent
+        };
+        let expected = if override_flags == -1 {
+            input.template.unit_flags
+        } else {
+            override_flags as u32
+        };
+        profile.npcs[0].health_regeneration.unit_flags = expected;
+        profile
+            .initialize_creature_generations(
+                init::Rows::Complete(vec![CreatureGenerationSource {
+                    spawn_id: 2,
+                    spawn_entry: input.template.entry,
+                    requested_spawn_template_entry: 0,
+                    respawn_delay_min_seconds: 2,
+                    respawn_delay_max_seconds: 2,
+                    input,
+                }]),
+                vec![2],
+            )
+            .unwrap();
+        let mut rows = source_input(&profile);
+        rows.npcs[0].unit_flags = expected;
+        rows.npcs[0].spawn_flag_or_faction_overrides = evidence;
+        profile.initialize_interactions(rows.clone()).unwrap();
+        let before = profile.digest();
+        for bad in [
+            InteractionEvidence::Unknown,
+            if evidence == InteractionEvidence::Present {
+                InteractionEvidence::Absent
+            } else {
+                InteractionEvidence::Present
+            },
+        ] {
+            let mut invalid = rows.clone();
+            invalid.npcs[0].spawn_flag_or_faction_overrides = bad;
+            assert!(profile.initialize_interactions(invalid).is_err());
+            assert_eq!(profile.digest(), before);
+        }
+        rows.npcs[0].unit_flags ^= 0x0020_0000;
+        assert!(profile.initialize_interactions(rows).is_err());
+        assert_eq!(profile.digest(), before);
+    }
+}
+#[test]
+fn interaction_only_disarm_and_player_disarm_remain_closed_and_transactional() {
+    let mut profile = synthetic_fixture::initialized_profile();
+    profile.npcs[0].health_regeneration.unit_flags = 0x0020_0000;
+    let mut rows = source_input(&profile);
+    rows.npcs[0].unit_flags = 0x0020_0000;
+    let before = profile.digest();
+    assert!(profile.initialize_interactions(rows).is_err());
+    assert_eq!(profile.digest(), before);
+    profile.npcs[0].health_regeneration.unit_flags = 0;
+    let mut rows = source_input(&profile);
+    rows.player.unit_flags |= 0x0020_0000;
+    let before = profile.digest();
+    assert!(profile.initialize_interactions(rows).is_err());
+    assert_eq!(profile.digest(), before);
+}
+#[test]
+fn present_spawn_override_evidence_without_generation_rows_stays_closed() {
+    let mut profile = synthetic_fixture::initialized_profile();
+    let before = profile.digest();
+    for evidence in [InteractionEvidence::Present, InteractionEvidence::Unknown] {
+        let mut rows = source_input(&profile);
+        rows.npcs[0].spawn_flag_or_faction_overrides = evidence;
+        assert!(
+            matches!(profile.initialize_interactions(rows), Err(NativeError::InteractionEvidence {
+            dependency: "NPC interaction spawn overrides", observed,
+        }) if observed == evidence)
+        );
+        assert_eq!(profile.digest(), before);
+    }
 }

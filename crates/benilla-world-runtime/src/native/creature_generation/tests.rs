@@ -170,3 +170,89 @@ fn every_level_must_prepare_before_catalog_can_supply_randomness() {
     )
     .is_err());
 }
+
+#[test]
+fn native39_rehashed_profiles_reject_previous_generation_and_initializer_policies() {
+    assert_eq!(NATIVE_FORMAT_VERSION, 39);
+    assert_eq!(
+        CREATURE_GENERATION_POLICY,
+        "cmangos-8ec338a1-native-creature-generation-v2"
+    );
+    assert_eq!(
+        init::CREATURE_INIT_POLICY_ID,
+        "cmangos-8ec338a1-ordinary-creature-init-softfloat-v2"
+    );
+    let catalog =
+        CreatureGenerationCatalog::validate_sources(init::Rows::Complete(vec![source()]), vec![2])
+            .unwrap();
+    let mut profile = synthetic_fixture::profile();
+    profile.npcs[0].faction_template = 17;
+    profile.npcs[0].ai.reaction = ai::Reaction::Aggressive;
+    let (owner, _) = catalog
+        .initial(
+            [8; 16],
+            profile.digest(),
+            crate::NpcId {
+                spawn: 2,
+                generation: 0,
+            },
+            7,
+            &mut 0,
+        )
+        .unwrap();
+    profile.npcs[0] = owner.project_profile(&profile.npcs[0]).unwrap();
+    profile.creature_generations = Some(catalog);
+    profile.validate().unwrap();
+    let world = NativeWorld::synthetic_component_test(
+        profile.clone(),
+        [8; 16],
+        synthetic_fixture::player(),
+        7,
+    )
+    .unwrap();
+    let original = world.checkpoint().unwrap();
+    NativeWorld::restore_synthetic_component_test(profile.clone(), original.clone()).unwrap();
+    for (generation_policy, initialization_policy) in [
+        (
+            "cmangos-8ec338a1-native-creature-generation-v1",
+            init::CREATURE_INIT_POLICY_ID,
+        ),
+        (
+            CREATURE_GENERATION_POLICY,
+            "cmangos-8ec338a1-ordinary-creature-init-softfloat-v1",
+        ),
+        (
+            "cmangos-8ec338a1-native-creature-generation-v1",
+            "cmangos-8ec338a1-ordinary-creature-init-softfloat-v1",
+        ),
+    ] {
+        let mut old_profile = profile.clone();
+        let old_catalog = old_profile.creature_generations.as_mut().unwrap();
+        old_catalog.policy = generation_policy;
+        old_catalog.initialization_policy = initialization_policy;
+        let digest = old_profile.digest();
+        assert_ne!(digest, profile.digest());
+        assert_eq!(old_profile.validate(), Err(NativeError::InvalidProfile));
+        // Current outer integrity cannot promote a stale nested source policy.
+        let mut value = serde_json::to_value(&original).unwrap();
+        for pointer in [
+            "/state/profile",
+            "/state/initial_cast_genesis/profile",
+            "/state/npcs/2/source_generation/profile",
+        ] {
+            *value.pointer_mut(pointer).unwrap() = serde_json::to_value(digest).unwrap();
+        }
+        let mut forged: Checkpoint = serde_json::from_value(value).unwrap();
+        forged.digest = crate::digest(b"benilla-native-state-v39\0", &forged.state);
+        forged.checksum = crate::digest(
+            b"benilla-native-checkpoint-v39\0",
+            &(&forged.state, forged.digest, forged.history_tip),
+        );
+        let decoded = Checkpoint::decode(&forged.encode().unwrap()).unwrap();
+        assert!(matches!(
+            NativeWorld::restore_synthetic_component_test(old_profile, decoded),
+            Err(NativeError::InvalidProfile)
+        ));
+        assert_eq!(world.checkpoint().unwrap(), original);
+    }
+}

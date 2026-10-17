@@ -9,7 +9,7 @@ use benilla_sim::{creature_init as init, creature_regeneration as regeneration};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v1";
+pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v2";
 pub const MAX_CREATURE_GENERATIONS: usize = 256;
 const MAX_CORPSE_TIMER_CALLS: usize = 256;
 const MAX_SOURCES: usize = 4096;
@@ -32,7 +32,7 @@ pub struct CreatureGenerationSource {
 impl CreatureGenerationSource {
     pub fn identity(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-native-creature-generation-source-v1\0",
+            b"benilla-native-creature-generation-source-v2\0",
             &(
                 CREATURE_GENERATION_POLICY,
                 init::CREATURE_INIT_POLICY_ID,
@@ -142,12 +142,15 @@ impl CreatureGenerationCatalog {
         }
         let mut row_count = 0_usize;
         for source in sources {
+            source.input.validate_retention_bounds()?;
             for count in [
                 rows(&source.input.class_levels)?.len(),
                 rows(&source.input.models)?.len(),
                 rows(&source.input.displays)?.len(),
                 rows(&source.input.spawn_template)?.len(),
                 rows(&source.input.external_features)?.len(),
+                rows(&source.input.equipment_templates)?.len(),
+                rows(&source.input.item_templates)?.len(),
             ] {
                 row_count = row_count.checked_add(count).ok_or(NativeError::TooLarge)?;
             }
@@ -155,19 +158,15 @@ impl CreatureGenerationCatalog {
                 return Err(NativeError::TooLarge);
             }
         }
-        if serde_json::to_vec(&sources)
-            .map_err(|_| NativeError::InvalidProfile)?
-            .len()
-            > MAX_SOURCE_BYTES
-        {
-            return Err(NativeError::TooLarge);
-        }
+        bounded_encoded_size(&sources, MAX_SOURCE_BYTES)?;
         let mut spawns = BTreeMap::new();
         let mut templates = BTreeMap::new();
         let mut levels = BTreeMap::new();
         let mut models = BTreeMap::new();
         let mut displays = BTreeMap::new();
         let mut spawn_templates = BTreeMap::new();
+        let mut equipment_templates = BTreeMap::new();
+        let mut item_templates = BTreeMap::new();
         let expected_rates = sources.first().map(|source| source.input.rates);
         for source in sources {
             source.validate()?;
@@ -187,6 +186,12 @@ impl CreatureGenerationCatalog {
             }
             for row in rows(&input.spawn_template)? {
                 consistent(&mut spawn_templates, row.entry, row)?;
+            }
+            for row in rows(&input.equipment_templates)? {
+                consistent(&mut equipment_templates, row.entry, row)?;
+            }
+            for row in rows(&input.item_templates)? {
+                consistent(&mut item_templates, row.entry, row)?;
             }
             if spawns.insert(source.spawn_id, source.clone()).is_some() {
                 return Err(NativeError::InvalidProfile);
@@ -230,7 +235,25 @@ impl CreatureGenerationCatalog {
             let [spawn] = rows(&source.input.spawn_template)? else {
                 return Err(NativeError::InvalidProfile);
             };
+            creature_equipment::validate_item_overlaps(profile, &source.input)?;
             let template = &source.input.template;
+            // CreatureAI.cpp:39-40 derives the initial reaction from ExtraFlags.
+            // Other controls require their own owner, even without combat callbacks.
+            let has_combat_authority = profile
+                .interactions
+                .as_ref()
+                .is_some_and(|catalog| catalog.has_combat_authority());
+            let owned_extra_flags = 0x2 | if has_combat_authority { 0x0008_0000 } else { 0 };
+            if template.extra_flags & !owned_extra_flags != 0 {
+                return Err(NativeError::UnsupportedMechanic(
+                    "unowned creature generation extra flags",
+                ));
+            }
+            let reaction = if template.extra_flags & 0x2 != 0 {
+                ai::Reaction::Defensive
+            } else {
+                ai::Reaction::Aggressive
+            };
             let faction = if spawn.faction == 0 {
                 template.faction
             } else {
@@ -242,6 +265,7 @@ impl CreatureGenerationCatalog {
                 spawn.unit_flags as u32
             };
             if source.spawn_entry != npc.entry
+                || npc.ai.reaction != reaction
                 || faction != npc.faction_template
                 || npc.health_regeneration.regenerate_stats != template.regenerate_stats
                 || npc.health_regeneration.creature_type_flags != template.type_flags
@@ -394,6 +418,8 @@ impl CreatureGenerationCheckpoint {
             .and_then(|n| n.checked_add(displays))
             .and_then(|n| n.checked_add(rows(&input.spawn_template).ok()?.len() as u64))
             .and_then(|n| n.checked_add(rows(&input.external_features).ok()?.len() as u64))
+            .and_then(|n| n.checked_add(rows(&input.equipment_templates).ok()?.len() as u64))
+            .and_then(|n| n.checked_add(rows(&input.item_templates).ok()?.len() as u64))
             .ok_or(NativeError::TooLarge)?;
         let levels = u64::from(input.template.maximum_level)
             .checked_sub(u64::from(input.template.minimum_level))

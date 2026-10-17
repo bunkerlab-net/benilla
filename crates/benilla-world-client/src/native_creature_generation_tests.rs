@@ -40,6 +40,7 @@ impl ClientCatalog for Catalog {
 
 fn world() -> n::NativeWorld {
     let mut input = models::input();
+    input.template.extra_flags = 2;
     input.template.unit_class = 2;
     input.template.maximum_level = 4;
     input.template.regenerate_stats = 0;

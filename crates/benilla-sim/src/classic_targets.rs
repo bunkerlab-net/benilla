@@ -20,7 +20,7 @@ use crate::reputation::{Catalog as ReputationCatalog, Rank, State as ReputationS
 pub const CAPABILITY_ID: &str = "cmangos-classic-solo-player-npc-targets-v1";
 
 /// Source-state extension; this identity does not admit any native world profile.
-pub const REPUTATION_CAPABILITY_ID: &str = "cmangos-classic-player-npc-reputation-relations-v1";
+pub const REPUTATION_CAPABILITY_ID: &str = "cmangos-classic-player-npc-reputation-relations-v2";
 
 /// Native `UnitFlags`, pinned `Entities/Unit.h`. No faction IDs are hardcoded here.
 pub mod unit_flags {
@@ -36,6 +36,7 @@ pub mod unit_flags {
     pub const UNTARGETABLE: u32 = 0x0001_0000;
     pub const IN_COMBAT: u32 = 0x0008_0000;
     pub const TAXI_FLIGHT: u32 = 0x0010_0000;
+    pub const DISARMED: u32 = 0x0020_0000;
     pub const POSSESSED: u32 = 0x0100_0000;
     pub const UNINTERACTIBLE: u32 = 0x0200_0000;
     pub const SHEATHE: u32 = 0x4000_0000;
@@ -263,7 +264,7 @@ fn validate_faction<'a>(
 pub fn player_npc_reactions(
     input: &PlayerNpcInput<'_>,
 ) -> Result<PlayerNpcReactions, TargetUnsupported> {
-    validate_units(input)?;
+    validate_units(input, false)?;
     let player = validate_faction(input.player_faction, Side::Player, false)?;
     let npc = validate_faction(input.npc_faction, Side::Npc, false)?;
     Ok(PlayerNpcReactions {
@@ -272,7 +273,10 @@ pub fn player_npc_reactions(
     })
 }
 
-fn validate_units(input: &PlayerNpcInput<'_>) -> Result<(), TargetUnsupported> {
+fn validate_units(
+    input: &PlayerNpcInput<'_>,
+    source_npc_disarm: bool,
+) -> Result<(), TargetUnsupported> {
     let context = input.context;
     for (state, reason) in [
         (context.control, TargetUnsupported::ControlContext),
@@ -309,7 +313,15 @@ fn validate_units(input: &PlayerNpcInput<'_>) -> Result<(), TargetUnsupported> {
         {
             return Err(TargetUnsupported::Immunity);
         }
-        let unsupported = flags & !SUPPORTED_UNIT_FLAGS;
+        // Relations.cpp omits disarm from attack/interaction masks. Only the
+        // source NPC domain extends; player/legacy domains remain unchanged.
+        let supported = SUPPORTED_UNIT_FLAGS
+            | if source_npc_disarm && side == Side::Npc {
+                unit_flags::DISARMED
+            } else {
+                0
+            };
+        let unsupported = flags & !supported;
         if unsupported != 0 {
             return Err(TargetUnsupported::UnitFlags {
                 side,
@@ -460,7 +472,7 @@ fn template_rank(this: &FactionTemplate, other: &FactionTemplate) -> Rank {
 fn source_relations(
     input: &SourcePlayerNpcInput<'_>,
 ) -> Result<(SourcePlayerNpcReactions, bool), TargetUnsupported> {
-    validate_units(&input.units)?;
+    validate_units(&input.units, true)?;
     let player = validate_faction(input.units.player_faction, Side::Player, true)?;
     let npc = validate_faction(input.units.npc_faction, Side::Npc, true)?;
     if let Some(rep) = input.reputation {

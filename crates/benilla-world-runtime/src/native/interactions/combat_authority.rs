@@ -69,6 +69,7 @@ impl CombatAuthorityCatalog {
                         row.static_flags3,
                         row.static_flags4,
                     ]
+                    || source.input.template.extra_flags != row.extra_flags
                 {
                     return Err(NativeError::AuthorityBinding);
                 }

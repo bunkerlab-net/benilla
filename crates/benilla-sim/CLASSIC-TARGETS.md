@@ -164,7 +164,7 @@ pure integer/branch tests. The broader repository gates remain separate.
 ## Source-state reputation extension
 
 `REPUTATION_CAPABILITY_ID` is
-`cmangos-classic-player-npc-reputation-relations-v1`. It leaves the original
+`cmangos-classic-player-npc-reputation-relations-v2`. It leaves the original
 `CAPABILITY_ID` and its functions unchanged. `SourcePlayerNpcInput` combines an
 explicit `PlayerNpcInput` with an optional borrowed `ReputationRef { catalog,
 state }`. The source [reputation module](REPUTATION.md), rather than the client
@@ -279,3 +279,15 @@ and SHA-256 digests. Focused tests additionally cover stale-state rebuilding,
 first-match Unfriendly behavior, the friendly-at-war target-blocker override,
 generic versus stronger checks, and explicit invalid/unknown input rejection.
 These are source-primitive tests, not proof of the future runtime adapter.
+
+### Static NPC disarm
+
+The source/reputation API additionally accepts NPC `UNIT_FLAG_DISARMED` without
+erasing it. Pinned Relations.cpp attack and interaction masks and Creature.cpp
+CanInitiateAttack do not consult disarm. Player disarm and the original API remain
+unsupported. Equipment-derived damage belongs to the source creature generation;
+dynamic disarm, player equipment, and NPC-as-defender parry remain excluded.
+
+The `relations_disarmed` oracle mode reruns all 32,768 relationship vectors with
+the NPC bit retained and requires the existing armed digest unchanged. It never
+rewrites the baseline fixture. Rust executes the same matrix in both domains.

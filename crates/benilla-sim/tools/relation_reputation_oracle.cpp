@@ -132,7 +132,7 @@ uint32 bit_pattern(uint32 i) { return i == 0 ? 0 : i == 33 ? UINT32_MAX : (uint3
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     const std::string mode(argv[1]);
-    if (mode == "relations") {
+    if (mode == "relations" || mode == "relations_disarmed") {
         for (uint32 c = 0; c != 32768; ++c) {
             seed(c);
             Player p; Creature n;
@@ -143,6 +143,7 @@ int main(int argc, char** argv) {
             if ((c / 3) % 3 == 0) n.faction.enemyFaction[0] = 1;
             if ((c / 3) % 3 == 2) n.faction.friendFaction[0] = 1;
             p.flags |= blocking((c / 64) % 32); n.flags |= blocking((c / 1024) % 32);
+            if (mode == "relations_disarmed") n.flags |= UNIT_FLAG_DISARMED;
             p.alive = (c / 7) % 2; n.alive = (c / 11) % 2;
             p.mounted = (c / 13) % 2; n.mounted = (c / 17) % 2;
             p.combat.evading = (c / 19) % 2; n.combat.evading = (c / 23) % 2;

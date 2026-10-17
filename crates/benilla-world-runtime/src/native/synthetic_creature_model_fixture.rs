@@ -40,6 +40,7 @@ pub fn input() -> benilla_sim::creature_init::Input {
             creature_type: 1,
             type_flags: 0,
             static_flags: [0; 4],
+            extra_flags: 0,
             regenerate_stats: 10,
             health_multiplier: f(1.),
             power_multiplier: f(1.),
@@ -120,6 +121,8 @@ pub fn input() -> benilla_sim::creature_init::Input {
             relay_id: 0,
             string_id: 0,
         }]),
+        equipment_templates: Rows::Complete(vec![]),
+        item_templates: Rows::Complete(vec![]),
         external_features: Rows::Complete(vec![]),
         rates: Rates {
             normal_health: f(1.),

@@ -106,7 +106,13 @@ fn interpolate(level: u8, t: &Template, a: u32, b: u32) -> Result<u32> {
         .checked_add(uint(mul(relative, n(a.abs_diff(b))?)?)?)
         .ok_or(InitError::Numeric("legacy interpolation overflow"))
 }
-pub(super) fn stats(t: &Template, row: &ClassLevelRow, rates: Rates) -> Result<Stats> {
+pub(super) fn stats(
+    t: &Template,
+    row: &ClassLevelRow,
+    rates: Rates,
+    equipment: InitialEquipment,
+    effective_unit_flags: u32,
+) -> Result<Stats> {
     for v in row.attributes.into_iter().chain([
         row.base_health,
         row.base_mana,
@@ -260,7 +266,7 @@ pub(super) fn stats(t: &Template, row: &ClassLevelRow, rates: Rates) -> Result<S
         sub(n(attrs[1])?, sf(create[1]))?,
         mul(base_rap, damage_multiplier)?,
     )?)?;
-    let damage = creature_damage_range(CreatureDamageInputs {
+    let damage_inputs = CreatureDamageInputs {
         class: stat_class(t.unit_class)?,
         strength: attrs[0],
         agility: attrs[1],
@@ -271,8 +277,20 @@ pub(super) fn stats(t: &Template, row: &ClassLevelRow, rates: Rates) -> Result<S
         base_weapon_minimum: out(minimum)?,
         base_weapon_maximum: out(maximum)?,
         weapon_unusable: false,
-    })
-    .map_err(|_| InitError::Numeric("creature mainhand damage/AP"))?;
+    };
+    // SelectLevel updates stats before UpdateEntry sets effective UnitFlags.
+    // Disarm must not hide an out-of-domain earlier unhalved creation field.
+    let initial_damage = creature_damage_range(damage_inputs)
+        .map_err(|_| InitError::Numeric("creature mainhand damage/AP"))?;
+    let damage = if equipment.mainhand_weapon_unusable(effective_unit_flags) {
+        creature_damage_range(CreatureDamageInputs {
+            weapon_unusable: true,
+            ..damage_inputs
+        })
+        .map_err(|_| InitError::Numeric("creature disarmed mainhand damage/AP"))?
+    } else {
+        initial_damage
+    };
     let mut resistances = [0; 7];
     resistances[0] = effective_armor as i32;
     resistances[1..].copy_from_slice(&t.resistances);

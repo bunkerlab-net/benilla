@@ -4,22 +4,28 @@
 //! Bounded ordinary NPC creation arithmetic, not world admission or AI selection.
 //! Inputs are raw, locally captured rows. No database values or rates are supplied.
 //! See ../../CREATURE-INIT.md for loader preprocessing, draw order and exclusions.
+mod equipment;
 mod model_receipt;
 mod numeric;
 #[cfg(test)]
 mod source_retention_tests;
 use crate::classic_spell::SpellFloat;
 use crate::npc_melee::{CreatureStatClass, DamageRange};
+pub use equipment::{
+    EquipmentTemplateRow, InitialEquipment, InitialVirtualItem, ItemDamage, ItemTemplateRow,
+};
 pub use model_receipt::{
     InitialCollisionHeight, InitialCollisionWidth, ModelSelectionDraw, ModelSelectionDrawPurpose,
     ModelSelectionGenderRow, ModelSelectionReceipt, CREATURE_COLLISION_HEIGHT_POLICY_ID,
     CREATURE_COLLISION_WIDTH_POLICY_ID, CREATURE_MODEL_SELECTION_POLICY_ID,
 };
 use std::collections::{BTreeMap, BTreeSet};
-pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v1";
+pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v2";
 pub const REGEN_INTERVAL_MS: u32 = 5_000;
 /// Local resource limit for complete retained source rows, not a game-data rule.
 pub const MAX_CREATURE_INIT_SOURCE_ROWS: usize = 4_096;
+/// Fixed-width retained-storage budget, not a native database or wire-size rule.
+pub const MAX_CREATURE_INIT_SOURCE_BYTES: usize = 262_144;
 const MAX_AMOUNT: u32 = 1_000_000;
 pub type Result<T> = std::result::Result<T, InitError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +84,8 @@ pub struct Template {
     pub creature_type: u32,
     pub type_flags: u32,
     pub static_flags: [u32; 4],
+    /// Raw ExtraFlags, independent of StaticFlags1..4.
+    pub extra_flags: u32,
     pub regenerate_stats: u32,
     pub health_multiplier: SpellFloat,
     pub power_multiplier: SpellFloat,
@@ -165,7 +173,7 @@ pub struct Rates {
     pub normal_corpse_decay_seconds: u32,
 }
 /// Known applicable feature that changes this bounded fresh, living, uncontrolled,
-/// outdoor, unmounted, no-equipment/no-aura creation path. All are unsupported.
+/// outdoor, unmounted, bounded-mainhand/no-aura creation path. All are unsupported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum ExternalFeature {
     PetSummonOrControl,
@@ -180,6 +188,8 @@ pub enum ExternalFeature {
     ScriptOrAiSubstitution,
     SpellList,
     MapOrOutdoorPvpCreationHook,
+    /// Equipment writers outside retained initial creature_equip_template rows,
+    /// including loot, events, scripts, forced dual wield or later mutations.
     EquipmentOrLootWeapon,
     EncounterCorpseOverride,
 }
@@ -202,6 +212,8 @@ pub struct Input {
     pub displays: Rows<DisplayRow>,
     /// Exactly one effective resolved row, including the genuine Entry=0 default.
     pub spawn_template: Rows<SpawnTemplate>,
+    pub equipment_templates: Rows<EquipmentTemplateRow>,
+    pub item_templates: Rows<ItemTemplateRow>,
     /// Requires positive completeness evidence at the private consumer boundary.
     pub external_features: Rows<ExternalFeature>,
     pub rates: Rates,
@@ -216,6 +228,8 @@ impl Input {
             self.models.retained_len(),
             self.displays.retained_len(),
             self.spawn_template.retained_len(),
+            self.equipment_templates.retained_len(),
+            self.item_templates.retained_len(),
             self.external_features.retained_len(),
         ];
         let total = counts
@@ -224,6 +238,25 @@ impl Input {
             .ok_or(InitError::Invalid("source retention row bound"))?;
         if total > MAX_CREATURE_INIT_SOURCE_ROWS {
             return Err(InitError::Invalid("source retention row bound"));
+        }
+        let sizes = [
+            std::mem::size_of::<ClassLevelRow>(),
+            std::mem::size_of::<ModelRow>(),
+            std::mem::size_of::<DisplayRow>(),
+            std::mem::size_of::<SpawnTemplate>(),
+            std::mem::size_of::<EquipmentTemplateRow>(),
+            std::mem::size_of::<ItemTemplateRow>(),
+            std::mem::size_of::<ExternalFeature>(),
+        ];
+        let bytes = counts
+            .into_iter()
+            .zip(sizes)
+            .try_fold(std::mem::size_of::<Self>(), |total, (count, size)| {
+                total.checked_add(count.checked_mul(size)?)
+            })
+            .ok_or(InitError::Invalid("source retention byte bound"))?;
+        if bytes > MAX_CREATURE_INIT_SOURCE_BYTES {
+            return Err(InitError::Invalid("source retention byte bound"));
         }
         Ok(())
     }
@@ -289,6 +322,9 @@ pub struct InitializedCreature {
     pub model: Model,
     pub faction: u32,
     pub unit_flags: u32,
+    /// Fresh UpdateEntry melee sheath byte and UNIT_BYTE2_FLAG_AURAS misc byte.
+    pub unit_bytes_2: u32,
+    pub equipment: InitialEquipment,
     pub npc_flags: u32,
     pub starts_running: bool,
     pub no_crushing_blows: bool,
@@ -314,6 +350,7 @@ pub struct SelectionRolls {
 pub struct Plan<'a> {
     input: &'a Input,
     spawn: SpawnTemplate,
+    equipment: InitialEquipment,
     levels: BTreeMap<u8, Stats>,
     models: BTreeMap<u32, Model>,
     other_gender: BTreeMap<u32, u32>,
@@ -403,6 +440,8 @@ impl Plan<'_> {
             } else {
                 self.spawn.unit_flags as u32
             },
+            unit_bytes_2: 0x0000_1001,
+            equipment: self.equipment,
             npc_flags: if self.spawn.npc_flags == -1 {
                 t.npc_flags
             } else {
@@ -468,6 +507,11 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
     if t.rank != 0 {
         return Err(InitError::Unsupported("non-normal rank"));
     }
+    if t.extra_flags & 0x0080_0000 != 0 {
+        return Err(InitError::Unsupported(
+            "forced dual-wield initial equipment",
+        ));
+    }
     if t.damage_school != 0 {
         return Err(InitError::Unsupported("nonphysical mainhand"));
     }
@@ -516,14 +560,7 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
     {
         return Err(InitError::Invalid("spawn override sentinel"));
     }
-    let equipment = if spawn.equipment_id == -1 {
-        t.equipment_template_id
-    } else {
-        spawn.equipment_id as u32
-    };
-    if equipment != 0 {
-        return Err(InitError::Unsupported("equipment or loot weapon"));
-    }
+    let equipment = equipment::prepare(input, spawn)?;
     let flags = if spawn.unit_flags == -1 {
         t.unit_flags
     } else {
@@ -549,7 +586,10 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
                 table: "creature_template_classlevelstats",
                 id: u32::from(level),
             })?;
-        levels.insert(level, numeric::stats(t, row, input.rates)?);
+        levels.insert(
+            level,
+            numeric::stats(t, row, input.rates, equipment, flags)?,
+        );
     }
     let display_rows = input.displays.require("CreatureDisplayInfo.dbc", t.entry)?;
     let mut displays = BTreeMap::new();
@@ -627,6 +667,7 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
     Ok(Plan {
         input,
         spawn,
+        equipment,
         levels,
         models,
         other_gender,

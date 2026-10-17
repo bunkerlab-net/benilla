@@ -27,7 +27,9 @@ const GHOST: u32 = 0x0000_0010;
 const TAXI_STATE: u32 = 0x0000_0080;
 const CANNOT_REACT_OR_LOST_CONTROL: u32 = 0x0020_244e;
 const SPIRIT_SERVICE: u32 = 0x60;
-const STATIC_FLAGS: u32 = unit_flags::SPAWNING
+const STATIC_DISARMED: u32 = unit_flags::DISARMED;
+const STATIC_FLAGS: u32 = STATIC_DISARMED
+    | unit_flags::SPAWNING
     | unit_flags::NOT_ATTACKABLE_1
     | unit_flags::UNTARGETABLE
     | unit_flags::UNINTERACTIBLE
@@ -119,8 +121,8 @@ pub struct PlayerInteractionSource {
     pub player_flags: u32,
     pub control: InteractionControlSeed,
 }
-/// Template fields, with spawn overrides explicitly excluded. Revival restores
-/// template NPC flags in Creature::SetDeathState(JUST_ALIVED).
+/// Effective source fields. Present spawn overrides require exact retained
+/// generation rows; differing revival NPC flags remain outside that owner's domain.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct NpcInteractionSource {
     pub entry: u32,
@@ -231,6 +233,10 @@ impl Profile {
     }
 }
 impl InteractionCatalog {
+    pub(super) fn has_combat_authority(&self) -> bool {
+        self.combat_authority.is_some()
+    }
+
     pub(super) fn owner_ignore_pathfinding_source(
         &self,
         profile: &Profile,
@@ -343,11 +349,21 @@ impl InteractionCatalog {
         }
         for row in self.npcs.values() {
             row.control.validate()?;
-            if row.spawn_flag_or_faction_overrides != InteractionEvidence::Absent {
+            if row.spawn_flag_or_faction_overrides == InteractionEvidence::Unknown
+                || row.spawn_flag_or_faction_overrides == InteractionEvidence::Present
+                    && profile.creature_generations.is_none()
+            {
                 return Err(NativeError::InteractionEvidence {
                     dependency: "NPC interaction spawn overrides",
                     observed: row.spawn_flag_or_faction_overrides,
                 });
+            }
+            // Static disarm changes creature damage, so it requires the exact
+            // retained initializer binding below, never an interaction-only flag.
+            if row.unit_flags & STATIC_DISARMED != 0 && profile.creature_generations.is_none() {
+                return Err(NativeError::UnsupportedMechanic(
+                    "NPC disarm requires source creature initialization",
+                ));
             }
             if row.unit_flags & !STATIC_FLAGS != 0 {
                 return Err(NativeError::UnsupportedMechanic(
@@ -389,6 +405,15 @@ impl InteractionCatalog {
                 let [spawn] = rows.as_slice() else {
                     return Err(NativeError::InvalidProfile);
                 };
+                let overrides =
+                    if spawn.faction != 0 || spawn.unit_flags != -1 || spawn.npc_flags != -1 {
+                        InteractionEvidence::Present
+                    } else {
+                        InteractionEvidence::Absent
+                    };
+                if source.spawn_flag_or_faction_overrides != overrides {
+                    return Err(NativeError::AuthorityBinding);
+                }
                 let faction = if spawn.faction == 0 {
                     template.faction
                 } else {

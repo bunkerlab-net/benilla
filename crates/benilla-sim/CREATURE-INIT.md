@@ -2,12 +2,12 @@
 
 This is an arithmetic/data-dependency port, **not native world admission**. It
 turns validated typed local rows into selected creation/effective stats and
-model geometry/speeds. It neither creates a native profile nor proves that the
+model geometry/speeds and initial mainhand equipment metadata. It neither creates a native profile nor proves that the
 caller captured every relevant dependency. No positions, factions' hostility,
 classlevel values, models, rates, damage constants, AI decisions or game rows
 are invented. The committed fixtures contain synthetic arithmetic cases only.
 
-Policy: `cmangos-8ec338a1-ordinary-creature-init-softfloat-v1`.
+Policy: `cmangos-8ec338a1-ordinary-creature-init-softfloat-v2`.
 The API is `creature_init::prepare(Input)` followed by `Plan::resolve` with
 explicit semantic draws. `SpawnTimingInputs` separately resolves the later
 respawn draw/corpse cap. `regenerate_out_of_combat` is a narrowly named live-state
@@ -35,7 +35,11 @@ model projection as a substitute for full source identity. Output serialization
 is still a caller-mutable arithmetic result, not an immutable admission receipt.
 
 `Input::validate_retention_bounds` enforces a local aggregate budget of 4,096 rows
-across classlevel, model, display, resolved-spawn and external-feature collections.
+across classlevel, model, display, resolved-spawn, equipment-template, item-metadata
+and external-feature collections. It also bounds fixed-width retained storage to
+262,144 bytes (`size_of::<Input>()` plus row count times row size for every
+collection). This local allocation bound is not a serialized-wire-size claim;
+all row types have fixed-width fields without nested variable-length allocations.
 This constant-time size check does not claim source completeness or validate row
 contents. `prepare` runs it before allocating keyed maps or evaluating stats;
 consumers must also run it before cloning or serializing retained source. The cap
@@ -93,15 +97,18 @@ texts remain under [licenses](licenses/AUTHORS.md) and the crate's
 Source files, with links pinned to that revision:
 
 - [Creature.cpp](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Creature.cpp):
-  `InitEntry`, `UpdateEntry`, `SelectLevel`, `ChooseDisplayId`, rank-rate lookup,
+  `InitEntry`, `UpdateEntry`, `SelectLevel`, `ChooseDisplayId`, `LoadEquipment`,
+  `SetVirtualItem`, `hasWeapon`, rank-rate lookup,
   base walk/run speed setters, `LoadFromDB`, `RegenerateAll`, `RegenerateHealth`,
   `RegeneratePower`, `GetCreatureAddon`, `LoadCreatureAddon`
 - [ObjectMgr.cpp](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Globals/ObjectMgr.cpp):
   `LoadCreatureClassLvlStats`, `GetCreatureClassLvlStats`,
   `GetCreatureModelRandomGender`, template/model loader validation,
-  `LoadCreatureSpawnDataTemplates`, `LoadCreatures`
+  `LoadCreatureSpawnDataTemplates`, `LoadCreatures`, `LoadEquipmentTemplates`,
+  raw item Class/SubClass/InventoryType/Sheath/DamageType validation
 - [StatSystem.cpp](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/StatSystem.cpp):
-  creature stat/armor/AP/damage/health updates and shared mana/stamina formulas
+  creature stat/armor/AP/damage/health updates, conditional disarmed-weapon
+  modifier and shared mana/stamina formulas
 - [Unit.cpp](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.cpp):
   neutral constructor modifiers, create powers, total stats/resistances,
   model normalization, base movement speeds, speed update/minimum-rate clamp,
@@ -110,7 +117,7 @@ Source files, with links pinned to that revision:
   [CreatureDefines.h](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/CreatureDefines.h),
   [Unit.h](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Unit.h):
   raw field types, regeneration flags/predicates, no-crushing flag and 5,000 ms
-  NPC regeneration interval
+  NPC regeneration interval, virtual-item byte offsets and `CanUseEquippedWeapon`
 - [Object.cpp](https://github.com/cmangos/mangos-classic/blob/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f/src/game/Entities/Object.cpp):
   `IsUsingNewSpawningSystem` is true when a nonzero database GUID differs from
   the runtime GUID low
@@ -124,8 +131,8 @@ are distributed by this change.
 ## Exact supported input boundary
 
 - Fresh, living, ordinary rank-zero, uncontrolled nonpet outdoor creatures,
-  class 1/2/4/8, selected levels 1 through 20, physical mainhand, no equipment,
-  mounts, initial auras, UnitMods or custom initialization hooks
+  class 1/2/4/8, selected levels 1 through 20, physical mainhand, bounded initial
+  mainhand equipment, no mounts, initial auras, UnitMods or custom creation hooks
 - Actual template fields, classlevel SQL rows, model SQL rows and local
   `CreatureDisplayInfo` identity/scale bindings; all reachable levels and model
   alternatives are validated before any draw is requested
@@ -136,7 +143,8 @@ are distributed by this change.
 - One resolved `creature_spawn_data_template` row, including the actual Entry=0
   default selected by the native loader. Model/faction/NPC/unit flag overrides,
   current HP/mana and run-on-spawn are supported. All raw override sentinels are
-  checked. Equipment is allowed only when its effective selection is zero
+  checked. Raw equipment-template and item-metadata closure is retained even
+  for overridden template references; missing is not inferred to mean empty
 - Explicit normal health/damage rates and normal corpse-decay seconds. Zero HP
   rate follows the source minimum-one rule; zero resource/template multipliers
   retain the source's different comparison branches. There is no default rate
@@ -154,7 +162,60 @@ are distributed by this change.
 - The only admitted nonzero static setting is StaticFlags2 NO_CRUSHING_BLOWS.
   Other settings require another concrete branch. Captured type flags are
   retained for the health-regeneration interaction gate; other runtime use of
-  flags is a separate obligation, not certified by this arithmetic result
+  flags is a separate obligation, not certified by this arithmetic result. Raw
+  `ExtraFlags` is retained independently; forced dual wield (`0x00800000`) is
+  rejected even when the selected offhand item is zero
+
+## Initial equipment and static disarm
+
+`Input.equipment_templates` retains ordered raw `creature_equip_template` rows
+(`entry`, all three `equipentry` values). `item_templates` retains raw identity,
+Class/SubClass, display ID, signed SQL Material, InventoryType, sheath, Delay and
+all five Damage lines. Both collections require explicit Missing/Complete state,
+even when no equipment is selected. Remaining item columns require disposition
+by the capture owner; this metadata is not an inventory item-use profile.
+
+All supplied rows are validated before any draw. Duplicate keys fail, raw item
+values requiring native Class/SubClass/InventoryType/Sheath/DamageType repairs
+fail, and all nonzero equipment item references must resolve. Native equipment
+validation permits InventoryType 13,14,15,17,21,22,23,25,26,28 in any slot without
+additional per-slot or class/inventory compatibility restrictions. Display ID
+zero is permitted; these numeric fields require no invented ItemDisplayInfo
+lookup. Material's SQL signed-tinyint range is -128 through 127. Native GetUInt32
+then uint8 narrowing is preserved, including -1 becoming byte 0xff.
+
+A nonzero raw template EquipmentTemplateId must resolve even if the spawn later
+overrides it, because ObjectMgr validates that reference independently first.
+Spawn EquipmentId=-1 inherits it; a positive ID selects the spawn equipment row;
+zero skips LoadEquipment and leaves the fresh zeroed state unchanged. Template
+zero uses the force-clear path. Equipment row entry=0 can be retained but is never
+consulted by LoadEquipment(0). A selected nonzero all-empty row preserves its
+nonzero equipment ID. A missing positive spawn ID is rejected rather than
+emulating LoadEquipment's stale-state-preserving no-op. These fresh-constructor
+equivalences do not implement later ResetEntry/equipment transitions.
+
+`InitializedCreature.equipment` retains the selected ID and optional mainhand
+item's identity, display ID and two packed info words. Class, SubClass, Material
+and InventoryType are successive bytes of word zero; sheath is word one's low
+byte and remaining fresh bytes are zero. Server `hasWeapon(BASE_ATTACK)` checks
+packed Class==2, including zero-display and zero-item-damage weapons.
+`unit_bytes_2` is fresh UpdateEntry's melee sheath and aura misc flag word,
+`0x00001001`, separate from item-specific sheath metadata.
+
+Effective raw UnitFlags come from the resolved spawn override or template
+fallback. A mainhand Class==2 weapon plus static DISARMED (`0x00200000`) selects
+the exact final binary32 0.5 damage multiplier. AP, classlevel/template damage,
+base weapon damage and creature attack interval retain their own source formulas;
+item Damage and Delay never replace them. The earlier unhalved SelectLevel update
+is validated separately, preventing disarm from masking an unsupported transient
+numeric field. No public caller-supplied disarm boolean is added.
+
+Selected offhand/ranged items, forced dual wield, loot/event/script equipment
+writers and existing equipment state remain unsupported. Dynamic disarm aura
+application/removal, forms, later swaps and respawn need separately owned lifecycle
+semantics. This mainhand arithmetic does not implement NPC-as-defender disarm/parry.
+The model receipt keeps its model-only v1 policy and names initializer v2 as its
+dependency; full source/output identity includes the new raw rows and derived fields.
 
 The caller must validate the remaining captured template/spawn fields and
 applicable sources before constructing a runnable native profile. A public
@@ -230,6 +291,11 @@ bit patterns; generated expected outputs come from independent C++ source.
 A consumer must revalidate exact selected rows and completeness/binding evidence,
 not infer absence from an absent field. The companion exporter owns that work:
 
+- `creature_equip_template(entry,equipentry1,equipentry2,equipentry3)` closure for
+  raw template and resolved spawn equipment references, plus matching raw
+  `item_template` metadata with signed Material, Delay and all Damage lines.
+  Complete-empty claims require actual bounded source-query evidence
+
 - `creature_spawn_data(guid,id)` for each selected GUID; full selected
   `creature_spawn_data_template(Entry,NpcFlags,UnitFlags,Faction,ModelId,
   EquipmentId,CurHealth,CurMana,SpawnFlags,RelayId,StringId,Name)` rows including
@@ -260,7 +326,8 @@ user's game data is required or implied.
 ## Verification
 
 `tools/generate_creature_init_fixture.py SOURCE_DIRECTORY` checks source hashes,
-extracts 26 unchanged native method bodies plus exact loader/respawn fragments
+extracts 30 unchanged native method bodies plus the inline weapon-usability body,
+exact equipment-selection/loader/respawn fragments and virtual-item declarations
 and the numeric prefix of `SetSpeedRate`, then compiles the independent C++
 harness with C++17, FE_TONEAREST, no fast math,
 no FP contraction, and undefined-behavior/float-cast sanitizers. Expected fixture
@@ -273,11 +340,15 @@ outputs never call Rust. Current cases:
   SetSpeedRate numerical prefix and GetSpeed, including the minimum-rate boundary
 - 1,536 regeneration gate/rounding/accumulator cases
 - 256 respawn-range/ID/corpse-cap cases, including singleton draws
+- 192 initial equipment-selection/packing/zero-display/zero-item-damage/static-
+  disarm cases, preserving native final physical damage and creature attack timing
 
-The Rust tests compare all 4,086 rows bit-for-bit and also cover missing/bad
+The Rust tests compare all 4,278 rows bit-for-bit and also cover missing/bad
 inputs, override sentinels, model selection ranges, unsupported hooks/flags,
 source loader bonuses, scale invariance, ambiguous zero-radius repair rejection,
-complete ordered source/output serialization, aggregate pre-prepare row bounds,
+complete ordered source/output serialization, aggregate pre-prepare row/byte bounds,
+raw equipment closure, native allowed inventory types and loader-repair refusal,
+forced dual wield/offhand/ranged refusal, static flags and unused item Damage/Delay,
 missing-versus-empty inputs and omitted-versus-supplied semantic draws,
 signed resistance values, raw legacy AP bounds and transient AP cast rejection.
 Negative fractions between -1 and 0 truncate to zero, which is defined and

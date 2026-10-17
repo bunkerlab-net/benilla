@@ -6,6 +6,8 @@ use benilla_protocol::{messages as p, EntityKind, ObjectFields, SessionEvent};
 use benilla_sim::{classic_spell as spell, creature_ai as ai};
 use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId};
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "native_creature_equipment.rs"]
+mod creature_equipment;
 #[path = "native_event_ai.rs"]
 mod event_ai;
 #[path = "native_loot.rs"]
@@ -130,6 +132,8 @@ impl NativeProjection {
                 else {
                     return Err(Error::Unrepresentable);
                 };
+                let selected = npc.initialized_creature().ok_or(Error::Unrepresentable)?;
+                creature_equipment::validate(&source.input, selected, catalog)?;
                 // The source plan retains every potentially selected template/gender display.
                 if displays
                     .iter()
@@ -520,6 +524,7 @@ impl NativeProjection {
                 .as_ref()
                 .and_then(|catalog| catalog.source(npc.id.spawn))
                 .ok_or(Error::Unrepresentable)?;
+            pairs.extend(creature_equipment::fields(selected));
             let (power, current, maximum) = match selected.power_type {
                 benilla_sim::creature_init::PowerType::Mana => (
                     0u8,
@@ -1303,8 +1308,8 @@ mod tests {
     }
 
     #[test]
-    fn native38_projection_rejects_previous_native_digests_without_advancing() {
-        for version in [36, 37] {
+    fn native39_projection_rejects_previous_native_digests_without_advancing() {
+        for version in [36, 37, 38] {
             use sha2::{Digest as _, Sha256};
             let mut world = world();
             let mut projection =
@@ -1876,3 +1881,7 @@ mod level_sixty_tests;
 #[cfg(test)]
 #[path = "native_creature_generation_tests.rs"]
 mod creature_generation_tests;
+
+#[cfg(test)]
+#[path = "native_creature_equipment_tests.rs"]
+mod creature_equipment_tests;

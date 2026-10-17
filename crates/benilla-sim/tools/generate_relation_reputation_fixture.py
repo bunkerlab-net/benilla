@@ -79,12 +79,13 @@ def main():
         cpp, exe = Path(temp) / "oracle.cpp", Path(temp) / "oracle"
         cpp.write_text(harness)
         subprocess.run(["g++", "-std=c++17", "-O2", "-Wall", "-Wextra", "-Werror", "-fsanitize=undefined", "-fno-sanitize-recover=all", str(cpp), "-o", str(exe)], check=True)
-        for mode in ["relations", "lifecycle"]:
+        for mode in ["relations", "relations_disarmed", "lifecycle"]:
             data = subprocess.check_output([str(exe), mode])
             count, digest = len(data.splitlines()), hashlib.sha256(data).hexdigest()
             result = f"{count} {digest}\n".encode()
-            path = Path(__file__).parents[1] / "tests/fixtures" / f"{mode}_reputation_cmangos.sha256"
-            if args.check:
+            fixture_mode = "relations" if mode == "relations_disarmed" else mode
+            path = Path(__file__).parents[1] / "tests/fixtures" / f"{fixture_mode}_reputation_cmangos.sha256"
+            if args.check or mode == "relations_disarmed":
                 assert path.read_bytes() == result, mode
             else:
                 path.write_bytes(result)
