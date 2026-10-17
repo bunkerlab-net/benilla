@@ -119,12 +119,7 @@ impl<A: Authority> Frame<'_, A> {
             player_position: self.state.position,
             target_position: n.ai.position(),
             player_level: self.state.level(self.profile),
-            target_level: self
-                .profile
-                .npc(target.spawn)
-                .ok_or(NativeError::InvalidState)?
-                .ai
-                .level,
+            target_level: n.effective_profile(self.profile)?.ai.level,
         })
     }
     fn record_spell(
@@ -244,9 +239,12 @@ impl<A: Authority> Frame<'_, A> {
                                 source,
                                 player_reach: self.profile.player.combat_reach,
                                 target_reach: self
-                                    .profile
-                                    .npc(target.spawn)
+                                    .state
+                                    .npcs
+                                    .get(&target.spawn)
+                                    .filter(|npc| npc.id == target)
                                     .ok_or(NativeError::InvalidState)?
+                                    .effective_profile(self.profile)?
                                     .ai
                                     .combat_reach,
                             };

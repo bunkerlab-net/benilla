@@ -81,6 +81,7 @@ pub struct NpcProfile {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Profile {
+    pub creature_generations: Option<CreatureGenerationCatalog>,
     pub admin: Option<AdminPolicy>,
     pub player_slow: Option<PlayerSlowGenesis>,
     pub source_motion: Option<MotionGenesis>,
@@ -107,7 +108,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v37\0",
+            b"benilla-native-profile-v38\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -157,6 +158,15 @@ impl Profile {
             .collect()
     }
     pub fn validate(&self) -> Result<(), NativeError> {
+        if let Some(catalog) = &self.creature_generations {
+            if self.player_slow.is_some() {
+                return Err(NativeError::UnsupportedMechanic(
+                    "generation-owned player slow slot residue history",
+                ));
+            }
+            catalog.validate(self)?;
+            creature_generation_binding::validate_other_sources(self)?;
+        }
         if let Some(combat) = &self.combat {
             combat.validate_melee_genesis()?;
             // Draft preparation may lack a seal; an installed seal must remain
@@ -319,6 +329,7 @@ pub struct Cast {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Npc {
+    pub(super) source_generation: Option<CreatureGenerationOwner>,
     pub events: NpcEvents,
     pub source_motion: Option<NpcMotion>,
     pub(super) source_capabilities: Option<CreatureCapabilityState>,
@@ -332,6 +343,57 @@ pub struct Npc {
     pub health: u32,
     pub ai: ai::SoloCreatureAi,
     pub auras: BTreeMap<u32, spell::DamageTarget>,
+}
+impl Npc {
+    /// A retained cast or event uses the source life that actually produced it.
+    pub fn historical_profile(
+        &self,
+        profile: &Profile,
+        id: crate::NpcId,
+    ) -> Result<NpcProfile, NativeError> {
+        if id.spawn != self.id.spawn || id.generation > self.id.generation {
+            return Err(NativeError::AuthorityBinding);
+        }
+        let base = profile.npc(id.spawn).ok_or(NativeError::UnknownTarget)?;
+        match (&profile.creature_generations, &self.source_generation) {
+            (None, None) => Ok(base.clone()),
+            (Some(_), Some(owner)) if owner.npc_id() == self.id => owner
+                .historical(id)
+                .ok_or(NativeError::AuthorityBinding)?
+                .project_profile(base),
+            _ => Err(NativeError::AuthorityBinding),
+        }
+    }
+    pub fn historical_initialized_creature(
+        &self,
+        id: crate::NpcId,
+    ) -> Option<&benilla_sim::creature_init::InitializedCreature> {
+        if id.spawn != self.id.spawn || id.generation > self.id.generation {
+            return None;
+        }
+        self.source_generation
+            .as_ref()
+            .filter(|owner| owner.npc_id() == self.id)
+            .and_then(|owner| owner.historical(id))
+            .map(CreatureGeneration::result)
+    }
+    pub fn initialized_creature(&self) -> Option<&benilla_sim::creature_init::InitializedCreature> {
+        self.source_generation
+            .as_ref()
+            .filter(|owner| owner.npc_id() == self.id)
+            .map(CreatureGenerationOwner::result)
+    }
+    /// Current-life source projection; the immutable profile is only the static owner.
+    pub fn effective_profile(&self, profile: &Profile) -> Result<NpcProfile, NativeError> {
+        let base = profile
+            .npc(self.id.spawn)
+            .ok_or(NativeError::UnknownTarget)?;
+        match (&profile.creature_generations, &self.source_generation) {
+            (None, None) => Ok(base.clone()),
+            (Some(_), Some(owner)) if owner.npc_id() == self.id => owner.project_profile(base),
+            _ => Err(NativeError::AuthorityBinding),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {

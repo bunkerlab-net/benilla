@@ -85,6 +85,36 @@ impl NativeKillPolicy {
             if row.kill_credit.iter().any(|v| *v > 0xff_ffff) {
                 return Err(NativeError::InvalidProfile);
             }
+            if let Some(catalog) = &profile.creature_generations {
+                let source = catalog
+                    .source(npc.ai.creature_id)
+                    .ok_or(NativeError::AuthorityBinding)?;
+                let template = &source.input.template;
+                let benilla_sim::creature_init::Rows::Complete(spawns) =
+                    &source.input.spawn_template
+                else {
+                    return Err(NativeError::AuthorityBinding);
+                };
+                let [spawn] = spawns.as_slice() else {
+                    return Err(NativeError::AuthorityBinding);
+                };
+                let unit_flags = if spawn.unit_flags == -1 {
+                    template.unit_flags
+                } else {
+                    u32::try_from(spawn.unit_flags).map_err(|_| NativeError::AuthorityBinding)?
+                };
+                // Creature.h::IsElite, Creature.cpp::IsNoXp and Unit.h::IsPlayerControlled.
+                // This owner admits ordinary non-pet/non-totem source creatures only.
+                if row.is_pet
+                    || row.is_totem
+                    || row.is_critter != (template.creature_type == 8)
+                    || row.is_elite != !matches!(template.rank, 0 | 4)
+                    || row.is_no_xp != (template.static_flags[0] & 0x2 != 0)
+                    || row.player_controlled != (unit_flags & 0x8 != 0)
+                {
+                    return Err(NativeError::AuthorityBinding);
+                }
+            }
             let victim = row.victim(2, npc);
             victim.validate()?;
             kill::KillContext {

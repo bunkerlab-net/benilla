@@ -58,6 +58,21 @@ impl CombatAuthorityCatalog {
                 .ok_or(NativeError::UnsupportedMechanic(
                     "missing combat authority source row",
                 ))?;
+            if let Some(catalog) = &profile.creature_generations {
+                let source = catalog
+                    .source(npc.ai.creature_id)
+                    .ok_or(NativeError::InvalidProfile)?;
+                if source.input.template.static_flags
+                    != [
+                        row.static_flags1,
+                        row.static_flags2,
+                        row.static_flags3,
+                        row.static_flags4,
+                    ]
+                {
+                    return Err(NativeError::AuthorityBinding);
+                }
+            }
             if row.static_flags1 != 0 || row.static_flags3 != 0 || row.static_flags4 != 0
                 || row.extra_flags & !(FORCE_ATTACKING_CAPABILITY | NO_AGGRO_ON_SIGHT) != 0
                 || row.static_flags2 & !(IGNORE_FEIGN_DEATH | NO_CRUSHING_BLOWS | NO_WOUNDED_SLOWDOWN) != 0
@@ -245,6 +260,7 @@ impl Profile {
 pub(in crate::native) struct WorkingNpc<'a> {
     pub id: NpcId,
     pub health: u32,
+    pub generation: Option<&'a CreatureGenerationOwner>,
     pub ai: &'a ai::SoloCreatureAi,
     pub motion: &'a NpcMotion,
     pub events: &'a NpcEvents,
@@ -254,6 +270,7 @@ impl<'a> WorkingNpc<'a> {
         Ok(Self {
             id: npc.id,
             health: npc.health,
+            generation: npc.source_generation.as_ref(),
             ai: &npc.ai,
             events: &npc.events,
             motion: npc
@@ -281,6 +298,7 @@ impl<'a> WorkingNpc<'a> {
                     &(
                         self.id,
                         self.health,
+                        self.generation.map(CreatureGenerationOwner::checkpoint),
                         self.ai.checkpoint(),
                         self.motion.snapshot(),
                         self.events.snapshot(),

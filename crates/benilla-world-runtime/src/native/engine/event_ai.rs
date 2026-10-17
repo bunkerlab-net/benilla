@@ -142,7 +142,9 @@ impl<A: Authority> Frame<'_, A> {
                     .map_err(NativeError::EventAi)?;
                 receipt.broadcast_id = Some(selection.text_id);
                 receipt.text_slot = Some(selection.text_slot);
-                let request = EventAiAudienceRequest::from_callback(self.profile, &callback)?;
+                let projected = npc.effective_profile(self.profile)?;
+                let request =
+                    EventAiAudienceRequest::from_callback(self.profile, &callback, &projected)?;
                 let Facts::EventAiAudience(facts) = self.ask(
                     Some(npc.id),
                     Query::EventAiAudience(Box::new(request.clone())),
@@ -151,7 +153,14 @@ impl<A: Authority> Frame<'_, A> {
                     return Err(NativeError::AuthorityBinding);
                 };
                 if request.validate(&facts)? {
-                    let speech = EventAiState::speech(catalog, &callback, occurrence, selection)?;
+                    let speech = EventAiState::speech(
+                        catalog,
+                        &callback,
+                        occurrence,
+                        selection,
+                        npc.initialized_creature()
+                            .map(|selected| selected.model.gender),
+                    )?;
                     self.events
                         .push(Event::EventAiSpeech(Box::new(speech.clone())));
                     receipt.speech = Some(speech);

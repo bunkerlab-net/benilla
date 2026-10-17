@@ -6,6 +6,8 @@
 //! See ../../CREATURE-INIT.md for loader preprocessing, draw order and exclusions.
 mod model_receipt;
 mod numeric;
+#[cfg(test)]
+mod source_retention_tests;
 use crate::classic_spell::SpellFloat;
 use crate::npc_melee::{CreatureStatClass, DamageRange};
 pub use model_receipt::{
@@ -16,6 +18,8 @@ pub use model_receipt::{
 use std::collections::{BTreeMap, BTreeSet};
 pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v1";
 pub const REGEN_INTERVAL_MS: u32 = 5_000;
+/// Local resource limit for complete retained source rows, not a game-data rule.
+pub const MAX_CREATURE_INIT_SOURCE_ROWS: usize = 4_096;
 const MAX_AMOUNT: u32 = 1_000_000;
 pub type Result<T> = std::result::Result<T, InitError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,12 +38,18 @@ impl std::fmt::Display for InitError {
 impl std::error::Error for InitError {}
 /// Missing is not evidence for an empty query. A Complete collection is a typed
 /// input contract, not an authenticity/capture-completeness certificate.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Rows<T> {
     Missing,
     Complete(Vec<T>),
 }
 impl<T> Rows<T> {
+    fn retained_len(&self) -> usize {
+        match self {
+            Self::Missing => 0,
+            Self::Complete(rows) => rows.len(),
+        }
+    }
     fn require(&self, table: &'static str, id: u32) -> Result<&[T]> {
         match self {
             Self::Missing => Err(InitError::Missing { table, id }),
@@ -55,7 +65,7 @@ pub struct DisplayChoice {
 /// Relevant raw creature_template numeric fields, before loader preprocessing.
 /// The caller must retain/dispose every other captured field in its AI/lifecycle
 /// admission. This input intentionally cannot certify such admission.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Template {
     pub entry: u32,
     pub minimum_level: u8,
@@ -88,7 +98,7 @@ pub struct Template {
     pub unit_flags: u32,
     pub npc_flags: u32,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct LegacyStats {
     pub minimum_health: u32,
     pub maximum_health: u32,
@@ -102,7 +112,7 @@ pub struct LegacyStats {
 }
 /// Raw SQL classlevelstats. BaseMana/BaseArmor are NOT the loaded core values:
 /// ObjectMgr removes the native intellect/agility bonuses before SelectLevel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ClassLevelRow {
     pub class: u32,
     pub level: u8,
@@ -114,7 +124,7 @@ pub struct ClassLevelRow {
     pub base_damage: SpellFloat,
     pub attributes: [u32; 5],
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ModelRow {
     pub id: u32,
     pub bounding_radius: SpellFloat,
@@ -133,7 +143,7 @@ pub struct DisplayRow {
 }
 /// Actual effective creature_spawn_data_template row selected by LoadCreatures.
 /// Entry zero is a real default row, never synthesized by this module.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct SpawnTemplate {
     pub entry: u32,
     pub model_id: u32,
@@ -148,7 +158,7 @@ pub struct SpawnTemplate {
     pub string_id: u32,
 }
 /// Explicit effective world configuration; no Default implementation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Rates {
     pub normal_health: SpellFloat,
     pub normal_damage: SpellFloat,
@@ -173,7 +183,18 @@ pub enum ExternalFeature {
     EquipmentOrLootWeapon,
     EncounterCorpseOverride,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Complete typed source content, retaining raw fields and supplied row order.
+/// Serialization preserves Missing versus Complete, including an empty Complete.
+/// It is not source authenticity, completeness evidence or a live-generation token.
+/// Consumers must check retention bounds before cloning or serializing untrusted
+/// inputs, and prepare before using any derived values.
+///
+/// ```compile_fail
+/// use benilla_sim::creature_init::Input;
+/// fn transcript<T: for<'de> serde::Deserialize<'de>>() {}
+/// transcript::<Input>();
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Input {
     pub template: Template,
     pub class_levels: Rows<ClassLevelRow>,
@@ -185,20 +206,42 @@ pub struct Input {
     pub external_features: Rows<ExternalFeature>,
     pub rates: Rates,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+impl Input {
+    /// Constant-time aggregate row budget, checked before allocation or arithmetic
+    /// in prepare. Missing collections count as zero here, but remain Missing and
+    /// are rejected by prepare; this check alone does not validate source inputs.
+    pub fn validate_retention_bounds(&self) -> Result<()> {
+        let counts = [
+            self.class_levels.retained_len(),
+            self.models.retained_len(),
+            self.displays.retained_len(),
+            self.spawn_template.retained_len(),
+            self.external_features.retained_len(),
+        ];
+        let total = counts
+            .into_iter()
+            .try_fold(0usize, usize::checked_add)
+            .ok_or(InitError::Invalid("source retention row bound"))?;
+        if total > MAX_CREATURE_INIT_SOURCE_ROWS {
+            return Err(InitError::Invalid("source retention row bound"));
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum PowerType {
     Mana,
     Rage,
     Energy,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Resources {
     pub health: u32,
     pub max_health: u32,
     pub mana: u32,
     pub max_mana: u32,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Stats {
     pub create_attributes: [SpellFloat; 5],
     pub attributes: [u32; 5],
@@ -216,7 +259,7 @@ pub struct Stats {
     pub damage: DamageRange,
     pub resources: Resources,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Model {
     pub display_id: u32,
     pub gender: u8,
@@ -230,7 +273,14 @@ pub struct Model {
 }
 /// Arithmetic result only. Does not authorize spawning, replace an AI profile,
 /// decide hostility, supply a position, or certify local source dependencies.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Serialization binds all output values; it does not make this result immutable.
+///
+/// ```compile_fail
+/// use benilla_sim::creature_init::InitializedCreature;
+/// fn transcript<T: for<'de> serde::Deserialize<'de>>() {}
+/// transcript::<InitializedCreature>();
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct InitializedCreature {
     pub entry: u32,
     pub level: u8,
@@ -253,7 +303,7 @@ pub struct InitializedCreature {
 /// Semantic draws in exact source order: model, conditional gender, conditional
 /// level. A single eligible model STILL consumes irand(0, probability_sum-1).
 /// Equal template levels consume no level draw. None and singleton are distinct.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct SelectionRolls {
     pub model: Option<u32>,
     pub gender: Option<u32>,
@@ -405,6 +455,7 @@ fn stat_class(class: u32) -> Result<CreatureStatClass> {
 }
 /// Reject unknown dependencies and unimplemented source branches before any RNG.
 pub fn prepare(input: &Input) -> Result<Plan<'_>> {
+    input.validate_retention_bounds()?;
     let t = &input.template;
     if t.entry == 0
         || !(1..=20).contains(&t.minimum_level)
@@ -585,7 +636,7 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
 }
 /// Live state for this module's OUT-OF-COMBAT regeneration subset. Persist the
 /// accumulator; source performs at most one tick per Update, even for large diff.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct RegenState {
     pub elapsed_ms: u32,
     pub health: u32,
@@ -633,14 +684,14 @@ pub fn regenerate_out_of_combat(
 
 /// Captured creature respawn range plus actual allocated source identities. The
 /// source uses dbGuid != runtime GUID low to select the new spawning system.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct SpawnTimingInputs {
     pub database_guid: u32,
     pub runtime_guid_low: u32,
     pub minimum_respawn_seconds: u32,
     pub maximum_respawn_seconds: u32,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct SpawnTiming {
     pub respawn_delay_seconds: u32,
     pub corpse_delay_seconds: u32,

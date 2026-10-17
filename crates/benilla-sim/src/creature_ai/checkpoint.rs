@@ -2,11 +2,14 @@
 //! Checked AI checkpoints, separate from live non-deserializable authority state.
 use super::*;
 use serde::{Deserialize, Serialize};
-pub const AI_CHECKPOINT_VERSION: u32 = 5;
+pub const AI_CHECKPOINT_VERSION: u32 = 6;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiCheckpoint {
     version: u32,
+    profile: Profile,
+    #[serde(deserialize_with = "generation::required_option")]
+    generation_lifecycle: Option<GenerationLifecycle>,
     phase: Phase,
     position: Point,
     combat_start: Point,
@@ -22,6 +25,7 @@ pub struct AiCheckpoint {
     command_id: u64,
     motion: Option<MotionCommand>,
     mainhand_ms: u32,
+    mainhand_timer_limit_ms: u32,
     pursuit_ms: u32,
     combat_tick_ms: u32,
     unreachable_ms: u32,
@@ -38,6 +42,8 @@ impl SoloCreatureAi {
     pub fn checkpoint(&self) -> AiCheckpoint {
         AiCheckpoint {
             version: AI_CHECKPOINT_VERSION,
+            profile: self.profile.clone(),
+            generation_lifecycle: self.generation_lifecycle.clone(),
             phase: self.phase,
             position: self.position,
             combat_start: self.combat_start,
@@ -53,6 +59,7 @@ impl SoloCreatureAi {
             command_id: self.command_id,
             motion: self.motion.clone(),
             mainhand_ms: self.mainhand_ms,
+            mainhand_timer_limit_ms: self.mainhand_timer_limit_ms,
             pursuit_ms: self.pursuit_ms,
             combat_tick_ms: self.combat_tick_ms,
             unreachable_ms: self.unreachable_ms,
@@ -73,12 +80,39 @@ impl SoloCreatureAi {
         sequence: u64,
         solo_target: u64,
     ) -> Result<Self, AiError> {
+        Self::restore_inner(s, profile, now_ms, sequence, solo_target, None)
+    }
+    /// Restore only after the native owner authenticated this exact generation
+    /// and projected its current per-life corpse and most recent death delay.
+    pub fn restore_generation_owned(
+        s: AiCheckpoint,
+        profile: Profile,
+        now_ms: u64,
+        sequence: u64,
+        solo_target: u64,
+        generation: u64,
+    ) -> Result<Self, AiError> {
+        Self::restore_inner(s, profile, now_ms, sequence, solo_target, Some(generation))
+    }
+    fn restore_inner(
+        s: AiCheckpoint,
+        profile: Profile,
+        now_ms: u64,
+        sequence: u64,
+        solo_target: u64,
+        generation: Option<u64>,
+    ) -> Result<Self, AiError> {
         profile.validate()?;
         for point in [s.position, s.combat_start, s.last_refresh] {
             point.validate()?;
         }
         s.hostile_references.validate(solo_target)?;
-        if s.pending_receipts.is_some()
+        if s.profile != profile
+            || s.generation_lifecycle.as_ref().map(|s| s.generation) != generation
+            || s.generation_lifecycle
+                .as_ref()
+                .is_some_and(|s| s.pending_respawn.is_some())
+            || s.pending_receipts.is_some()
             || s.victim_detached_at_ms.is_some_and(|at| {
                 at != now_ms
                     || s.phase != Phase::Combat
@@ -91,7 +125,10 @@ impl SoloCreatureAi {
             || now_ms < profile.clock_origin_ms
             || solo_target == 0
             || s.target.is_some_and(|t| t != solo_target)
-            || s.mainhand_ms > profile.mainhand_interval_ms.max(100)
+            || !(100..=60_000).contains(&s.mainhand_timer_limit_ms)
+            || (generation.is_none_or(|generation| generation == 0)
+                && s.mainhand_timer_limit_ms != profile.mainhand_interval_ms.max(100))
+            || s.mainhand_ms > s.mainhand_timer_limit_ms
             || s.pursuit_ms > profile.pursuit_ms
             || s.unreachable_ms > UNREACHABLE_MS
             || s.combat_tick_ms > 60_000u32.saturating_add(COMBAT_TICK_MS)
@@ -183,6 +220,7 @@ impl SoloCreatureAi {
         }
         Ok(Self {
             profile,
+            generation_lifecycle: s.generation_lifecycle,
             phase: s.phase,
             position: s.position,
             combat_start: s.combat_start,
@@ -198,6 +236,7 @@ impl SoloCreatureAi {
             command_id: s.command_id,
             motion: s.motion,
             mainhand_ms: s.mainhand_ms,
+            mainhand_timer_limit_ms: s.mainhand_timer_limit_ms,
             pursuit_ms: s.pursuit_ms,
             combat_tick_ms: s.combat_tick_ms,
             unreachable_ms: s.unreachable_ms,
@@ -213,6 +252,7 @@ impl SoloCreatureAi {
     }
     /// Additional invariants of a continuously updated fixed-step world adapter.
     pub fn validate_fixed_step(&self, tick_ms: u32) -> Result<(), AiError> {
+        self.require_finished_generation()?;
         if tick_ms == 0
             || !(self.now_ms - self.profile.clock_origin_ms).is_multiple_of(u64::from(tick_ms))
         {

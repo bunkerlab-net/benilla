@@ -52,11 +52,11 @@ fn event_draws(world: &NativeWorld) -> Vec<&Draw> {
 fn rehashed(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v37\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v38\0", &state);
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["digest"] = serde_json::to_value(digest).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v37\0",
+        b"benilla-native-checkpoint-v38\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -579,7 +579,7 @@ fn late_journal_limit_and_corrupt_rng_counter_publish_no_partial_callback() {
         step(&mut world, &mut fixture::Authority::default()).unwrap();
         let clean = world.clone();
         if corrupt_counter {
-            // Native37 rejects a counter outside its checked genesis/tick budget
+            // Native38 rejects a counter outside its checked genesis/tick budget
             // before callbacks; the sampler separately tests atomic overflow.
             world.state.rng_counter = u64::MAX - 1;
         } else {
@@ -659,7 +659,7 @@ fn entry_then_guid_holders_are_contiguous_and_rehashed_counter_gaps_reject() {
     action.broadcast_id = Some(selection.text_id);
     action.text_slot = Some(selection.text_slot);
     action.speech =
-        Some(EventAiState::speech(selected, &e.callback, e.occurrence, selection).unwrap());
+        Some(EventAiState::speech(selected, &e.callback, e.occurrence, selection, None).unwrap());
     let mut anchor = EventAiCallbackAnchor::default();
     anchor.append(e).unwrap();
     world.state.npcs.get_mut(&2).unwrap().events.event_ai_anchor = Some(anchor);

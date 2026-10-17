@@ -376,6 +376,42 @@ impl InteractionCatalog {
                 ));
             }
             let source = &self.npcs[&npc.entry];
+            if let Some(catalog) = &profile.creature_generations {
+                let generation = catalog
+                    .source(npc.ai.creature_id)
+                    .ok_or(NativeError::InvalidProfile)?;
+                let template = &generation.input.template;
+                let benilla_sim::creature_init::Rows::Complete(rows) =
+                    &generation.input.spawn_template
+                else {
+                    return Err(NativeError::InvalidProfile);
+                };
+                let [spawn] = rows.as_slice() else {
+                    return Err(NativeError::InvalidProfile);
+                };
+                let faction = if spawn.faction == 0 {
+                    template.faction
+                } else {
+                    spawn.faction
+                };
+                let unit_flags = if spawn.unit_flags == -1 {
+                    template.unit_flags
+                } else {
+                    u32::try_from(spawn.unit_flags).map_err(|_| NativeError::InvalidProfile)?
+                };
+                let npc_flags = if spawn.npc_flags == -1 {
+                    template.npc_flags
+                } else {
+                    u32::try_from(spawn.npc_flags).map_err(|_| NativeError::InvalidProfile)?
+                };
+                if source.faction_template != faction
+                    || source.unit_flags != unit_flags
+                    || source.npc_flags != npc_flags
+                    || source.creature_type_flags != template.type_flags
+                {
+                    return Err(NativeError::AuthorityBinding);
+                }
+            }
             if source.faction_template != npc.faction_template
                 || source.unit_flags != npc.health_regeneration.unit_flags
                 || source.creature_type_flags != npc.health_regeneration.creature_type_flags

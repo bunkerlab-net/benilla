@@ -39,9 +39,23 @@ pub(super) fn project(
     if source.text_ids().get(usize::from(speech.text_slot)) != Some(&broadcast) {
         return Err(Error::StaleProjection);
     }
-    let localized = catalog
-        .localized(callback.npc.spawn, broadcast, speech.locale)
-        .map_err(|_| Error::StaleProjection)?;
+    let localized = if world.profile().creature_generations.is_some() {
+        let selected = world
+            .state()
+            .npcs
+            .get(&callback.npc.spawn)
+            .and_then(|npc| npc.historical_initialized_creature(callback.npc))
+            .ok_or(Error::StaleProjection)?;
+        catalog.localized_for_gender(
+            callback.npc.spawn,
+            broadcast,
+            speech.locale,
+            selected.model.gender,
+        )
+    } else {
+        catalog.localized(callback.npc.spawn, broadcast, speech.locale)
+    }
+    .map_err(|_| Error::StaleProjection)?;
     if localized.speaker_name != speech.speaker_name
         || localized.text != speech.text
         || localized.language != speech.language

@@ -450,8 +450,8 @@ fn pre_receipt_native28_checkpoint_record_and_replay_are_rejected() {
     assert!(decode_records(&encode_records(&records).unwrap()).is_err());
     let mut replay = world(w.profile().clone());
     assert!(replay.replay(&records).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 37);
-    assert_eq!(NATIVE_POLICY, "benilla-native-initial-cast-genesis-v37");
+    assert_eq!(NATIVE_FORMAT_VERSION, 38);
+    assert_eq!(NATIVE_POLICY, "benilla-native-creature-generation-v38");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 

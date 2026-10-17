@@ -25,10 +25,7 @@ impl<A: Authority> Frame<'_, A> {
         }) else {
             return Ok(Some(Rejection::UnknownTarget));
         };
-        let profile = self
-            .profile
-            .npc(giver.spawn)
-            .ok_or(NativeError::InvalidState)?;
+        let profile = npc.effective_profile(self.profile)?;
         let (npc_flags, unit_flags) =
             match interactions::current_npc_flags(self.profile, self.state, npc) {
                 Ok(flags) => flags,
@@ -329,10 +326,7 @@ impl<A: Authority> Frame<'_, A> {
             return Err(NativeError::InvalidState);
         }
         self.sync_quest_progression()?;
-        let profile = self
-            .profile
-            .npc(id.spawn)
-            .ok_or(NativeError::InvalidState)?;
+        let profile = self.state.npcs[&id.spawn].effective_profile(self.profile)?;
         let (next, events) = self
             .state
             .quest_progression
@@ -345,7 +339,7 @@ impl<A: Authority> Frame<'_, A> {
                     .as_ref()
                     .ok_or(NativeError::InvalidState)?,
                 self.state.world,
-                profile,
+                &profile,
                 id,
             )?;
         self.commit_quest_progression(next)?;

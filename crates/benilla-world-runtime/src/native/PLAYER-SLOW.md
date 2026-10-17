@@ -111,7 +111,7 @@ A crash after saving reconstructs state, not historical notifications.
 
 ## Persistence and evidence limits
 
-Experimental native format 37 and the player-slow policy bind this state and the
+Experimental native format 38 and the player-slow policy bind this state and the
 numeric policy. Prior native formats are rejected without replacing/deleting
 current or previous files. Character/profile files and OriginalFixture World 2
 are unchanged. Runtime, client, store, geometry and the actual controller source

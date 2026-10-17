@@ -115,9 +115,28 @@ impl NativeProjection {
         if !catalog.contains_map(w.profile().map_id) {
             return Err(Error::UnboundMap(w.profile().map_id));
         }
-        for npc in &w.profile().npcs {
-            if !catalog.contains_creature_display(npc.display_id) {
-                return Err(Error::UnboundCreatureDisplay(npc.entry));
+        for npc in w.state().npcs.values() {
+            let projected = npc
+                .effective_profile(w.profile())
+                .map_err(|_| Error::Unrepresentable)?;
+            if !catalog.contains_creature_display(projected.display_id) {
+                return Err(Error::UnboundCreatureDisplay(projected.entry));
+            }
+            if let Some(generations) = &w.profile().creature_generations {
+                let source = generations
+                    .source(npc.id.spawn)
+                    .ok_or(Error::Unrepresentable)?;
+                let benilla_sim::creature_init::Rows::Complete(displays) = &source.input.displays
+                else {
+                    return Err(Error::Unrepresentable);
+                };
+                // The source plan retains every potentially selected template/gender display.
+                if displays
+                    .iter()
+                    .any(|display| !catalog.contains_creature_display(display.id))
+                {
+                    return Err(Error::UnboundCreatureDisplay(projected.entry));
+                }
             }
         }
         for a in w.abilities() {
@@ -458,7 +477,9 @@ impl NativeProjection {
         Ok(events)
     }
     fn npc_fields(&self, w: &n::NativeWorld, npc: &n::Npc) -> Result<ObjectFields, Error> {
-        let profile = w.profile().npc(npc.id.spawn).ok_or(Error::UnknownTarget)?;
+        let profile = npc
+            .effective_profile(w.profile())
+            .map_err(|_| Error::Unrepresentable)?;
         if npc.auras.len() > 16 {
             return Err(Error::Unrepresentable);
         }
@@ -492,11 +513,71 @@ impl NativeProjection {
                 ),
             ),
         ];
+        if let Some(selected) = npc.initialized_creature() {
+            let source = w
+                .profile()
+                .creature_generations
+                .as_ref()
+                .and_then(|catalog| catalog.source(npc.id.spawn))
+                .ok_or(Error::Unrepresentable)?;
+            let (power, current, maximum) = match selected.power_type {
+                benilla_sim::creature_init::PowerType::Mana => (
+                    0u8,
+                    selected.stats.resources.mana,
+                    selected.stats.resources.max_mana,
+                ),
+                benilla_sim::creature_init::PowerType::Rage => (1, 0, 0),
+                benilla_sim::creature_init::PowerType::Energy => (3, 0, 0),
+            };
+            // The selected runtime power closure proves no unowned power mutation.
+            pairs.extend([
+                (4, selected.model.scale.bits()),
+                (23 + u16::from(power), current),
+                (29 + u16::from(power), maximum),
+                (
+                    36,
+                    (source.input.template.unit_class << 8)
+                        | (u32::from(selected.model.gender) << 16)
+                        | (u32::from(power) << 24),
+                ),
+                (
+                    46,
+                    selected.unit_flags
+                        | if npc.ai.phase() == ai::Phase::Combat {
+                            0x80000
+                        } else {
+                            0
+                        },
+                ),
+                (126, selected.mainhand_interval_ms),
+                (127, selected.mainhand_interval_ms),
+                (
+                    147,
+                    if npc.health == 0 {
+                        0
+                    } else {
+                        selected.npc_flags
+                    },
+                ),
+                (134, selected.stats.damage.minimum.bits()),
+                (135, selected.stats.damage.maximum.bits()),
+                (162, selected.stats.create_mana),
+                (163, selected.stats.create_health),
+                (165, selected.stats.damage.attack_power),
+            ]);
+            for (i, value) in selected.stats.attributes.iter().enumerate() {
+                pairs.push((150 + i as u16, *value));
+            }
+            for (i, value) in selected.stats.resistances.iter().enumerate() {
+                pairs.push((155 + i as u16, *value as u32));
+            }
+        }
         if let Some(flags) = w
             .profile()
             .quest_progression
             .as_ref()
             .and_then(|g| g.npc_flags(profile.entry))
+            .filter(|_| npc.initialized_creature().is_none())
         {
             // Creature::SetDeathState clears NPC flags on death and restores
             // the template on revival.
@@ -527,24 +608,35 @@ impl NativeProjection {
         Ok(ObjectFields::from_pairs(&pairs))
     }
     fn create(&self, w: &n::NativeWorld, npc: &n::Npc) -> Result<Vec<SessionEvent>, Error> {
-        let profile = w.profile().npc(npc.id.spawn).ok_or(Error::UnknownTarget)?;
+        let profile = npc
+            .effective_profile(w.profile())
+            .map_err(|_| Error::Unrepresentable)?;
         let guid = npc_guid(w, npc.id)?;
+        let scale = npc
+            .initialized_creature()
+            .map_or(1.0, |selected| f32::from_bits(selected.model.scale.bits()));
         let mut fields = self.npc_fields(w, npc)?;
         fields.merge(ObjectFields::from_pairs(&[
             (0, guid as u32),
             (1, (guid >> 32) as u32),
             (2, 9),
-            (4, 1f32.to_bits()),
+            (4, scale.to_bits()),
         ]));
+        let selected_template = w
+            .profile()
+            .creature_generations
+            .as_ref()
+            .and_then(|catalog| catalog.source(npc.id.spawn))
+            .map(|source| &source.input.template);
         Ok(vec![
             SessionEvent::CreatureName {
                 entry: profile.entry,
                 name: Some(crate::plain_ui_text(&profile.name)),
                 subname: None,
-                creature_type: None,
+                creature_type: selected_template.map(|template| template.creature_type),
                 pet_family: 0,
-                rank: 0,
-                type_flags: 0,
+                rank: selected_template.map_or(0, |template| template.rank),
+                type_flags: selected_template.map_or(0, |template| template.type_flags),
                 display_id: profile.display_id,
                 civilian: false,
                 racial_leader: false,
@@ -562,7 +654,7 @@ impl NativeProjection {
                     .source_motion
                     .as_ref()
                     .map_or(0.0, |source| source.motion.pose().orientation.as_f32()),
-                scale: 1.0,
+                scale,
                 speeds: None,
                 mover: None,
                 transport_progress: None,
@@ -1211,32 +1303,36 @@ mod tests {
     }
 
     #[test]
-    fn native37_projection_rejects_native36_previous_digest_without_advancing() {
-        use sha2::{Digest as _, Sha256};
-        let mut world = world();
-        let mut projection = NativeProjection::new(&world, world.state().player, &Catalog).unwrap();
-        let checkpoint = String::from_utf8(world.checkpoint().unwrap().encode().unwrap()).unwrap();
-        let start = checkpoint.find("\"state\":").unwrap() + "\"state\":".len();
-        let end = checkpoint.rfind(",\"digest\":").unwrap();
-        let mut hash = Sha256::new();
-        hash.update(b"benilla-native-state-v36\0");
-        hash.update(&checkpoint.as_bytes()[start..end]);
-        let old: Digest = hash.finalize().into();
-        let current = projection.previous_digest;
-        assert_ne!(old, current);
-        projection.previous_digest = old;
-        world
-            .step(1, None, &mut SyntheticAuthority::default())
-            .unwrap();
-        assert!(matches!(
-            projection.advance(&world),
-            Err(Error::StaleProjection)
-        ));
-        assert_eq!(projection.previous.tick, 0);
-        assert_eq!(projection.previous_digest, old);
-        projection.previous_digest = current;
-        projection.advance(&world).unwrap();
-        assert_eq!(projection.previous_digest, world.state_digest());
+    fn native38_projection_rejects_previous_native_digests_without_advancing() {
+        for version in [36, 37] {
+            use sha2::{Digest as _, Sha256};
+            let mut world = world();
+            let mut projection =
+                NativeProjection::new(&world, world.state().player, &Catalog).unwrap();
+            let checkpoint =
+                String::from_utf8(world.checkpoint().unwrap().encode().unwrap()).unwrap();
+            let start = checkpoint.find("\"state\":").unwrap() + "\"state\":".len();
+            let end = checkpoint.rfind(",\"digest\":").unwrap();
+            let mut hash = Sha256::new();
+            hash.update(format!("benilla-native-state-v{version}\0").as_bytes());
+            hash.update(&checkpoint.as_bytes()[start..end]);
+            let old: Digest = hash.finalize().into();
+            let current = projection.previous_digest;
+            assert_ne!(old, current);
+            projection.previous_digest = old;
+            world
+                .step(1, None, &mut SyntheticAuthority::default())
+                .unwrap();
+            assert!(matches!(
+                projection.advance(&world),
+                Err(Error::StaleProjection)
+            ));
+            assert_eq!(projection.previous.tick, 0);
+            assert_eq!(projection.previous_digest, old);
+            projection.previous_digest = current;
+            projection.advance(&world).unwrap();
+            assert_eq!(projection.previous_digest, world.state_digest());
+        }
     }
 
     #[test]
@@ -1776,3 +1872,7 @@ mod cast_tests;
 #[cfg(test)]
 #[path = "native_level_sixty_tests.rs"]
 mod level_sixty_tests;
+
+#[cfg(test)]
+#[path = "native_creature_generation_tests.rs"]
+mod creature_generation_tests;

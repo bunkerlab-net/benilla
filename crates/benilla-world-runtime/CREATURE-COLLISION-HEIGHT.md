@@ -11,7 +11,7 @@ There is no second caller-supplied model projection, free scalar constructor or
 Deserialize implementation for the height source/catalog. The width constructor
 captures strict `CreatureCatalog::collision_height_row` field-15 bits alongside
 field 14, verifying identical display/model identities and both DBC scale bit
-patterns. Width source policy/binding v2 and repeated model/display consistency
+patterns. Width source policy/binding v3 and repeated model/display consistency
 include those raw height bits. Capturing height as `u32` never validates or
 sanitizes it in width-only mode; malformed height does not change width's admitted
 numeric domain. Width arithmetic policy remains unchanged.
@@ -34,8 +34,9 @@ catalog cannot silently keep or refresh a mismatched height catalog. Repeating
 height initialization for the same source is idempotent; an existing mismatched
 catalog or independently edited bound motion scalar is rejected.
 
-The runtime owns an optional generation-zero height witness per NPC and freezes
-it onto every typed Route. `CreatureRouteRequest::require_collision_height`
+The runtime owns an optional current-life height witness per NPC and freezes
+it onto every typed Route. Legacy profiles without generation ownership remain
+generation-zero-only. `CreatureRouteRequest::require_collision_height`
 validates the complete profile digest, owner generation, spawn/map/content/geometry,
 height source and its accompanying width witness, selected model/object scale,
 request owner position and exact request/profile collision-height scalars. A
@@ -43,20 +44,24 @@ serialized witness is untrusted transcript data and does not prove current
 liveness. Replay compares the request built by the runtime; checkpoint restoration
 reconstructs the expected source-bound ownership.
 
-Respawn reruns source InitEntry/model selection. Until that later-life selection
-is implemented, respawn clears both initial width and height ownership. Later
-NPC generations cannot reuse or relabel generation-zero height. Height-independent
-routes continue with explicit `None`.
+With a [creature generation owner](CREATURE-GENERATION.md), respawn rederives
+both dimensions from the new selected receipt and retained loaded rows. Height
+policy v2 binds the same compact creation evidence as width. All reachable height
+products must satisfy the ground-motion domain before draws, including finite
+nonnegative values. Current runtime/restore checks compare actual generation
+ownership, and retained spline height is checked against that life. Without the
+new owner, respawn still clears both dimensions. Height-independent routes retain
+explicit `None`.
 
-Native format **37**, policy `benilla-native-initial-cast-genesis-v37`, retains
+Native format **38**, policy `benilla-native-creature-generation-v38`, retains
 optional profile height catalog, checkpoint `source_collision_height`, and typed
 Route `collision_height`. Every serialized optional field must exist, using
 explicit null for absence. Profile/state/record/checkpoint/melee digest domains
-are v37; native36 and every earlier experimental format are rejected without
+are v38; native37 and every earlier experimental format are rejected without
 migration defaults. OriginalFixture v2 and character/profile transports are
 unchanged. Native admission remains uninhabited.
 
-This path owns initial NPC height only. Current forms/mounts/scales, cached player
+This path owns initial and source-owned respawn NPC height. Current forms/mounts/scales, cached player
 water state, Chase vertical-gate provenance, full Route production and a
 private artifact compiler are not supplied. Runtime/controller tests use authored
 Plan inputs and MPQ/DBC bytes through the real loader; they establish the bounded

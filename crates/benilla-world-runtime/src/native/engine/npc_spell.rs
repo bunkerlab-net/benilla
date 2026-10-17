@@ -33,12 +33,7 @@ impl<A: Authority> Frame<'_, A> {
             target_position: self.state.position,
             caster_health: npc.health,
             target_health: self.state.health,
-            caster_level: self
-                .profile
-                .npc(caster.spawn)
-                .ok_or(NativeError::InvalidState)?
-                .ai
-                .level,
+            caster_level: npc.effective_profile(self.profile)?.ai.level,
             target_level: self.state.level(self.profile),
         })
     }
@@ -173,7 +168,7 @@ impl<A: Authority> Frame<'_, A> {
             .ok_or(NativeError::InvalidState)?;
         let recipe = genesis.triggered_recipe(
             trigger.spell_id,
-            self.profile.npc(caster.spawn).unwrap().ai.level,
+            npc.effective_profile(self.profile)?.ai.level,
         )?;
         let lifetime = self
             .state

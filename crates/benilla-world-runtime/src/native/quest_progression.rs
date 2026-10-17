@@ -455,6 +455,37 @@ impl QuestProgressionGenesis {
             &combat.initialized_projection(self.training.input())?,
             &combat,
         )?;
+        if let Some(catalog) = &profile.creature_generations {
+            for npc in &profile.npcs {
+                let Some(row) = self.npc_rows.get(&npc.entry) else {
+                    continue;
+                };
+                let source = catalog
+                    .source(npc.ai.creature_id)
+                    .ok_or(NativeError::AuthorityBinding)?;
+                let benilla_sim::creature_init::Rows::Complete(spawns) =
+                    &source.input.spawn_template
+                else {
+                    return Err(NativeError::AuthorityBinding);
+                };
+                let [spawn] = spawns.as_slice() else {
+                    return Err(NativeError::AuthorityBinding);
+                };
+                let unit_flags = if spawn.unit_flags == -1 {
+                    source.input.template.unit_flags
+                } else {
+                    u32::try_from(spawn.unit_flags).map_err(|_| NativeError::AuthorityBinding)?
+                };
+                let npc_flags = if spawn.npc_flags == -1 {
+                    source.input.template.npc_flags
+                } else {
+                    u32::try_from(spawn.npc_flags).map_err(|_| NativeError::AuthorityBinding)?
+                };
+                if row.unit_flags != unit_flags || row.npc_flags != npc_flags {
+                    return Err(NativeError::AuthorityBinding);
+                }
+            }
+        }
         self.kill.validate(profile, self.loot.is_some())
     }
     pub(in crate::native) fn initial_training_source_identity(&self) -> [u8; 32] {

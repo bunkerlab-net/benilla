@@ -8,6 +8,21 @@ pub const RNG_POLICY: &str = "benilla-native-sha256-counter-le64-rejection-fract
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum DrawPurpose {
+    CreatureModel {
+        npc: crate::NpcId,
+    },
+    CreatureGender {
+        npc: crate::NpcId,
+    },
+    CreatureLevel {
+        npc: crate::NpcId,
+    },
+    CreatureInitialRespawnDelay {
+        npc: crate::NpcId,
+    },
+    CreatureDeathRespawnDelay {
+        npc: crate::NpcId,
+    },
     EventAiChance {
         npc: crate::NpcId,
         event_id: u32,

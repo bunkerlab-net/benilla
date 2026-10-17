@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, Creature.cpp
 // InitEntry/Respawn and Unit.cpp GetCollisionHeight. Upstream GPL-2.0-or-later.
-//! Initial NPC height ownership; player height and production admission remain unproven.
+//! Per-life NPC height ownership; player height and production admission remain separate.
 use super::*;
 use benilla_sim::creature_init::{self as source, InitialCollisionHeight};
 use serde::{Deserialize, Serialize};
 
 pub const CREATURE_COLLISION_HEIGHT_POLICY: &str =
-    "cmangos-8ec338a1-native-initial-model-height-v1";
+    "cmangos-8ec338a1-native-generation-model-height-v2";
 
 /// Derived only from the same retained initializer/DBC source that owns width.
 /// No public constructor or Deserialize can substitute a second model projection.
@@ -40,7 +40,7 @@ impl CreatureCollisionHeightSource {
     }
     fn binding(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-initial-model-height-source-v1\0",
+            b"benilla-generation-model-height-source-v2\0",
             &(CREATURE_COLLISION_HEIGHT_POLICY, self),
         )
     }
@@ -94,9 +94,24 @@ impl CreatureCollisionHeightCatalog {
             let row = self
                 .source(npc.ai.creature_id)
                 .ok_or(NativeError::InvalidProfile)?;
-            if row.initial_height.policy() != source::CREATURE_COLLISION_HEIGHT_POLICY_ID
-                || motion.npc_policy.settings.collision_height.bits()
-                    != row.initial_height.height().bits()
+            if row.initial_height.policy() != source::CREATURE_COLLISION_HEIGHT_POLICY_ID {
+                return Err(NativeError::InvalidProfile);
+            }
+            if profile.creature_generations.is_some() {
+                let width = profile
+                    .creature_collision_widths
+                    .as_ref()
+                    .and_then(|catalog| catalog.source(npc.ai.creature_id))
+                    .ok_or(NativeError::InvalidProfile)?;
+                for selection in width.generation_selections(profile)? {
+                    let height = width.selected_height(&selection)?;
+                    // Source arithmetic permits negatives; GroundSettings does not.
+                    if f32::from_bits(height.height().bits()) < 0.0 {
+                        return Err(NativeError::InvalidProfile);
+                    }
+                }
+            } else if motion.npc_policy.settings.collision_height.bits()
+                != row.initial_height.height().bits()
             {
                 return Err(NativeError::InvalidProfile);
             }
@@ -153,6 +168,8 @@ pub struct CreatureCollisionHeightWitness {
     object_scale: spell::SpellFloat,
     raw_height: spell::SpellFloat,
     height: spell::SpellFloat,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    generation_selection: Option<creature_collision_width::GenerationModelSelection>,
 }
 impl CreatureCollisionHeightWitness {
     pub fn npc(&self) -> crate::NpcId {
@@ -181,9 +198,17 @@ impl CreatureCollisionHeightWitness {
     }
     pub fn validate_for(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
         profile.validate()?;
-        let expected = CreatureCollisionHeightState::new(profile, npc)?.ok_or(
-            NativeError::AuthorityUnavailable("current creature model height selection receipt"),
-        )?;
+        let expected = match &self.generation_selection {
+            Some(selection) => CreatureCollisionHeightState::from_generation_selection(
+                profile,
+                npc,
+                selection.clone(),
+            )?,
+            None => CreatureCollisionHeightState::new(profile, npc)?,
+        }
+        .ok_or(NativeError::AuthorityUnavailable(
+            "current creature model height selection receipt",
+        ))?;
         if self != expected.witness() {
             return Err(NativeError::AuthorityBinding);
         }
@@ -205,6 +230,11 @@ impl CreatureCollisionHeightState {
         &self.witness
     }
     pub(super) fn new(profile: &Profile, npc: crate::NpcId) -> Result<Option<Self>, NativeError> {
+        if profile.creature_generations.is_some() {
+            return Err(NativeError::AuthorityUnavailable(
+                "current creature generation height owner",
+            ));
+        }
         // Respawn reruns InitEntry; an initial selection is never a later-life receipt.
         if npc.generation != 0 {
             return Ok(None);
@@ -227,8 +257,76 @@ impl CreatureCollisionHeightState {
                 object_scale: value.object_scale(),
                 raw_height: value.raw_height(),
                 height: value.height(),
+                generation_selection: None,
             },
         }))
+    }
+    pub(super) fn new_generation(
+        profile: &Profile,
+        npc: crate::NpcId,
+        owner: &CreatureGenerationOwner,
+    ) -> Result<Option<Self>, NativeError> {
+        let width = CreatureCollisionWidthState::new_generation(profile, npc, owner)?;
+        let Some(_) = &profile.creature_collision_heights else {
+            return Ok(None);
+        };
+        let evidence = width
+            .as_ref()
+            .and_then(|width| width.witness().generation_selection())
+            .ok_or(NativeError::AuthorityBinding)?
+            .clone();
+        Self::from_generation_selection(profile, npc, evidence)
+    }
+    fn from_generation_selection(
+        profile: &Profile,
+        npc: crate::NpcId,
+        evidence: creature_collision_width::GenerationModelSelection,
+    ) -> Result<Option<Self>, NativeError> {
+        let selection = evidence.selection(profile, npc)?;
+        let Some(catalog) = &profile.creature_collision_heights else {
+            return Ok(None);
+        };
+        catalog.validate(profile)?;
+        let row = catalog.source(npc.spawn).ok_or(NativeError::InvalidState)?;
+        let width_row = profile
+            .creature_collision_widths
+            .as_ref()
+            .and_then(|catalog| catalog.source(npc.spawn))
+            .ok_or(NativeError::InvalidState)?;
+        let value = width_row.selected_height(&selection)?;
+        let width_binding = crate::digest(
+            b"benilla-generation-model-width-owner-v1\0",
+            &(width_row.binding(), &evidence),
+        );
+        Ok(Some(Self {
+            witness: CreatureCollisionHeightWitness {
+                npc,
+                content: profile.content_digest,
+                profile: profile.digest(),
+                source_binding: crate::digest(
+                    b"benilla-generation-model-height-owner-v1\0",
+                    &(row.binding(), &evidence),
+                ),
+                width_source_binding: width_binding,
+                native_display_id: value.native_display_id(),
+                model_id: value.model_id(),
+                object_scale: value.object_scale(),
+                raw_height: value.raw_height(),
+                height: value.height(),
+                generation_selection: Some(evidence),
+            },
+        }))
+    }
+    pub(super) fn validate_generation_optional(
+        state: Option<&Self>,
+        profile: &Profile,
+        npc: crate::NpcId,
+        owner: &CreatureGenerationOwner,
+    ) -> Result<(), NativeError> {
+        if state != Self::new_generation(profile, npc, owner)?.as_ref() {
+            return Err(NativeError::InvalidState);
+        }
+        Ok(())
     }
     pub(super) fn validate_optional(
         state: Option<&Self>,
@@ -256,6 +354,20 @@ impl CreatureCollisionHeightState {
             .map_err(|_| NativeError::InvalidCheckpoint)?;
         Ok(state)
     }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn restore_generation(
+        snapshot: Option<CreatureCollisionHeightSnapshot>,
+        profile: &Profile,
+        npc: crate::NpcId,
+        owner: &CreatureGenerationOwner,
+    ) -> Result<Option<Self>, NativeError> {
+        let state = snapshot.map(|snapshot| Self {
+            witness: snapshot.witness,
+        });
+        Self::validate_generation_optional(state.as_ref(), profile, npc, owner)
+            .map_err(|_| NativeError::InvalidCheckpoint)?;
+        Ok(state)
+    }
 }
 impl Npc {
     pub fn creature_collision_height(&self) -> Option<&CreatureCollisionHeightState> {
@@ -279,18 +391,20 @@ impl CreatureRouteRequest {
             ))?;
         height.validate_for(profile, self.owner.npc())?;
         if height.width_source_binding != width.source_binding()
+            || height.generation_selection.as_ref() != width.generation_selection()
             || height.native_display_id != width.native_display_id()
             || height.model_id != width.model_id()
             || height.object_scale != width.object_scale()
             || height.height.bits() != self.request.owner_collision_height.bits()
-            || profile
-                .npc_motion(self.owner.npc().spawn)
-                .map_err(|_| NativeError::AuthorityBinding)?
-                .npc_policy
-                .settings
-                .collision_height
-                .bits()
-                != height.height.bits()
+            || (height.generation_selection.is_none()
+                && profile
+                    .npc_motion(self.owner.npc().spawn)
+                    .map_err(|_| NativeError::AuthorityBinding)?
+                    .npc_policy
+                    .settings
+                    .collision_height
+                    .bits()
+                    != height.height.bits())
             || self.owner_position != self.request.origin
         {
             return Err(NativeError::AuthorityBinding);

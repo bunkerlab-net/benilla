@@ -360,6 +360,21 @@ impl EventAiCatalog {
         broadcast: i32,
         locale: EventAiLocale,
     ) -> Result<EventAiLocalizedText, NativeError> {
+        let gender = self.owner(spawn).ok_or(NativeError::InvalidProfile)?.gender;
+        self.localized_for_gender(spawn, broadcast, locale, gender)
+    }
+    /// Localize against the caller's retained generation model selection.
+    /// This computes presentation only; it grants no event or audience authority.
+    pub fn localized_for_gender(
+        &self,
+        spawn: u64,
+        broadcast: i32,
+        locale: EventAiLocale,
+        gender: u8,
+    ) -> Result<EventAiLocalizedText, NativeError> {
+        if gender > 2 {
+            return Err(NativeError::InvalidState);
+        }
         let owner = self.owner(spawn).ok_or(NativeError::InvalidProfile)?;
         if !owner
             .entry_events
@@ -376,7 +391,7 @@ impl EventAiCatalog {
             .ok_or(NativeError::InvalidProfile)?;
         let male = base.text.as_deref().unwrap_or("");
         let female = base.text1.as_deref().unwrap_or("");
-        let female_selected = owner.gender != 0 && !female.is_empty() && male.is_empty();
+        let female_selected = gender != 0 && !female.is_empty() && male.is_empty();
         let default = if female_selected { female } else { male };
         // enUS is the default vector index, never a localized override. The
         // loader observes but ignores an enUS row (storage locale index -1).

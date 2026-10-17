@@ -14,8 +14,9 @@ derive Defensive when that bit is set, otherwise Aggressive; a copied reaction
 without the matching raw bit rejects. Passive AI, the separate StaticFlags2
 SPAWN_DEFENSIVE bit and initial combat-entry overrides remain unsupported.
 The catalog validates its policy tag; old-policy contexts reject even if their
-outer checkpoint digests are recomputed. Native v37 wire fields and RNG policy
-are unchanged; the revised catalog tag changes the bound profile identity. Fanning retains its existing separately captured IsWorldBoss-dependent
+outer checkpoint digests are recomputed. The catalog tag changes the bound profile
+identity; native38 separately adds source-owned creature generation state while
+preserving the shared RNG mapping. Fanning retains its existing separately captured IsWorldBoss-dependent
 motion policy and is not inferred from unrelated static flags. Missing rows,
 unknown bits, missing motion, unrepresented control/aura/script context and incomplete faction/reputation
 inputs reject. Replacing interaction rows preserves this selection and revalidates
@@ -118,9 +119,9 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 37 and
-`benilla-native-initial-cast-genesis-v37`, with separate v37 profile, state,
-record, checkpoint and melee-action/chain hash domains. Native36 and all older
+This profile/receipt contract uses native format 38 and
+`benilla-native-creature-generation-v38`, with separate v38 profile, state,
+record, checkpoint and melee-action/chain hash domains. Native37 and all older
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source
 semantics. OriginalFixture format 2 is unchanged.

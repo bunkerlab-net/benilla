@@ -161,7 +161,7 @@ pub struct CreatureDamageInputs {
     /// hasWeapon(BASE_ATTACK) && !hasWeaponForAttack(BASE_ATTACK).
     pub weapon_unusable: bool,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct DamageRange {
     pub minimum: SpellFloat,
     pub maximum: SpellFloat,

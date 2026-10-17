@@ -225,7 +225,7 @@ fn pump_to(c: &mut NativeController, tick: u64) -> Vec<SessionEvent> {
 }
 
 #[test]
-fn native37_controller_create_and_reopen_retain_genesis_without_initial_cast_packets() {
+fn native38_controller_create_and_reopen_retain_genesis_without_initial_cast_packets() {
     let h = Harness::new();
     let profile = n::synthetic_initial_cast_fixture::profile();
     let mut controller = h.start(profile.clone());
@@ -254,65 +254,72 @@ fn native37_controller_create_and_reopen_retain_genesis_without_initial_cast_pac
 }
 
 #[test]
-fn native36_checkpoint_inside_fresh_store_checksum_cannot_reopen_or_replace_controller_world() {
-    use sha2::{Digest as _, Sha256};
-    let h = Harness::new();
-    let mut controller = h.start(stationary());
-    controller.shutdown().unwrap();
-    drop(controller);
-    let path = h.path().join("world.checkpoint");
-    let original = fs::read(&path).unwrap();
-    let length = u32::from_le_bytes(original[52..56].try_into().unwrap()) as usize;
-    let mut checkpoint: serde_json::Value =
-        serde_json::from_slice(&original[60..60 + length]).unwrap();
-    checkpoint["version"] = 36.into();
-    checkpoint["state"]["version"] = 36.into();
-    checkpoint["state"]["policy"] = "benilla-native-source-combat-timers-v36".into();
-    let typed: n::Checkpoint = serde_json::from_value(checkpoint.clone()).unwrap();
-    let encoded = String::from_utf8(typed.encode().unwrap()).unwrap();
-    let start = encoded.find("\"state\":").unwrap() + "\"state\":".len();
-    let end = encoded.rfind(",\"digest\":").unwrap();
-    let state = &encoded[start..end];
-    let hash = |domain: &[u8], bytes: &[u8]| -> runtime::Digest {
-        let mut hasher = Sha256::new();
-        hasher.update(domain);
-        hasher.update(bytes);
-        hasher.finalize().into()
-    };
-    checkpoint["digest"] =
-        serde_json::to_value(hash(b"benilla-native-state-v37\0", state.as_bytes())).unwrap();
-    let body = format!(
-        "[{state},{},{}]",
-        checkpoint["digest"], checkpoint["history_tip"]
-    );
-    checkpoint["checksum"] =
-        serde_json::to_value(hash(b"benilla-native-checkpoint-v37\0", body.as_bytes())).unwrap();
-    let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
-    let snapshot = typed.encode().unwrap();
-    let mut forged = original[..60].to_vec();
-    forged[52..56].copy_from_slice(&(snapshot.len() as u32).to_le_bytes());
-    forged.extend(snapshot);
-    forged.extend(&original[60 + length..original.len() - 32]);
-    forged.extend(hash(b"benilla-native-store-v1\0", &forged));
-    fs::write(&path, &forged).unwrap();
-    assert!(h
-        .enter(
-            Entry::Open { world: [8; 16] },
-            stationary(),
-            fixture::KernelAuthority::default()
-        )
-        .is_err());
-    assert!(h
-        .enter(
-            Entry::Create {
-                world: [8; 16],
-                seed: 7
-            },
-            stationary(),
-            fixture::KernelAuthority::default()
-        )
-        .is_err());
-    assert_eq!(fs::read(path).unwrap(), forged);
+fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_replace_controller_world(
+) {
+    for (version, policy) in [
+        (36, "benilla-native-source-combat-timers-v36"),
+        (37, "benilla-native-initial-cast-genesis-v37"),
+    ] {
+        use sha2::{Digest as _, Sha256};
+        let h = Harness::new();
+        let mut controller = h.start(stationary());
+        controller.shutdown().unwrap();
+        drop(controller);
+        let path = h.path().join("world.checkpoint");
+        let original = fs::read(&path).unwrap();
+        let length = u32::from_le_bytes(original[52..56].try_into().unwrap()) as usize;
+        let mut checkpoint: serde_json::Value =
+            serde_json::from_slice(&original[60..60 + length]).unwrap();
+        checkpoint["version"] = version.into();
+        checkpoint["state"]["version"] = version.into();
+        checkpoint["state"]["policy"] = policy.into();
+        let typed: n::Checkpoint = serde_json::from_value(checkpoint.clone()).unwrap();
+        let encoded = String::from_utf8(typed.encode().unwrap()).unwrap();
+        let start = encoded.find("\"state\":").unwrap() + "\"state\":".len();
+        let end = encoded.rfind(",\"digest\":").unwrap();
+        let state = &encoded[start..end];
+        let hash = |domain: &[u8], bytes: &[u8]| -> runtime::Digest {
+            let mut hasher = Sha256::new();
+            hasher.update(domain);
+            hasher.update(bytes);
+            hasher.finalize().into()
+        };
+        checkpoint["digest"] =
+            serde_json::to_value(hash(b"benilla-native-state-v38\0", state.as_bytes())).unwrap();
+        let body = format!(
+            "[{state},{},{}]",
+            checkpoint["digest"], checkpoint["history_tip"]
+        );
+        checkpoint["checksum"] =
+            serde_json::to_value(hash(b"benilla-native-checkpoint-v38\0", body.as_bytes()))
+                .unwrap();
+        let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
+        let snapshot = typed.encode().unwrap();
+        let mut forged = original[..60].to_vec();
+        forged[52..56].copy_from_slice(&(snapshot.len() as u32).to_le_bytes());
+        forged.extend(snapshot);
+        forged.extend(&original[60 + length..original.len() - 32]);
+        forged.extend(hash(b"benilla-native-store-v1\0", &forged));
+        fs::write(&path, &forged).unwrap();
+        assert!(h
+            .enter(
+                Entry::Open { world: [8; 16] },
+                stationary(),
+                fixture::KernelAuthority::default()
+            )
+            .is_err());
+        assert!(h
+            .enter(
+                Entry::Create {
+                    world: [8; 16],
+                    seed: 7
+                },
+                stationary(),
+                fixture::KernelAuthority::default()
+            )
+            .is_err());
+        assert_eq!(fs::read(path).unwrap(), forged);
+    }
 }
 
 #[test]

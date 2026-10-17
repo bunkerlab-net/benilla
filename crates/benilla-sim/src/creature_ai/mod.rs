@@ -11,7 +11,10 @@
 pub mod hostile_reference;
 pub mod movement;
 use hostile_reference::{HostileReference, HostileReferences};
+mod generation;
 mod numeric;
+pub use generation::DeathTiming;
+use generation::GenerationLifecycle;
 use movement::{BlockReason, MovementPurpose, MovementResult, Revision, ValidatedMovement};
 pub use numeric::{
     attack_distance, combat_reach, distance_2d, in_melee_range, pulls_aggro,
@@ -19,7 +22,7 @@ pub use numeric::{
 };
 
 pub const CREATURE_AI_POLICY_ID: &str =
-    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-events-v5";
+    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-generation-lifecycle-v6";
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
 
@@ -299,6 +302,7 @@ pub fn melee_decision(timer_ms: u32, c: SwingConditions) -> SwingDecision {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SoloCreatureAi {
     profile: Profile,
+    generation_lifecycle: Option<GenerationLifecycle>,
     phase: Phase,
     position: Point,
     combat_start: Point,
@@ -314,6 +318,7 @@ pub struct SoloCreatureAi {
     command_id: u64,
     motion: Option<MotionCommand>,
     mainhand_ms: u32,
+    mainhand_timer_limit_ms: u32,
     pursuit_ms: u32,
     combat_tick_ms: u32,
     unreachable_ms: u32,
@@ -373,7 +378,9 @@ impl SoloCreatureAi {
             combat_start: profile.spawn,
             last_refresh: profile.spawn,
             now_ms: profile.clock_origin_ms,
+            mainhand_timer_limit_ms: profile.mainhand_interval_ms.max(100),
             profile,
+            generation_lifecycle: None,
             phase: Phase::Idle,
             target: None,
             victim_detached_at_ms: None,
@@ -432,6 +439,7 @@ impl SoloCreatureAi {
         rebound_target: Option<u64>,
         offline: bool,
     ) -> Result<bool, AiError> {
+        self.require_finished_generation()?;
         if self.pending_receipts.is_some() {
             return Err(AiError::Invalid("online status during receipt prelude"));
         }
@@ -439,6 +447,9 @@ impl SoloCreatureAi {
             .hostile_references
             .update_online_status(target, rebound_target, offline)?
             .is_empty())
+    }
+    pub fn mainhand_timer_limit_ms(&self) -> u32 {
+        self.mainhand_timer_limit_ms
     }
     pub fn mainhand_timer_ms(&self) -> u32 {
         self.mainhand_ms
@@ -490,7 +501,14 @@ impl SoloCreatureAi {
     /// Applies already-resolved events at their bound frame instant, without advancing
     /// this creature's unit clock/timers/movement/AI. Finish in the original update order.
     pub fn begin_receipts(&mut self, o: &Observation) -> Result<ReceiptStep, AiError> {
-        self.begin_receipts_inner(o, false, false)
+        self.begin_receipts_with_death_timing(o, None)
+    }
+    pub fn begin_receipts_with_death_timing(
+        &mut self,
+        o: &Observation,
+        timing: Option<DeathTiming>,
+    ) -> Result<ReceiptStep, AiError> {
+        self.begin_receipts_inner(o, false, false, timing)
     }
     /// A source visitor has either called MoveInLineOfSight at the event phase or
     /// proved no such visit. Unlike legacy observations, later AI never polls sight.
@@ -499,7 +517,15 @@ impl SoloCreatureAi {
         o: &Observation,
         sight_visitor: bool,
     ) -> Result<ReceiptStep, AiError> {
-        self.begin_receipts_inner(o, true, sight_visitor)
+        self.begin_source_receipts_with_death_timing(o, sight_visitor, None)
+    }
+    pub fn begin_source_receipts_with_death_timing(
+        &mut self,
+        o: &Observation,
+        sight_visitor: bool,
+        timing: Option<DeathTiming>,
+    ) -> Result<ReceiptStep, AiError> {
+        self.begin_receipts_inner(o, true, sight_visitor, timing)
     }
     /// Creature::Update selects CORPSE immediately if death preceded its entry;
     /// a death inside its ALIVE Unit update defers corpse handling one frame.
@@ -508,6 +534,14 @@ impl SoloCreatureAi {
         o: &Observation,
         entered_alive: bool,
     ) -> Result<ReceiptStep, AiError> {
+        self.begin_source_receipts_in_phase_with_death_timing(o, entered_alive, None)
+    }
+    pub fn begin_source_receipts_in_phase_with_death_timing(
+        &mut self,
+        o: &Observation,
+        entered_alive: bool,
+        timing: Option<DeathTiming>,
+    ) -> Result<ReceiptStep, AiError> {
         let now = self
             .now_ms
             .checked_add(u64::from(o.elapsed_ms))
@@ -515,7 +549,14 @@ impl SoloCreatureAi {
         if self.death_at_ms == Some(now) && self.death_deferred != entered_alive {
             return Err(AiError::Invalid("source death phase binding"));
         }
-        let mut token = self.begin_receipts_inner(o, true, false)?;
+        let mut token = self.begin_receipts_inner(o, true, false, timing)?;
+        if o.receipts
+            .iter()
+            .any(|receipt| receipt.event == CombatEvent::Died)
+        {
+            self.death_deferred = entered_alive;
+            token.prepared = self.clone();
+        }
         token.skip_current_death_corpse = entered_alive;
         Ok(token)
     }
@@ -524,6 +565,7 @@ impl SoloCreatureAi {
         o: &Observation,
         source_sight_events: bool,
         sight_visitor: bool,
+        timing: Option<DeathTiming>,
     ) -> Result<ReceiptStep, AiError> {
         self.validate_observation(o)?;
         if self.pending_receipts.is_some() {
@@ -533,6 +575,7 @@ impl SoloCreatureAi {
             .now_ms
             .checked_add(u64::from(o.elapsed_ms))
             .ok_or(AiError::Invalid("event time overflow"))?;
+        self.validate_death_timing(o, now_ms, timing)?;
         let mut next = self.clone();
         let old_now = next.now_ms;
         next.now_ms = now_ms; // used only by event timestamp derivation, never timers
@@ -543,6 +586,9 @@ impl SoloCreatureAi {
                 return Err(AiError::Invalid("replayed/reordered combat receipt"));
             }
             next.receipt_id = receipt.id;
+            if let Some(timing) = timing.filter(|timing| timing.receipt_id == receipt.id) {
+                next.profile.respawn_delay_seconds = timing.respawn_delay_seconds;
+            }
             next.event(&receipt.event, o.target.as_ref(), &mut effects)?;
         }
         if sight_visitor {
@@ -577,6 +623,15 @@ impl SoloCreatureAi {
         o: &Observation,
         inside_alive_unit_update: bool,
     ) -> Result<Vec<Effect>, AiError> {
+        self.source_combat_event_with_death_timing(o, inside_alive_unit_update, None)
+    }
+    /// Atomically install a generation-owned death delay before deriving death clocks.
+    pub fn source_combat_event_with_death_timing(
+        &mut self,
+        o: &Observation,
+        inside_alive_unit_update: bool,
+        timing: Option<DeathTiming>,
+    ) -> Result<Vec<Effect>, AiError> {
         self.validate_observation(o)?;
         if self.pending_receipts.is_some() || o.receipts.len() != 1 {
             return Err(AiError::Invalid("source combat event phase"));
@@ -586,11 +641,15 @@ impl SoloCreatureAi {
             .now_ms
             .checked_add(u64::from(o.elapsed_ms))
             .ok_or(AiError::Invalid("source combat event clock"))?;
+        self.validate_death_timing(o, next.now_ms, timing)?;
         let receipt = &o.receipts[0];
         if receipt.id <= next.receipt_id {
             return Err(AiError::Invalid("source combat receipt identity"));
         }
         next.receipt_id = receipt.id;
+        if let Some(timing) = timing {
+            next.profile.respawn_delay_seconds = timing.respawn_delay_seconds;
+        }
         let mut effects = Vec::new();
         next.event(&receipt.event, o.target.as_ref(), &mut effects)?;
         if matches!(receipt.event, CombatEvent::Died) {
@@ -648,6 +707,7 @@ impl SoloCreatureAi {
     /// Synchronous RemoveAllAttackers/hostile-reference removal. AttackStop(false)
     /// retains visible TargetGuid and chase; ordinary later AI selects no target.
     pub fn detach_dead_victim(&mut self, target: u64, event_ms: u64) -> Result<bool, AiError> {
+        self.require_finished_generation()?;
         if event_ms < self.now_ms || self.pending_receipts.is_some_and(|(_, at)| at != event_ms) {
             return Err(AiError::Invalid("victim detach event time"));
         }
@@ -725,6 +785,7 @@ impl SoloCreatureAi {
         Ok(effects)
     }
     fn validate_observation(&self, o: &Observation) -> Result<(), AiError> {
+        self.require_finished_generation()?;
         if Some(o.sequence) != self.next_sequence()
             || o.elapsed_ms == 0
             || o.elapsed_ms > 60_000
@@ -789,6 +850,7 @@ impl SoloCreatureAi {
                     self.corpse_timer_previous_ms = 0;
                     self.corpse_timer_last_ms = 0;
                     self.despawned_at_ms = None;
+                    self.mark_respawn_boundary()?;
                     effects.push(Effect::Respawned {
                         position: self.position,
                     });
@@ -874,6 +936,7 @@ impl SoloCreatureAi {
                     self.refresh_pursuit();
                 }
                 self.mainhand_ms = self.profile.mainhand_interval_ms;
+                self.mainhand_timer_limit_ms = self.profile.mainhand_interval_ms.max(100);
                 effects.push(Effect::MainhandSwing { target: t.id });
                 let result = hook(
                     OrderedHook::Mainhand {
@@ -894,6 +957,7 @@ impl SoloCreatureAi {
                 // error leaves both timers ready. Preserve that pinned-source quirk.
                 if error != SwingError::OutOfRange {
                     self.mainhand_ms = 100;
+                    self.mainhand_timer_limit_ms = self.profile.mainhand_interval_ms.max(100);
                 }
                 effects.push(Effect::SwingDelayed {
                     error,

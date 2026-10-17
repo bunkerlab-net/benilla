@@ -313,10 +313,9 @@ impl NativeProjection {
                     )
             })
             .ok_or(Error::UnknownTarget)?;
-        let profile = w
-            .profile()
-            .npc(giver.id.spawn)
-            .ok_or(Error::UnknownTarget)?;
+        let profile = npc
+            .effective_profile(w.profile())
+            .map_err(|_| Error::Unrepresentable)?;
         if w.state().health == 0
             || genesis(w)?
                 .npc_flags(profile.entry)

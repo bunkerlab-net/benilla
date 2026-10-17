@@ -168,6 +168,7 @@ impl<A: Authority> Frame<'_, A> {
     fn source_spatial<T>(
         &mut self,
         id: NpcId,
+        generation: Option<&CreatureGenerationOwner>,
         capabilities: Option<&CreatureCapabilityState>,
         collision_width: Option<&CreatureCollisionWidthState>,
         collision_height: Option<&CreatureCollisionHeightState>,
@@ -179,8 +180,31 @@ impl<A: Authority> Frame<'_, A> {
         if let Some(capabilities) = capabilities {
             capabilities.validate(self.profile, id)?;
         }
-        CreatureCollisionWidthState::validate_optional(collision_width, self.profile, id)?;
-        CreatureCollisionHeightState::validate_optional(collision_height, self.profile, id)?;
+        match (&self.profile.creature_generations, generation) {
+            (Some(_), Some(owner)) => {
+                CreatureCollisionWidthState::validate_generation_optional(
+                    collision_width,
+                    self.profile,
+                    id,
+                    owner,
+                )?;
+                CreatureCollisionHeightState::validate_generation_optional(
+                    collision_height,
+                    self.profile,
+                    id,
+                    owner,
+                )?;
+            }
+            (None, None) => {
+                CreatureCollisionWidthState::validate_optional(collision_width, self.profile, id)?;
+                CreatureCollisionHeightState::validate_optional(
+                    collision_height,
+                    self.profile,
+                    id,
+                )?;
+            }
+            _ => return Err(NativeError::AuthorityBinding),
+        }
         let owner_ignore_pathfinding =
             OwnerIgnorePathfindingReceipt::mint(self.profile, self.state, id, capabilities)?;
         let mut adapter = Spatial {
@@ -272,10 +296,7 @@ impl<A: Authority> Frame<'_, A> {
     }
 
     fn source_input(&self, npc: &Npc) -> Result<m::UnitInputs, NativeError> {
-        let p = self
-            .profile
-            .npc(npc.id.spawn)
-            .ok_or(NativeError::InvalidState)?;
+        let p = npc.effective_profile(self.profile)?;
         // Available MageEffect admits direct damage and periodic damage only. It
         // cannot create a slow/root/cast/script modifier; future extensions must
         // update this policy, never independently assert current state in geometry.
@@ -288,11 +309,18 @@ impl<A: Authority> Frame<'_, A> {
                 return Err(NativeError::InvalidState);
             }
         }
-        let input = self
-            .profile
-            .npc_motion(npc.id.spawn)?
-            .npc_policy
-            .input(npc.health, p.max_health);
+        let mut policy = self.profile.npc_motion(npc.id.spawn)?.npc_policy.clone();
+        if let Some(selected) = npc.initialized_creature() {
+            policy.walk_speed = ai::Real::from_bits(selected.model.walk_speed.bits())?;
+            policy.run_speed = p.ai.run_speed;
+            policy.settings.bounding_radius = p.ai.bounding_radius;
+            policy.settings.combat_reach = p.ai.combat_reach;
+            if let Some(height) = npc.creature_collision_height() {
+                policy.settings.collision_height =
+                    ai::Real::from_bits(height.witness().height().bits())?;
+            }
+        }
+        let input = policy.input(npc.health, p.max_health);
         input.validate()?;
         Ok(input)
     }
@@ -447,11 +475,14 @@ impl<A: Authority> Frame<'_, A> {
                 .ok_or(NativeError::Limit)?,
             event,
         };
+        let timing = self.creature_death_timing(&mut npc, &receipt)?;
         let facts = self.source_facts(&npc, CombatPhase::CombatReceipt)?;
         let observation = self.source_observation(&npc, facts, None, vec![receipt.clone()])?;
-        let effects = npc
-            .ai
-            .source_combat_event_with_phase(&observation, self.source_alive_unit == Some(id))?;
+        let effects = npc.ai.source_combat_event_with_death_timing(
+            &observation,
+            self.source_alive_unit == Some(id),
+            timing,
+        )?;
         self.source_prefix_effects(
             &mut npc,
             &effects,
@@ -563,6 +594,7 @@ impl<A: Authority> Frame<'_, A> {
                     {
                         self.source_spatial(
                             npc.id,
+                            npc.source_generation.as_ref(),
                             npc.source_capabilities.as_ref(),
                             npc.source_collision_width.as_ref(),
                             npc.source_collision_height.as_ref(),
@@ -579,6 +611,7 @@ impl<A: Authority> Frame<'_, A> {
                         }
                         self.source_spatial(
                             npc.id,
+                            npc.source_generation.as_ref(),
                             npc.source_capabilities.as_ref(),
                             npc.source_collision_width.as_ref(),
                             npc.source_collision_height.as_ref(),
@@ -805,6 +838,7 @@ impl<A: Authority> Frame<'_, A> {
             if let Some(command) = npc.ai.motion() {
                 let update = self.source_spatial(
                     npc.id,
+                    npc.source_generation.as_ref(),
                     npc.source_capabilities.as_ref(),
                     npc.source_collision_width.as_ref(),
                     npc.source_collision_height.as_ref(),
@@ -829,6 +863,7 @@ impl<A: Authority> Frame<'_, A> {
             } else {
                 let events = self.source_spatial(
                     npc.id,
+                    npc.source_generation.as_ref(),
                     npc.source_capabilities.as_ref(),
                     npc.source_collision_width.as_ref(),
                     npc.source_collision_height.as_ref(),
@@ -850,6 +885,7 @@ impl<A: Authority> Frame<'_, A> {
         let start = self.events.len();
         let mut source = npc.source_motion.take().unwrap();
         let mut failure = None;
+        let effective = npc.effective_profile(self.profile)?;
         let result =
             npc.ai
                 .finish_receipts_with_current(observation, token, &mut |hook, working_ai| {
@@ -863,6 +899,7 @@ impl<A: Authority> Frame<'_, A> {
                             }
                             let event = self.source_spatial(
                                 npc.id,
+                                npc.source_generation.as_ref(),
                                 npc.source_capabilities.as_ref(),
                                 npc.source_collision_width.as_ref(),
                                 npc.source_collision_height.as_ref(),
@@ -887,12 +924,14 @@ impl<A: Authority> Frame<'_, A> {
                                     npc.id,
                                     position,
                                     npc.health,
+                                    &effective,
                                     Some(Orientation::from_bits(
                                         source.motion.pose().orientation.bits(),
                                     )?),
                                     Some(&interactions::WorkingNpc {
                                         id: npc.id,
                                         health: npc.health,
+                                        generation: npc.source_generation.as_ref(),
                                         ai: working_ai,
                                         motion: &source,
                                         events: &npc.events,

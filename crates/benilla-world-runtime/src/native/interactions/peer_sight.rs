@@ -171,7 +171,7 @@ fn validate_scene(
             .ok_or(NativeError::InvalidState)?
             .witness()
             .validate_for(profile, npc.id)?;
-        if npc.source_motion.is_none() || npc.health > row.max_health {
+        if npc.source_motion.is_none() || npc.health > npc.effective_profile(profile)?.max_health {
             return Err(NativeError::InvalidState);
         }
     }

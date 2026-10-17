@@ -37,7 +37,7 @@ pub struct EventAiCallback {
 }
 impl EventAiCallback {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-event-ai-callback-v37\0", self)
+        crate::digest(b"benilla-native-event-ai-callback-v38\0", self)
     }
     fn validate(&self, profile: &Profile, state: &State) -> Result<(), NativeError> {
         let selected = profile.event_ai().ok_or(NativeError::InvalidCheckpoint)?;
@@ -63,6 +63,19 @@ impl EventAiCallback {
                 .is_none_or(|n| n.id.generation < self.npc.generation)
         {
             return Err(NativeError::InvalidCheckpoint);
+        }
+        if profile.creature_generations.is_some() {
+            let life = state
+                .npcs
+                .get(&self.npc.spawn)
+                .and_then(|npc| npc.source_generation.as_ref())
+                .and_then(|owner| owner.historical(self.npc))
+                .ok_or(NativeError::InvalidCheckpoint)?;
+            if self.tick < life.creation_tick()
+                || life.death_tick().is_some_and(|death| self.tick > death)
+            {
+                return Err(NativeError::InvalidCheckpoint);
+            }
         }
         self.speaker_pose.validate()?;
         self.player_pose.validate()?;
@@ -203,7 +216,7 @@ impl EventAiCallbackAnchor {
     ) -> Result<(), NativeError> {
         self.count = self.count.checked_add(1).ok_or(NativeError::Limit)?;
         self.tip = crate::digest(
-            b"benilla-native-event-ai-callback-chain-v37\0",
+            b"benilla-native-event-ai-callback-chain-v38\0",
             &(self.tip, self.count, evaluation),
         );
         Ok(())
@@ -384,7 +397,11 @@ impl EventAiState {
             .map(|n| (n.ai.creature_id, EventAiCallbackAnchor::default()))
             .collect();
         let mut previous_tick = 0;
-        let mut next_counter = state.initial_cast_genesis.end_counter();
+        let mut next_counter = creature_generation_binding::validate_prefix(
+            profile,
+            state,
+            state.initial_cast_genesis.end_counter(),
+        )?;
         let mut last_callbacks: BTreeMap<crate::NpcId, EventAiCallbackKind> = BTreeMap::new();
         for history in &self.history {
             let tick = match history {
@@ -410,6 +427,17 @@ impl EventAiState {
                     {
                         return Err(NativeError::InvalidCheckpoint);
                     }
+                    if profile.creature_generations.is_some() {
+                        let life = state
+                            .npcs
+                            .get(&replacement.spawn)
+                            .and_then(|npc| npc.source_generation.as_ref())
+                            .and_then(|owner| owner.historical(*replacement))
+                            .ok_or(NativeError::InvalidCheckpoint)?;
+                        if life.creation_tick() != tick {
+                            return Err(NativeError::InvalidCheckpoint);
+                        }
+                    }
                     expected.respawn(profile, *replacement, tick)?;
                 }
                 EventAiHistory::EnterCombat(e) => {
@@ -430,10 +458,35 @@ impl EventAiState {
                     }
                     last_callbacks.insert(owner.id, e.callback.kind.clone());
                     let events = catalog.catalog().events(owner.id.spawn)?;
-                    if e.actions.len() != events.len() {
+                    if e.actions.is_empty() || e.actions.len() != events.len() {
                         return Err(NativeError::InvalidCheckpoint);
                     }
+                    let life = state
+                        .npcs
+                        .get(&e.callback.npc.spawn)
+                        .and_then(|npc| npc.source_generation.as_ref())
+                        .map(|owner| {
+                            owner
+                                .historical(e.callback.npc)
+                                .ok_or(NativeError::InvalidCheckpoint)
+                        })
+                        .transpose()?;
                     for (index, (event, action)) in events.iter().zip(&e.actions).enumerate() {
+                        // A same-tick callback is still ordered after creation and
+                        // before JUST_DIED by the shared stream's retained draws.
+                        if let Some(life) = life {
+                            if std::iter::once(action.chance_counter)
+                                .chain(action.action_counter)
+                                .any(|counter| {
+                                    counter < life.creation_end_counter()
+                                        || life
+                                            .death_draw()
+                                            .is_some_and(|death| counter >= death.first_counter)
+                                })
+                            {
+                                return Err(NativeError::InvalidCheckpoint);
+                            }
+                        }
                         if action.event_id != event.event_id()
                             || action.chance_counter < next_counter
                             || (index > 0 && action.chance_counter != next_counter)
@@ -475,15 +528,39 @@ impl EventAiState {
                                 .audience
                                 .as_ref()
                                 .ok_or(NativeError::InvalidCheckpoint)?;
-                            let request =
-                                EventAiAudienceRequest::from_callback(profile, &e.callback)?;
+                            let npc = state
+                                .npcs
+                                .get(&e.callback.npc.spawn)
+                                .ok_or(NativeError::InvalidCheckpoint)?;
+                            let projected = npc.historical_profile(profile, e.callback.npc)?;
+                            let request = EventAiAudienceRequest::from_callback(
+                                profile,
+                                &e.callback,
+                                &projected,
+                            )?;
                             if audience.request != request {
                                 return Err(NativeError::InvalidCheckpoint);
                             }
                             let delivered = request.validate(&audience.facts)?;
                             let speech = delivered
                                 .then(|| {
-                                    Self::speech(catalog, &e.callback, e.occurrence, selection)
+                                    let gender = npc
+                                        .source_generation
+                                        .as_ref()
+                                        .map(|owner| {
+                                            owner
+                                                .historical(e.callback.npc)
+                                                .map(|generation| generation.result().model.gender)
+                                                .ok_or(NativeError::InvalidCheckpoint)
+                                        })
+                                        .transpose()?;
+                                    Self::speech(
+                                        catalog,
+                                        &e.callback,
+                                        e.occurrence,
+                                        selection,
+                                        gender,
+                                    )
                                 })
                                 .transpose()?;
                             if action.speech != speech {
@@ -535,11 +612,20 @@ impl EventAiState {
         callback: &EventAiCallback,
         occurrence: u64,
         selection: source::TextSelection,
+        selected_gender: Option<u8>,
     ) -> Result<EventAiSpeech, NativeError> {
-        let text = catalog.catalog().localized(
+        let source = catalog.catalog();
+        let gender = selected_gender.unwrap_or(
+            source
+                .owner(callback.npc.spawn)
+                .ok_or(NativeError::InvalidState)?
+                .gender,
+        );
+        let text = source.localized_for_gender(
             callback.npc.spawn,
             selection.text_id as i32,
             catalog.locale(),
+            gender,
         )?;
         Ok(EventAiSpeech {
             callback: callback.clone(),
@@ -560,11 +646,12 @@ impl EventAiAudienceRequest {
     pub(in crate::native) fn from_callback(
         profile: &Profile,
         callback: &EventAiCallback,
+        npc: &NpcProfile,
     ) -> Result<Self, NativeError> {
         let selected = profile.event_ai().ok_or(NativeError::InvalidState)?;
-        let npc = profile
-            .npc(callback.npc.spawn)
-            .ok_or(NativeError::InvalidState)?;
+        if npc.ai.creature_id != callback.npc.spawn {
+            return Err(NativeError::AuthorityBinding);
+        }
         Ok(Self {
             callback: callback.digest(),
             world: callback.world,

@@ -317,6 +317,28 @@ impl NpcMotion {
         now: u64,
         npc: crate::NpcId,
     ) -> Result<Self, NativeError> {
+        Self::restore_with_generation(s, profile, ai, now, npc, None)
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn restore_generation(
+        s: NpcMotionSnapshot,
+        profile: &Profile,
+        ai: &ai::SoloCreatureAi,
+        now: u64,
+        npc: crate::NpcId,
+        generation: &CreatureGenerationOwner,
+    ) -> Result<Self, NativeError> {
+        Self::restore_with_generation(s, profile, ai, now, npc, Some(generation))
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn restore_with_generation(
+        s: NpcMotionSnapshot,
+        profile: &Profile,
+        ai: &ai::SoloCreatureAi,
+        now: u64,
+        npc: crate::NpcId,
+        generation: Option<&CreatureGenerationOwner>,
+    ) -> Result<Self, NativeError> {
         let Some(g) = &profile.source_motion else {
             return Err(NativeError::InvalidCheckpoint);
         };
@@ -326,6 +348,16 @@ impl NpcMotion {
         let owner_genesis = profile
             .npc_motion(npc.spawn)
             .map_err(|_| NativeError::InvalidCheckpoint)?;
+        let collision_height = match (&profile.creature_generations, generation) {
+            (None, None) => owner_genesis.npc_policy.settings.collision_height,
+            (Some(_), Some(generation)) if generation.npc_id() == npc => {
+                CreatureCollisionHeightState::new_generation(profile, npc, generation)?
+                    .map(|height| ai::Real::from_bits(height.witness().height().bits()))
+                    .transpose()?
+                    .unwrap_or(owner_genesis.npc_policy.settings.collision_height)
+            }
+            _ => return Err(NativeError::InvalidCheckpoint),
+        };
         let expected = Self::new(profile, owner)?
             .ok_or(NativeError::InvalidCheckpoint)?
             .motion
@@ -341,8 +373,7 @@ impl NpcMotion {
         // Source dispatch passes None only for Home; every Chase/Backpedal uses
         // Some(player). Preserve that presence and both owners' original bounds.
         if s.motion.spline.as_ref().is_some_and(|spline| {
-            spline.route_request.owner_collision_height
-                != owner_genesis.npc_policy.settings.collision_height
+            spline.route_request.owner_collision_height != collision_height
                 || matches!(
                     spline.route_request.kind,
                     motion::RouteKind::HomeForceDestination

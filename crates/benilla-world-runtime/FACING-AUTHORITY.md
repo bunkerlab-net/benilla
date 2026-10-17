@@ -74,8 +74,8 @@ third-party database rows are included.
 
 ## Format boundary
 
-The experimental native simulation checkpoint/record contract is format 37,
-`benilla-native-initial-cast-genesis-v37`, with v37 profile/state/record/checkpoint/
+The experimental native simulation checkpoint/record contract is format 38,
+`benilla-native-creature-generation-v38`, with v38 profile/state/record/checkpoint/
 melee-action/melee-chain hash domains. Published native format 11 is rejected by
 decode, restore and replay, with no reinterpretation or implicit migration.
 Incompatible store current and previous files remain intact on refusal.

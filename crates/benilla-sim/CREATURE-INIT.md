@@ -26,6 +26,29 @@ It is minted inside the validated plan, not reconstructed from the caller-mutabl
 `InitializedCreature.model`. It omits unrelated initialized stats and does not
 authenticate the input capture or turn supplied draws into a live RNG transcript.
 
+`Input`, every nested source/value type, `SelectionRolls` and the full
+`InitializedCreature` output support serialization without adding deserializers.
+Raw source serialization retains every supplied field and row in original order,
+including unrelated rows, inactive legacy values, signed-zero float bits and
+`Rows::Missing` versus `Rows::Complete([])`. It never serializes just the selected
+model projection as a substitute for full source identity. Output serialization
+is still a caller-mutable arithmetic result, not an immutable admission receipt.
+
+`Input::validate_retention_bounds` enforces a local aggregate budget of 4,096 rows
+across classlevel, model, display, resolved-spawn and external-feature collections.
+This constant-time size check does not claim source completeness or validate row
+contents. `prepare` runs it before allocating keyed maps or evaluating stats;
+consumers must also run it before cloning or serializing retained source. The cap
+is a resource bound, not a native database rule or a wider numerical domain.
+
+A private owner can retain one complete `Input` per catalog entry, bind its full
+serialized content, and retain the selected rolls and initialized result for each
+generation. Revalidation uses `prepare(&retained_input)` followed by
+`resolve_with_model_receipt(retained_rolls)` and exact result comparison. This
+avoids copying raw source into every generation receipt. Generation identity,
+actual RNG advancement, initial create/resource application and reset/respawn
+ownership remain the consumer's obligations; this module invents none of them.
+
 The receipt's `collision_width(display_id, model_id, raw_width)` checks the selected
 display and nonzero DBC model identity, then executes Unit.cpp:11986–11987 with
 software binary32: effective object scale times raw CreatureModelData.CollisionWidth;
@@ -254,6 +277,8 @@ outputs never call Rust. Current cases:
 The Rust tests compare all 4,086 rows bit-for-bit and also cover missing/bad
 inputs, override sentinels, model selection ranges, unsupported hooks/flags,
 source loader bonuses, scale invariance, ambiguous zero-radius repair rejection,
+complete ordered source/output serialization, aggregate pre-prepare row bounds,
+missing-versus-empty inputs and omitted-versus-supplied semantic draws,
 signed resistance values, raw legacy AP bounds and transient AP cast rejection.
 Negative fractions between -1 and 0 truncate to zero, which is defined and
 included in the source fixture. Focused tests/clippy and fixture parity are narrower than

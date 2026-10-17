@@ -1,4 +1,4 @@
-# Initial creature model collision-width ownership
+# Creature model collision-width ownership
 
 Pinned source: CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 Creature.cpp `InitEntry` / `Respawn`, Unit.cpp `GetCollisionWidth`, and the
@@ -18,7 +18,7 @@ The private retained catalog binds the relevant template display choices, raw
 scale and effective spawn-template model override, conditional draw ranges and
 values in source order, original/other-gender/native selection, selected bounds,
 loaded display/model row identities, separate DBC scale bits, raw width/height bits and
-computed width. Width source policy/binding v2 includes raw height; the width
+computed width. Width source policy/binding v3 includes raw height and generation selection evidence; the width
 arithmetic policy remains unchanged. Its complete projection is included in the native profile digest.
 Repeated display/model/template/spawn-template identities must agree. The selected
 entry, display, bounds and effective spawn-template identity must also agree with
@@ -34,7 +34,8 @@ The existing bounded SpellFloat domain additionally rejects subnormals, magnitud
 over one million, and exceptional arithmetic including underflow/overflow. This is
 not unrestricted binary32 input coverage or an admission-policy repair.
 
-The runtime owns one immutable generation-zero width witness per selected NPC.
+The runtime owns an immutable width witness for the selected NPC life. Legacy
+profiles without generation ownership retain their generation-zero-only contract.
 NearPoint capability ownership is unchanged. Each typed Route freezes the optional
 width alongside its existing owner and map pose; width-independent dependency work
 continues with explicit `None`. A width-consuming provider must call
@@ -44,17 +45,20 @@ catalog. A serialized witness alone is untrusted transcript data and proves no
 liveness. The runtime constructs the live request from its executing owner; replay
 compares that exact request, and checkpoint restore checks the same catalog.
 
-Source respawn calls InitEntry again and can draw another model/gender. Until a
-fresh genuine runtime selection path is implemented, respawn clears the old width
-owner. Later-generation width queries fail rather than relabeling or cloning the
-initial width. Checkpoint restore rejects initial witnesses retained, forged or
-re-labeled for any later generation. Width-independent routes can still proceed.
+Source respawn calls InitEntry again and can draw another model/gender. With a
+[creature generation owner](CREATURE-GENERATION.md), each life rederives width
+from its fresh model receipt and retained loaded rows. Every reachable alternative
+is checked before RNG. Compact creation-draw evidence binds source, world, profile
+and life; profile-only validation proves source consistency, while runtime and
+restore additionally compare the actual current owner. A stale or independently
+valid different selection cannot replace it. Without a generation owner, respawn
+still clears initial width and later-generation width queries remain unavailable.
 
-Native format **37**, policy `benilla-native-initial-cast-genesis-v37`, retains
+Native format **38**, policy `benilla-native-creature-generation-v38`, retains
 `Profile.creature_collision_widths`, the NPC checkpoint `source_collision_width`,
-and typed Route `collision_width`, with v37 profile/state/record/checkpoint/melee
+and typed Route `collision_width`, with v38 profile/state/record/checkpoint/melee
 digest domains. New optional serialized fields require explicit null when absent;
-omission does not manufacture a default. Native24 and earlier experimental saves
+omission does not manufacture a default. Native37 and earlier experimental saves
 and records are rejected rather than migrated. OriginalFixture v2 and exploration
 character/profile transports are unchanged. Native admission remains uninhabited.
 

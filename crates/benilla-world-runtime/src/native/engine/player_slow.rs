@@ -33,12 +33,7 @@ impl<A: Authority> Frame<'_, A> {
                 "dead slow-aura fixture caster",
             ));
         }
-        let caster_level = self
-            .profile
-            .npc(caster.spawn)
-            .ok_or(NativeError::InvalidState)?
-            .ai
-            .level;
+        let caster_level = npc.effective_profile(self.profile)?.ai.level;
         // EffectApplyAura refuses an ordinary dead target. This seam adds no cast/hit/RNG.
         if self.state.health == 0 {
             return Ok(());

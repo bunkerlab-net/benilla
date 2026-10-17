@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v37\0", self)
+        crate::digest(b"benilla-native-record-v38\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +34,8 @@ struct CastState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NpcState {
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    source_generation: Option<creature_generation::CreatureGenerationCheckpoint>,
     events: npc_events::NpcEventsSnapshot,
     source_motion: Option<NpcMotionSnapshot>,
     source_capabilities: Option<creature_capabilities::CreatureCapabilitySnapshot>,
@@ -139,6 +141,29 @@ pub fn decode_records(bytes: &[u8]) -> Result<Vec<TickRecord>, NativeError> {
 const MAX_HISTORY_REPLAY_CALLS: u64 = 65_536;
 impl StateCheckpoint {
     fn validate_history_budget(&self) -> Result<(), NativeError> {
+        self.history_replay_work().map(|_| ())
+    }
+    fn validate_source_history_budget(&self, profile: &Profile) -> Result<(), NativeError> {
+        let mut total = self.history_replay_work()?;
+        for npc in self.npcs.values() {
+            match (&profile.creature_generations, &npc.source_generation) {
+                (Some(catalog), Some(owner)) => {
+                    let extra = owner
+                        .source_replay_work(catalog)?
+                        .checked_sub(owner.replay_work()?)
+                        .ok_or(NativeError::TooLarge)?;
+                    total = total.checked_add(extra).ok_or(NativeError::TooLarge)?;
+                    if total > MAX_HISTORY_REPLAY_CALLS {
+                        return Err(NativeError::TooLarge);
+                    }
+                }
+                (None, None) => {}
+                _ => return Err(NativeError::AuthorityBinding),
+            }
+        }
+        Ok(())
+    }
+    fn history_replay_work(&self) -> Result<u64, NativeError> {
         // Owner loading replays training in restore_inputs, state restore,
         // derived replay, and the final synchronize consistency check.
         let mut total = self
@@ -162,6 +187,16 @@ impl StateCheckpoint {
                 .checked_add(witness.replay_work())
                 .ok_or(NativeError::TooLarge)?;
         }
+        for npc in self.npcs.values() {
+            if let Some(owner) = &npc.source_generation {
+                total = total
+                    .checked_add(owner.replay_work()?)
+                    .ok_or(NativeError::TooLarge)?;
+                if total > MAX_HISTORY_REPLAY_CALLS {
+                    return Err(NativeError::TooLarge);
+                }
+            }
+        }
         for binding in self
             .casts
             .values()
@@ -178,7 +213,7 @@ impl StateCheckpoint {
         if total > MAX_HISTORY_REPLAY_CALLS {
             return Err(NativeError::TooLarge);
         }
-        Ok(())
+        Ok(total)
     }
 }
 impl Checkpoint {
@@ -229,10 +264,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v37\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v38\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v37\0",
+                    b"benilla-native-checkpoint-v38\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -287,6 +322,10 @@ pub(super) fn snapshot_state(profile_digest: crate::Digest, state: &State) -> St
                 (
                     id,
                     NpcState {
+                        source_generation: n
+                            .source_generation
+                            .as_ref()
+                            .map(CreatureGenerationOwner::checkpoint),
                         events: n.events.snapshot(),
                         source_motion: n.source_motion.as_ref().map(NpcMotion::snapshot),
                         source_capabilities: n
@@ -370,9 +409,9 @@ impl NativeWorld {
         state: &State,
         history_tip: crate::Digest,
     ) -> Result<Checkpoint, NativeError> {
-        initial_cast_genesis::validate_state(&self.profile, state)?;
         let snapshot = self.snapshot_of(state);
-        snapshot.validate_history_budget()?;
+        snapshot.validate_source_history_budget(&self.profile)?;
+        initial_cast_genesis::validate_state(&self.profile, state)?;
         source_location::validate_current(&self.profile, state)?;
         PlayerCollisionHeightState::validate_optional(
             state.source_player_collision_height.as_ref(),
@@ -387,7 +426,7 @@ impl NativeWorld {
         )?;
         EventAiState::validate_optional(&self.profile, state)?;
         let state = snapshot;
-        let digest = crate::digest(b"benilla-native-state-v37\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v38\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -397,7 +436,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v37\0",
+            b"benilla-native-checkpoint-v38\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -418,6 +457,7 @@ impl NativeWorld {
         profile: Profile,
         checkpoint: Checkpoint,
     ) -> Result<Self, NativeError> {
+        checkpoint.state.validate_source_history_budget(&profile)?;
         profile.validate()?;
         profile.require_realizable_initial_casts()?;
         // Typed callers may bypass decode. Bound work and encoded size before
@@ -426,10 +466,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v37\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v38\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v37\0",
+                    b"benilla-native-checkpoint-v38\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -444,10 +484,9 @@ impl NativeWorld {
         {
             return Err(NativeError::Incompatible);
         }
-        let baseline = s
-            .initial_cast_genesis
+        s.initial_cast_genesis
             .verify(&profile, s.world, s.player, s.seed)?;
-        initial_cast_genesis::validate_counter(baseline, s.tick, s.rng_counter)?;
+        // The full ordered creature genesis prefix is checked after owners are restored.
         if s.world == [0; 16]
             || s.player.owner == [0; 16]
             || s.player.character == [0; 16]
@@ -555,7 +594,29 @@ impl NativeWorld {
             .transpose()?;
         let mut npcs = BTreeMap::new();
         for (id, n) in s.npcs {
-            let p = profile.npc(id).ok_or(NativeError::InvalidCheckpoint)?;
+            let base = profile.npc(id).ok_or(NativeError::InvalidCheckpoint)?;
+            let source_generation = match (&profile.creature_generations, n.source_generation) {
+                (None, None) => None,
+                (Some(catalog), Some(snapshot)) => Some(CreatureGenerationOwner::restore(
+                    catalog,
+                    snapshot,
+                    s.world,
+                    profile_digest,
+                    n.id,
+                    s.seed,
+                    s.tick,
+                    s.rng_counter,
+                    profile.tick_ms,
+                    profile.clock_origin_ms,
+                    base,
+                )?),
+                _ => return Err(NativeError::InvalidCheckpoint),
+            };
+            let projected = match &source_generation {
+                Some(owner) => owner.project_profile(base)?,
+                None => base.clone(),
+            };
+            let p = &projected;
             if n.id.spawn != id
                 || n.id.generation > s.tick
                 || n.regen_elapsed_ms >= benilla_sim::creature_regeneration::REGEN_INTERVAL_MS
@@ -570,7 +631,18 @@ impl NativeWorld {
             {
                 return Err(NativeError::InvalidCheckpoint);
             }
-            let ai = ai::SoloCreatureAi::restore(n.ai, p.ai.clone(), s.now_ms, s.tick, SOLO_UNIT)?;
+            let ai = if source_generation.is_some() {
+                ai::SoloCreatureAi::restore_generation_owned(
+                    n.ai,
+                    p.ai.clone(),
+                    s.now_ms,
+                    s.tick,
+                    SOLO_UNIT,
+                    n.id.generation,
+                )?
+            } else {
+                ai::SoloCreatureAi::restore(n.ai, p.ai.clone(), s.now_ms, s.tick, SOLO_UNIT)?
+            };
             ai.validate_fixed_step(profile.tick_ms)?;
             // The selected native source domain owns the available player and excludes
             // feign-changing hooks. Generic AI offline/unresolved links are not reachable here.
@@ -641,11 +713,17 @@ impl NativeWorld {
             }
             let source_motion = n
                 .source_motion
-                .map(|m| NpcMotion::restore(m, &profile, &ai, s.now_ms, n.id))
+                .map(|m| match &source_generation {
+                    Some(owner) => {
+                        NpcMotion::restore_generation(m, &profile, &ai, s.now_ms, n.id, owner)
+                    }
+                    None => NpcMotion::restore(m, &profile, &ai, s.now_ms, n.id),
+                })
                 .transpose()?;
             npcs.insert(
                 id,
                 Npc {
+                    source_generation: source_generation.clone(),
                     events: NpcEvents::restore(
                         n.events, s.world, n.id, s.player, &profile, &ai, s.tick,
                     )?,
@@ -655,16 +733,32 @@ impl NativeWorld {
                         &profile,
                         n.id,
                     )?,
-                    source_collision_width: CreatureCollisionWidthState::restore(
-                        n.source_collision_width,
-                        &profile,
-                        n.id,
-                    )?,
-                    source_collision_height: CreatureCollisionHeightState::restore(
-                        n.source_collision_height,
-                        &profile,
-                        n.id,
-                    )?,
+                    source_collision_width: match &source_generation {
+                        Some(owner) => CreatureCollisionWidthState::restore_generation(
+                            n.source_collision_width,
+                            &profile,
+                            n.id,
+                            owner,
+                        )?,
+                        None => CreatureCollisionWidthState::restore(
+                            n.source_collision_width,
+                            &profile,
+                            n.id,
+                        )?,
+                    },
+                    source_collision_height: match &source_generation {
+                        Some(owner) => CreatureCollisionHeightState::restore_generation(
+                            n.source_collision_height,
+                            &profile,
+                            n.id,
+                            owner,
+                        )?,
+                        None => CreatureCollisionHeightState::restore(
+                            n.source_collision_height,
+                            &profile,
+                            n.id,
+                        )?,
+                    },
                     regen_elapsed_ms: n.regen_elapsed_ms,
                     original_loot_recipient: n.original_loot_recipient,
                     corpse_loot: n.corpse_loot,
@@ -758,7 +852,12 @@ impl NativeWorld {
                         .launch_context()
                         .ok_or(NativeError::InvalidCheckpoint)?;
                     interactions::spell_authority::validate_historical_launch(
-                        &profile, released, c.target, &launch,
+                        &profile,
+                        npcs.get(&c.target.spawn)
+                            .ok_or(NativeError::InvalidCheckpoint)?,
+                        released,
+                        c.target,
+                        &launch,
                     )?;
                     let delay =
                         spell::projectile_delay(launch.distance_squared, spec.projectile_speed)?;
@@ -875,6 +974,7 @@ impl NativeWorld {
             rng_counter: s.rng_counter,
             combat,
         };
+        initial_cast_genesis::validate_state(&profile, &state)?;
         PlayerEnvironmentState::validate_optional(
             state.source_player_environment.as_ref(),
             &profile,
@@ -1005,9 +1105,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v37\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v38\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v37\0",
+            b"benilla-native-checkpoint-v38\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

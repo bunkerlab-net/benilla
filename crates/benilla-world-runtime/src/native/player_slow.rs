@@ -427,12 +427,8 @@ impl PlayerSlowState {
             .values()
             .find(|h| h.id == id)
             .ok_or(NativeError::InvalidState)?;
-        Ok(if npcs.contains_key(&holder.caster.spawn) {
-            profile
-                .npc(holder.caster.spawn)
-                .ok_or(NativeError::InvalidState)?
-                .ai
-                .level
+        Ok(if let Some(npc) = npcs.get(&holder.caster.spawn) {
+            npc.effective_profile(profile)?.ai.level
         } else {
             profile
                 .player_slow

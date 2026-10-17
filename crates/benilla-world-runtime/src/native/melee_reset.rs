@@ -60,7 +60,7 @@ impl MeleeResetWitness {
             execution: cast.execution.checkpoint(),
             release_receipt: release_receipt.clone(),
             release_receipt_digest: crate::digest(
-                b"benilla-native-melee-release-receipt-v37\0",
+                b"benilla-native-melee-release-receipt-v38\0",
                 release_receipt,
             ),
             intervals_ms,
@@ -98,7 +98,7 @@ impl MeleeResetWitness {
         if self.policy != POLICY
             || self.release_receipt_digest
                 != crate::digest(
-                    b"benilla-native-melee-release-receipt-v37\0",
+                    b"benilla-native-melee-release-receipt-v38\0",
                     &self.release_receipt,
                 )
             || (self.profile, self.domain, self.world, self.player) != identity
@@ -144,11 +144,15 @@ impl MeleeResetWitness {
         }
         interactions::spell_authority::validate_historical_launch(
             profile,
+            state
+                .npcs
+                .get(&self.target.spawn)
+                .ok_or(NativeError::InvalidCheckpoint)?,
             &self.released,
             self.target,
             &launch,
         )?;
-        self.validate_receipt(profile, &launch, &execution)?;
+        self.validate_receipt(profile, state, &launch, &execution)?;
         self.validate_scheduler(profile, state, &execution)?;
         Ok(())
     }
@@ -157,6 +161,7 @@ impl MeleeResetWitness {
     fn validate_receipt(
         &self,
         profile: &Profile,
+        state: &State,
         launch: &spell::LaunchContext,
         execution: &spell::MageProjectileCast,
     ) -> Result<(), NativeError> {
@@ -212,11 +217,17 @@ impl MeleeResetWitness {
             || context.ability != self.released.ability.id
             || context.player_level != self.released.level
             || context.target_level
-                != profile
-                    .npc(self.target.spawn)
-                    .ok_or(NativeError::InvalidCheckpoint)?
-                    .ai
-                    .level
+                != interactions::spell_authority::historical_target_profile(
+                    profile,
+                    state
+                        .npcs
+                        .get(&self.target.spawn)
+                        .ok_or(NativeError::InvalidCheckpoint)?,
+                    self.target,
+                    self.released.captured_ms,
+                )?
+                .ai
+                .level
             || context.history != history
             || context
                 .player_position

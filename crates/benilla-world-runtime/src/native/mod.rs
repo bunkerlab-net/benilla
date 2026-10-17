@@ -5,6 +5,11 @@ mod admin;
 pub use admin::*;
 mod combat;
 mod creature_capabilities;
+mod creature_generation;
+mod creature_generation_binding;
+#[cfg(test)]
+mod creature_generation_tests;
+pub use creature_generation::*;
 mod melee_reset;
 mod owner_ignore_pathfinding;
 pub use owner_ignore_pathfinding::*;
@@ -118,8 +123,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 37;
-pub const NATIVE_POLICY: &str = "benilla-native-initial-cast-genesis-v37";
+pub const NATIVE_FORMAT_VERSION: u32 = 38;
+pub const NATIVE_POLICY: &str = "benilla-native-creature-generation-v38";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -140,6 +145,7 @@ pub enum NativeCapability {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeError {
+    CreatureInitialization(benilla_sim::creature_init::InitError),
     EventAi(benilla_sim::event_ai::Error),
     PlayerEnvironment(environment::EnvironmentError),
     PlayerSlow(benilla_sim::player_slow::SlowError),
@@ -187,6 +193,11 @@ impl std::fmt::Display for NativeError {
     }
 }
 impl std::error::Error for NativeError {}
+impl From<benilla_sim::creature_init::InitError> for NativeError {
+    fn from(value: benilla_sim::creature_init::InitError) -> Self {
+        Self::CreatureInitialization(value)
+    }
+}
 impl From<benilla_sim::spell_range::Error> for NativeError {
     fn from(value: benilla_sim::spell_range::Error) -> Self {
         Self::SpellRange(value)
@@ -241,11 +252,44 @@ impl NativeWorld {
         if world == [0; 16] || player.owner == [0; 16] || player.character == [0; 16] {
             return Err(NativeError::InvalidProfile);
         }
+        let initial_cast_genesis =
+            InitialCastGenesis::realize(&profile, world, player, seed, entry_location.as_ref())?;
+        let profile_digest = profile.digest();
+        let mut rng_counter = initial_cast_genesis.end_counter();
+        let order: Vec<u64> = match &profile.creature_generations {
+            Some(catalog) => catalog.cold_entry_order().to_vec(),
+            None => profile.npcs.iter().map(|p| p.ai.creature_id).collect(),
+        };
         let mut npcs = BTreeMap::new();
-        for p in &profile.npcs {
+        for spawn in order {
+            let base = profile.npc(spawn).ok_or(NativeError::InvalidProfile)?;
+            let source_generation = profile
+                .creature_generations
+                .as_ref()
+                .map(|catalog| {
+                    catalog
+                        .initial(
+                            world,
+                            profile_digest,
+                            crate::NpcId {
+                                spawn,
+                                generation: 0,
+                            },
+                            seed,
+                            &mut rng_counter,
+                        )
+                        .map(|(owner, _draws)| owner)
+                })
+                .transpose()?;
+            let projected = match &source_generation {
+                Some(owner) => owner.project_profile(base)?,
+                None => base.clone(),
+            };
+            let p = &projected;
             npcs.insert(
                 p.ai.creature_id,
                 Npc {
+                    source_generation: source_generation.clone(),
                     events: NpcEvents::new(
                         world,
                         crate::NpcId {
@@ -262,20 +306,34 @@ impl NativeWorld {
                             generation: 0,
                         },
                     )?,
-                    source_collision_width: CreatureCollisionWidthState::new(
-                        &profile,
-                        crate::NpcId {
-                            spawn: p.ai.creature_id,
-                            generation: 0,
-                        },
-                    )?,
-                    source_collision_height: CreatureCollisionHeightState::new(
-                        &profile,
-                        crate::NpcId {
-                            spawn: p.ai.creature_id,
-                            generation: 0,
-                        },
-                    )?,
+                    source_collision_width: match &source_generation {
+                        Some(owner) => CreatureCollisionWidthState::new_generation(
+                            &profile,
+                            owner.npc_id(),
+                            owner,
+                        )?,
+                        None => CreatureCollisionWidthState::new(
+                            &profile,
+                            crate::NpcId {
+                                spawn,
+                                generation: 0,
+                            },
+                        )?,
+                    },
+                    source_collision_height: match &source_generation {
+                        Some(owner) => CreatureCollisionHeightState::new_generation(
+                            &profile,
+                            owner.npc_id(),
+                            owner,
+                        )?,
+                        None => CreatureCollisionHeightState::new(
+                            &profile,
+                            crate::NpcId {
+                                spawn,
+                                generation: 0,
+                            },
+                        )?,
+                    },
                     regen_elapsed_ms: 0,
                     id: crate::NpcId {
                         spawn: p.ai.creature_id,
@@ -283,8 +341,14 @@ impl NativeWorld {
                     },
                     original_loot_recipient: None,
                     corpse_loot: None,
-                    health: p.max_health,
-                    ai: ai::SoloCreatureAi::new(p.ai.clone())?,
+                    health: source_generation
+                        .as_ref()
+                        .map_or(p.max_health, |owner| owner.result().stats.resources.health),
+                    ai: if source_generation.is_some() {
+                        ai::SoloCreatureAi::new_generation_owned(p.ai.clone())?
+                    } else {
+                        ai::SoloCreatureAi::new(p.ai.clone())?
+                    },
                     auras: BTreeMap::new(),
                     aura_bindings: BTreeMap::new(),
                 },
@@ -301,10 +365,8 @@ impl NativeWorld {
         if profile.source_motion.is_some() {
             player_events.schedule_notify(0, false)?;
         }
-        let initial_cast_genesis =
-            InitialCastGenesis::realize(&profile, world, player, seed, entry_location.as_ref())?;
         let state = State {
-            rng_counter: initial_cast_genesis.end_counter(),
+            rng_counter,
             initial_cast_genesis,
             source_location: None,
             event_ai: EventAiState::new(&profile)?,
@@ -362,7 +424,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v37\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v38\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

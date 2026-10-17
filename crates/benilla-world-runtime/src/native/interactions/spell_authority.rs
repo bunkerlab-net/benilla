@@ -649,12 +649,29 @@ impl SpellAuthorityCatalog {
                     "spell NPC resistance or immunity source",
                 ));
             }
-            if raw.minimum_level != n.ai.level
-                || raw.maximum_level != n.ai.level
+            let (minimum_level, maximum_level) =
+                if let Some(catalog) = &profile.creature_generations {
+                    let source = catalog
+                        .source(n.ai.creature_id)
+                        .ok_or(NativeError::InvalidProfile)?;
+                    let template = &source.input.template;
+                    if raw.rank != template.rank
+                        || raw.creature_type != template.creature_type
+                        || raw.resistances != template.resistances
+                    {
+                        return Err(NativeError::AuthorityBinding);
+                    }
+                    (template.minimum_level, template.maximum_level)
+                } else {
+                    (n.ai.level, n.ai.level)
+                };
+            if raw.minimum_level != minimum_level
+                || raw.maximum_level != maximum_level
                 || n.combat.as_ref().is_none_or(|c| c.creature_is_critter)
                 || raw.rank != 0
                 || raw.subtype != 0
-                || !(1..=63).contains(&n.ai.level)
+                || !(1..=63).contains(&minimum_level)
+                || !(minimum_level..=63).contains(&maximum_level)
                 || !(1..=12).contains(&raw.creature_type)
                 || raw.creature_type == 8
                 || raw.spell_list_id != 0
@@ -1108,9 +1125,7 @@ impl<'a> CurrentSpell<'a> {
                 "single audited aura holder",
             ));
         }
-        let p = profile
-            .npc(target.id.spawn)
-            .ok_or(NativeError::InvalidState)?;
+        let p = target.effective_profile(profile)?;
         let raw = source
             .spells
             .get(&ability)
@@ -1188,11 +1203,7 @@ impl<'a> CurrentSpell<'a> {
                 "spell release EVADE hit result",
             ));
         }
-        let p = self
-            .view
-            .profile
-            .npc(self.target.id.spawn)
-            .ok_or(NativeError::InvalidState)?;
+        let p = self.target.effective_profile(self.view.profile)?;
         numeric_chances(
             self.raw,
             self.view.state.level(self.view.profile),
@@ -1257,13 +1268,40 @@ pub(in crate::native) fn validate_historical_binding(
     }
     Ok(())
 }
+/// The release owns the target life at the captured callback time. An old
+/// generation remains available after respawn, but cannot borrow another life's level.
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub(in crate::native) fn historical_target_profile(
+    profile: &Profile,
+    owner: &Npc,
+    target: NpcId,
+    captured_ms: u64,
+) -> Result<NpcProfile, NativeError> {
+    let projected = owner.historical_profile(profile, target)?;
+    if let Some(generations) = &owner.source_generation {
+        let tick = captured_ms
+            .checked_sub(profile.clock_origin_ms)
+            .filter(|elapsed| elapsed.is_multiple_of(u64::from(profile.tick_ms)))
+            .map(|elapsed| elapsed / u64::from(profile.tick_ms))
+            .ok_or(NativeError::InvalidCheckpoint)?;
+        let life = generations
+            .historical(target)
+            .ok_or(NativeError::InvalidCheckpoint)?;
+        if tick < life.creation_tick() || life.death_tick().is_some_and(|death| tick > death) {
+            return Err(NativeError::InvalidCheckpoint);
+        }
+    }
+    Ok(projected)
+}
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub(in crate::native) fn validate_historical_launch(
     profile: &Profile,
+    target_owner: &Npc,
     binding: &ExecutionBinding,
     target: NpcId,
     launch: &spell::LaunchContext,
 ) -> Result<(), NativeError> {
+    let projected = historical_target_profile(profile, target_owner, target, binding.captured_ms)?;
     let Some(catalog) = profile
         .interactions
         .as_ref()
@@ -1275,11 +1313,7 @@ pub(in crate::native) fn validate_historical_launch(
         .spells
         .get(&binding.ability.id)
         .ok_or(NativeError::InvalidCheckpoint)?;
-    let level = profile
-        .npc(target.spawn)
-        .ok_or(NativeError::InvalidCheckpoint)?
-        .ai
-        .level;
+    let level = projected.ai.level;
     let chances = numeric_chances(
         raw,
         binding.level,

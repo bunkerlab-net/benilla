@@ -6,9 +6,9 @@ use synthetic_initial_cast_fixture as fixture;
 
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v37\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v38\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v37\0",
+        b"benilla-native-checkpoint-v38\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -417,7 +417,7 @@ fn event_ai_cannot_regenerate_its_receipt_inside_genesis_span() {
     action.broadcast_id = Some(selection.text_id);
     action.text_slot = Some(selection.text_slot);
     action.speech =
-        Some(EventAiState::speech(selected, &e.callback, e.occurrence, selection).unwrap());
+        Some(EventAiState::speech(selected, &e.callback, e.occurrence, selection, None).unwrap());
     let mut anchor = event_ai::EventAiCallbackAnchor::default();
     anchor.append(e).unwrap();
     w.state.npcs.get_mut(&2).unwrap().events.event_ai_anchor = Some(anchor);

@@ -324,7 +324,16 @@ impl<A: Authority> Frame<'_, A> {
                 movement: None,
                 receipts,
             };
-            let token = npc.ai.begin_receipts(&observation)?;
+            let timing = observation
+                .receipts
+                .iter()
+                .find(|receipt| matches!(receipt.event, ai::CombatEvent::Died))
+                .map(|receipt| self.creature_death_timing(&mut npc, receipt))
+                .transpose()?
+                .flatten();
+            let token = npc
+                .ai
+                .begin_receipts_with_death_timing(&observation, timing)?;
             for effect in token.effects() {
                 self.events.push(Event::Npc {
                     id: npc.id,

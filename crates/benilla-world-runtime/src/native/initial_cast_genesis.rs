@@ -282,6 +282,7 @@ pub(super) fn validate_state(profile: &Profile, state: &State) -> Result<u64, Na
         state
             .initial_cast_genesis
             .verify(profile, state.world, state.player, state.seed)?;
+    let baseline = creature_generation_binding::validate_prefix(profile, state, baseline)?;
     validate_counter(baseline, state.tick, state.rng_counter)?;
     Ok(baseline)
 }

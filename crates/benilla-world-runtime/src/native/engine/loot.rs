@@ -103,10 +103,7 @@ impl<A: Authority> Frame<'_, A> {
         else {
             return Ok(Some(Rejection::UnknownTarget));
         };
-        let p = self
-            .profile
-            .npc(id.spawn)
-            .ok_or(NativeError::InvalidState)?;
+        let p = npc.effective_profile(self.profile)?;
         let Facts::LootInteraction {
             player_in_world,
             player_stunned,
@@ -175,11 +172,15 @@ impl<A: Authority> Frame<'_, A> {
                 .as_ref()
                 .unwrap()
                 .creatures[&p.entry];
-            npc.ai.adjust_loot_corpse_timer(ai::CorpseTimerCall {
+            let call = ai::CorpseTimerCall {
                 at_ms: self.state.now_ms,
                 delay_ms: row.corpse_acceleration_decay_ms,
                 inspecting: true,
-            })?;
+            };
+            npc.ai.adjust_loot_corpse_timer(call)?;
+            if let Some(owner) = &npc.source_generation {
+                npc.source_generation = Some(owner.record_corpse_timer_call(call)?);
+            }
             let window = LootWindow {
                 corpse: id,
                 items: loot.items().cloned().collect(),
@@ -236,11 +237,15 @@ impl<A: Authority> Frame<'_, A> {
                 .as_ref()
                 .unwrap()
                 .creatures[&entry];
-            npc.ai.adjust_loot_corpse_timer(ai::CorpseTimerCall {
+            let call = ai::CorpseTimerCall {
                 at_ms: self.state.now_ms,
                 delay_ms: row.corpse_acceleration_decay_ms,
                 inspecting: false,
-            })?;
+            };
+            npc.ai.adjust_loot_corpse_timer(call)?;
+            if let Some(owner) = &npc.source_generation {
+                npc.source_generation = Some(owner.record_corpse_timer_call(call)?);
+            }
         }
         if self
             .state

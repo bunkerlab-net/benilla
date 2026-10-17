@@ -39,12 +39,24 @@ impl SoloCreatureAi {
     pub fn corpse_timer_calls(&self) -> &[CorpseTimerCall] {
         &self.corpse_timer_calls
     }
+    /// Deadline before the most recent callback that changed it.
+    pub fn corpse_timer_previous_ms(&self) -> u64 {
+        self.corpse_timer_previous_ms
+    }
+    /// Time of the latest callback, including callbacks that left the deadline unchanged.
+    pub fn corpse_timer_last_ms(&self) -> u64 {
+        self.corpse_timer_last_ms
+    }
     pub fn corpse_expiration_ms(&self) -> u64 {
         self.corpse_at_ms
     }
     /// Actual source corpse-removal update, before the DEAD branch starts skipping Unit time.
     pub fn despawned_at_ms(&self) -> Option<u64> {
         self.despawned_at_ms
+    }
+    /// Whether death occurred after this frame's Unit update.
+    pub fn death_deferred(&self) -> bool {
+        self.death_deferred
     }
     pub fn death_at_ms(&self) -> Option<u64> {
         self.death_at_ms

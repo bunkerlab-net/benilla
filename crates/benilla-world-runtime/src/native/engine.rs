@@ -206,7 +206,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v37\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v38\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -456,14 +456,62 @@ impl<A: Authority> Frame<'_, A> {
                 event,
             });
             if killed {
-                if self.profile.source_motion.is_some() {
-                    self.source_combat_receipt(target, ai::CombatEvent::Died)?;
+                if self.profile.creature_generations.is_some() {
+                    // Unit::Kill prepares rewards/body loot before JUST_DIED's respawn draw.
+                    self.native_kill_rewards(target)?;
+                    self.prepare_body_loot(target)?;
+                    if self.profile.source_motion.is_some() {
+                        self.source_combat_receipt(target, ai::CombatEvent::Died)?;
+                    }
+                } else {
+                    if self.profile.source_motion.is_some() {
+                        self.source_combat_receipt(target, ai::CombatEvent::Died)?;
+                    }
+                    self.native_kill_rewards(target)?;
+                    self.prepare_body_loot(target)?;
                 }
-                self.native_kill_rewards(target)?;
-                self.prepare_body_loot(target)?;
             }
         }
         Ok(())
+    }
+    pub(super) fn creature_death_timing(
+        &mut self,
+        npc: &mut Npc,
+        receipt: &ai::Receipt,
+    ) -> Result<Option<ai::DeathTiming>, NativeError> {
+        if !matches!(receipt.event, ai::CombatEvent::Died) {
+            return Ok(None);
+        }
+        match (&self.profile.creature_generations, &npc.source_generation) {
+            (None, None) => Ok(None),
+            (Some(catalog), Some(owner)) => {
+                if matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned) {
+                    return Err(NativeError::InvalidState);
+                }
+                let (next, draws) = owner.redraw_death_delay(
+                    catalog,
+                    self.state.tick,
+                    self.state.seed,
+                    &mut self.state.rng_counter,
+                )?;
+                let delay = next
+                    .project_profile(
+                        self.profile
+                            .npc(npc.id.spawn)
+                            .ok_or(NativeError::InvalidState)?,
+                    )?
+                    .ai
+                    .respawn_delay_seconds;
+                npc.source_generation = Some(next);
+                self.draws.extend(draws);
+                Ok(Some(ai::DeathTiming {
+                    receipt_id: receipt.id,
+                    at_ms: self.state.now_ms,
+                    respawn_delay_seconds: delay,
+                }))
+            }
+            _ => Err(NativeError::AuthorityBinding),
+        }
     }
     fn receipt(&mut self, target: NpcId, event: ai::CombatEvent) -> Result<(), NativeError> {
         if self.profile.source_motion.is_some() {
@@ -1137,7 +1185,7 @@ impl<A: Authority> Frame<'_, A> {
             .filter(|npc| npc.id == owner)
             .ok_or(NativeError::UnknownTarget)?;
         let id = owner.spawn;
-        let p = self.profile.npc(id).unwrap();
+        let mut p = npc.effective_profile(self.profile)?;
         // Creature::Update does not regenerate on corpse/dead/respawn updates.
         let alive_update =
             npc.health > 0 && !matches!(npc.ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned);
@@ -1248,6 +1296,19 @@ impl<A: Authority> Frame<'_, A> {
                 movement,
                 receipts: self.receipts.remove(&id).unwrap_or_default(),
             };
+            let death_timing = if receipt_step.is_none() {
+                observation
+                    .receipts
+                    .iter()
+                    .find(|r| matches!(r.event, ai::CombatEvent::Died))
+                    .map(|receipt| self.creature_death_timing(&mut npc, receipt))
+                    .transpose()?
+                    .flatten()
+            } else {
+                None
+            };
+            // The death draw changes timing, never the selected combat statistics.
+            p = npc.effective_profile(self.profile)?;
             let mut melee_events = Vec::new();
             let effects = if self.state.combat.is_some() {
                 let start = self.events.len();
@@ -1258,7 +1319,7 @@ impl<A: Authority> Frame<'_, A> {
                     if started {
                         self.enter_player_combat();
                     }
-                    match self.native_melee(npc_id, position, health, None, None) {
+                    match self.native_melee(npc_id, position, health, &p, None, None) {
                         Ok(()) => Ok(if self.state.health == 0 {
                             ai::MainhandResult::TargetDied
                         } else {
@@ -1275,6 +1336,11 @@ impl<A: Authority> Frame<'_, A> {
                     npc.ai
                         .finish_receipts(observation, token, &mut callback)
                         .map(|effects| effects.into_iter().skip(prefix).collect())
+                } else if npc.source_generation.is_some() {
+                    let token = npc
+                        .ai
+                        .begin_receipts_with_death_timing(&observation, death_timing)?;
+                    npc.ai.finish_receipts(observation, token, &mut callback)
                 } else {
                     npc.ai.step_with_mainhand(
                         &mut ObservationAdapter(Some(observation)),
@@ -1286,6 +1352,13 @@ impl<A: Authority> Frame<'_, A> {
                 }
                 melee_events = self.events.split_off(start);
                 result?
+            } else if npc.source_generation.is_some() {
+                let token = npc
+                    .ai
+                    .begin_receipts_with_death_timing(&observation, death_timing)?;
+                npc.ai.finish_receipts(observation, token, &mut |_, _, _| {
+                    Ok(ai::MainhandResult::Unchanged)
+                })?
             } else {
                 npc.ai.step(&mut ObservationAdapter(Some(observation)))?
             };
@@ -1311,6 +1384,10 @@ impl<A: Authority> Frame<'_, A> {
                     npc.aura_bindings.clear();
                 }
                 ai::Effect::CorpseRemoved => {
+                    if let Some(owner) = &npc.source_generation {
+                        npc.source_generation =
+                            Some(owner.record_corpse_removed(self.state.tick, &npc.ai)?);
+                    }
                     if self
                         .state
                         .quest_progression
@@ -1328,11 +1405,46 @@ impl<A: Authority> Frame<'_, A> {
                 ai::Effect::Respawned { .. } => {
                     npc.original_loot_recipient = None;
                     npc.corpse_loot = None;
+                    let previous_generation = npc.id.generation;
                     npc.id.generation =
                         npc.id.generation.checked_add(1).ok_or(NativeError::Limit)?;
-                    // Respawn reruns source InitEntry: no fresh model receipt exists yet.
-                    npc.source_collision_width = None;
-                    npc.source_collision_height = None;
+                    match (&self.profile.creature_generations, &npc.source_generation) {
+                        (Some(catalog), Some(owner)) => {
+                            let (next, draws) = owner.respawn(
+                                catalog,
+                                npc.id,
+                                self.state.tick,
+                                self.state.seed,
+                                &mut self.state.rng_counter,
+                            )?;
+                            npc.source_generation = Some(next);
+                            self.draws.extend(draws);
+                            p = npc.effective_profile(self.profile)?;
+                            npc.ai.rebind_after_respawn(
+                                p.ai.clone(),
+                                previous_generation,
+                                npc.id.generation,
+                            )?;
+                        }
+                        (None, None) => {}
+                        _ => return Err(NativeError::AuthorityBinding),
+                    }
+                    if let Some(owner) = &npc.source_generation {
+                        npc.source_collision_width = CreatureCollisionWidthState::new_generation(
+                            self.profile,
+                            npc.id,
+                            owner,
+                        )?;
+                        npc.source_collision_height = CreatureCollisionHeightState::new_generation(
+                            self.profile,
+                            npc.id,
+                            owner,
+                        )?;
+                    } else {
+                        // A later generation never reuses the initial-only geometry receipt.
+                        npc.source_collision_width = None;
+                        npc.source_collision_height = None;
+                    }
                     npc.events.rebind_respawn(npc.id)?;
                     if let Some(events) = &mut self.state.event_ai {
                         events.respawn(self.profile, npc.id, self.state.tick)?;
@@ -1340,7 +1452,10 @@ impl<A: Authority> Frame<'_, A> {
                     if let Some(capabilities) = &mut npc.source_capabilities {
                         capabilities.respawn(self.profile, npc.id)?;
                     }
-                    npc.health = p.max_health;
+                    npc.health = npc
+                        .source_generation
+                        .as_ref()
+                        .map_or(p.max_health, |owner| owner.result().stats.resources.health);
                     npc.auras.clear();
                     npc.aura_bindings.clear();
                 }
@@ -1461,14 +1576,11 @@ impl<A: Authority> Frame<'_, A> {
         id: NpcId,
         position: ai::Point,
         npc_health: u32,
+        p: &NpcProfile,
         npc_orientation: Option<Orientation>,
         working: Option<&interactions::WorkingNpc<'_>>,
     ) -> Result<(), NativeError> {
         use benilla_sim::{npc_melee as m, starter_init as init};
-        let p = self
-            .profile
-            .npc(id.spawn)
-            .ok_or(NativeError::UnknownTarget)?;
         let attack = p
             .combat
             .as_ref()
@@ -1491,7 +1603,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v37\0",
+            b"benilla-native-melee-action-v38\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1501,6 +1613,7 @@ impl<A: Authority> Frame<'_, A> {
                 id,
                 position,
                 npc_health,
+                p,
                 npc_orientation,
                 self.state.position,
                 self.state.orientation,
@@ -1760,7 +1873,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v37\0",
+            b"benilla-native-melee-chain-v38\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events
