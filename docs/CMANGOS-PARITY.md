@@ -175,7 +175,7 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 39 retains this required-option evidence and rejects earlier formats.
+  format 40 retains this required-option evidence and rejects earlier formats.
   The first source-owner cache contract requires explicit first dispatch, revision
   one and Complete NORMAL with exact endpoints/all segment predicates. Retained
   use still requires exact prior and increment. Runtime-owned live dispatch is
@@ -237,7 +237,7 @@ is meaningful without a bounded content/mechanics inventory.
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 39, without changing the
+  service uses experimental native checkpoint format 40, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,
@@ -276,7 +276,7 @@ is meaningful without a bounded content/mechanics inventory.
   semantics cannot disappear. Unsupported learned active executors remain visibly
   unavailable only after their learning/stat effects have been validated. Selected
   spell authority v7 retains the bounded full-raw ID 133 fields only after a
-  source-backed neutral modifier closure. Native39 owns idle player BASE/OFF
+  source-backed neutral modifier closure. Native40 owns idle player BASE/OFF
   attack timers, source equipment Delay/break transitions, successful-release
   COMBAT resets and durable historical reset validation. Full-raw execution also
   requires an owned pose-bound zone/area observation and scoped absence from a
@@ -284,7 +284,7 @@ is meaningful without a bounded content/mechanics inventory.
   The authored full-raw
   fixture does not establish actual DBC equality; the producer/compiler and
   native admission remain closed. See [the bounded spell contract](../crates/benilla-world-runtime/SPELL-AUTHORITY.md).
-  Native39 retains source-derived creation/entry plans and realizes the selected
+  Native40 retains source-derived creation/entry plans and realizes the selected
   first-entry RNG receipt once, before tick0. The authored Dodge81/Detect3050
   phase fixtures do not establish actual Human loaded order, DBC rows or
   production admission. General channels, procs, triggered scripts and arbitrary
@@ -311,7 +311,11 @@ is meaningful without a bounded content/mechanics inventory.
   `Loot::FillLoot`, `LootTemplate::Process`][loot].
 - **Current fork:** source-shaped ordinary backpack/corpse loot and a separate
   positive `CmangosAddItemV1` admin policy have synthetic differential and durable
-  component coverage. Admin grants allow exact partial capacity/unique results,
+  component coverage. One-hop ungrouped body references retain distinct reference
+  tables, rates and loader-order witnesses, with bounded complete child execution
+  and pinned differential cases. Nested/grouped references remain excluded;
+  selected SQL rows still do not establish authentic loader order.
+  Admin grants allow exact partial capacity/unique results,
   self-unbinding, retained spell/set/quest metadata and real empty carried Bags.
   Backpack-only positional move/swap/merge now has a source policy, transactional
   runtime command and existing stock-UI command/protocol integration. It does not

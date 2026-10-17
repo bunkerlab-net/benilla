@@ -4,18 +4,19 @@ This is a fresh GPL-3.0-or-later reconstruction from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, not recovery of the lost patch.
 `NativeCapability` remains uninhabited. Authored source comparisons and controller
 integration tests do not admit real content or establish a playable starting zone.
-Native format/policy is reconstruction v15, ordinary quest lifecycle v2, quest
-progression genesis v3 and AI checkpoint v3. Older saves do not migrate implicitly.
+Native format is 40 (`benilla-native-reference-loot-v40`). Loot generation policy
+is v2 and loot genesis is v3. Older saves do not migrate implicitly.
 
 ## Captured inputs and fail-closed scope
 
 `QuestProgressionInput::loot` supplies an audited ordinary item catalog, complete
-ordered selected creature-loot captures, explicit quality/money/empty-window rules,
+ordered selected creature-loot and reference-loot captures, explicit
+quality/reference/money/empty-window rules,
 and one resolved corpse row per selected creature entry. Capture identities bind
 the pinned source and the complete observed loader result/order. No canonical sort
 is substituted for the source query's observed order. Missing templates, unknown
-closure, reference/conditional/quest-only loot, item-started quests, property or
-item-script hooks, bags/bank/keyring, trades, skinning/pickpocket, group or controlled
+closure, nested or grouped references, conditional/quest-only loot, item-started quests,
+property or item-script hooks, bag contents/bank/keyring, trades, skinning/pickpocket, group or controlled
 units, wield-loot, multi-tap, special corpse timers and death callbacks reject.
 
 Items retain resolved source fields. Backpack slots are 23–38, normalized Stackable
@@ -24,6 +25,27 @@ arrays reject. Required items overlapping immutable starter equipment reject bec
 source equipment removal is not hosted. Carrying an ordinary gear-shaped item does
 not authorize equipping/using/selling/trading it. Starter identity is cross-checked
 against the actual initializer and the supplied client metadata.
+
+## One-hop reference execution
+
+Body and reference templates occupy distinct namespaces, even when their numeric
+IDs match. Each namespace retains its own ordered-loader witnesses. The supplied
+reference projection is exactly the targets of body references; placeholders in
+reference rows are not item metadata dependencies. Every positive leaf has exact
+item closure, including shared-item consistency and corpse-carried inventory checks.
+
+An ungrouped body reference first performs its source roll using the referenced
+item rate. Chance at least 100 succeeds without a roll or rate multiplication. On
+success, `maxcount` invokes the complete child template that many times, at the
+parent row's execution position. Child ordinary leaves use quality rates; groups
+retain their explicit/equal selection rules. A row's group ID denotes membership
+in its current template, never a subgroup selector in the referenced template.
+
+Nested references and references inside groups remain unsupported. Admission
+bounds expanded work and distribution draws independently of the sixteen-item
+output cap: filling the corpse does not skip later source rolls or shuffles.
+Neither dump order nor selected-row sorting supplies an observed loader result.
+Authored component inputs exercise these mechanics without certifying real data.
 
 ## Source transaction order
 

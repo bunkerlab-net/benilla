@@ -194,9 +194,9 @@ fn assert_selection(w: &NativeWorld, spawn: u64) {
 }
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v39\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v40\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v39\0",
+        b"benilla-native-checkpoint-v40\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -631,14 +631,14 @@ fn late_second_npc_failure_rolls_back_real_respawn_selection_history_rng_and_jou
 fn old_checkpoints_and_records_cannot_synthesize_generation_owners() {
     let mut w = world(profile(source(2, 1, 3)), 7);
     let cp = w.checkpoint().unwrap();
-    for version in [37, 38] {
+    for version in [37, 38, 39] {
         let mut old = serde_json::to_value(&cp).unwrap();
         old["version"] = version.into();
         old["state"]["version"] = version.into();
         rejects(&w, old);
     }
     step(&mut w, &mut f::KernelAuthority::default());
-    for version in [37, 38] {
+    for version in [37, 38, 39] {
         let mut records = w.records().to_vec();
         records[0].version = version;
         let mut resumed =

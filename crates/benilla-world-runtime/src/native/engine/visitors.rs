@@ -50,7 +50,7 @@ impl<A: Authority> Frame<'_, A> {
         let scene = self.visitor_scene(working)?;
         Ok(SceneWitness {
             frame: interactions::witness(self.profile_digest, &scene, self.interaction_moment())?,
-            callback: crate::digest(b"benilla-native-visitor-callback-v39\0", callback),
+            callback: crate::digest(b"benilla-native-visitor-callback-v40\0", callback),
         })
     }
     fn visitor_binding(owner: VisitorParticipant) -> Option<NpcId> {

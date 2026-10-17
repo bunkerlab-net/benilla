@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native39 (`benilla-native-creature-equipment-v39`), quest genesis policy v6,
+is native40 (`benilla-native-reference-loot-v40`), quest genesis policy v6,
 and live training policy v3 with its unchanged journal layout v2. Quest genesis
 also binds the immutable prepared first-entry identity, when selected.
 Older policies are rejected rather than silently migrated.
@@ -93,7 +93,7 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 39 explicitly rejects prior schemas; cast checkpoints use version 3,
+Native format 40 explicitly rejects prior schemas; cast checkpoints use version 3,
 while common resource and aura checkpoints use versions 1 and 2 respectively. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight
@@ -172,7 +172,7 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Distinct-actor source-selected component loop
 
-The authored native39 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
+The authored native40 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
 composes the selected interaction, combat, spell-133, current-pose facing, complete
 visitor, quest, progression and loot hosts. A is the hostile kill target; neutral-to-all
 B is both starter and finisher with matching QUESTGIVER flags and relations. B keeps
@@ -216,7 +216,7 @@ production NativeCapability/startup remain closed; neither is inferred from thes
   capacity fixture retains its 299-callback history from training between levels.
 - Ordinary backpack items, corpse loot/money, required-item destruction and fixed/
   choice item rewards now use the source transaction host described in
-  [LOOT-INVENTORY.md](LOOT-INVENTORY.md). Conditional/reference/quest-only loot,
+  [LOOT-INVENTORY.md](LOOT-INVENTORY.md). Conditional/nested-reference/grouped-reference/quest-only loot,
   item-started/source quests, equipment mutation and property/script callbacks
   remain explicit admission failures.
 - Audited private row closure, geometry/movement authority, graphical client
@@ -255,7 +255,7 @@ cargo clippy -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
 
 ## Corpse-carried metadata boundary
 
-Native39 retains corpse acquisition of inert carried metadata and
+Native40 retains corpse acquisition of inert carried metadata and
 ordinary empty bags through the checked inventory corpse policy. Unused spell
 cooldowns, all five charges and durability retain source values; Bag instances
 retain source container slots and zero creation charges. The existing sixteen
@@ -265,11 +265,32 @@ quest host and corpse mutation committed together. Admin partial grants and
 self-unbinding are not used. Quest rewards and starter inventory still use the
 unchanged ordinary readiness; timed/auto-reward quest and effect audits remain.
 
-Inventory policy v5, corpse policy v1, loot genesis v2 and corpse-item receipt v2
-are bound under native39 profile/state/record/checkpoint identities. Native38 and earlier
+Inventory policy v5, corpse policy v1, loot genesis v3 and corpse-item receipt v2
+are bound under native40 profile/state/record/checkpoint identities. Native39 and earlier
 headers, policies, legacy digest domains and profile contexts reject, including
 rehashed outer checkpoints/journals; no serde defaults or replay migration exist.
-References remain unsupported without separate catalog/rate semantics and genuine
+One-hop ungrouped body references have separate catalog/rate semantics; nested
+and grouped references remain excluded. Every namespace still requires genuine
 whole-table loader-order evidence. Selected SQL reader closure is not that proof.
 No item use/equip, extra bag capacity/contents, playable Northshire, actual Vermin
 completion, production admission or saved-cache opening is established here.
+
+## Quest-7-shaped component scene
+
+The authored three-actor regression retains the public quest-7 contract: prerequisite
+783, Marshal McBride's starter/finisher role, ten entry-6 kills, no required items,
+and the quest-15 predecessor gate. Quest 783 starts at the separate Willem role and
+finishes at McBride. Ten distinct lethal spawn generations drive the existing quest
+reducer; repeating an attack on a corpse grants no additional kill credit or XP.
+Each death executes an authored one-hop reference drop with its own rate draw.
+Completion precedes loot collection, and reward money/reputation/XP use the normal
+reducers. Serialized checkpoint reopening and segmented journal replay retain each
+incomplete counter and the completed/rewarded boundaries.
+
+Only the specified quest scalars and relations are source-shaped. Stats, levels,
+spells, loot, spawn times, factions, AI/interaction witnesses and geometry are
+authored controls. The scene uses the legacy component authority and does not
+select a three-owner source visitor, motion, combat or spell host. The existing
+one/two-owner source scheduler remains unchanged. An explicitly synthetic unoffered
+quest-21 boundary closes quest 15's chain pointer without claiming its downstream
+content. This test does not certify actual Northshire scene closure or admission.

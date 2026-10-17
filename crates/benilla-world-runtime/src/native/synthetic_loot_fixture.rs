@@ -111,9 +111,11 @@ pub fn setup() -> (Profile, init::StarterInput, QuestProgressionInput) {
         rules: l::Rules {
             quality_rate_bits: [1f32.to_bits(); 7],
             money_rate_bits: 1f32.to_bits(),
+            referenced_rate_bits: 1f32.to_bits(),
             corpse_empty_loot_show: false,
         },
         captures: vec![capture],
+        reference_captures: vec![],
         creatures: p
             .npcs
             .iter()

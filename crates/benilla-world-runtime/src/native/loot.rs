@@ -38,7 +38,10 @@ pub struct LootAudit {
 #[derive(Clone, Debug)]
 pub struct NativeLootInput {
     pub inventory: inv::Catalog,
+    /// Explicit ordered creature_loot_template captures, never inferred from sorted SQL.
     pub captures: Vec<l::Capture>,
+    /// Complete referenced leaf tables in their separate reference_loot_template namespace.
+    pub reference_captures: Vec<l::Capture>,
     pub rules: l::Rules,
     pub creatures: Vec<LootCreatureRow>,
     pub audit: LootAudit,
@@ -48,11 +51,13 @@ pub struct NativeLootGenesis {
     identity: crate::Digest,
     pub inventory: inv::Catalog,
     inventory_identity: crate::Digest,
+    starter_source_identity: crate::Digest,
     pub starter_items: BTreeMap<u32, init::ItemRow>,
     pub(super) initial_inventory: inv::State,
     pub(super) catalog: l::Catalog,
     pub(super) rules: l::Rules,
     pub(super) creatures: BTreeMap<u32, LootCreatureRow>,
+    audit: LootAudit,
 }
 impl PartialEq for NativeLootGenesis {
     fn eq(&self, o: &Self) -> bool {
@@ -90,7 +95,7 @@ impl NativeLootGenesis {
                 "ordinary corpse dependency closure",
             ));
         }
-        let catalog = l::Catalog::new(rows.captures)?;
+        let catalog = l::Catalog::new_with_references(rows.captures, rows.reference_captures)?;
         let mut creatures = BTreeMap::new();
         for r in rows.creatures {
             if r.entry == 0
@@ -118,12 +123,19 @@ impl NativeLootGenesis {
         {
             return Err(NativeError::InvalidProfile);
         }
-        for c in catalog.captures() {
+        let mut shared_items = BTreeMap::new();
+        for c in catalog.captures().chain(catalog.reference_captures()) {
             for lookup in c.items.values() {
                 let l::ItemLookup::Present(item) = lookup else {
                     return Err(NativeError::InvalidProfile);
                 };
                 let i = rows.inventory.corpse_carried_ready(item.entry)?;
+                if shared_items
+                    .insert(item.entry, item)
+                    .is_some_and(|previous| previous != item)
+                {
+                    return Err(NativeError::InvalidProfile);
+                }
                 if (
                     i.quality,
                     i.display_id,
@@ -180,39 +192,49 @@ impl NativeLootGenesis {
                 .store_new(&rows.inventory, stack.item, stack.count, |_, _, _| Ok(()))?;
         }
         initial_inventory.validate(&rows.inventory)?;
-        let identity = crate::digest(
-            b"benilla-native-loot-genesis-reconstruction-v2\0",
-            &(
-                inv::CORPSE_POLICY_ID,
-                rows.inventory.hash(),
-                catalog.identity(),
-                &rows.rules,
-                &creatures,
-                &rows.audit,
-                &initial_inventory,
-            ),
-        );
-        Ok(Self {
-            identity,
+        let mut genesis = Self {
+            identity: [0; 32],
             inventory_identity: rows.inventory.hash(),
+            starter_source_identity: input.source_identity(),
             inventory: rows.inventory,
             starter_items,
             initial_inventory,
             catalog,
             rules: rows.rules,
             creatures,
-        })
+            audit: rows.audit,
+        };
+        genesis.identity = genesis.reconstructed_identity();
+        Ok(genesis)
     }
     pub fn identity(&self) -> crate::Digest {
         self.identity
     }
+    fn reconstructed_identity(&self) -> crate::Digest {
+        crate::digest(
+            b"benilla-native-loot-genesis-reconstruction-v3\0",
+            &(
+                inv::CORPSE_POLICY_ID,
+                self.inventory.hash(),
+                self.catalog.identity(),
+                &self.rules,
+                &self.creatures,
+                &self.audit,
+                &self.initial_inventory,
+                self.starter_source_identity,
+            ),
+        )
+    }
     pub(super) fn validate_immutable(&self, input: &init::StarterInput) -> Result<(), NativeError> {
-        if self.inventory.hash() != self.inventory_identity
+        if self.identity != self.reconstructed_identity()
+            || self.inventory.hash() != self.inventory_identity
+            || self.starter_source_identity != input.source_identity()
             || self.starter_items != input.items.iter().map(|i| (i.id, i.clone())).collect()
         {
             return Err(NativeError::InvalidProfile);
         }
         self.inventory.validate()?;
+        self.rules.validate()?;
         self.initial_inventory.validate(&self.inventory)?;
         Ok(())
     }

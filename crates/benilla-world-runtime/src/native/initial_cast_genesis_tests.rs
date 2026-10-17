@@ -6,9 +6,9 @@ use synthetic_initial_cast_fixture as fixture;
 
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v39\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v40\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v39\0",
+        b"benilla-native-checkpoint-v40\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp

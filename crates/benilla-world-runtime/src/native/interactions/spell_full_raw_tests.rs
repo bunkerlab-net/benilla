@@ -101,9 +101,9 @@ fn timers(w: &NativeWorld) -> [u32; 2] {
 }
 fn rehash(value: serde_json::Value) -> Checkpoint {
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v39\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v40\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v39\0",
+        b"benilla-native-checkpoint-v40\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     Checkpoint::decode(&checkpoint.encode().unwrap()).unwrap()
@@ -283,7 +283,7 @@ fn retained_reset_and_idle_state_reject_rehashed_tampering_after_projectile_fini
             let receipt: AuthorityReply =
                 serde_json::from_value(combat["melee_reset"]["release_receipt"].clone()).unwrap();
             combat["melee_reset"]["release_receipt_digest"] = serde_json::to_value(crate::digest(
-                b"benilla-native-melee-release-receipt-v39\0",
+                b"benilla-native-melee-release-receipt-v40\0",
                 &receipt,
             ))
             .unwrap();
@@ -321,7 +321,7 @@ fn previous_native_release_receipts_reject_after_current_checkpoint_rehash() {
     assert_eq!(
         retained["release_receipt_digest"],
         serde_json::to_value(crate::digest(
-            b"benilla-native-melee-release-receipt-v39\0",
+            b"benilla-native-melee-release-receipt-v40\0",
             &receipt,
         ))
         .unwrap()
@@ -331,6 +331,7 @@ fn previous_native_release_receipts_reject_after_current_checkpoint_rehash() {
         (36, "benilla-native-source-combat-timers-v36"),
         (37, "benilla-native-initial-cast-genesis-v37"),
         (38, "benilla-native-creature-generation-v38"),
+        (39, "benilla-native-creature-equipment-v39"),
     ] {
         for old_receipt_domain in [false, true] {
             let mut forged = checkpoint.clone();
@@ -345,7 +346,7 @@ fn previous_native_release_receipts_reject_after_current_checkpoint_rehash() {
             reset["release_receipt_digest"] = serde_json::to_value(crate::digest(
                 format!(
                     "benilla-native-melee-release-receipt-v{}\0",
-                    if old_receipt_domain { version } else { 39 }
+                    if old_receipt_domain { version } else { 40 }
                 )
                 .as_bytes(),
                 &receipt,
@@ -373,6 +374,7 @@ fn previous_native_source_phase_profiles_reject_with_rehashed_record_chain() {
         (36, "benilla-native-source-combat-timers-v36"),
         (37, "benilla-native-initial-cast-genesis-v37"),
         (38, "benilla-native-creature-generation-v38"),
+        (39, "benilla-native-creature-equipment-v39"),
     ] {
         for scheduled in [false, true] {
             let mut records = w.records().to_vec();

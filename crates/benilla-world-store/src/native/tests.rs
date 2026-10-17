@@ -344,6 +344,7 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
         (36, "benilla-native-source-combat-timers-v36"),
         (37, "benilla-native-initial-cast-genesis-v37"),
         (38, "benilla-native-creature-generation-v38"),
+        (39, "benilla-native-creature-equipment-v39"),
     ] {
         for incompatible in ["world.checkpoint", "world.previous"] {
             let t = Temp::new();
@@ -393,7 +394,7 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
 
 #[test]
 fn previous_native_records_cannot_enter_a_fresh_version_one_envelope() {
-    for version in [35, 36, 37, 38] {
+    for version in [35, 36, 37, 38, 39] {
         let t = Temp::new();
         let mut world = f::world();
         let (mut store, _) = NativeStore::create(t.path(), &world).unwrap();
@@ -437,10 +438,10 @@ fn rewritten_native36_body_requires_non_null_genesis_inside_valid_version_one_en
         }
         assert!(serde_json::from_value::<Checkpoint>(checkpoint.clone()).is_err());
         // A native36 body has no genesis receipt. Rewriting its headers and all
-        // integrity hashes cannot supply the required native39 initialization.
+        // integrity hashes cannot supply the required native40 initialization.
         let hash = |kind: &str, value: &serde_json::Value| -> Digest {
             let mut h = Sha256::new();
-            h.update(format!("benilla-native-{kind}-v39\0").as_bytes());
+            h.update(format!("benilla-native-{kind}-v40\0").as_bytes());
             h.update(serde_json::to_vec(value).unwrap());
             h.finalize().into()
         };

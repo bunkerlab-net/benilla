@@ -588,6 +588,16 @@ corpse generation (1711–1731), group and template processing (2397–2477,
 vectors substitute explicit distribution outcomes/permutations. They do not prove
 C++ MT engine words or a particular standard library's shuffle implementation.
 
+The same `tools/generate_loot_fixture.py` exercises the unchanged pinned
+Roll and Process bodies through an authored reference-table lookup. Its separate
+1,024 synthetic vectors cover one-hop reference repetition, reference-rate versus
+leaf-quality-rate handling, whole-child groups, zero repetitions, shared targets,
+ordering and rolls after the sixteen-slot cap. The existing 1,536-vector fixture
+is regenerated for byte equality before the new fixture is written. Reference
+captures use separate table namespaces and retain whole-loader order witnesses;
+no source database loading order is inferred. See [LOOT.md](LOOT.md) for the
+admitted domain and checked work/draw accounting.
+
 `tools/generate_loot_timer_fixture.py` extracts Creature's InspectingLoot (2805),
 ReduceCorpseDecayTimer (2818) and SetLootStatus (2831) for 800 UBSan vectors.
 The runtime additionally preserves JUST_DIED's later full expiry assignment and

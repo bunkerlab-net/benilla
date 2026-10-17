@@ -1,6 +1,6 @@
 # Source-owned creature generations
 
-This optional native39 component owns ordinary creature initialization per life.
+This optional native40 component owns ordinary creature initialization per life.
 It does not open production admission, import a creature database, authenticate
 captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
@@ -64,7 +64,7 @@ not evidence of universal source grid iteration or a real Human entry order.
 
 ## Persistence and transaction boundary
 
-Native format 39, its policy and all native hash domains reject older envelopes.
+Native format 40, its policy and all native hash domains reject older envelopes.
 The RNG mapping itself is unchanged. Checkpoints require explicit source-owner
 option fields; absence cannot deserialize into a source-free fallback. Restore
 replays retained semantic spans against the world seed and retained source, then

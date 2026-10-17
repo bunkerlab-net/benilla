@@ -162,7 +162,7 @@ dependencies; this receipt supplies none of them.
 
 ## Persistence and checks
 
-Native format 39 (`benilla-native-creature-equipment-v39`) binds the typed route owner
+Native format 40 (`benilla-native-reference-loot-v40`) binds the typed route owner
 transcript through profile, state, record, checkpoint and source-action digest
 domains. Format 28 and earlier saves/records are rejected rather than rewriting
 `Spatial(Route)` receipts or inventing an owner witness. The original fixture

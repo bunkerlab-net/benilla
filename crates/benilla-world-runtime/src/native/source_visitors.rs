@@ -537,8 +537,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 39);
-        assert_eq!(NATIVE_POLICY, "benilla-native-creature-equipment-v39");
+        assert_eq!(NATIVE_FORMAT_VERSION, 40);
+        assert_eq!(NATIVE_POLICY, "benilla-native-reference-loot-v40");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

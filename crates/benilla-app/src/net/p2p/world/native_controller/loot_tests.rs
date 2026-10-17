@@ -1231,3 +1231,6 @@ fn admin_partial_unique_and_merged_stack_push_report_actual_award_only() {
 
 #[path = "inventory_move_tests.rs"]
 mod inventory_move_tests;
+
+#[path = "loot_tests/reference_loot.rs"]
+mod reference_loot;
