@@ -27,6 +27,7 @@ mod native_geometry;
 mod recovery_actions;
 use character_actions::character_guid;
 mod profile;
+mod whispers;
 mod world_setup;
 // Native entry is deliberately closed until a supported compiler/runtime profile exists.
 mod world;
@@ -34,7 +35,7 @@ pub(super) use native_geometry::plugin as native_geometry_plugin;
 use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
-const CONTENT_VERSION: &str = "benilla-saved-exploration-racial-starts-v5";
+const CONTENT_VERSION: &str = "benilla-saved-exploration-emotes-whispers-v7";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
 /// Public connection metadata plus the local setup mailbox; no signing keys or PSKs.
@@ -82,7 +83,7 @@ impl Drop for ClearTicket {
     }
 }
 
-const HELP: &str = "P2P exploration: saved local characters, movement and /say. New characters use their racial starting locations by default; optional private captures override new starts. Existing characters keep their saved positions. Position saves every 10 seconds and on logout. Combat, quests, XP, loot, spells and inventory progression are not implemented.";
+const HELP: &str = "P2P exploration: saved local characters, movement, /say and private /w (or /whisper, /r). New characters use their racial starting locations by default; optional private captures override new starts. Existing characters keep their saved positions. Position saves every 10 seconds and on logout. Combat, quests, XP, loot, spells and inventory progression are not implemented.";
 const AVATAR_VERSION: u16 = 1;
 const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -107,9 +108,17 @@ enum Frame {
     Say {
         text: String,
     },
+    Whisper {
+        message: whispers::Packet,
+    },
     TextEmote {
         text_id: u32,
         target: u64,
+    },
+    EmoteClock {
+        text_id: u32,
+        generation: u64,
+        elapsed_ms: u32,
     },
     Presentation {
         stand_state: u8,
@@ -159,7 +168,17 @@ impl Frame {
                     bail!("invalid P2P movement");
                 }
             }
+            Self::Whisper { message } => message.validate()?,
             Self::TextEmote { .. } => {}
+            Self::EmoteClock {
+                generation,
+                elapsed_ms,
+                ..
+            } => {
+                if *generation == 0 || *elapsed_ms > emotes::MAX_CLOCK_MS {
+                    bail!("invalid P2P emote clock");
+                }
+            }
             Self::Presentation { stand_state, .. } => {
                 if !emotes::valid_stand_state(u32::from(*stand_state)) {
                     bail!("invalid P2P stand state");
@@ -664,6 +683,8 @@ fn validate_character_guid(
     Ok(())
 }
 
+/// Test entry retains byte-level codec coverage; live dispatch decodes each packet once.
+#[cfg(test)]
 fn apply_peer_frame(
     events: &Sender<SessionEvent>,
     peer_id: PeerId,
@@ -672,10 +693,30 @@ fn apply_peer_frame(
     character: &Character,
     catalog: &AvatarCatalog,
 ) -> Result<()> {
+    if !peers.contains_key(&peer_id) {
+        return Ok(());
+    }
+    apply_decoded_peer_frame(
+        events,
+        peer_id,
+        Frame::decode(payload)?,
+        peers,
+        character,
+        catalog,
+    )
+}
+
+fn apply_decoded_peer_frame(
+    events: &Sender<SessionEvent>,
+    peer_id: PeerId,
+    frame: Frame,
+    peers: &mut BTreeMap<PeerId, Option<Character>>,
+    character: &Character,
+    catalog: &AvatarCatalog,
+) -> Result<()> {
     let Some(joined) = peers.get(&peer_id) else {
         return Ok(());
     };
-    let frame = Frame::decode(payload)?;
     // A valid remote continent is a visibility boundary, not an authentication failure.
     // Keep its authenticated descriptor and transport; this protocol has no map-transfer frame.
     if joined
@@ -749,6 +790,20 @@ fn apply_peer_frame(
                 catalog,
             )?;
         }
+        Frame::EmoteClock {
+            text_id,
+            generation,
+            elapsed_ms,
+        } if joined.is_some() => {
+            emotes::emit_clock(
+                events,
+                character_guid(joined.as_ref().expect("admitted character")),
+                text_id,
+                generation,
+                elapsed_ms,
+                catalog,
+            )?;
+        }
         Frame::Presentation {
             stand_state,
             state_emote,
@@ -765,6 +820,7 @@ fn apply_peer_frame(
         Frame::Move { .. }
         | Frame::Say { .. }
         | Frame::TextEmote { .. }
+        | Frame::EmoteClock { .. }
         | Frame::Presentation { .. }
             if joined.is_none() => {}
         _ => bail!("peer sent an invalid session transition"),
@@ -948,10 +1004,14 @@ fn run_exploration_character(
         character.name
     );
     let mut peers = BTreeMap::<PeerId, Option<Character>>::new();
+    let mut whispers = whispers::State::default();
     let mut denied = std::collections::BTreeSet::new();
     // Transient presentation is bounded to this avatar and never enters saved progression.
     let mut stand_state = 0;
     let mut state_emote = None;
+    let mut emote_generation = 0u64;
+    let mut emote_started = Instant::now();
+    let mut last_emote_clock = Instant::now();
     let mut last_checkpoint = Instant::now();
     let mut last_rejection_warning: Option<Instant> = None;
     let started = Instant::now();
@@ -1011,6 +1071,7 @@ fn run_exploration_character(
             clock_sample = current;
         }
         setup.poll(store);
+        whispers.expire(events)?;
         if last_checkpoint.elapsed() >= CHECKPOINT_INTERVAL {
             store.save_position(character.id, character.position).context("could not save local position; session stopped, check local profile before rejoining")?;
             last_checkpoint = Instant::now();
@@ -1062,8 +1123,26 @@ fn run_exploration_character(
                             .encode()?,
                         })
                         .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
+                    if let Some(text_id) = state_emote {
+                        network
+                            .try_send(Command::Send {
+                                peer_id: peer,
+                                payload: Frame::EmoteClock {
+                                    text_id,
+                                    generation: emote_generation,
+                                    elapsed_ms: emote_started
+                                        .elapsed()
+                                        .as_millis()
+                                        .min(u128::from(emotes::MAX_CLOCK_MS))
+                                        as u32,
+                                }
+                                .encode()?,
+                            })
+                            .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
+                    }
                 }
                 Event::PeerLeft(peer) => {
+                    whispers.disconnected(events, peer)?;
                     if let Some(Some(other)) = peers.remove(&peer).filter(|entry| {
                         entry
                             .as_ref()
@@ -1076,9 +1155,22 @@ fn run_exploration_character(
                     }
                 }
                 Event::Frame { peer_id, payload } => {
-                    if apply_peer_frame(events, peer_id, &payload, &mut peers, character, catalog)
-                        .is_err()
-                    {
+                    let applied = match Frame::decode(&payload) {
+                        Ok(Frame::Whisper { message }) => whispers.receive(
+                            events,
+                            character,
+                            &peers,
+                            peer_id,
+                            message,
+                            |peer_id, message| send_whisper(&network, peer_id, message),
+                        ),
+                        Ok(frame) => apply_decoded_peer_frame(
+                            events, peer_id, frame, &mut peers, character, catalog,
+                        ),
+                        Err(error) => Err(error),
+                    };
+                    if applied.is_err() {
+                        whispers.disconnected(events, peer_id)?;
                         // Bound quarantine memory; unknown owners beyond this cap are still disconnected.
                         if denied.len() < 256 {
                             denied.insert(peer_id);
@@ -1102,6 +1194,38 @@ fn run_exploration_character(
                     }
                 }
             }
+        }
+        if let Some(text_id) =
+            state_emote.filter(|_| last_emote_clock.elapsed() >= Duration::from_secs(1))
+        {
+            // Renew a very long-lived loop before its bounded wire clock saturates.
+            if emote_started.elapsed() >= Duration::from_millis(u64::from(emotes::MAX_CLOCK_MS)) {
+                emote_generation = emote_generation.saturating_add(1);
+                emote_started = Instant::now();
+            }
+            let elapsed_ms = emote_started
+                .elapsed()
+                .as_millis()
+                .min(u128::from(emotes::MAX_CLOCK_MS)) as u32;
+            emotes::emit_clock(
+                events,
+                character_guid(character),
+                text_id,
+                emote_generation,
+                elapsed_ms,
+                catalog,
+            )?;
+            network
+                .try_send(Command::Broadcast(
+                    Frame::EmoteClock {
+                        text_id,
+                        generation: emote_generation,
+                        elapsed_ms,
+                    }
+                    .encode()?,
+                ))
+                .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
+            last_emote_clock = Instant::now();
         }
         match commands.recv_timeout(Duration::from_millis(5)) {
             Ok(command) => {
@@ -1185,6 +1309,28 @@ fn run_exploration_character(
                         }
                         if emotes::state_emote_id(&catalog.1, text_id).is_some() {
                             state_emote = Some(text_id);
+                            emote_generation = emote_generation.saturating_add(1);
+                            emote_started = Instant::now();
+                            // Queue the clock before the text/state edge on both paths. It has no voice.
+                            emotes::emit_clock(
+                                events,
+                                character_guid(character),
+                                text_id,
+                                emote_generation,
+                                0,
+                                catalog,
+                            )?;
+                            network
+                                .try_send(Command::Broadcast(
+                                    Frame::EmoteClock {
+                                        text_id,
+                                        generation: emote_generation,
+                                        elapsed_ms: 0,
+                                    }
+                                    .encode()?,
+                                ))
+                                .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
+                            last_emote_clock = Instant::now();
                         }
                         emotes::emit_text_emote(
                             events,
@@ -1214,12 +1360,28 @@ fn run_exploration_character(
                             state_emote,
                         })
                     }
+                    ClientCommand::Chat {
+                        kind: ChatKind::Whisper,
+                        target,
+                        text,
+                        ..
+                    } => {
+                        whispers.send(
+                            events,
+                            character,
+                            &peers,
+                            target.as_deref(),
+                            text,
+                            |peer_id, message| send_whisper(&network, peer_id, message),
+                        )?;
+                        None
+                    }
                     ClientCommand::Chat { .. } => {
                         emit(
                             events,
                             chat(
                                 0,
-                                "Only /say is available in this P2P exploration session.".into(),
+                                "P2P exploration supports /say and private /w, /whisper and /r. Party and raid chat are unavailable.".into(),
                             ),
                         )?;
                         None
@@ -1285,4 +1447,13 @@ fn publish_exploration_clock(
             timescale: 1.0 / 60.0,
         },
     )
+}
+
+fn send_whisper(network: &Network, peer_id: PeerId, message: whispers::Packet) -> Result<()> {
+    network
+        .try_send(Command::Send {
+            peer_id,
+            payload: Frame::Whisper { message }.encode()?,
+        })
+        .map_err(|_| anyhow::anyhow!("private chat send queue unavailable"))
 }

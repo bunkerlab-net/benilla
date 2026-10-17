@@ -49,6 +49,7 @@ pub(super) fn run(
     tr: &mut AnimationTransitions,
     player: &mut AnimationPlayer,
     rng: &mut benilla_assets::AnimRng,
+    peer_emote: Option<(&mut super::super::peer_emote::PeerEmotePlayback, f64)>,
 ) {
     let Frame {
         entity,
@@ -383,7 +384,40 @@ pub(super) fn run(
                     .find_map(|&id| find_resolved(anims, id, catalog));
                 // Whether the base took a clip; only the lock refuses, skipping the bookkeeping.
                 let mut armed = true;
-                if drv.gait == Some(target) {
+                // Only the selected state idle uses the peer clock. Locomotion, death, casts,
+                // posture and realm/NPC state idles retain their existing priority and RNG.
+                let shared = peer_emote.filter(|(clock, _)| {
+                    relaxed
+                        && state_anim == Some(target)
+                        && store.is_some_and(|s| s.0.unit_emote_state() == clock.emote_id)
+                });
+                if let (Some((clock, now)), Some(head)) = (shared, clip) {
+                    if !drv.base_lock.refuses() {
+                        if let Some((c, phase)) = clock.sample(anims, head, now) {
+                            let same =
+                                drv.gait == Some(target) && tr.get_main_animation() == Some(c.node);
+                            if same
+                                || play_clip(
+                                    &mut drv.base_lock,
+                                    tr,
+                                    player,
+                                    c,
+                                    bevy::animation::RepeatAnimation::Forever,
+                                    1.0,
+                                )
+                            {
+                                if let Some(active) = player.animation_mut(c.node) {
+                                    active.set_seek_time(phase);
+                                }
+                                drv.gait = Some(target);
+                                drv.gait_rate = 1.0;
+                            }
+                        }
+                        drv.loop_window = None;
+                    } else {
+                        armed = false;
+                    }
+                } else if drv.gait == Some(target) {
                     // Already armed; the per-frame rate write keeps its rate.
                 } else if let Some(c) = clip {
                     // The death pose (`0x5fc563`) and the mount attach (`0x607b44`) arm past the

@@ -343,3 +343,32 @@ fn disconnect_removes_only_the_targeted_tcp_owner_and_reports_it_once() {
         if peer_id == hello(1).peer_id && payload == b"solo state still running"));
     assert!(matches!(a.try_recv(), Err(mpsc::TryRecvError::Empty)));
 }
+
+#[test]
+fn targeted_private_payload_reaches_only_selected_authenticated_owner() {
+    let a = Network::start_owned(config(vec![]), &key(), hello(1), identity(1)).unwrap();
+    let b =
+        Network::start_owned(config(vec![a.local_addr()]), &key(), hello(2), identity(2)).unwrap();
+    joined(&a, 2);
+    joined(&b, 1);
+    let c =
+        Network::start_owned(config(vec![a.local_addr()]), &key(), hello(3), identity(3)).unwrap();
+    joined(&a, 3);
+    joined(&c, 1);
+    let private = b"private whisper recipient two".to_vec();
+    a.try_send(Command::Send {
+        peer_id: identity(2).owner_id(),
+        payload: private.clone(),
+    })
+    .unwrap();
+    assert!(
+        matches!(next(&b), Event::Frame { peer_id, payload } if peer_id == identity(1).owner_id() && payload == private)
+    );
+    // A subsequent public fence proves both connections drained their queues. Merely
+    // seeing no frame for a short sleep would not establish the bystander's privacy.
+    a.try_send(Command::Broadcast(b"public fence".to_vec()))
+        .unwrap();
+    assert!(matches!(next(&b), Event::Frame { payload, .. } if payload == b"public fence"));
+    assert!(matches!(next(&c), Event::Frame { payload, .. } if payload == b"public fence"));
+    assert!(matches!(c.try_recv(), Err(mpsc::TryRecvError::Empty)));
+}

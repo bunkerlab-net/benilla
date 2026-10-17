@@ -1,7 +1,7 @@
 //! Emote sounds: `SMSG_TEXT_EMOTE` plays the performer's race/sex voice kit (`EmotesTextSound`)
-//! for the active player and the party only. Our own `/wave` goes out as `CMSG_TEXT_EMOTE` and
-//! plays through the server echo, as in 1.12. The catalog also serves `crate::ui_chat` and
-//! `crate::creature_anim`.
+//! for the active player and the party (also streamed peer players in P2P mode).
+//! Our own `/wave` goes out as `CMSG_TEXT_EMOTE` and plays through the server echo, as in 1.12.
+//! The catalog also serves `crate::ui_chat` and `crate::creature_anim`.
 
 use bevy::prelude::*;
 
@@ -9,7 +9,7 @@ use benilla_formats::EmoteSoundCatalog;
 use benilla_protocol::messages::ObjectType;
 
 use crate::entities::{AttachPoints, Creatures};
-use crate::net::{EmoteKind, EmoteMessage, ObjectStore, SelfGuid};
+use crate::net::{EmoteKind, EmoteMessage, ObjectStore, P2pSettings, SelfGuid};
 use crate::spell::group_relation::GroupRoster;
 use crate::ui_social::SocialState;
 use benilla_assets::{AssetSet, LockRecover, WorldAssets};
@@ -94,17 +94,21 @@ pub(super) const VOICE_ATTACH: u16 = 17;
 /// `0x5efea0`). A raid-only member is class 4, a hostile player 6, a creature 1/3/5/7/8 and an
 /// unstreamed performer 9, none of which play. An ignored performer never reaches the composer
 /// (`0x49dc36`).
+///
+/// Deviates in P2P: there are no party slots, so streamed peer players are audible too.
+/// The caller requires a live source entity; NPCs and ignored players remain excluded.
 fn voice_audible(
     performer: u64,
     me: Option<u64>,
     performer_is_player: bool,
     roster: &GroupRoster,
     ignored: bool,
+    p2p: bool,
 ) -> bool {
     if ignored {
         return false;
     }
-    Some(performer) == me || performer_is_player && roster.in_party(me, performer)
+    Some(performer) == me || performer_is_player && (p2p || roster.in_party(me, performer))
 }
 
 /// `0x623c10`: play `kit` at the unit's attachment `0x11`, then stop the unit's previous emote
@@ -153,6 +157,7 @@ fn emote_sounds(
     assets: Option<Res<WorldAssets>>,
     creatures: Option<Res<Creatures>>,
     roster: Option<Res<GroupRoster>>,
+    p2p: Option<Res<P2pSettings>>,
     social: Res<SocialState>,
     self_guid: Res<SelfGuid>,
     attach: AttachPoints,
@@ -189,6 +194,7 @@ fn emote_sounds(
             is_player,
             roster.as_deref().unwrap_or(&no_roster),
             social.is_ignored(m.guid),
+            p2p.is_some(),
         ) {
             continue;
         }
@@ -250,7 +256,7 @@ mod tests {
     #[test]
     fn only_you_and_the_party_are_heard() {
         let r = roster();
-        let heard = |who, player, ignored| voice_audible(who, Some(ME), player, &r, ignored);
+        let heard = |who, player, ignored| voice_audible(who, Some(ME), player, &r, ignored, false);
         assert!(heard(ME, true, false), "class 0, you");
         assert!(heard(MATE, true, false), "class 2, a party member");
         assert!(
@@ -270,6 +276,7 @@ mod tests {
             None,
             true,
             &GroupRoster::default(),
+            false,
             false
         ));
     }
@@ -278,8 +285,25 @@ mod tests {
     #[test]
     fn an_ignored_performer_is_silent() {
         let r = roster();
-        assert!(!voice_audible(MATE, Some(ME), true, &r, true));
-        assert!(!voice_audible(ME, Some(ME), true, &r, true));
+        assert!(!voice_audible(MATE, Some(ME), true, &r, true, false));
+        assert!(!voice_audible(ME, Some(ME), true, &r, true, false));
+    }
+
+    #[test]
+    fn p2p_players_are_heard_without_party_slots() {
+        let r = GroupRoster::default();
+        let heard = |who, player, ignored| voice_audible(who, Some(ME), player, &r, ignored, true);
+        assert!(heard(ME, true, false));
+        assert!(
+            heard(STRANGER, true, false),
+            "a streamed peer needs no party"
+        );
+        assert!(!heard(STRANGER, true, true), "ignored peers stay silent");
+        assert!(
+            !heard(ME, true, true),
+            "ignore still precedes self playback"
+        );
+        assert!(!heard(STRANGER, false, false), "NPCs are not peer players");
     }
 
     /// The slot holder is the unit's own emote voice, never its bark or another unit's.

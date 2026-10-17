@@ -23,7 +23,7 @@ matchmaking service or elected game host runs in P2P mode.
 - Implemented: authenticated, encrypted TCP and optional iroh QUIC peer links; matching network,
   protocol, exploration-contract version and ruleset fingerprints; owner-authenticated saved
   avatars with optional [local source-backed racial starts](docs/CLASSIC-EXPLORATION-STARTS.md)
-  (built-in racial defaults; optional private capture overrides); peer movement and `/say`; join/disconnect cleanup
+  (built-in racial defaults; optional private capture overrides); peer movement, `/say` and direct private `/w` / `/whisper` (`/r` replies); join/disconnect cleanup
 - Connectivity: explicit peer addresses on a LAN, reachable IPv6, or manually
   forwarded TCP ports by default. Opt-in `[p2p.iroh]` uses private endpoint tickets,
   iroh NAT hole punching and encrypted relay fallback through explicitly configured

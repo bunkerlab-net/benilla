@@ -1,6 +1,31 @@
 //! Exploration emotes use the install's DBC mapping and the existing realm presentation events.
 use super::*;
 
+/// Bound incoming timeline work and integer conversions to one week of continuous dancing.
+pub(super) const MAX_CLOCK_MS: u32 = 7 * 24 * 60 * 60 * 1000;
+
+pub(super) fn emit_clock(
+    events: &Sender<SessionEvent>,
+    performer: u64,
+    text_id: u32,
+    generation: u64,
+    elapsed_ms: u32,
+    catalog: &AvatarCatalog,
+) -> Result<()> {
+    if let Some(emote_id) = state_emote_id(&catalog.1, text_id) {
+        emit(
+            events,
+            SessionEvent::PeerEmoteClock {
+                guid: performer,
+                emote_id,
+                generation,
+                elapsed_ms,
+            },
+        )?;
+    }
+    Ok(())
+}
+
 pub(super) fn emit_text_emote(
     events: &Sender<SessionEvent>,
     performer: u64,
@@ -117,6 +142,64 @@ mod tests {
             .with_text_row(9003, 8003, 1)
             .with_text_row(9004, 0, 0);
         catalog
+    }
+
+    #[test]
+    fn shared_clock_is_owner_bound_catalog_resolved_and_never_replays_voice() {
+        let own = super::super::tests::fixture(1, 1, "Local");
+        let other = super::super::tests::fixture(2, 2, "Friend");
+        let mut peers = BTreeMap::new();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let catalog = catalog();
+        let frame = Frame::EmoteClock {
+            text_id: 9002,
+            generation: 3,
+            elapsed_ms: 4567,
+        };
+        let bytes = frame.encode().unwrap();
+        apply_peer_frame(&tx, other.owner_id, &bytes, &mut peers, &own, &catalog).unwrap();
+        peers.insert(other.owner_id, None);
+        apply_peer_frame(&tx, other.owner_id, &bytes, &mut peers, &own, &catalog).unwrap();
+        assert!(rx.is_empty());
+        peers.insert(other.owner_id, Some(other.clone()));
+        apply_peer_frame(&tx, other.owner_id, &bytes, &mut peers, &own, &catalog).unwrap();
+        assert!(
+            matches!(rx.try_recv().unwrap(), SessionEvent::PeerEmoteClock { guid, emote_id: 8002, generation: 3, elapsed_ms: 4567 } if guid == character_guid(&other))
+        );
+        assert!(
+            rx.is_empty(),
+            "clock snapshots do not replay chat, animation edges or voice"
+        );
+        for text_id in [9001, 9003, 9004, u32::MAX] {
+            let bytes = Frame::EmoteClock {
+                text_id,
+                generation: 3,
+                elapsed_ms: 0,
+            }
+            .encode()
+            .unwrap();
+            apply_peer_frame(&tx, other.owner_id, &bytes, &mut peers, &own, &catalog).unwrap();
+            assert!(
+                rx.is_empty(),
+                "only local-catalog persistent emotes have clocks"
+            );
+        }
+        for (generation, elapsed_ms) in [(0, 0), (1, MAX_CLOCK_MS + 1)] {
+            let bytes = Frame::EmoteClock {
+                text_id: 9002,
+                generation,
+                elapsed_ms,
+            }
+            .encode()
+            .unwrap();
+            assert!(Frame::decode(&bytes).is_err());
+        }
+        let spoofed = format!(
+            "{}\nguid = {}\n",
+            String::from_utf8(bytes).unwrap(),
+            character_guid(&own)
+        );
+        assert!(Frame::decode(spoofed.as_bytes()).is_err());
     }
 
     #[test]

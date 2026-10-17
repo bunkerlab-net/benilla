@@ -662,6 +662,11 @@ fn different_map_peer_stays_admitted_without_local_events_and_rejoin_can_be_visi
             stand_state: 1,
             state_emote: None,
         },
+        Frame::EmoteClock {
+            text_id: 1,
+            generation: 1,
+            elapsed_ms: 1000,
+        },
     ] {
         apply_peer_frame(
             &tx,
@@ -1291,4 +1296,126 @@ fn exploration_clock_publishes_configured_wall_minute_to_stock_consumers() {
         other => panic!("unexpected clock event: {other:?}"),
     }
     assert!(receive.try_recv().is_err());
+}
+
+#[test]
+fn private_whisper_frame_codec_rejects_invalid_text_and_forged_fields() {
+    let packet = Frame::Whisper {
+        message: whispers::Packet::Tell {
+            sender: [1; 16],
+            recipient: [2; 16],
+            sequence: 1,
+            text: "private".into(),
+        },
+    };
+    let bytes = packet.encode().unwrap();
+    assert!(matches!(
+        Frame::decode(&bytes).unwrap(),
+        Frame::Whisper { .. }
+    ));
+    let encoded = String::from_utf8(bytes).unwrap();
+    assert!(Frame::decode(
+        format!("{encoded}\nspoofed_sender_name = \"Someoneelse\"\n").as_bytes()
+    )
+    .is_err());
+    for text in [String::new(), "x".repeat(256), "private\ntext".into()] {
+        let bytes = Frame::Whisper {
+            message: whispers::Packet::Tell {
+                sender: [1; 16],
+                recipient: [2; 16],
+                sequence: 1,
+                text,
+            },
+        }
+        .encode()
+        .unwrap();
+        assert!(Frame::decode(&bytes).is_err());
+    }
+}
+
+#[test]
+fn three_exploration_peers_whisper_and_reply_without_bystander_delivery() {
+    let da = Temp::new();
+    let db = Temp::new();
+    let dc = Temp::new();
+    let endpoint = free_endpoint();
+    let (a, sa) = open(&da.profile(), settings(endpoint, &[]));
+    listed(&a);
+    let a_id = create(&a, "Whisperone", 1, 1, 0);
+    enter(&a, a_id);
+    let (b, sb) = open(&db.profile(), settings(free_endpoint(), &[endpoint]));
+    listed(&b);
+    let b_id = create(&b, "Whispertwo", 1, 1, 0);
+    enter(&b, b_id);
+    next_matching(
+        &a,
+        |e| matches!(e, SessionEvent::ObjectCreate { guid, .. } if *guid == b_id),
+    );
+    next_matching(
+        &b,
+        |e| matches!(e, SessionEvent::ObjectCreate { guid, .. } if *guid == a_id),
+    );
+    let (c, sc) = open(&dc.profile(), settings(free_endpoint(), &[endpoint]));
+    listed(&c);
+    let c_id = create(&c, "Whisperthree", 1, 1, 0);
+    enter(&c, c_id);
+    next_matching(
+        &a,
+        |e| matches!(e, SessionEvent::ObjectCreate { guid, .. } if *guid == c_id),
+    );
+    next_matching(
+        &c,
+        |e| matches!(e, SessionEvent::ObjectCreate { guid, .. } if *guid == a_id),
+    );
+    a.commands
+        .send(ClientCommand::Chat {
+            kind: ChatKind::Whisper,
+            target: Some("Whispertwo".into()),
+            text: "private one".into(),
+            language: None,
+        })
+        .unwrap();
+    next_matching(
+        &b,
+        |e| matches!(e, SessionEvent::Chat(m) if m.chat_type == benilla_protocol::messages::CHAT_MSG_WHISPER && m.sender_guid == a_id && m.text == "private one"),
+    );
+    next_matching(
+        &a,
+        |e| matches!(e, SessionEvent::Chat(m) if m.chat_type == benilla_protocol::messages::CHAT_MSG_WHISPER_INFORM && m.sender_guid == b_id && m.text == "private one"),
+    );
+    // Stock /r resolves the last incoming name and emits this same WHISPER command.
+    b.commands
+        .send(ClientCommand::Chat {
+            kind: ChatKind::Whisper,
+            target: Some("Whisperone".into()),
+            text: "private reply".into(),
+            language: None,
+        })
+        .unwrap();
+    next_matching(
+        &a,
+        |e| matches!(e, SessionEvent::Chat(m) if m.chat_type == benilla_protocol::messages::CHAT_MSG_WHISPER && m.sender_guid == b_id && m.text == "private reply"),
+    );
+    a.commands
+        .send(ClientCommand::Chat {
+            kind: ChatKind::Say,
+            target: None,
+            text: "public fence".into(),
+            language: None,
+        })
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let event = c
+            .events
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        if let SessionEvent::Chat(m) = event {
+            assert!(!m.text.starts_with("private"), "bystander received whisper");
+            if m.text == "public fence" {
+                break;
+            }
+        }
+    }
+    drop((sa, sb, sc));
 }

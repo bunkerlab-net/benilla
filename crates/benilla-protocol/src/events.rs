@@ -492,6 +492,13 @@ pub enum SessionEvent {
         text_emote: u32,
         target_name: String,
     },
+    /// Fork-only owner clock for a persistent emote. IDs are resolved from local DBCs.
+    PeerEmoteClock {
+        guid: u64,
+        emote_id: u32,
+        generation: u64,
+        elapsed_ms: u32,
+    },
     /// A unit's anim emote (`SMSG_EMOTE`): an `Emotes.dbc` id, its anim and its `EventSoundID`.
     Emote { guid: u64, emote_id: u32 },
     /// The spell book at login (`SMSG_INITIAL_SPELLS`), ids widened from `u16`, and live cooldowns.

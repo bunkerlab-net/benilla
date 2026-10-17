@@ -117,3 +117,18 @@ The login's endpoint list is read-only local interface metadata. “Configured e
 (not listening)” means no gameplay listener is active. Addresses include the configured
 port; wildcard binds expand to active matching interfaces, including loopback and VPNs.
 Neither that list nor “Listening endpoints” is proof of Internet reachability or port forwarding.
+
+## Peer emote presentation
+
+Exploration emotes resolve animation and voice from each participant's own install.
+Persistent emotes such as `/dance` share an owner-bound generation and elapsed clock,
+so clients follow the same weighted M2 variation/replay sequence, including late joins.
+Updates are bounded and do not replay chat or voice. Movement still cancels the loop.
+One-way network delay and frame timing remain; this is not a synchronized wall clock,
+and different asset patch chains can still present differently.
+
+P2P deviation from the realm client: streamed peer players' voiced text emotes are
+audible without party membership. Ignore and sound settings still apply, sound remains
+positional, and off-map peers produce no emote presentation. Realm voice eligibility
+is unchanged. No audio files, asset paths or peer-chosen animation IDs travel over the
+network. Both peers must run the same exploration protocol version.
