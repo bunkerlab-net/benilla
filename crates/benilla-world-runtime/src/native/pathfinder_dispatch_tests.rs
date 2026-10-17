@@ -388,6 +388,134 @@ fn live_event_cannot_be_relabeled_to_another_same_profile_world_or_tick() {
 }
 
 #[test]
+fn outer_dispatch_dedup_matches_full_validation_and_preserves_error_order() {
+    // The explicit original composition remains the synchronous reference.
+    fn full(context: &AuthorityRequest, profile: &Profile) -> Result<(), NativeError> {
+        let Query::SourceMotion(MotionQuery::Route(request)) = &context.query else {
+            return Err(NativeError::AuthorityBinding);
+        };
+        request
+            .require_pathfinder_dispatch(profile)?
+            .validate_for_context(profile, &context.binding)
+    }
+    let (w, _) = captured(profile());
+    let context = w
+        .last_tick()
+        .unwrap()
+        .replies
+        .iter()
+        .find(|r| route(&r.request).is_some())
+        .unwrap()
+        .request
+        .clone();
+    for case in 0..19 {
+        let mut changed = context.clone();
+        let Query::SourceMotion(MotionQuery::Route(request)) = &mut changed.query else {
+            unreachable!()
+        };
+        match case {
+            0 => (),
+            1 => changed.binding.world[0] ^= 1,
+            2 => changed.binding.tick += 1,
+            3 => changed.binding.profile[0] ^= 1,
+            4 => changed.binding.authority_policy[0] ^= 1,
+            5 => changed.binding.geometry[0] ^= 1,
+            6 => changed.binding.npc = None,
+            7 => changed.binding.npc.as_mut().unwrap().generation += 1,
+            8 => {
+                changed.binding.npc.as_mut().unwrap().spawn = u64::MAX;
+                changed.binding.world[0] ^= 1;
+            }
+            9 | 10 => {
+                request.pathfinder_dispatch = None;
+                if case == 9 {
+                    changed.binding.npc = None;
+                } else {
+                    changed.binding.npc.as_mut().unwrap().spawn = u64::MAX;
+                }
+            }
+            11 => {
+                request.pathfinder_dispatch = serde_json::from_value(
+                    serde_json::to_value(&request.pathfinder_dispatch).unwrap(),
+                )
+                .unwrap();
+                changed.binding.npc = None;
+                changed.binding.world[0] ^= 1;
+            }
+            12 => {
+                request.request.pathfinder_dispatch = None;
+                request.pathfinder_dispatch = None;
+                changed.binding.npc = None;
+            }
+            13 => {
+                request.request.goal = f::point(80.);
+                changed.binding.npc = None;
+            }
+            14 => request.owner_position = f::point(80.),
+            15 => request.request.target.as_mut().unwrap().id += 1,
+            16 => request.request.target.as_mut().unwrap().pose.position = f::point(80.),
+            17 => request.request.target.as_mut().unwrap().collision_height = f::real(1.),
+            18 => {
+                request
+                    .pathfinder_dispatch
+                    .as_mut()
+                    .unwrap()
+                    .evidence
+                    .request_binding[0] ^= 1
+            }
+            _ => unreachable!(),
+        }
+        let expected = full(&changed, w.profile());
+        assert_eq!(
+            changed.require_pathfinder_dispatch(w.profile()).map(|_| ()),
+            expected,
+            "case={case}"
+        );
+        let explicit = match case {
+            0 => Ok(()),
+            8 => Err(NativeError::UnknownTarget),
+            9 | 10 => Err(NativeError::AuthorityUnavailable(
+                "owned pathfinder constructor dispatch",
+            )),
+            11 => Err(NativeError::AuthorityUnavailable(
+                "live pathfinder dispatch",
+            )),
+            12 => Err(NativeError::Motion(m::MotionError::Missing(
+                "Chase constructor dispatch",
+            ))),
+            _ => Err(NativeError::AuthorityBinding),
+        };
+        assert_eq!(expected, explicit, "case={case}");
+    }
+    // Invalid/missing profile sources still run inner validation first.
+    for case in 0..3 {
+        let mut changed = w.profile().clone();
+        match case {
+            0 => changed.pathfinder_configuration = None,
+            1 => changed.tick_ms = 0,
+            2 => changed.geometry_revision[0] ^= 1,
+            _ => unreachable!(),
+        }
+        let expected = full(&context, &changed);
+        assert!(expected.is_err());
+        assert_eq!(
+            context.require_pathfinder_dispatch(&changed).map(|_| ()),
+            expected
+        );
+    }
+    // Neither validation path consumes the live constructor claim.
+    let receipt = context.require_pathfinder_dispatch(w.profile()).unwrap();
+    full(&context, w.profile()).unwrap();
+    receipt.claim_constructor_query().unwrap();
+    context.require_pathfinder_dispatch(w.profile()).unwrap();
+    full(&context, w.profile()).unwrap();
+    assert_eq!(
+        receipt.claim_constructor_query(),
+        Err(NativeError::AuthorityBinding)
+    );
+}
+
+#[test]
 fn synthetic_typed_owner_claim_replays_exact_facts_but_cannot_reopen_loaded_cache() {
     // This deliberately supplies authored cache and segment claims to test only
     // runtime ownership/replay. No native query or real geometry executes here.

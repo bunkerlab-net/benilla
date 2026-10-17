@@ -189,6 +189,28 @@ impl PathfinderDispatchReceipt {
         }
         Ok(())
     }
+    // Called only immediately after CreatureRouteRequest validated this exact
+    // receipt against the same immutable profile. No validation survives a yield.
+    fn validate_context_after_request(
+        &self,
+        profile: &Profile,
+        binding: &Binding,
+    ) -> Result<(), NativeError> {
+        if binding.npc != Some(self.npc()) {
+            // A different/missing outer NPC must keep the full validator's error
+            // order (including configuration lookup), not just a field mismatch.
+            return self.validate_for_context(profile, binding);
+        }
+        if self.world() != binding.world
+            || binding.tick != self.dispatch_tick()
+            || binding.profile != self.evidence.profile_binding
+            || binding.authority_policy != profile.authority_policy
+            || binding.geometry != profile.geometry_revision
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(())
+    }
     /// Claim only after validating the request and the already loaded query. A
     /// second provider cannot consume a cloned first event for an equal-byte reload.
     pub fn claim_constructor_query(&self) -> Result<(), NativeError> {
@@ -253,7 +275,7 @@ impl AuthorityRequest {
             return Err(NativeError::AuthorityBinding);
         };
         let receipt = request.require_pathfinder_dispatch(profile)?;
-        receipt.validate_for_context(profile, &self.binding)?;
+        receipt.validate_context_after_request(profile, &self.binding)?;
         Ok(receipt)
     }
 }

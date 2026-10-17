@@ -477,9 +477,27 @@ impl SamePolygonRoutePolicy {
         session: &Session,
         context: &AuthorityRequest,
     ) -> Result<(), Failure> {
+        self.validate_source_context(session, context)?;
+        self.validate_dispatch(session, context)
+    }
+    fn validate_source_context(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+    ) -> Result<(), Failure> {
         self.check(session)?;
+        super::source_route_filter::validate_route_context(
+            session,
+            &self.environment.profile,
+            context,
+        )
+    }
+    fn validate_dispatch(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+    ) -> Result<(), Failure> {
         let profile = &self.environment.profile;
-        super::source_route_filter::validate_route_context(session, profile, context)?;
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery);
         };
@@ -942,6 +960,7 @@ struct OwnedRouteBodyProgress {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RouteBodyPhase {
     Context,
+    Dispatch,
     Model,
     OwnerState,
 }
@@ -949,7 +968,8 @@ impl RouteBodyPhase {
     #[cfg(test)]
     fn name(self) -> &'static str {
         match self {
-            Self::Context => "body_context_dispatch",
+            Self::Context => "body_context",
+            Self::Dispatch => "body_dispatch",
             Self::Model => "body_model",
             Self::OwnerState => "body_owner_state",
         }
@@ -1778,7 +1798,11 @@ impl Mailbox {
             let (body, model) = match phase {
                 RouteBodyPhase::Context => {
                     progress.session.check_request_binding(&progress.request)?;
-                    policy.validate_context(&progress.session, &progress.request)?;
+                    policy.validate_source_context(&progress.session, &progress.request)?;
+                    (None, None)
+                }
+                RouteBodyPhase::Dispatch => {
+                    policy.validate_dispatch(&progress.session, &progress.request)?;
                     (None, None)
                 }
                 RouteBodyPhase::Model => (
@@ -1823,7 +1847,8 @@ impl Mailbox {
                 progress.model = Some(model);
             }
             progress.next = match phase {
-                RouteBodyPhase::Context => RouteBodyPhase::Model,
+                RouteBodyPhase::Context => RouteBodyPhase::Dispatch,
+                RouteBodyPhase::Dispatch => RouteBodyPhase::Model,
                 RouteBodyPhase::Model => RouteBodyPhase::OwnerState,
                 RouteBodyPhase::OwnerState => unreachable!(),
             };
@@ -2486,6 +2511,8 @@ mod staged_job_tests;
 #[cfg(test)]
 #[path = "route_body_tests.rs"]
 mod route_body_tests;
+#[cfg(test)]
+pub(crate) use route_body_tests::assert_loaded_quest_body_real_slice_progress;
 
 #[cfg(test)]
 #[path = "source_location_mailbox_tests.rs"]

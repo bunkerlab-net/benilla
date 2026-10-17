@@ -40,11 +40,181 @@ fn pause_after(service: &Mailbox, work: &mut Work, phase: RouteBodyPhase) {
     assert_eq!(
         work.route_body.as_ref().unwrap().next,
         match phase {
-            RouteBodyPhase::Context => RouteBodyPhase::Model,
+            RouteBodyPhase::Context => RouteBodyPhase::Dispatch,
+            RouteBodyPhase::Dispatch => RouteBodyPhase::Model,
             RouteBodyPhase::Model => RouteBodyPhase::OwnerState,
             RouteBodyPhase::OwnerState => panic!("final body is not partial"),
         }
     );
+}
+
+/// Instrument the exact loaded quest request used by the service regression.
+/// Real clock/deadline checks remain active; this never supplies geometry facts.
+pub(crate) fn assert_loaded_quest_body_real_slice_progress(
+    session: &Session,
+    request: &AuthorityRequest,
+) {
+    let direct = session.body(request).unwrap();
+    let (_, service) = mailbox(session.clone()).unwrap();
+    let (mut work, reply) = work(&service, request.clone());
+    let lease = work.lease();
+    let expiry = work.deadline;
+    let mut attempts = 0;
+    let mut samples = Vec::with_capacity(4);
+    loop {
+        attempts += 1;
+        let start = Instant::now();
+        let last_check = Cell::new(start);
+        let result = service.advance_route_body(
+            &mut work,
+            start + Duration::from_millis(2),
+            || {
+                let now = Instant::now();
+                last_check.set(now);
+                now
+            },
+            |phase, saved| {
+                if saved {
+                    let sample: &mut (RouteBodyPhase, Duration, bool) = samples.last_mut().unwrap();
+                    assert_eq!(sample.0, phase);
+                    sample.2 = true;
+                } else {
+                    samples.push((phase, last_check.get().elapsed(), false));
+                }
+            },
+        );
+        assert!(work.lease().same_job(&lease));
+        assert_eq!(work.deadline, expiry);
+        assert!(reply.is_empty());
+        match result {
+            Ok(()) => break,
+            Err(Failure::Deadline) if lease.is_active() => {
+                assert!(work.route_validation.is_none());
+            }
+            other => panic!(
+                "loaded quest body failed under real 2ms/500ms budgets: {other:?}; \
+                 attempts={attempts}; samples={samples:?}"
+            ),
+        }
+    }
+    assert_eq!(
+        samples
+            .iter()
+            .filter_map(|(phase, _, saved)| saved.then_some(*phase))
+            .collect::<Vec<_>>(),
+        [
+            RouteBodyPhase::Context,
+            RouteBodyPhase::Dispatch,
+            RouteBodyPhase::Model,
+            RouteBodyPhase::OwnerState,
+        ]
+    );
+    assert_eq!(work.route_validation.as_ref().unwrap().body, direct);
+    assert!(work.route_body.is_none());
+    // Log outside every timed slice, without publishing a provider result.
+    eprintln!("loaded quest real body subparts: attempts={attempts}; samples={samples:?}");
+}
+
+#[test]
+fn context_and_dispatch_make_progress_when_only_their_sum_exceeds_the_slice() {
+    let (session, request) = captured_route_request();
+    let (_, service) = mailbox(session.clone()).unwrap();
+    let (mut work, reply) = work(&service, request.clone());
+    let lease = work.lease();
+    let expiry = work.deadline;
+    assert_eq!(WAIT, Duration::from_millis(500));
+    let start = Instant::now();
+    let slice = start + Duration::from_millis(2);
+    let now = Cell::new(start);
+    let mut attempts = vec![];
+    assert_eq!(
+        service.advance_route_body(
+            &mut work,
+            slice,
+            || now.get(),
+            |phase, saved| {
+                attempts.push((phase, saved));
+                if !saved {
+                    // Each part fits, but the old indivisible Context did not.
+                    now.set(now.get() + Duration::from_micros(1100));
+                }
+            },
+        ),
+        Err(Failure::Deadline)
+    );
+    assert_eq!(
+        attempts,
+        [
+            (RouteBodyPhase::Context, false),
+            (RouteBodyPhase::Context, true),
+            (RouteBodyPhase::Dispatch, false),
+        ]
+    );
+    let progress = work.route_body.as_ref().unwrap();
+    assert_eq!(progress.next, RouteBodyPhase::Dispatch);
+    assert!(progress.model.is_none());
+    assert!(work.route_validation.is_none());
+    assert!(reply.is_empty());
+    assert!(work.lease().same_job(&lease));
+    assert_eq!(work.deadline, expiry);
+
+    attempts.clear();
+    now.set(start);
+    service
+        .advance_route_body(
+            &mut work,
+            slice,
+            || now.get(),
+            |phase, saved| {
+                attempts.push((phase, saved));
+                if !saved {
+                    now.set(
+                        now.get()
+                            + Duration::from_micros(if phase == RouteBodyPhase::Dispatch {
+                                1100
+                            } else {
+                                100
+                            }),
+                    );
+                }
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        attempts,
+        [
+            (RouteBodyPhase::Dispatch, false),
+            (RouteBodyPhase::Dispatch, true),
+            (RouteBodyPhase::Model, false),
+            (RouteBodyPhase::Model, true),
+            (RouteBodyPhase::OwnerState, false),
+            (RouteBodyPhase::OwnerState, true),
+        ]
+    );
+    assert!(work.route_body.is_none());
+    let validation = work.route_validation.as_ref().unwrap();
+    assert_eq!(validation.body, session.body(&request).unwrap());
+    assert!(validation.lease.same_job(&lease));
+    assert_eq!(validation.lease.deadline(), expiry);
+    // Body completion has neither invoked a provider nor published a reply.
+    assert!(reply.is_empty());
+    service.retry.try_send(work).unwrap();
+    let mut calls = 0;
+    service.serve_service_query_slice(1, true, Instant::now() + WAIT, |query, until| {
+        calls += 1;
+        let ServiceQuery::Route(job) = query else {
+            panic!("lost Route staging")
+        };
+        assert!(job.lease().same_job(&lease));
+        assert_eq!(until, expiry);
+        Err(Failure::MissingGeometry)
+    });
+    assert_eq!(calls, 1);
+    assert_eq!(
+        reply.try_recv().unwrap().result,
+        Err(Failure::MissingGeometry)
+    );
+    assert!(!lease.is_active());
 }
 
 #[test]
@@ -54,7 +224,7 @@ fn completed_subparts_survive_and_only_the_oversized_subpart_repeats() {
     let (mut work, reply) = work(&service, request.clone());
     let lease = work.lease();
     let expiry = work.deadline;
-    pause_after(&service, &mut work, RouteBodyPhase::Context);
+    pause_after(&service, &mut work, RouteBodyPhase::Dispatch);
     assert!(reply.is_empty());
     let start = Instant::now();
     let slice = start + Duration::from_millis(2);
@@ -129,8 +299,12 @@ fn partial_body_rejects_changed_session_request_and_equal_byte_dispatch() {
     let (session, request) = captured_route_request();
     let (_, fresh_request) = captured_route_request();
     assert_eq!(fresh_request, request);
-    for boundary in [RouteBodyPhase::Context, RouteBodyPhase::Model] {
-        for field in 0..11 {
+    for boundary in [
+        RouteBodyPhase::Context,
+        RouteBodyPhase::Dispatch,
+        RouteBodyPhase::Model,
+    ] {
+        for field in 0..18 {
             let (_, mut service) = mailbox(session.clone()).unwrap();
             let (mut work, reply) = work(&service, request.clone());
             let lease = work.lease();
@@ -164,6 +338,27 @@ fn partial_body_rejects_changed_session_request_and_equal_byte_dispatch() {
                     profile.tick_ms += 1;
                     policy.profile = Arc::new(profile);
                 }
+                11 => service.session.geometry[0] ^= 1,
+                12 => progress.request.binding.world[0] ^= 1,
+                13 => progress.request.binding.npc.as_mut().unwrap().spawn += 1,
+                14..=17 => {
+                    let Query::SourceMotion(MotionQuery::Route(route)) =
+                        &mut progress.request.query
+                    else {
+                        unreachable!()
+                    };
+                    match field {
+                        14 => route.request.target.as_mut().unwrap().id += 1,
+                        15 => {
+                            route.request.target.as_mut().unwrap().pose.position.x = ai::Real::ONE
+                        }
+                        16 => {
+                            route.request.target.as_mut().unwrap().collision_height = ai::Real::ONE
+                        }
+                        17 => route.target_player_height = None,
+                        _ => unreachable!(),
+                    }
+                }
                 _ => unreachable!(),
             }
             service.retry.try_send(work).unwrap();
@@ -184,7 +379,11 @@ fn partial_body_rejects_changed_session_request_and_equal_byte_dispatch() {
 #[test]
 fn partial_body_cannot_move_to_equal_work_foreign_attachment_or_survive_cancellation() {
     let (session, request) = captured_route_request();
-    for boundary in [RouteBodyPhase::Context, RouteBodyPhase::Model] {
+    for boundary in [
+        RouteBodyPhase::Context,
+        RouteBodyPhase::Dispatch,
+        RouteBodyPhase::Model,
+    ] {
         for mode in 0..3 {
             let (_, service) = mailbox(session.clone()).unwrap();
             let (mut original, old_reply) = work(&service, request.clone());
@@ -226,18 +425,84 @@ fn partial_body_cannot_move_to_equal_work_foreign_attachment_or_survive_cancella
 #[test]
 fn partial_body_original_expiry_is_absolute_and_has_no_provider_or_reply() {
     let (session, request) = captured_route_request();
-    let (_, service) = mailbox(session).unwrap();
-    let (mut work, reply) = work(&service, request);
-    let lease = work.lease();
-    pause_after(&service, &mut work, RouteBodyPhase::Model);
-    std::thread::sleep(lease.deadline().saturating_duration_since(Instant::now()));
-    service.retry.try_send(work).unwrap();
-    service.serve_service_query_slice(1, true, Instant::now() + WAIT, |_, _| {
-        panic!("expired body")
-    });
-    assert!(!lease.is_active());
-    assert!(reply.try_recv().is_err());
-    assert!(service.rx.is_empty());
+    for phase in [
+        RouteBodyPhase::Context,
+        RouteBodyPhase::Dispatch,
+        RouteBodyPhase::Model,
+    ] {
+        let (_, service) = mailbox(session.clone()).unwrap();
+        let (mut work, reply) = work(&service, request.clone());
+        let lease = work.lease();
+        pause_after(&service, &mut work, phase);
+        std::thread::sleep(lease.deadline().saturating_duration_since(Instant::now()));
+        service.retry.try_send(work).unwrap();
+        service.serve_service_query_slice(1, true, Instant::now() + WAIT, |_, _| {
+            panic!("expired body")
+        });
+        assert!(!lease.is_active());
+        assert!(reply.try_recv().is_err());
+        assert!(service.rx.is_empty());
+    }
+}
+
+#[test]
+fn staged_validation_preserves_direct_error_order_across_context_and_dispatch() {
+    let (session, request) = captured_route_request();
+    for case in 0..6 {
+        let (_, service) = mailbox(session.clone()).unwrap();
+        let mut request = request.clone();
+        let Query::SourceMotion(MotionQuery::Route(route)) = &mut request.query else {
+            unreachable!()
+        };
+        let expected = match case {
+            0 => {
+                route.request.point_limit = 1;
+                route.collision_width = None;
+                Failure::Invalid
+            }
+            1 => {
+                route.request.target.as_mut().unwrap().id = 0;
+                route.request.kind = motion::RouteKind::HomeForceDestination;
+                Failure::Binding
+            }
+            2 => {
+                route.request.launch_origin.x = ai::Real::ONE;
+                route.collision_width = None;
+                Failure::UnsupportedQuery
+            }
+            3 => {
+                route.request.goal.x = ai::Real::ONE;
+                route.collision_width = None;
+                Failure::Binding
+            }
+            4 => {
+                route.request.pathfinder_dispatch = None;
+                route.collision_width = None;
+                Failure::Binding
+            }
+            5 => {
+                route.collision_width = None;
+                route.owner_ignore_pathfinding = None;
+                Failure::MissingGeometry
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(session.body(&request), Err(expected), "direct case={case}");
+        let (mut work, reply) = work(&service, request);
+        let lease = work.lease();
+        let error = service
+            .advance_route_body(&mut work, Instant::now() + WAIT, Instant::now, |_, _| {})
+            .unwrap_err();
+        assert_eq!(error, expected, "staged case={case}");
+        assert!(work.route_validation.is_none());
+        assert_eq!(
+            service.finish_query_result(work, Err(error), Instant::now(), true),
+            QueryDisposition::Failed
+        );
+        assert_eq!(reply.try_recv().unwrap().result, Err(expected));
+        assert!(!lease.is_active());
+        assert!(service.rx.is_empty());
+    }
 }
 
 #[test]
@@ -298,6 +563,7 @@ fn cancellation_inside_every_body_subpart_retires_without_provider_or_reply() {
     let (session, request) = captured_route_request();
     for phase in [
         RouteBodyPhase::Context,
+        RouteBodyPhase::Dispatch,
         RouteBodyPhase::Model,
         RouteBodyPhase::OwnerState,
     ] {
@@ -329,6 +595,7 @@ fn late_completion_of_each_body_subpart_never_certifies_it_or_restarts_prior_wor
     let (session, request) = captured_route_request();
     let phases = [
         RouteBodyPhase::Context,
+        RouteBodyPhase::Dispatch,
         RouteBodyPhase::Model,
         RouteBodyPhase::OwnerState,
     ];

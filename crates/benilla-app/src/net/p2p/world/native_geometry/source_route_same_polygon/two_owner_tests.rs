@@ -531,6 +531,7 @@ fn loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_cert
                         ))
                     );
                     assert_eq!(world.checkpoint().unwrap(), before);
+                    core::assert_loaded_quest_body_real_slice_progress(&session, &proposal.context);
                     // Exercise the same loaded quest body through the real 2ms service slices.
                     // Only the existing source provider may propose a native route, and only
                     // concrete app physics may certify one; this callback supplies no facts.
