@@ -14,10 +14,11 @@ use super::*;
 use benilla_sim::creature_motion as motion;
 
 const FORCE_ATTACKING_CAPABILITY: u32 = 0x0008_0000;
+const NO_AGGRO_ON_SIGHT: u32 = 0x0000_0002;
 const IGNORE_FEIGN_DEATH: u32 = 0x0000_0100;
 const NO_CRUSHING_BLOWS: u32 = 0x0000_0010;
 const NO_WOUNDED_SLOWDOWN: u32 = 0x0000_0040;
-const POLICY: &str = "cmangos-8ec338a1-native-combat-authority-v1";
+const POLICY: &str = "cmangos-8ec338a1-native-combat-authority-v2";
 
 /// Captured complete raw fields. Unrepresented bits reject rather than becoming
 /// an assertion of absent script/control behavior. No deserializer is provided.
@@ -37,6 +38,9 @@ pub struct CombatAuthorityCatalog {
 }
 impl CombatAuthorityCatalog {
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
+        if self.policy != POLICY {
+            return Err(NativeError::AuthorityBinding);
+        }
         if profile.source_motion.is_none() || profile.combat.is_none() {
             return Err(NativeError::UnsupportedMechanic(
                 "combat authority requires source motion and player initialization",
@@ -55,7 +59,7 @@ impl CombatAuthorityCatalog {
                     "missing combat authority source row",
                 ))?;
             if row.static_flags1 != 0 || row.static_flags3 != 0 || row.static_flags4 != 0
-                || row.extra_flags & !FORCE_ATTACKING_CAPABILITY != 0
+                || row.extra_flags & !(FORCE_ATTACKING_CAPABILITY | NO_AGGRO_ON_SIGHT) != 0
                 || row.static_flags2 & !(IGNORE_FEIGN_DEATH | NO_CRUSHING_BLOWS | NO_WOUNDED_SLOWDOWN) != 0
                 // The only other admitted raw type flag is already owned by
                 // Creature::RegenerateAll's INTERACTION_IN_COMBAT predicate.
@@ -91,10 +95,15 @@ impl CombatAuthorityCatalog {
                 .as_ref()
                 .ok_or(NativeError::InvalidProfile)?;
             let owner_motion = profile.npc_motion(npc.ai.creature_id)?;
+            // CreatureAI.cpp:39 and CreatureEventAI::JustRespawned derive
+            // Defensive from ExtraFlags, independently of faction hostility.
+            let reaction = if row.extra_flags & NO_AGGRO_ON_SIGHT != 0 {
+                ai::Reaction::Defensive
+            } else {
+                ai::Reaction::Aggressive
+            };
             if npc.ai.neutral_to_all != neutral_to_all
-                // UnitAI starts aggressive; all admitted raw flags exclude
-                // CreatureAI's defensive/no-combat overrides and other AI kinds.
-                || npc.ai.reaction != ai::Reaction::Aggressive
+                || npc.ai.reaction != reaction
                 || !motion.player_can_enter_combat || !owner_motion.npc_can_enter_combat
                 // Unit.cpp:3123 and Creature.cpp:2983 read these same raw bits.
                 || combat.no_crushing_blows != (row.static_flags2 & NO_CRUSHING_BLOWS != 0)
@@ -557,3 +566,6 @@ mod hostile_reference_tests {
         assert!(player_offline_target(0x4, NO_WOUNDED_SLOWDOWN));
     }
 }
+
+#[cfg(test)]
+mod defensive_tests;

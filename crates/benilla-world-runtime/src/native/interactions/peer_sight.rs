@@ -10,6 +10,7 @@ use benilla_formats::Reaction;
 pub enum PeerSightDisposition {
     ExistingOutdoorVictim,
     NeutralToAll,
+    NonAggressive,
     CannotInitiateAttack,
     CannotAttackOnSight,
 }
@@ -57,8 +58,8 @@ pub(in crate::native) fn source_peer_sight(
     let observer_faction = &catalog.factions[&observer_profile.faction_template];
     let target_faction = &catalog.factions[&target_profile.faction_template];
 
-    // The selected closure proves ordinary Aggressive empty-event EventAI and
-    // ground actors. UnitAI's passive and flying/Z branches cannot be selected.
+    // The selected closure derives ordinary Aggressive/Defensive EventAI from
+    // raw ExtraFlags and proves ground actors. Passive/flying branches cannot run.
     if active_attack_victim(observer)? {
         return Ok(PeerSightDisposition::ExistingOutdoorVictim);
     }
@@ -73,12 +74,16 @@ pub(in crate::native) fn source_peer_sight(
     if neutral {
         return Ok(PeerSightDisposition::NeutralToAll);
     }
-    // Core CheckForHelp is reached before CanInitiateAttack or either relation.
+    // Core CheckForHelp precedes the non-Aggressive return and CanInitiateAttack.
     // Empty linking/spawn-group rows do not remove this source invocation.
     if target.ai.phase() == ai::Phase::Combat {
         return Err(NativeError::UnsupportedMechanic(
             "peer sight reached CheckForHelp",
         ));
+    }
+    // UnitAI.cpp:86: Defensive actors can reach help, but never initiate here.
+    if observer_profile.ai.reaction != ai::Reaction::Aggressive {
+        return Ok(PeerSightDisposition::NonAggressive);
     }
     let observer_flags = current_flags(observer_source, observer);
     if !relations::can_initiate_attack(relations::CreatureInitiateAttackInput {
@@ -207,6 +212,33 @@ mod tests {
     fn world() -> NativeWorld {
         NativeWorld::synthetic_component_test(fixture::profile(), [8; 16], f::player(), 7).unwrap()
     }
+    fn defensive_profile(owner: u64) -> Profile {
+        let mut profile = fixture::profile();
+        profile
+            .npcs
+            .iter_mut()
+            .find(|npc| npc.ai.creature_id == owner)
+            .unwrap()
+            .ai
+            .reaction = ai::Reaction::Defensive;
+        profile
+            .initialize_combat_authority(
+                profile
+                    .npcs
+                    .iter()
+                    .map(|npc| NpcCombatAuthoritySource {
+                        entry: npc.entry,
+                        extra_flags: if npc.ai.creature_id == owner { 0x2 } else { 0 },
+                        static_flags1: 0,
+                        static_flags2: 0,
+                        static_flags3: 0,
+                        static_flags4: 0,
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        profile
+    }
     fn sight(
         world: &NativeWorld,
         observer: u64,
@@ -315,6 +347,114 @@ mod tests {
             .npcs
             .iter()
             .all(|npc| npc.ai.reaction == ai::Reaction::Aggressive));
+    }
+
+    #[test]
+    fn defensive_peer_returns_before_can_aggro_or_hostile_attack_continuation() {
+        let mut profile = defensive_profile(2);
+        let factions = &mut profile.interactions.as_mut().unwrap().factions;
+        factions.get_mut(&2).unwrap().enemy_group_mask |= 4;
+        factions.get_mut(&3).unwrap().group_mask = 4;
+        assert_eq!(
+            relations::faction_reaction(&factions[&2].template(), &factions[&3].template()),
+            Reaction::Hostile
+        );
+        let mut world =
+            NativeWorld::synthetic_component_test(profile, [8; 16], f::player(), 7).unwrap();
+        for can_aggro in [false, true] {
+            world.state.npcs.get_mut(&2).unwrap().events.can_aggro = can_aggro;
+            let before = world.state.clone();
+            assert_eq!(sight(&world, 2, 3), Ok(PeerSightDisposition::NonAggressive));
+            assert_eq!(world.state, before);
+            assert!(world.state.npcs[&2].ai.target().is_none());
+        }
+    }
+
+    #[test]
+    fn defensive_peer_keeps_victim_and_neutrality_before_help_and_reaction() {
+        let mut world =
+            NativeWorld::synthetic_component_test(defensive_profile(3), [8; 16], f::player(), 7)
+                .unwrap();
+        attacked_by_player(&mut world, 2);
+        let before = world.state.clone();
+        assert_eq!(sight(&world, 3, 2), Ok(PeerSightDisposition::NeutralToAll));
+        assert_eq!(world.state, before);
+        attacked_by_player(&mut world, 3);
+        let before = world.state.clone();
+        assert_eq!(
+            sight(&world, 3, 2),
+            Ok(PeerSightDisposition::ExistingOutdoorVictim)
+        );
+        assert_eq!(world.state, before);
+    }
+
+    #[test]
+    fn defensive_peer_reached_help_rejects_before_nonaggressive_return() {
+        let mut world =
+            NativeWorld::synthetic_component_test(defensive_profile(2), [8; 16], f::player(), 7)
+                .unwrap();
+        attacked_by_player(&mut world, 3);
+        for can_aggro in [false, true] {
+            world.state.npcs.get_mut(&2).unwrap().events.can_aggro = can_aggro;
+            let before = world.state.clone();
+            assert_eq!(
+                sight(&world, 2, 3),
+                Err(NativeError::UnsupportedMechanic(
+                    "peer sight reached CheckForHelp"
+                ))
+            );
+            assert_eq!(world.state, before);
+        }
+        world
+            .state
+            .npcs
+            .get_mut(&3)
+            .unwrap()
+            .ai
+            .detach_dead_victim(SOLO_UNIT, 100)
+            .unwrap();
+        world.state.health = 0;
+        assert_eq!(
+            sight(&world, 2, 3),
+            Err(NativeError::UnsupportedMechanic(
+                "peer sight reached CheckForHelp"
+            ))
+        );
+    }
+
+    #[test]
+    fn defensive_peer_requires_complete_current_overlay_and_generation() {
+        let world =
+            NativeWorld::synthetic_component_test(defensive_profile(2), [8; 16], f::player(), 7)
+                .unwrap();
+        let ids = [world.state.npcs[&2].id, world.state.npcs[&3].id];
+        for removed in [2, 3] {
+            let mut state = world.state.clone();
+            let owner = state.npcs.remove(&removed).unwrap();
+            let before = (state.clone(), owner.clone());
+            assert_eq!(
+                source_peer_sight(&world.profile, &state, Some(&owner), ids[0], ids[1]),
+                Ok(PeerSightDisposition::NonAggressive)
+            );
+            assert_eq!(
+                source_peer_sight(&world.profile, &state, None, ids[0], ids[1]),
+                Err(NativeError::AuthorityBinding)
+            );
+            assert_eq!((state.clone(), owner.clone()), before);
+            let mut stale_owner = owner;
+            stale_owner.id.generation += 1;
+            assert_eq!(
+                source_peer_sight(&world.profile, &state, Some(&stale_owner), ids[0], ids[1]),
+                Err(NativeError::AuthorityBinding)
+            );
+        }
+    }
+
+    #[test]
+    fn bare_defensive_reaction_is_not_a_source_peer_noop() {
+        let mut world = world();
+        world.profile.npcs[0].ai.reaction = ai::Reaction::Defensive;
+        assert_eq!(sight(&world, 2, 3), Err(NativeError::InvalidProfile));
     }
 
     #[test]

@@ -8,9 +8,14 @@ zero-only. StaticFlags2 admits only no-crushing, no-wounded-slowdown and
 ignore-feign-death, with the first two crosschecked against existing melee/motion
 settings. Zero StaticFlags4 requires backpedal enabled. The source
 `IsNeutralToAll` result is checked against the immutable AI initialization.
-The selected subset is ordinary generic aggressive AI with the source Unit
-combat-entry defaults; defensive/passive AI and initial combat-entry overrides
-reject. Fanning retains its existing separately captured IsWorldBoss-dependent
+The v2 catalog admits exactly ExtraFlags NO_AGGRO_ON_SIGHT (0x2) alongside
+the existing force-attacking bit. CreatureAI initialization and EventAI respawn
+derive Defensive when that bit is set, otherwise Aggressive; a copied reaction
+without the matching raw bit rejects. Passive AI, the separate StaticFlags2
+SPAWN_DEFENSIVE bit and initial combat-entry overrides remain unsupported.
+The catalog validates its policy tag; old-policy contexts reject even if their
+outer checkpoint digests are recomputed. Native v37 wire fields and RNG policy
+are unchanged; the revised catalog tag changes the bound profile identity. Fanning retains its existing separately captured IsWorldBoss-dependent
 motion policy and is not inferred from unrelated static flags. Missing rows,
 unknown bits, missing motion, unrepresented control/aura/script context and incomplete faction/reputation
 inputs reject. Replacing interaction rows preserves this selection and revalidates
@@ -31,7 +36,11 @@ requirement and feign/home gates. `CanInitiateAttack` combines captured flags wi
 current `AggroNotify::CanAggro`. Movement/leeway/refresh state comes from the current
 source motion and sequenced player flags. Only source sight calls request spatial
 visibility/detectability, accessibility and LOS, through distinct typed queries.
-Visitor membership and route queries remain separate.
+Visitor membership and route queries remain separate. Defensive reaction suppresses
+proactive player sight without changing the independent CanInitiateAttack or
+CanAttack predicates. Direct attacks can still cause retaliation. ExtraFlags 0x2
+refuses being an assistant in CanAssistTo; it does not set NO_CALL_ASSIST or
+universally remove assistance calls.
 
 Melee front-angle remains external unless the [facing authority](FACING-AUTHORITY.md)
 is selected. `CanDodgeInCombat` requires the victim's `HasInArc(pi, attacker)`
@@ -70,7 +79,10 @@ visitor boundary, Combat phase plus a supported retained target without
 precede a cached ThreatManager choice, while retained AI target alone survives
 player death. The visitor cannot execute inside the mainhand kill callback; the
 existing detachment bridge has returned before this check. Reached assistance or
-peer attack continuations remain unsupported, with whole-frame rollback.
+peer attack continuations remain unsupported, with whole-frame rollback. A
+Defensive peer returns a derived NonAggressive disposition after the active-victim,
+neutrality and CheckForHelp prefixes, but before CanInitiateAttack. In particular,
+a reached CheckForHelp remains unsupported even for a Defensive observer.
 
 ## Provenance and limits
 
@@ -79,6 +91,10 @@ Mechanisms are derived from CMaNGOS Classic
 
 - `src/game/Entities/Relations.cpp`: `CanAttack`, `CanAttackOnSight`,
   `CanAttackInCombat` and source directional reputation relations
+- `src/game/AI/BaseAI/CreatureAI.cpp`: initial Defensive reaction (39–44);
+  `AI/EventAI/CreatureEventAI.cpp`: JustRespawned reaction restoration (1386–1393);
+  `Entities/Creature.h`: NO_AGGRO_ON_SIGHT (50/640);
+  `AI/BaseAI/UnitAI.cpp`: peer CheckForHelp precedes non-Aggressive return (83–87)
 - `src/game/Entities/Creature.cpp`: `CanInitiateAttack` (2271), ExtraFlags
   initialization (463), `IsIgnoringFeignDeath` (2962)
 - `src/game/Entities/Unit.h`: `CanEnterCombat` (2386)
