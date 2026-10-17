@@ -17,7 +17,7 @@ use crate::dbc::{parse, str_at, u32_at};
 pub const EMOTE_FLAG_INTERACTION: u32 = 0x2000;
 
 /// The joined emote tables.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct EmoteSoundCatalog {
     /// Uppercased `EmotesText.Name` ("WAVE") to text-emote id.
     by_name: HashMap<String, u32>,
@@ -47,6 +47,11 @@ impl EmoteSoundCatalog {
         self.by_name.get(&name.to_ascii_uppercase()).copied()
     }
 
+    /// Whether this install defines the text emote, including chat-only rows.
+    pub fn contains_text(&self, text_id: u32) -> bool {
+        self.text_emote.contains_key(&text_id)
+    }
+
     /// The voice kit for a performer of the given race/sex (`sex`: 0 male, 1 female).
     pub fn voice(&self, text_id: u32, race: u32, sex: u32) -> Option<u32> {
         self.voice.get(&(text_id, race, sex)).copied()
@@ -74,6 +79,14 @@ impl EmoteSoundCatalog {
     pub fn with_row(mut self, emote_id: u32, anim_id: u32, flags: u32) -> Self {
         self.anim.insert(emote_id, anim_id);
         self.emote_flags.insert(emote_id, flags);
+        self
+    }
+
+    /// A synthetic text/emote pair for isolated presentation tests.
+    #[doc(hidden)]
+    pub fn with_text_row(mut self, text_id: u32, emote_id: u32, spec_proc: u32) -> Self {
+        self.text_emote.insert(text_id, emote_id);
+        self.spec_proc.insert(emote_id, spec_proc);
         self
     }
 

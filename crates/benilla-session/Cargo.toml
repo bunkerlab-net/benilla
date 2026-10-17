@@ -1,0 +1,16 @@
+[package]
+name = "benilla-session"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+description = "All-peer lockstep session for synthetic deterministic encounter testing"
+
+[dependencies]
+benilla-p2p = { path = "../benilla-p2p" }
+benilla-sim = { path = "../benilla-sim" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[lints]
+workspace = true

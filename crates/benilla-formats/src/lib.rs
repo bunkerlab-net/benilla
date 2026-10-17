@@ -12,22 +12,22 @@ use benilla_dbc::{DbcParser, FieldType, Schema, SchemaField};
 pub use benilla_blp::BlpTexels;
 
 mod chain;
-pub use chain::{Chain, ChainEntry};
+pub use chain::{Chain, ChainEntry, ChainLimits};
 /// Loose `.tga` art, as addon folders ship it.
 mod tga;
 pub use tga::tga_to_rgba;
 /// Where the WoW install is; [`Chain`] opens it.
 mod install;
 pub use install::{
-    addon_corpus, addon_corpus_candidates, candidates, project_folder, set_project_folder, skipped,
-    wow_data,
+    addon_corpus, addon_corpus_candidates, candidates, project_folder, set_configured_data,
+    set_project_folder, skipped, wow_data,
 };
 mod characters;
 pub use characters::{
     equip_blits, equip_column, equip_region_candidates, equip_tex_dir, equip_tile, forearm_dressed,
     BlitSource, CharCreateCatalog, CharSections, CharacterGeosets, ChrRaceRow, CompositePlan,
-    DialRanges, EmblemLayer, EquipBlit, EquipGeosets, GuildEmblem, NameGenRow, StartOutfitItem,
-    VisibleGeosets,
+    DialRanges, EmblemLayer, EquipBlit, EquipGeosets, GuildEmblem, NameGenRow,
+    NativePlayerDisplayRow, StartOutfitItem, VisibleGeosets,
 };
 mod camera_shakes;
 mod cinematics;
@@ -40,7 +40,8 @@ pub use cinematics::{
     CinematicSequence, CinematicView, SEQUENCE_CAMERAS,
 };
 pub use creatures::{
-    load_creature_catalog, CreatureCatalog, CreatureModel, FootprintParams, NpcAppearance,
+    load_creature_catalog, CreatureCatalog, CreatureCollisionHeightRow, CreatureCollisionWidthRow,
+    CreatureModel, FootprintParams, NpcAppearance,
 };
 pub use macro_icons::load_macro_icons;
 mod macro_icons;
@@ -245,23 +246,25 @@ pub use models::{
     hand_grip_finger_poses, load_m2_animation_summary, load_m2_bone_spins, load_m2_bounds,
     load_m2_collision_hull, load_m2_mesh, load_m2_mesh_skinned, load_object_model, load_wmo,
     load_wmo_collision_tris, m2_bone_spins, m2_owner_reach, m2_ribbon_emitter_count,
-    m2_sequence_visible_textures, m2_texture_transform_count, non_separable_billboard_bones,
-    owner_last_rung, owner_last_rung_bucket, parse_m2_animation_lookup, parse_m2_animation_summary,
-    parse_m2_animations, parse_m2_attachments, parse_m2_bounds, parse_m2_camera,
-    parse_m2_cch_marker, parse_m2_collision_hull, parse_m2_event_markers,
-    parse_m2_global_sequence_bones, parse_m2_lights, parse_m2_pane_cameras,
-    parse_m2_playable_animation_lookup, parse_m2_portrait_camera, parse_m2_render_submeshes,
-    parse_m2_skeleton, parse_m2_string_anchors, parse_wmo_fogs, parse_wmo_lights,
-    parse_wmo_portals, parse_wmo_root, rotation_2x2, shipped_glue_art_extent, uv_transform,
-    wmo_group_doodad_refs, wmo_group_fixed_colors, wmo_group_footprint_tris, wmo_group_header,
-    wmo_group_light_refs, wmo_group_liquid_mesh, wmo_group_raw_colors, wmo_group_submeshes,
-    wmo_root_id, AlphaAnim, AlphaMap, AlphaSeq, AnimEvent, ArtExtent, BatchFootprint, Billboard,
-    BillboardKind, BoneKeys, BoneScaleAnim, BoneSpin, CharSkinSlot, CollisionMesh, Coverage,
-    CoverageReader, EmitterBoneLink, EventMarker, FogPolicy, FootprintTris, GlobalSeqBone,
-    GlobalSeqChannel, GroundQuad, KeyAnim, M2AnimSummary, M2Attachment, M2Bounds, M2CameraTracks,
-    M2Light, M2PaneCamera, M2PortraitCamera, ModelAnimation, ModelBlend, ParentArm, ParentBasis,
-    PlayableAnim, RenderSubmesh, RgbAnim, ScalarAnim, SeqLoops, ShippedGlueScene, Skeleton,
-    SkeletonBone, StringAnchors, UvAnim, UvRotAnim, WmoBatchClass, WmoDoodad, WmoDoodadSet, WmoFog,
+    m2_sequence_visible_textures, m2_texture_transform_count, native_m2_collision,
+    non_separable_billboard_bones, owner_last_rung, owner_last_rung_bucket,
+    parse_m2_animation_lookup, parse_m2_animation_summary, parse_m2_animations,
+    parse_m2_attachments, parse_m2_bounds, parse_m2_camera, parse_m2_cch_marker,
+    parse_m2_collision_hull, parse_m2_event_markers, parse_m2_global_sequence_bones,
+    parse_m2_lights, parse_m2_pane_cameras, parse_m2_playable_animation_lookup,
+    parse_m2_portrait_camera, parse_m2_render_submeshes, parse_m2_skeleton,
+    parse_m2_string_anchors, parse_wmo_fogs, parse_wmo_lights, parse_wmo_portals, parse_wmo_root,
+    rotation_2x2, shipped_glue_art_extent, uv_transform, wmo_group_doodad_refs,
+    wmo_group_fixed_colors, wmo_group_footprint_tris, wmo_group_header, wmo_group_light_refs,
+    wmo_group_liquid_mesh, wmo_group_raw_colors, wmo_group_submeshes, wmo_root_id, AlphaAnim,
+    AlphaMap, AlphaSeq, AnimEvent, ArtExtent, BatchFootprint, Billboard, BillboardKind, BoneKeys,
+    BoneScaleAnim, BoneSpin, CharSkinSlot, CollisionMesh, Coverage, CoverageReader,
+    EmitterBoneLink, EventMarker, FogPolicy, FootprintTris, GlobalSeqBone, GlobalSeqChannel,
+    GroundQuad, KeyAnim, M2AnimSummary, M2Attachment, M2Bounds, M2CameraTracks, M2Light,
+    M2PaneCamera, M2PortraitCamera, ModelAnimation, ModelBlend, NativeM2Collision,
+    NativeWmoCollision, NativeWmoGroup, NativeWmoRoot, ParentArm, ParentBasis, PlayableAnim,
+    RenderSubmesh, RgbAnim, ScalarAnim, SeqLoops, ShippedGlueScene, Skeleton, SkeletonBone,
+    StringAnchors, UvAnim, UvRotAnim, WmoBatchClass, WmoDoodad, WmoDoodadSet, WmoFog,
     WmoGroupHeader, WmoGroupInfo, WmoLight, WmoPortalInfo, WmoPortalRef, WmoPortals, WmoRoot,
     ALPHA_KEY_REF, DEGENERATE_RING_FOOTPRINT, GLUE_AUTHORED_ASPECT, NO_GROUP_LIQUID,
     OWNER_RUNG_BUCKETS, SHIPPED_GLUE_SCENES,
@@ -270,8 +273,8 @@ mod terrain;
 pub use terrain::{
     adt_to_tile_mesh, area_id_at, find_tile_near, ground_effect_at, impassable_at, load_tile_mesh,
     load_tiles_around, mcsh_shadowed_at, terrain_height_at, triangle_z_at, ChunkMesh, Doodad,
-    MapTiles, TileMesh, WmoInstance, ALPHA_MAP_SIZE, CHUNK_SIZE, SHADOW_MAP_SIZE, STORMWIND_XY,
-    TERRAIN_LAYER_TILES, TILE_SIZE,
+    MapTiles, NativeM2MapInventory, NativeWmoMapModel, TileMesh, WmoInstance, ALPHA_MAP_SIZE,
+    CHUNK_SIZE, SHADOW_MAP_SIZE, STORMWIND_XY, TERRAIN_LAYER_TILES, TILE_SIZE,
 };
 mod wdl;
 /// World (x, y) to ADT tile `(col, row)`; minimap `map<X>_<Y>.blp` names use the same order.
@@ -927,3 +930,8 @@ mod tests {
         let _ = std::fs::remove_file(&out);
     }
 }
+
+// Authored MPQ fixtures share the permissive reader's test-only encoder.
+#[cfg(test)]
+#[path = "../../benilla-mpq/src/crypto.rs"]
+mod authored_mpq_crypto;

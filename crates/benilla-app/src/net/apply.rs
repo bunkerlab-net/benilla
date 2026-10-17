@@ -21,8 +21,46 @@ mod world_enter_tests;
 /// handler's commands applied before the next, before anything else in
 /// [`benilla_world::schedule::WorldStage::Net`] runs.
 pub(crate) fn apply_net_updates(world: &mut World) {
-    let events: Vec<SessionEvent> = world.resource::<NetEvents>().0.try_iter().collect();
+    let p2p = world.contains_resource::<super::P2pSettings>()
+        && !world.contains_resource::<super::NetOffline>();
+    let receiver = &world.resource::<NetEvents>().0;
+    let (mut events, closed) = drain(receiver, if p2p { 1024 } else { usize::MAX });
+    // A bounded P2P queue closes on overload. Its disconnect cannot depend on fitting one
+    // more message into that same queue; synthesize the final edge after draining it.
+    if closed
+        && p2p
+        && (world.resource::<super::NetStatus>().connected
+            || events
+                .iter()
+                .any(|event| matches!(event, SessionEvent::Connected { .. })))
+        && !events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::Disconnected { .. }))
+    {
+        events.push(SessionEvent::Disconnected {
+            reason: "P2P transport stopped; restart to rejoin.".into(),
+            end: benilla_protocol::SessionEnd::Lost,
+        });
+    }
     super::handlers::dispatch(world, events);
+}
+
+/// A bounded queue can be refilled while drained, so P2P also has a per-frame work bound.
+fn drain(
+    receiver: &crossbeam_channel::Receiver<SessionEvent>,
+    limit: usize,
+) -> (Vec<SessionEvent>, bool) {
+    let mut events = Vec::new();
+    loop {
+        if events.len() == limit {
+            return (events, false);
+        }
+        match receiver.try_recv() {
+            Ok(event) => events.push(event),
+            Err(crossbeam_channel::TryRecvError::Empty) => return (events, false),
+            Err(crossbeam_channel::TryRecvError::Disconnected) => return (events, true),
+        }
+    }
 }
 
 /// Tags our own streamed entity with [`SelfPlayer`] by matching [`Guid`] against [`SelfGuid`].

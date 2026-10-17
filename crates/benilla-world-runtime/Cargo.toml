@@ -1,0 +1,22 @@
+[package]
+name = "benilla-world-runtime"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+description = "Deterministic solo-first runtime for the original bounded world slice"
+
+[lints]
+workspace = true
+
+[dependencies]
+benilla-sim = { path = "../benilla-sim" }
+# Only the launcher's explicit dev feature may enable source-tree path resolution.
+benilla-formats = { path = "../benilla-formats", default-features = false }
+benilla-world-data = { path = "../benilla-world-data" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[features]
+# Explicit test harness only. Never enables native raw-content admission or app startup.
+synthetic-native-tests = []

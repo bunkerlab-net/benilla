@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
-use benilla_mpq::Archive;
+use benilla_mpq::{Archive, ReadLimits};
 
 use crate::VANILLA_BASE_ORDER;
 
@@ -20,6 +20,19 @@ pub struct ChainEntry {
 pub struct Chain {
     /// Ascending priority: later archives win.
     archives: Vec<Archive>,
+}
+
+/// Opt-in budgets for offline inspection of an untrusted installation.
+/// Index bytes are cumulative across all mounted archives; sector/member caps
+/// remain attached to every returned archive handle.
+#[derive(Clone, Copy, Debug)]
+pub struct ChainLimits {
+    pub index_bytes: usize,
+    pub sector_bytes: usize,
+    pub member_bytes: usize,
+    pub header_scan_bytes: u64,
+    pub archives: usize,
+    pub directory_entries: usize,
 }
 
 /// `patch-?.MPQ` as the reference's `FindFirstFileW` glob matches it (template `0x82edbc`, wrapper
@@ -66,32 +79,69 @@ impl Chain {
     /// `"Failed to open archive"` and goes on, because a skipped corrupt archive surfaces only as
     /// missing files far downstream.
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_inner(path, None)
+    }
+
+    /// Same mount order/locale/tombstone policy as `open`, with explicit budgets.
+    pub fn open_bounded(path: &Path, limits: ChainLimits) -> Result<Self> {
+        Self::open_inner(path, Some(limits))
+    }
+
+    fn open_inner(path: &Path, limits: Option<ChainLimits>) -> Result<Self> {
         let mut archives = Vec::new();
+        let mut index_remaining = limits.map_or(usize::MAX, |l| l.index_bytes);
+        let mut open = |path: &Path| -> Result<Archive> {
+            let archive = match limits {
+                Some(limits) => Archive::open_bounded(
+                    path,
+                    ReadLimits {
+                        index_bytes: index_remaining,
+                        sector_bytes: limits.sector_bytes,
+                        member_bytes: limits.member_bytes,
+                        header_scan_bytes: limits.header_scan_bytes,
+                    },
+                )?,
+                None => Archive::open(path)?,
+            };
+            if limits.is_some() {
+                index_remaining -= archive.index_bytes(); // checked by bounded open
+            }
+            Ok(archive)
+        };
         if path.is_dir() {
-            let mut names: Vec<String> = std::fs::read_dir(path)
+            let mut names = Vec::new();
+            for (index, entry) in std::fs::read_dir(path)
                 .with_context(|| format!("listing {}", path.display()))?
-                .filter_map(|entry| {
-                    let entry = entry.ok()?;
-                    // `path().is_file()` follows symlinks (`read_dir`'s file_type doesn't).
-                    entry.path().is_file().then(|| entry.file_name())
-                })
-                .filter_map(|name| name.into_string().ok())
-                .collect();
+                .enumerate()
+            {
+                if limits.is_some_and(|l| index >= l.directory_entries) {
+                    bail!("bounded chain directory-entry limit");
+                }
+                let Ok(entry) = entry else { continue };
+                if entry.path().is_file() {
+                    if let Ok(name) = entry.file_name().into_string() {
+                        names.push(name);
+                    }
+                }
+            }
             // read_dir order is arbitrary; sort so case-variant ties resolve deterministically.
             names.sort();
-            for name in mount_order(&names) {
+            let ordered = mount_order(&names);
+            if limits.is_some_and(|l| ordered.len() > l.archives) {
+                bail!("bounded chain archive-count limit");
+            }
+            for name in ordered {
                 let mpq = path.join(&name);
-                archives.push(
-                    Archive::open(&mpq).with_context(|| format!("opening {}", mpq.display()))?,
-                );
+                archives.push(open(&mpq).with_context(|| format!("opening {}", mpq.display()))?);
             }
             if archives.is_empty() {
                 bail!("no known vanilla MPQs found in {}", path.display());
             }
         } else {
-            archives.push(
-                Archive::open(path).with_context(|| format!("opening MPQ {}", path.display()))?,
-            );
+            if limits.is_some_and(|l| l.archives == 0) {
+                bail!("bounded chain archive-count limit");
+            }
+            archives.push(open(path).with_context(|| format!("opening MPQ {}", path.display()))?);
         }
         Ok(Self { archives })
     }

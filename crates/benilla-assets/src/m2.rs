@@ -34,6 +34,8 @@ pub struct M2Model {
     pub bounds: Option<M2Bounds>,
     /// The collision hull in WoW model space; `None` means the model does not collide.
     pub collision: Option<CollisionMesh>,
+    /// Strict source witness; None means unproven, never an authored absent hull.
+    pub native_collision: Option<benilla_formats::NativeM2Collision>,
     /// Particle emitters, positions in WoW model space.
     pub emitters: Vec<ModelEmitter>,
     /// Ribbon emitters (trails), the reference's `CRibbonEmitter` (simulated at `0x7b7e60`).
@@ -652,6 +654,7 @@ impl AssetLoader for M2ModelLoader {
             submeshes,
             bounds,
             collision,
+            native_collision: benilla_formats::native_m2_collision(&bytes),
             emitters,
             ribbons,
             lights,

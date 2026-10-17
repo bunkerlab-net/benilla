@@ -1021,3 +1021,41 @@ fn showing_a_parent_re_picks_through_its_mouse_enabled_child() {
     s.tick(0.016);
     assert_eq!(entered(&mut s), "mover");
 }
+
+#[test]
+fn wheel_capture_tracks_mouse_transparent_chat_without_stealing_world_zoom() {
+    let mut s = script();
+    s.set_screen_size(800.0, 600.0);
+    s.run(
+        r#"
+        local chat = CreateFrame("ScrollingMessageFrame", "WheelChat")
+        chat:SetPoint("BOTTOMLEFT", 20, 20); chat:SetWidth(200); chat:SetHeight(150)
+        chat:EnableMouse(false); chat:EnableMouseWheel(true)
+        chat:SetScript("OnMouseWheel", function() WheelCalls = (WheelCalls or 0) + 1 end)
+    "#,
+    )
+    .unwrap();
+    s.resolve();
+    for _ in 0..3 {
+        assert!(
+            s.mouse_move(100.0, 100.0).is_none(),
+            "chat does not capture ordinary hover"
+        );
+        assert!(
+            s.captures_mouse_wheel(100.0, 100.0),
+            "wheel ownership exists before a whole notch"
+        );
+        s.mouse_wheel(100.0, 100.0, 1.0);
+        assert!(
+            !s.captures_mouse_wheel(500.0, 400.0),
+            "world retains zoom outside chat"
+        );
+        s.run("WheelChat:Hide()").unwrap();
+        assert!(!s.captures_mouse_wheel(100.0, 100.0));
+        s.run("WheelChat:Show()").unwrap();
+    }
+    assert_eq!(s.eval::<i64>("return WheelCalls").unwrap(), 3);
+    s.run("WheelChat:EnableMouseWheel(false)").unwrap();
+    assert!(!s.captures_mouse_wheel(100.0, 100.0));
+    assert!(s.errors().is_empty(), "{:?}", s.errors());
+}

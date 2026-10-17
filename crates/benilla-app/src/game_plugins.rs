@@ -454,7 +454,12 @@ pub(crate) mod schedule_tests {
             }
             // Pass 2: build, and read what the build found. `is_send` is only known once a
             // system's params have registered their access, i.e. after this.
-            schedule.initialize(world).expect("the schedule builds");
+            schedule.initialize(world).unwrap_or_else(|error| {
+                panic!(
+                    "the schedule builds: {}",
+                    error.to_string(schedule.graph(), world)
+                )
+            });
             let mut non_send = Vec::new();
             for (key, system) in schedule.systems().expect("initialized") {
                 if !system.is_send() {
@@ -848,7 +853,10 @@ pub(crate) mod schedule_tests {
     /// Raising the ceiling is a claim that a new undeclared order is acceptable: make it with the
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
     /// that commutes by construction belongs in [`Classes`].
-    const UPDATE_ACTIONABLE_CEILING: usize = 4_642;
+    // CI 38858798446, job 116836306255: explicit recovery ordering reduced the
+    // 700-system Update graph to 3,990 actionable pairs (16,654 total, 12,664 explained).
+    // Ratchet downward to that measured census; keep the same assertions and slack.
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_990;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {
@@ -866,6 +874,184 @@ pub(crate) mod schedule_tests {
             "only {n} ambiguous pairs in {what} and the ceiling still says {ceiling}. Lower the \
              ceiling to {n} so it keeps ratcheting."
         );
+    }
+
+    /// A Settings save must be visible to this frame's CVar callbacks and video restart drain.
+    #[test]
+    fn login_settings_precede_the_cvar_flush() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !graph
+            .systems
+            .values()
+            .any(|s| s.name.contains("benilla_app::"))
+        {
+            return; // Player builds omit Bevy's debug type names.
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let input = key("::login::settings::input");
+        let sync = key("::cvars::sync_cvars");
+        let mut seen = HashSet::new();
+        let mut pending = vec![input];
+        while let Some(system) = pending.pop() {
+            if seen.insert(system) {
+                pending.extend(
+                    graph
+                        .dependencies
+                        .iter()
+                        .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                );
+            }
+        }
+        assert!(
+            seen.contains(&sync),
+            "Settings input must precede sync_cvars"
+        );
+        assert!(
+            seen.contains(&key("::login::screen::refresh_boxes")),
+            "Settings input must precede the shared field painter"
+        );
+    }
+
+    #[test]
+    fn wheel_ownership_is_published_before_camera_bindings() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !graph
+            .systems
+            .values()
+            .any(|s| s.name.contains("benilla_app::"))
+        {
+            return; // Player builds omit Bevy's debug type names.
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        for (producer, consumer) in [
+            (
+                "::ui_script::input::feed_ui_input",
+                "::ui_script::arbitrate_pointer_over_ui",
+            ),
+            (
+                "::vplates::seed_plate_hover",
+                "::ui_script::arbitrate_pointer_over_ui",
+            ),
+            (
+                "::ui_script::arbitrate_pointer_over_ui",
+                "::bindings::latch_and_dispatch",
+            ),
+        ] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&key(consumer)),
+                "{producer} must precede {consumer}"
+            );
+        }
+    }
+
+    /// Recovery uses the shared glue art and this frame's window snapshot, like the settings
+    /// painter: after screen preparation and input, before pending video changes are committed.
+    #[test]
+    fn character_recovery_orders_shared_art_and_window_access() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !type_names_available(&graph) {
+            return;
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let recovery = "::char_select::recovery::drive";
+        for (producer, consumer) in [
+            ("::login::screen::materialize_screen", recovery),
+            ("::realm_select::screen::drive_screen", recovery),
+            ("::player::controller::control", recovery),
+            (recovery, "::video::apply_present_mode"),
+            (recovery, "::video::apply_window_mode"),
+        ] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&key(consumer)),
+                "{producer} must precede {consumer}"
+            );
+        }
+    }
+
+    /// P2P zone publication observes both the resolved app zone and the service
+    /// selected by this frame's login action; Present alone orders neither writer.
+    #[test]
+    fn p2p_zone_publication_follows_area_and_login() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !graph
+            .systems
+            .values()
+            .any(|s| s.name.contains("benilla_app::"))
+        {
+            return; // Player builds omit Bevy's debug type names.
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let publish = key("::net::p2p::refresh_local_zone");
+        for producer in ["::area::feed_zone_events", "::login::login_input"] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&publish),
+                "{producer} must precede P2P zone publication"
+            );
+        }
     }
 
     /// The ratchet. Ids, not names, so it runs in the player build too; prints the class

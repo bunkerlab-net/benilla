@@ -81,6 +81,7 @@ mod portrait;
 mod preflight;
 #[cfg(feature = "dev")]
 mod probe_shield;
+mod profile_recovery;
 mod query_cache;
 mod quest_markers;
 mod raid_marks;
@@ -228,6 +229,9 @@ type Extension<'a> = Box<dyn FnOnce(&mut App) + 'a>;
 
 /// The one body behind [`run`] and [`run_with`], not generic, so a launcher compiles none of it.
 fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
+    if let Some(result) = profile_recovery::run(build) {
+        return result;
+    }
     // `WOW_HOVER_LOG_REPORT=<csv>` and `WOW_CAPTURE=list` print and exit before any setup.
     if let Ok(path) = std::env::var("WOW_HOVER_LOG_REPORT") {
         dev::report_recorded_hover_log(&path);
@@ -241,6 +245,27 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     if std::env::var("WOW_PROBE").as_deref() == Ok("list") {
         dev::print_probe_vars();
         return AppExit::Success;
+    }
+
+    // Fork config is loaded before asset discovery and before any network plugin/thread starts.
+    // An unreadable or invalid config must never silently connect to the legacy realm.
+    let mut recovery = None;
+    let config = match benilla_config::AppConfig::load() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("benilla: {error}");
+            if run_mode::unattended() {
+                return AppExit::error();
+            }
+            recovery = Some(login::settings::ConfigRecovery(error.to_string()));
+            benilla_config::AppConfig::default()
+        }
+    };
+    if let Some(data) = config.wow.data {
+        if benilla_formats::set_configured_data(data).is_err() {
+            eprintln!("benilla: startup data configuration was already initialized");
+            return AppExit::error();
+        }
     }
 
     // Every line that names the build says whether a crate on top extended it.
@@ -267,6 +292,12 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     crash::install(build);
 
     let mut app = App::new();
+    if let Some(recovery) = recovery {
+        app.insert_resource(recovery);
+    }
+    if let Some(p2p) = config.p2p {
+        app.insert_resource(net::P2pSettings(p2p, config.ruleset));
+    }
     // The panel footer and the build banner read the stamp back.
     app.insert_resource(build);
     // Static-scene transform tracking pinned on: the default threshold re-decides every frame with

@@ -29,7 +29,7 @@ pub(super) fn select_input(
     mut roster: ResMut<Roster>,
     mut realms: ResMut<crate::realm_select::Realms>,
     pick: Res<CharPick>,
-    mut dialog: ResMut<DeleteDialog>,
+    (mut dialog, mut recovery): (ResMut<DeleteDialog>, ResMut<super::recovery::RecoveryPanel>),
     mut panel: ResMut<super::addons::AddonsPanel>,
     choice: Res<crate::net::RealmChoice>,
     mut next: ResMut<NextState<ClientState>>,
@@ -41,7 +41,7 @@ pub(super) fn select_input(
 ) {
     // A modal owns the input while it is up: the delete confirm, the AddOns list, the realm list
     // over this screen, or the glue dialog (whose Okay must not double as Enter World or Escape).
-    if dialog.open || panel.open || realms.owns_input() || glue_dialog.is_open() {
+    if recovery.open || dialog.open || panel.open || realms.owns_input() || glue_dialog.is_open() {
         return;
     }
     let now = time.elapsed_secs();
@@ -67,6 +67,10 @@ pub(super) fn select_input(
                 }
             }
             SelectAction::EnterWorld => enter_world = true,
+            SelectAction::Recover => {
+                recovery.open(&pick);
+                return;
+            }
             SelectAction::Delete => {
                 // With no selection the click only plays the sound (`selectedIndex > 0` gate).
                 sounds.write(GlueSound("gsCharacterSelectionDelCharacter"));
@@ -153,7 +157,11 @@ pub(super) fn rotate_model(
     time: Res<Time>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut preview: ResMut<GluePreview>,
+    recovery: Res<super::recovery::RecoveryPanel>,
 ) {
+    if recovery.open {
+        return;
+    }
     let window = window.single().ok();
     for (interaction, action) in &panes {
         if *interaction != Interaction::Pressed {
@@ -192,6 +200,7 @@ mod tests {
                 .init_resource::<Roster>()
                 .init_resource::<Realms>()
                 .init_resource::<DeleteDialog>()
+                .init_resource::<super::super::recovery::RecoveryPanel>()
                 .init_resource::<super::super::addons::AddonsPanel>()
                 .init_resource::<crate::login::LoginIntent>()
                 .init_resource::<crate::glue::dialog::GlueDialog>()

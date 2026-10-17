@@ -15,6 +15,7 @@
 mod action;
 mod action_bar_toggles;
 mod addon_message;
+pub mod admin;
 mod auction;
 mod aura;
 mod backdrop;
@@ -27,6 +28,7 @@ mod binder;
 mod binding_abi;
 mod dialog_verbs;
 mod tutorial;
+pub mod world_setup;
 mod worldmap_arrow;
 // `camera_view`: the five camera views and `FlipCameraYaw`, the reference's `UIUtil\Camera.cpp`.
 mod button;

@@ -21,7 +21,9 @@ pub(crate) use select::{
 };
 use select::{Mode, Special};
 
+mod peer_emote;
 /// The strafe body counter-twist, composed onto SpineLow and Head after animation.
+mod peer_timeline;
 mod twist;
 pub(crate) use twist::{wrap_pi, BodyTwist};
 

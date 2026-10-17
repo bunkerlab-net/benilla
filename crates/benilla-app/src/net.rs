@@ -22,8 +22,16 @@ use benilla_world::schedule::WorldStage;
 mod apply;
 pub(crate) mod handlers;
 pub(crate) mod io;
+pub(crate) mod listen_addresses;
 mod motion;
 mod objects;
+mod p2p;
+pub(crate) mod reconfigure;
+pub(crate) use p2p::{P2pEndpointTicket, P2pStart};
+
+/// Fork-only backend settings, inserted before the networking plugin is built.
+#[derive(Resource, Clone)]
+pub(crate) struct P2pSettings(pub benilla_config::P2pConfig, pub benilla_config::Ruleset);
 pub(crate) use objects::tear_down;
 mod session;
 mod world;
@@ -67,8 +75,38 @@ impl Plugin for NetPlugin {
         crate::query_cache::register::<crate::names::NameCache>(app);
         crate::query_cache::register::<crate::go_templates::GameObjectTemplates>(app);
         crate::query_cache::register::<crate::items::Items>(app);
-        let handles = io::spawn_net(self.connect);
-        if !self.connect {
+        let connect = self.connect
+            && !app
+                .world()
+                .contains_resource::<crate::login::settings::ConfigRecovery>();
+        crate::shutdown::on_app_exit(app, p2p::shutdown.into_configs());
+        app.add_systems(
+            Update,
+            // Publish the app's resolved zone only after its area feed and after login has
+            // started/restarted the service. Present alone orders neither producer.
+            p2p::refresh_local_zone
+                .after(WorldStage::Present)
+                .after(crate::area::feed_zone_events)
+                .after(crate::login::login_input)
+                .run_if(resource_exists::<P2pStart>),
+        );
+        p2p::native_geometry_plugin(app);
+        crate::ui_script::world_setup_plugin(app);
+        app.init_resource::<reconfigure::NetworkReconfigure>()
+            .add_systems(Last, reconfigure::drive);
+        app.init_resource::<P2pEndpointTicket>();
+        let ticket = app.world().resource::<P2pEndpointTicket>().clone();
+        let handles = match (connect, app.world().get_resource::<P2pSettings>()) {
+            (true, Some(settings)) => {
+                // Fork deviation: configuration selects the backend, but only the login
+                // screen's explicit exploration/test action may open its transport.
+                let (handles, start) = p2p::prepare(settings.clone(), ticket);
+                app.insert_resource(start);
+                handles
+            }
+            _ => io::spawn_net(connect),
+        };
+        if !connect {
             app.insert_resource(NetOffline);
         }
         // In the net stage: the lighting resolve runs after it and reads this frame's clock.
@@ -476,6 +514,8 @@ pub(crate) enum CharRequest {
     Create(benilla_protocol::CharCreateReq),
     /// Delete a character by guid (`CMSG_CHAR_DELETE`), then stay parked at select.
     Delete(u64),
+    /// Fork-only recovery, handled by the existing local profile writer.
+    Recover(crate::char_select::recovery_model::Request),
     /// Rename a character the server flagged for it (`CMSG_CHAR_RENAME`), then stay parked at
     /// select with the reply.
     Rename { guid: u64, name: String },

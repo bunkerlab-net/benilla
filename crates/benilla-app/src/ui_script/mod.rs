@@ -32,6 +32,8 @@ pub(crate) use input::feed_keys;
 mod layer_tests;
 mod load_log;
 mod manifest;
+mod world_setup;
+pub(crate) use world_setup::plugin as world_setup_plugin;
 
 /// The stock FrameXML this client runs off the player's own patch chain; its header is the rule.
 mod reference_ui;
@@ -139,6 +141,10 @@ pub(crate) struct PlayerUiClickConsumed(pub(crate) bool);
 #[derive(Resource, Default)]
 pub(crate) struct PlayerUiPressConsumed(pub(crate) bool);
 
+/// A wheel-enabled handler under the cursor, including mouse-transparent chat scrollback.
+#[derive(Resource, Default)]
+pub(crate) struct PlayerUiWheelCaptured(pub(crate) bool);
+
 /// Whether the cursor carries a payload, a `Send` mirror. A click on sky with one held never
 /// deselects: the reference gates its nothing-leg `SetSelection(0,0)` on no payload (`0x492d30`).
 #[derive(Resource, Default)]
@@ -161,9 +167,8 @@ pub(crate) struct UiPassState {
     pub(crate) derives_before: u64,
 }
 
-/// UI chrome under the pointer: [`PointerOverUi`] minus the nameplates, which take the mouse but
-/// not the wheel. The reference has no such bit: a wheel notch walks the strata and falls through
-/// any frame without `OnMouseWheel` to `CGWorldFrame`.
+/// Wheel ownership: mouse chrome excluding nameplates, plus wheel-only handlers such as chat.
+/// The reference walks the wheel strata independently of mouse hover (`0x7664f0`).
 #[derive(Resource, Default)]
 pub(crate) struct PointerOverUiPanel(pub(crate) bool);
 
@@ -318,6 +323,7 @@ impl Plugin for UiScriptPlugin {
             .init_resource::<UiKeyboardCapture>()
             .init_resource::<PlayerUiClickConsumed>()
             .init_resource::<PlayerUiPressConsumed>()
+            .init_resource::<PlayerUiWheelCaptured>()
             .init_resource::<CursorPayloadHeld>()
             .init_resource::<UiClock>()
             .init_resource::<AddOnIdentity>()
@@ -345,11 +351,17 @@ impl Plugin for UiScriptPlugin {
             .add_systems(Update, sweep::arm_leaving_world_on_self_create)
             // A queued `ReloadUI()` runs in `PreUpdate`, a frame after its drain (the reference's
             // deferral, `0x495590`) and before every `Update` seed or feed.
+            .init_resource::<login_options::LoginOptions>()
             .init_resource::<ReloadUiPending>()
             // Both are exclusive edges on the VM and must not interleave.
             .add_systems(
                 PreUpdate,
-                (run_pending_reload, lifecycle::run_pending_entry_load).chain(),
+                (
+                    login_options::drive,
+                    run_pending_reload,
+                    lifecycle::run_pending_entry_load,
+                )
+                    .chain(),
             )
             // The three UI phases in order: feeds after the net drain, the tick, then the paint.
             .configure_sets(
@@ -372,10 +384,16 @@ impl Plugin for UiScriptPlugin {
                 (
                     extract::tick_script,
                     input::feed_ui_input.run_if(
-                        in_state(crate::char_select::ClientState::InWorld).or(glue::glue_ui_up),
+                        in_state(crate::char_select::ClientState::InWorld)
+                            .or(glue::glue_ui_up)
+                            .or(login_options::active),
                     ),
+                    login_options::escape,
                     // Off the walk that just ran, for the pick and the arbiter after the pass.
                     crate::vplates::seed_plate_hover,
+                    // Bindings also belong to UiInput: publish wheel ownership inside the
+                    // phase, after hover seeding and before those gameplay consumers.
+                    arbitrate_pointer_over_ui,
                 )
                     .chain()
                     .in_set(UiInput)
@@ -390,13 +408,6 @@ impl Plugin for UiScriptPlugin {
                     .in_set(UiPaint)
                     .after(crate::vplates::VPlateSet)
                     .before(crate::ui_pass::UiQuadAppend),
-            )
-            // After the hover is known and before gameplay reads `PointerOverUi`.
-            .add_systems(
-                Update,
-                arbitrate_pointer_over_ui
-                    .after(UiInput)
-                    .before(WorldStage::Input),
             );
 
         // A UI capture's synthetic unit snapshots, after the real feed so they win.
@@ -420,18 +431,20 @@ fn capture_ui_active(capture: Option<Res<crate::run_mode::CaptureMode>>) -> bool
 fn arbitrate_pointer_over_ui(
     egui: Option<Res<EguiPointerOver>>,
     hover: Res<PlayerUiHover>,
+    wheel: Res<PlayerUiWheelCaptured>,
     plate_hover: Res<crate::vplates::PlateHover>,
     mut over: ResMut<PointerOverUi>,
     mut panel: ResMut<PointerOverUiPanel>,
 ) {
     // No cinematic term: the hit test finds the full-screen, mouse-enabled `CinematicFrame`.
     over.0 = egui.is_some_and(|e| e.0) || hover.0.is_some();
-    // Chrome excludes the plates, whose hover is this frame's walk's.
-    panel.0 = over.0 && plate_hover.0.is_none();
+    // Wheel-only chat can own scrolling while mouse hover still belongs to the world.
+    panel.0 = wheel.0 || (over.0 && plate_hover.0.is_none());
 }
 
 /// The session lifecycle: the VM's birth, identity, death and reload.
 mod lifecycle;
+pub(crate) mod login_options;
 pub(crate) use lifecycle::{
     end_ui_session, ingame_ui_up, run_pending_reload, setup_script, strings_vm, AddOnIdentity,
     PendingEntryUiLoad, ReloadUiPending,
@@ -868,6 +881,8 @@ mod loot_tests;
 mod group_loot_tests;
 
 #[cfg(test)]
+mod chat_history_tests;
+#[cfg(test)]
 pub(crate) mod chat_tests;
 
 /// The chat bubble's `UIMenu` kit driven as a menu: the rows' label and shortcut anchoring.
@@ -1090,6 +1105,7 @@ mod pointer_arbiter_tests {
     fn app() -> App {
         let mut app = App::new();
         app.init_resource::<PlayerUiHover>()
+            .init_resource::<PlayerUiWheelCaptured>()
             .init_resource::<crate::vplates::PlateHover>()
             .init_resource::<PointerOverUi>()
             .init_resource::<PointerOverUiPanel>()
@@ -1146,6 +1162,18 @@ mod pointer_arbiter_tests {
         app.update();
         assert!(app.world().resource::<PointerOverUi>().0);
         assert!(app.world().resource::<PointerOverUiPanel>().0);
+    }
+
+    #[test]
+    fn mouse_transparent_chat_owns_wheel_but_not_world_mouse_buttons() {
+        let mut app = app();
+        app.world_mut().resource_mut::<PlayerUiWheelCaptured>().0 = true;
+        app.update();
+        assert!(!app.world().resource::<PointerOverUi>().0);
+        assert!(app.world().resource::<PointerOverUiPanel>().0);
+        app.world_mut().resource_mut::<PlayerUiWheelCaptured>().0 = false;
+        app.update();
+        assert!(!app.world().resource::<PointerOverUiPanel>().0);
     }
 
     #[test]

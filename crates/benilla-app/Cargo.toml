@@ -2,7 +2,8 @@
 name = "benilla-app"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+# Combined package links the GPL-covered synthetic simulation; original file grants remain.
+license = "GPL-3.0-or-later"
 description = "The Bevy app as a library: everything but the build-id stamp, which lives in the `benilla` launcher so a new commit does not rebuild this crate"
 
 [lints]
@@ -21,6 +22,14 @@ trace_chrome = ["bevy/trace_chrome"]
 bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
+benilla-native-nav = { path = "../benilla-native-nav" }
+benilla-sim = { path = "../benilla-sim" }
+benilla-config = { path = "../benilla-config" }
+benilla-world-client = { path = "../benilla-world-client" }
+benilla-world-data = { path = "../benilla-world-data" }
+benilla-world-runtime = { path = "../benilla-world-runtime" }
+benilla-world-store = { path = "../benilla-world-store" }
+benilla-encounter = { path = "../benilla-encounter" }
 anyhow.workspace = true
 # The EditBox clipboard, on the main thread as NSPasteboard requires; bevy_egui's 3.x.
 arboard = "3"
@@ -45,10 +54,15 @@ crossbeam-channel = "0.5"
 benilla-assets = { path = "../benilla-assets", default-features = false }
 benilla-formats = { path = "../benilla-formats", default-features = false }
 benilla-protocol = { path = "../benilla-protocol" }
+benilla-p2p = { path = "../benilla-p2p" }
+benilla-profile = { path = "../benilla-profile" }
+# Read-only local interface listing for the configured peer listener.
+netdev = { version = "=0.46.3", default-features = false }
 benilla-world = { path = "../benilla-world", default-features = false }
 # The CVar diff persisted in `benilla-config/config.toml`.
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+sha2 = "0.10"
 # Collision for our kinematic character controller; 0.6 targets Bevy 0.18, 0.7 moves to 0.19.
 avian3d = "0.6"
 # Shapes and rasterizes `FontString` text standalone (`ui_text`), at bevy_text's own 0.16.
@@ -112,6 +126,12 @@ windows-sys = { version = "0.59", features = [
 
 # The login cycle's fake realmd runs the server half of SRP6 (`net::io::cycle_tests`).
 [dev-dependencies]
+# Real native corridor tests need private streamer residency setup, never admission.
+benilla-world = { path = "../benilla-world", default-features = false, features = ["authored-native-fixtures"] }
+# Private native controller component tests never grant a production capability.
+benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }
+# Source-level solo-world fixtures exercise the actual app test module as well as its harness.
+serde_json = "1"
 benilla-srp = { path = "../benilla-srp" }
 num-bigint = "0.4.6"
 sha1.workspace = true

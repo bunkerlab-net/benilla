@@ -709,31 +709,39 @@ impl UiScript {
         }
     }
 
+    /// The wheel handler at a point, independently of mouse hover. The host uses this
+    /// before accumulating notches so fractional scrolling cannot also zoom the world.
+    pub fn captures_mouse_wheel(&self, x: f32, y: f32) -> bool {
+        self.mouse_wheel_target(x, y).is_some()
+    }
+
+    fn mouse_wheel_target(&self, x: f32, y: f32) -> Option<u32> {
+        // The wheel flag, not the mouse bit: the reference's wheel dispatcher `0x7664f0` walks
+        // its own index and ignores hover, capture and `EnableMouse`.
+        let hit = self.hit_test_wheel(x, y);
+        let model = self.model_ref();
+        hit.and_then(|id| {
+            let mut h = *model.id_to_frame.get(&id)?;
+            loop {
+                if model
+                    .scripts
+                    .get(&h)
+                    .is_some_and(|s| s.contains("OnMouseWheel"))
+                {
+                    // A frame carrying a handler was registered through Lua, so it has an id.
+                    return model.frame_to_id.get(&h).copied();
+                }
+                h = model.arena.frame(h)?.parent?;
+            }
+        })
+    }
+
     /// A wheel spin at `(x, y)`: fires `OnMouseWheel(self, delta)` on the hit frame, or on its
     /// nearest ancestor with the script when it has none; the reference instead lets its wheel
     /// sweep continue past a frame with no script (`0x76c180`). `delta` passes through as given;
     /// the reference passes only its sign, `+1` or `-1` (`0x76c1a2`).
     pub fn mouse_wheel(&mut self, x: f32, y: f32, delta: f32) {
-        let target: Option<u32> = {
-            // The wheel flag, not the mouse bit: the reference's wheel dispatcher `0x7664f0` walks
-            // its own index and ignores hover, capture and `EnableMouse`.
-            let hit = self.hit_test_wheel(x, y);
-            let model = self.model_ref();
-            hit.and_then(|id| {
-                let mut h = *model.id_to_frame.get(&id)?;
-                loop {
-                    if model
-                        .scripts
-                        .get(&h)
-                        .is_some_and(|s| s.contains("OnMouseWheel"))
-                    {
-                        // A frame carrying a handler was registered through Lua, so it has an id.
-                        return model.frame_to_id.get(&h).copied();
-                    }
-                    h = model.arena.frame(h)?.parent?;
-                }
-            })
-        };
+        let target = self.mouse_wheel_target(x, y);
         if let Some(id) = target {
             if let Err(e) = event::fire_widget_handler(
                 &self.lua,

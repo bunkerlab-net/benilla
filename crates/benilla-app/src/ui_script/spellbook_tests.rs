@@ -330,6 +330,150 @@ fn shipped_spellbook_empty_slot_draws_its_background_and_socket_ring() {
         .unwrap());
 }
 
+/// No install required: exercise our real adapter and Lua APIs against the page-count contract.
+#[test]
+fn empty_spellbook_adapter_keeps_a_valid_page_without_fabricating_spells() {
+    let mut s = UiScript::new().unwrap();
+    s.run(
+        r#"
+        SpellBookFrame = { bookType = BOOKTYPE_SPELL, selectedSkillLine = 1 }
+        SPELLBOOK_PAGENUMBERS = { [1] = 1, pet = 2 }
+        function SpellBook_GetCurrentPage()
+            if SpellBookFrame.bookType == BOOKTYPE_PET then
+                return SPELLBOOK_PAGENUMBERS.pet, 3
+            end
+            local _, _, _, count = GetSpellTabInfo(SpellBookFrame.selectedSkillLine)
+            return SPELLBOOK_PAGENUMBERS[SpellBookFrame.selectedSkillLine], math.ceil(count / 12)
+        end
+        for i = 1, 12 do
+            local name = "SpellButton" .. i
+            local button = CreateFrame("Button", name)
+            button:CreateTexture(name .. "AutoCastable")
+            CreateFrame("Model", name .. "AutoCast", button)
+        end
+        CreateFrame("GameTooltip", "EmptyBookTooltip")
+        "#,
+    )
+    .unwrap();
+    load_xml(&s, "SpellBookAdapters.xml");
+
+    for page in [-2, 0, 1, 7] {
+        s.run(&format!("SPELLBOOK_PAGENUMBERS[1] = {page}"))
+            .unwrap();
+        assert_eq!(
+            s.eval::<(i64, i64)>("return SpellBook_GetCurrentPage()")
+                .unwrap(),
+            (1, 1)
+        );
+        s.run(
+            r#"
+            assert(GetNumSpellTabs() == 0)
+            assert(SPELLBOOK_PAGENUMBERS[1] == 1)
+            local _, _, offset, count = GetSpellTabInfo(1)
+            assert(count == 0)
+            for button = 1, 12 do
+                local id = button + offset + 12 * (SPELLBOOK_PAGENUMBERS[1] - 1)
+                assert(id >= 1 and id <= 12)
+                assert(GetSpellTexture(id, BOOKTYPE_SPELL) == nil)
+                assert(GetSpellName(id, BOOKTYPE_SPELL) == nil)
+                EmptyBookTooltip:SetSpell(id, BOOKTYPE_SPELL)
+                PickupSpell(id, BOOKTYPE_SPELL)
+                CastSpell(id, BOOKTYPE_SPELL)
+            end
+            assert(not CursorHasSpell())
+            "#,
+        )
+        .unwrap();
+        assert!(s.take_spell_casts().is_empty());
+        assert!(s.spellbook().tabs.is_empty());
+        assert!(s.spellbook().slots.is_empty());
+    }
+    assert!(s
+        .run("GetSpellTexture(0, BOOKTYPE_SPELL)")
+        .unwrap_err()
+        .to_string()
+        .contains("Invalid spell slot"));
+
+    let mut populated = book();
+    populated.tabs.truncate(1);
+    populated.tabs[0].num_spells = 25;
+    populated.slots.resize(25, populated.slots[0].clone());
+    s.set_spellbook(populated);
+    s.run("SPELLBOOK_PAGENUMBERS[1] = 2").unwrap();
+    assert_eq!(
+        s.eval::<(i64, i64)>("return SpellBook_GetCurrentPage()")
+            .unwrap(),
+        (2, 3),
+        "a populated player book keeps its page"
+    );
+    s.run("SPELLBOOK_PAGENUMBERS[1] = 0").unwrap();
+    assert_eq!(
+        s.eval::<(i64, i64)>("return SpellBook_GetCurrentPage()")
+            .unwrap(),
+        (1, 3),
+        "a saved zero is repaired even after spells arrive"
+    );
+    s.run("SpellBookFrame.bookType = BOOKTYPE_PET").unwrap();
+    assert_eq!(
+        s.eval::<(i64, i64)>("return SpellBook_GetCurrentPage()")
+            .unwrap(),
+        (2, 3),
+        "pet pagination retains its reference behavior"
+    );
+}
+
+/// The original report: open, hover and click a genuinely empty exploration spellbook.
+#[test]
+fn shipped_empty_spellbook_reopens_and_recovers_from_a_saved_zero_page() {
+    benilla_formats::wow_data_or_skip!();
+    let mut s = spellbook_ui(1024.0, 768.0);
+    s.fire_event("PLAYER_ENTERING_WORLD", vec![]);
+    for page in [1, 0, 4] {
+        s.run(&format!(
+            "SPELLBOOK_PAGENUMBERS[1] = {page} ToggleSpellBook(BOOKTYPE_SPELL)"
+        ))
+        .unwrap();
+        assert_eq!(
+            s.eval::<(i64, i64)>("return SpellBook_GetCurrentPage()")
+                .unwrap(),
+            (1, 1)
+        );
+        assert!(s
+            .eval::<bool>(
+                "return not SpellBookPrevPageButton:IsEnabled() \
+                 and not SpellBookNextPageButton:IsEnabled()"
+            )
+            .unwrap());
+        for i in 1..=12 {
+            s.run(&format!(
+                "assert(not SpellButton{i}:IsEnabled()) \
+                 assert(not SpellButton{i}IconTexture:IsShown()) \
+                 this = SpellButton{i} SpellButton_OnEnter() \
+                 SpellButton_OnClick(1) SpellButton_OnClick()"
+            ))
+            .unwrap();
+            click(&mut s, &format!("SpellButton{i}"), "LeftButton");
+        }
+        assert!(s.take_spell_casts().is_empty());
+        assert!(s.eval::<bool>("return not CursorHasSpell()").unwrap());
+        s.run("ToggleSpellBook(BOOKTYPE_SPELL)").unwrap();
+        assert!(!s.eval::<bool>("return SpellBookFrame:IsVisible()").unwrap());
+    }
+    s.set_spellbook(book());
+    s.run("ToggleSpellBook(BOOKTYPE_SPELL)").unwrap();
+    click(&mut s, "SpellButton1", "LeftButton");
+    assert_eq!(s.take_spell_casts(), vec![(133, false)]);
+
+    s.set_spellbook(SpellBookState::default());
+    s.fire_event("SPELLS_CHANGED", vec![]);
+    assert!(s
+        .eval::<bool>(
+            "return not SpellButton1:IsEnabled() and not SpellButton1IconTexture:IsShown()"
+        )
+        .unwrap());
+    assert!(s.errors().is_empty(), "empty book errors: {:?}", s.errors());
+}
+
 /// `SetChecked`'s coercion over the arguments the stock call sites pass
 /// (`SpellBookFrame.lua:132`, `:134`, `:268`, `:296-303`, `:336`).
 #[test]

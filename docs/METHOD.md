@@ -1,5 +1,25 @@
 # METHOD — how benilla is built
 
+## Fork scope and licensing
+
+This fork additionally carries a PSK-authenticated P2P backend and a separate
+`benilla-sim` simulation crate, `benilla-session` lockstep adapter and an opt-in
+`benilla-encounter` chat controller for synthetic non-spatial test encounters.
+The GPL-covered `benilla-world-data`, `benilla-world-runtime`, `benilla-world-client`
+and `benilla-world-store` crates are the bounded solo-first world foundation;
+headless tests and named CMaNGOS formula ports do not establish playable Classic
+integration. Track exact coverage in [the parity ledger](CMANGOS-PARITY.md).
+The P2P exploration backend has no realm server; its current limits are listed in
+the root README. The CMaNGOS-derived simulation crate and its session adapter are
+GPL-3.0-or-later, with provenance and upstream notices in the simulation crate.
+The combined player links these crates and is GPL-covered in every startup mode;
+the permissive license statements below
+apply only to the original client code. Do not import original game assets or
+unreviewed third-party world databases. The reference-client rules below continue
+to govern the existing realm-client path.
+
+## Reference-client method
+
 benilla is a from-scratch World of Warcraft 1.12.1 client in Rust and Bevy. It reads the game's
 data from the player's own install, speaks the original protocol to any 1.12.1 server, and does
 not build a server or simulate the game. The reference client is the spec: benilla does what

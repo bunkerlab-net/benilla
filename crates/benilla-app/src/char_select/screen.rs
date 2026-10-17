@@ -27,6 +27,7 @@ pub(super) enum SelectAction {
     /// Back to the login screen.
     Back,
     Delete,
+    Recover,
     CreateChar,
     /// Raise the realm list over this screen, keeping the session.
     ChangeRealm,
@@ -93,6 +94,7 @@ pub(super) fn materialize_screen(
     strings: Option<Res<GlueStrings>>,
     window: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
+    p2p: Option<Res<crate::net::P2pSettings>>,
 ) {
     if let Some(mut wa) = world_assets {
         art.ensure_loaded(&mut wa, &mut images, &mut add_mats);
@@ -110,6 +112,7 @@ pub(super) fn materialize_screen(
                     &art,
                     strings.as_deref(),
                     &window,
+                    p2p.is_some(),
                 );
             }
         }
@@ -122,6 +125,7 @@ pub(super) fn materialize_screen(
                     &art,
                     strings.as_deref(),
                     &window,
+                    p2p.is_some(),
                 );
             }
         }
@@ -135,6 +139,7 @@ fn spawn_screen(
     art: &GlueArt,
     strings: Option<&GlueStrings>,
     window: &Query<&Window, With<PrimaryWindow>>,
+    local: bool,
 ) {
     let font = wow_font(assets);
     let model_image = match portraits.0.get(GLUE_SLOT) {
@@ -263,6 +268,28 @@ fn spawn_screen(
                 });
         }
 
+        // Fork-only recovery uses the same Vanilla small red button as the other actions.
+        if local {
+            ui.spawn(Node {
+                position_type: PositionType::Absolute,
+                left: px(30.0),
+                bottom: px(65.0),
+                ..default()
+            })
+            .with_children(|actions| {
+                glue_button(
+                    actions,
+                    art,
+                    &font,
+                    SelectAction::Recover,
+                    "Recover Characters",
+                    180.0,
+                    35.0,
+                    GlueBtnKind::Small,
+                    s,
+                );
+            });
+        }
         // Back (100×35 at BOTTOMRIGHT (-30,25)) and Delete Character (165×35 at its LEFT).
         ui.spawn((Node {
             position_type: PositionType::Absolute,
@@ -616,11 +643,13 @@ pub(super) fn exit_select(
     roots: Query<Entity, With<CharSelectUi>>,
     mut dialog: ResMut<super::dialog::DeleteDialog>,
     mut glue_dialog: ResMut<crate::glue::dialog::GlueDialog>,
+    mut recovery: ResMut<super::recovery::RecoveryPanel>,
 ) {
     for e in &roots {
         commands.entity(e).despawn();
     }
     dialog.close();
+    recovery.dismiss(&mut commands);
     // The glue dialog must not follow into the world or the create screen. Its tree is despawned
     // here, since its driver runs on the glue screens only.
     glue_dialog.dismiss(&mut commands);

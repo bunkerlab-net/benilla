@@ -1,5 +1,5 @@
 # The gates of scripts/gates.sh that need neither a WoW install nor a display, on Linux, for a pull
-# request from a fork: a red one is seen before anyone builds it. The data-gated tests, the engine
+# request: a red one is seen before anyone builds it. The data-gated tests, the engine
 # boot checks and a live run happen on the maintainer's machine before it lands.
 name: CI
 
@@ -16,13 +16,14 @@ concurrency:
 
 jobs:
   gates:
-    # A branch of this repository runs the full chain before it lands; a fork's pull request runs here.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-26.04
     timeout-minutes: 150
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
+      # Bound peak memory while preserving the complete workspace and player test suites.
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
       # No debuginfo: it is most of target/, and a runner's disk is small.
       CARGO_PROFILE_DEV_DEBUG: 0
       # Set and empty: no install, as the gates' test-no-install runs.
@@ -31,23 +32,87 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Free disk space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Track unavailable data checks
+        run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
+      - name: Report available disk space
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
       - name: System libraries
         run: sudo apt-get update -qq && sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev
       - name: Toolchain
         run: rustup toolchain install && rustc -V
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-ubuntu26-v1
+          # Same-repository PR writes stay in that PR's cache scope; forks never save.
+          save-on-pull-request: true
+          save-on-workflow-dispatch: true
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: mbx clippy --locked --workspace --all-targets -- -D warnings
       - name: test
-        run: cargo test --workspace
+        run: mbx test --locked --no-fail-fast --workspace
+      - name: Record installed Service timing
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-service-timing.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_same_polygon_local::tests::installed_service_mailbox_executes_fresh_dispatch_retry_and_retained_route -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+          two_owner_log="$RUNNER_TEMP/native-two-owner-service-timing.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_same_polygon_local::two_owner_tests::installed_two_owner_cancellation_death_and_respawn_preserve_peer_native_head -- --exact --nocapture 2>&1 | tee "$two_owner_log"
+          grep -Fxq "running 1 test" "$two_owner_log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$two_owner_log"
+      - name: doc-links-gate-tests
+        run: python3 scripts/test-doc-links.py
       - name: doc-links
         run: scripts/doc-links.py
       - name: pass-span-lint
         run: scripts/pass-span-lint.py
+      - name: Record player Route timing
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-player-route-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon::two_owner_tests::loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_certificate -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+          retry_log="$RUNNER_TEMP/native-player-route-retry-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication -- --exact --nocapture 2>&1 | tee "$retry_log"
+          grep -Fxq "running 1 test" "$retry_log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$retry_log"
       - name: player-tests
-        run: cargo test -p benilla-formats -p benilla-app --no-default-features --lib
+        run: mbx test --locked --no-fail-fast -p benilla-formats -p benilla-app --no-default-features --lib
 
+      - name: classic-export-tests
+        run: python3 scripts/test-classic-export.py
+      - name: native-starter-tests
+        run: python3 scripts/test-native-starter.py
+      - name: initial-hook-tests
+        run: python3 scripts/test-initial-hooks.py
+      - name: native-outfit-source-oracle
+        run: python3 scripts/check-native-outfit-oracle.py
+      - name: defense-skill-source-oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
+          python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+      - name: initial-cast-phase-source-oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_initial_cast_phase_oracle.py
+          python3 crates/benilla-sim/tools/generate_initial_cast_phase_fixture.py --check
+      - name: packaging-tests
+        run: python3 scripts/test-package-player.py
+      - name: Report unavailable data checks
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s "$BENILLA_SKIP_LOG" ]]; then
+            echo "### Data-dependent test coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
+            sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          fi

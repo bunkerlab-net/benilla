@@ -143,7 +143,7 @@ impl Realmd {
         self.logons.load(Ordering::SeqCst)
     }
 
-    /// Realm lists sent so far.
+    /// Realm list requests received so far.
     pub(crate) fn lists(&self) -> usize {
         self.lists.load(Ordering::SeqCst)
     }
@@ -238,10 +238,49 @@ fn serve_realmd(
         list.extend_from_slice(&records);
         // vmangos's trailer (`AuthSocket.cpp:1088`).
         list.extend_from_slice(&0x0002u16.to_le_bytes());
-        if s.write_all(&list).is_err() {
+        if reply_with_realm_list(&mut s, &list, lists).is_err() {
             return;
         }
-        lists.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Publish the request count before the reply can wake the client and its assertions.
+fn reply_with_realm_list(
+    s: &mut impl Write,
+    list: &[u8],
+    lists: &AtomicUsize,
+) -> std::io::Result<()> {
+    lists.fetch_add(1, Ordering::SeqCst);
+    s.write_all(list)
+}
+
+#[test]
+fn a_realm_list_reply_cannot_overtake_its_request_count() {
+    struct ObservedReply<'a> {
+        lists: &'a AtomicUsize,
+        expected: usize,
+    }
+
+    impl Write for ObservedReply<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            // The peer can receive the bytes before write_all returns on the server thread.
+            assert_eq!(self.lists.load(Ordering::SeqCst), self.expected);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let lists = AtomicUsize::new(0);
+    for expected in 1..=2 {
+        let mut peer = ObservedReply {
+            lists: &lists,
+            expected,
+        };
+        reply_with_realm_list(&mut peer, &[0x10], &lists).unwrap();
+        assert_eq!(lists.load(Ordering::SeqCst), expected);
     }
 }
 

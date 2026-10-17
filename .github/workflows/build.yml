@@ -1,15 +1,18 @@
-# Build only when a maintainer explicitly requests artifacts.
+# Build master plus the temporary P2P feature branch, and maintainer-requested artifacts.
 name: Build player
 
 on:
+  push:
+    branches: [master, feat/psk-p2p-foundation]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: build-player-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -23,18 +26,22 @@ jobs:
           - platform: linux-amd64
             runner: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
+            cargo_jobs: 3
             archive: tar.gz
           - platform: linux-arm64
             runner: ubuntu-26.04-arm
             target: aarch64-unknown-linux-gnu
+            cargo_jobs: 3
             archive: tar.gz
           - platform: macos-arm64
             runner: macos-26
             target: aarch64-apple-darwin
+            cargo_jobs: 2
             archive: tar.gz
           - platform: windows-amd64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
+            cargo_jobs: 3
             archive: zip
     defaults:
       run:
@@ -42,7 +49,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
-      CARGO_BUILD_JOBS: 2
+      CARGO_BUILD_JOBS: ${{ matrix.cargo_jobs }}
       WOW_DATA: ""
       BUILD_TARGET: ${{ matrix.target }}
       BUILD_PLATFORM: ${{ matrix.platform }}
@@ -72,10 +79,52 @@ jobs:
           save-on-workflow-dispatch: true
       - name: Test packaging
         run: python3 scripts/test-package-player.py
-      - name: Build the player
-        run: mbx build --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
-      - name: Package the player
-        run: python3 scripts/package-player.py --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"
+      - name: Test local Classic export boundaries
+        run: python3 scripts/test-classic-export.py
+      - name: Test native starter preparation
+        run: python3 scripts/test-native-starter.py
+      - name: Test initial source hook capture
+        run: python3 scripts/test-initial-hooks.py
+      - name: Verify native outfit source oracle on Linux
+        if: runner.os == 'Linux'
+        run: python3 scripts/check-native-outfit-oracle.py
+      - name: Verify native defense skill source oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
+          python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+      - name: Test persistence and simulation on the native OS
+        run: mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-dbc -p benilla-mpq
+      - name: Prepare matching source and locked dependencies
+        run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
+      - name: Build the player from the distributed source
+        run: |
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          # Stable source/vendor paths let Cargo reuse restored dependency artifacts.
+          cd .player-source/current
+          mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
+      - name: Package the matching source
+        run: python3 scripts/package-player.py --source-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"
+      # Publish source first. A failed source upload must prevent binary publication.
+      - name: Upload corresponding source and checksum
+        id: source
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-source-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            dist/benilla-${{ matrix.platform }}-${{ github.sha }}-source.tar.gz
+            dist/benilla-${{ matrix.platform }}-${{ github.sha }}-source.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Verify source outlives the player download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ID: ${{ steps.source.outputs.artifact-id }}
+        run: python3 scripts/verify-source-retention.py
+      - name: Package the lightweight player with exact source link
+        env:
+          SOURCE_URL: ${{ steps.source.outputs.artifact-url }}
+        run: python3 scripts/package-player.py --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"
       - name: Upload the archive and checksum
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -247,7 +247,7 @@ fn empty_tip(e: &mut EntityCommands, vis: &mut Visibility) {
 
 /// Takes the raise's tip edge, then paints what the screen shows: the reference picks the row in
 /// `EnterWorld`, lays it out once per raise and draws it every frame.
-fn drive_game_tip(
+pub(crate) fn drive_game_tip(
     mut screen: ResMut<crate::loading_screen::LoadingScreen>,
     mut tips: ResMut<GameTips>,
     mut setting: ResMut<GameTipSetting>,

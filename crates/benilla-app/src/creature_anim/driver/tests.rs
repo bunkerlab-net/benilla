@@ -4418,6 +4418,96 @@ mod emote_state {
     }
 
     #[test]
+    fn peer_state_emotes_share_variations_restart_and_yield_to_movement() {
+        use super::super::super::peer_emote::PeerEmotePlayback;
+        let mut app = app_with_rows();
+        let (mut model, graph) = model(&mut app);
+        // Two authored synthetic variations use different real animation graph nodes.
+        model.clips[1].anim_id = 235;
+        let spawn = |app: &mut App, clock| {
+            app.world_mut()
+                .spawn((
+                    model.clone(),
+                    graph.clone(),
+                    AnimationPlayer::default(),
+                    AnimationTransitions::new(),
+                    AnimDriver::default(),
+                    ObjectStore(ObjectFields::from_pairs(&[(
+                        FIELD_NPC_EMOTESTATE,
+                        STUBBORN,
+                    )])),
+                    clock,
+                ))
+                .id()
+        };
+        let a = spawn(&mut app, PeerEmotePlayback::new(42, STUBBORN, 1, 0, 0.0));
+        let b = spawn(&mut app, PeerEmotePlayback::new(42, STUBBORN, 1, 0, 0.0));
+        let playing = |app: &App, entity: Entity| {
+            let row = app.world().entity(entity);
+            let node = row
+                .get::<AnimationTransitions>()
+                .unwrap()
+                .get_main_animation()
+                .unwrap();
+            (
+                node,
+                row.get::<AnimationPlayer>()
+                    .unwrap()
+                    .animation(node)
+                    .unwrap()
+                    .seek_time(),
+            )
+        };
+        for _ in 0..20 {
+            advance(&mut app, 47);
+            assert_eq!(playing(&app, a), playing(&app, b));
+            assert!(app
+                .world()
+                .entity(a)
+                .get::<AnimDriver>()
+                .unwrap()
+                .loop_window
+                .is_none());
+        }
+        let now = app.world().resource::<Time>().elapsed_secs_f64();
+        for entity in [a, b] {
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(PeerEmotePlayback::new(42, STUBBORN, 2, 0, now));
+        }
+        advance(&mut app, 5);
+        assert_eq!(playing(&app, a), playing(&app, b));
+        assert!(
+            playing(&app, a).1 < 0.02,
+            "repeating the same emote restarts its phase"
+        );
+        app.world_mut().entity_mut(a).insert(MovementState {
+            flags: move_flags::FORWARD,
+            speed: 7.0,
+            ..Default::default()
+        });
+        advance(&mut app, 5);
+        assert_ne!(
+            gait(&app, a),
+            Some(235),
+            "movement retains priority over a peer clock"
+        );
+        app.world_mut().entity_mut(a).remove::<MovementState>();
+        app.world_mut()
+            .entity_mut(a)
+            .insert(ObjectStore(ObjectFields::from_pairs(&[(
+                FIELD_NPC_EMOTESTATE,
+                0,
+            )])));
+        advance(&mut app, 5);
+        assert_ne!(
+            gait(&app, a),
+            Some(235),
+            "a retained clock cannot resurrect a cleared emote"
+        );
+    }
+
+    #[test]
     fn a_yielding_state_stops_while_its_unit_is_the_interact_npc() {
         let mut app = app_with_rows();
         let npc = unit(&mut app, YIELDING);

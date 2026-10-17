@@ -1,0 +1,233 @@
+{
+  "project": "CMaNGOS Classic",
+  "revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_license": "GPL-2.0-or-later",
+  "normalization": "CRLF to LF only",
+  "files": {
+    "Utilities/LinkedList.h": {
+      "source_path": "src/framework/Utilities/LinkedList.h",
+      "source_file_sha256": "d9b1696ed25ed3488cc844d88fb2a85e849a6897b1ea69197a1fd8591bb0aa3b",
+      "whole_file": true,
+      "file_sha256": "d9b1696ed25ed3488cc844d88fb2a85e849a6897b1ea69197a1fd8591bb0aa3b"
+    },
+    "Utilities/LinkedReference/Reference.h": {
+      "source_path": "src/framework/Utilities/LinkedReference/Reference.h",
+      "source_file_sha256": "9bce71aca079bacead743cec077a6e0b076d0e1ca707a8024e6a3c958bbfbc7a",
+      "whole_file": true,
+      "file_sha256": "9bce71aca079bacead743cec077a6e0b076d0e1ca707a8024e6a3c958bbfbc7a"
+    },
+    "Utilities/LinkedReference/RefManager.h": {
+      "source_path": "src/framework/Utilities/LinkedReference/RefManager.h",
+      "source_file_sha256": "98574f2550c68041f12d7c41d1115e3935bc5635aaf7ef3ed40db73e4a6cafb3",
+      "whole_file": true,
+      "file_sha256": "98574f2550c68041f12d7c41d1115e3935bc5635aaf7ef3ed40db73e4a6cafb3"
+    },
+    "Combat/ThreatManager.h": {
+      "source_path": "src/game/Combat/ThreatManager.h",
+      "source_file_sha256": "4cce29daa44adf09f49cb644971501707cc7aa95c71c84d2a086cb01066315dd",
+      "whole_file": true,
+      "file_sha256": "4cce29daa44adf09f49cb644971501707cc7aa95c71c84d2a086cb01066315dd"
+    },
+    "Combat/HostileRefManager.h": {
+      "source_path": "src/game/Combat/HostileRefManager.h",
+      "source_file_sha256": "54e83dcce1fff582c88f0e316653f429d1a557e4cdc48db046918c30222d8225",
+      "whole_file": true,
+      "file_sha256": "54e83dcce1fff582c88f0e316653f429d1a557e4cdc48db046918c30222d8225"
+    },
+    "Entities/UnitEvents.h": {
+      "source_path": "src/game/Entities/UnitEvents.h",
+      "source_file_sha256": "4956385af61647e9017ce040ac4c0007b6350ae48813c1d81f02b6bd40218ef7",
+      "whole_file": true,
+      "file_sha256": "4956385af61647e9017ce040ac4c0007b6350ae48813c1d81f02b6bd40218ef7"
+    },
+    "HostileReference.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 63,
+      "end_line": 207,
+      "body_sha256": "8fc92cffcc3f035faad4910ceb531a0a67af337c4ac6e6595d4fc81f7cc355b6",
+      "file_sha256": "ddba9a2bd6008b0ffba65746916183d8a76e529e7125a19d3d9f08e31738e403"
+    },
+    "ThreatContainerStorage.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 210,
+      "end_line": 246,
+      "body_sha256": "1b82435a621013da56858097a5ef9e51fbf5e62e5965633d7fdb060b2f224959",
+      "file_sha256": "d71bf0379f42e2c1b9f88e44d25b5048e9cc29e3a7311e43b40bdabc05a49f41"
+    },
+    "ThreatContainerUpdate.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 288,
+      "end_line": 325,
+      "body_sha256": "595f8e69072dc2374e25ec1ee696c88d02f25d022d11eba5c79c53120aec4c92",
+      "file_sha256": "e3a0c94531eb9b19883c7b3c396591735cb503a0255701d79b154260c58a9036"
+    },
+    "SelectNextVictim.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 331,
+      "end_line": 424,
+      "body_sha256": "31b04cbcc19c0f1be58a1a554940925d3ca7bd3782d727dc209fcd55f0bcc7d7",
+      "file_sha256": "8e27fb1a76c7c73e9e286bfa28a7ef3b8ec6d89ec20ef91c9fcc68e391016b51"
+    },
+    "ThreatManagerConstruction.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 430,
+      "end_line": 442,
+      "body_sha256": "f43e9cd271410ff967f88c318a10d6053fcd079544a7d60aabddf3172387e709",
+      "file_sha256": "3db7b137f7eeb50aee4dad1527f9256c3ecfbc7888fc07c2fb7891b2c26aaeff"
+    },
+    "AddThreatDirectly.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 470,
+      "end_line": 490,
+      "body_sha256": "b1f7c54024417197ccc4822ba67bf616afb681c540f495cddbdf6779bdc85155",
+      "file_sha256": "4f6f03dda37890b4dcfaa945d58ae5ac6f8b407ddb422e9f310f377bb3171403"
+    },
+    "GetHostileTarget.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 506,
+      "end_line": 517,
+      "body_sha256": "de323bef62fbb2f618bdcf18c7ebe31718722a86a05e87a7e627f152826cf0ca",
+      "file_sha256": "8d05bc9feaae511421cbd2654a123adb95c172af624d4d364d9d4f8f57d1f6ac"
+    },
+    "SetCurrentVictim.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 591,
+      "end_line": 602,
+      "body_sha256": "b89775885301af3a824a561be922ec5f8de83e6df00086165e16fe3a57cb1a37",
+      "file_sha256": "cdf03eed74805c590c8cf438d285272fd6c892b44a326da0a27d48ba5724c852"
+    },
+    "ProcessThreatEvent.inc": {
+      "source_path": "src/game/Combat/ThreatManager.cpp",
+      "source_file_sha256": "f3619f175b38b1fa7e3ece0cf662dc7804cf1d6f70756e31225242c833002460",
+      "license_header_lines": 17,
+      "start_line": 608,
+      "end_line": 666,
+      "body_sha256": "70c3b9d9f74ff63b048233a727a59bc7ea360626160619f26cd07c97c5f7fc70",
+      "file_sha256": "224e13de26b94db4d49f897ebc98fda44e362255dc1c8b9a3f60562c67298ee9"
+    },
+    "HostileRefManagerConstruction.inc": {
+      "source_path": "src/game/Combat/HostileRefManager.cpp",
+      "source_file_sha256": "6302dce3bb50807962e4acc7349a6378931063244bd8c6bbca154e361ca57ee8",
+      "license_header_lines": 17,
+      "start_line": 25,
+      "end_line": 32,
+      "body_sha256": "d79914016df4873474e588681a1525dfb69c2198cdfd51620aaafa7c5c80bd84",
+      "file_sha256": "28e36600affaf0fb54e026297292acd6e84cbcf98733aeae842a1fa0ec46e12d"
+    },
+    "HostileRefManagerState.inc": {
+      "source_path": "src/game/Combat/HostileRefManager.cpp",
+      "source_file_sha256": "6302dce3bb50807962e4acc7349a6378931063244bd8c6bbca154e361ca57ee8",
+      "license_header_lines": 17,
+      "start_line": 104,
+      "end_line": 152,
+      "body_sha256": "589bccc71c1725950717653dd6d3b318dfc11d7cfb2efc45897d6b29d46f23c3",
+      "file_sha256": "499214665613f209a12a8e7ccb811fd9509d7e3c583a015a6398fd91e07254e5"
+    },
+    "HostileRefManagerFirst.inc": {
+      "source_path": "src/game/Combat/HostileRefManager.cpp",
+      "source_file_sha256": "6302dce3bb50807962e4acc7349a6378931063244bd8c6bbca154e361ca57ee8",
+      "license_header_lines": 17,
+      "start_line": 209,
+      "end_line": 212,
+      "body_sha256": "07c771c987ff741d89ee40384f1eda327f4d8540fd3ab26bc50098ff5a43e5b3",
+      "file_sha256": "a0f0bb4a9ce4a85c4ebf6830c6174c41df05c9719096f72009d4515fabedd7c3"
+    },
+    "IsOfflineTarget.inc": {
+      "source_path": "src/game/Entities/Unit.cpp",
+      "source_file_sha256": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+      "license_header_lines": 17,
+      "start_line": 8944,
+      "end_line": 8950,
+      "body_sha256": "2ae3d1b8f6794acd5d87483a86efa58d8c6aa5fcb0b225fb22a612f3024b2b41",
+      "file_sha256": "fd8ddba868f445d89dc6ae99cf9de2f6a866944c234e43d498cfbca2ca087b06"
+    },
+    "DeleteThreatList.inc": {
+      "source_path": "src/game/Entities/Unit.cpp",
+      "source_file_sha256": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+      "license_header_lines": 17,
+      "start_line": 8665,
+      "end_line": 8669,
+      "body_sha256": "c45c4485bdf35700cfdb1e1e0c1b7349615c427539da6b1de1914caead1b13da",
+      "file_sha256": "379327f639a31bdb1b8a581259f68c1408d8a20ffada7017c4bf55a4af2fc986"
+    },
+    "IgnoreFeignDeath.inc": {
+      "source_path": "src/game/Entities/Creature.cpp",
+      "source_file_sha256": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
+      "license_header_lines": 17,
+      "start_line": 2962,
+      "end_line": 2965,
+      "body_sha256": "5de7725a338863985f5170988e03c1071d8df7f55f1c6acd4dceb62dc3870022",
+      "file_sha256": "2a55b900e16f43ed7f146c0a5c4ca3a56b0fd7518e7be08a41bd5f854d6d15c6"
+    },
+    "HasStaticFlag.inc": {
+      "source_path": "src/game/Entities/CreatureSettings.cpp",
+      "source_file_sha256": "98e3fc95d7011f94f0328f88f871f797f9699a6d2d5f9e4aa2a809bdc265fd57",
+      "license_header_lines": 17,
+      "start_line": 105,
+      "end_line": 108,
+      "body_sha256": "af0e30df68ea1d9346bb8552d082147c70b8b04ff581f3aeccec4ea09a8b574e",
+      "file_sha256": "8f2620df1dc7f53bbbf39d74e8584b012338da0081e56ab93282f81e3a444f3e"
+    },
+    "FeignDeathStateConstant.inc": {
+      "source_path": "src/game/Entities/Unit.h",
+      "source_file_sha256": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
+      "license_header_lines": 17,
+      "start_line": 334,
+      "end_line": 334,
+      "body_sha256": "099f80ac9a979940722de7f37e4bc575ffeb021ccef23c581d57cd6ad58c866b",
+      "file_sha256": "09f63726594c4740a3c3a377dbee8c46912b801a659e824faead3ba18197ff08"
+    },
+    "IgnoreFeignDeathFlagConstant.inc": {
+      "source_path": "src/game/Entities/CreatureDefines.h",
+      "source_file_sha256": "f5c824f4197960e9004e6631cff67ad0f391fee58fa97187cad4f264893b4c5b",
+      "license_header_lines": 17,
+      "start_line": 75,
+      "end_line": 75,
+      "body_sha256": "d5eaeb66f3289f93be24ab7b23cbf7bee96da1452c5d3c37e027e4bcc07cac69",
+      "file_sha256": "614a8f97e44c98773b2da70a07ba5a50c038d31b919457f89d691e46ef8024af"
+    },
+    "HasUnitState.inc": {
+      "source_path": "src/game/Entities/Unit.h",
+      "source_file_sha256": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
+      "license_header_lines": 17,
+      "start_line": 1305,
+      "end_line": 1305,
+      "body_sha256": "5730ab7015eaedde6898e75d6b51a48974cf4c5e170010f5f24ed37b97bdc78c",
+      "file_sha256": "9c320966129756c78641d2d6645913fd30d5c67233829edaa9efd143d5f5e803"
+    },
+    "SuccessfulFeignDeath.inc": {
+      "source_path": "src/game/Entities/Unit.h",
+      "source_file_sha256": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
+      "license_header_lines": 17,
+      "start_line": 2298,
+      "end_line": 2298,
+      "body_sha256": "6bfe0c732f48d4cd72de5dad6e10b2d29a880bfe9f474cbbba1d63bf6450637f",
+      "file_sha256": "bea7552d1ed47ce619283024b23606652f407b133188cc6306f173e2bf9eca1e"
+    },
+    "UnitReferences.inc": {
+      "source_path": "src/game/Entities/Unit.h",
+      "source_file_sha256": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
+      "license_header_lines": 17,
+      "start_line": 2085,
+      "end_line": 2090,
+      "body_sha256": "db6ee86e206ecffff461ebd3c3cafa720610a5a003a61922bf3d0cd3244291c6",
+      "file_sha256": "8a65865485c77a6adca715b3df6823cd854962db1d26ed8e9fedc46809a27093"
+    }
+  }
+}

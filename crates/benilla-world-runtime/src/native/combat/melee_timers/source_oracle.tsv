@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Synthetic numeric subset; no client rows, SQL, or installed captures.
+# CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f unchanged-source oracle.
+# Full source_oracle.tsv SHA-256: fa806d39c2bd0a3c4fe2b25028a1fadb0cbb9d667a82072973e2abca72a98bcb
+# Copied exactly: initial BASE/OFF; absent/healthy/broken weapon delay; reset/subtract
+# compositions; repeated reset; speed1 Set/Get/reset; break numeric results.
+# This tests bounded arithmetic only, not cast lifecycle, source admission, or AI.
+initial_0	timer	0
+initial_0	delay	2000
+initial_1	timer	0
+initial_1	delay	2000
+weapon_0_0	delay	2000
+weapon_0_1	delay	2000
+weapon_0_2	delay	2000
+weapon_1_0	delay	2000
+weapon_1_1	delay	1
+weapon_1_2	delay	2000
+weapon_1700_0	delay	2000
+weapon_1700_1	delay	1700
+weapon_1700_2	delay	2000
+weapon_2000_0	delay	2000
+weapon_2000_1	delay	2000
+weapon_2000_2	delay	2000
+weapon_2900_0	delay	2000
+weapon_2900_1	delay	2900
+weapon_2900_2	delay	2000
+weapon_4000_0	delay	2000
+weapon_4000_1	delay	4000
+weapon_4000_2	delay	2000
+composed_reset_then_update_0	base	2000
+composed_second_update_0	base	2000
+composed_reset_then_update_1	base	1999
+composed_second_update_1	base	1998
+composed_reset_then_update_49	base	1951
+composed_second_update_49	base	1902
+composed_reset_then_update_50	base	1950
+composed_second_update_50	base	1900
+composed_reset_then_update_100	base	1900
+composed_second_update_100	base	1800
+composed_reset_then_update_1999	base	1
+composed_second_update_1999	base	0
+composed_reset_then_update_2000	base	0
+composed_second_update_2000	base	0
+composed_reset_then_update_2001	base	0
+composed_second_update_2001	base	0
+composed_reset_then_update_3000	base	0
+composed_second_update_3000	base	0
+repeated_prefix	base	2000
+speed_1065353216	stored_bits	1161121792
+speed_1065353216	get_attack	2901
+speed_1065353216	reset	2901
+break_0	durability	0
+break_0	delay	2000
+break_0	unchanged_timer	777
+break_2900	durability	0
+break_2900	delay	2000
+break_2900	unchanged_timer	777

@@ -181,6 +181,103 @@ mod tests {
         );
     }
 
+    // This fixture registers a synthetic teardown observer, so it belongs alongside the
+    // other test-only handler registrations excluded by the production source census.
+    #[test]
+    fn confirmed_retirement_disables_world_movement_before_next_update() {
+        use crate::char_select::ClientState;
+        use crate::net::reconfigure::{drive, ApplyStatus, NetworkReconfigure};
+        use crate::net::{
+            p2p, ClientCommand, MoveKind, NetCommands, NetEvents, NetStatus, P2pEndpointTicket,
+            P2pSettings, P2pStart, SelfGuid,
+        };
+
+        #[derive(Resource, Default)]
+        struct MovesProduced(usize);
+        #[derive(Resource, Default)]
+        struct Teardowns(usize);
+        fn disconnected(In(event): In<SessionEvent>, mut count: ResMut<Teardowns>) {
+            assert!(matches!(
+                event,
+                SessionEvent::Disconnected {
+                    end: benilla_protocol::SessionEnd::Lost,
+                    ..
+                }
+            ));
+            count.0 += 1;
+        }
+        fn movement(mut produced: ResMut<MovesProduced>, commands: Res<NetCommands>) {
+            produced.0 += 1;
+            commands
+                .0
+                .send(ClientCommand::Move {
+                    kind: MoveKind::Heartbeat,
+                    flags: 0,
+                    pos: [1.0, 2.0, 3.0],
+                    orientation: 0.0,
+                    pitch: 0.0,
+                    fall_time: 0,
+                    jump: None,
+                    transport: None,
+                })
+                .unwrap();
+        }
+        let config = benilla_config::AppConfig::parse(
+            "[p2p]\npsk = \"public reload test phrase only\"\nlisten = \"127.0.0.1:7474\"\n",
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        let settings = P2pSettings(config.p2p.clone().unwrap(), config.ruleset);
+        let ticket = P2pEndpointTicket::default();
+        let (handles, start) = p2p::prepare(settings.clone(), ticket.clone());
+        let mut changed = config;
+        changed.p2p.as_mut().unwrap().timeout_ms += 1;
+        let mut reload = NetworkReconfigure::default();
+        reload.request(changed, true);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .insert_state(ClientState::InWorld)
+            .insert_resource(settings)
+            .insert_resource(ticket)
+            .insert_resource(start)
+            .insert_resource(NetEvents(handles.events))
+            .insert_resource(NetCommands(handles.commands))
+            .init_resource::<SelfGuid>()
+            .init_resource::<NetStatus>()
+            .init_resource::<Teardowns>()
+            .net_handler(
+                benilla_protocol::SessionEventKind::Disconnected,
+                disconnected,
+            )
+            .init_resource::<MovesProduced>()
+            .insert_resource(reload)
+            .configure_sets(
+                Update,
+                crate::char_select::InWorldGated.run_if(in_state(ClientState::InWorld)),
+            )
+            .add_systems(Update, movement.in_set(crate::char_select::InWorldGated))
+            .add_systems(Last, drive);
+        app.update();
+        assert_eq!(app.world().resource::<MovesProduced>().0, 1);
+        assert!(!app.world().resource::<P2pStart>().can_start());
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<MovesProduced>().0, 1);
+        assert_eq!(
+            app.world().resource::<Teardowns>().0,
+            1,
+            "active retirement must dispatch teardown even after state is Login without an avatar"
+        );
+        assert_eq!(
+            *app.world().resource::<State<ClientState>>().get(),
+            ClientState::Login
+        );
+        assert_eq!(
+            app.world().resource::<NetworkReconfigure>().status,
+            ApplyStatus::Applied
+        );
+    }
+
     /// A kind with no handler is a decoded packet dropped in silence, as the reference does.
     #[test]
     fn every_session_event_kind_has_one_owner() {

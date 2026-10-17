@@ -64,6 +64,20 @@ struct Index {
     sector_size: usize,
     hash_table: Vec<HashEntry>,
     block_table: Vec<BlockEntry>,
+    index_bytes: usize,
+    limits: Option<ReadLimits>,
+}
+
+/// Explicit allocation/read budgets for opt-in untrusted offline inputs.
+/// Existing `open` callers retain their current format behavior.
+#[derive(Clone, Copy, Debug)]
+pub struct ReadLimits {
+    /// Combined encoded hash/block table bytes, checked before either allocation.
+    pub index_bytes: usize,
+    /// Encoded and decoded bytes allowed for one compressed sector.
+    pub sector_bytes: usize,
+    pub member_bytes: usize,
+    pub header_scan_bytes: u64,
 }
 
 /// An open MPQ archive, a cheap `Clone + Send + Sync` handle.
@@ -121,14 +135,55 @@ fn avail_from(file_len: u64, pos: u64) -> usize {
     usize::try_from(file_len.saturating_sub(pos)).unwrap_or(usize::MAX)
 }
 
+fn open_archive_file(path: &Path, bounded: bool) -> Result<File> {
+    if !bounded {
+        return Ok(File::open(path)?);
+    }
+    if !std::fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(Error::Corrupt(
+            "bounded regular archive file required".into(),
+        ));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A path swapped to a FIFO/symlink between metadata and open cannot block
+        // or redirect this opt-in offline reader. Legacy archive opens are unchanged.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(Error::Corrupt(
+            "bounded regular archive file required".into(),
+        ));
+    }
+    Ok(file)
+}
+
 impl Archive {
     /// Open an archive: find the header, then read and decrypt the hash and block tables.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let mut file = File::open(&path)?;
+        Self::open_inner(path.as_ref(), None)
+    }
+
+    /// Open with persistent budgets that also constrain cloned handles and all
+    /// subsequent member/sector reads. Bounded sectors must decode exactly.
+    pub fn open_bounded(path: impl AsRef<Path>, limits: ReadLimits) -> Result<Self> {
+        Self::open_inner(path.as_ref(), Some(limits))
+    }
+
+    fn open_inner(path: &Path, limits: Option<ReadLimits>) -> Result<Self> {
+        let path = path.to_path_buf();
+        let mut file = open_archive_file(&path, limits.is_some())?;
         let file_len = file.metadata()?.len();
 
-        let archive_offset = find_header(&mut file, file_len)?;
+        let scan = limits.map_or(file_len, |l| file_len.min(l.header_scan_bytes));
+        let archive_offset = find_header(&mut file, scan)?;
+        if limits.is_some_and(|l| archive_offset.saturating_add(32) > l.header_scan_bytes) {
+            return Err(Error::Corrupt("bounded header scan limit".into()));
+        }
 
         // The 32-byte V1 header: later versions only extend it, and every 1.12 table offset fits
         // a `u32`, so the V2 hi-block table is never needed.
@@ -150,6 +205,13 @@ impl Archive {
         let block_table_pos = hdr.u32_at(20).ok_or(Error::NotMpq)? as u64;
         let hash_table_size = hdr.u32_at(24).ok_or(Error::NotMpq)? as usize;
         let block_table_size = hdr.u32_at(28).ok_or(Error::NotMpq)? as usize;
+        let index_bytes = hash_table_size
+            .checked_add(block_table_size)
+            .and_then(|count| count.checked_mul(16))
+            .ok_or_else(|| Error::Corrupt("index byte count overflow".into()))?;
+        if limits.is_some_and(|l| index_bytes > l.index_bytes) {
+            return Err(Error::Corrupt("bounded index byte limit".into()));
+        }
 
         let hash_table = read_hash_table(
             &mut file,
@@ -171,8 +233,15 @@ impl Archive {
                 sector_size,
                 hash_table,
                 block_table,
+                index_bytes,
+                limits,
             }),
         })
+    }
+
+    /// Encoded hash/block table footprint, for cumulative chain budgeting.
+    pub fn index_bytes(&self) -> usize {
+        self.index.index_bytes
     }
 
     /// Whether the archive holds `name`, case-insensitive with `/` and `\` alike. No I/O.
@@ -225,9 +294,12 @@ impl Archive {
             return Err(Error::Unsupported(format!("single-unit file {name}")));
         }
 
-        let file = File::open(&idx.path)?;
+        let file = open_archive_file(&idx.path, idx.limits.is_some())?;
         let file_pos = idx.archive_offset + block.file_pos as u64;
         let file_size = block.file_size as usize;
+        if idx.limits.is_some_and(|l| file_size > l.member_bytes) {
+            return Err(Error::Corrupt("bounded member byte limit".into()));
+        }
         let compressed = block.flags & (FLAG_COMPRESS | FLAG_IMPLODE) != 0;
         let implode_only = block.flags & FLAG_IMPLODE != 0 && block.flags & FLAG_COMPRESS == 0;
 
@@ -245,6 +317,7 @@ impl Archive {
             avail,
             pos: 0,
             sector: None,
+            limits: idx.limits,
         };
         if !compressed {
             // Stored: exactly `file_size` raw bytes, refused up front if the file cannot hold them.
@@ -304,6 +377,7 @@ pub struct ArchiveFile {
     pos: u64,
     /// The decompressed sector under `pos`, by index.
     sector: Option<(usize, Vec<u8>)>,
+    limits: Option<ReadLimits>,
 }
 
 impl ArchiveFile {
@@ -344,6 +418,17 @@ impl ArchiveFile {
             .checked_sub(u64::from(start))
             .ok_or_else(|| Error::Decompress(format!("{name}: sector {i} offsets reversed")))?
             as usize;
+        if self
+            .limits
+            .is_some_and(|l| comp_len > l.sector_bytes || want > l.sector_bytes)
+        {
+            return Err(Error::Corrupt("bounded sector byte limit".into()));
+        }
+        if self.limits.is_some() && comp_len > want {
+            return Err(Error::Corrupt(
+                "bounded stored sector exceeds declared output".into(),
+            ));
+        }
         let comp_cap = capped(comp_len, 1, self.avail);
         if comp_cap < comp_len {
             return Err(Error::Corrupt(format!(
@@ -365,11 +450,16 @@ impl ArchiveFile {
             raw
         } else if self.implode_only {
             // IMPLODE sectors carry no method byte; 1.12.1 data has none.
-            decompress(0x08, &raw, want, name)?
+            decompress(0x08, &raw, want + usize::from(self.limits.is_some()), name)?
         } else {
             // COMPRESS: the leading byte is the codec mask, the rest the payload.
             let method = raw[0]; // non-empty: refused above
-            decompress(method, &raw[1..], want, name)?
+            decompress(
+                method,
+                &raw[1..],
+                want + usize::from(self.limits.is_some()),
+                name,
+            )?
         };
         // `decompress` stops at `want`, so only a short sector is left to refuse.
         if out.len() != want {
@@ -986,5 +1076,109 @@ mod tests {
 
     fn u32_at(b: &[u8], at: usize) -> u32 {
         u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
+    }
+    fn offline_limits() -> ReadLimits {
+        ReadLimits {
+            index_bytes: 1024,
+            sector_bytes: 512,
+            member_bytes: 1024,
+            header_scan_bytes: 1024,
+        }
+    }
+
+    #[test]
+    fn bounded_index_claim_rejects_before_any_table_read() {
+        let path = temp_path("bounded_index");
+        std::fs::write(&path, header(0, 32, 32, 1000, 0)).unwrap();
+        match Archive::open_bounded(&path, offline_limits()) {
+            Err(Error::Corrupt(reason)) => assert!(reason.contains("bounded index byte limit")),
+            _ => panic!("expected index budget rejection before table allocation/read"),
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_sector_claim_rejects_before_sector_read_or_allocation() {
+        let mut data = Vec::new();
+        data.extend(8u32.to_le_bytes());
+        data.extend(100_008u32.to_le_bytes());
+        let (_, path) = open_temp_kept(
+            "bounded_sector",
+            &archive_with_one_block("a.bin", FLAG_EXISTS | FLAG_COMPRESS, &data, 16),
+        );
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert!(
+            matches!(archive.clone().read_file("a.bin"), Err(Error::Corrupt(s)) if s.contains("bounded sector byte limit"))
+        );
+        let mut file = archive.open_file("a.bin").unwrap();
+        let mut out = Vec::new();
+        assert!(file
+            .read_to_end(&mut out)
+            .unwrap_err()
+            .to_string()
+            .contains("bounded sector byte limit"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_mode_rejects_overinflate_without_changing_legacy_mode() {
+        use flate2::{write::ZlibEncoder, Compression};
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(vec![2], Compression::default());
+        encoder.write_all(&[0; 1000]).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut data = 8u32.to_le_bytes().to_vec();
+        data.extend((8 + compressed.len() as u32).to_le_bytes());
+        data.extend(compressed);
+        let (legacy, path) = open_temp_kept(
+            "bounded_inflate",
+            &archive_with_one_block("a.bin", FLAG_EXISTS | FLAG_COMPRESS, &data, 100),
+        );
+        assert_eq!(legacy.read_file("a.bin").unwrap().len(), 100);
+        let bounded = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert!(
+            matches!(bounded.read_file("a.bin"), Err(Error::Decompress(s)) if s.contains("101 bytes, not 100"))
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_member_size_and_header_scan_are_independent_budgets() {
+        let (_, path) = open_temp_kept(
+            "bounded_member",
+            &archive_with_one_block("a.bin", FLAG_EXISTS, b"x", 1025),
+        );
+        let bounded = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert!(
+            matches!(bounded.read_file("a.bin"), Err(Error::Corrupt(s)) if s.contains("bounded member byte limit"))
+        );
+        let limits = ReadLimits {
+            header_scan_bytes: 31,
+            ..offline_limits()
+        };
+        assert!(Archive::open_bounded(&path, limits).is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_reopen_rejects_replacement_symlink() {
+        let (_, path) = open_temp_kept(
+            "bounded_swap",
+            &archive_with_one_entry("a.bin", FLAG_EXISTS, b"safe"),
+        );
+        let bounded = Archive::open_bounded(&path, offline_limits()).unwrap();
+        let other = temp_path("bounded_other");
+        std::fs::rename(&path, &other).unwrap();
+        std::os::unix::fs::symlink(&other, &path).unwrap();
+        assert!(
+            matches!(bounded.read_file("a.bin"), Err(Error::Corrupt(s)) if s.contains("regular archive"))
+        );
+        assert_eq!(
+            Archive::open(&path).unwrap().read_file("a.bin").unwrap(),
+            b"safe"
+        );
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(other);
     }
 }

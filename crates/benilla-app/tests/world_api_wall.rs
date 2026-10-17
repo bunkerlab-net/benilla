@@ -155,6 +155,8 @@ const PUBLISHED: &[(&str, &str)] = &[
     ("schedule::WorldLive", "record"),
     ("schedule::WorldStage", "record"),
     ("sky_order::Rung", "wall"),
+    ("terrain_stream::CoverageError", "record"),
+    ("terrain_stream::NativeTerrainCoverage", "record"),
     ("terrain_stream::SPAWN_XY", "wall"),
     ("terrain_stream::ViewFocus", "record"),
     ("terrain_stream::WorldLoadProgress", "wall"),

@@ -5,6 +5,7 @@
 //! fanning from the centre. The arrays keep MCVT's stride-17 order: outer `(r,c)` at `r·17+c`,
 //! inner at `r·17+9+c`. A hole (`MCNK+0x3C`) omits a 2×2-cell block's triangles; its verts stay.
 
+use sha2::{Digest, Sha256};
 use std::io::Cursor;
 
 use crate::Chain;
@@ -272,6 +273,13 @@ pub struct WmoInstance {
 /// One ADT tile: its chunk meshes, placed doodads and buildings.
 #[derive(Debug, Clone)]
 pub struct TileMesh {
+    /// Complete dry raw ADT records with fully resolved M2/WMO placement references.
+    pub native_static_coverage_safe: bool,
+    /// SHA-256 of the exact source ADT bytes, not its filtered render representation.
+    pub native_source_digest: [u8; 32],
+    /// Strict native coverage witness before rendering drops unresolved placements/liquids.
+    /// Only complete, placement-free, wholly dry raw terrain can enter the initial adapter.
+    pub native_coverage_safe: bool,
     pub chunks: Vec<ChunkMesh>,
     pub doodads: Vec<Doodad>,
     pub wmos: Vec<WmoInstance>,
@@ -292,12 +300,108 @@ pub(crate) fn snap_to_lattice(coord: f32) -> f32 {
     (map_center - idx * unit) as f32
 }
 
+mod native_inventory;
+mod native_static;
+pub use native_inventory::{NativeM2MapInventory, NativeWmoMapModel};
+
+/// Rendering intentionally tolerates missing records. Native coverage cannot: inspect raw
+/// chunk framing and liquid offsets before any parser/filter can omit a placement or pool.
+fn native_raw_coverage_safe(bytes: &[u8]) -> bool {
+    let mut cursor = 0usize;
+    let mut terrain = 0usize;
+    while cursor < bytes.len() {
+        let Some(header) = bytes.get(cursor..cursor.saturating_add(8)) else {
+            return false;
+        };
+        let size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let Some(end) = cursor.checked_add(8).and_then(|n| n.checked_add(size)) else {
+            return false;
+        };
+        let Some(data) = bytes.get(cursor + 8..end) else {
+            return false;
+        };
+        match &header[..4] {
+            b"FDDM" | b"FDOM" if !data.is_empty() => return false,
+            // Later ADT liquid storage is outside the vanilla decoder's source domain.
+            b"O2HM" => return false,
+            b"KNCM" => {
+                terrain += 1;
+                if terrain > 256 || data.len() < 128 {
+                    return false;
+                }
+                let word = |at| u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
+                if word(0) & 0x3c != 0
+                    || word(0x60) != 0
+                    || word(0x64) != 0
+                    || word(0x10) != 0
+                    || word(0x38) != 0
+                {
+                    return false;
+                }
+                // The display parser clamps nested lengths. That must not turn a truncated
+                // or oversized MCVT into a native height-coverage certificate.
+                if native_subchunk(data, word(0x14), b"TVCM")
+                    .is_none_or(|heights| heights.len() != 145 * 4)
+                {
+                    return false;
+                }
+                // Zero counts do not excuse an unresolved or nonempty placement-reference
+                // record. An absent MCRF or an explicitly empty one can prove this subset.
+                if word(0x20) != 0
+                    && native_subchunk(data, word(0x20), b"FRCM")
+                        .is_none_or(|references| !references.is_empty())
+                {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        cursor = end;
+    }
+    terrain == 256
+}
+
+/// Locate the same two offset conventions as the display parser, with strict payload bounds.
+/// Native geometry records must start after the MCNK header and fit completely inside it.
+fn native_subchunk<'a>(data: &'a [u8], offset: u32, magic: &[u8; 4]) -> Option<&'a [u8]> {
+    let offset = offset as usize;
+    for start in [Some(offset), offset.checked_sub(8)].into_iter().flatten() {
+        if start < 128 {
+            continue;
+        }
+        let Some(header) = start.checked_add(8).and_then(|end| data.get(start..end)) else {
+            continue;
+        };
+        if &header[..4] != magic {
+            continue;
+        }
+        let size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let payload = start.checked_add(8)?;
+        return data.get(payload..payload.checked_add(size)?);
+    }
+    None
+}
+
 /// Build per-chunk meshes from one vanilla (monolithic) ADT file's bytes.
 pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
     let mut cursor = Cursor::new(adt_bytes);
     let parsed = parse_adt(&mut cursor).map_err(|e| anyhow::anyhow!("parsing ADT: {e}"))?;
     // A vanilla ADT is always one monolithic root.
     let ParsedAdt::Root(root) = parsed;
+    let native_source_digest = Sha256::digest(adt_bytes).into();
+    let native_coverage_safe = native_raw_coverage_safe(adt_bytes)
+        && root.doodad_placements.is_empty()
+        && root.wmo_placements.is_empty()
+        && root.mcnk_chunks.len() == 256
+        && root.mcnk_chunks.iter().all(|chunk| {
+            // Raw flag bits also reject a malformed MCLQ silently omitted by the decoder.
+            chunk.header.flags & 0x3c == 0
+                && chunk.liquids.is_empty()
+                && chunk
+                    .heights
+                    .as_ref()
+                    .is_some_and(|h| h.heights.len() == 145)
+        });
 
     let mut chunks = Vec::new();
     for mcnk in &root.mcnk_chunks {
@@ -507,6 +611,10 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         .collect();
 
     Ok(TileMesh {
+        native_static_coverage_safe: native_static::complete(adt_bytes)
+            && root.mcnk_chunks.len() == 256,
+        native_source_digest,
+        native_coverage_safe,
         chunks,
         doodads,
         wmos,
@@ -835,5 +943,124 @@ mod tests {
             hits > 12000,
             "the sample grid should land on terrain almost everywhere: {hits}"
         );
+    }
+}
+
+#[cfg(test)]
+mod native_coverage_tests {
+    use super::*;
+    pub(super) fn chunk(magic: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut b = magic.to_vec();
+        b.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        b.extend_from_slice(data);
+        b
+    }
+    pub(super) fn source() -> Vec<u8> {
+        let mut b = vec![];
+        for row in 0..16u32 {
+            for col in 0..16u32 {
+                let mut h = vec![0u8; 128];
+                h[4..8].copy_from_slice(&col.to_le_bytes());
+                h[8..12].copy_from_slice(&row.to_le_bytes());
+                h[0x14..0x18].copy_from_slice(&128u32.to_le_bytes());
+                h[0x68..0x6c].copy_from_slice(&(-(row as f32) * CHUNK_SIZE).to_le_bytes());
+                h[0x6c..0x70].copy_from_slice(&(-(col as f32) * CHUNK_SIZE).to_le_bytes());
+                h[0x70..0x74].copy_from_slice(&5.0f32.to_le_bytes());
+                h.extend(chunk(b"TVCM", &vec![0; 145 * 4]));
+                b.extend(chunk(b"KNCM", &h));
+            }
+        }
+        b
+    }
+    #[test]
+    fn native_coverage_source_digest_and_positive_raw_tile() {
+        let b = source();
+        let t = adt_to_tile_mesh(&b).unwrap();
+        assert!(t.native_coverage_safe);
+        assert_eq!(t.chunks.len(), 256);
+        assert_eq!(t.native_source_digest, <[u8; 32]>::from(Sha256::digest(&b)));
+    }
+    #[test]
+    fn native_coverage_never_confuses_filtered_placements_with_absence() {
+        let mut b = source();
+        b.extend(chunk(b"FDDM", &[0; 36]));
+        let t = adt_to_tile_mesh(&b).unwrap();
+        assert!(t.doodads.is_empty());
+        assert!(!t.native_coverage_safe);
+        // A second empty record can overwrite the first in the render parser, not the witness.
+        b.extend(chunk(b"FDDM", &[]));
+        assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+    }
+    #[test]
+    fn native_coverage_rejects_missing_liquid_payload_and_bad_framing() {
+        let mut b = source();
+        b[8..12].copy_from_slice(&4u32.to_le_bytes());
+        let t = adt_to_tile_mesh(&b).unwrap();
+        assert!(t.chunks[0].liquids.is_empty());
+        assert!(!t.native_coverage_safe);
+        b = source();
+        b[8 + 0x64..8 + 0x68].copy_from_slice(&9u32.to_le_bytes());
+        assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        b = source();
+        b.push(0);
+        assert!(!native_raw_coverage_safe(&b));
+    }
+
+    pub(super) fn append_first_chunk(bytes: &mut Vec<u8>, record: &[u8]) -> u32 {
+        let size = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        let end = 8 + size as usize;
+        bytes.splice(end..end, record.iter().copied());
+        bytes[4..8].copy_from_slice(&(size + record.len() as u32).to_le_bytes());
+        size
+    }
+
+    #[test]
+    fn native_coverage_rejects_clamped_nested_height_lengths() {
+        for size in [0u32, 579, 581, u32::MAX] {
+            let mut b = source();
+            b[8 + 128 + 4..8 + 128 + 8].copy_from_slice(&size.to_le_bytes());
+            let tile = adt_to_tile_mesh(&b).unwrap();
+            if size > 580 {
+                assert_eq!(tile.chunks.len(), 256, "render parser clamps the payload");
+            }
+            assert!(!tile.native_coverage_safe, "declared MCVT length {size}");
+        }
+    }
+
+    #[test]
+    fn native_coverage_rejects_dangling_or_hidden_placement_references() {
+        for offset in [0x10, 0x38, 0x20] {
+            let mut b = source();
+            b[8 + offset..8 + offset + 4].copy_from_slice(&1u32.to_le_bytes());
+            let tile = adt_to_tile_mesh(&b).unwrap();
+            assert!(tile.doodads.is_empty() && tile.wmos.is_empty());
+            assert!(!tile.native_coverage_safe, "MCNK field {offset:#x}");
+        }
+        let mut b = source();
+        let offset = append_first_chunk(&mut b, &chunk(b"FRCM", &[0; 4]));
+        b[8 + 0x20..8 + 0x24].copy_from_slice(&offset.to_le_bytes());
+        let tile = adt_to_tile_mesh(&b).unwrap();
+        assert!(tile.doodads.is_empty() && tile.wmos.is_empty());
+        assert!(!tile.native_coverage_safe, "nonempty MCRF with zero counts");
+    }
+
+    #[test]
+    fn native_coverage_accepts_both_bounded_subchunk_offset_conventions() {
+        for origin_adjustment in [0u32, 8] {
+            let mut b = source();
+            b[8 + 0x14..8 + 0x18].copy_from_slice(&(128u32 + origin_adjustment).to_le_bytes());
+            let offset = append_first_chunk(&mut b, &chunk(b"FRCM", &[]));
+            b[8 + 0x20..8 + 0x24].copy_from_slice(&(offset + origin_adjustment).to_le_bytes());
+            assert!(adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        }
+    }
+
+    #[test]
+    fn native_coverage_rejects_unhandled_liquid_storage() {
+        let mut b = source();
+        b.extend(chunk(b"O2HM", &[0; 256 * 12]));
+        let tile = adt_to_tile_mesh(&b).unwrap();
+        assert!(tile.chunks.iter().all(|chunk| chunk.liquids.is_empty()));
+        assert!(!tile.native_coverage_safe);
     }
 }

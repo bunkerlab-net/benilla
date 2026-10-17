@@ -114,7 +114,7 @@ pub(crate) enum SetOutcome {
 }
 
 /// The engine-side CVar table.
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub(crate) struct Cvars {
     rows: Vec<Row>,
     /// Lowercased name → row.
@@ -829,6 +829,39 @@ fn save_config_when_quiet(mut cvars: ResMut<Cvars>) {
 }
 
 impl Cvars {
+    /// Login settings use the same registry and observers, but commit only after durable save.
+    #[cfg(test)]
+    pub(crate) fn apply_settings(
+        &mut self,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<(), String> {
+        let mut draft = self.clone();
+        for (name, value) in changes {
+            let row = draft.row(name).ok_or("Unknown game setting")?;
+            if draft.is_session_owned(name) {
+                return Err(format!("{name} is controlled by this session"));
+            }
+            if row.numeric() && !value.trim().parse::<f32>().is_ok_and(f32::is_finite) {
+                return Err(format!("{name} requires a finite number"));
+            }
+            draft.set(name, value);
+        }
+        draft.commit_latched();
+        let path = crate::local_state::config_path()
+            .ok_or("This session has no writable game settings directory")?;
+        let file = draft.compose();
+        let body = toml::to_string(&LocalConfig {
+            cvars: file.clone(),
+        })
+        .map_err(|_| "Cannot encode game settings")?;
+        crate::local_state::write_atomic(&path, &format!("{HEADER}{body}"))
+            .map_err(|_| "Cannot save game settings; check directory permissions and retry")?;
+        draft.file = file;
+        draft.dirty = false;
+        *self = draft;
+        Ok(())
+    }
+
     /// `CVar::SaveConfig` (`0x63d980`) on demand, as the reference's callers that save at once do
     /// (`EnterWorld`, `0x46b6f6`): the file written now if anything moved, the quiet second
     /// skipped.
