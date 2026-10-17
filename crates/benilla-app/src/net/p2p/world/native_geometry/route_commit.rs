@@ -49,6 +49,20 @@ pub(crate) struct RouteCommitBoundary {
     heads: Vec<RouteCommitHead>,
 }
 impl RouteCommitBoundary {
+    /// Check an existing session boundary without transferring its allocation identity.
+    pub(super) fn validate_world(&self, world: &n::NativeWorld) -> Result<(), n::NativeError> {
+        let checkpoint = world.checkpoint()?.identity();
+        let actual = Self::capture(
+            world,
+            self.session.clone(),
+            checkpoint.history_tip,
+            checkpoint.state_digest,
+        );
+        if *self != actual {
+            return Err(n::NativeError::AuthorityBinding);
+        }
+        Ok(())
+    }
     /// Called by controller attachment, before any selected route is resolved.
     /// Existing owner caches cannot be transferred into a fresh installation.
     pub(crate) fn capture_initial(world: &n::NativeWorld) -> Result<Self, n::NativeError> {

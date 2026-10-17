@@ -12,6 +12,7 @@ use local_corridor::LocalCorridor;
 #[cfg(test)]
 pub(crate) mod real_corridor_fixture;
 pub(crate) mod route_commit;
+mod source_cache_reconstruction;
 mod source_creature_initialization;
 mod source_ground_height;
 mod source_location;

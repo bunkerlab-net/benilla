@@ -52,3 +52,12 @@ Loaded native-cache checkpoints round-trip through encoding but intentionally
 reject direct restore and saved-session reopen. Replay tests restore cache-free
 genesis, replay to each intermediate checkpoint, compare it exactly, then replay
 the remaining receipts. This does not establish native allocation rehydration.
+
+`reconstruction_component_tests` separately executes a
+[bounded reconstruction recipe](../benilla-world-store/CACHE-RECONSTRUCTION.md)
+through fresh actual providers. It retains accepted NOPATH before a normal leg,
+saves mid-Wander, destroys the original mesh/provider, compares resumed arrival
+and relaunch against uninterrupted execution, then saves and reconstructs again.
+Stored replies alone fail concrete candidate acknowledgement. The lifetime
+recipe cap is 2048 ticks or 8 MiB, without cached-state compaction; ordinary
+direct checkpoint restore remains rejected.

@@ -879,6 +879,7 @@ dependencies = [
  "benilla-sim",
  "benilla-world",
  "benilla-world-runtime",
+ "benilla-world-store",
  "bevy",
  "crossbeam-channel",
  "serde",

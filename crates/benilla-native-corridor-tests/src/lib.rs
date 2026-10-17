@@ -13,6 +13,8 @@ mod products;
 mod real_corridor_fixture;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/route_commit.rs"]
 mod route_commit;
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_cache_reconstruction.rs"]
+mod source_cache_reconstruction;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_creature_initialization.rs"]
 mod source_creature_initialization;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_ground_height.rs"]
@@ -56,4 +58,5 @@ mod wander_component_tests;
 mod home_component_tests;
 mod home_mailbox_tests;
 
+mod reconstruction_component_tests;
 mod staged_wander_tests;

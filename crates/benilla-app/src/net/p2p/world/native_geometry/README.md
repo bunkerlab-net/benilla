@@ -759,8 +759,11 @@ constructor work but reuse the identical immutable candidate. No ancestor is
 pruned on resolve or on observing a later prior, because another operation in the
 same outer frame can still fail. Saturation is unavailable, never eviction.
 A committed head counts toward the same total cap of four; after acknowledgement
-it leaves room for at most three uncommitted candidates. Loaded native rehydration
-after reopening remains separately unsupported.
+it leaves room for at most three uncommitted candidates. Direct cached-checkpoint
+rehydration remains unsupported. The separate
+[bounded reconstruction recipe](../../../../../../benilla-world-store/CACHE-RECONSTRUCTION.md)
+reruns a complete accepted history from fresh genesis through actual providers;
+it cannot import these candidates or references.
 
 The app geometry identity is
 `benilla-owned-dry-same-polygon-chase-home-wander-commit-continuation-v6`, including the
@@ -838,8 +841,10 @@ the local environment without `libudev.pc`.
 
 The authored runtime/transport tests still use explicitly synthetic unrelated
 combat and other non-geometry callbacks; they do not admit a production session.
-Native checkpoint serialization is distinct from loaded-cache rehydration, which
-remains closed. Controller tests exercise actual projection/checkpoint failures,
+Native checkpoint serialization is distinct from loaded-cache rehydration;
+direct cached restore remains closed. The separate fresh-genesis reconstruction
+component retains all accepted ticks with an explicit lifetime cap, rather than
+restoring a cache DTO. Controller tests exercise actual projection/checkpoint failures,
 committed input retirement, record chaining after journal clearing, and the distinct
 acknowledgement retry barrier using an explicit authored sink; they do not substitute
 for the real physics/Service tests. This bounded lifecycle sustains same-polygon

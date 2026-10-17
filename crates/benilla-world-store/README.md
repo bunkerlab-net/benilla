@@ -68,6 +68,11 @@ only future combat entries. This establishes session delivery and persisted
 simulation state, not crash-proof exactly-once display to an external UI. Loaded
 native ownership remains subject to the runtime's separate reopen rejection.
 
+The separate [bounded reconstruction recipe](CACHE-RECONSTRUCTION.md) retains a
+fresh genesis and all accepted ticks. It returns inert expected data for actual
+fresh-provider execution; it does not return a receipt-replayed loaded world or
+change ordinary native store reopening. Its lifetime history cap is explicit.
+
 ## One publication point, bounded files
 
 The dedicated directory contains:

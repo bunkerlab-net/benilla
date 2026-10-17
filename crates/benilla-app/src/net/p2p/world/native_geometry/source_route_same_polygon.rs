@@ -664,6 +664,24 @@ impl SourceSamePolygonRouteProvider {
         }
         Ok(())
     }
+    /// Reconstruction starts before any attempted calculation, including a
+    /// rolled-back first tick. Ordinary same-session retry remains separate.
+    pub(super) fn initialize_reconstruction(
+        &mut self,
+        session: &Session,
+        boundary: &RouteCommitBoundary,
+    ) -> Result<(), Failure> {
+        if boundary.tick() != 0
+            || self.queries.constructor_count() != 0
+            || !self.candidates.is_empty()
+            || !self.wander_prefixes.is_empty()
+            || !self.pending.is_empty()
+            || self.last_notice.is_some()
+        {
+            return Err(Failure::Binding);
+        }
+        self.initialize_commit(session, boundary)
+    }
     /// Initial attachment establishes the exact cache-free journal boundary. It
     /// cannot adopt proposals or native state from a different loaded session.
     pub(super) fn initialize_commit(

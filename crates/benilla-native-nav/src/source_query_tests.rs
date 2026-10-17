@@ -131,6 +131,126 @@ fn source_slot_is_independent_of_allocation_identity() {
 }
 
 #[test]
+fn canonical_reload_reexecutes_cache_but_tile_order_and_allocation_are_not_interchangeable() {
+    const CONFIG: crate::SourceSamePolygonConfig = crate::SourceSamePolygonConfig {
+        normalize_z: false,
+        ignore_normalization: false,
+    };
+    fn load(reverse: bool) -> SourceMapQuery {
+        // ProductId::MmapTile orders by grid x/y; the raw loader preserves caller order.
+        let mut tiles = [
+            TileInput {
+                grid: [32, 31],
+                bytes: include_bytes!("../tools/fixtures/0003231.mmtile"),
+            },
+            TileInput {
+                grid: [32, 32],
+                bytes: LEFT,
+            },
+        ];
+        if reverse {
+            tiles.reverse();
+        }
+        SourceMapQuery::load(SLOT, PARAMS, &tiles).unwrap()
+    }
+    fn observations_equal(a: &crate::LoadedSourceSamePolygon, b: &crate::LoadedSourceSamePolygon) {
+        // Mesh IDs must differ; compare every public calculation observation instead.
+        let (a_cache, b_cache) = (a.compatibility(), b.compatibility());
+        assert_eq!(a_cache.compatibility_id(), b_cache.compatibility_id());
+        assert_eq!(
+            a_cache.compatibility_version(),
+            b_cache.compatibility_version()
+        );
+        assert_eq!(a_cache.source_revision(), b_cache.source_revision());
+        assert_eq!(a_cache.is_retained(), b_cache.is_retained());
+        assert_eq!(a_cache.initial_storage(), b_cache.initial_storage());
+        assert_eq!(a_cache.initial_active_len(), b_cache.initial_active_len());
+        assert_eq!(a_cache.before_storage(), b_cache.before_storage());
+        assert_eq!(a_cache.before_active_len(), b_cache.before_active_len());
+        assert_eq!(a_cache.storage(), b_cache.storage());
+        assert_eq!(a_cache.active_len(), b_cache.active_len());
+        assert_eq!(a_cache.point_limit(), b_cache.point_limit());
+        assert_eq!(a_cache.filter(), b_cache.filter());
+        assert_eq!(a_cache.from(), b_cache.from());
+        assert_eq!(a_cache.to(), b_cache.to());
+        assert_eq!(a_cache.start(), b_cache.start());
+        assert_eq!(a_cache.end(), b_cache.end());
+        assert_eq!(a_cache.phase(), b_cache.phase());
+        assert_eq!(a_cache.direct_status(), b_cache.direct_status());
+        assert_eq!(a_cache.trace(), b_cache.trace());
+        assert_eq!(a.config(), b.config());
+        assert_eq!(a.points(), b.points());
+        assert_eq!(a.actual_end(), b.actual_end());
+        assert_eq!(a.path_type(), b.path_type());
+        assert_eq!(a.terminal_primitives(), b.terminal_primitives());
+        assert_eq!(a.slot(), b.slot());
+        assert_eq!(a.query_capacity(), b.query_capacity());
+    }
+    let canonical = load(false);
+    let reloaded = load(false);
+    let reversed = load(true);
+    assert_ne!(
+        canonical.inner.mesh.borrow().instance_id,
+        reloaded.inner.mesh.borrow().instance_id
+    );
+    let from = point(-400., -400., 0.);
+    let to = point(-300., -300., 0.);
+    let other_tile = point(-400., 100., 2.);
+    let nearest = |query: &SourceMapQuery, position| {
+        query
+            .inner
+            .mesh
+            .borrow_mut()
+            .nearest(position, 5., until())
+            .unwrap()
+    };
+    let original = nearest(&canonical, from);
+    assert_eq!(original, nearest(&reloaded, from));
+    assert_ne!(original.polygon, nearest(&reversed, from).polygon);
+    let relocated = nearest(&reversed, other_tile);
+    // Both successful native lookups return a valid ref, now naming different tiles.
+    assert!(original.over && relocated.over);
+    assert_eq!(original.polygon, relocated.polygon);
+    assert_ne!(original.point, relocated.point);
+    assert_eq!(
+        nearest(&canonical, other_tile).polygon,
+        nearest(&reversed, from).polygon
+    );
+
+    let budget = crate::SourceSamePolygonBudget::default();
+    let mut original_owner = canonical.retain_default();
+    let mut fresh_owner = reloaded.retain_default();
+    let initial = original_owner
+        .select_for_calculate(SLOT, from, to)
+        .unwrap()
+        .loaded_cold_same_polygon(1, CONFIG, budget, until())
+        .unwrap();
+    let selected = fresh_owner.select_for_calculate(SLOT, from, to).unwrap();
+    assert_eq!(initial.check_query(&selected), Err(Error::Identity));
+    let fresh_initial = selected
+        .loaded_cold_same_polygon(1, CONFIG, budget, until())
+        .unwrap();
+    observations_equal(&initial, &fresh_initial);
+    let continued = original_owner
+        .select_for_calculate(SLOT, to, from)
+        .unwrap()
+        .loaded_retained_same_polygon(&initial, CONFIG, budget, until())
+        .unwrap();
+    let selected = fresh_owner.select_for_calculate(SLOT, to, from).unwrap();
+    assert_eq!(
+        selected
+            .loaded_retained_same_polygon(&initial, CONFIG, budget, until())
+            .unwrap_err(),
+        crate::SourceSamePolygonError::Boundary(Error::Identity)
+    );
+    let fresh_continued = selected
+        .loaded_retained_same_polygon(&fresh_initial, CONFIG, budget, until())
+        .unwrap();
+    observations_equal(&continued, &fresh_continued);
+    assert_eq!(fresh_continued.check_query(&selected), Ok(()));
+}
+
+#[test]
 fn current_query_starts_unselected_and_first_valid_calculate_selects_it() {
     let query = query(SLOT);
     let mut retained = query.retain_default();

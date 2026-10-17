@@ -10,6 +10,8 @@ use benilla_world_runtime::{PlayerId, WorldId};
 use sha2::{Digest as _, Sha256};
 use std::{fmt, path::Path};
 
+pub mod reconstruction;
+
 const MAGIC: &[u8; 8] = b"BNNATV1\0";
 const HEADER: usize = 60;
 const OVERHEAD: usize = HEADER + 32;
