@@ -350,12 +350,25 @@ learning, source row ordering, initial skill bonus reapplication, current-resour
 preservation, carried versus equipped stats, missing rows, unsupported initial
 passives, item-effect blockers, and storage/source-order failures.
 
+A sibling callback oracle extracts both complete SetSkill overloads and
+UpdateSkillTrainedSpells, plus the skill-status enum, from hash-pinned source.
+Its 37 authored cases distinguish callback-before-reset, temporary-before-permanent
+reapplication, existing/new skills, Defense ordering, threshold and race/class
+filters, profession repair, in-world endpoint choice, and removal boundaries.
+The addSpell/learnSpell/removeSpell endpoints and aura installation are explicitly
+authored adapters, not extracted recursive spell learning. Six initializer-shaped
+vectors are compared with the actual Rust learning path in
+`tests/starter_skill_callbacks.rs`, including reversed loaded row order and
+retained bonuses. Neither harness provides real Human DBC rows or observed order.
+
 Run from this crate's root:
 
     python3 tools/generate_starter_init_fixture.py /path/to/pinned/upstream
     python3 tools/generate_starter_skills_fixture.py /path/to/pinned/upstream /path/to/ObjectMgr.cpp
     python3 tools/generate_starter_effect_amount_fixture.py /path/to/pinned/upstream
-    cargo test -p benilla-sim --test starter_init
+    python3 tools/generate_starter_callbacks_fixture.py /path/to/pinned/core-root --check
+    python3 -m unittest discover -s tools -p test_starter_callbacks_oracle.py
+    cargo test -p benilla-sim --test starter_init --test starter_skill_callbacks
     cargo clippy -p benilla-sim --all-targets -- -D warnings
 
 Twenty-four additional vectors use the unchanged WorldObject effect-value body
