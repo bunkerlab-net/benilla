@@ -181,6 +181,9 @@ def main():
         output = command(run, 'execute', [str(run / 'wander-oracle'), str(run),
                          str(run / 'precision-params.input'), str(run / 'precision-tile.input')])
         rows = [json.loads(line) for line in output.decode().splitlines()]
+        witness = json.loads((run / 'bounded-witness.json').read_text())
+        witness_encoded = json.dumps(witness, indent=2) + '\n'
+        (run / 'bounded-witness.json').write_text(witness_encoded)
         vector = dict(schema=1, source_revision=PIN, compatibility_policy=POLICY,
                       geometry='original-authored-quad64 plus separately labeled unchanged precision fixture', snapshots=rows)
         encoded = json.dumps(vector, indent=2) + '\n'
@@ -207,7 +210,8 @@ def main():
         for name, text in excerpts.items():
             package += '\n// EXCERPT ' + name + '\n' + text + '\n'
         bundled = {'vectors.json': encoded, 'source_intervals.json': meta,
-                   'source_excerpts.test-fixture': package, 'endpoint-zero.patch': patch}
+                   'source_excerpts.test-fixture': package, 'endpoint-zero.patch': patch,
+                   'bounded-witness.json': witness_encoded}
         hashes_text = ''.join(f'{digest}  fixtures/{name}\n' for name, digest in sorted(geometry_hashes.items()))
         bundled['geometry_hashes.sha256'] = hashes_text
         if args.write_bundled:
@@ -224,6 +228,9 @@ def main():
                 if (HERE / name).read_text() != text:
                     raise RuntimeError('bundled source result differs: ' + name)
         report = dict(snapshots=len(rows), cases=len({r['case'] for r in rows}),
+                      witness_operations=witness['operations'],
+                      witness_retained_operations=witness['retained_operations'],
+                      witness_continuation_operations=witness['continuation_operations'],
                       sanitizer_stderr_bytes=(run / 'execute.stderr').stat().st_size,
                       result='passed source assertions and exact RNG transcript consumption', run=str(run))
         (run / 'summary.json').write_text(json.dumps(report, indent=2) + '\n')

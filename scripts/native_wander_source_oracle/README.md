@@ -157,3 +157,35 @@ nearest-poly miss. The height-failure case uses world `(5,5,0)` to `(11,5,0)`.
 A negative-coordinate endpoint such as `(5,-1,0)` would fail source `HaveTile`
 and take its shortcut branch instead; invoking only the lookup dependency at
 that endpoint does not prove a full-source height-failure route.
+
+## Bounded Wander dependency-state witness
+
+`bounded-witness.json` is a separate executable result. It runs 4096 direct
+calculations through the same complete patched C++ method, with constant dry
+filter and the unchanged authored quad. Owner positions and normalized RNG
+values remain explicit inputs; this lane does not execute world ticks or claim
+generator-timing equivalence. Source extraction and the one-scalar compatibility
+patch are unchanged.
+
+The witness retains every operation that actually appended the polygon tail,
+the latest NORMAL operation, the latest endpoint-writing operation, and the final
+operation, in original order. This sequence reduces to four calculations. A
+freshly constructed adapter and separately allocated mesh/query execute those
+original inputs. The executable compares complete backing storage (including
+inactive slots), active prefix, all three stored positions, point-path bits,
+terminal type, point limit, filter and straight/force modes. Five subsequent
+calculations then compare both semantic state and actual source call traces.
+
+Three discriminating negatives omit the latest NORMAL writer, latest endpoint
+writer, or an append-causing height failure. They respectively lose slot zero,
+the endpoint retained by a final MinimumDistance result, or a tail reference
+which later missing/near-zero results cannot recreate. All references originate
+from actual Detour execution; no serialized references seed a query.
+
+Historical before-active observations deliberately differ in the compressed
+execution, despite equal final semantic state. This is not exact historical
+transcript replay. The test establishes one numeric source equivalence case,
+not a universal proof or a persistence implementation. Runtime cache revisions,
+route hashes, shared RNG ownership, constructor dispatch seals, checkpoint
+restore and commit ACK remain outside this oracle. The existing adapter still
+does not execute the full server PathFinder constructor/default-query lifecycle.

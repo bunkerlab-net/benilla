@@ -106,3 +106,34 @@ and endpoint-height-failure rows against every retained reference, active length
 point, endpoint and Detour operation in the source transcript. The original
 one-quad observer uses a 64-unit tile and remains separate: its bytes are not
 rewritten or admitted through the production loader's fixed-grid guard.
+
+## Bounded reconstruction equivalence experiment
+
+The test-only reconstruction experiment is narrower than saved-owner admission.
+For one immutable dry same-polygon Wander constructor, every Prepare clears the
+active length before lookup. Lookup then ignores the first 74 backing slots and
+searches the ordered retained tail. In this domain slots 1–73 remain zero,
+NORMAL writes slot zero, and tail mutation only appends. A candidate operation
+subsequence retains every append-producing calculation, the last NORMAL
+calculation, the last non-MinimumDistance calculation, and the final calculation,
+in their original order with duplicates removed. The extra final writers retain
+slot zero across NOPATH and the old endpoint across MinimumDistance.
+
+With the existing 4,096-reference resource ceiling and 74 initial slots, at most
+4,022 calculations can append. The three final writers give at most 4,025 retained
+calculations, independent of intervening no-append ticks or calculations. Every
+retained operation still performs actual native Prepare, query selection and
+calculation on a fresh allocation; saved polygon references are comparison
+outputs, never reconstruction inputs. Source compatibility policy, geometry,
+query capacity, filter and normalization configuration must remain identical.
+This bound does not extend to other path branches or mutable configurations.
+
+Semantic retained-state equivalence is a different claim from original transcript
+equality. Elision may change a retained operation's recorded before-state;
+ordinary retry observation comparisons remain unchanged. This experiment grants
+no saved-owner capability. A future integration must separately preserve the
+accepted checkpoint's operational revision, original path identities, RNG counter,
+timers and spline; verify retained draws without consuming new gameplay RNG;
+and atomically bind the genuinely reconstructed native allocation to that exact
+checkpoint. Current dispatch seals, contiguous commit acknowledgements and
+cache-free restore guards are unchanged.

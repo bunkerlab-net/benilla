@@ -18,6 +18,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -278,6 +279,125 @@ static void snapshot(const char* label,const char* frame,const Creature& owner,c
 static void begin(std::vector<Draw> supplied) { events.clear();draws=std::move(supplied);drawIndex=0; }
 static void finish() { require(drawIndex==draws.size(),"unused supplied RNG draws"); }
 static std::vector<Draw> success(float angle=0,float range=.5f,uint32 count=3,uint32 pause=3000) { return {norm(angle),norm(range),integer(1,3,count),integer(3000,10000,pause)}; }
+
+// Dependency-state equivalence only: direct calls to the unchanged complete
+// patched source body, with authored owner inputs and RNG transcripts. This
+// neither replays generator clocks nor installs a runtime cache/revision/seal.
+enum class WitnessKind { Normal, MinimumDistance, EndpointHeight, EndpointMissing };
+struct WitnessOperation { WitnessKind kind;float angle=0;float radius=4; };
+using PointBits=std::array<uint32,3>;
+static PointBits point_bits(const Vector3& p) { return {bits(p.x),bits(p.y),bits(p.z)}; }
+struct WitnessState {
+    std::vector<dtPolyRef> storage;
+    std::vector<PointBits> points;
+    PointBits start,end,actualEnd;
+    uint32 type,active,limit;
+    unsigned include,exclude;
+    bool straight,force;
+    bool operator==(const WitnessState&) const=default;
+};
+static WitnessState witness_state(const PathFinder& path) {
+    std::vector<PointBits> points;for(const auto& p:path.m_pathPoints)points.push_back(point_bits(p));
+    return {path.m_pathPolyRefs,points,point_bits(path.m_startPosition),point_bits(path.m_endPosition),
+        point_bits(path.m_actualEndPosition),unsigned(path.m_type),path.m_polyLength,path.m_pointPathLimit,
+        path.m_filter.getIncludeFlags(),path.m_filter.getExcludeFlags(),path.m_straightLine,path.m_forceDestination};
+}
+static void witness_operation(AuthoredMesh& mesh,Creature& owner,PathFinder& path,const WitnessOperation& op) {
+    geometry=&mesh;observed.query=&mesh.query;
+    owner.position=Vector3(10,10,0);
+    const float radius=op.kind==WitnessKind::EndpointHeight?64:op.kind==WitnessKind::EndpointMissing?100:op.radius;
+    begin({norm(op.angle),norm(op.kind==WitnessKind::MinimumDistance?0.f:.5f)});
+    path.ComputePathToRandomPoint(Vector3(10,10,0),radius);finish();
+    require(path.m_navMesh==&mesh.mesh&&path.m_navMeshQuery==&observed,"witness actual selected allocation");
+    require(path.m_filter.getIncludeFlags()==1&&path.m_filter.getExcludeFlags()==0,"witness immutable dry filter");
+    require(path.m_type==(op.kind==WitnessKind::Normal?PATHFIND_NORMAL:PATHFIND_NOPATH),"witness source terminal");
+    require(path.m_polyLength==(op.kind==WitnessKind::Normal?1u:0u),"witness source active prefix");
+    require(path.m_pathPoints.size()==(op.kind==WitnessKind::Normal?2u:0u),"witness source points");
+    require(std::all_of(path.m_pathPolyRefs.begin()+1,path.m_pathPolyRefs.begin()+74,[](dtPolyRef ref){return ref==0;}),"witness inactive slots remain zero");
+    const auto detourCalls=std::count_if(events.begin(),events.end(),[](const auto& e){return e.starts_with("detour:");});
+    require((detourCalls==0)==(op.kind==WitnessKind::MinimumDistance),"witness endpoint writer classification");
+    if(op.kind==WitnessKind::MinimumDistance)
+        require(std::find(events.begin(),events.end(),"owner:water")==events.end(),"minimum-distance returns before dry tail");
+    else require(std::find(events.begin(),events.end(),"owner:above-ground")!=events.end(),"endpoint writer executes dry tail");
+}
+static void write_bounded_witness() {
+    AuthoredMesh originalMesh,freshMesh;
+    require(&originalMesh.mesh != &freshMesh.mesh && &originalMesh.query != &freshMesh.query,"witness separate mesh/query allocations");
+    Creature originalOwner,freshOwner;
+    PathFinder original(&originalOwner),rebuilt(&freshOwner);
+    std::vector<WitnessOperation> operations{{WitnessKind::EndpointHeight}};
+    while(operations.size()<4093) {
+        const size_t index=operations.size();
+        const WitnessKind kinds[]={WitnessKind::Normal,WitnessKind::MinimumDistance,WitnessKind::EndpointHeight,WitnessKind::EndpointMissing};
+        operations.push_back({kinds[index%4]});
+    }
+    operations.push_back({WitnessKind::Normal,0,8});
+    operations.push_back({WitnessKind::EndpointHeight});
+    operations.push_back({WitnessKind::MinimumDistance});
+    std::vector<size_t> appenders;
+    std::vector<uint32> beforeActive;
+    size_t lastNormal=0,lastEndpoint=0;
+    for(size_t i=0;i<operations.size();++i) {
+        const auto before=original.m_pathPolyRefs;beforeActive.push_back(original.m_polyLength);
+        witness_operation(originalMesh,originalOwner,original,operations[i]);
+        require(original.m_pathPolyRefs.size()>=before.size(),"witness storage never shrinks");
+        require(std::equal(before.begin()+74,before.end(),original.m_pathPolyRefs.begin()+74),"witness ordered tail only appends");
+        if(original.m_pathPolyRefs.size()>before.size())appenders.push_back(i);
+        if(operations[i].kind==WitnessKind::Normal)lastNormal=i;
+        if(operations[i].kind!=WitnessKind::MinimumDistance)lastEndpoint=i;
+    }
+    std::vector<size_t> selected=appenders;
+    selected.insert(selected.end(),{lastNormal,lastEndpoint,operations.size()-1});
+    std::sort(selected.begin(),selected.end());selected.erase(std::unique(selected.begin(),selected.end()),selected.end());
+    require(appenders==std::vector<size_t>{0}&&selected==std::vector<size_t>({0,4093,4094,4095}),"witness discriminating retained indexes");
+    unsigned beforeDifferences=0;
+    for(size_t i:selected) {
+        beforeDifferences+=rebuilt.m_polyLength!=beforeActive[i];
+        witness_operation(freshMesh,freshOwner,rebuilt,operations[i]);
+    }
+    const auto final=witness_state(original);
+    require(witness_state(rebuilt)==final,"bounded witness complete semantic cache equality");
+    require(beforeDifferences>0,"witness must distinguish historical before-state from semantic equality");
+    for(size_t omitted:{lastNormal,lastEndpoint}) {
+        Creature negativeOwner;PathFinder negative(&negativeOwner);
+        for(size_t i:selected)if(i!=omitted)witness_operation(freshMesh,negativeOwner,negative,operations[i]);
+        const auto wrong=witness_state(negative);
+        require(!(wrong==final),"omitting semantic writer must differ");
+        if(omitted==lastNormal)require(wrong.storage[0]==0&&final.storage[0]!=0,"NORMAL omission loses slot zero");
+        else require(wrong.end!=final.end,"endpoint omission loses retained endpoint");
+    }
+    // Missing endpoint and near-zero calls cannot recreate an omitted appended
+    // ref. This negative uses actual nearest misses, never invented poly refs.
+    Creature appendOwner,missingOwner;PathFinder appendPath(&appendOwner),missingPath(&missingOwner);
+    const std::vector<WitnessOperation> appendCase={{WitnessKind::EndpointHeight},{WitnessKind::EndpointMissing},{WitnessKind::MinimumDistance}};
+    for(size_t i=0;i<appendCase.size();++i) {
+        witness_operation(originalMesh,appendOwner,appendPath,appendCase[i]);
+        if(i)witness_operation(freshMesh,missingOwner,missingPath,appendCase[i]);
+    }
+    require(appendPath.m_pathPolyRefs.size()==75&&missingPath.m_pathPolyRefs.size()==74,"append omission loses retained tail");
+    require(!(witness_state(appendPath)==witness_state(missingPath)),"append omission must differ");
+    const std::vector<WitnessOperation> continuation={{WitnessKind::MinimumDistance},{WitnessKind::Normal,.25f,6},
+        {WitnessKind::EndpointHeight},{WitnessKind::EndpointMissing},{WitnessKind::Normal,.125f,8}};
+    for(const auto& op:continuation) {
+        witness_operation(originalMesh,originalOwner,original,op);const auto trace=events;
+        witness_operation(freshMesh,freshOwner,rebuilt,op);
+        require(witness_state(original)==witness_state(rebuilt)&&trace==events,"bounded witness actual source continuation equality");
+    }
+    std::ostringstream json;
+    json<<"{\"schema\":1,\"scope\":\"source-native semantic cache equivalence; no runtime restoration\","
+        <<"\"operations\":"<<operations.size()<<",\"retained_operations\":"<<selected.size()
+        <<",\"appending_operations\":"<<appenders.size()<<",\"retained_indices\":[";
+    for(size_t i=0;i<selected.size();++i)json<<(i?",":"")<<selected[i];
+    json<<"],\"final_storage\":[";
+    for(size_t i=0;i<final.storage.size();++i)json<<(i?",":"")<<final.storage[i];
+    json<<"],\"final_endpoint_bits\":["<<final.end[0]<<","<<final.end[1]<<","<<final.end[2]
+        <<"],\"final_path_type\":"<<final.type<<",\"final_active_polys\":"<<final.active
+        <<",\"final_points\":"<<final.points.size()<<",\"before_active_differences\":"<<beforeDifferences
+        <<",\"continuation_operations\":"<<continuation.size()
+        <<",\"fresh_query_allocation\":true,\"semantic_state_equal\":true,\"continuation_state_and_trace_equal\":true,"
+        <<"\"omit_last_normal_detected\":true,\"omit_endpoint_writer_detected\":true,\"omit_appender_detected\":true}\n";
+    const auto data=json.str();write_fixture("bounded-witness.json",data.data(),data.size());
+}
 int main(int argc,char** argv) {
 try {
     require(argc==4,"usage: wander-oracle OUTPUT_DIRECTORY PRECISION_PARAMS PRECISION_TILE");fixtureDirectory=argv[1];
@@ -379,6 +499,7 @@ try {
         const char* names[]={"precision_same_polygon","precision_endpoint_height_failure","precision_endpoint_missing"};
         snapshot(names[scenario],"result",npc,move);finish();
     }
+    write_bounded_witness();
     return 0;
 } catch(const std::exception& error) { std::fprintf(stderr,"%s\n",error.what());return 2; }
 }

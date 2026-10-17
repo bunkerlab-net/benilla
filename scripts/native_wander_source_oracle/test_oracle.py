@@ -141,6 +141,26 @@ class SourceContract(unittest.TestCase):
         self.assertEqual((row['count'], row['timer'], row['draws']), (3, 0, 4))
         self.assertEqual(row['storage'], [0] * 74)
 
+    def test_bounded_semantic_witness_and_discriminating_omissions(self):
+        witness = json.loads((ROOT / 'bounded-witness.json').read_text())
+        self.assertEqual(witness['operations'], 4096)
+        self.assertEqual(witness['retained_operations'], 4)
+        self.assertEqual(witness['appending_operations'], 1)
+        self.assertEqual(witness['retained_indices'], [0, 4093, 4094, 4095])
+        self.assertEqual(len(witness['final_storage']), 75)
+        self.assertEqual(witness['final_storage'][1:74], [0] * 73)
+        self.assertGreater(witness['final_storage'][0], 0)
+        self.assertEqual(witness['final_storage'][0], witness['final_storage'][74])
+        self.assertEqual(witness['final_endpoint_bits'], [0x42280000, 0x41200000, 0])
+        self.assertEqual((witness['final_path_type'], witness['final_active_polys'],
+                          witness['final_points']), (8, 0, 0))
+        self.assertGreater(witness['before_active_differences'], 0)
+        self.assertEqual(witness['continuation_operations'], 5)
+        for key in ['fresh_query_allocation', 'semantic_state_equal',
+                    'continuation_state_and_trace_equal', 'omit_last_normal_detected',
+                    'omit_endpoint_writer_detected', 'omit_appender_detected']:
+            self.assertIs(witness[key], True)
+
 
 if __name__ == '__main__':
     unittest.main()

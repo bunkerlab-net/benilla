@@ -2,6 +2,10 @@
 use super::*;
 use crate::{SourceWarmLookupOrigin, SourceWarmPrimitive, TileInput};
 use std::time::Duration;
+
+#[path = "source_wander_reconstruction_witness_tests.rs"]
+mod reconstruction_witness;
+
 const SLOT: SourceMapQuerySlot = SourceMapQuerySlot {
     map_id: 0,
     instance_id: 0,
