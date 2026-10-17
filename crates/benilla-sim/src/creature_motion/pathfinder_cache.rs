@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Retained PathFinder polygon state, not smoothing scratch or loaded authority.
 //! CMaNGOS 8ec338a1 PathFinder.cpp:306–380, 510–789 and PathFinder.h::clear.
-use super::{Identity, MotionError, Point, RouteOutcome, RouteRequest, RouteSource};
+use super::{
+    Identity, MotionError, Point, Real, RouteKind, RouteOutcome, RouteRequest, RouteSource,
+};
 use serde::{Deserialize, Serialize};
 
 /// Ordinary Chase does not call setPathLengthLimit. Dungeon growth is unrepresented.
@@ -60,10 +62,15 @@ impl PathFinderCache {
             || self.poly_refs.len() > MAX_PATHFINDER_CACHE_REFS
             || self.active_len > self.point_limit
             || self.path_type & !0x3f != 0
-            // This contract admits a first source cache only after Complete NORMAL.
-            || (self.source == RouteSource::OwnerPathFinder
-                && self.revision == 1
-                && (self.path_type != 1 || self.active_len == 0))
+            // Initial failed Wander caches are admitted contextually by the
+            // exact calculation reason; saved Chase still requires NORMAL.
+            || (self.source == RouteSource::OwnerPathFinder && self.revision == 1
+                && !(self.path_type == 1 && self.active_len > 0)
+                && !(self.path_type == 8 && self.active_len == 0
+                    && (self.poly_refs.len() == usize::from(self.point_limit)
+                        || (self.poly_refs.len() == usize::from(self.point_limit) + 1
+                            && self.poly_refs.last() != Some(&0)))
+                    && self.poly_refs[..usize::from(self.point_limit)].iter().all(|reference|*reference == 0)))
             // Shape only: the host binds the exact 1/13 choice to its capability owner.
             || !matches!(self.include_flags, 1 | 13)
             || self.exclude_flags != 0
@@ -82,11 +89,22 @@ impl PathFinderCache {
     }
 }
 
+/// Exact ordinary ComputePathToRandomPoint return branch. Other failures remain
+/// outside the supported native domain, not converted into retryable NoPath.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum WanderNoPathReason {
+    MinimumDistance,
+    EndpointMissing,
+    EndpointHeight,
+}
+
 /// A completed calculation carries state even when no spline can be launched.
 /// Missing/unsupported calculations never commit a partial candidate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouteCalculation {
+    pub wander_no_path: Option<WanderNoPathReason>,
     pub source: RouteSource,
     pub outcome: RouteOutcome,
     pub prior_cache: Option<Box<PathFinderCache>>,
@@ -94,6 +112,7 @@ pub struct RouteCalculation {
 }
 impl RouteCalculation {
     pub fn validate_for(&self, request: &RouteRequest) -> Result<(), MotionError> {
+        request.validate_wander()?;
         if self.prior_cache != request.prior_cache {
             return Err(MotionError::Invalid("pathfinder calculation prior state"));
         }
@@ -101,8 +120,56 @@ impl RouteCalculation {
             request.validate_source_cache_dispatch()?;
         }
         self.after_cache.validate_for(request.binding.identity)?;
+        let wander_no_path =
+            request.kind == RouteKind::Wander && self.outcome == RouteOutcome::NoPath;
+        if wander_no_path != self.wander_no_path.is_some() {
+            return Err(MotionError::Invalid("Wander no-path reason presence"));
+        }
+        if let Some(reason) = self.wander_no_path {
+            let old_end = request.prior_cache.as_ref().map_or(
+                Point {
+                    x: Real::ZERO,
+                    y: Real::ZERO,
+                    z: Real::ZERO,
+                },
+                |cache| cache.requested_end,
+            );
+            let cold = vec![0; usize::from(request.point_limit)];
+            let old_refs = request
+                .prior_cache
+                .as_ref()
+                .map_or(cold.as_slice(), |cache| cache.poly_refs.as_slice());
+            let after_refs = self.after_cache.poly_refs.as_slice();
+            let near_zero = request
+                .origin
+                .distance_squared(request.goal)?
+                .less(Real::constant(0x3c23_d70a));
+            let exact = match reason {
+                WanderNoPathReason::MinimumDistance => {
+                    near_zero && self.after_cache.requested_end == old_end && after_refs == old_refs
+                }
+                WanderNoPathReason::EndpointMissing => {
+                    !near_zero
+                        && self.after_cache.requested_end == request.goal
+                        && after_refs == old_refs
+                }
+                WanderNoPathReason::EndpointHeight => {
+                    !near_zero
+                        && self.after_cache.requested_end.x == request.goal.x
+                        && self.after_cache.requested_end.y == request.goal.y
+                        && ((after_refs == old_refs
+                            && old_refs.iter().any(|reference| *reference != 0))
+                            || (after_refs.len() == old_refs.len() + 1
+                                && &after_refs[..old_refs.len()] == old_refs
+                                && after_refs.last() != Some(&0)))
+                }
+            };
+            if !exact || self.after_cache.path_type != 8 || self.after_cache.active_len != 0 {
+                return Err(MotionError::Invalid("Wander no-path source transition"));
+            }
+        }
         if self.source != self.after_cache.source
-            || self.after_cache.requested_end != request.goal
+            || (!wander_no_path && !request.accepts_route_end(Some(self.after_cache.requested_end)))
             || self.after_cache.point_limit != request.point_limit
         {
             return Err(MotionError::Invalid("pathfinder calculation binding"));
@@ -126,7 +193,7 @@ impl RouteCalculation {
                 && self.after_cache.revision == 1 => {}
             None if self.source == RouteSource::OwnerPathFinder
                 && self.after_cache.revision == 1
-                && matches!(self.outcome, RouteOutcome::Complete(_)) => {}
+                && (matches!(self.outcome, RouteOutcome::Complete(_)) || wander_no_path) => {}
             None => {
                 return Err(MotionError::Invalid("initial pathfinder calculation"));
             }
@@ -139,7 +206,12 @@ impl RouteCalculation {
             {
                 Err(MotionError::Invalid("pathfinder complete outcome/source"))
             }
-            RouteOutcome::Complete(path) => super::protocol::validate_route(request, path),
+            RouteOutcome::Complete(path) => {
+                if path.points.last() != Some(&self.after_cache.requested_end) {
+                    return Err(MotionError::Invalid("pathfinder actual endpoint"));
+                }
+                super::protocol::validate_route(request, path)
+            }
             RouteOutcome::NoPath if self.after_cache.path_type != 8 => {
                 Err(MotionError::Invalid("pathfinder no-path outcome/type"))
             }

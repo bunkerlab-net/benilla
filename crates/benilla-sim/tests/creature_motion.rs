@@ -986,3 +986,110 @@ fn source_ai_profile_with_zero_corpse() -> benilla_sim::creature_ai::Profile {
     p.corpse_decay_ms = 0;
     p
 }
+
+#[test]
+fn wander_interruption_at_stale_map_pose_mints_exact_ai_relocation() {
+    use benilla_sim::creature_ai as ai;
+    struct WanderHost {
+        spatial: Synthetic,
+        draws: std::collections::VecDeque<u32>,
+    }
+    impl Authority for WanderHost {
+        fn wander_draw(&mut self, _: WanderDraw) -> Result<u32, MotionError> {
+            self.draws
+                .pop_front()
+                .ok_or(MotionError::Missing("test draw"))
+        }
+        fn resolve(&mut self, query: &Query) -> Result<Reply, MotionError> {
+            if matches!(query,Query::Route(q) if q.kind==RouteKind::WanderPrepare) {
+                return Ok(Reply {
+                    request: query.clone(),
+                    fact: Fact::WanderPrepared,
+                });
+            }
+            self.spatial.resolve(query)
+        }
+    }
+    let mut creature = ai::SoloCreatureAi::new(source_ai_profile()).unwrap();
+    let mut motion = state();
+    motion
+        .initialize_default(DefaultMovement::Wander {
+            center: p(0., 0., 0.),
+            radius: r(4.),
+        })
+        .unwrap();
+    let mut spatial = WanderHost {
+        spatial: Synthetic::default(),
+        draws: std::collections::VecDeque::from([0, 0x8000_0000, 3, 3000]),
+    };
+    for sequence in 1..=3 {
+        let update = motion
+            .advance_default(sequence, 100, Some(target(20.)), input(), &mut spatial)
+            .unwrap();
+        creature
+            .step(&mut Observation(source_observation(
+                sequence,
+                &motion,
+                Some(update.movement),
+            )))
+            .unwrap();
+    }
+    let old = creature.position();
+    assert_eq!(motion.pose().position, old);
+    assert_ne!(motion.spline_position().unwrap(), old);
+    let enemy = source_observation(4, &motion, None).target.unwrap();
+    creature
+        .source_help_attack_start(&enemy, motion.now_ms())
+        .unwrap();
+    let before = creature.clone();
+    let (events, proof) = motion
+        .start_chase_with_relocation(target(20.), false, input(), &mut spatial)
+        .unwrap();
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Relocated {
+            notify_map: false,
+            ..
+        }
+    )));
+    let proof = proof.unwrap();
+    assert_ne!(motion.pose().position, old);
+    assert!(creature
+        .apply_source_relocation(proof.clone(), Revision([9; 32]))
+        .is_err());
+    assert_eq!(creature, before);
+    let mut wrong_target_profile = source_ai_profile();
+    wrong_target_profile.spawn = old;
+    let mut wrong_target = ai::SoloCreatureAi::new(wrong_target_profile).unwrap();
+    let mut enemy2 = enemy.clone();
+    enemy2.id = 99;
+    wrong_target
+        .source_help_attack_start(&enemy2, motion.now_ms())
+        .unwrap();
+    let wrong_before = wrong_target.clone();
+    assert!(wrong_target
+        .apply_source_relocation(proof.clone(), Revision([2; 32]))
+        .is_err());
+    assert_eq!(wrong_target, wrong_before);
+    creature
+        .apply_source_relocation(proof.clone(), Revision([2; 32]))
+        .unwrap();
+    assert_eq!(creature.position(), motion.pose().position);
+    let after = creature.clone();
+    assert!(creature
+        .apply_source_relocation(proof, Revision([2; 32]))
+        .is_err());
+    assert_eq!(creature, after);
+    let command = creature.motion().unwrap().clone();
+    let update = motion
+        .advance_for_command(&command, 4, 100, Some(target(20.)), input(), &mut spatial)
+        .unwrap();
+    creature
+        .step(&mut Observation(source_observation(
+            4,
+            &motion,
+            Some(update.movement),
+        )))
+        .unwrap();
+    assert_eq!(creature.position(), motion.pose().position);
+}

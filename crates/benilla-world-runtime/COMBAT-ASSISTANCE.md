@@ -141,8 +141,8 @@ checkpoint restoration and replay together. An independent required NPC anchor
 counts and chains assistance transitions, so deleting completed history cannot
 make a used owner look freshly initialized after its queue drains. These
 redundant consistency checks do not authenticate a wholly fabricated checkpoint.
-Native format 47 and policy
-`benilla-native-positive-peer-help-v47` bind the changed state; native46 and older
+Native format 48 and policy
+`benilla-native-wander-leg-v48` bind the changed state; native47 and older
 experimental identities reject without migration.
 
 ## What this does not establish

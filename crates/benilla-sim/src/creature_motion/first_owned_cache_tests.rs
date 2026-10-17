@@ -26,6 +26,7 @@ fn first_claim() -> (MotionState, RouteRequest, RouteCalculation) {
         .unwrap();
     let request = last_route(&authority.0).clone();
     let calculation = RouteCalculation {
+        wander_no_path: None,
         source: RouteSource::OwnerPathFinder,
         outcome: RouteOutcome::Complete(state.snapshot().spline.unwrap().route),
         prior_cache: None,
@@ -154,6 +155,7 @@ fn malicious_retained_claim_needs_exact_prior_increment_and_nonfirst_dispatch() 
         .unwrap();
     let request = last_route(&authority.0).clone();
     let calculation = RouteCalculation {
+        wander_no_path: None,
         source: RouteSource::OwnerPathFinder,
         outcome: RouteOutcome::Complete(state.snapshot().spline.unwrap().route),
         prior_cache: Some(Box::new(initial.after_cache)),

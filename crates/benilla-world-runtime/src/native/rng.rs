@@ -8,6 +8,18 @@ pub const RNG_POLICY: &str = "benilla-native-sha256-counter-le64-rejection-fract
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum DrawPurpose {
+    WanderAngle {
+        npc: crate::NpcId,
+    },
+    WanderRadius {
+        npc: crate::NpcId,
+    },
+    WanderMoveCount {
+        npc: crate::NpcId,
+    },
+    WanderPause {
+        npc: crate::NpcId,
+    },
     CreatureModel {
         npc: crate::NpcId,
     },

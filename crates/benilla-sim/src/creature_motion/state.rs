@@ -5,6 +5,10 @@ use super::{
     *,
 };
 use serde::{Deserialize, Serialize};
+mod wander;
+pub use wander::{
+    wander_normalized_word, DefaultMovement, WanderDraw, WanderSnapshot, WANDER_POLICY_ID,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -160,6 +164,7 @@ pub struct ChaseSnapshot {
 #[serde(deny_unknown_fields)]
 pub enum Generator {
     Idle,
+    Wander(WanderSnapshot),
     Chase(ChaseSnapshot),
     Home { destination: Pose, was_active: bool },
 }
@@ -186,6 +191,8 @@ pub struct MotionSnapshot {
     pub map_pose: Pose,
     pub relocation_timer_ms: u32,
     pub generator: Generator,
+    #[serde(deserialize_with = "super::pathfinder_dispatch::required_option")]
+    pub suspended_wander: Option<WanderSnapshot>,
     pub spline: Option<ActiveSplineSnapshot>,
     pub query_id: u64,
     pub spline_id: u64,
@@ -266,6 +273,7 @@ impl MotionState {
                 map_pose: pose,
                 relocation_timer_ms: 0,
                 generator: Generator::Idle,
+                suspended_wander: None,
                 spline: None,
                 query_id: 0,
                 spline_id: 0,
@@ -293,10 +301,12 @@ impl MotionState {
             s.route_request.validate_pathfinder_dispatch()?;
             if s.route.source == RouteSource::OwnerPathFinder {
                 s.route_request.validate_source_cache_dispatch()?;
-                if !matches!(&state.generator, Generator::Chase(c)
-                    if c.pathfinder_cache.as_ref().is_some_and(|cache|
-                        cache.source == RouteSource::OwnerPathFinder))
-                {
+                let source_cache = match &state.generator {
+                    Generator::Chase(c) => c.pathfinder_cache.as_ref(),
+                    Generator::Wander(w) => w.pathfinder_cache.as_ref(),
+                    _ => None,
+                };
+                if source_cache.is_none_or(|cache| cache.source != RouteSource::OwnerPathFinder) {
                     return Err(MotionError::Invalid(
                         "saved source route without source cache",
                     ));
@@ -336,8 +346,78 @@ impl MotionState {
                 .validate()?;
             }
         }
+        if let Some(wander) = &state.suspended_wander {
+            wander.validate(&state)?;
+            if !matches!(
+                state.generator,
+                Generator::Chase(_) | Generator::Home { .. }
+            ) {
+                return Err(MotionError::Invalid(
+                    "suspended default owner without overlay",
+                ));
+            }
+        }
         match &state.generator {
             Generator::Idle => {}
+            Generator::Wander(wander) => {
+                wander.validate(&state)?;
+                if let Some(spline) = &state.spline {
+                    if spline.route_request.kind != RouteKind::Wander
+                        || spline.facing != Facing::Tangent
+                        || !spline.walking
+                        || spline
+                            .route_request
+                            .wander
+                            .as_deref()
+                            .is_none_or(|request| {
+                                request.center != wander.center || request.radius != wander.radius
+                            })
+                        || spline
+                            .route_request
+                            .pathfinder_dispatch
+                            .as_ref()
+                            .is_none_or(|d| {
+                                d.construction_binding() != wander.pathfinder_construction
+                            })
+                    {
+                        return Err(MotionError::Invalid("saved Wander spline owner"));
+                    }
+                    if let Some(cache) = &wander.pathfinder_cache {
+                        let prior_revision = spline
+                            .route_request
+                            .prior_cache
+                            .as_ref()
+                            .map_or(0, |c| c.revision);
+                        if cache.revision <= prior_revision
+                            || cache.source != spline.route.source
+                            || spline
+                                .route_request
+                                .prior_cache
+                                .as_ref()
+                                .is_some_and(|prior| {
+                                    prior.binding != cache.binding
+                                        || prior.poly_refs.len() > cache.poly_refs.len()
+                                        || prior.include_flags != cache.include_flags
+                                        || prior.exclude_flags != cache.exclude_flags
+                                })
+                        {
+                            return Err(MotionError::Invalid("saved Wander cache lineage"));
+                        }
+                        if cache.revision == prior_revision + 1 {
+                            RouteCalculation {
+                                wander_no_path: None,
+                                source: spline.route.source,
+                                outcome: RouteOutcome::Complete(spline.route.clone()),
+                                prior_cache: spline.route_request.prior_cache.clone(),
+                                after_cache: (**cache).clone(),
+                            }
+                            .validate_for(&spline.route_request)?;
+                        }
+                    } else if spline.route_request.prior_cache.is_some() {
+                        return Err(MotionError::Invalid("saved Wander lost cache"));
+                    }
+                }
+            }
             Generator::Chase(c) => {
                 c.last_target.validate()?;
                 if c.target == 0 || c.recheck_ms > 1000 || c.closeness_ms > 2000 {
@@ -387,6 +467,9 @@ impl MotionState {
                 if let Some(cache) = &c.pathfinder_cache {
                     cache.validate_for(state.identity)?;
                     if cache.source == RouteSource::OwnerPathFinder {
+                        if cache.revision == 1 && (cache.path_type != 1 || cache.active_len == 0) {
+                            return Err(MotionError::Invalid("saved Chase initial source cache"));
+                        }
                         let construction = c.pathfinder_construction.unwrap();
                         // Every accepted calculation consumes its own dispatch
                         // query; unrelated queries cannot reset this sequence.
@@ -429,6 +512,7 @@ impl MotionState {
                             // may retain this spline with a newer current cache;
                             // neither restores a loaded query.
                             RouteCalculation {
+                                wander_no_path: None,
                                 source: spline.route.source,
                                 outcome: RouteOutcome::Complete(spline.route.clone()),
                                 prior_cache: None,
@@ -691,6 +775,7 @@ impl MotionState {
         cache: &mut Option<Box<PathFinderCache>>,
         construction: &mut Option<QueryBinding>,
         kind: RouteKind,
+        wander: Option<WanderRequest>,
         walking: bool,
         facing: Facing,
         target: Option<Target>,
@@ -714,6 +799,12 @@ impl MotionState {
         // relocation and precedes the straight gate/calculation in the authority.
         let pathfinder_dispatch = if kind == RouteKind::HomeForceDestination {
             None
+        } else if kind == RouteKind::Wander {
+            Some(PathfinderDispatch::wander(
+                construction.ok_or(MotionError::Missing("Wander initialized PathFinder"))?,
+                binding,
+                false,
+            )?)
         } else {
             let event = PathfinderDispatch::new(*construction, binding)?;
             *construction = Some(event.construction_binding());
@@ -725,6 +816,7 @@ impl MotionState {
             launch_origin,
             goal,
             kind,
+            wander: wander.map(Box::new),
             target,
             owner_collision_height: input.settings.collision_height,
             point_limit: MAX_PATH_POINTS as u16,
@@ -781,7 +873,17 @@ impl MotionState {
                 return Ok(Dispatch::Unreachable);
             }
         }
-        let speed = input.speed(walking, kind == RouteKind::HomeForceDestination)?;
+        let speed = if kind == RouteKind::Wander {
+            chase_speed(
+                input.walk_speed,
+                false,
+                input.health,
+                input.maximum_health,
+                input.settings.no_wounded_slowdown,
+            )?
+        } else {
+            input.speed(walking, kind == RouteKind::HomeForceDestination)?
+        };
         let spline = LinearSpline::launch(path.points.clone(), launch_origin, speed)?;
         self.state.spline_id = self
             .state
@@ -868,6 +970,7 @@ impl MotionState {
             *self = staged;
             return Ok(events);
         }
+        staged.suspend_wander(Some(target), authority, &mut events)?;
         let mut chase = ChaseSnapshot {
             target: target.id,
             walking,
@@ -899,6 +1002,7 @@ impl MotionState {
                 &mut chase.pathfinder_cache,
                 &mut chase.pathfinder_construction,
                 RouteKind::ChaseInitial,
+                None,
                 walking,
                 Facing::Target(target.id),
                 Some(target),
@@ -911,6 +1015,29 @@ impl MotionState {
         staged.state.generator = Generator::Chase(chase);
         *self = staged;
         Ok(events)
+    }
+    /// Immediate Unit::InterruptMoving relocation is separate from the next
+    /// Unit update. The opaque proof synchronizes the AI mirror at this boundary.
+    pub fn start_chase_with_relocation(
+        &mut self,
+        target: Target,
+        walking: bool,
+        input: UnitInputs,
+        authority: &mut impl Authority,
+    ) -> Result<(Vec<Event>, Option<SourceRelocation>), MotionError> {
+        let origin = self.pose().position;
+        let events = self.start_chase(target, walking, input, authority)?;
+        let relocated = events
+            .iter()
+            .any(|event| matches!(event, Event::Relocated { .. }));
+        let receipt = relocated.then_some(SourceRelocation {
+            identity: self.state.identity,
+            origin,
+            position: self.pose().position,
+            now_ms: self.now_ms(),
+            target: target.id,
+        });
+        Ok((events, receipt))
     }
     pub fn speed_changed(&mut self) {
         if let Generator::Chase(c) = &mut self.state.generator {
@@ -947,7 +1074,9 @@ impl MotionState {
                 "long-distance outdoor home forced despawn",
             ));
         }
-        let mut events = vec![Event::HomeStarted { was_active }];
+        let mut events = vec![];
+        staged.suspend_wander(None, authority, &mut events)?;
+        events.push(Event::HomeStarted { was_active });
         // Home owns a fresh stack-local PathFinder and discards it after launch.
         let mut home_cache = None;
         let mut home_construction = None;
@@ -956,6 +1085,7 @@ impl MotionState {
             &mut home_cache,
             &mut home_construction,
             RouteKind::HomeForceDestination,
+            None,
             walking,
             Facing::Angle(destination.orientation),
             None,
@@ -1038,12 +1168,16 @@ impl MotionState {
         staged.progress_spline(elapsed_ms, target, authority, &mut events)?;
         match staged.state.generator.clone() {
             Generator::Idle => {}
+            Generator::Wander(mut wander) => {
+                staged.update_wander(&mut wander, elapsed_ms, input, authority, &mut events)?;
+                staged.state.generator = Generator::Wander(wander);
+            }
             Generator::Home { was_active, .. } => {
                 if !staged.is_moving() {
                     events.push(Event::HomeReached {
                         restore_inactive: !was_active,
                     });
-                    staged.state.generator = Generator::Idle;
+                    staged.reset_default()?;
                 }
             }
             Generator::Chase(mut chase) => {
@@ -1124,6 +1258,7 @@ impl MotionState {
                         &mut chase.pathfinder_cache,
                         &mut chase.pathfinder_construction,
                         RouteKind::ChaseReplan,
+                        None,
                         chase.walking,
                         Facing::Target(target.id),
                         Some(target),
@@ -1266,6 +1401,7 @@ impl MotionState {
                 &mut chase.pathfinder_cache,
                 &mut chase.pathfinder_construction,
                 RouteKind::Backpedal,
+                None,
                 true,
                 Facing::Tangent,
                 Some(target),
@@ -1323,7 +1459,30 @@ impl MotionState {
     pub fn clear(&mut self) {
         self.state.spline = None;
         self.state.generator = Generator::Idle;
+        self.state.suspended_wander = None;
     }
+}
+
+/// Exact synchronous source relocation, never an external geometry outcome or
+/// checkpoint payload. Only a completed MotionState mutation can mint it.
+/// ```compile_fail
+/// use benilla_sim::creature_motion::SourceRelocation;
+/// let _ = SourceRelocation {};
+/// ```
+/// ```compile_fail
+/// fn serializable<T: serde::Serialize>() {}
+/// serializable::<benilla_sim::creature_motion::SourceRelocation>();
+/// ```
+/// ```compile_fail
+/// let _: benilla_sim::creature_motion::SourceRelocation = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceRelocation {
+    pub(crate) identity: Identity,
+    pub(crate) origin: Point,
+    pub(crate) position: Point,
+    pub(crate) now_ms: u64,
+    pub(crate) target: u64,
 }
 
 /// An internal source completion and its ordered events. No serde implementation.

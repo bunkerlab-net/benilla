@@ -9,8 +9,12 @@ pub struct Revision(pub [u8; 32]);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum MovementPurpose {
-    Chase { target: u64 },
+    Chase {
+        target: u64,
+    },
     Home,
+    /// Source-owned default motion only; never an external AI command.
+    Wander,
 }
 
 /// A trusted adapter resolves a source-style near-point before issuing a chase segment.

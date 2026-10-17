@@ -445,6 +445,7 @@ impl n::Authority for AuthoredCacheAuthority {
         after.revision += 1;
         after.requested_end = route.request.goal;
         spatial.fact = m::Fact::RouteCalculation(Box::new(m::RouteCalculation {
+            wander_no_path: None,
             source: m::RouteSource::SyntheticFixture,
             outcome: outcome.clone(),
             prior_cache: route.request.prior_cache.clone(),

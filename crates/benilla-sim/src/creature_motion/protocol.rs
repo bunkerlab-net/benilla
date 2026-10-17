@@ -89,6 +89,49 @@ pub enum RouteKind {
     ChaseReplan,
     Backpedal,
     HomeForceDestination,
+    Wander,
+    /// Source clear/updateFilter/SetCurrentNavMesh before endpoint RNG.
+    WanderPrepare,
+}
+/// Source ComputePathToRandomPoint inputs, preserving the angle then linear-radius draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WanderRequest {
+    pub prepared: QueryBinding,
+    pub center: Point,
+    pub radius: Real,
+    pub angle_draw: Real,
+    pub radius_draw: Real,
+}
+impl WanderRequest {
+    pub fn endpoint(self) -> Result<Point, MotionError> {
+        self.sampled_point()
+    }
+    pub fn sampled_point(self) -> Result<Point, MotionError> {
+        self.center.validate()?;
+        self.radius.nonnegative("Wander radius")?;
+        for draw in [self.angle_draw, self.radius_draw] {
+            draw.nonnegative("Wander normalized draw")?;
+            if !draw.less(Real::ONE) {
+                return Err(MotionError::Invalid("Wander normalized draw"));
+            }
+        }
+        // PathFinder.cpp:1367-1374: (draw * 2) * PI, linear radius, separate products/adds.
+        let angle = self
+            .angle_draw
+            .mul(Real::constant(0x4000_0000))?
+            .mul(Real::constant(0x4049_0fdb))?;
+        let range = self.radius_draw.mul(self.radius)?;
+        let [sin, cos] = crate::source_trig::sin_cos_radians_bits_soft(angle.bits())
+            .map_err(|_| MotionError::Unsupported("Wander source trigonometry"))?;
+        let point = Point {
+            x: self.center.x.add(range.mul(Real::from_bits(cos)?)?)?,
+            y: self.center.y.add(range.mul(Real::from_bits(sin)?)?)?,
+            z: self.center.z,
+        };
+        point.validate()?;
+        Ok(point)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -100,6 +143,8 @@ pub struct RouteRequest {
     pub launch_origin: Point,
     pub goal: Point,
     pub kind: RouteKind,
+    /// Present only for the separately modeled ComputePathToRandomPoint dispatch.
+    pub wander: Option<Box<WanderRequest>>,
     pub target: Option<Target>,
     pub owner_collision_height: Real,
     /// Exact bounded request cap; a full producer result beyond it is not truncated.
@@ -183,6 +228,8 @@ pub enum Query {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Fact {
+    /// Exact echoed prepare request binds the already-executed source prefix.
+    WanderPrepared,
     ObjectPosition(Option<Point>),
     NearPoint(Point),
     Route(RouteOutcome),
@@ -200,6 +247,9 @@ pub struct Reply {
 /// A read-only proposal service owned by the transaction/replay adapter. Never use
 /// an untrusted peer, renderer, empty query result or navmesh success as this proof.
 pub trait Authority {
+    fn wander_draw(&mut self, _purpose: super::WanderDraw) -> Result<u32, MotionError> {
+        Err(MotionError::Missing("Wander RNG owner"))
+    }
     fn resolve(&mut self, query: &Query) -> Result<Reply, MotionError>;
 }
 pub(super) fn ask(authority: &mut impl Authority, query: Query) -> Result<Fact, MotionError> {
@@ -219,7 +269,7 @@ pub(super) fn validate_route(
     if request.point_limit as usize > MAX_PATH_POINTS
         || !(2..=request.point_limit as usize).contains(&path.points.len())
         || path.points.first() != Some(&request.origin)
-        || path.points.last() != Some(&request.goal)
+        || !request.accepts_route_end(path.points.last().copied())
         || path.segments.len() + 1 != path.points.len()
         || path.path_identity == [0; 32]
     {
@@ -245,3 +295,41 @@ pub(super) fn validate_route(
     }
     Ok(())
 }
+
+impl RouteRequest {
+    pub fn validate_wander(&self) -> Result<(), MotionError> {
+        match (self.kind, self.wander.as_deref()) {
+            (RouteKind::Wander, Some(wander))
+                if self.target.is_none()
+                    && self.launch_origin == self.origin
+                    && wander.sampled_point()? == self.goal
+                    && wander.prepared.identity == self.binding.identity
+                    && wander.prepared.now_ms == self.binding.now_ms
+                    && wander.prepared.query_id > 0
+                    && wander.prepared.query_id.checked_add(1) == Some(self.binding.query_id) =>
+            {
+                Ok(())
+            }
+            (RouteKind::WanderPrepare, None)
+                if self.target.is_none() && self.launch_origin == self.origin =>
+            {
+                Ok(())
+            }
+            (RouteKind::WanderPrepare, _) => Err(MotionError::Invalid("Wander prepare inputs")),
+            (RouteKind::Wander, _) => Err(MotionError::Invalid("Wander route inputs")),
+            (_, None) => Ok(()),
+            (_, Some(_)) => Err(MotionError::Invalid("Wander inputs on another generator")),
+        }
+    }
+    pub(super) fn accepts_route_end(&self, end: Option<Point>) -> bool {
+        match (self.kind, end) {
+            (RouteKind::Wander, Some(end)) => self.goal.x == end.x && self.goal.y == end.y,
+            (_, Some(end)) => self.goal == end,
+            (_, None) => false,
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "protocol_wander_tests.rs"]
+mod protocol_wander_tests;

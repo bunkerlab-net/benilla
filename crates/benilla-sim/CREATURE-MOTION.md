@@ -2,10 +2,14 @@
 
 `creature_motion` translates the source linear spline and the ordinary
 `UnitAI` melee chase configuration (`offset=angle=0`, `moveFurther=false`),
-short-distance Home movement, wounded chase speed, and the AI-notification
-clock. It is a bounded intermediate toward full Classic. It does not open a
+short-distance Home movement, selected dry default Wander, wounded chase speed,
+and the AI-notification clock. It is a bounded intermediate toward full Classic. It does not open a
 native admission capability, supply native database rows, implement an owner
 PathFinder, or establish playable-world parity.
+
+The selected Wander owner and source-failure retry contract are documented in
+[WANDER.md](../benilla-world-runtime/WANDER.md), with independent exact-source
+observations and explicit endpoint compatibility provenance.
 
 ## Source and numeric contract
 
@@ -227,7 +231,7 @@ single-tick line segment. Counter wrap is outside the admitted numeric domain.
 
 ## Constructor dispatch identity
 
-Motion policy `cmangos-8ec338a1-ground-linear-motion-first-owned-cache-v3`
+Motion policy `cmangos-8ec338a1-ground-linear-default-wander-v4`
 models TargetedMovementGenerator.cpp:498–499 at the actual dispatch boundary,
 after forced relocation and before the authority's straight gate. The required
 `pathfinder_dispatch` Route option identifies the first actual dispatch and each
@@ -243,8 +247,12 @@ for live receipt, replay and loaded-lease boundaries.
 ### First source-owner cache admission
 
 A source-owner `RouteCalculation` requires an explicit, exact constructor/dispatch
-binding. First construction means no prior plus revision one and a Complete NORMAL
-terminal cache; retained use means a non-first event, exact prior echo and one
+binding. For Chase, first construction means no prior plus revision one and a
+Complete NORMAL terminal cache. Wander instead constructs its owner during
+Initialize and performs a source-ordered preparation before the two endpoint
+draws. A first Wander terminal may be the explicitly reasoned source NoPath
+shape, with its exact cleared/retained storage and endpoint rules; it is never a
+missing-geometry substitute. Retained use means a non-first event, exact prior echo and one
 revision increment. `prior_cache=None` alone cannot establish construction. Initial
 NoPath or other non-Complete source claims remain unavailable. The unchanged route
 validator requires exact endpoints and every independent coverage/LOS/body/support/

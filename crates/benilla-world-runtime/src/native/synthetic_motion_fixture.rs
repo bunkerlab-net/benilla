@@ -38,6 +38,7 @@ pub fn genesis(p: &Profile, spawn: u64) -> MotionGenesis {
         npcs: BTreeMap::from([(
             spawn,
             NpcMotionGenesis {
+                default_movement: benilla_sim::creature_motion::DefaultMovement::Idle,
                 npc_can_enter_combat: true,
                 npc_stand_state: 0,
                 npc_policy: MotionPolicy {

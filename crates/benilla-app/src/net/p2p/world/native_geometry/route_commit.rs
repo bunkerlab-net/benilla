@@ -84,6 +84,10 @@ impl RouteCommitBoundary {
                             Generator::Chase(chase) => {
                                 (chase.pathfinder_construction, chase.pathfinder_cache)
                             }
+                            Generator::Wander(wander) => (
+                                Some(wander.pathfinder_construction),
+                                wander.pathfinder_cache,
+                            ),
                             _ => (None, None),
                         }
                     });
@@ -182,8 +186,9 @@ impl RouteCommitNotice {
                 .iter()
                 .filter(|reply| {
                     matches!(
-                        reply.request.query,
-                        n::Query::SourceMotion(n::MotionQuery::Route(_))
+                        &reply.request.query,
+                        n::Query::SourceMotion(n::MotionQuery::Route(route))
+                            if route.request.kind != benilla_sim::creature_motion::RouteKind::WanderPrepare
                     )
                 })
                 .cloned()

@@ -22,7 +22,7 @@ pub use numeric::{
 };
 
 pub const CREATURE_AI_POLICY_ID: &str =
-    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-generation-lifecycle-v6";
+    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-default-motion-v7";
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
 
@@ -1212,6 +1212,36 @@ impl SoloCreatureAi {
         effects.push(Effect::EvadeStarted(reason));
         self.command(MovementPurpose::Home, Some(self.combat_start), effects)
     }
+    /// Commit only the exact source-generated synchronous InterruptMoving
+    /// relocation. This is outside a pending Unit/AI receipt update.
+    pub fn apply_source_relocation(
+        &mut self,
+        receipt: crate::creature_motion::SourceRelocation,
+        geometry_revision: Revision,
+    ) -> Result<Effect, AiError> {
+        self.require_finished_generation()?;
+        if self.pending_receipts.is_some()
+            || self.phase != Phase::Combat
+            || receipt.identity.creature != self.profile.creature_id
+            || receipt.identity.map != self.profile.map_id
+            || receipt.identity.content != self.profile.content_revision
+            || receipt.identity.geometry != geometry_revision
+            || receipt.origin != self.position
+            || receipt.now_ms < self.now_ms
+            || receipt.now_ms - self.now_ms > 60_000
+            || self.motion.as_ref().is_none_or(|command| {
+                command.purpose
+                    != MovementPurpose::Chase {
+                        target: receipt.target,
+                    }
+            })
+        {
+            return Err(AiError::Invalid("synchronous source relocation binding"));
+        }
+        receipt.position.validate()?;
+        self.position = receipt.position;
+        Ok(Effect::PositionCommitted(receipt.position))
+    }
     fn apply_movement(
         &mut self,
         o: &Observation,
@@ -1221,13 +1251,16 @@ impl SoloCreatureAi {
             // Issuing a chase command is not evidence of reachability or movement.
             return Ok(None);
         };
-        let command = self
-            .motion
-            .as_ref()
-            .ok_or(AiError::Invalid("unsolicited movement"))?;
         let r = &m.request;
-        if r.command_id != command.command_id
-            || r.purpose != command.purpose
+        let default_wander = self.motion.is_none()
+            && self.phase == Phase::Idle
+            && r.command_id == 0
+            && r.purpose == MovementPurpose::Wander
+            && matches!(m.result, MovementResult::SourceSpline(_));
+        if !default_wander
+            && self.motion.as_ref().is_none_or(|command| {
+                r.command_id != command.command_id || r.purpose != command.purpose
+            })
             || r.creature_id != self.profile.creature_id
             || r.map_id != self.profile.map_id
             || r.origin != self.position
@@ -1254,7 +1287,9 @@ impl SoloCreatureAi {
                 "movement speed is not resolved native speed",
             ));
         }
-        if r.purpose == MovementPurpose::Home && command.home != Some(r.goal) {
+        if r.purpose == MovementPurpose::Home
+            && self.motion.as_ref().and_then(|c| c.home) != Some(r.goal)
+        {
             return Err(AiError::Invalid("wrong home destination"));
         }
         self.movement_request_id = r.request_id;

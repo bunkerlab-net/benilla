@@ -351,8 +351,8 @@ fn unchanged_source_have_tile_and_coordinate_observations_match_loaded_meshes() 
             assert_eq!(
                 endpoint.coordinates(),
                 [
-                    get(&format!("{prefix}_tx")).parse().unwrap(),
-                    get(&format!("{prefix}_ty")).parse().unwrap()
+                    get(&format!("{prefix}_tx")).parse::<i32>().unwrap(),
+                    get(&format!("{prefix}_ty")).parse::<i32>().unwrap()
                 ],
                 "{}",
                 get("label")

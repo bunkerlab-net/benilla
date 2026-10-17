@@ -115,7 +115,7 @@ impl CombatAssistanceCatalog {
             .ok_or(NativeError::AuthorityBinding)
     }
     pub(in crate::native) fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-combat-assistance-source-v47\0", self)
+        crate::digest(b"benilla-native-combat-assistance-source-v48\0", self)
     }
     pub(in crate::native) fn peer_help_radius(&self) -> Option<ai::Real> {
         self.peer_help_radius
@@ -381,7 +381,7 @@ impl AssistanceTraversalReceipt {
         facts: &CombatAssistanceFacts,
     ) -> Result<(), NativeError> {
         let candidates = request.candidates(facts)?;
-        if self.request != crate::digest(b"benilla-native-assistance-traversal-v47\0", request)
+        if self.request != crate::digest(b"benilla-native-assistance-traversal-v48\0", request)
             || candidates.len() != self.candidates.len()
             || candidates
                 .iter()

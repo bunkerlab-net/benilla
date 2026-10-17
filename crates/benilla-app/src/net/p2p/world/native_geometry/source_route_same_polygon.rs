@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Source-ordered dry Chase calculation on the actual retained query. A terminal
+//! Source-ordered dry Chase/Wander calculation on the actual retained query. A terminal
 //! proposal is not a Route: only the separate concrete LocalCorridor resolver can
 //! certify it. Generic/headless support adapters cannot perform that conversion.
 use super::{
@@ -28,11 +28,13 @@ use super::{
     },
 };
 use benilla_native_nav::{
-    LoadedSourceSamePolygon, LoadedSourceTilePresence, SourceOwnerFilter, SourceSamePolygonBudget,
-    SourceSamePolygonConfig, SourceSamePolygonError, SOURCE_COLD_DISTANCE_COMPATIBILITY_ID,
+    LoadedSourceSamePolygon, LoadedSourceTilePresence, LoadedSourceWanderTerminal,
+    SourceOwnerFilter, SourceSamePolygonBudget, SourceSamePolygonConfig, SourceSamePolygonError,
+    SourceWanderError, SOURCE_COLD_DISTANCE_COMPATIBILITY_ID,
     SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION, SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
     SOURCE_COLD_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES,
-    SOURCE_RETAINED_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES,
+    SOURCE_RETAINED_SAME_POLYGON_MAX_LOOKUP_PRIMITIVES, SOURCE_WANDER_ENDPOINT_COMPATIBILITY_ID,
+    SOURCE_WANDER_ENDPOINT_COMPATIBILITY_REVISION, SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
 };
 use benilla_sim::{chase_gate, creature_ai::Point, creature_motion as motion};
 use benilla_world_runtime::{
@@ -143,8 +145,8 @@ impl SamePolygonBinding {
     }
     pub(crate) fn geometry_revision(self) -> Result<[u8; 32], Failure> {
         self.geometry_revision_for_policy(
-            b"benilla-owned-dry-same-polygon-chase-commit-continuation-v4",
-            b"ordinary-zero-offset-chase;straight-true;force-false;exact-two-point-endpoints;outer-commit-ack;total-cap4;bounded-original-job-six-phase",
+            b"benilla-owned-dry-same-polygon-chase-wander-commit-continuation-v5",
+            b"ordinary-zero-offset-chase;distinct-respawn-centered-wander;straight-true;force-false;exact-two-point-endpoints;wander-loaded-water-ground-tail;outer-commit-ack;total-cap4;bounded-original-job-six-phase",
         )
     }
     fn geometry_revision_for_policy(
@@ -185,6 +187,10 @@ impl SamePolygonBinding {
             OWNER_IGNORE_PATHFINDING_POLICY,
             SOURCE_COLD_DISTANCE_COMPATIBILITY_ID,
             SOURCE_COLD_DISTANCE_COMPATIBILITY_REVISION,
+            SOURCE_WANDER_ENDPOINT_COMPATIBILITY_ID,
+            SOURCE_WANDER_ENDPOINT_COMPATIBILITY_REVISION,
+            motion::WANDER_POLICY_ID,
+            benilla_sim::source_trig::SOFT_POLICY,
         ] {
             hash.update((policy.len() as u64).to_le_bytes());
             hash.update(policy.as_bytes());
@@ -193,6 +199,17 @@ impl SamePolygonBinding {
             hash.update(source.as_bytes());
         }
         hash.update(SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION.to_le_bytes());
+        hash.update(SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION.to_le_bytes());
+        hash.update(wander::POLICY);
+        for source in benilla_sim::source_trig::SOURCE_SHA256 {
+            hash.update(source.as_bytes());
+        }
+        hash.update(
+            (benilla_native_nav::SOURCE_WANDER_MAX_ENDPOINT_LOOKUP_PRIMITIVES as u64).to_le_bytes(),
+        );
+        hash.update(
+            (benilla_native_nav::SOURCE_WANDER_MAX_BUILD_LOOKUP_PRIMITIVES as u64).to_le_bytes(),
+        );
         hash.update([
             u8::from(self.configuration.normalization.normalize_z),
             u8::from(self.configuration.normalization.ignore_normalization),
@@ -259,6 +276,15 @@ impl SamePolygonProducts {
         player: PlayerId,
     ) -> Result<SamePolygonProviders, SamePolygonError> {
         let binding = self.binding()?;
+        let height = Arc::new(self.height);
+        let mut route = SourceSamePolygonRouteProvider::bind_revision(
+            session,
+            profile,
+            player,
+            self.projection,
+            binding,
+        )?;
+        route.wander_height = Some(Arc::clone(&height));
         Ok(SamePolygonProviders {
             environment: SourcePlayerEnvironmentProvider::bind(
                 session,
@@ -269,17 +295,11 @@ impl SamePolygonProducts {
             near_point: SourceNearPointProvider::bind_with_same_polygon(
                 session,
                 profile,
-                self.height,
+                height,
                 self.near_configuration,
                 binding,
             )?,
-            route: SourceSamePolygonRouteProvider::bind_revision(
-                session,
-                profile,
-                player,
-                self.projection,
-                binding,
-            )?,
+            route,
         })
     }
 }
@@ -288,6 +308,7 @@ pub(crate) enum SamePolygonError {
     Dependency(Failure),
     Constructor(ConstructorQueryError),
     Native(SourceSamePolygonError),
+    Wander(SourceWanderError),
     GateRejected(ChaseGateRejection),
     CandidateBudget,
     /// No support-only adapter or source NORMAL bit may fill this missing proof.
@@ -300,7 +321,8 @@ impl SamePolygonError {
             Self::Constructor(ConstructorQueryError::Native(
                 benilla_native_nav::Error::Deadline,
             ))
-            | Self::Native(SourceSamePolygonError::Boundary(benilla_native_nav::Error::Deadline)) => {
+            | Self::Native(SourceSamePolygonError::Boundary(benilla_native_nav::Error::Deadline))
+            | Self::Wander(SourceWanderError::Boundary(benilla_native_nav::Error::Deadline)) => {
                 Failure::Deadline
             }
             _ => Failure::MissingGeometry,
@@ -323,6 +345,12 @@ impl From<SourceSamePolygonError> for SamePolygonError {
     }
 }
 
+impl From<SourceWanderError> for SamePolygonError {
+    fn from(error: SourceWanderError) -> Self {
+        Self::Wander(error)
+    }
+}
+
 /// This proposal has no standalone Route conversion. It retains the
 /// native allocation and the exact constructor/configuration/loaded-cache lineage.
 pub(crate) struct SamePolygonProposal {
@@ -332,10 +360,10 @@ pub(crate) struct SamePolygonProposal {
     context: AuthorityRequest,
     dispatch: PathfinderDispatchReceipt,
     constructor_filter: Option<RouteFilterDependency>,
-    model: ChaseGateModel,
-    gate: ChaseGateObservations,
-    owner_ignore: OwnerIgnorePathfindingReceipt,
-    tiles: LoadedSourceTilePresence,
+    model: SamePolygonModel,
+    gate: Option<ChaseGateObservations>,
+    owner_ignore: Option<OwnerIgnorePathfindingReceipt>,
+    tiles: Option<LoadedSourceTilePresence>,
     filter: RouteFilterUpdateDependency,
     candidate: Rc<SamePolygonCandidate>,
     #[cfg(test)]
@@ -350,7 +378,9 @@ struct CalculateTiming {
 struct SamePolygonCandidate {
     context: AuthorityRequest,
     dispatch: PathfinderDispatchReceipt,
-    terminal: LoadedSourceSamePolygon,
+    terminal: SamePolygonTerminal,
+    wander_tail: Option<wander::WanderTail>,
+    wander_prefix: Option<Rc<wander::WanderPreparation>>,
     after_cache: motion::PathFinderCache,
 }
 impl SamePolygonProposal {
@@ -366,8 +396,33 @@ impl SamePolygonProposal {
             );
         }
     }
+    #[cfg(test)]
     pub(crate) fn terminal(&self) -> &LoadedSourceSamePolygon {
-        &self.candidate.terminal
+        match &self.candidate.terminal {
+            SamePolygonTerminal::Chase(terminal) => terminal,
+            SamePolygonTerminal::Wander(_) => panic!("Chase terminal accessor on Wander proposal"),
+        }
+    }
+    pub(crate) fn points(&self) -> &[[u32; 3]] {
+        self.candidate.terminal.points()
+    }
+    pub(crate) fn wander_terminal(&self) -> Option<&LoadedSourceWanderTerminal> {
+        match &self.candidate.terminal {
+            SamePolygonTerminal::Wander(terminal) => Some(terminal),
+            SamePolygonTerminal::Chase(_) => None,
+        }
+    }
+    pub(crate) fn wander_source_receipt(&self) -> Option<wander::WanderSourceReceipt<'_>> {
+        let prefix = self.candidate.wander_prefix.as_ref()?;
+        Some(wander::WanderSourceReceipt {
+            preparation: &prefix.prepared.validation.context,
+            constructor_filter: prefix.constructor_filter.as_ref(),
+            update_filter: &prefix.filter,
+            clear_before_active: prefix.native.before_active_len(),
+            clear_after_active: prefix.native.cleared_active_len(),
+            selected: prefix.native.current_selected(),
+            tail: self.candidate.wander_tail.as_ref(),
+        })
     }
     pub(crate) fn after_cache(&self) -> &motion::PathFinderCache {
         &self.candidate.after_cache
@@ -378,7 +433,7 @@ struct ValidatedCalculation {
     context: AuthorityRequest,
     first_ticket: u64,
     dispatch: PathfinderDispatchReceipt,
-    model: ChaseGateModel,
+    model: SamePolygonModel,
     filter_context: OwnedRouteFilterContext,
 }
 struct ConstructorDependencies {
@@ -392,17 +447,21 @@ struct PreparedCalculation {
 }
 struct GateDependencies {
     constructor_filter: Option<RouteFilterDependency>,
-    gate: ChaseGateObservations,
+    gate: Option<ChaseGateObservations>,
 }
 struct TerminalDependencies {
-    owner_ignore: OwnerIgnorePathfindingReceipt,
-    tiles: LoadedSourceTilePresence,
+    owner_ignore: Option<OwnerIgnorePathfindingReceipt>,
+    tiles: Option<LoadedSourceTilePresence>,
     filter: RouteFilterUpdateDependency,
     candidate: Rc<SamePolygonCandidate>,
 }
 
 #[path = "source_route_same_polygon/staged.rs"]
 mod staged;
+#[path = "source_route_same_polygon/wander.rs"]
+mod wander;
+use wander::SamePolygonTerminal;
+pub(super) use wander::{same_polygon_model, SamePolygonModel};
 
 struct GeneratorCandidates {
     npc: NpcId,
@@ -422,6 +481,8 @@ pub(crate) struct SourceSamePolygonRouteProvider {
     queries: SourcePathfinderQueryProvider,
     filter: SourceRouteFilterProvider,
     vmap: VmapSnapshot,
+    wander_height: Option<Arc<MapHeightSnapshot<'static>>>,
+    wander_prefixes: Vec<Rc<wander::WanderPreparation>>,
     candidates: Vec<GeneratorCandidates>,
     committed_boundary: Option<RouteCommitBoundary>,
     last_notice: Option<RouteCommitNotice>,
@@ -437,6 +498,9 @@ enum Observation {
     HaveTile,
     CalculateFilter,
     Terminal,
+    WanderClear,
+    WanderWater,
+    WanderGround,
 }
 #[cfg(test)]
 impl Observation {
@@ -450,6 +514,9 @@ impl Observation {
             Self::HaveTile => "have_tile",
             Self::CalculateFilter => "calculate_filter",
             Self::Terminal => "terminal",
+            Self::WanderClear => "wander_clear",
+            Self::WanderWater => "wander_tail_water",
+            Self::WanderGround => "wander_tail_ground",
         }
     }
 }
@@ -694,6 +761,8 @@ impl SourceSamePolygonRouteProvider {
             });
             entry.committed = selected;
         }
+        self.wander_prefixes
+            .retain(|prefix| prefix.prepared.validation.context.binding.tick > boundary.tick());
         self.committed_boundary = Some(boundary.clone());
         self.last_notice = Some(notice.clone());
         self.reap_jobs();
@@ -781,7 +850,7 @@ impl SourceSamePolygonRouteProvider {
         }
         let [from, to] = chase_gate::los_endpoints_bits(
             bits(route.request.origin),
-            bits(route.request.goal),
+            proposal.candidate.terminal.actual_end(),
             height,
             height,
         )
@@ -853,6 +922,8 @@ impl SourceSamePolygonRouteProvider {
             queries,
             filter,
             vmap,
+            wander_height: None,
+            wander_prefixes: vec![],
             candidates: vec![],
             committed_boundary: None,
             last_notice: None,
@@ -975,7 +1046,10 @@ impl SourceSamePolygonRouteProvider {
         };
         if !matches!(
             route.request.kind,
-            motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan
+            motion::RouteKind::ChaseInitial
+                | motion::RouteKind::ChaseReplan
+                | motion::RouteKind::Wander
+                | motion::RouteKind::WanderPrepare
         ) || route.request.launch_origin != route.request.origin
             || route.request.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
         {
@@ -984,7 +1058,7 @@ impl SourceSamePolygonRouteProvider {
         let event = context
             .require_pathfinder_dispatch(&self.profile)
             .map_err(|_| Failure::Binding)?;
-        let model = gate_model(&self.profile, session.world, self.player, route)?;
+        let model = same_polygon_model(&self.profile, session.world, self.player, route)?;
         require_time(deadline)?;
         Ok(ValidatedCalculation {
             owner_ignore: None,
@@ -1038,6 +1112,9 @@ impl SourceSamePolygonRouteProvider {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery.into());
         };
+        if route.request.kind == motion::RouteKind::Wander {
+            return self.prepare_wander_continuation(validation);
+        }
         let event = &validation.dispatch;
         let npc = route.owner.npc();
         let construction = event.construction_binding();
@@ -1143,12 +1220,32 @@ impl SourceSamePolygonRouteProvider {
         } else {
             None
         };
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        if matches!(
+            route.request.kind,
+            motion::RouteKind::Wander | motion::RouteKind::WanderPrepare
+        ) {
+            if self.wander_height.is_none() || prepared.validation.model.chase.is_some() {
+                return Err(Failure::MissingGeometry.into());
+            }
+            return Ok(GateDependencies {
+                constructor_filter,
+                gate: None,
+            });
+        }
         let gate = LoadedChaseGate {
             profile: &self.profile,
             player: self.player,
             liquid: self.filter.dry_liquid(),
             vmap: &self.vmap,
-            model: &prepared.validation.model,
+            model: prepared
+                .validation
+                .model
+                .chase
+                .as_ref()
+                .ok_or(Failure::Binding)?,
         }
         .query(context, first_ticket + 2, deadline, |gate| {
             observe(Observation::Gate(gate))
@@ -1159,7 +1256,7 @@ impl SourceSamePolygonRouteProvider {
         require_time(deadline)?;
         Ok(GateDependencies {
             constructor_filter,
-            gate,
+            gate: Some(gate),
         })
     }
 
@@ -1176,9 +1273,13 @@ impl SourceSamePolygonRouteProvider {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery.into());
         };
-        let npc = route.owner.npc();
+        if route.request.kind == motion::RouteKind::Wander {
+            return self.calculate_wander_terminal(prepared, dependencies, deadline, observe);
+        }
+        if dependencies.gate.is_none() {
+            return Err(Failure::Binding.into());
+        }
         let prior = &prepared.dependencies.prior;
-        let event = &prepared.validation.dispatch;
         let first_ticket = prepared.validation.first_ticket;
         let constructor_filter = &dependencies.constructor_filter;
         let bound_filter = self.filter.reborrow(&prepared.validation.filter_context)?;
@@ -1211,7 +1312,7 @@ impl SourceSamePolygonRouteProvider {
             return Err(Failure::MissingGeometry.into());
         }
         let retained_filter = match prior {
-            Some(prior) => prior.terminal.compatibility().filter(),
+            Some(prior) => prior.terminal.filter(),
             None => {
                 let created = constructor_filter.as_ref().ok_or(Failure::Binding)?;
                 SourceOwnerFilter {
@@ -1240,7 +1341,7 @@ impl SourceSamePolygonRouteProvider {
         let config = self.binding.configuration;
         let terminal = if let Some(prior) = &prior {
             selected.loaded_retained_same_polygon(
-                &prior.terminal,
+                prior.terminal.chase().ok_or(Failure::Binding)?,
                 config.normalization,
                 config.retained_budget,
                 deadline,
@@ -1266,6 +1367,35 @@ impl SourceSamePolygonRouteProvider {
         {
             return Err(Failure::Binding.into());
         }
+        self.retain_terminal(
+            prepared,
+            SamePolygonTerminal::Chase(terminal),
+            None,
+            Some(owner_ignore),
+            Some(tiles),
+            filter,
+            deadline,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn retain_terminal(
+        &mut self,
+        prepared: &PreparedCalculation,
+        terminal: SamePolygonTerminal,
+        wander_tail: Option<wander::WanderTail>,
+        owner_ignore: Option<OwnerIgnorePathfindingReceipt>,
+        tiles: Option<LoadedSourceTilePresence>,
+        filter: RouteFilterUpdateDependency,
+        deadline: Instant,
+    ) -> Result<TerminalDependencies, SamePolygonError> {
+        let context = &prepared.validation.context;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::Binding.into());
+        };
+        let npc = route.owner.npc();
+        let prior = &prepared.dependencies.prior;
+        let event = &prepared.validation.dispatch;
         let after_cache = motion::PathFinderCache {
             binding: motion::PathFinderCacheBinding {
                 identity: route.request.binding.identity,
@@ -1283,11 +1413,11 @@ impl SourceSamePolygonRouteProvider {
                 None => 1,
             },
             source: motion::RouteSource::OwnerPathFinder,
-            poly_refs: terminal.compatibility().storage().to_vec(),
-            active_len: 1,
+            poly_refs: terminal.storage().to_vec(),
+            active_len: u16::try_from(terminal.active_len()).map_err(|_| Failure::Invalid)?,
             point_limit: motion::PATHFINDER_CACHE_POINT_LIMIT,
-            path_type: 1,
-            requested_end: route.request.goal,
+            path_type: terminal.path_type(),
+            requested_end: super::source_near_point::exact_point(terminal.actual_end())?,
             include_flags: filter.filter().include_flags,
             exclude_flags: filter.filter().exclude_flags,
         };
@@ -1303,6 +1433,11 @@ impl SourceSamePolygonRouteProvider {
                     && entry.construction == prepared.validation.dispatch.construction_binding()
             })
             .ok_or(Failure::Binding)?;
+        let wander_prefix = if terminal.wander().is_some() {
+            Some(self.wander_prefix(&prepared.validation)?)
+        } else {
+            None
+        };
         let entry = &mut self.candidates[index];
         let retry = entry
             .proposals
@@ -1311,8 +1446,9 @@ impl SourceSamePolygonRouteProvider {
         let candidate = if let Some(index) = retry {
             let previous = &entry.proposals[index];
             if previous.after_cache != after_cache
-                || previous.terminal.compatibility() != terminal.compatibility()
+                || !previous.terminal.same_observations(&terminal)
                 || previous.terminal.points() != terminal.points()
+                || previous.wander_tail != wander_tail
             {
                 return Err(Failure::Binding.into());
             }
@@ -1325,6 +1461,8 @@ impl SourceSamePolygonRouteProvider {
                 context: context.clone(),
                 dispatch: event.clone(),
                 terminal,
+                wander_tail,
+                wander_prefix,
                 after_cache,
             });
             entry.proposals.push(Rc::clone(&candidate));

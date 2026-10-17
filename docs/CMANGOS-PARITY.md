@@ -164,20 +164,29 @@ is meaningful without a bounded content/mechanics inventory.
   and chat with finite/bounded-value checks. It explicitly rejects transport
   movement in the inspected bridge. This is not replicated authoritative player
   movement, NPC navigation, melee reach or line-of-sight validation.
+- **Bounded default Wander:** the [source-owned loop](../crates/benilla-world-runtime/WANDER.md)
+  executes dry same-polygon launch, progress, arrival, pause and relaunch through
+  the actual app corridor in an authored loaded scene. It preserves CanSwim/filter13,
+  source draw ordering, retained cache and three defined endpoint NoPath branches.
+  The separately named [zero-initialization compatibility rule](CMANGOS-WANDER-ENDPOINT-COMPATIBILITY.md)
+  changes only the endpoint's undefined distance scalar. Concrete tests cover
+  interruption, death/respawn, rollback and receipt replay from cache-free genesis.
+  Initialize-time native constructor observations, loaded-cache restore, concrete
+  Home return, wet/cross-polygon routes and actual Northshire startup remain open.
 - **Bounded native components:** source-owned model and cached player-environment
   witnesses feed exact Chase distance/vertical predicates, actual static LOS and
   owner dry-liquid observations. One immutable inventory can project proved-dry
   navigation without admitting wet geometry. Passing this gate reaches retained
   warm straight/retry dependencies; a rejected gate selects unavailable normal
-  routing. Each bounded calculate attempt validates exact source map coordinates,
+  routing. Each bounded Chase calculate attempt validates exact source map coordinates,
   requires the staged owner's generation-bound IGNORE_PATHFINDING receipt, and
   observes endpoint tile presence on the same loaded native mesh before its
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 47 retains this required-option evidence and rejects earlier formats.
-  The first source-owner cache contract requires explicit first dispatch, revision
-  one and Complete NORMAL with exact endpoints/all segment predicates. Retained
+  format 48 retains this required-option evidence and rejects earlier formats.
+  The first ordinary Chase source-owner cache contract requires explicit first
+  dispatch, revision one and Complete NORMAL with exact endpoints/all segment predicates. Retained
   use still requires exact prior and increment. Runtime-owned live dispatch is
   mandatory; typed claim tests prove no native query or physics execution. Motion3
   structural first-spline restore/replay is coherent while native loaded-cache
@@ -250,7 +259,7 @@ is meaningful without a bounded content/mechanics inventory.
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 47, without changing the
+  service uses experimental native checkpoint format 48, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,
@@ -296,7 +305,7 @@ is meaningful without a bounded content/mechanics inventory.
   semantics cannot disappear. Unsupported learned active executors remain visibly
   unavailable only after their learning/stat effects have been validated. Selected
   spell authority v7 retains the bounded full-raw ID 133 fields only after a
-  source-backed neutral modifier closure. Native47 owns idle player BASE/OFF
+  source-backed neutral modifier closure. Native48 owns idle player BASE/OFF
   attack timers, source equipment Delay/break transitions, successful-release
   COMBAT resets and durable historical reset validation. Full-raw execution also
   requires an owned pose-bound zone/area observation and scoped absence from a
@@ -304,7 +313,7 @@ is meaningful without a bounded content/mechanics inventory.
   The authored full-raw
   fixture does not establish actual DBC equality; the producer/compiler and
   native admission remain closed. See [the bounded spell contract](../crates/benilla-world-runtime/SPELL-AUTHORITY.md).
-  Native47 retains source-derived creation/entry plans and realizes the selected
+  Native48 retains source-derived creation/entry plans and realizes the selected
   first-entry RNG receipt once, before tick0. The authored Dodge81/Detect3050
   phase fixtures do not establish actual Human loaded order, DBC rows or
   production admission. General channels, procs, triggered scripts and arbitrary

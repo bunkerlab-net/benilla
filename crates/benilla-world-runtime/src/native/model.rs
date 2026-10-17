@@ -108,7 +108,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v47\0",
+            b"benilla-native-profile-v48\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,

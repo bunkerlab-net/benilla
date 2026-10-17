@@ -743,10 +743,10 @@ fn exact_two_owner_primary_roster_and_loaded_source_order_are_bound() {
                         Observation::ConstructorQuery,
                         Observation::ConstructorFilter,
                         Observation::Gate(GateObservation::LineOfSight(
-                            route.gate.line_of_sight.unwrap()
+                            route.gate.as_ref().unwrap().line_of_sight.unwrap()
                         )),
                         Observation::Gate(GateObservation::OwnerWater(
-                            route.gate.owner_water.unwrap()
+                            route.gate.as_ref().unwrap().owner_water.unwrap()
                         )),
                         Observation::Gate(GateObservation::TargetWater(false)),
                         Observation::SelectedQuery,

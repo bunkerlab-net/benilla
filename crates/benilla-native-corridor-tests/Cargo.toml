@@ -1,0 +1,24 @@
+[package]
+name = "benilla-native-corridor-tests"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+publish = false
+description = "Exact concrete app corridor and loaded native Wander tests without full app codegen"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+avian3d = "0.6"
+bevy.workspace = true
+benilla-assets = { path = "../benilla-assets", default-features = false }
+benilla-formats = { path = "../benilla-formats", default-features = false }
+benilla-native-nav = { path = "../benilla-native-nav" }
+benilla-sim = { path = "../benilla-sim" }
+benilla-world = { path = "../benilla-world", default-features = false, features = ["authored-native-fixtures"] }
+benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }
+crossbeam-channel = "0.5"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

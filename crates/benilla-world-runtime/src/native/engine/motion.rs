@@ -12,14 +12,38 @@ struct Spatial<'a, 'b, A: Authority> {
     failure: Option<NativeError>,
 }
 impl<A: Authority> m::Authority for Spatial<'_, '_, A> {
+    fn wander_draw(&mut self, purpose: m::WanderDraw) -> Result<u32, m::MotionError> {
+        let npc = self.npc;
+        let (purpose, low, high) = match purpose {
+            m::WanderDraw::Angle => (DrawPurpose::WanderAngle { npc }, 0, i64::from(u32::MAX)),
+            m::WanderDraw::Radius => (DrawPurpose::WanderRadius { npc }, 0, i64::from(u32::MAX)),
+            m::WanderDraw::MoveCount => (DrawPurpose::WanderMoveCount { npc }, 1, 3),
+            m::WanderDraw::Pause => (DrawPurpose::WanderPause { npc }, 3000, 10000),
+        };
+        match self
+            .frame
+            .state
+            .draw_range(0, purpose, low, high, &mut self.frame.draws)
+        {
+            Ok(value) => Ok(value as u32),
+            Err(error) => {
+                self.failure = Some(error);
+                Err(m::MotionError::Invalid("Wander random stream"))
+            }
+        }
+    }
     fn resolve(&mut self, query: &m::Query) -> Result<m::Reply, m::MotionError> {
         if let m::Query::Route(request) = query {
             if let Err(error) = request.validate_pathfinder_dispatch() {
                 self.failure = Some(NativeError::AuthorityBinding);
                 return Err(error);
             }
-            if matches!(request.kind, m::RouteKind::HomeForceDestination)
-                != request.target.is_none()
+            if matches!(
+                request.kind,
+                m::RouteKind::HomeForceDestination
+                    | m::RouteKind::Wander
+                    | m::RouteKind::WanderPrepare
+            ) != request.target.is_none()
             {
                 self.failure = Some(NativeError::AuthorityBinding);
                 return Err(m::MotionError::Invalid("route player target presence"));
@@ -594,7 +618,7 @@ impl<A: Authority> Frame<'_, A> {
                 let target = self.source_target()?;
                 let mut source = npc.source_motion.take().unwrap();
                 source.motion.begin_map_frame(self.state.now_ms)?;
-                let events = match command.purpose {
+                let (events, relocation) = match command.purpose {
                     MovementPurpose::Chase { target: id }
                         if npc.ai.target() == Some(id) && id == target.id =>
                     {
@@ -604,7 +628,14 @@ impl<A: Authority> Frame<'_, A> {
                             npc.source_capabilities.as_ref(),
                             npc.source_collision_width.as_ref(),
                             npc.source_collision_height.as_ref(),
-                            |a| source.motion.start_chase(target, g.chase_walking, input, a),
+                            |a| {
+                                source.motion.start_chase_with_relocation(
+                                    target,
+                                    g.chase_walking,
+                                    input,
+                                    a,
+                                )
+                            },
                         )?
                     }
                     MovementPurpose::Home => {
@@ -615,27 +646,37 @@ impl<A: Authority> Frame<'_, A> {
                         if command.home != Some(destination.position) {
                             return Err(NativeError::InvalidState);
                         }
-                        self.source_spatial(
-                            npc.id,
-                            npc.source_generation.as_ref(),
-                            npc.source_capabilities.as_ref(),
-                            npc.source_collision_width.as_ref(),
-                            npc.source_collision_height.as_ref(),
-                            |a| {
-                                source.motion.start_home(
-                                    destination,
-                                    g.home_walking,
-                                    source.active,
-                                    input,
-                                    a,
-                                )
-                            },
-                        )?
+                        (
+                            self.source_spatial(
+                                npc.id,
+                                npc.source_generation.as_ref(),
+                                npc.source_capabilities.as_ref(),
+                                npc.source_collision_width.as_ref(),
+                                npc.source_collision_height.as_ref(),
+                                |a| {
+                                    source.motion.start_home(
+                                        destination,
+                                        g.home_walking,
+                                        source.active,
+                                        input,
+                                        a,
+                                    )
+                                },
+                            )?,
+                            None,
+                        )
                     }
                     _ => return Err(NativeError::InvalidState),
                 };
                 npc.source_motion = Some(source);
                 self.source_motion_events(npc, events)?;
+                if let Some(receipt) = relocation {
+                    let effect = npc.ai.apply_source_relocation(
+                        receipt,
+                        Revision(self.profile.geometry_revision),
+                    )?;
+                    self.events.push(Event::Npc { id: npc.id, effect });
+                }
             }
             ai::Effect::EvadeStarted(_) => {
                 // UnitAI::EnterEvadeMode calls CombatStop before returning Home.
@@ -675,6 +716,7 @@ impl<A: Authority> Frame<'_, A> {
                 let source = npc.source_motion.as_mut().unwrap();
                 source.active = g.npc_initial_active;
                 source.combat_start = None;
+                source.motion.initialize_default(g.default_movement)?;
                 npc.events
                     .respawned(shared.creature_initial_aggro_delay_ms)?;
             }
@@ -897,6 +939,28 @@ impl<A: Authority> Frame<'_, A> {
                             input,
                             a,
                         )
+                    },
+                )?;
+                npc.source_motion = Some(source);
+                self.source_motion_events(npc, update.events)?;
+                source = npc.source_motion.take().unwrap();
+                Some(update.movement)
+            } else if matches!(source.motion.generator(), m::Generator::Wander(_)) {
+                let request_id = npc
+                    .ai
+                    .last_movement_request_id()
+                    .checked_add(1)
+                    .ok_or(NativeError::Limit)?;
+                let update = self.source_spatial(
+                    npc.id,
+                    npc.source_generation.as_ref(),
+                    npc.source_capabilities.as_ref(),
+                    npc.source_collision_width.as_ref(),
+                    npc.source_collision_height.as_ref(),
+                    |a| {
+                        source
+                            .motion
+                            .advance_default(request_id, diff, Some(target), input, a)
                     },
                 )?;
                 npc.source_motion = Some(source);

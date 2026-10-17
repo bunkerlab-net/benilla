@@ -4,7 +4,8 @@ The separate source-bound native reconstruction is documented in
 [NATIVE-QUEST-PROGRESSION.md](NATIVE-QUEST-PROGRESSION.md),
 [NATIVE-INTERACTIONS.md](NATIVE-INTERACTIONS.md) and
 [LOOT-INVENTORY.md](LOOT-INVENTORY.md). Selected combat-entry Unit events are
-documented in [COMBAT-ASSISTANCE.md](COMBAT-ASSISTANCE.md). Its capability remains closed;
+documented in [COMBAT-ASSISTANCE.md](COMBAT-ASSISTANCE.md). Selected default random
+movement is documented in [WANDER.md](WANDER.md). Its capability remains closed;
 the original fixture described below is a different runtime.
 
 A pure-Rust, GPL-3.0-or-later, solo-first runtime for the original world-data
@@ -202,7 +203,7 @@ source gate or change the integer armor policy.
 
 See [SPELL-AUTHORITY.md](SPELL-AUTHORITY.md) for the bounded ID133 source spell
 host, complete raw input dependencies, phase/scheduler ownership, numeric oracle
-and native simulation checkpoint/record format 47. This is not production content
+and native simulation checkpoint/record format 48. This is not production content
 admission or stock Fireball certification.
 
 See [FACING-AUTHORITY.md](FACING-AUTHORITY.md) for explicit current-request

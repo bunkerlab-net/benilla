@@ -486,10 +486,16 @@ impl SamePolygonRoutePolicy {
         let q = &route.request;
         if !matches!(
             q.kind,
-            motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan
+            motion::RouteKind::ChaseInitial
+                | motion::RouteKind::ChaseReplan
+                | motion::RouteKind::Wander
+                | motion::RouteKind::WanderPrepare
         ) || q.launch_origin != q.origin
             || q.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
-            || q.target.is_none()
+            || matches!(
+                q.kind,
+                motion::RouteKind::Wander | motion::RouteKind::WanderPrepare
+            ) != q.target.is_none()
         {
             return Err(Failure::UnsupportedQuery);
         }
@@ -497,7 +503,7 @@ impl SamePolygonRoutePolicy {
             .require_pathfinder_dispatch(profile)
             .map_err(|_| Failure::Binding)?;
         match q.prior_cache.as_deref() {
-            None if dispatch.first_construction() => (),
+            None if dispatch.first_construction() || q.kind == motion::RouteKind::Wander => (),
             Some(prior) if !dispatch.first_construction() => {
                 prior
                     .validate_for(q.binding.identity)
@@ -519,11 +525,11 @@ impl SamePolygonRoutePolicy {
         &self,
         session: &Session,
         context: &AuthorityRequest,
-    ) -> Result<super::source_route_chase_gate::ChaseGateModel, Failure> {
+    ) -> Result<super::source_route_same_polygon::SamePolygonModel, Failure> {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery);
         };
-        super::source_route_chase_gate::gate_model(
+        super::source_route_same_polygon::same_polygon_model(
             &self.environment.profile,
             session.world,
             self.environment.player,
@@ -877,7 +883,7 @@ impl JobLease {
     }
 }
 struct OwnedRouteValidation {
-    model: super::source_route_chase_gate::ChaseGateModel,
+    model: super::source_route_same_polygon::SamePolygonModel,
     session: Session,
     request: AuthorityRequest,
     body: Body,
@@ -927,7 +933,7 @@ fn check_owned_route(
 /// Completed immutable subparts remain owned by this original queued Work. No
 /// provider, geometry fact, constructor or native cache can use a partial body.
 struct OwnedRouteBodyProgress {
-    model: Option<super::source_route_chase_gate::ChaseGateModel>,
+    model: Option<super::source_route_same_polygon::SamePolygonModel>,
     session: Session,
     request: AuthorityRequest,
     lease: JobLease,
@@ -985,7 +991,7 @@ impl<'call> RouteJob<'call> {
         profile: &Profile,
         player: PlayerId,
         binding: super::source_route_same_polygon::SamePolygonBinding,
-    ) -> Result<&'call super::source_route_chase_gate::ChaseGateModel, Failure> {
+    ) -> Result<&'call super::source_route_same_polygon::SamePolygonModel, Failure> {
         self.require_profile(profile)?;
         let policy = self
             .session()
@@ -2098,14 +2104,23 @@ fn validate_route_facts(
     if reply.request != motion::Query::Route(route.request.clone()) {
         return Err(Failure::Binding);
     }
+    if route.request.kind == motion::RouteKind::WanderPrepare {
+        return if matches!(reply.fact, motion::Fact::WanderPrepared) {
+            Ok(())
+        } else {
+            Err(Failure::Binding)
+        };
+    }
     let motion::Fact::RouteCalculation(calculation) = &reply.fact else {
         return Err(Failure::Binding);
     };
     calculation
         .validate_for(&route.request)
         .map_err(|_| Failure::Binding)?;
-    let motion::RouteOutcome::Complete(path) = &calculation.outcome else {
-        return Err(Failure::Binding);
+    let path = match &calculation.outcome {
+        motion::RouteOutcome::Complete(path) => Some(path),
+        motion::RouteOutcome::NoPath if route.request.kind == motion::RouteKind::Wander => None,
+        _ => return Err(Failure::Binding),
     };
     let passed = SegmentChecks {
         loaded_coverage: Check::Passed,
@@ -2123,19 +2138,26 @@ fn validate_route_facts(
     )
     .ok_or(Failure::UnsupportedQuery)?;
     if calculation.source != motion::RouteSource::OwnerPathFinder
-        || path.source != motion::RouteSource::OwnerPathFinder
-        || path.path_identity == [0; 32]
-        || path.points != [route.request.origin, route.request.goal]
-        || path.segments != [passed]
         || calculation.after_cache.binding.owner_generation
             != request.binding.npc.ok_or(Failure::Binding)?.generation
         || calculation.after_cache.binding.navigation_policy != session.geometry
         || calculation.after_cache.binding.inventory != policy.binding.navigation.inventory
         || calculation.after_cache.binding.source_epoch != policy.binding.navigation.source_epoch
-        || calculation.after_cache.active_len != 1
         || calculation.after_cache.include_flags != include_flags
         || calculation.after_cache.exclude_flags != 0
     {
+        return Err(Failure::Binding);
+    }
+    if let Some(path) = path {
+        if path.source != motion::RouteSource::OwnerPathFinder
+            || path.path_identity == [0; 32]
+            || path.points != [route.request.origin, calculation.after_cache.requested_end]
+            || path.segments != [passed]
+            || calculation.after_cache.active_len != 1
+        {
+            return Err(Failure::Binding);
+        }
+    } else if calculation.after_cache.active_len != 0 || calculation.after_cache.path_type != 8 {
         return Err(Failure::Binding);
     }
     Ok(())

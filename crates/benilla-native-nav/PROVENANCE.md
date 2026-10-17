@@ -782,3 +782,30 @@ Route evidence and gameplay admission remain separate application prerequisites.
 Source NORMAL does not prove dry support, endpoint support or body clearance.
 This primitive grants no application/runtime admission. Disabled-constructor
 `m_defaultNavMeshQuery` and all other excluded undefined branches remain untouched.
+
+## Wander random-point endpoint and same-polygon lineage
+
+`source_wander_same_polygon.rs` implements the distinct bounded
+ComputePathToRandomPoint dependency from pinned PathFinder.cpp:1351–1440.
+Its [separately approved endpoint-local initialization](../../docs/CMANGOS-WANDER-ENDPOINT-COMPATIBILITY.md)
+is `cmangos-computepathtorandompoint-zero-distance-v1`. It does not invoke the
+BuildPolyPath cold-distance repair. A private endpoint lookup mutates the cleared
+retained cache before the real loaded getPolyHeight and original warm
+BuildPolyPath lookups. This order makes the newly appended tail available to the
+latter source distance locals. The original same-polygon terminal is shared only
+after genuine same-polygon selection; no completed Chase result is relabeled.
+
+The opaque pre-draw prefix clears active length while preserving full storage.
+Its distinct terminal payload also represents the defined strict near-zero
+NOPATH return, with no endpoint/height/tail calls and the previous end preserved.
+Loaded endpoint polygon misses and nonexact-success height results have distinct
+NoPath payloads that preserve endpoint/ref mutations and require the source dry
+suffix. Every defined NoPath payload remains eligible as genuine prior state for
+a later successful leg.
+Selection occurs separately on its exact query allocation; later continuation
+cannot select again. Initial and retained endpoint queries preserve source-owned
+filter 1/0 or 13/0. Operational or unsupported failures leave the previous immutable terminal
+unchanged and publish no candidate. Defined NoPath results publish a distinct
+source terminal for the owner to commit. Owner constructor/filter timing, source water/above-ground tail and
+concrete dry segment geometry remain application prerequisites. Native outputs
+alone do not authorize a Route, runtime cache commit or movement.

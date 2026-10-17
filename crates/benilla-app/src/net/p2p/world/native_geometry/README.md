@@ -752,7 +752,7 @@ The app geometry identity is
 outer-commit acknowledgement, total-cap-four and bounded original-job policies.
 Earlier uncommitted-proposal and monolithic-commit identities are incompatible.
 Commit-head delivery itself does not alter the native payload schema; the current
-payload is format 47 for complete authored one/two-owner source visitors.
+payload is format 48 for complete authored one/two-owner source visitors.
 `install_with_same_polygon` returns a proposal authority and an explicit paired
 commit sink. The selected mailbox refuses queries until the controller attaches
 that sink at the actual cache-free world boundary. A fresh opaque attachment and

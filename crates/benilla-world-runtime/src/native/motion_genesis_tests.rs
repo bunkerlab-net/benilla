@@ -5,6 +5,7 @@ use benilla_sim::creature_motion as m;
 
 fn second_owner(npc: &NpcProfile) -> NpcMotionGenesis {
     NpcMotionGenesis {
+        default_movement: benilla_sim::creature_motion::DefaultMovement::Idle,
         npc_policy: MotionPolicy {
             walk_speed: f::real(1.5),
             run_speed: npc.ai.run_speed,

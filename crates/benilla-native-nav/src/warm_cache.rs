@@ -10,12 +10,14 @@ pub const SOURCE_WARM_CACHE_MAX_STORAGE: usize = 4096;
 pub const SOURCE_WARM_CACHE_MAX_LOOKUP_PRIMITIVES: usize = 16388;
 pub const SOURCE_WARM_CACHE_MAX_CORRIDOR_EXPANSIONS: usize = 4096;
 
-/// Selects only the audited BuildPolyPath local initialization; never owner admission.
+/// Selects the exact audited caller-local initialization; never owner admission.
 #[cfg(benilla_native_detour)]
 #[derive(Clone, Copy)]
 pub(crate) enum DistanceInitialization {
     OriginalWarm,
     CompatibilityZeroV1,
+    /// Separate approved ComputePathToRandomPoint endpoint local, never BuildPolyPath.
+    WanderEndpointZeroV1,
 }
 
 #[cfg(benilla_native_detour)]
@@ -235,7 +237,7 @@ pub enum SourceWarmPrimitive {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceWarmTrace {
-    /// Zero is start lookup, one is end lookup, two is polygon transition.
+    /// Zero is BuildPolyPath start, one end, two transition, three Wander endpoint.
     pub endpoint: u8,
     pub primitive: SourceWarmPrimitive,
     pub polygon: u64,
@@ -503,11 +505,12 @@ pub(crate) mod native {
         work: &mut Work,
         initialization: DistanceInitialization,
     ) -> Result<SourceWarmLookup, SourceWarmCacheError> {
-        // Selected compatibility deviation: initialize each BuildPolyPath local to +0.0f.
+        // Caller-specific compatibility initializes only its named local to +0.0f.
         // Nonempty active/tail scans overwrite it exactly as in the original warm path.
         let mut distance = match initialization {
             DistanceInitialization::OriginalWarm => None,
-            DistanceInitialization::CompatibilityZeroV1 => Some(0.0),
+            DistanceInitialization::CompatibilityZeroV1
+            | DistanceInitialization::WanderEndpointZeroV1 => Some(0.0),
         };
         if candidate.active_len != 0 {
             let found = scan(
@@ -606,6 +609,49 @@ pub(crate) mod native {
             }
         }
         Err(SourceWarmCacheError::MissingPolygon)
+    }
+    /// Continue the already-cleared ComputePathToRandomPoint prefix. Its separately
+    /// approved distance local is initialized only for this endpoint lookup.
+    pub(crate) fn wander_endpoint(
+        mesh: &mut Mesh,
+        before: &WarmCache,
+        point: [u32; 3],
+        lookup_primitives: usize,
+        until: Instant,
+    ) -> Result<(WarmCache, Option<SourceWarmLookup>, Vec<SourceWarmTrace>), SourceWarmCacheError>
+    {
+        deadline(until)?;
+        before.check_mesh(mesh)?;
+        let mut candidate = before.try_copy()?;
+        if candidate.active_len() != 0 {
+            return Err(Error::Identity.into());
+        }
+        let mut work = Work {
+            budget: SourceWarmCacheBudget {
+                lookup_primitives,
+                corridor_expansions: 0,
+            },
+            until,
+            lookups: 0,
+            expansions: 0,
+            trace: Vec::new(),
+        };
+        let endpoint = match lookup_with_initialization(
+            mesh,
+            &mut candidate,
+            &detour(point)?,
+            3,
+            &mut work,
+            DistanceInitialization::WanderEndpointZeroV1,
+        ) {
+            Ok(found) => Some(found),
+            // This catches only this endpoint caller's exhausted near/far lookup.
+            // BuildPolyPath missing endpoints remain an unsupported, separate branch.
+            Err(SourceWarmCacheError::MissingPolygon) => None,
+            Err(error) => return Err(error),
+        };
+        deadline(until)?;
+        Ok((candidate, endpoint, work.trace))
     }
     struct DirectState(NonNull<c_void>);
     impl Drop for DirectState {

@@ -15,7 +15,7 @@ use benilla_world_runtime::native::{
     AllowedPositionZBranch, AuthorityRequest, MotionQuery, Profile, Query, SOLO_UNIT,
 };
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 #[path = "source_ground_height/empty_selector.rs"]
 mod empty_selector;
@@ -28,7 +28,7 @@ pub(crate) use empty_selector::{
 pub(crate) struct SourceGroundHeightProvider<'a> {
     session: Session,
     profile: Profile,
-    snapshot: MapHeightSnapshot<'a>,
+    snapshot: Arc<MapHeightSnapshot<'a>>,
 }
 /// The full originating request is retained, including both poses, source witness,
 /// authority identities, generation, clock and query ID. A ticket names one probe.
@@ -91,17 +91,25 @@ impl<'products> SourceGroundHeightProvider<'products> {
     pub(super) fn bind_with_same_polygon(
         session: &Session,
         profile: &Profile,
-        snapshot: MapHeightSnapshot<'products>,
+        snapshot: Arc<MapHeightSnapshot<'products>>,
         config: super::source_near_point::SourceNearPointConfiguration,
         binding: super::source_route_same_polygon::SamePolygonBinding,
     ) -> Result<Self, Failure> {
         binding.check_near_point(&snapshot, config)?;
-        Self::bind_revision(session, profile, snapshot, binding.geometry_revision()?)
+        Self::bind_revision_shared(session, profile, snapshot, binding.geometry_revision()?)
     }
     fn bind_revision(
         session: &Session,
         profile: &Profile,
         snapshot: MapHeightSnapshot<'products>,
+        expected: [u8; 32],
+    ) -> Result<Self, Failure> {
+        Self::bind_revision_shared(session, profile, Arc::new(snapshot), expected)
+    }
+    fn bind_revision_shared(
+        session: &Session,
+        profile: &Profile,
+        snapshot: Arc<MapHeightSnapshot<'products>>,
         expected: [u8; 32],
     ) -> Result<Self, Failure> {
         profile.validate().map_err(|_| Failure::Binding)?;

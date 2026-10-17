@@ -219,6 +219,53 @@ impl SourcePathfinderQueryProvider {
         Ok(Self::constructor_handle(query))
     }
 
+    /// The already-owned pre-draw constructor is rebound to its sampled continuation.
+    /// No constructor claim, default query allocation or SetCurrentNavMesh runs here.
+    pub(super) fn continue_wander_constructor(
+        &mut self,
+        prefix: &RegisteredConstructorHandle,
+        context: &AuthorityRequest,
+    ) -> Result<RegisteredConstructorHandle, ConstructorQueryError> {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(ConstructorQueryError::Binding);
+        };
+        let event = context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        let sample = route
+            .request
+            .wander
+            .as_deref()
+            .ok_or(ConstructorQueryError::Binding)?;
+        if sample.prepared != prefix.dispatch.dispatch_binding()
+            || event.construction_binding() != prefix.construction
+            || context.binding.npc != Some(prefix.npc)
+            || event.first_construction()
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        self.reborrow(prefix)?;
+        Ok(RegisteredConstructorHandle {
+            provider: Rc::clone(&prefix.provider),
+            index: prefix.index,
+            npc: prefix.npc,
+            construction: prefix.construction,
+            first_event: prefix.first_event.clone(),
+            dispatch: event.clone(),
+            snapshot: prefix.snapshot,
+            from: [
+                route.request.origin.x.bits(),
+                route.request.origin.y.bits(),
+                route.request.origin.z.bits(),
+            ],
+            to: [
+                route.request.goal.x.bits(),
+                route.request.goal.y.bits(),
+                route.request.goal.z.bits(),
+            ],
+        })
+    }
+
     /// Reborrow completed immutable constructor validation without another claim.
     /// The caller must also retain the original live mailbox job lease.
     pub(super) fn reborrow(
@@ -396,6 +443,43 @@ impl SourceConstructorQuery<'_> {
                 }
                 SourceQuerySelectionError::Identity => ConstructorQueryError::Binding,
             })
+    }
+    pub(super) fn prepare_wander(
+        &mut self,
+        prior: Option<&benilla_native_nav::LoadedSourceWanderTerminal>,
+        filter: benilla_native_nav::SourceOwnerFilter,
+        config: benilla_native_nav::SourceSamePolygonConfig,
+        budget: benilla_native_nav::SourceWanderBudget,
+        until: Instant,
+    ) -> Result<benilla_native_nav::LoadedSourceWanderPrefix, benilla_native_nav::SourceWanderError>
+    {
+        self.entry.query.prepare_wander_same_polygon(
+            prior,
+            benilla_native_nav::SOURCE_WANDER_ENDPOINT_COMPATIBILITY_VERSION,
+            filter,
+            config,
+            budget,
+            until,
+        )
+    }
+    pub(super) fn select_wander_prefix(
+        &mut self,
+        prefix: &mut benilla_native_nav::LoadedSourceWanderPrefix,
+        until: Instant,
+    ) -> Result<(), ConstructorQueryError> {
+        self.entry
+            .query
+            .select_wander_prefix(prefix, until)
+            .map_err(ConstructorQueryError::Native)
+    }
+    pub(super) fn continue_wander_prefix(
+        &self,
+        prefix: &benilla_native_nav::LoadedSourceWanderPrefix,
+    ) -> Result<SelectedSourceQuery<'_>, ConstructorQueryError> {
+        self.entry
+            .query
+            .continue_wander_prefix(prefix, self.from, self.to)
+            .map_err(ConstructorQueryError::Native)
     }
     pub(crate) fn select_and_check_tiles(
         &mut self,

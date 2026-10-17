@@ -219,9 +219,9 @@ fn preloaded_callback_orders_constructor_gate_have_tile_update_and_real_terminal
     assert_eq!(p.terminal().path_type(), 1);
     assert_eq!(p.after_cache().revision, 1);
     assert_eq!(p.after_cache().source, motion::RouteSource::OwnerPathFinder);
-    assert!(p.tiles.both_present());
+    assert!(p.tiles.as_ref().unwrap().both_present());
     assert!(f32::from_bits(p.model.owner_height.height().bits()) > 0.);
-    assert!(!p.owner_ignore.ignore_pathfinding());
+    assert!(!p.owner_ignore.as_ref().unwrap().ignore_pathfinding());
     let ctor = p.constructor_filter.as_ref().unwrap();
     assert_eq!(ctor.request().first_ticket, 1);
     assert_eq!(p.filter.request().first_ticket, 5);
@@ -230,8 +230,12 @@ fn preloaded_callback_orders_constructor_gate_have_tile_update_and_real_terminal
         vec![
             Observation::ConstructorQuery,
             Observation::ConstructorFilter,
-            Observation::Gate(GateObservation::LineOfSight(p.gate.line_of_sight.unwrap())),
-            Observation::Gate(GateObservation::OwnerWater(p.gate.owner_water.unwrap())),
+            Observation::Gate(GateObservation::LineOfSight(
+                p.gate.as_ref().unwrap().line_of_sight.unwrap()
+            )),
+            Observation::Gate(GateObservation::OwnerWater(
+                p.gate.as_ref().unwrap().owner_water.unwrap()
+            )),
             Observation::Gate(GateObservation::TargetWater(false)),
             Observation::SelectedQuery,
             Observation::OwnerIgnore,
@@ -257,7 +261,16 @@ fn preloaded_callback_orders_constructor_gate_have_tile_update_and_real_terminal
     assert_eq!(consumer.proposals.len(), 2);
     assert!(Rc::ptr_eq(&first, &consumer.proposals[1].candidate));
     assert_eq!(consumer.routes.candidates[0].proposals.len(), 1);
-    assert_eq!(first.terminal.compatibility().storage().len(), 75);
+    assert_eq!(
+        first
+            .terminal
+            .chase()
+            .unwrap()
+            .compatibility()
+            .storage()
+            .len(),
+        75
+    );
 }
 #[test]
 fn source_terminal_still_returns_unavailable_and_cannot_become_a_route_fact() {
@@ -536,7 +549,14 @@ fn shared_components_execute_genuine_near_point_before_source_ordered_route() {
     assert!(!ray.request.ignore_m2);
     assert_ne!(
         ray.request.to[2],
-        proposal.gate.line_of_sight.unwrap().request.to[2]
+        proposal
+            .gate
+            .as_ref()
+            .unwrap()
+            .line_of_sight
+            .unwrap()
+            .request
+            .to[2]
     );
     let mut closed = consumer.session.clone();
     closed.same_polygon_route = None;

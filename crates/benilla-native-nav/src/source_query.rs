@@ -76,6 +76,24 @@ impl SourceMapQuery {
     pub fn agent_dimensions(&self) -> [f32; 3] {
         self.inner.mesh.borrow().agent_dimensions()
     }
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn wander_constructor_storage(
+        &self,
+        filter: crate::SourceOwnerFilter,
+        until: Instant,
+    ) -> Result<crate::WarmCache, Error> {
+        let mesh = self
+            .inner
+            .mesh
+            .try_borrow()
+            .map_err(|_| Error::Unavailable)?;
+        if mesh.query_profile() != QueryProfile::SourceMapInstance1024
+            || mesh.query_capacity() != 1024
+        {
+            return Err(Error::Identity);
+        }
+        crate::warm_cache::cold_constructor_storage(&mesh, filter, until)
+    }
     /// Retain the existing default query, initially without a current query.
     /// Enabled-at-construction, owner/generator identity and source dispatch timing
     /// must be supplied by a separate owner boundary; this lease grants none of them.
@@ -135,6 +153,64 @@ impl RetainedSourceQuery {
             return Err(Error::Identity);
         }
         Ok(())
+    }
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn retain_allocation(&self) -> SourceMapQuery {
+        SourceMapQuery {
+            inner: Rc::clone(&self.default),
+        }
+    }
+    /// Actual SetCurrentNavMesh selection after clearing and updateFilter, before draws.
+    pub fn select_wander_prefix(
+        &mut self,
+        prefix: &mut crate::LoadedSourceWanderPrefix,
+        until: Instant,
+    ) -> Result<(), Error> {
+        crate::deadline(until)?;
+        self.check_query(&prefix.query)?;
+        if prefix.selected {
+            return Err(Error::Identity);
+        }
+        self.selected = true;
+        prefix.selected = true;
+        Ok(())
+    }
+    /// Reborrow the selected allocation after samples; no second selection occurs.
+    pub fn continue_wander_prefix(
+        &self,
+        prefix: &crate::LoadedSourceWanderPrefix,
+        from: [u32; 3],
+        raw_end: [u32; 3],
+    ) -> Result<SelectedSourceQuery<'_>, Error> {
+        self.check_query(&prefix.query)?;
+        if !self.selected || !prefix.selected {
+            return Err(Error::Identity);
+        }
+        Ok(SelectedSourceQuery {
+            query: &self.default,
+            from,
+            to: raw_end,
+        })
+    }
+    /// ComputePathToRandomPoint selects after updateFilter, before its samples.
+    /// Unlike calculate, this does not claim IsValidMapCoord calls. The supplied
+    /// endpoints bind later observations; their numeric domain is checked there.
+    #[cfg(test)]
+    pub fn select_for_wander(
+        &mut self,
+        slot: SourceMapQuerySlot,
+        from: [u32; 3],
+        raw_end: [u32; 3],
+    ) -> Result<SelectedSourceQuery<'_>, SourceQuerySelectionError> {
+        if slot != self.default.slot {
+            return Err(SourceQuerySelectionError::Identity);
+        }
+        self.selected = true;
+        Ok(SelectedSourceQuery {
+            query: &self.default,
+            from,
+            to: raw_end,
+        })
     }
     /// Only the query selection prefix: destination/start checks precede selection.
     /// A valid coordinate outside later geometry budgets still selects the query;

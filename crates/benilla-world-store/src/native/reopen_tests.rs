@@ -118,6 +118,7 @@ impl Authority for AuthoredCacheClaims {
         };
         path.source = self.source;
         spatial.fact = m::Fact::RouteCalculation(Box::new(m::RouteCalculation {
+            wander_no_path: None,
             source: self.source,
             outcome,
             prior_cache: q.request.prior_cache.clone(),
@@ -338,6 +339,7 @@ impl Authority for TwoOwnerCacheClaims {
         };
         path.source = self.source;
         spatial.fact = m::Fact::RouteCalculation(Box::new(m::RouteCalculation {
+            wander_no_path: None,
             source: self.source,
             outcome,
             prior_cache: q.request.prior_cache.clone(),

@@ -26,6 +26,7 @@ pub struct MotionGenesis {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NpcMotionGenesis {
+    pub default_movement: motion::DefaultMovement,
     pub npc_policy: MotionPolicy,
     pub npc_can_enter_combat: bool,
     pub npc_stand_state: u8,
@@ -70,6 +71,29 @@ impl NpcMotionGenesis {
     ) -> Result<(), NativeError> {
         if npc.ai.creature_id <= SOLO_UNIT || self.creature_detection_range > 1000 {
             return Err(NativeError::InvalidProfile);
+        }
+        self.default_movement.validate()?;
+        if let motion::DefaultMovement::Wander { center, .. } = self.default_movement {
+            if center != npc.ai.spawn {
+                return Err(NativeError::InvalidProfile);
+            }
+            let source = profile
+                .creature_generations
+                .as_ref()
+                .and_then(|catalog| catalog.source(npc.ai.creature_id))
+                .ok_or(NativeError::AuthorityUnavailable(
+                    "Wander immutable generation exclusions",
+                ))?;
+            // RUN_DURING_WANDER and all non-selected controls remain excluded by
+            // the retained generation source, never inferred from an idle phase.
+            if source.input.template.extra_flags & !(0x2 | 0x0008_0000) != 0 {
+                return Err(NativeError::UnsupportedMechanic("Wander extra flags"));
+            }
+            if profile.creature_capabilities.is_none() {
+                return Err(NativeError::AuthorityUnavailable(
+                    "Wander creature capabilities",
+                ));
+            }
         }
         ai::Real::from_bits(self.npc_spawn_orientation.bits())?;
         self.npc_policy
@@ -269,11 +293,18 @@ impl NpcMotionSnapshot {
             .and_then(|s| s.route_request.prior_cache.as_ref());
         let current_cache = match &self.motion.generator {
             motion::Generator::Chase(chase) => chase.pathfinder_cache.as_ref(),
+            motion::Generator::Wander(wander) => wander.pathfinder_cache.as_ref(),
             _ => None,
         };
         if prior_cache
             .into_iter()
             .chain(current_cache)
+            .chain(
+                self.motion
+                    .suspended_wander
+                    .as_ref()
+                    .and_then(|w| w.pathfinder_cache.as_ref()),
+            )
             .any(|cache| cache.source != motion::RouteSource::SyntheticFixture)
         {
             return Err(NativeError::UnsupportedMechanic(
@@ -290,7 +321,7 @@ impl NpcMotion {
             return Ok(None);
         }
         let g = profile.npc_motion(npc.ai.creature_id)?;
-        Ok(Some(Self {
+        let mut owner = Self {
             motion: motion::MotionState::new(
                 motion::Identity {
                     creature: npc.ai.creature_id,
@@ -307,7 +338,9 @@ impl NpcMotion {
             )?,
             active: g.npc_initial_active,
             combat_start: None,
-        }))
+        };
+        owner.motion.initialize_default(g.default_movement)?;
+        Ok(Some(owner))
     }
     pub(super) fn snapshot(&self) -> NpcMotionSnapshot {
         NpcMotionSnapshot {
@@ -383,18 +416,20 @@ impl NpcMotion {
             spline.route_request.owner_collision_height != collision_height
                 || matches!(
                     spline.route_request.kind,
-                    motion::RouteKind::HomeForceDestination
+                    motion::RouteKind::HomeForceDestination | motion::RouteKind::Wander
                 ) != spline.route_request.target.is_none()
                 || !matches!(
                     (spline.route_request.kind, spline.facing),
                     (
                         motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan,
                         motion::Facing::Target(SOLO_UNIT)
-                    ) | (motion::RouteKind::Backpedal, motion::Facing::Tangent)
-                        | (
-                            motion::RouteKind::HomeForceDestination,
-                            motion::Facing::Angle(_)
-                        )
+                    ) | (
+                        motion::RouteKind::Backpedal | motion::RouteKind::Wander,
+                        motion::Facing::Tangent
+                    ) | (
+                        motion::RouteKind::HomeForceDestination,
+                        motion::Facing::Angle(_)
+                    )
                 )
                 || spline.route_request.target.as_ref().is_some_and(|target| {
                     target.id != SOLO_UNIT
@@ -416,9 +451,15 @@ impl NpcMotion {
             .and_then(|s| s.route_request.prior_cache.as_ref());
         let current_cache = match &s.motion.generator {
             motion::Generator::Chase(chase) => chase.pathfinder_cache.as_ref(),
+            motion::Generator::Wander(wander) => wander.pathfinder_cache.as_ref(),
             _ => None,
         };
-        for cache in prior_cache.into_iter().chain(current_cache) {
+        for cache in prior_cache.into_iter().chain(current_cache).chain(
+            s.motion
+                .suspended_wander
+                .as_ref()
+                .and_then(|w| w.pathfinder_cache.as_ref()),
+        ) {
             let capability = profile
                 .creature_capabilities
                 .as_ref()
@@ -446,6 +487,10 @@ impl NpcMotion {
             pose
         });
         let motion = motion::MotionState::restore(s.motion)?;
+        let alive = !matches!(ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned);
+        if alive && motion.default_movement() != owner_genesis.default_movement {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         match (ai.motion(), motion.generator()) {
             (Some(command), motion::Generator::Chase(chase))
                 if command.purpose
@@ -457,6 +502,7 @@ impl NpcMotion {
                     && command.home == Some(destination.position)
                     && home_pose == Some(*destination) => {}
             (None, motion::Generator::Idle) => {}
+            (None, motion::Generator::Wander(_)) if ai.phase() == ai::Phase::Idle => {}
             _ => return Err(NativeError::InvalidCheckpoint),
         }
         let result = Self {

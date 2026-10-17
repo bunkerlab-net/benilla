@@ -65,7 +65,7 @@ impl RouteFilterDependency {
 
 /// Exact dry updateFilter evidence: retained filter bits plus fresh ordered queries.
 /// It cannot be substituted for a source target-water gate or a newly created filter.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RouteFilterUpdateDependency {
     request: RouteFilterRequest,
     owner_position: [u32; 3],

@@ -11,8 +11,7 @@ mod spline;
 pub use numeric::chase_speed;
 pub use spline::{LinearSpline, SplineEvent, SplineSnapshot, MAX_PATH_POINTS};
 
-pub const CREATURE_MOTION_POLICY_ID: &str =
-    "cmangos-8ec338a1-ground-linear-motion-first-owned-cache-v3";
+pub const CREATURE_MOTION_POLICY_ID: &str = "cmangos-8ec338a1-ground-linear-default-wander-v4";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MotionError {
     Invalid(&'static str),
@@ -32,22 +31,23 @@ impl std::fmt::Display for MotionError {
 }
 impl std::error::Error for MotionError {}
 mod pathfinder_dispatch;
-pub use pathfinder_dispatch::PathfinderDispatch;
+pub use pathfinder_dispatch::{PathfinderConstructorKind, PathfinderDispatch};
 mod pathfinder_cache;
 pub use pathfinder_cache::{
-    PathFinderCache, PathFinderCacheBinding, RouteCalculation, MAX_PATHFINDER_CACHE_REFS,
-    PATHFINDER_CACHE_POINT_LIMIT,
+    PathFinderCache, PathFinderCacheBinding, RouteCalculation, WanderNoPathReason,
+    MAX_PATHFINDER_CACHE_REFS, PATHFINDER_CACHE_POINT_LIMIT,
 };
 mod protocol;
 pub use protocol::{
     Authority, BearingRequest, CollisionRequest, CompleteRoute, Facing, FacingTargetRequest, Fact,
     Identity, NearPointAngle, NearPointRequest, Pose, Query, QueryBinding, Reply, RouteKind,
-    RouteOutcome, RouteRequest, RouteSource, Target,
+    RouteOutcome, RouteRequest, RouteSource, Target, WanderRequest,
 };
 mod state;
 pub use state::{
-    ActiveSplineSnapshot, ChaseMode, ChaseSnapshot, Event, Evidence, FrameStart, Generator,
-    GroundSettings, MotionAudit, MotionSnapshot, MotionState, SourceAdvance, UnitInputs,
+    wander_normalized_word, ActiveSplineSnapshot, ChaseMode, ChaseSnapshot, DefaultMovement, Event,
+    Evidence, FrameStart, Generator, GroundSettings, MotionAudit, MotionSnapshot, MotionState,
+    SourceAdvance, SourceRelocation, UnitInputs, WanderDraw, WanderSnapshot, WANDER_POLICY_ID,
 };
 mod notify;
 pub use notify::{visitor_radius, AggroNotify, AggroNotifySnapshot};

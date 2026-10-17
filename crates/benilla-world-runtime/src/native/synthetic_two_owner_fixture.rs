@@ -77,6 +77,7 @@ fn owner_motion(
     spawn_orientation: f32,
 ) -> NpcMotionGenesis {
     NpcMotionGenesis {
+        default_movement: benilla_sim::creature_motion::DefaultMovement::Idle,
         npc_policy: MotionPolicy {
             walk_speed: f::real(walk_speed),
             run_speed: npc.ai.run_speed,

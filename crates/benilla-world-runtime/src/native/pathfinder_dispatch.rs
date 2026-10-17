@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright CMaNGOS contributors; upstream GPL-2.0-or-later, Rust GPL-3.0-or-later.
 // CMaNGOS 8ec338a1 TargetedMovementGenerator.cpp:482-500 and PathFinder.cpp:37-106.
-//! Actual modeled Chase dispatch, before the provider's straight gate. This does
+//! Modeled Chase or initialized Wander dispatch, before provider path selection. This does
 //! not allocate a native query, prove its presence, or admit a Route result.
 use super::*;
 use benilla_sim::creature_motion as m;
@@ -12,7 +12,7 @@ use std::sync::{
 };
 
 pub const PATHFINDER_DISPATCH_POLICY: &str =
-    "cmangos-8ec338a1-native-pathfinder-constructor-dispatch-v1";
+    "cmangos-8ec338a1-native-pathfinder-generator-constructor-dispatch-v2";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -108,6 +108,9 @@ impl PathfinderDispatchReceipt {
     }
     pub fn npc(&self) -> crate::NpcId {
         self.evidence.npc
+    }
+    pub fn constructor_kind(&self) -> m::PathfinderConstructorKind {
+        self.evidence.dispatch.constructor_kind()
     }
     pub fn construction_binding(&self) -> m::QueryBinding {
         self.evidence.dispatch.construction_binding()

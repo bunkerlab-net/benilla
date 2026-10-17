@@ -14,7 +14,7 @@ use benilla_world_runtime::native::{
     AuthorityRequest, Facts, MotionFacts, MotionQuery, Profile, Query,
 };
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 /// Explicit effective-source declarations, not authenticated configuration capture.
 /// The height declaration must equal the one retained by the loaded snapshot.
@@ -68,7 +68,7 @@ impl SourceNearPointProvider {
     pub(super) fn bind_with_same_polygon(
         session: &Session,
         profile: &Profile,
-        snapshot: MapHeightSnapshot<'static>,
+        snapshot: Arc<MapHeightSnapshot<'static>>,
         config: SourceNearPointConfiguration,
         binding: super::source_route_same_polygon::SamePolygonBinding,
     ) -> Result<Self, Failure> {

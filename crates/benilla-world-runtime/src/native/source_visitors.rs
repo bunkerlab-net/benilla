@@ -8,7 +8,7 @@ use super::*;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-v4";
+pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-wander-v5";
 
 /// A producer must explicitly classify every applicable row. Unknown or missing
 /// coverage cannot supply an empty EventAI or override lookup.
@@ -86,7 +86,7 @@ impl SourceVisitorOwner {
         if !matches!(self.ai_name.as_str(), "" | "EventAI")
             || !self.script_name.is_empty()
             || self.script_id != 0
-            || self.default_movement_type != 0
+            || self.default_movement_type > 1
             || self.spell_list_id != 0
         {
             return Err(NativeError::UnsupportedMechanic(
@@ -316,7 +316,13 @@ impl SourceVisitorCatalog {
                 .owner(npc.ai.creature_id)
                 .ok_or(NativeError::InvalidProfile)?;
             row.validate(self.event_ai.as_ref())?;
-            if row.entry != npc.entry {
+            if row.entry != npc.entry
+                || profile.source_motion.as_ref().is_some_and(|motion| {
+                    motion.npcs.get(&npc.ai.creature_id).is_none_or(|owner| {
+                        row.default_movement_type != owner.default_movement.movement_type()
+                    })
+                })
+            {
                 return Err(NativeError::InvalidProfile);
             }
             row.validate_addon_closure(profile.creature_generations.as_ref())?;
@@ -516,7 +522,7 @@ mod tests {
                 9 => row.ai_name = "CustomAI".into(),
                 10 => row.script_name = "custom_script".into(),
                 11 => row.script_id = 1,
-                12 => row.default_movement_type = 1,
+                12 => row.default_movement_type = 2,
                 13 => row.spell_list_id = 1,
                 14 => row.entry = 0,
                 15 => row.entry = 0x100_0000,
@@ -767,8 +773,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 47);
-        assert_eq!(NATIVE_POLICY, "benilla-native-positive-peer-help-v47");
+        assert_eq!(NATIVE_FORMAT_VERSION, 48);
+        assert_eq!(NATIVE_POLICY, "benilla-native-wander-leg-v48");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

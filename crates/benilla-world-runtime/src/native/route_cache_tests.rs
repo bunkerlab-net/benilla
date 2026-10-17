@@ -102,6 +102,7 @@ impl Authority for SyntheticCacheAuthority {
             }
         }
         inner.fact = m::Fact::RouteCalculation(Box::new(m::RouteCalculation {
+            wander_no_path: None,
             source: after.source,
             outcome,
             prior_cache: q.request.prior_cache.clone(),

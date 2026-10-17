@@ -132,6 +132,7 @@ impl Authority for SyntheticCache {
                     Fact::Route(outcome)
                 } else {
                     let mut calculation = RouteCalculation {
+                        wander_no_path: None,
                         source: RouteSource::SyntheticFixture,
                         outcome,
                         prior_cache: q.prior_cache.clone(),
@@ -496,6 +497,7 @@ fn synthetic_fixture_revision_overflow_is_not_a_cache_reset() {
     let mut after = before.clone();
     after.revision = 1;
     let proposal = RouteCalculation {
+        wander_no_path: None,
         source: RouteSource::SyntheticFixture,
         outcome: RouteOutcome::NoPath,
         prior_cache: Some(Box::new(before)),

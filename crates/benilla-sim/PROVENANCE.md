@@ -690,6 +690,24 @@ full server build. No owner PathFinder, client data, Classic-DB rows or producti
 admission is supplied by this module. Authored route fixtures identify themselves
 as synthetic; actual source-compatible geometry and canonical trig remain required.
 
+## Selected default Wander owner
+
+`creature_motion/state/wander.rs` additionally translates the pinned
+`MotionGenerators/RandomMovementGenerator.{cpp,h}` constructor, Initialize,
+Interrupt, Reset, Update and ordinary dry walking attempt. Source is
+GPL-2.0-or-later; this translation is GPL-3.0-or-later. Full-file SHA-256:
+
+- `RandomMovementGenerator.cpp`: `218ed717b8de3989c904f60f03f9b50aac1296066e28932d73a42452102a5480`
+- `RandomMovementGenerator.h`: `5be8115bc7ee217951afaf0e978e9569d90f26d3a2ac6cc6db65ec14514a4cb2`
+
+The [runtime contract](../benilla-world-runtime/WANDER.md) documents timer/count,
+default-generator suspension, immutable relocation proofs and supported source
+NoPath outcomes. The [independent original-source oracle](../../scripts/native_wander_source_oracle/README.md)
+records exact source intervals and RNG call order. Deterministic stream ownership
+remains the versioned native runtime policy, not a claim to reproduce the server's
+unseeded global RNG engine. The separately named endpoint-local zero initialization
+belongs to the loaded path adapter; it is not an implicit simulation approximation.
+
 ## Per-Unit EventProcessor queue
 
 `src/event_processor/` translates the pinned Classic

@@ -21,7 +21,7 @@ cache. The initial warm seed remains `SyntheticFixture`; it is not an authentica
 first PathFinder lifecycle, source nav/config proof or native admission.
 
 The [distinct-actor quest loop](../benilla-app/src/net/p2p/world/native_controller/distinct_quest_loop_tests.rs)
-composes native47 source-selected quest/combat/spell/loot semantics through that same
+composes native48 source-selected quest/combat/spell/loot semantics through that same
 controller. Authored hostile A and combatable neutral questgiver B retain independent
 full visitors and queues. Tests require both a kill and actual corpse-item collection,
 then source-ordered requirement destruction/reward, including late-owner rollback,

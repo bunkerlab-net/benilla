@@ -5,7 +5,7 @@ for **one ordinary outdoor creature and one authoritative player threat referenc
 It does not activate the native-world gate, replace the existing original fixture
 runtime, execute melee damage, or establish a playable starter zone. There are no
 Blizzard rows, client assets, database dumps, fixed-damage attacks or teleports here.
-The compatibility identity is `cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-generation-lifecycle-v6`.
+The compatibility identity is `cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-default-motion-v7`.
 
 ## Actual upstream selection and accepted domain
 

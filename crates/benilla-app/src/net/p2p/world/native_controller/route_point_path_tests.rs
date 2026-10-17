@@ -77,6 +77,7 @@ impl n::Authority for PointPathAuthority {
             panic!("fixture route")
         };
         inner.fact = motion::Fact::RouteCalculation(Box::new(motion::RouteCalculation {
+            wander_no_path: None,
             source: motion::RouteSource::SyntheticFixture,
             outcome: outcome.clone(),
             prior_cache: None,

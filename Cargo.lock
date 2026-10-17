@@ -869,6 +869,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "benilla-native-corridor-tests"
+version = "0.2.0"
+dependencies = [
+ "avian3d",
+ "benilla-assets",
+ "benilla-formats",
+ "benilla-native-nav",
+ "benilla-sim",
+ "benilla-world",
+ "benilla-world-runtime",
+ "bevy",
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "benilla-native-dbc"
 version = "0.2.0"
 dependencies = [
@@ -900,6 +918,7 @@ name = "benilla-native-nav"
 version = "0.2.0"
 dependencies = [
  "cc",
+ "serde_json",
 ]
 
 [[package]]
