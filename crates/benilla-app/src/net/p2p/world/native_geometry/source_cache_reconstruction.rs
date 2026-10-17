@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded reconstruction by actual source execution from a fresh genesis.
+//! Bounded reconstruction by actual source execution from a checked cache-free anchor.
 //! Serialized replies are comparison outputs, never answers to a live query.
 use super::{
     core::Session,
@@ -31,7 +31,7 @@ pub(super) fn reconstruct<A: ReconstructionAuthority>(
 ) -> Result<(RecipeStore, NativeWorld, A), NativeError> {
     if store.requires_reopen()
         || store.recipe() != recipe
-        || world.state().tick != 0
+        || world.state().tick != recipe.anchor().identity().tick
         || !world.records().is_empty()
         || world.checkpoint()? != *recipe.anchor()
     {

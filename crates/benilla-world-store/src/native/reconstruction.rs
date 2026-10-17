@@ -11,7 +11,9 @@ use benilla_world_runtime::native::{
 use sha2::{Digest as _, Sha256};
 use std::path::Path;
 
-const MAGIC: &[u8; 8] = b"BNNREC1\0";
+const MAGIC: &[u8; 8] = b"BNNREC2\0";
+const LEGACY_MAGIC: &[u8; 8] = b"BNNREC1\0";
+const VERSION: u32 = 2;
 const HEADER: usize = 60;
 const OVERHEAD: usize = HEADER + 32;
 const _: () = assert!(2 * MAX_BYTES + OVERHEAD <= crate::MAX_CHECKPOINT_BYTES);
@@ -42,8 +44,9 @@ pub struct Prepared {
     checkpoint: Checkpoint,
 }
 
-/// Retains one genesis anchor and the entire bounded accepted history across commits.
-/// It never returns its replayed world, and cannot compact or silently drop old records.
+/// Retains a cache-free anchor and all accepted history since that anchor.
+/// Only an explicit reanchor at an already durable cache-free boundary drops records.
+/// It never returns its privately replayed world or resets a live native cache.
 pub struct RecipeStore {
     storage: Storage,
     identity: Identity,
@@ -96,7 +99,7 @@ impl RecipeStore {
         ))
     }
 
-    /// Only the cache-free genesis anchor reaches the caller's checked constructor.
+    /// Only the cache-free anchor reaches the caller's checked constructor.
     /// The private receipt replay validates expected history; it grants no playable world.
     pub fn open(
         path: impl AsRef<Path>,
@@ -113,13 +116,18 @@ impl RecipeStore {
                 if previous != bytes {
                     if prior.generation.checked_add(1) != Some(envelope.generation)
                         || hash(&previous) != envelope.parent
-                        || prior.anchor != envelope.anchor
-                        || !envelope.records.starts_with(&prior.records)
                     {
                         return Err(crate::Error::DivergentHistory.into());
                     }
                     // Validate the prior file independently, including its restored anchor.
-                    prior.restore_expected(&identity, &mut restore_anchor)?;
+                    let prior_world = prior.restore_expected(&identity, &mut restore_anchor)?;
+                    let append = prior.anchor == envelope.anchor
+                        && envelope.records.starts_with(&prior.records);
+                    let reanchor = envelope.records.is_empty()
+                        && envelope.anchor == prior_world.checkpoint()?;
+                    if !append && !reanchor {
+                        return Err(crate::Error::DivergentHistory.into());
+                    }
                 }
                 Some(hash(&previous))
             }
@@ -213,6 +221,31 @@ impl RecipeStore {
         })
     }
 
+    /// Replace retained history with its exact already published cache-free boundary.
+    /// Call `checkpoint` first and acknowledge its receipt; this never saves an unsaved
+    /// suffix implicitly. The supplied live world must pass the unchanged reopen guard.
+    pub fn prepare_reanchor(&self, world: &NativeWorld) -> Result<Prepared, Error> {
+        if self.blocked {
+            return Err(crate::Error::CommitUncertain.into());
+        }
+        let checkpoint = world.checkpoint()?;
+        if !self.identity.matches(&checkpoint) {
+            return Err(crate::Error::Incompatible.into());
+        }
+        if !world.records().is_empty() || checkpoint != self.recipe.expected_checkpoint {
+            return Err(crate::Error::DivergentHistory.into());
+        }
+        world.validate_saved_session_reopen()?;
+        // Keep normal preparation's complete retained bounds, private replay comparison,
+        // generation checks and process-local seal removal before replacing the recipe.
+        let mut prepared = self.prepare(world)?;
+        prepared.envelope.anchor = checkpoint;
+        prepared.envelope.records.clear();
+        prepared.bytes = prepared.envelope.encode()?;
+        prepared.envelope = Envelope::decode(&prepared.bytes)?;
+        Ok(prepared)
+    }
+
     pub fn commit(&mut self, prepared: Prepared) -> Result<Receipt, Error> {
         if self.blocked {
             return Err(crate::Error::CommitUncertain.into());
@@ -257,6 +290,15 @@ impl RecipeStore {
         receipt.acknowledge(world)?;
         Ok(receipt)
     }
+
+    /// Publish one explicit reanchor generation, with the same atomicity as `checkpoint`.
+    /// Fails without saving anything if the live boundary has not already been acknowledged.
+    pub fn checkpoint_reanchor(&mut self, world: &mut NativeWorld) -> Result<Receipt, Error> {
+        let prepared = self.prepare_reanchor(world)?;
+        let receipt = self.commit(prepared)?;
+        receipt.acknowledge(world)?;
+        Ok(receipt)
+    }
 }
 
 struct Envelope {
@@ -270,9 +312,10 @@ impl Envelope {
         let identity = self.anchor.identity();
         if self.generation == 0
             || (self.generation == 1) != (self.parent == [0; 32])
-            || identity.tick != 0
-            || identity.history_tip != [0; 32]
-            || (self.generation == 1 && !self.records.is_empty())
+            || (self.generation == 1
+                && (identity.tick != 0
+                    || identity.history_tip != [0; 32]
+                    || !self.records.is_empty()))
         {
             return Err(crate::Error::Corrupt.into());
         }
@@ -285,7 +328,7 @@ impl Envelope {
         let journal = encode_records(&self.records)?;
         let mut bytes = Vec::with_capacity(OVERHEAD + snapshot.len() + journal.len());
         bytes.extend(MAGIC);
-        bytes.extend(1u32.to_le_bytes());
+        bytes.extend(VERSION.to_le_bytes());
         bytes.extend(self.generation.to_le_bytes());
         bytes.extend(self.parent);
         bytes.extend((snapshot.len() as u32).to_le_bytes());
@@ -297,13 +340,16 @@ impl Envelope {
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() < OVERHEAD
-            || bytes.len() > crate::MAX_CHECKPOINT_BYTES
-            || &bytes[..8] != MAGIC
-        {
+        if bytes.len() < OVERHEAD || bytes.len() > crate::MAX_CHECKPOINT_BYTES {
             return Err(crate::Error::Corrupt.into());
         }
-        if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != 1 {
+        if &bytes[..8] == LEGACY_MAGIC {
+            return Err(crate::Error::UnsupportedVersion.into());
+        }
+        if &bytes[..8] != MAGIC {
+            return Err(crate::Error::Corrupt.into());
+        }
+        if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != VERSION {
             return Err(crate::Error::UnsupportedVersion.into());
         }
         let generation = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
@@ -357,7 +403,7 @@ impl Envelope {
 
 fn checksum(bytes: &[u8]) -> Digest {
     let mut hash = Sha256::new();
-    hash.update(b"benilla-native-reconstruction-store-v1\0");
+    hash.update(b"benilla-native-reconstruction-store-v2\0");
     hash.update(bytes);
     hash.finalize().into()
 }

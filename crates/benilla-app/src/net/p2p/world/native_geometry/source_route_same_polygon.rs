@@ -671,8 +671,7 @@ impl SourceSamePolygonRouteProvider {
         session: &Session,
         boundary: &RouteCommitBoundary,
     ) -> Result<(), Failure> {
-        if boundary.tick() != 0
-            || self.queries.constructor_count() != 0
+        if self.queries.constructor_count() != 0
             || !self.candidates.is_empty()
             || !self.wander_prefixes.is_empty()
             || !self.pending.is_empty()

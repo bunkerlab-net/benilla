@@ -58,6 +58,11 @@ the remaining receipts. This does not establish native allocation rehydration.
 through fresh actual providers. It retains accepted NOPATH before a normal leg,
 saves mid-Wander, destroys the original mesh/provider, compares resumed arrival
 and relaunch against uninterrupted execution, then saves and reconstructs again.
-Stored replies alone fail concrete candidate acknowledgement. The lifetime
-recipe cap is 2048 ticks or 8 MiB, without cached-state compaction; ordinary
-direct checkpoint restore remains rejected.
+Stored replies alone fail concrete candidate acknowledgement. Version-2 recipes
+can re-anchor only to an already durably saved, globally cache-free checkpoint.
+Additional tests use actual death/respawn and Home Reset, then fresh queries and
+exact continuation comparison. The death test uses a supported authored 1-ms
+tick to cross 2048 total ticks without changing source lifecycle delays. The
+2048-tick/8-MiB cap remains per retained history; active cache compaction,
+indefinite arbitrary play and normal startup integration remain unsupported.
+Ordinary direct loaded-checkpoint restore remains rejected.

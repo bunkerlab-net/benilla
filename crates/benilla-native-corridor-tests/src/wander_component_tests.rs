@@ -304,6 +304,17 @@ pub(super) fn setup_with_profile(
     initial_aggro_delay_ms: Option<u32>,
     configure: impl FnOnce(&mut Profile),
 ) -> (NativeWorld, Consumer) {
+    setup_with_checkpoint(seed, initial_aggro_delay_ms, configure, None)
+}
+
+/// Load the same actual geometry and pristine providers around a checked,
+/// naturally cache-free saved checkpoint. No live cache is imported.
+pub(super) fn setup_with_checkpoint(
+    seed: Option<u64>,
+    initial_aggro_delay_ms: Option<u32>,
+    configure: impl FnOnce(&mut Profile),
+    checkpoint: Option<Checkpoint>,
+) -> (NativeWorld, Consumer) {
     // Keep the shared source-consistent authored Aggressive/faction-2 profile.
     // This does not import actual entry 6's neutral world reaction/content.
     let geometry = Fixture::new();
@@ -407,6 +418,11 @@ pub(super) fn setup_with_profile(
         world
     } else {
         dry_habitat_tests::initialized_world(&profile, &session, initial_height)
+    };
+    let world = if let Some(checkpoint) = checkpoint {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint).unwrap()
+    } else {
+        world
     };
     let initialization =
         SourceCreatureInitializationProvider::bind(session.world, &profile, height).unwrap();

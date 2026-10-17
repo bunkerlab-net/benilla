@@ -429,3 +429,234 @@ fn blocked_store_cannot_publish_a_session_from_its_old_recipe() {
     ));
     assert_eq!(std::fs::read(&file).unwrap(), changed);
 }
+
+fn millisecond_scene(profile: &mut Profile) {
+    // Authored supported clock resolution only. Corpse/respawn source delays
+    // remain unchanged; no periodic death/reset is injected by persistence.
+    profile.tick_ms = 1;
+}
+
+fn reopen_reanchored(path: &Directory, profile: &Profile) -> (RecipeStore, NativeWorld, Consumer) {
+    let identity_world = wander::setup_with_profile(Some(0), None, millisecond_scene).0;
+    let identity = Identity::of(&identity_world.checkpoint().unwrap());
+    let (store, recipe) = RecipeStore::open(&path.0, identity, |anchor| {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), anchor)
+    })
+    .unwrap();
+    let (fresh, authority) = wander::setup_with_checkpoint(
+        Some(0),
+        None,
+        millisecond_scene,
+        Some(recipe.anchor().clone()),
+    );
+    source_cache_reconstruction::reconstruct(store, &recipe, fresh, authority).unwrap()
+}
+
+#[test]
+fn natural_death_reanchors_then_fresh_respawn_crosses_the_old_total_tick_limit() {
+    use benilla_world_runtime::native::synthetic_fixture as f;
+    let path = Directory::new();
+    let (mut world, mut authority) = wander::setup_with_profile(Some(0), None, millisecond_scene);
+    let (mut baseline, mut baseline_authority) =
+        wander::setup_with_profile(Some(0), None, millisecond_scene);
+    let profile = world.profile().clone();
+    let original_id = world.state().npcs[&2].id;
+    let (mut store, receipt) = RecipeStore::create(&path.0, &world).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    assert_eq!(
+        wander::step(&mut world, &mut authority),
+        wander::step(&mut baseline, &mut baseline_authority)
+    );
+    store.checkpoint(&mut world).unwrap();
+    // A live source Wander has retained native state. Saving does not authorize
+    // truncating its constructor history or resetting the actual generator.
+    assert!(world.validate_saved_session_reopen().is_err());
+    assert!(store.prepare_reanchor(&world).is_err());
+    let command = f::cast(&world, 60001);
+    assert_eq!(
+        world
+            .step(
+                world.state().tick + 1,
+                Some(command.clone()),
+                &mut authority
+            )
+            .unwrap(),
+        baseline
+            .step(
+                baseline.state().tick + 1,
+                Some(command),
+                &mut baseline_authority
+            )
+            .unwrap()
+    );
+    authority.acknowledge(&world);
+    baseline_authority.acknowledge(&baseline);
+    let mut reanchors = 0;
+    let mut reopened = 0;
+    let mut died = false;
+    let mut respawned = false;
+    for _ in 0..4000 {
+        let actual = wander::step(&mut world, &mut authority);
+        let expected = wander::step(&mut baseline, &mut baseline_authority);
+        assert_eq!(actual, expected);
+        assert_eq!(world.checkpoint().unwrap(), baseline.checkpoint().unwrap());
+        let dead = world.state().npcs[&2].health == 0;
+        let first_death = dead && !died;
+        died |= dead;
+        if first_death || world.state().tick.is_multiple_of(128) {
+            store.checkpoint(&mut world).unwrap();
+            let checkpoint = baseline.checkpoint().unwrap();
+            baseline.checkpoint_committed(&checkpoint).unwrap();
+            if world.validate_saved_session_reopen().is_ok() {
+                let saved = world.checkpoint().unwrap();
+                let prepared = store.prepare_reanchor(&world).unwrap();
+                store
+                    .commit(prepared)
+                    .unwrap()
+                    .acknowledge(&mut world)
+                    .unwrap();
+                assert_eq!(store.recipe().anchor(), &saved);
+                assert!(store.recipe().records().is_empty());
+                assert_eq!(world.checkpoint().unwrap(), saved);
+                reanchors += 1;
+                if first_death || world.state().tick.is_multiple_of(512) {
+                    drop((world, authority, store));
+                    (store, world, authority) = reopen_reanchored(&path, &profile);
+                    assert_eq!(world.checkpoint().unwrap(), saved);
+                    reopened += 1;
+                }
+            }
+        }
+        if world.state().npcs[&2].id.generation > original_id.generation {
+            respawned = true;
+            break;
+        }
+    }
+    assert!(died && respawned);
+    assert!(reanchors > 2 && reopened > 2);
+    // Source respawn time uses whole-second clocks; the minimum can fall at
+    // tick 2000 in this authored resolution. Continue actual movement past 2048.
+    while world.state().tick <= 2100 {
+        assert_eq!(
+            wander::step(&mut world, &mut authority),
+            wander::step(&mut baseline, &mut baseline_authority)
+        );
+    }
+    assert!(world.state().tick > 2048);
+    // The source respawn constructs a new real owner after the final cache-free
+    // anchor. Save/reopen its loaded movement as well, then compare continuation.
+    for _ in 0..3 {
+        assert_eq!(
+            wander::step(&mut world, &mut authority),
+            wander::step(&mut baseline, &mut baseline_authority)
+        );
+    }
+    assert!(world.validate_saved_session_reopen().is_err());
+    store.checkpoint(&mut world).unwrap();
+    let moving = world.checkpoint().unwrap();
+    assert!(store.prepare_reanchor(&world).is_err());
+    drop((world, authority, store));
+    let (_store, mut world, mut authority) = reopen_reanchored(&path, &profile);
+    assert_eq!(world.checkpoint().unwrap(), moving);
+    for _ in 0..3 {
+        assert_eq!(
+            wander::step(&mut world, &mut authority),
+            wander::step(&mut baseline, &mut baseline_authority)
+        );
+    }
+    assert_eq!(world.checkpoint().unwrap(), baseline.checkpoint().unwrap());
+}
+
+fn home_reset_scene(profile: &mut Profile) {
+    use benilla_sim::creature_ai as ai;
+    use benilla_world_runtime::native::synthetic_fixture as f;
+    profile.player.start = ai::Point::new(12., 12., 0.).unwrap();
+    profile.npcs[0].ai.pursuit_ms = 1;
+    profile.npcs[0].ai.leash_radius = f::real(0.01);
+}
+
+#[test]
+fn natural_home_reset_reanchors_without_changing_generation_or_next_wander() {
+    use benilla_sim::{creature_ai::movement::Check, creature_motion as motion};
+    let path = Directory::new();
+    let (mut world, mut authority) =
+        wander::setup_with_profile(Some(0), Some(800), home_reset_scene);
+    let profile = world.profile().clone();
+    let original_id = world.state().npcs[&2].id;
+    let identity = Identity::of(&world.checkpoint().unwrap());
+    let (mut store, receipt) = RecipeStore::create(&path.0, &world).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    for _ in 0..7 {
+        wander::step(&mut world, &mut authority);
+    }
+    let old_construction = wander::wander(&wander::snapshot(&world)).pathfinder_construction;
+    authority.allow_chase = true;
+    authority.other.visibility = Some(Check::Passed);
+    wander::step(&mut world, &mut authority);
+    assert!(matches!(
+        wander::snapshot(&world).generator,
+        motion::Generator::Home { .. }
+    ));
+    store.checkpoint(&mut world).unwrap();
+    assert!(
+        store.prepare_reanchor(&world).is_err(),
+        "suspended Wander is still owned during Home"
+    );
+    authority.other.visibility = Some(Check::Failed);
+    let mut reset = false;
+    for _ in 0..100 {
+        wander::step(&mut world, &mut authority);
+        let state = wander::snapshot(&world);
+        if matches!(&state.generator, motion::Generator::Wander(w) if w.pathfinder_cache.is_none())
+            && state.spline.is_none()
+            && state.suspended_wander.is_none()
+        {
+            reset = true;
+            break;
+        }
+    }
+    assert!(reset);
+    assert_eq!(world.state().npcs[&2].id, original_id);
+    assert_ne!(
+        wander::wander(&wander::snapshot(&world)).pathfinder_construction,
+        old_construction
+    );
+    store.checkpoint(&mut world).unwrap();
+    let saved = world.checkpoint().unwrap();
+    let prepared = store.prepare_reanchor(&world).unwrap();
+    store
+        .commit(prepared)
+        .unwrap()
+        .acknowledge(&mut world)
+        .unwrap();
+    assert_eq!(store.recipe().anchor(), &saved);
+    assert!(store.recipe().records().is_empty());
+    // Preserve an uninterrupted owner for exact comparison; reopened authority
+    // is a distinct actual mesh/query allocation with no imported cached refs.
+    drop(store);
+    let (store, recipe) = RecipeStore::open(&path.0, identity, |anchor| {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), anchor)
+    })
+    .unwrap();
+    let (fresh, fresh_authority) = wander::setup_with_checkpoint(
+        Some(0),
+        Some(800),
+        home_reset_scene,
+        Some(recipe.anchor().clone()),
+    );
+    let (_store, mut resumed, mut fresh_authority) =
+        source_cache_reconstruction::reconstruct(store, &recipe, fresh, fresh_authority).unwrap();
+    for _ in 0..3 {
+        assert_eq!(
+            wander::step(&mut resumed, &mut fresh_authority),
+            wander::step(&mut world, &mut authority)
+        );
+    }
+    assert_eq!(resumed.checkpoint().unwrap(), world.checkpoint().unwrap());
+    let cache = wander::wander(&wander::snapshot(&resumed))
+        .pathfinder_cache
+        .clone()
+        .unwrap();
+    assert_eq!(cache.revision, 1);
+    assert_eq!(cache.binding.owner_generation, original_id.generation);
+}

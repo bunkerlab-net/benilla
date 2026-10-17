@@ -69,9 +69,11 @@ simulation state, not crash-proof exactly-once display to an external UI. Loaded
 native ownership remains subject to the runtime's separate reopen rejection.
 
 The separate [bounded reconstruction recipe](CACHE-RECONSTRUCTION.md) retains a
-fresh genesis and all accepted ticks. It returns inert expected data for actual
+cache-free anchor and all subsequent accepted ticks. Its distinct v2 format allows
+explicit reanchor only at an already durable, naturally cache-free boundary;
+v1 files are rejected without migration. It returns inert expected data for actual
 fresh-provider execution; it does not return a receipt-replayed loaded world or
-change ordinary native store reopening. Its lifetime history cap is explicit.
+change ordinary native store reopening. Each retained segment remains bounded.
 
 ## One publication point, bounded files
 
