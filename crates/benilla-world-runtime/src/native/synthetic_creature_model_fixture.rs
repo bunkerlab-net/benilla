@@ -11,6 +11,9 @@ fn f(value: f32) -> SpellFloat {
 }
 pub fn input() -> benilla_sim::creature_init::Input {
     benilla_sim::creature_init::Input {
+        spawn_id: 2,
+        spawn_addons: Rows::Complete(vec![]),
+        template_addons: Rows::Complete(vec![]),
         template: Template {
             entry: 60001,
             minimum_level: 1,

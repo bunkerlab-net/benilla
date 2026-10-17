@@ -184,6 +184,15 @@ pub(super) fn validate_other_sources(profile: &Profile) -> Result<(), NativeErro
             .source(*spawn)
             .ok_or(NativeError::AuthorityBinding)?;
         if let Some(capabilities) = &profile.creature_capabilities {
+            // The independently versioned capability source still proves absence
+            // of both addon tables; an owned sheath does not weaken that closure.
+            if !matches!(&source.input.spawn_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
+                || !matches!(&source.input.template_addons, benilla_sim::creature_init::Rows::Complete(rows) if rows.is_empty())
+            {
+                return Err(NativeError::UnsupportedMechanic(
+                    "creature capability addon closure",
+                ));
+            }
             let capability = capabilities
                 .source(*spawn)
                 .ok_or(NativeError::AuthorityBinding)?;

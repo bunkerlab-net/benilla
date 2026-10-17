@@ -172,15 +172,15 @@ fn every_level_must_prepare_before_catalog_can_supply_randomness() {
 }
 
 #[test]
-fn native40_rehashed_profiles_reject_previous_generation_and_initializer_policies() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 40);
+fn native41_rehashed_profiles_reject_previous_generation_and_initializer_policies() {
+    assert_eq!(NATIVE_FORMAT_VERSION, 41);
     assert_eq!(
         CREATURE_GENERATION_POLICY,
-        "cmangos-8ec338a1-native-creature-generation-v2"
+        "cmangos-8ec338a1-native-creature-generation-v3"
     );
     assert_eq!(
         init::CREATURE_INIT_POLICY_ID,
-        "cmangos-8ec338a1-ordinary-creature-init-softfloat-v2"
+        "cmangos-8ec338a1-ordinary-creature-init-softfloat-v3"
     );
     let catalog =
         CreatureGenerationCatalog::validate_sources(init::Rows::Complete(vec![source()]), vec![2])
@@ -214,6 +214,14 @@ fn native40_rehashed_profiles_reject_previous_generation_and_initializer_policie
     NativeWorld::restore_synthetic_component_test(profile.clone(), original.clone()).unwrap();
     for (generation_policy, initialization_policy) in [
         (
+            "cmangos-8ec338a1-native-creature-generation-v2",
+            init::CREATURE_INIT_POLICY_ID,
+        ),
+        (
+            CREATURE_GENERATION_POLICY,
+            "cmangos-8ec338a1-ordinary-creature-init-softfloat-v2",
+        ),
+        (
             "cmangos-8ec338a1-native-creature-generation-v1",
             init::CREATURE_INIT_POLICY_ID,
         ),
@@ -243,9 +251,9 @@ fn native40_rehashed_profiles_reject_previous_generation_and_initializer_policie
             *value.pointer_mut(pointer).unwrap() = serde_json::to_value(digest).unwrap();
         }
         let mut forged: Checkpoint = serde_json::from_value(value).unwrap();
-        forged.digest = crate::digest(b"benilla-native-state-v40\0", &forged.state);
+        forged.digest = crate::digest(b"benilla-native-state-v41\0", &forged.state);
         forged.checksum = crate::digest(
-            b"benilla-native-checkpoint-v40\0",
+            b"benilla-native-checkpoint-v41\0",
             &(&forged.state, forged.digest, forged.history_tip),
         );
         let decoded = Checkpoint::decode(&forged.encode().unwrap()).unwrap();

@@ -14,6 +14,7 @@ fn f(value: f32) -> SpellFloat {
 }
 fn input() -> Input {
     Input {
+        spawn_id: 91,
         template: Template {
             entry: 99,
             minimum_level: 1,
@@ -123,6 +124,8 @@ fn input() -> Input {
         }]),
         equipment_templates: Rows::Complete(vec![]),
         item_templates: Rows::Complete(vec![]),
+        spawn_addons: Rows::Complete(vec![]),
+        template_addons: Rows::Complete(vec![]),
         external_features: Rows::Complete(vec![]),
         rates: Rates {
             normal_health: SpellFloat::ONE,
@@ -176,6 +179,7 @@ fn serialization_retains_every_raw_field_and_original_rows() {
         })
         .collect();
     let expected = json!({
+        "spawn_id": 91,
         "template": {
             "entry": 99,
             "minimum_level": 1,
@@ -240,6 +244,8 @@ fn serialization_retains_every_raw_field_and_original_rows() {
         }]},
         "equipment_templates": {"Complete": []},
         "item_templates": {"Complete": []},
+        "spawn_addons": {"Complete": []},
+        "template_addons": {"Complete": []},
         "external_features": {"Complete": []},
         "rates": {"normal_health": one, "normal_damage": one, "normal_corpse_decay_seconds": 83},
     });
@@ -350,6 +356,8 @@ fn missing_and_captured_empty_are_distinct_for_every_source_collection() {
     check!(spawn_template);
     check!(equipment_templates);
     check!(item_templates);
+    check!(spawn_addons);
+    check!(template_addons);
     check!(external_features);
     let mut empty_features = input();
     empty_features.external_features = Rows::Complete(vec![]);
@@ -557,5 +565,164 @@ fn raw_equipment_metadata_fields_and_order_remain_source_bound() {
     assert_eq!(
         serde_json::to_value(&source).unwrap()["template"]["extra_flags"],
         2
+    );
+}
+
+fn addon(sheath_state: u32) -> Addon {
+    Addon {
+        mount: 0,
+        stand_state: 0,
+        sheath_state,
+        emote: 0,
+        move_flags: 0,
+        auras: vec![],
+    }
+}
+
+#[test]
+fn raw_addon_values_owner_and_overridden_row_remain_source_bound() {
+    let mut source = input();
+    source.spawn_addons = Rows::Complete(vec![SpawnAddonRow {
+        guid: source.spawn_id,
+        addon: addon(0),
+    }]);
+    source.template_addons = Rows::Complete(vec![TemplateAddonRow {
+        entry: source.template.entry,
+        addon: addon(2),
+    }]);
+    let expected = prepare(&source).unwrap().resolve(rolls()).unwrap();
+    let before = content(&source);
+    rows_mut(&mut source.template_addons)[0].addon.sheath_state = 1;
+    assert_ne!(content(&source), before);
+    assert_eq!(
+        prepare(&source).unwrap().resolve(rolls()).unwrap(),
+        expected
+    );
+    let before = content(&source);
+    source.spawn_id += 1;
+    rows_mut(&mut source.spawn_addons)[0].guid = source.spawn_id;
+    assert_ne!(content(&source), before);
+    assert_eq!(
+        prepare(&source).unwrap().resolve(rolls()).unwrap(),
+        expected
+    );
+    let raw = Addon {
+        mount: 101,
+        stand_state: 256,
+        sheath_state: 257,
+        emote: 102,
+        move_flags: u32::MAX,
+        auras: vec![0, 103, 103, 104],
+    };
+    rows_mut(&mut source.spawn_addons)[0].addon = raw.clone();
+    let row = &serde_json::to_value(&source).unwrap()["spawn_addons"]["Complete"][0];
+    assert_eq!(
+        row,
+        &json!({
+            "guid": source.spawn_id,
+            "addon": {"mount": 101, "stand_state": 256, "sheath_state": 257,
+                      "emote": 102, "move_flags": u32::MAX, "auras": [0, 103, 103, 104]},
+        })
+    );
+    assert!(matches!(prepare(&source), Err(InitError::Unsupported(_))));
+    let before = content(&source);
+    rows_mut(&mut source.spawn_addons)[0].addon.auras.reverse();
+    assert_ne!(content(&source), before);
+    let before = content(&source);
+    let mut second = rows_mut(&mut source.spawn_addons)[0].clone();
+    second.guid += 1;
+    rows_mut(&mut source.spawn_addons).push(second);
+    assert_ne!(content(&source), before);
+    let before = content(&source);
+    rows_mut(&mut source.spawn_addons).reverse();
+    assert_ne!(content(&source), before);
+    assert!(matches!(prepare(&source), Err(InitError::Invalid(_))));
+}
+
+#[test]
+fn addon_rows_and_nested_auras_are_bounded_before_field_validation() {
+    let mut source = input();
+    source.template.entry = 0;
+    let row = SpawnAddonRow {
+        guid: source.spawn_id,
+        addon: addon(0),
+    };
+    source.spawn_addons = Rows::Complete(vec![row; MAX_CREATURE_INIT_SOURCE_ROWS + 1]);
+    assert!(matches!(
+        prepare(&source),
+        Err(InitError::Invalid("source retention row bound"))
+    ));
+    source.spawn_addons = Rows::Complete(vec![]);
+    let row = TemplateAddonRow {
+        entry: 99,
+        addon: addon(0),
+    };
+    source.template_addons = Rows::Complete(vec![row; MAX_CREATURE_INIT_SOURCE_ROWS + 1]);
+    assert!(matches!(
+        prepare(&source),
+        Err(InitError::Invalid("source retention row bound"))
+    ));
+    let mut payload = addon(0);
+    payload.auras = vec![0; MAX_CREATURE_INIT_SOURCE_ROWS];
+    source.template_addons = Rows::Complete(vec![TemplateAddonRow {
+        entry: 99,
+        addon: payload,
+    }]);
+    assert!(matches!(
+        prepare(&source),
+        Err(InitError::Invalid("source retention row bound"))
+    ));
+    // Seven ordinary rows plus this addon leave exactly 4088 retained aura IDs.
+    rows_mut(&mut source.template_addons)[0]
+        .addon
+        .auras
+        .truncate(MAX_CREATURE_INIT_SOURCE_ROWS - 8);
+    assert_eq!(source.validate_retention_bounds(), Ok(()));
+    rows_mut(&mut source.template_addons)[0].addon.auras.push(0);
+    assert_eq!(
+        source.validate_retention_bounds(),
+        Err(InitError::Invalid("source retention row bound"))
+    );
+}
+
+#[test]
+fn nested_aura_storage_counts_toward_the_retained_byte_budget() {
+    let mut source = input();
+    let item = ItemTemplateRow {
+        entry: 1,
+        display_id: 0,
+        class: 2,
+        subclass: 0,
+        material: 0,
+        inventory_type: 13,
+        sheath: 0,
+        delay_ms: 0,
+        damage: [ItemDamage {
+            minimum: SpellFloat::ZERO,
+            maximum: SpellFloat::ZERO,
+            school: 0,
+        }; 5],
+    };
+    source.spawn_addons = Rows::Complete(vec![SpawnAddonRow {
+        guid: source.spawn_id,
+        addon: addon(0),
+    }]);
+    // Keep the outer allocation just under the byte cap; nested IDs must push
+    // the aggregate over it even though the total row/ID count still fits.
+    let base_bytes = std::mem::size_of::<Input>()
+        + 2 * std::mem::size_of::<ClassLevelRow>()
+        + 2 * std::mem::size_of::<ModelRow>()
+        + 2 * std::mem::size_of::<DisplayRow>()
+        + std::mem::size_of::<SpawnTemplate>()
+        + std::mem::size_of::<SpawnAddonRow>();
+    let item_count =
+        (MAX_CREATURE_INIT_SOURCE_BYTES - base_bytes) / std::mem::size_of::<ItemTemplateRow>();
+    source.item_templates = Rows::Complete(vec![item; item_count]);
+    assert_eq!(source.validate_retention_bounds(), Ok(()));
+    let aura_count = MAX_CREATURE_INIT_SOURCE_ROWS - 8 - item_count;
+    rows_mut(&mut source.spawn_addons)[0].addon.auras = vec![0; aura_count];
+    assert_eq!(
+        source.validate_retention_bounds(),
+        Err(InitError::Invalid("source retention byte bound"))
     );
 }

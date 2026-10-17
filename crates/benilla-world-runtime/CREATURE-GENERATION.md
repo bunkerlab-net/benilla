@@ -1,6 +1,6 @@
 # Source-owned creature generations
 
-This optional native40 component owns ordinary creature initialization per life.
+This optional native41 component owns ordinary creature initialization per life.
 It does not open production admission, import a creature database, authenticate
 captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
@@ -40,6 +40,35 @@ Client display binding checks consistency; actual visual proof needs local asset
 Combined player-slow ownership
 rejects until cleared aura-slot level residue has its own per-write provenance.
 
+## Retained ordinary addon rows
+
+Initialization retains explicit complete `creature_addon` and
+`creature_template_addon` query results, including empty results, alongside the
+stable spawn ID and template entry. Each query admits at most one exact-owner
+row. Rows retain mount, stand state, sheath state, emote, movement flags and aura
+IDs. Duplicate or mismatched rows, unavailable queries and unsupported fields
+reject before sampling;
+unsupported fields also reject in a template row hidden by a spawn override.
+Shared template identities must agree on both query presence and full row content
+across spawns.
+
+Pinned `Creature::LoadCreatureAddon` selects the whole spawn row when present,
+otherwise the template row; a zero sheath in a spawn row does not fall back to a
+nonzero template sheath. Only sheath states 0..2 are supported. The source write
+replaces the low sheath byte while preserving initialized `0x1000`; without a
+selected row, initialized misc bytes are unchanged. Captured movement flags are
+retained but the pinned loader does not apply them. Mounts, nonzero stand/emote,
+addon auras and script writers remain unsupported.
+
+The raw rows are bound by the existing initializer and generation source identity,
+then recomputed for every selected life and historical restore. Selection adds no
+RNG draws. This is bounded source consistency, not proof of source capture
+completeness, real client rendering or production admission.
+The independent creature-capability catalog still requires both addon tables to
+be absent. Combining that catalog with any retained addon row rejects in either
+installation order, including all-zero and shadowed rows; its closure is not
+silently weakened by this initializer subset.
+
 ## Source order and RNG
 
 Pinned CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
@@ -64,7 +93,7 @@ not evidence of universal source grid iteration or a real Human entry order.
 
 ## Persistence and transaction boundary
 
-Native format 40, its policy and all native hash domains reject older envelopes.
+Native format 41, its policy and all native hash domains reject older envelopes.
 The RNG mapping itself is unchanged. Checkpoints require explicit source-owner
 option fields; absence cannot deserialize into a source-free fallback. Restore
 replays retained semantic spans against the world seed and retained source, then

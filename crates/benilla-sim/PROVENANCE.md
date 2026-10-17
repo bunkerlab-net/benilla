@@ -385,6 +385,14 @@ from the same pinned CMaNGOS revision. Their exact source boundaries, numeric
 policies, synthetic differential probes and unsupported branches are recorded in
 [NPC-MELEE.md](NPC-MELEE.md) and [CREATURE-INIT.md](CREATURE-INIT.md).
 No creature templates, spawn rows or native world data are distributed.
+The initial-addon branch retains complete exact-GUID and exact-entry typed rows,
+implements unchanged `Creature::GetCreatureAddon` whole-row precedence and
+`LoadCreatureAddon` sheath-byte assignment, and preserves upper bytes through
+`Object::SetByteValue` semantics. Mount, stand/emote effects, aura execution and
+external addon writers remain unsupported. The source-extracted C++ oracle adds
+448 synthetic cases without changing its prior 4,278 vectors; ignored `move_flags`
+remain source-bound. This branch uses the same upstream grant and notices, adds no
+game data, and does not relax separate capability-catalog or native-entry guards.
 The defense catch-up branch uses a versioned 294-entry source-derived binary64
 log table plus software arithmetic. Its explicit platform-math canonicalization,
 exhaustive final-f32/strict-RNG verification, exact source excerpts and remaining

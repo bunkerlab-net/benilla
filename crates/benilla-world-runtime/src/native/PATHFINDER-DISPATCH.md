@@ -113,10 +113,10 @@ runs the same Route fact and candidate checks as raw certification.
 
 ## Persistence contract
 
-Native format **40**, `benilla-native-reference-loot-v40`, and
+Native format **41**, `benilla-native-creature-addons-v41`, and
 motion policy `cmangos-8ec338a1-ground-linear-motion-first-owned-cache-v3` bind
 the first source-cache contract and constructor lifecycle. Profile/state/record/
-checkpoint/melee digest domains are v40. Native39 and earlier are rejected;
+checkpoint/melee digest domains are v41. Native40 and earlier are rejected;
 no migration or serde default invents evidence.
 MotionSnapshot also requires its exact policy, including Idle snapshots.
 The new simulation snapshot/request options and native Route option are required

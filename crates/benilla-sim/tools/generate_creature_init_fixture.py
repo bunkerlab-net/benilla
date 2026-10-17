@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Hash-check pinned source, compile unchanged methods, emit synthetic NPC cases."""
+import argparse
 import hashlib
 import pathlib
 import re
 import subprocess
-import sys
 import tempfile
 HASHES = {
     "Unit.h": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
@@ -25,13 +25,20 @@ def body(text, signature):
         end += 1
     return text[start:end] + "\n"
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("upstream", type=pathlib.Path)
+    parser.add_argument("--check", action="store_true", help="compare without overwriting the fixture")
+    args = parser.parse_args()
     sources = {}
     for name, digest in HASHES.items():
-        raw = pathlib.Path(sys.argv[1], name).read_bytes()
+        raw = (args.upstream / name).read_bytes()
         if hashlib.sha256(raw).hexdigest() != digest:
             raise SystemExit("Wrong pinned source: " + name)
         sources[name] = raw.decode()
     methods = "".join(body(sources[file], signature) for file, signature in [
+        ("Creature.cpp", "CreatureDataAddon const* Creature::GetCreatureAddon() const"),
+        ("Creature.cpp", "bool Creature::LoadCreatureAddon(bool reload)"),
+        ("Object.cpp", "void Object::SetByteValue(uint16 index, uint8 offset, uint8 value)"),
         ("Creature.cpp", "void Creature::SelectLevel("),
         ("Creature.cpp", "void Creature::SetVirtualItem("),
         ("Creature.cpp", "bool Creature::hasWeapon("),
@@ -89,13 +96,37 @@ def main():
     start = header.index("enum VirtualItemSlot")
     end = header.index("struct CreatureCreatePos", start)
     harness = harness.replace("// PINNED_VIRTUAL_ITEM_TYPES\n", header[start:end])
+    # All addon declarations, byte mutation and fresh ordinary-NPC defaults come
+    # from the same hash-pinned inputs as the pre-existing initializer oracle.
+    addon_types = body(header, "struct CreatureDataAddon").rstrip() + ";\n"
+    for signature in ("enum UnitBytes1Offsets", "enum UnitBytes2Offsets", "enum SheathState", "enum UnitBytes2_Flags"):
+        addon_types += body(sources["Unit.h"], signature).rstrip() + ";\n"
+    harness = harness.replace("// PINNED_ADDON_TYPES\n", addon_types)
+    harness = harness.replace("// PINNED_SHEATH_SETTER\n", body(sources["Unit.h"], "virtual void SetSheath("))
+    update_entry = body(creature, "bool Creature::UpdateEntry(")
+    start = update_entry.index("    // creatures always have melee weapon ready if any\n")
+    end = update_entry.index("    if (preserveHPAndPower)", start)
+    harness = harness.replace("// PINNED_FRESH_ADDON_BYTES\n", update_entry[start:end])
+    if "// PINNED_" in harness:
+        raise SystemExit("Unexpanded pinned source marker")
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
         (root / "oracle.cpp").write_text(harness)
         subprocess.run(["g++", "-std=c++17", "-O0", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-fno-fast-math", "-ffp-contract=off", "-frounding-math", "-fsanitize=undefined,float-cast-overflow", "-fno-sanitize-recover=all", str(root / "oracle.cpp"), "-o", str(root / "oracle")], check=True)
         data = subprocess.check_output([str(root / "oracle")])
     target = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/creature_init_cmangos.tsv"
-    target.write_bytes(data)
+    # Existing vectors are a byte-for-byte compatibility boundary, independent of
+    # the checked-in target; never silently refresh them while adding addon rows.
+    rows = data.splitlines(keepends=True)
+    if hashlib.sha256(b"".join(rows[:4278])).hexdigest() != "b7b6afac801d43b3ff42d9e7db11728bb918d295df8976c21ca0fe16503a30c5":
+        raise SystemExit("Pre-addon vectors changed")
+    if len(rows) != 4726 or any(not row.startswith(b"a ") for row in rows[4278:]):
+        raise SystemExit("Wrong addon vector coverage")
+    if args.check:
+        if target.read_bytes() != data:
+            raise SystemExit("Creature-init fixture differs from source oracle")
+    else:
+        target.write_bytes(data)
     print(len(data.splitlines()), hashlib.sha256(data).hexdigest())
 if __name__ == "__main__":
     main()

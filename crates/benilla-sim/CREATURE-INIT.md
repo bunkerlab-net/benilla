@@ -2,12 +2,13 @@
 
 This is an arithmetic/data-dependency port, **not native world admission**. It
 turns validated typed local rows into selected creation/effective stats and
-model geometry/speeds and initial mainhand equipment metadata. It neither creates a native profile nor proves that the
+model geometry/speeds, initial mainhand equipment metadata and the bounded initial
+addon sheath byte. It neither creates a native profile nor proves that the
 caller captured every relevant dependency. No positions, factions' hostility,
 classlevel values, models, rates, damage constants, AI decisions or game rows
 are invented. The committed fixtures contain synthetic arithmetic cases only.
 
-Policy: `cmangos-8ec338a1-ordinary-creature-init-softfloat-v2`.
+Policy: `cmangos-8ec338a1-ordinary-creature-init-softfloat-v3`.
 The API is `creature_init::prepare(Input)` followed by `Plan::resolve` with
 explicit semantic draws. `SpawnTimingInputs` separately resolves the later
 respawn draw/corpse cap. `regenerate_out_of_combat` is a narrowly named live-state
@@ -34,18 +35,19 @@ including unrelated rows, inactive legacy values, signed-zero float bits and
 model projection as a substitute for full source identity. Output serialization
 is still a caller-mutable arithmetic result, not an immutable admission receipt.
 
-`Input::validate_retention_bounds` enforces a local aggregate budget of 4,096 rows
-across classlevel, model, display, resolved-spawn, equipment-template, item-metadata
-and external-feature collections. It also bounds fixed-width retained storage to
-262,144 bytes (`size_of::<Input>()` plus row count times row size for every
-collection). This local allocation bound is not a serialized-wire-size claim;
-all row types have fixed-width fields without nested variable-length allocations.
-This constant-time size check does not claim source completeness or validate row
-contents. `prepare` runs it before allocating keyed maps or evaluating stats;
-consumers must also run it before cloning or serializing retained source. The cap
-is a resource bound, not a native database rule or a wider numerical domain.
+`Input::validate_retention_bounds` enforces a local aggregate budget of 4,096
+rows and nested aura IDs across classlevel, model, display, resolved-spawn,
+equipment-template, item-metadata, spawn-addon, template-addon and external-feature
+collections. It also bounds retained storage to 262,144 bytes (`size_of::<Input>()`
+plus row count times row size for each collection, plus four bytes per aura ID).
+Outer row counts are checked first; only then are the bounded number of nested
+vector lengths read. Aura values are never scanned by the budget check. This
+local storage bound does not claim serialized wire size, source completeness or
+valid row contents. `prepare` runs it before allocating keyed maps or evaluating
+stats; consumers must also run it before cloning or serializing retained source.
+The cap is a resource bound, not a native database rule or wider numerical domain.
 
-A private owner can retain one complete `Input` per catalog entry, bind its full
+A private owner can retain one complete `Input` per spawn source, bind its full
 serialized content, and retain the selected rolls and initialized result for each
 generation. Revalidation uses `prepare(&retained_input)` followed by
 `resolve_with_model_receipt(retained_rolls)` and exact result comparison. This
@@ -137,7 +139,8 @@ are distributed by this change.
   `CreatureDisplayInfo` identity/scale bindings; all reachable levels and model
   alternatives are validated before any draw is requested
 - `Rows::Missing` is different from a captured empty result. Missing classlevel,
-  selected/other-gender model, DBC display, resolved spawn template or external
+  selected/other-gender model, DBC display, resolved spawn template, either addon
+  query or external
   dependency evidence fails. Duplicate keyed rows fail. A rejected classlevel
   getter row does not silently become a legacy fallback or fabricated stats
 - One resolved `creature_spawn_data_template` row, including the actual Entry=0
@@ -200,7 +203,8 @@ and InventoryType are successive bytes of word zero; sheath is word one's low
 byte and remaining fresh bytes are zero. Server `hasWeapon(BASE_ATTACK)` checks
 packed Class==2, including zero-display and zero-item-damage weapons.
 `unit_bytes_2` is fresh UpdateEntry's melee sheath and aura misc flag word,
-`0x00001001`, separate from item-specific sheath metadata.
+`0x00001001`, with its low byte then replaced by a selected bounded addon sheath.
+This is separate from item-specific sheath metadata.
 
 Effective raw UnitFlags come from the resolved spawn override or template
 fallback. A mainhand Class==2 weapon plus static DISARMED (`0x00200000`) selects
@@ -214,8 +218,48 @@ Selected offhand/ranged items, forced dual wield, loot/event/script equipment
 writers and existing equipment state remain unsupported. Dynamic disarm aura
 application/removal, forms, later swaps and respawn need separately owned lifecycle
 semantics. This mainhand arithmetic does not implement NPC-as-defender disarm/parry.
-The model receipt keeps its model-only v1 policy and names initializer v2 as its
+The model receipt keeps its model-only v1 policy and names initializer v3 as its
 dependency; full source/output identity includes the new raw rows and derived fields.
+
+## Initial spawn/template addons
+
+`Input.spawn_id` is the exact nonzero database GUID, in the native uint32 domain.
+`spawn_addons` and `template_addons` are separate complete exact-key queries of
+`creature_addon` and `creature_template_addon`. Each collection permits zero or one
+row; duplicate or foreign keys fail. `Rows::Missing` fails even when the other
+query has a row. The complete-empty contract does not itself prove a capture was
+performed. The private owner must bind this spawn identity and capture evidence.
+
+Both row types retain all typed payload columns: mount, stand state, sheath state,
+emote, move flags and an ordered vector of aura IDs, including duplicates or zero
+IDs on rejected inputs. Raw parsing, nullable SQL aura text and query evidence
+remain the capture owner's responsibility. The bounded primitive cannot clean up
+an invalid aura string or treat an incomplete query as empty. `move_flags` is
+retained and may have any uint32 value because the pinned `LoadCreatureAddon`
+never reads it; accepting it grants no movement capability.
+
+`GetCreatureAddon` first looks up the database GUID for an ordinary nonpet, then
+falls back to the template entry only if no spawn row exists. A spawn row replaces
+the whole template row; a zero sheath still overrides a nonzero template sheath.
+`LoadCreatureAddon(false)`, called by `Create` after `UpdateEntry`, writes the
+selected sheath to offset zero of `UNIT_FIELD_BYTES_2`, preserving all upper bytes
+and the fresh `UNIT_BYTE2_FLAG_AURAS` flag. Neither query having a row preserves
+the fresh melee sheath. Admitted sheath states are 0, 1 and 2. Addon selection and
+application consume no randomness and do not affect equipment metadata or stats.
+
+Nonzero mount, stand state or emote, any nonempty aura vector and sheath states
+outside 0..2 are rejected before selection. Both source rows are checked, including
+an overridden template, rather than silently dropping unsupported dependencies or
+emulating native loader repairs. Pet GUID lookup, mounted/model changes, stand and
+emote projection, spell execution, dynamic addon replacement and later external
+writers remain unsupported. `ExternalFeature::Addon` continues to reject addon
+writers outside these retained initial rows.
+
+This initializer branch does not relax another source catalog's admission rules.
+In particular, the independent creature-capability source still excludes applicable
+addon tables; a consumer composing those catalogs must retain that separate guard.
+This is arithmetic and full typed source retention, not native data admission,
+live respawn/reload ownership, a data compiler or proof of a running creature.
 
 The caller must validate the remaining captured template/spawn fields and
 applicable sources before constructing a runnable native profile. A public
@@ -305,9 +349,10 @@ not infer absence from an absent field. The companion exporter owns that work:
   captured-empty evidence; applicable event/pool/conditional/group substitution
   requires additional semantics and is rejected here
 - `creature_addon(guid,mount,stand_state,sheath_state,emote,moveflags,auras)` and
-  `creature_template_addon(entry,...)`, preserving nullable auras. GUID addon
-  takes precedence; template addon is fallback. This module rejects applicable
-  addons, including ones requiring only a future cosmetic handling branch
+  `creature_template_addon(entry,...)`, preserving nullable SQL auras in the
+  private capture. Bind exact `Input.spawn_id`, both complete typed query results
+  and every raw addon payload field. Whole-row GUID precedence and sheath 0..2
+  are supported; mount, stand, emote and aura effects remain rejected
 - Actual effective AI/spell-list, linking/assistance, spawn-group/conditional,
   initial aura/UnitMod, map/zone/OutdoorPvP, relay/string and encounter-corpse
   dependencies. A complete local capture plus source-aware applicability checks
@@ -325,9 +370,10 @@ user's game data is required or implied.
 
 ## Verification
 
-`tools/generate_creature_init_fixture.py SOURCE_DIRECTORY` checks source hashes,
-extracts 30 unchanged native method bodies plus the inline weapon-usability body,
-exact equipment-selection/loader/respawn fragments and virtual-item declarations
+`tools/generate_creature_init_fixture.py SOURCE_DIRECTORY [--check]` checks source hashes,
+extracts 33 unchanged native method bodies plus the inline weapon-usability and sheath bodies,
+exact equipment-selection/loader/respawn/fresh-addon fragments, addon enums/struct
+and virtual-item declarations
 and the numeric prefix of `SetSpeedRate`, then compiles the independent C++
 harness with C++17, FE_TONEAREST, no fast math,
 no FP contraction, and undefined-behavior/float-cast sanitizers. Expected fixture
@@ -343,11 +389,22 @@ outputs never call Rust. Current cases:
 - 192 initial equipment-selection/packing/zero-display/zero-item-damage/static-
   disarm cases, preserving native final physical damage and creature attack timing
 
-The Rust tests compare all 4,278 rows bit-for-bit and also cover missing/bad
+- 448 addon cases from unchanged `GetCreatureAddon`, `LoadCreatureAddon` and
+  `Object::SetByteValue`: 64 fresh initializer cases plus 384 arbitrary prior-word
+  cases for upper-byte preservation. These cross absence and sheath 0/1/2 for both
+  source rows, independently vary ignored move flags, retain spawn-zero precedence,
+  distinguish database GUID from runtime GUID low, and assert zero RNG draws
+
+The first 4,278 fixture rows remain byte-identical, enforced by a generator prefix
+hash. The complete 4,726-row fixture SHA-256 is
+`1e43a09c982b51ee88b4ed58b85e4c0463feb3905d6ea66c1e9f4a4b547e43da`.
+The Rust tests compare all 4,726 rows bit-for-bit and also cover missing/bad
 inputs, override sentinels, model selection ranges, unsupported hooks/flags,
 source loader bonuses, scale invariance, ambiguous zero-radius repair rejection,
 complete ordered source/output serialization, aggregate pre-prepare row/byte bounds,
-raw equipment closure, native allowed inventory types and loader-repair refusal,
+raw equipment closure, exact addon keys/completeness/whole-row precedence,
+unsupported overridden addon rows, nested aura retention limits, ignored move-flag
+identity, native allowed inventory types and loader-repair refusal,
 forced dual wield/offhand/ranged refusal, static flags and unused item Damage/Delay,
 missing-versus-empty inputs and omitted-versus-supplied semantic draws,
 signed resistance values, raw legacy AP bounds and transient AP cast rejection.

@@ -46,15 +46,17 @@ silently lose events or project a different world's branch. Construct a fresh pr
 Project first, then acknowledge its saved checkpoint: acknowledgement intentionally
 clears the completed journal records.
 
-Native40 initialization receipts remain in the bound state across fresh and
+Native41 initialization receipts remain in the bound state across fresh and
 resumed projections. Initial-cast genesis consumes no gameplay cast ID, input
 sequence or projected cast packet. The previous-state digest uses the same
-native40 boundary as runtime replay; native38 and older digests cannot advance it.
+native41 boundary as runtime replay; native40 and older digests cannot advance it.
 
 Source-owned creature generations project their selected virtual mainhand display,
 packed class/subclass/material/inventory/sheath fields and initial unit sheath/misc
 bytes on creation, updates and respawn. Closed offhand/ranged fields are explicit
-zero. Disarm retains these fields while the generation owns its reduced damage.
+zero. Retained ordinary spawn/template addons select the projected sheath byte
+with whole-row spawn precedence; mounts, stand/emote state and addon auras remain
+unsupported. Disarm retains these fields while the generation owns its reduced damage.
 Selected raw item metadata must match the client catalog and bind a display; no
 item object or inventory ownership is invented. This is a protocol consistency
 check, not visual proof from client assets.

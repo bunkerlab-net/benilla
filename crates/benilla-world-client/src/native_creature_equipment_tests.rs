@@ -132,7 +132,35 @@ fn world(
     disarmed: bool,
     spawn_zero: bool,
 ) -> n::NativeWorld {
+    world_with_addons(mainhand, disarmed, spawn_zero, None, None)
+}
+fn world_with_addons(
+    mainhand: Option<init::ItemTemplateRow>,
+    disarmed: bool,
+    spawn_zero: bool,
+    spawn_sheath: Option<u32>,
+    template_sheath: Option<u32>,
+) -> n::NativeWorld {
     let mut input = models::input();
+    input.spawn_id = 2;
+    input.spawn_addons = init::Rows::Complete(
+        spawn_sheath
+            .into_iter()
+            .map(|sheath| init::SpawnAddonRow {
+                guid: 2,
+                addon: addon(sheath),
+            })
+            .collect(),
+    );
+    input.template_addons = init::Rows::Complete(
+        template_sheath
+            .into_iter()
+            .map(|sheath| init::TemplateAddonRow {
+                entry: input.template.entry,
+                addon: addon(sheath),
+            })
+            .collect(),
+    );
     input.template.extra_flags = 2;
     input.template.regenerate_stats = 0;
     input.template.corpse_delay_seconds = 1;
@@ -172,7 +200,20 @@ fn world(
         .unwrap();
     n::NativeWorld::synthetic_component_test(profile, [8; 16], f::player(), 1234).unwrap()
 }
+fn addon(sheath_state: u32) -> init::Addon {
+    init::Addon {
+        mount: 0,
+        stand_state: 0,
+        sheath_state,
+        emote: 0,
+        move_flags: 0,
+        auras: vec![],
+    }
+}
 fn assert_fields(world: &n::NativeWorld, fields: &ObjectFields) {
+    assert_fields_with_sheath(world, fields, 1);
+}
+fn assert_fields_with_sheath(world: &n::NativeWorld, fields: &ObjectFields, sheath: u32) {
     let selected = world.state().npcs[&2].initialized_creature().unwrap();
     for slot in 0..3 {
         let item = (slot == 0).then_some(selected.equipment.mainhand).flatten();
@@ -195,8 +236,13 @@ fn assert_fields(world: &n::NativeWorld, fields: &ObjectFields) {
             Some(item.map_or(0, |item| item.info[1] as u8))
         );
     }
-    assert_eq!(fields.unit_sheath_state(), Some(1));
-    assert!(creature_equipment::fields(selected).contains(&(164, 0x1001)));
+    assert_eq!(fields.unit_sheath_state(), Some(sheath as u8));
+    assert_eq!(selected.unit_bytes_2, 0x1000 | sheath);
+    assert_eq!(
+        fields.raw_fields().find(|(index, _)| *index == 164),
+        Some((164, 0x1000 | sheath))
+    );
+    assert!(creature_equipment::fields(selected).contains(&(164, 0x1000 | sheath)));
     assert_eq!(
         fields.unit_flags() & 0x0020_0000,
         selected.unit_flags & 0x0020_0000
@@ -213,6 +259,14 @@ fn assert_fields(world: &n::NativeWorld, fields: &ObjectFields) {
     assert!(f32::from_bits(selected.stats.damage.maximum.bits()) < 900.0);
 }
 fn assert_create(world: &n::NativeWorld, projection: &NativeProjection, events: &[SessionEvent]) {
+    assert_create_with_sheath(world, projection, events, 1);
+}
+fn assert_create_with_sheath(
+    world: &n::NativeWorld,
+    projection: &NativeProjection,
+    events: &[SessionEvent],
+    sheath: u32,
+) {
     let target = projection.npc_guid(world.state().npcs[&2].id).unwrap();
     let fields = events
         .iter()
@@ -221,7 +275,7 @@ fn assert_create(world: &n::NativeWorld, projection: &NativeProjection, events: 
             _ => None,
         })
         .unwrap();
-    assert_fields(world, fields);
+    assert_fields_with_sheath(world, fields, sheath);
     assert!(!events
         .iter()
         .any(|event| matches!(event, SessionEvent::ItemCreate { .. })));
@@ -383,4 +437,103 @@ fn zero_raw_display_keeps_weapon_semantics_but_requires_client_render_binding() 
         NativeProjection::new(&world, world.state().player, &catalog).err(),
         Some(Error::UnboundItemDisplay(raw.entry))
     );
+}
+
+#[test]
+fn addon_sheath_create_values_death_respawn_restore_preserve_virtual_mainhand_metadata() {
+    for sheath in 0..=2 {
+        for (spawn, template) in [
+            (None, Some(sheath)),
+            (Some(sheath), None),
+            (Some(sheath), Some((sheath + 1) % 3)),
+        ] {
+            let raw = item(true);
+            let catalog = Catalog {
+                info: Some(metadata(&raw)),
+                display: true,
+            };
+            let mut world = world_with_addons(Some(raw), false, false, spawn, template);
+            let mut projection =
+                NativeProjection::new(&world, world.state().player, &catalog).unwrap();
+            assert_create_with_sheath(
+                &world,
+                &projection,
+                &projection.initial_events(&world).unwrap(),
+                sheath,
+            );
+            let old_id = world.state().npcs[&2].id;
+            let old_guid = projection.npc_guid(old_id).unwrap();
+            let initial = world.state().npcs[&2]
+                .initialized_creature()
+                .unwrap()
+                .clone();
+            let mainhand = initial.equipment.mainhand.unwrap();
+            assert_eq!(mainhand.item_entry, raw.entry);
+            assert_eq!(mainhand.display_id, raw.display_id);
+            assert_eq!(mainhand.info, [0x11ff_0a02, 2]);
+            assert!(mainhand.has_weapon);
+            assert_eq!(initial.unit_bytes_2, 0x1000 | sheath);
+            let mut authority = f::SyntheticAuthority::default();
+            let cast = f::cast(&world, 60001);
+            world
+                .step(world.state().tick + 1, Some(cast), &mut authority)
+                .unwrap();
+            let mut saw_dead = false;
+            let mut destroyed = false;
+            let mut respawned = false;
+            for _ in 0..100 {
+                let events = projection.advance(&world).unwrap();
+                assert!(!events
+                    .iter()
+                    .any(|event| matches!(event, SessionEvent::ItemCreate { .. })));
+                for event in &events {
+                    if let SessionEvent::ObjectValues { guid, fields } = event {
+                        if *guid == old_guid {
+                            assert_fields_with_sheath(&world, fields, sheath);
+                            // Item sheath type is independent of the unit's addon sheath state.
+                            assert_eq!(fields.unit_virtual_item_sheath(0), Some(2));
+                            saw_dead |= fields.unit_health() == Some(0);
+                        }
+                    }
+                    destroyed |=
+                        matches!(event, SessionEvent::ObjectDestroyed(guid) if *guid == old_guid);
+                }
+                if world.state().npcs[&2].id != old_id {
+                    assert!(destroyed);
+                    assert_create_with_sheath(&world, &projection, &events, sheath);
+                    let current = world.state().npcs[&2].initialized_creature().unwrap();
+                    assert_eq!(current.equipment, initial.equipment);
+                    assert_eq!(current.unit_bytes_2, initial.unit_bytes_2);
+                    assert_eq!(
+                        world.state().npcs[&2].historical_initialized_creature(old_id),
+                        Some(&initial)
+                    );
+                    assert_ne!(
+                        projection.npc_guid(world.state().npcs[&2].id),
+                        Some(old_guid)
+                    );
+                    respawned = true;
+                    break;
+                }
+                world
+                    .step(world.state().tick + 1, None, &mut authority)
+                    .unwrap();
+            }
+            assert!(saw_dead && respawned);
+            let restored = n::NativeWorld::restore_synthetic_component_test(
+                world.profile().clone(),
+                world.checkpoint().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(restored.state_digest(), world.state_digest());
+            let resumed =
+                NativeProjection::new(&restored, restored.state().player, &catalog).unwrap();
+            assert_create_with_sheath(
+                &restored,
+                &resumed,
+                &resumed.initial_events(&restored).unwrap(),
+                sheath,
+            );
+        }
+    }
 }

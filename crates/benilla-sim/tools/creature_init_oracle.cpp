@@ -11,6 +11,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#define MANGOS_ASSERT(condition) assert(condition)
 using uint8=uint8_t;using uint16=uint16_t;using uint32=uint32_t;using int32=int32_t;
 using UnitMoveType=int;
 enum{MOVE_WALK,MOVE_RUN,MOVE_RUN_BACK,MOVE_SWIM,MOVE_SWIM_BACK,MOVE_TURN_RATE,MAX_MOVE_TYPE};
@@ -24,6 +25,11 @@ constexpr uint32 POWER_FOCUS_DEFAULT=100,POWER_HAPPINESS_DEFAULT=1000000;
 enum{SPELL_SCHOOL_NORMAL,SPELL_SCHOOL_HOLY,SPELL_SCHOOL_FIRE,SPELL_SCHOOL_NATURE,SPELL_SCHOOL_FROST,SPELL_SCHOOL_SHADOW,SPELL_SCHOOL_ARCANE,MAX_SPELL_SCHOOL};
 enum{BASE_ATTACK,OFF_ATTACK,RANGED_ATTACK};
 // PINNED_VIRTUAL_ITEM_TYPES
+// PINNED_ADDON_TYPES
+// Synthetic field IDs and GUID tags; only source-named identity/equality is observed.
+constexpr uint16 UNIT_FIELD_BYTES_1=59,UNIT_FIELD_BYTES_2=60,UNIT_NPC_EMOTESTATE=61;
+enum{HIGHGUID_UNIT,HIGHGUID_PET,TRIGGERED_OLD_TRIGGERED};
+struct ObjectGuid{int GetHigh()const{return HIGHGUID_UNIT;}};
 constexpr uint32 UNIT_VIRTUAL_ITEM_SLOT_DISPLAY=50,UNIT_VIRTUAL_ITEM_INFO=53,ITEM_CLASS_WEAPON=2,UNIT_FLAG_DISARMED=0x00200000;
 struct ItemPrototype{uint32 Class=2,SubClass=7,DisplayInfoID=701,Material=uint32(-1),InventoryType=13,Sheath=5,Delay=0;struct DamageLine{float DamageMin=0,DamageMax=0;uint32 DamageType=0;}Damage[5]{};};
 struct EquipmentInfo{uint32 equipentry[3]{};};
@@ -53,7 +59,13 @@ uint32 urand(uint32,uint32);
 struct CreatureSpawnTemplate{uint32 modelId=0;int32 equipmentId=-1;};struct CreatureData{CreatureSpawnTemplate* spawnTemplate=nullptr;uint32 spawntimesecsmin=0,spawntimesecsmax=0;
 // PINNED_RESPAWN_DRAW
 };
-struct WorldObject{uint32 dbGuid=0,lowGuid=0;uint32 GetDbGuid()const{return dbGuid;}uint32 GetGUIDLow()const{return lowGuid;}bool IsUsingNewSpawningSystem()const;};
+struct Object{
+ static constexpr uint16 m_valuesCount=64;uint32 m_uint32Values[m_valuesCount]{};bool m_changedValues[m_valuesCount]{};
+ bool PrintIndexError(uint16,bool)const{assert(false);return false;}void MarkForClientUpdate(){}
+ void SetByteValue(uint16,uint8,uint8);
+};
+struct WorldObject:Object{uint32 dbGuid=0,lowGuid=0;ObjectGuid GetObjectGuid()const{return {};}
+uint32 GetDbGuid()const{return dbGuid;}uint32 GetGUIDLow()const{return lowGuid;}bool IsUsingNewSpawningSystem()const;};
 struct SpawnResult:WorldObject{uint32 m_respawnDelay=0,m_corpseDelay=0;void resolve(const CreatureData*data){
 // PINNED_TIMING
 }};struct GameEventCreatureData{uint32 modelid=0,equipment_id=0,entry_id=0;};
@@ -64,6 +76,14 @@ struct ObjectMgr{
  CreatureClassLvlStats cls;std::map<uint32,CreatureModelInfo>models;
  std::map<uint32,EquipmentInfo>equipment;
  static std::map<uint32,ItemPrototype>items;
+ static std::map<uint32,CreatureDataAddon>spawnAddons,templateAddons;
+ static const CreatureDataAddon*LookupAddon(const std::map<uint32,CreatureDataAddon>&addons,uint32 id){
+  auto p=addons.find(id);if(p==addons.end())return nullptr;const auto&addon=p->second;
+  assert(addon.mount==0&&addon.standState==0&&addon.emote==0&&addon.auras==nullptr&&addon.sheath_state<=2);
+  return &addon;
+ }
+ static const CreatureDataAddon*GetCreatureAddon(uint32 id){return LookupAddon(spawnAddons,id);}
+ static const CreatureDataAddon*GetCreatureTemplateAddon(uint32 id){return LookupAddon(templateAddons,id);}
  const EquipmentInfo*GetEquipmentInfo(uint32 id)const{auto p=equipment.find(id);return p==equipment.end()?nullptr:&p->second;}
  static const ItemPrototype*GetItemPrototype(uint32 id){auto p=items.find(id);return p==items.end()?nullptr:&p->second;}
  const CreatureClassLvlStats*GetCreatureClassLvlStats(uint32,uint32)const{return &cls;}
@@ -72,7 +92,10 @@ struct ObjectMgr{
  static const CreatureInfo*GetCreatureTemplate(uint32){return nullptr;}
 }sObjectMgr;
 std::map<uint32,ItemPrototype>ObjectMgr::items;
-struct Unit{
+std::map<uint32,CreatureDataAddon>ObjectMgr::spawnAddons,ObjectMgr::templateAddons;
+struct Unit:WorldObject{
+ // PINNED_SHEATH_SETTER
+
  uint32 unitFlags=0;
  bool IsAttackSpeedOverridenShapeShift()const{return false;}
  // PINNED_WEAPON_USABILITY
@@ -104,10 +127,17 @@ struct Creature:Unit{
  const CreatureInfo*GetCreatureInfo()const{return &info;}bool IsPet()const{return false;}bool healthRegen=true,powerRegen=true;bool IsRegeneratingPower()const{return powerRegen;}bool IsRegeneratingHealth()const{return healthRegen;}void RegenerateAll(uint32);void RegenerateHealth();void RegeneratePower(float);int getClass()const{return int(info.UnitClass);}std::string GetGuidStr()const{return "synthetic";}float _GetDamageMod(uint32)const{return damageRate;}float _GetHealthMod(uint32)const{return healthRate;}
  void SelectLevel(uint32=0);bool UpdateStats(int);bool UpdateAllStats();void UpdateArmor();void UpdateResistances(uint32);void UpdateAttackPowerAndDamage(bool=false);void UpdateDamagePhysical(int);void UpdateMaxHealth();float GetHealthBonusFromStamina()const override;
  float GetConditionalTotalPhysicalDamageModifier(int)const;
- uint32 virtualFields[9]{},m_equipmentId=0;Loot*m_loot=nullptr;
- void SetUInt32Value(uint32 field,uint32 value){assert(field>=50&&field<59);virtualFields[field-50]=value;}
- void SetByteValue(uint32 field,uint8 offset,uint8 value){assert(offset<4);uint32&word=virtualFields[field-50];word=(word&~(uint32(255)<<(offset*8)))|(uint32(value)<<(offset*8));}
- uint8 GetByteValue(uint32 field,uint8 offset)const{return uint8(virtualFields[field-50]>>(offset*8));}
+ uint32 m_equipmentId=0;Loot*m_loot=nullptr;
+ void SetUInt32Value(uint32 field,uint32 value){assert(field>=50&&field<59);m_uint32Values[field]=value;}
+ void SetByteValue(uint16 field,uint8 offset,uint8 value){assert(offset<4);assert((field>=50&&field<59)||field==UNIT_FIELD_BYTES_2);Object::SetByteValue(field,offset,value);}
+ uint8 GetByteValue(uint32 field,uint8 offset)const{assert(field>=50&&field<59&&offset<4);return uint8(m_uint32Values[field]>>(offset*8));}
+ const CreatureDataAddon*GetCreatureAddon()const;bool LoadCreatureAddon(bool);
+ uint32 GetEntry()const{return info.Entry;}
+ void Mount(uint32){assert(false);}bool HasAura(uint32)const{assert(false);return false;}void CastSpell(Creature*,uint32,int){assert(false);}
+ void InitFreshAddonBytes(){
+ // PINNED_FRESH_ADDON_BYTES
+ }
+
  bool CanDualWield()const{return false;}void SetVirtualItem(VirtualItemSlot,uint32);bool hasWeapon(WeaponAttackType)const;void LoadEquipment(uint32,bool=false);
  Settings GetSettings()const{return {};}void PrepareBodyLootState(void*){assert(false);}
  void InitEquipment(const CreatureInfo*cinfo,const CreatureData*data,const GameEventCreatureData*eventData=nullptr){const CreatureInfo*normalInfo=cinfo;
@@ -147,7 +177,7 @@ int main(){
   CreatureSpawnTemplate spawn;spawn.equipmentId=spawnEquipment;CreatureData data;data.spawnTemplate=&spawn;c.InitEquipment(&c.info,&data);
   load(sObjectMgr.cls);rolls={1};cursor=0;c.SelectLevel();assert(cursor==1);c.unitFlags=flags;c.UpdateAllStats();
   std::cout<<"e "<<itemClass<<' '<<item.SubClass<<' '<<display<<' '<<uint32(material)<<' '<<sheath<<' '<<flags<<' '<<uint32(spawnEquipment)<<' '<<item.Delay<<' '<<bits(item.Damage[0].DamageMin)<<' '<<bits(item.Damage[0].DamageMax)<<' '<<c.m_equipmentId;
-  for(uint32 field:c.virtualFields)std::cout<<' '<<field;
+  for(uint16 field=50;field<59;field++)std::cout<<' '<<c.m_uint32Values[field];
   std::cout<<' '<<c.hasWeapon(BASE_ATTACK)<<' '<<bits(c.GetConditionalTotalPhysicalDamageModifier(BASE_ATTACK))<<' '<<c.ap[0]<<' '<<bits(c.damage[BASE_ATTACK][MINDAMAGE])<<' '<<bits(c.damage[BASE_ATTACK][MAXDAMAGE])<<' '<<c.info.MeleeBaseAttackTime<<'\n';
  }
  for(uint32 cls:{1u,2u,4u,8u})for(uint32 level:{1u,2u,7u,19u,20u})for(float multiplier:{0.f,.3f,.5f,1.f,1.25f,2.f})for(float rate:{0.f,.65f,1.f,1.5f})for(bool legacy:{false,true}){
@@ -181,4 +211,25 @@ int main(){
   Creature c;c.info.SpeedWalk=tw;c.info.SpeedRun=tr;c.m_modelRunSpeed=mr;c.SetBaseWalkSpeed(mw);c.SetBaseRunSpeed(mr,false);
   std::cout<<"v "<<bits(tw)<<' '<<bits(tr)<<' '<<bits(mw)<<' '<<bits(mr)<<' '<<bits(c.GetSpeed(MOVE_WALK))<<' '<<bits(c.GetSpeed(MOVE_RUN))<<'\n';
  }
+ // a initial_bytes2 template_present template_sheath spawn_present spawn_sheath
+ //   selected_source final_bytes2 loaded rng_draws template_move_flags spawn_move_flags
+ //   source 0=none, 1=template, 2=spawn; move_flags are ignored by the source loader.
+ // The 0x1001 rows use the unchanged UpdateEntry byte initialization. Other initial
+ // words are isolated packed-byte preservation probes, not supported initializers.
+ for(uint32 initial:{0x1001u,0u,0xffu,0xffffu,0x12345678u,0xff000002u,0xffffffffu})for(int templateSheath=-1;templateSheath<=2;templateSheath++)for(int spawnSheath=-1;spawnSheath<=2;spawnSheath++)for(uint32 templateMoveFlags:{0u,UINT32_MAX})for(uint32 spawnMoveFlags:{0u,UINT32_MAX}){
+  Creature c;c.dbGuid=91;c.lowGuid=92;
+  sObjectMgr.spawnAddons.clear();sObjectMgr.templateAddons.clear();
+  if(templateSheath>=0){CreatureDataAddon addon{};addon.guidOrEntry=c.info.Entry;addon.sheath_state=uint8(templateSheath);addon.move_flags=templateMoveFlags;sObjectMgr.templateAddons.emplace(c.info.Entry,addon);}
+  if(spawnSheath>=0){CreatureDataAddon addon{};addon.guidOrEntry=c.dbGuid;addon.sheath_state=uint8(spawnSheath);addon.move_flags=spawnMoveFlags;sObjectMgr.spawnAddons.emplace(c.dbGuid,addon);}
+  // Sentinel row proves lookup uses persistent DB GUID, never runtime GUIDLow.
+  CreatureDataAddon wrongGuid{};wrongGuid.guidOrEntry=c.lowGuid;wrongGuid.sheath_state=2;sObjectMgr.spawnAddons.emplace(c.lowGuid,wrongGuid);
+  rolls.clear();cursor=0;
+  if(initial==0x1001u)c.InitFreshAddonBytes();else c.m_uint32Values[UNIT_FIELD_BYTES_2]=initial;
+  assert(c.m_uint32Values[UNIT_FIELD_BYTES_2]==initial);
+  const CreatureDataAddon*selected=c.GetCreatureAddon();
+  uint32 source=selected?(selected->guidOrEntry==c.dbGuid?2u:1u):0u;
+  bool loaded=c.LoadCreatureAddon(false);assert(cursor==0);
+  std::cout<<"a "<<initial<<' '<<(templateSheath>=0)<<' '<<std::max(templateSheath,0)<<' '<<(spawnSheath>=0)<<' '<<std::max(spawnSheath,0)<<' '<<source<<' '<<c.m_uint32Values[UNIT_FIELD_BYTES_2]<<' '<<loaded<<' '<<cursor<<' '<<templateMoveFlags<<' '<<spawnMoveFlags<<'\n';
+ }
+
 }

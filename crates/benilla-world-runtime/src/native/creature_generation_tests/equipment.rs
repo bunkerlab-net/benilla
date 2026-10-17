@@ -455,6 +455,7 @@ fn shared_selected_and_unused_equipment_rows_must_agree_across_spawns_transactio
     });
     let mut second = first.clone();
     second.spawn_id = 7;
+    second.input.spawn_id = 7;
     let good = two_spawn_profile(first.clone(), second.clone());
     let w = world(good.clone(), 7);
     assert_staff(owner(&w, 2).result());
@@ -619,6 +620,7 @@ fn aggregate_catalog_budget_counts_equipment_rows_before_constructing_owners() {
         .map(|spawn| {
             let mut source = raw.clone();
             source.spawn_id = spawn;
+            source.input.spawn_id = spawn;
             source
         })
         .collect();

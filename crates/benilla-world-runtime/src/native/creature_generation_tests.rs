@@ -5,10 +5,12 @@ use super::{synthetic_creature_model_fixture as models, synthetic_fixture as f, 
 use benilla_sim::creature_init as init;
 use std::collections::BTreeSet;
 
+mod addons;
 mod equipment;
 
 fn source(spawn: u64, minimum: u8, maximum: u8) -> CreatureGenerationSource {
     let mut input = models::input();
+    input.spawn_id = spawn;
     input.template.extra_flags = 2;
     input.template.minimum_level = minimum;
     input.template.maximum_level = maximum;
@@ -194,9 +196,9 @@ fn assert_selection(w: &NativeWorld, spawn: u64) {
 }
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v40\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v41\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v40\0",
+        b"benilla-native-checkpoint-v41\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp

@@ -60,7 +60,8 @@ pub(super) fn fields(selected: &init::InitializedCreature) -> [(u16, u32); 10] {
         .mainhand
         .map_or((0, [0; 2]), |item| (item.display_id, item.info));
     // LoadEquipment writes all slots; closed offhand/ranged slots stay explicit
-    // zero. UpdateEntry sets melee sheath and UNIT_BYTE2_FLAG_AURAS on each life.
+    // zero. UpdateEntry sets melee sheath and UNIT_BYTE2_FLAG_AURAS; the selected
+    // GUID/template addon then replaces only the sheath byte on each life.
     [
         (37, display),
         (38, 0),

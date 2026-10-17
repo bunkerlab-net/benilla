@@ -9,7 +9,7 @@ use benilla_sim::{creature_init as init, creature_regeneration as regeneration};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v2";
+pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v3";
 pub const MAX_CREATURE_GENERATIONS: usize = 256;
 const MAX_CORPSE_TIMER_CALLS: usize = 256;
 const MAX_SOURCES: usize = 4096;
@@ -32,7 +32,7 @@ pub struct CreatureGenerationSource {
 impl CreatureGenerationSource {
     pub fn identity(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-native-creature-generation-source-v2\0",
+            b"benilla-native-creature-generation-source-v3\0",
             &(
                 CREATURE_GENERATION_POLICY,
                 init::CREATURE_INIT_POLICY_ID,
@@ -41,7 +41,8 @@ impl CreatureGenerationSource {
         )
     }
     fn validate(&self) -> Result<(), NativeError> {
-        if self.spawn_id <= SOLO_UNIT
+        if self.input.spawn_id != self.spawn_id
+            || self.spawn_id <= SOLO_UNIT
             || self.spawn_entry == 0
             || self.spawn_entry > 0xff_ffff
             || self.spawn_entry != self.input.template.entry
@@ -151,6 +152,8 @@ impl CreatureGenerationCatalog {
                 rows(&source.input.external_features)?.len(),
                 rows(&source.input.equipment_templates)?.len(),
                 rows(&source.input.item_templates)?.len(),
+                rows(&source.input.spawn_addons)?.len(),
+                rows(&source.input.template_addons)?.len(),
             ] {
                 row_count = row_count.checked_add(count).ok_or(NativeError::TooLarge)?;
             }
@@ -167,6 +170,7 @@ impl CreatureGenerationCatalog {
         let mut spawn_templates = BTreeMap::new();
         let mut equipment_templates = BTreeMap::new();
         let mut item_templates = BTreeMap::new();
+        let mut template_addons = BTreeMap::new();
         let expected_rates = sources.first().map(|source| source.input.rates);
         for source in sources {
             source.validate()?;
@@ -175,6 +179,13 @@ impl CreatureGenerationCatalog {
                 return Err(NativeError::InvalidProfile);
             }
             consistent(&mut templates, input.template.entry, &input.template)?;
+            // A complete empty query and a present row cannot both describe the
+            // same template. Compare query closure, not only overlapping rows.
+            consistent(
+                &mut template_addons,
+                input.template.entry,
+                &input.template_addons,
+            )?;
             for row in rows(&input.class_levels)? {
                 consistent(&mut levels, (row.class, row.level), row)?;
             }
@@ -420,6 +431,8 @@ impl CreatureGenerationCheckpoint {
             .and_then(|n| n.checked_add(rows(&input.external_features).ok()?.len() as u64))
             .and_then(|n| n.checked_add(rows(&input.equipment_templates).ok()?.len() as u64))
             .and_then(|n| n.checked_add(rows(&input.item_templates).ok()?.len() as u64))
+            .and_then(|n| n.checked_add(rows(&input.spawn_addons).ok()?.len() as u64))
+            .and_then(|n| n.checked_add(rows(&input.template_addons).ok()?.len() as u64))
             .ok_or(NativeError::TooLarge)?;
         let levels = u64::from(input.template.maximum_level)
             .checked_sub(u64::from(input.template.minimum_level))

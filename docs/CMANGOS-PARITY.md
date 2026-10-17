@@ -175,7 +175,7 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 40 retains this required-option evidence and rejects earlier formats.
+  format 41 retains this required-option evidence and rejects earlier formats.
   The first source-owner cache contract requires explicit first dispatch, revision
   one and Complete NORMAL with exact endpoints/all segment predicates. Retained
   use still requires exact prior and increment. Runtime-owned live dispatch is
@@ -231,13 +231,17 @@ is meaningful without a bounded content/mechanics inventory.
   precedes respawn-delay selection; bounded removal/loot-timer history survives
   replay and compaction. Authored cold-entry ordering is explicitly synthetic;
   retained mainhand equipment owns virtual fields and static disarm damage.
-  Item Damage/Delay never replace creature stats or attack time. Dynamic equipment,
+  Item Damage/Delay never replace creature stats or attack time. Ordinary creature
+  addons retain complete spawn/template queries with whole-row spawn precedence
+  and bounded sheath application. Empty and overridden source rows remain bound;
+  mount, stand/emote, aura and script support stay closed. Captured movement flags
+  are retained but not applied by the pinned loader. Dynamic equipment,
   offhand/ranged, client assets and real Human content admission remain separate.
   An explicitly selected current-pose numeric host derives both ordinary melee
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 40, without changing the
+  service uses experimental native checkpoint format 41, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,
@@ -276,7 +280,7 @@ is meaningful without a bounded content/mechanics inventory.
   semantics cannot disappear. Unsupported learned active executors remain visibly
   unavailable only after their learning/stat effects have been validated. Selected
   spell authority v7 retains the bounded full-raw ID 133 fields only after a
-  source-backed neutral modifier closure. Native40 owns idle player BASE/OFF
+  source-backed neutral modifier closure. Native41 owns idle player BASE/OFF
   attack timers, source equipment Delay/break transitions, successful-release
   COMBAT resets and durable historical reset validation. Full-raw execution also
   requires an owned pose-bound zone/area observation and scoped absence from a
@@ -284,7 +288,7 @@ is meaningful without a bounded content/mechanics inventory.
   The authored full-raw
   fixture does not establish actual DBC equality; the producer/compiler and
   native admission remain closed. See [the bounded spell contract](../crates/benilla-world-runtime/SPELL-AUTHORITY.md).
-  Native40 retains source-derived creation/entry plans and realizes the selected
+  Native41 retains source-derived creation/entry plans and realizes the selected
   first-entry RNG receipt once, before tick0. The authored Dodge81/Detect3050
   phase fixtures do not establish actual Human loaded order, DBC rows or
   production admission. General channels, procs, triggered scripts and arbitrary

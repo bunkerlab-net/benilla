@@ -10,6 +10,7 @@ fn bits(value: u32) -> SpellFloat {
 }
 fn input() -> Input {
     Input {
+        spawn_id: 91,
         template: Template {
             entry: 99,
             minimum_level: 1,
@@ -120,6 +121,8 @@ fn input() -> Input {
         }]),
         equipment_templates: Rows::Complete(vec![]),
         item_templates: Rows::Complete(vec![]),
+        spawn_addons: Rows::Complete(vec![]),
+        template_addons: Rows::Complete(vec![]),
         external_features: Rows::Complete(vec![]),
         rates: Rates {
             normal_health: f(1.),
@@ -593,7 +596,7 @@ fn regeneration_preserves_native_five_second_single_tick_accumulator() {
 }
 #[test]
 fn pinned_cpp_differential() {
-    let mut counts = [0; 6];
+    let mut counts = [0; 7];
     for (line_number, line) in include_str!("fixtures/creature_init_cmangos.tsv")
         .lines()
         .enumerate()
@@ -603,6 +606,43 @@ fn pinned_cpp_differential() {
         let n: Vec<u32> = words.map(|w| w.parse().unwrap()).collect();
         let mut i = input();
         match kind {
+            "a" => {
+                assert_eq!(n.len(), 11);
+                counts[6] += 1;
+                // Arbitrary preexisting upper-byte words are compared against
+                // the private byte setter separately; this API is fresh-only.
+                if n[0] != 0x1001 {
+                    continue;
+                }
+                if n[1] != 0 {
+                    i.template_addons = Rows::Complete(vec![TemplateAddonRow {
+                        entry: i.template.entry,
+                        addon: Addon {
+                            mount: 0,
+                            stand_state: 0,
+                            sheath_state: n[2],
+                            emote: 0,
+                            move_flags: n[9],
+                            auras: vec![],
+                        },
+                    }]);
+                }
+                if n[3] != 0 {
+                    i.spawn_addons = Rows::Complete(vec![SpawnAddonRow {
+                        guid: i.spawn_id,
+                        addon: Addon {
+                            mount: 0,
+                            stand_state: 0,
+                            sheath_state: n[4],
+                            emote: 0,
+                            move_flags: n[10],
+                            auras: vec![],
+                        },
+                    }]);
+                }
+                assert_eq!(initialize(&i).unit_bytes_2, n[6]);
+                assert_eq!(n[8], 0, "addon initialization draws no randomness");
+            }
             "e" => {
                 assert_eq!(n.len(), 26);
                 counts[5] += 1;
@@ -811,7 +851,7 @@ fn pinned_cpp_differential() {
             _ => panic!("unknown fixture row"),
         }
     }
-    assert_eq!(counts, [1057, 12, 1225, 1536, 256, 192]);
+    assert_eq!(counts, [1057, 12, 1225, 1536, 256, 192, 448]);
 }
 
 #[test]
@@ -1248,3 +1288,6 @@ fn initial_height_matches_unchanged_source_fixture_and_refuses_numeric_outside_d
 
 #[path = "creature_init/equipment.rs"]
 mod equipment;
+
+#[path = "creature_init/addon.rs"]
+mod addon;

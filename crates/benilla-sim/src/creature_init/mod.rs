@@ -4,6 +4,7 @@
 //! Bounded ordinary NPC creation arithmetic, not world admission or AI selection.
 //! Inputs are raw, locally captured rows. No database values or rates are supplied.
 //! See ../../CREATURE-INIT.md for loader preprocessing, draw order and exclusions.
+mod addon;
 mod equipment;
 mod model_receipt;
 mod numeric;
@@ -11,6 +12,7 @@ mod numeric;
 mod source_retention_tests;
 use crate::classic_spell::SpellFloat;
 use crate::npc_melee::{CreatureStatClass, DamageRange};
+pub use addon::{Addon, SpawnAddonRow, TemplateAddonRow};
 pub use equipment::{
     EquipmentTemplateRow, InitialEquipment, InitialVirtualItem, ItemDamage, ItemTemplateRow,
 };
@@ -20,11 +22,11 @@ pub use model_receipt::{
     CREATURE_COLLISION_WIDTH_POLICY_ID, CREATURE_MODEL_SELECTION_POLICY_ID,
 };
 use std::collections::{BTreeMap, BTreeSet};
-pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v2";
+pub const CREATURE_INIT_POLICY_ID: &str = "cmangos-8ec338a1-ordinary-creature-init-softfloat-v3";
 pub const REGEN_INTERVAL_MS: u32 = 5_000;
-/// Local resource limit for complete retained source rows, not a game-data rule.
+/// Local limit for retained source rows and aura IDs, not a game-data rule.
 pub const MAX_CREATURE_INIT_SOURCE_ROWS: usize = 4_096;
-/// Fixed-width retained-storage budget, not a native database or wire-size rule.
+/// Retained-storage budget, including aura IDs, not a database or wire-size rule.
 pub const MAX_CREATURE_INIT_SOURCE_BYTES: usize = 262_144;
 const MAX_AMOUNT: u32 = 1_000_000;
 pub type Result<T> = std::result::Result<T, InitError>;
@@ -183,6 +185,8 @@ pub enum ExternalFeature {
     GameEventOrPoolSubstitution,
     ConditionalOrGroupedSpawn,
     LinkingOrAssistance,
+    /// Addon writers outside the retained initial spawn/template addon rows,
+    /// including events, scripts, dynamic replacement or unbound source content.
     Addon,
     InitialAuraOrUnitModifier,
     ScriptOrAiSubstitution,
@@ -206,6 +210,8 @@ pub enum ExternalFeature {
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Input {
+    /// Exact nonzero creature database GUID whose addon query was captured.
+    pub spawn_id: u64,
     pub template: Template,
     pub class_levels: Rows<ClassLevelRow>,
     pub models: Rows<ModelRow>,
@@ -214,14 +220,20 @@ pub struct Input {
     pub spawn_template: Rows<SpawnTemplate>,
     pub equipment_templates: Rows<EquipmentTemplateRow>,
     pub item_templates: Rows<ItemTemplateRow>,
+    /// Complete exact-GUID query, including an explicitly captured empty result.
+    pub spawn_addons: Rows<SpawnAddonRow>,
+    /// Complete exact-entry query, retained even when a spawn row overrides it.
+    pub template_addons: Rows<TemplateAddonRow>,
     /// Requires positive completeness evidence at the private consumer boundary.
     pub external_features: Rows<ExternalFeature>,
     pub rates: Rates,
 }
 impl Input {
-    /// Constant-time aggregate row budget, checked before allocation or arithmetic
+    /// Aggregate row/payload budget, checked before allocation or arithmetic
     /// in prepare. Missing collections count as zero here, but remain Missing and
     /// are rejected by prepare; this check alone does not validate source inputs.
+    /// Outer row counts are bounded before scanning nested aura-vector lengths;
+    /// aura values are never traversed here.
     pub fn validate_retention_bounds(&self) -> Result<()> {
         let counts = [
             self.class_levels.retained_len(),
@@ -230,6 +242,8 @@ impl Input {
             self.spawn_template.retained_len(),
             self.equipment_templates.retained_len(),
             self.item_templates.retained_len(),
+            self.spawn_addons.retained_len(),
+            self.template_addons.retained_len(),
             self.external_features.retained_len(),
         ];
         let total = counts
@@ -239,6 +253,13 @@ impl Input {
         if total > MAX_CREATURE_INIT_SOURCE_ROWS {
             return Err(InitError::Invalid("source retention row bound"));
         }
+        let aura_ids = addon::retained_aura_ids(self)?;
+        if total
+            .checked_add(aura_ids)
+            .is_none_or(|count| count > MAX_CREATURE_INIT_SOURCE_ROWS)
+        {
+            return Err(InitError::Invalid("source retention row bound"));
+        }
         let sizes = [
             std::mem::size_of::<ClassLevelRow>(),
             std::mem::size_of::<ModelRow>(),
@@ -246,6 +267,8 @@ impl Input {
             std::mem::size_of::<SpawnTemplate>(),
             std::mem::size_of::<EquipmentTemplateRow>(),
             std::mem::size_of::<ItemTemplateRow>(),
+            std::mem::size_of::<SpawnAddonRow>(),
+            std::mem::size_of::<TemplateAddonRow>(),
             std::mem::size_of::<ExternalFeature>(),
         ];
         let bytes = counts
@@ -254,6 +277,7 @@ impl Input {
             .try_fold(std::mem::size_of::<Self>(), |total, (count, size)| {
                 total.checked_add(count.checked_mul(size)?)
             })
+            .and_then(|bytes| bytes.checked_add(aura_ids.checked_mul(std::mem::size_of::<u32>())?))
             .ok_or(InitError::Invalid("source retention byte bound"))?;
         if bytes > MAX_CREATURE_INIT_SOURCE_BYTES {
             return Err(InitError::Invalid("source retention byte bound"));
@@ -322,7 +346,8 @@ pub struct InitializedCreature {
     pub model: Model,
     pub faction: u32,
     pub unit_flags: u32,
-    /// Fresh UpdateEntry melee sheath byte and UNIT_BYTE2_FLAG_AURAS misc byte.
+    /// Fresh UpdateEntry word with the selected initial addon sheath byte applied;
+    /// the UNIT_BYTE2_FLAG_AURAS misc byte is preserved.
     pub unit_bytes_2: u32,
     pub equipment: InitialEquipment,
     pub npc_flags: u32,
@@ -351,6 +376,7 @@ pub struct Plan<'a> {
     input: &'a Input,
     spawn: SpawnTemplate,
     equipment: InitialEquipment,
+    addon_sheath: Option<u8>,
     levels: BTreeMap<u8, Stats>,
     models: BTreeMap<u32, Model>,
     other_gender: BTreeMap<u32, u32>,
@@ -440,7 +466,7 @@ impl Plan<'_> {
             } else {
                 self.spawn.unit_flags as u32
             },
-            unit_bytes_2: 0x0000_1001,
+            unit_bytes_2: addon::apply_sheath(0x0000_1001, self.addon_sheath),
             equipment: self.equipment,
             npc_flags: if self.spawn.npc_flags == -1 {
                 t.npc_flags
@@ -561,6 +587,7 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
         return Err(InitError::Invalid("spawn override sentinel"));
     }
     let equipment = equipment::prepare(input, spawn)?;
+    let addon_sheath = addon::prepare(input)?;
     let flags = if spawn.unit_flags == -1 {
         t.unit_flags
     } else {
@@ -668,6 +695,7 @@ pub fn prepare(input: &Input) -> Result<Plan<'_>> {
         input,
         spawn,
         equipment,
+        addon_sheath,
         levels,
         models,
         other_gender,
