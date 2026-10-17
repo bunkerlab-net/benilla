@@ -361,6 +361,18 @@ vectors are compared with the actual Rust learning path in
 `tests/starter_skill_callbacks.rs`, including reversed loaded row order and
 retained bonuses. Neither harness provides real Human DBC rows or observed order.
 
+The numeric lookup oracle extracts GetSpellDuration, GetSpellMaxDuration and
+GetSpellCastTime with their original indexed row declarations and signedness.
+Sixty-two authored vectors distinguish Missing from Found-zero, mismatched evidence
+indices, permanent duration, rank arithmetic and clamp behavior. Twelve neutral
+lookup tuples match the private prerequisite reducer, while 23 broader tuples
+remain rejected even when their source result happens to be zero. The remaining
+27 source-only contexts exercise null/early-exit, modifier, trade, ranged and speed
+branches through explicitly authored adapters; they do not prove those adapters'
+internal policies or old-triggered semantics. Undefined/out-of-range C++ numeric
+domains are excluded rather than assigned results. Actual DBC contents and full
+spell/holder admission are separate from this numeric tuple proof.
+
 Run from this crate's root:
 
     python3 tools/generate_starter_init_fixture.py /path/to/pinned/upstream
@@ -368,7 +380,9 @@ Run from this crate's root:
     python3 tools/generate_starter_effect_amount_fixture.py /path/to/pinned/upstream
     python3 tools/generate_starter_callbacks_fixture.py /path/to/pinned/core-root --check
     python3 -m unittest discover -s tools -p test_starter_callbacks_oracle.py
-    cargo test -p benilla-sim --test starter_init --test starter_skill_callbacks
+    python3 tools/generate_starter_numeric_fixture.py /path/to/pinned/core-root --check
+    python3 -m unittest discover -s tools -p test_starter_numeric_oracle.py
+    cargo test -p benilla-sim --lib --test starter_init --test starter_skill_callbacks
     cargo clippy -p benilla-sim --all-targets -- -D warnings
 
 Twenty-four additional vectors use the unchanged WorldObject effect-value body

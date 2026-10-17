@@ -377,3 +377,5 @@ fn prepared_training_is_cross_bound_and_no_rng_or_completion_is_hidden() {
         serde_json::to_value(prepared.identity()).unwrap()
     );
 }
+
+mod numeric_source;
