@@ -1210,13 +1210,16 @@ impl SourceSamePolygonRouteProvider {
         if !tiles.both_present() {
             return Err(Failure::MissingGeometry.into());
         }
-        let retained_filter = prior
-            .as_ref()
-            .map(|prior| prior.terminal.compatibility().filter())
-            .unwrap_or(SourceOwnerFilter {
-                include_flags: 1,
-                exclude_flags: 0,
-            });
+        let retained_filter = match prior {
+            Some(prior) => prior.terminal.compatibility().filter(),
+            None => {
+                let created = constructor_filter.as_ref().ok_or(Failure::Binding)?;
+                SourceOwnerFilter {
+                    include_flags: created.filter().include_flags(),
+                    exclude_flags: created.filter().exclude_flags(),
+                }
+            }
+        };
         if constructor_filter.as_ref().is_some_and(|created| {
             created.filter().include_flags() != retained_filter.include_flags
                 || created.filter().exclude_flags() != retained_filter.exclude_flags
@@ -1243,8 +1246,9 @@ impl SourceSamePolygonRouteProvider {
                 deadline,
             )?
         } else {
-            selected.loaded_cold_same_polygon(
+            selected.loaded_cold_same_polygon_with_filter(
                 SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION,
+                filter.filter(),
                 config.normalization,
                 config.cold_budget,
                 deadline,
@@ -1258,6 +1262,7 @@ impl SourceSamePolygonRouteProvider {
             || terminal.actual_end() != bits(route.request.goal)
             || terminal.path_type() != 1
             || terminal.compatibility().active_len() != 1
+            || terminal.compatibility().filter() != filter.filter()
         {
             return Err(Failure::Binding.into());
         }
@@ -1388,3 +1393,7 @@ mod staged_tests;
 #[cfg(test)]
 #[path = "source_route_same_polygon/two_owner_tests.rs"]
 pub(super) mod two_owner_tests;
+
+#[cfg(test)]
+#[path = "source_route_same_polygon/dry_habitat_tests.rs"]
+pub(super) mod dry_habitat_tests;

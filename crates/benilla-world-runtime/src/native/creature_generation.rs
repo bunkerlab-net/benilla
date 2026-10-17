@@ -9,7 +9,7 @@ use benilla_sim::{creature_init as init, creature_regeneration as regeneration};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v3";
+pub const CREATURE_GENERATION_POLICY: &str = "cmangos-8ec338a1-native-creature-generation-v4";
 pub const MAX_CREATURE_GENERATIONS: usize = 256;
 const MAX_CORPSE_TIMER_CALLS: usize = 256;
 const MAX_SOURCES: usize = 4096;
@@ -32,7 +32,7 @@ pub struct CreatureGenerationSource {
 impl CreatureGenerationSource {
     pub fn identity(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-native-creature-generation-source-v3\0",
+            b"benilla-native-creature-generation-source-v4\0",
             &(
                 CREATURE_GENERATION_POLICY,
                 init::CREATURE_INIT_POLICY_ID,
@@ -291,7 +291,7 @@ impl CreatureGenerationCatalog {
         }
         Ok(())
     }
-    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    #[cfg(test)]
     pub(super) fn initial(
         &self,
         world: crate::WorldId,
@@ -305,12 +305,63 @@ impl CreatureGenerationCatalog {
         }
         let source = self.source(npc.spawn).ok_or(NativeError::InvalidProfile)?;
         let mut next_counter = *cursor;
-        let generation = realize(source, world, npc, 0, seed, &mut next_counter, None)?;
+        let generation = realize(
+            source,
+            world,
+            npc,
+            0,
+            seed,
+            &mut next_counter,
+            None,
+            None,
+            &mut creature_initialization::unavailable_initialization,
+        )?;
         let draws = generation.history.draws.clone();
         let owner = CreatureGenerationOwner {
             policy: CREATURE_GENERATION_POLICY,
             world,
             profile,
+            source: source.identity(),
+            spawn: npc.spawn,
+            generations: vec![generation],
+        };
+        owner.checkpoint().check_budget()?;
+        *cursor = next_counter;
+        Ok((owner, draws))
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn initial_with_initialization(
+        &self,
+        profile: &Profile,
+        world: crate::WorldId,
+        npc: crate::NpcId,
+        seed: u64,
+        cursor: &mut u64,
+        observe: &mut dyn FnMut(
+            &CreatureInitializationRequest,
+        ) -> Result<CreatureInitializationFacts, NativeError>,
+    ) -> Result<(CreatureGenerationOwner, Vec<Draw>), NativeError> {
+        if npc.generation != 0 {
+            return Err(NativeError::InvalidState);
+        }
+        let source = self.source(npc.spawn).ok_or(NativeError::InvalidProfile)?;
+        let mut next_counter = *cursor;
+        let generation = realize(
+            source,
+            world,
+            npc,
+            0,
+            seed,
+            &mut next_counter,
+            None,
+            Some(profile),
+            observe,
+        )?;
+        let draws = generation.history.draws.clone();
+        let owner = CreatureGenerationOwner {
+            policy: CREATURE_GENERATION_POLICY,
+            world,
+            profile: profile.digest(),
             source: source.identity(),
             spawn: npc.spawn,
             generations: vec![generation],
@@ -357,6 +408,8 @@ struct GenerationHistory {
     first_counter: u64,
     end_counter: u64,
     draws: Vec<Draw>,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    initialization: Option<CreatureInitializationFacts>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     death: Option<DeathHistory>,
     #[serde(deserialize_with = "creature_collision_width::required_option")]
@@ -486,6 +539,10 @@ pub struct CreatureGeneration {
     corpse_delay_seconds: u32,
 }
 impl CreatureGeneration {
+    pub fn initialization(&self) -> Option<&CreatureInitializationFacts> {
+        self.history.initialization.as_ref()
+    }
+
     pub fn npc_id(&self) -> crate::NpcId {
         self.history.npc
     }
@@ -583,6 +640,57 @@ pub struct CreatureGenerationOwner {
     generations: Vec<CreatureGeneration>,
 }
 impl CreatureGenerationOwner {
+    pub fn initialization(&self) -> Option<&CreatureInitializationFacts> {
+        self.current().initialization()
+    }
+
+    pub(super) fn validate_initializations(&self, profile: &Profile) -> Result<(), NativeError> {
+        let source = profile
+            .creature_generations
+            .as_ref()
+            .and_then(|catalog| catalog.source(self.spawn))
+            .ok_or(NativeError::AuthorityBinding)?;
+        if source.identity() != self.source || self.profile != profile.digest() {
+            return Err(NativeError::AuthorityBinding);
+        }
+        for life in &self.generations {
+            let selected = life.model_selection.draws();
+            let model = init::prepare(&source.input)?
+                .select_model(selected[0].value(), selected[1].value())?;
+            let mut before_level = life.history.first_counter;
+            let mut prefix_count = 0;
+            for draw in &life.history.draws {
+                match draw.purpose {
+                    DrawPurpose::CreatureModel { npc } | DrawPurpose::CreatureGender { npc }
+                        if npc == life.npc_id() =>
+                    {
+                        if draw.first_counter != before_level {
+                            return Err(NativeError::AuthorityBinding);
+                        }
+                        before_level = draw_end(draw)?;
+                        prefix_count += 1;
+                    }
+                    _ => break,
+                }
+            }
+            let expected = CreatureInitializationRequest::new(
+                profile,
+                self.world,
+                life.npc_id(),
+                life.creation_tick(),
+                life.creation_first_counter(),
+                before_level,
+                &model,
+                &life.history.draws[..prefix_count],
+            )?;
+            match (&expected, life.initialization()) {
+                (None, None) => {}
+                (Some(request), Some(facts)) => facts.validate_for(request)?,
+                _ => return Err(NativeError::AuthorityBinding),
+            }
+        }
+        Ok(())
+    }
     fn current(&self) -> &CreatureGeneration {
         self.generations.last().expect("owned initial generation")
     }
@@ -787,6 +895,7 @@ impl CreatureGenerationOwner {
         next.checkpoint().check_budget()?;
         Ok(next)
     }
+    #[cfg(test)]
     pub(super) fn respawn(
         &self,
         catalog: &CreatureGenerationCatalog,
@@ -794,6 +903,29 @@ impl CreatureGenerationOwner {
         tick: u64,
         seed: u64,
         cursor: &mut u64,
+    ) -> Result<(Self, Vec<Draw>), NativeError> {
+        self.respawn_with_initialization(
+            catalog,
+            npc,
+            tick,
+            seed,
+            cursor,
+            None,
+            &mut creature_initialization::unavailable_initialization,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn respawn_with_initialization(
+        &self,
+        catalog: &CreatureGenerationCatalog,
+        npc: crate::NpcId,
+        tick: u64,
+        seed: u64,
+        cursor: &mut u64,
+        profile: Option<&Profile>,
+        observe: &mut dyn FnMut(
+            &CreatureInitializationRequest,
+        ) -> Result<CreatureInitializationFacts, NativeError>,
     ) -> Result<(Self, Vec<Draw>), NativeError> {
         let source = self.bound_source(catalog)?;
         if self.generations.len() >= MAX_CREATURE_GENERATIONS {
@@ -829,6 +961,8 @@ impl CreatureGenerationOwner {
             seed,
             &mut next_counter,
             Some(self.respawn_delay_seconds()),
+            profile,
+            observe,
         )?;
         let draws = life.history.draws.clone();
         let mut next = self.clone();
@@ -867,6 +1001,7 @@ impl CreatureGenerationOwner {
         tick_ms: u32,
         clock_origin_ms: u64,
         base: &NpcProfile,
+        runtime_profile: Option<&Profile>,
     ) -> Result<Self, NativeError> {
         checkpoint.check_budget()?;
         let source = catalog
@@ -937,8 +1072,20 @@ impl CreatureGenerationOwner {
                 seed,
                 &mut cursor,
                 inherited_delay,
+                runtime_profile,
+                &mut |request| {
+                    let facts = history
+                        .initialization
+                        .as_ref()
+                        .ok_or(NativeError::InvalidCheckpoint)?;
+                    facts.validate_for(request)?;
+                    Ok(facts.clone())
+                },
             )?;
-            if cursor != history.end_counter || life.history.draws != history.draws {
+            if cursor != history.end_counter
+                || life.history.draws != history.draws
+                || life.history.initialization != history.initialization
+            {
                 return Err(NativeError::InvalidCheckpoint);
             }
             if let Some(death) = &history.death {
@@ -1158,6 +1305,10 @@ fn realize(
     seed: u64,
     cursor: &mut u64,
     inherited_delay: Option<u32>,
+    profile: Option<&Profile>,
+    observe: &mut dyn FnMut(
+        &CreatureInitializationRequest,
+    ) -> Result<CreatureInitializationFacts, NativeError>,
 ) -> Result<CreatureGeneration, NativeError> {
     let first_counter = *cursor;
     let plan = init::prepare(&source.input)?;
@@ -1180,20 +1331,38 @@ fn realize(
         plan.gender_roll_range(model)?,
         &mut draws,
     )?;
+    let model = plan.select_model(model, gender)?;
+    let initialization = profile
+        .map(|profile| {
+            CreatureInitializationRequest::new(
+                profile,
+                world,
+                npc,
+                tick,
+                first_counter,
+                *cursor,
+                &model,
+                &draws,
+            )
+        })
+        .transpose()?
+        .flatten()
+        .map(|request| {
+            let facts = observe(&request)?;
+            facts.validate_for(&request)?;
+            Ok::<_, NativeError>(facts)
+        })
+        .transpose()?;
     let level = selection_sample(
         source,
         world,
         seed,
         cursor,
         DrawPurpose::CreatureLevel { npc },
-        plan.level_roll_range(),
+        model.level_roll_range(),
         &mut draws,
     )?;
-    let (initialized, model_selection) = plan.resolve_with_model_receipt(init::SelectionRolls {
-        model,
-        gender,
-        level,
-    })?;
+    let (initialized, model_selection) = model.resolve_with_model_receipt(level)?;
     let regeneration = validate_projection(&source.input, &initialized)?;
     let respawn_delay_seconds = match inherited_delay {
         Some(delay) => delay,
@@ -1230,6 +1399,7 @@ fn realize(
             first_counter,
             end_counter: *cursor,
             draws,
+            initialization,
             death: None,
             corpse_removed_tick: None,
             corpse_timer_calls: Vec::new(),

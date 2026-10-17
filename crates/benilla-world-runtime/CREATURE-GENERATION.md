@@ -1,6 +1,6 @@
 # Source-owned creature generations
 
-This optional native42 component owns ordinary creature initialization per life.
+This optional native43 component owns ordinary creature initialization per life.
 It does not open production admission, import a creature database, authenticate
 captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
@@ -85,17 +85,18 @@ overrides, temporary faction/summon callbacks, visitor addon override writers,
 auras, mounts and entry substitutions remain excluded. Profile validation checks
 the composed closure before execution and again on restore.
 
-This composition does not widen habitat support. Actual entry 6 has
-`InhabitType=3` (`GROUND|WATER`); it remains rejected by the executable ground-only
-capability, ground-height and route owners. Retained sheath state cannot turn a
-water-capable source into habitat 1 or certify dry geometry. Authored composition
-fixtures establish neither real geometry nor startup or content admission.
+Addon composition alone supplies no habitat or geometry proof. The separately
+selected [dry habitat-3 owner](CREATURE-DRY-HABITAT.md) retains `CanSwim=true` and
+requires source-ordered initialization and movement observations. Retained sheath
+state cannot turn a water-capable source into habitat 1 or certify dry geometry.
+Actual entry-6 DBC, movement, EventAI and content-admission dependencies remain open.
 
 ## Source order and RNG
 
 Pinned CMaNGOS Classic `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`:
 
 - `Creature.cpp` InitEntry/UpdateEntry/SelectLevel: model, conditional gender,
+  selected-model initialization liquid query for the dry habitat-3 owner, then
   conditional level. A single weighted model still draws; equal levels do not
 - `Creature.cpp` LoadFromDB and `Creature.h` respawn randomization: initial DB
   respawn-delay selection follows initialization and draws even for equal bounds
@@ -115,11 +116,12 @@ not evidence of universal source grid iteration or a real Human entry order.
 
 ## Persistence and transaction boundary
 
-Native format 42, policy `benilla-native-addon-capabilities-v42`, and v42
-profile/state/record/checkpoint/melee/callback hash domains reject native41 and
+Native format 43, policy `benilla-native-dry-habitat-v43`, and v43
+profile/state/record/checkpoint/melee/callback hash domains reject native42 and
 older envelopes without migration.
-Capability source policy v2 and ordinary visitor source policy v3 bind the
-explicit addon closure; Home's required closure is bound by native42. The RNG v2
+Generation source policy v4 and capability source policy v3 bind the explicit
+initialization closure and required per-life receipt. Ordinary visitor source
+policy v3 and Home retain their explicit addon closures. The RNG v2
 mapping, original World v2 and character saves are unchanged. Checkpoints require
 explicit source-owner option fields; absence cannot deserialize into a source-free
 fallback. Restore

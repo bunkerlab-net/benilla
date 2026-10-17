@@ -47,26 +47,29 @@ immutable generation source, including stable spawn, effective entry, full sourc
 identity and matching spawn-template/exclusion rows. The generation validator owns
 complete addon queries and the sheath-only supported subset. Missing owners,
 wrong identities and contradictory sources reject rather than supplying a fallback.
-The capability source policy and source-binding domain are v2.
+The capability source policy and source-binding domain are v3.
 
 `Profile::initialize_creature_capabilities` atomically selects this host and
 requires existing source motion, exact catalog coverage of runtime NPCs, matching
-effective entries, actual habitat `GROUND=1`, and spawn flags containing only the
-supported RUN bit (0 or 1). Other valid habitat values can be retained in the
-independent catalog but cannot enter this first executable runtime domain.
-Actual entry 6 has raw habitat 3 (`GROUND|WATER`) and remains outside this domain,
-including the ground-height and route owners; addon composition does not relabel
-it as habitat 1 or establish a dry location.
+effective entries, and spawn flags containing only the supported RUN bit (0 or 1).
+The required initialization closure selects `Ground` for actual habitat 1 or
+`DryWater` for actual habitat 3. The latter requires generation/model/height
+ownership and the [source-ordered dry initialization contract](CREATURE-DRY-HABITAT.md).
+Other valid habitat values remain unavailable to this executable domain. Actual
+entry 6 is not relabeled as habitat 1; its DBC, movement, AI and full content
+admission remain separate from these bounded habitat-3 mechanisms.
 
 ## Current state and lifecycle
 
-The private `CreatureCapabilityState` owns only the bits read by `CanFly`:
-LEVITATING `0x400`, CAN_FLY `0x800000`, and HOVER `0x40000000`. It is not full
-`MovementInfo`. Constructor `MovementInfo` begins at zero, while Creature's
+The private `CreatureCapabilityState` owns the bits read by `CanFly`:
+LEVITATING `0x400`, CAN_FLY `0x800000`, and HOVER `0x40000000`, plus a separately
+retained SWIMMING projection and generation-owned initialization facts. It is not
+full `MovementInfo`. Constructor `MovementInfo` begins at zero, while Creature's
 `SetWalk(true, true)` adds WALK_MODE; InitEntry's RUN flag can clear WALK_MODE.
-Neither changes this projection. Actual GROUND causes `SetLevitate(false)` and
-short-circuits the WATER/IsSwimmable branch; no HOVER/gravity flags or excluded
-control/script paths can set these three bits. A generation-owned sheath-only
+Neither changes this projection. Supported non-AIR habitats cause
+`SetLevitate(false)`; habitat 1 short-circuits WATER/IsSwimmable, while habitat 3
+requires the selected-model dry observation before level selection. No HOVER/
+gravity flags or excluded control/script paths can set the three flight bits. A generation-owned sheath-only
 addon writes misc bytes, not these flags; its captured `move_flags` are unused by
 the pinned loader. The resulting owned initial projection is therefore zero.
 There is no public setter or independently
@@ -77,8 +80,11 @@ the projection. Death, corpse removal and despawn retain it. On respawn the
 source closure still excludes ResetEntry substitution and unowned LoadCreatureAddon
 effects. The retained supported addon selection is reapplied without changing
 the owned bits; SetWalk remains irrelevant to them. The state is validated,
-then reset from the same captured source after the runtime increments the NPC
-generation. Source binding, raw habitat, projected flags and generation persist
+then rebound from the same captured source after the runtime increments the NPC
+generation. Habitat 3 repeats the ordered initialization query using that life's
+selected model; every retained life must prove zero SWIMMING. The source only
+ORs this bit, so the dry domain never clears an earlier wet state. Source binding,
+raw habitat, projected flags, initialization facts and generation persist
 and are validated on restore. Rehashed contradictory values or missing state
 reject rather than reconstructing omitted inputs.
 
@@ -121,16 +127,20 @@ The witness derives the exact source predicates and
 is the non-flying, non-swimming branch. Its `Map::GetHeight` argument is
 `swim=false`, not disabled VMAP: Map requests static VMAP (still subject to the
 effective source height configuration), uses the ordinary 10-yard initial search,
-then also queries dynamic height. No physical dry-location
-claim follows from habitat. The separately bound application ground-height subquery now composes loaded static
-products and positively proven empty dynamics under explicit enabled configuration.
+then also queries dynamic height. Habitat 3 instead selects the non-flying
+swimming-capable branch: a 50-yard static search, dynamic height, then the
+all-liquid GetWaterOrGroundLevel query at groundZ. The separate model threshold
+and default liquid classification height remain bound, even on NO_WATER.
+Neither habitat proves a dry location. The separately bound application provider
+composes complete-dry loaded products and positively proven empty dynamics under
+explicit enabled configuration.
 `CreatureCapabilityWitness::validate_for` checks that request against the immutable
 selected source catalog and exact outer NPC generation. It is not authentication or
-live-state reconstruction: the current closed ground-only lifecycle leaves the owned
-projection fixed, and any future mutable capability domain must replace this check.
-The actual GetNearPoint collision configuration, source candidate arithmetic,
-selection/fallback sequencing, LOS and complete provider remain unavailable; no
-guessed config or dry fallback is supplied.
+live-state reconstruction: the current dry lifecycle and generation history leave
+the owned projections zero. Any future mutable or wet capability domain must
+replace this invariant. The witness alone supplies no GetNearPoint configuration,
+candidate arithmetic, selection/fallback, LOS or complete provider; the separately
+selected app providers must establish their own bounded evidence.
 
 ## Single-bit owner pathfinding closure
 
@@ -178,14 +188,15 @@ dependencies; this receipt supplies none of them.
 
 ## Persistence and checks
 
-Native format 42 (`benilla-native-addon-capabilities-v42`) binds the typed route owner
-transcript and explicit addon closures through v42 profile, state, record,
-checkpoint and source-action digest domains. Native41 and earlier saves/records
+Native format 43 (`benilla-native-dry-habitat-v43`) binds the typed route owner
+transcript, generation-bound dry initialization and explicit addon closures
+through v43 profile, state, record, checkpoint and source-action digest domains. Native42 and earlier saves/records
 are rejected rather than rewriting `Spatial(Route)` receipts or inventing an
 owner witness. The original fixture
 format 2, equipment format and character/profile file schemas are unchanged. Source
-policy IDs and all five hashes are retained in the catalog/profile and each source
-witness binding. Hashes are integrity/version bindings, not source authenticity.
+predicate/runtime policy IDs and source hashes, plus the initialization and
+scalar-swimming policies/hashes, are retained in each source witness binding and
+the selected catalog/profile. Hashes are integrity/version bindings, not source authenticity.
 
 Focused runtime tests cover valid/invalid habitat, requested/effective-row linkage,
 all existing exclusions, contradictory catalogs, real chase NearPoint-to-Route

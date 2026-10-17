@@ -524,3 +524,72 @@ fn repaired_initial_then_original_defined_retained_source_oracle_matches_exact_c
         assert_continuation(&pair[0], &pair[1]);
     }
 }
+
+#[test]
+fn dry_water_capable_filter_survives_native_constructor_and_retained_lineage() {
+    let source = query(SLOT);
+    let mut owner = source.retain_default();
+    let (a, b) = (point(5., 5., 0.), point(5., 6., 0.));
+    let filter = crate::SourceOwnerFilter {
+        include_flags: 13,
+        exclude_flags: 0,
+    };
+    let selected = owner.select_for_calculate(SLOT, a, b).unwrap();
+    let initial = selected
+        .loaded_cold_same_polygon_with_filter(
+            1,
+            filter,
+            CONFIG,
+            SourceSamePolygonBudget::default(),
+            until(),
+        )
+        .unwrap();
+    assert_eq!(initial.compatibility().filter(), filter);
+    assert_eq!(initial.compatibility().initial_storage(), &[0; 74]);
+    let next = retained(&owner.select_for_calculate(SLOT, b, a).unwrap(), &initial);
+    assert_continuation(&initial, &next);
+    assert_eq!(next.compatibility().filter(), filter);
+    let again = retained(&owner.select_for_calculate(SLOT, a, b).unwrap(), &next);
+    assert_continuation(&next, &again);
+    assert_eq!(again.compatibility().filter(), filter);
+    let ground = cold(&owner.select_for_calculate(SLOT, a, b).unwrap());
+    assert_eq!(ground.points(), initial.points());
+    assert_eq!(
+        ground.compatibility().storage(),
+        initial.compatibility().storage()
+    );
+    assert_ne!(ground.compatibility(), initial.compatibility());
+}
+
+#[test]
+fn cold_filter_domain_rejects_unknown_or_excluded_flags_before_native_lookup() {
+    let source = query(SLOT);
+    let mut owner = source.retain_default();
+    let selected = owner
+        .select_for_calculate(SLOT, point(5., 5., 0.), point(5., 6., 0.))
+        .unwrap();
+    for (include_flags, exclude_flags) in [
+        (0, 0),
+        (3, 0),
+        (4, 0),
+        (12, 0),
+        (15, 0),
+        (13, 1),
+        (13, 4),
+        (u16::MAX, 0),
+    ] {
+        let error = selected
+            .loaded_cold_same_polygon_with_filter(
+                1,
+                crate::SourceOwnerFilter {
+                    include_flags,
+                    exclude_flags,
+                },
+                CONFIG,
+                SourceSamePolygonBudget::default(),
+                until(),
+            )
+            .unwrap_err();
+        assert_eq!(error, SourceSamePolygonError::Boundary(Error::Unsupported));
+    }
+}

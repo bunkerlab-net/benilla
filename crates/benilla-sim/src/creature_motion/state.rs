@@ -411,6 +411,8 @@ impl MotionState {
                                     || cache.requested_end
                                         != state.spline.as_ref().unwrap().route_request.goal))
                             || prior.source != cache.source
+                            || prior.include_flags != cache.include_flags
+                            || prior.exclude_flags != cache.exclude_flags
                             || prior.revision >= cache.revision
                             || prior.poly_refs.len() > cache.poly_refs.len()
                         {

@@ -356,3 +356,81 @@ fn header_uses_stock_small_font_and_panel_blocks_login_text_bleed() {
             && node.top == Val::Px(12.0 * s)
             && node.bottom == Val::Px(12.0 * s)));
 }
+
+#[test]
+fn every_startup_setting_renders_its_own_brief_explanation() {
+    let mut app = panel_app();
+    let mut explanations = std::collections::HashSet::new();
+    for (index, (name, _, _)) in STARTUP.iter().enumerate() {
+        let help = field_help(name).unwrap_or_else(|| panic!("missing help for {name}"));
+        assert!(explanations.insert(help), "generic reused help for {name}");
+        assert!(help.len() <= 200, "keep {name} help brief");
+        {
+            let mut settings = app.world_mut().resource_mut::<Settings>();
+            settings.select(index);
+            settings.offset = index / PAGE_SIZE * PAGE_SIZE;
+        }
+        app.update();
+        assert!(app
+            .world_mut()
+            .query::<&Text>()
+            .iter(app.world())
+            .any(|text| text.0 == help));
+    }
+    assert_eq!(field_help("unknown.setting"), None);
+}
+
+#[test]
+fn field_text_stack_is_centered_and_inset_for_selected_and_unselected_rows() {
+    let mut app = panel_app();
+    // The stock texture stays in use; handles establish geometry, not pixel rendering.
+    app.world_mut().resource_mut::<GlueArt>().title_highlight = Some(Handle::default());
+    app.update();
+    let s = layout::scale(800.0, 600.0);
+    let world = app.world_mut();
+    let mut rows = world.query::<(&Action, &Children, &Node)>();
+    let rows: Vec<_> = rows
+        .iter(world)
+        .filter_map(|(action, children, node)| {
+            if let Action::Select(index) = action {
+                Some((*index, children.iter().collect::<Vec<_>>(), node.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(rows.len(), PAGE_SIZE);
+    for (index, children, row) in rows {
+        assert_eq!(row.height, Val::Px(layout::FIELD_HEIGHT * s));
+        let texts: Vec<_> = children
+            .iter()
+            .filter_map(|id| {
+                world.get::<Text>(*id)?;
+                world.get::<Node>(*id)
+            })
+            .collect();
+        assert_eq!(texts.len(), 2);
+        for node in &texts {
+            assert_eq!(node.left, Val::Px(layout::FIELD_TEXT_LEFT * s));
+            assert_eq!(node.width, Val::Px(layout::FIELD_TEXT_WIDTH * s));
+        }
+        assert_eq!(texts[0].top, Val::Px(layout::FIELD_TEXT_TOP * s));
+        assert_eq!(
+            texts[1].top,
+            Val::Px((layout::FIELD_TEXT_TOP + layout::FIELD_LABEL_HEIGHT) * s)
+        );
+        assert_eq!(texts[0].height, Val::Px(layout::FIELD_LABEL_HEIGHT * s));
+        assert_eq!(texts[1].height, Val::Px(layout::FIELD_VALUE_HEIGHT * s));
+        assert_eq!(
+            children
+                .iter()
+                .filter(|id| world.get::<ImageNode>(**id).is_some())
+                .count(),
+            usize::from(index == 1)
+        );
+    }
+    assert_eq!(
+        layout::FIELD_TEXT_TOP * 2.0 + layout::FIELD_LABEL_HEIGHT + layout::FIELD_VALUE_HEIGHT,
+        layout::FIELD_HEIGHT
+    );
+}

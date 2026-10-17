@@ -226,9 +226,6 @@ pub(super) fn browse(
         std::fs::create_dir_all(root.parent().context("profile directory has no parent")?)?;
         ProfileStore::create(root)?
     };
-    if settings.0.classic_start_captures.is_none() {
-        bevy::log::warn!("{}", super::creation_start::LEGACY_WARNING);
-    }
     for character in store.characters() {
         catalog.body(character)?;
     }

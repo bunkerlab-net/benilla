@@ -48,10 +48,12 @@ the habitat is permitted by a particular runtime profile. In particular, source
 AIR can make `CanFly` true without a current flight flag, and current hover or
 levitation can make it true for a non-AIR habitat.
 
-Runtime initialization and ownership are separate. The initial bounded runtime
-profile admits only explicitly supplied GROUND habitat and source spawn flags
-within its supported RUN-only subset, with complete-empty external-feature
-evidence. Its capability-relevant movement bits are source-derived within that
-domain; this pure module does not invent ground/dry defaults or run spawn,
-terrain, aura, hover or transport initialization. Broader predicate test coverage
-does not admit water, air, flight, effects, navigation or playable-world content.
+Runtime initialization and ownership are separate. The bounded runtime admits
+explicit GROUND habitat or a separately selected
+[source-owned dry GROUND|WATER domain](../benilla-world-runtime/CREATURE-DRY-HABITAT.md),
+with RUN-only spawn flags and complete external-feature exclusions. Habitat 3
+keeps CanSwim true; its generation-bound initialization receipt and loaded dry
+movement queries are independent obligations. This pure module supplies neither
+geometry nor ground/dry defaults and does not run spawn, aura, hover or transport
+initialization. Broader predicate coverage does not admit wet execution, air,
+flight, effects, arbitrary navigation or playable-world content.

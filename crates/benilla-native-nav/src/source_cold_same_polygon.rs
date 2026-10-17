@@ -3,7 +3,7 @@
 //! This dependency grants no owner constructor/configuration/dispatch or Route authority.
 use crate::{
     Error, LoadedSourceColdDistanceCompatibility, SelectedSourceQuery, SourceMapQuery,
-    SourceMapQuerySlot, SourceWarmCacheError,
+    SourceMapQuerySlot, SourceOwnerFilter, SourceWarmCacheError,
 };
 use std::time::Instant;
 
@@ -227,8 +227,30 @@ impl SelectedSourceQuery<'_> {
         budget: SourceSamePolygonBudget,
         until: Instant,
     ) -> Result<LoadedSourceSamePolygon, SourceSamePolygonError> {
+        self.loaded_cold_same_polygon_with_filter(
+            compatibility_version,
+            SourceOwnerFilter::GROUND,
+            config,
+            budget,
+            until,
+        )
+    }
+
+    /// Preserve the caller's source-derived 1/0 or 13/0 filter in every initial and
+    /// retained native query. The mesh still contains only validated ground polygons;
+    /// callers must separately prove the exact owner's capabilities and dry branch.
+    pub fn loaded_cold_same_polygon_with_filter(
+        &self,
+        compatibility_version: u32,
+        filter: SourceOwnerFilter,
+        config: SourceSamePolygonConfig,
+        budget: SourceSamePolygonBudget,
+        until: Instant,
+    ) -> Result<LoadedSourceSamePolygon, SourceSamePolygonError> {
         crate::deadline(until)?;
-        if compatibility_version != crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION {
+        if !filter.is_supported_dry()
+            || compatibility_version != crate::SOURCE_COLD_DISTANCE_COMPATIBILITY_VERSION
+        {
             return Err(Error::Unsupported.into());
         }
         if config.normalize_z || config.ignore_normalization {
@@ -251,6 +273,7 @@ impl SelectedSourceQuery<'_> {
                 &mut mesh,
                 self.from(),
                 self.to(),
+                filter,
                 budget.lookup_primitives,
                 until,
             )?

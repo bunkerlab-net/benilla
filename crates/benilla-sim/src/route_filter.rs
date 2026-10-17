@@ -8,7 +8,7 @@
 
 use crate::creature_capabilities::MovementCapabilities;
 
-pub const POLICY: &str = "cmangos-8ec338a1-ground-dry-route-filter-v1";
+pub const POLICY: &str = "cmangos-8ec338a1-ground-or-water-capable-dry-route-filter-v2";
 /// Complete LF-normalized PathFinder.cpp, MoveMapSharedDefines.h, Unit.cpp,
 /// ObjectGuid.h, GridMap.cpp and GridMapDefines.h, in manifest order.
 pub const SOURCE_SHA256: [&str; 6] = [
@@ -64,6 +64,7 @@ impl NoWater {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Branch {
     GroundDry,
+    GroundWaterDry,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,7 +83,11 @@ impl Filter {
     }
 
     pub const fn branch(self) -> Branch {
-        Branch::GroundDry
+        if self.include_flags == NAV_GROUND {
+            Branch::GroundDry
+        } else {
+            Branch::GroundWaterDry
+        }
     }
 }
 
@@ -99,13 +104,35 @@ pub enum Error<E> {
 /// ABOVE_WATER and WATER_WALK: source IsInWater treats either as true.
 pub fn create_ground_filter<E>(
     capabilities: MovementCapabilities,
-    mut query: impl FnMut(LiquidMask) -> Result<NoWater, E>,
+    query: impl FnMut(LiquidMask) -> Result<NoWater, E>,
 ) -> Result<Filter, Error<E>> {
     if !capabilities.can_walk() || capabilities.can_swim() || capabilities.can_fly() {
         return Err(Error::UnsupportedCapabilities);
     }
+    create_dry_filter(capabilities, query)
+}
+
+/// Exact source initial flags for the two bounded non-flying, walking habitats.
+/// This derives capability bits only; it does not prove physical dryness or a route.
+pub const fn initial_include_flags(capabilities: MovementCapabilities) -> Option<u16> {
+    if !capabilities.can_walk() || capabilities.can_fly() {
+        None
+    } else if capabilities.can_swim() {
+        Some(NAV_GROUND | NAV_WATER | NAV_MAGMA_SLIME)
+    } else {
+        Some(NAV_GROUND)
+    }
+}
+
+/// Source createFilter/updateFilter on a positively dry owner. WATER capability
+/// remains true and contributes both water flags even when both observations are dry.
+/// Loaded geometry, owner identity and retained-cache lineage are host obligations.
+pub fn create_dry_filter<E>(
+    capabilities: MovementCapabilities,
+    mut query: impl FnMut(LiquidMask) -> Result<NoWater, E>,
+) -> Result<Filter, Error<E>> {
     let filter = Filter {
-        include_flags: NAV_GROUND,
+        include_flags: initial_include_flags(capabilities).ok_or(Error::UnsupportedCapabilities)?,
         exclude_flags: 0,
     };
     query(LiquidMask::AllLiquids).map_err(Error::Liquid)?;

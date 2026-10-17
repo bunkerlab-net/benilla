@@ -261,15 +261,22 @@ complete `MotionQuery::NearPoint` authority request. The existing typed capabili
 witness is checked against that profile's source catalog and exact outer NPC
 identity/generation. The runtime already constructs it from the executing staged
 owner; the provider never consults a stale committed-world NPC. Its narrow public
-validator proves only source consistency under the current closed ground-only
-lifecycle invariant, not transcript authenticity or liveness.
+validator proves source consistency under the closed dry lifecycle and retained
+generation-initialization invariant, not transcript authenticity or liveness.
 
 Each initial/reset candidate subquery echoes the complete original authority and
 NearPoint context, exact candidate XYZ bits, ticket, and snapshot map/content/source
 epoch/inventory/policy. Initial Z must equal the original target Z. Candidate XY is
 supplied by the scalar query and alone is not proven to equal source `sinf`/`cosf` output. The result carries
-raw Map height (including invalid sentinels) and source ground-only allowed Z.
-Strict comparisons preserve original Z bits on equality and invalid height. The
+raw Map height (including invalid sentinels) and an explicit `AllowedHeightObservation`
+for the Ground or Swimming branch. Habitat 3 preserves `CanSwim=true`: the latter
+uses the source 50-yard static search plus dynamic height, then an all-liquid
+query at groundZ with the default classification height and selected model-depth
+threshold kept distinct. That threshold comes from the current-generation
+initialization receipt, not the session's initial-model body; its snapshot must
+match the same loaded inventory/configuration. Only complete NO_WATER products
+are supported. Strict
+comparisons preserve original Z bits on equality and invalid height. The
 source final NearPoint fallback can reuse previously adjusted Z and needs a later
 sequentially bound implementation; it is not silently admitted as an initial probe.
 
@@ -284,6 +291,22 @@ No native admission, full movement provider or playable-world claim follows.
 is separate from loaded authored-product integration tests. Scalar callbacks prove
 arithmetic and call order; they are never evidence for terrain or collision geometry.
 
+
+## Source-ordered dry creature initialization
+
+`SourceCreatureInitializationProvider` accepts a fully bound
+`Query::CreatureInitialization` over the same immutable complete-dry MapHeight
+snapshot. Its policy is
+`cmangos-8ec338a1-creature-initialization-complete-dry-products-v1`.
+The runtime builds the request after model/gender selection and before level
+selection, binding the selected collision height, separate `2.03128f` liquid
+classification default, retained respawn position, world/profile/generation,
+source identities, counter prefix, clock, ticket and effective configuration.
+The provider validates that exact request and obtains NO_WATER from loaded product
+bytes under one deadline. It does not infer dryness from habitat or consume a
+player's cached environment. Missing geometry, stale bindings and any wet status
+remain unavailable. This callable component has no production entry installer;
+see the [runtime contract](../../../../../../benilla-world-runtime/CREATURE-DRY-HABITAT.md).
 
 ## Source-derived initial candidate
 
@@ -331,7 +354,7 @@ non-render participant exclusion remains mandatory.
 The provider executes the pinned source's first-return path:
 
 1. Validate the full owned-capability NearPoint request and derive its initial XY
-2. Apply actual loaded Map height and the selected source ground-only allowed-Z
+2. Apply actual loaded Map height and the selected ground or dry swimming-capable allowed-Z
 3. Test strict `abs(initial_z - adjusted_z) < ((distance + owner_radius) + target_radius)`
 4. Only if that passes, ray-test target eye to candidate feet, with `ignoreM2=false`
 5. Return the exact source NearPoint reply only if LOS is clear and every XYZ bit
@@ -384,11 +407,13 @@ primary-only policy is invalid. `install_with_empty_selector_near_point` is an
 explicit inert installer, not character-entry routing or production admission.
 The primary-only provider and its unsupported-fallback result remain unchanged.
 
-The supported branch has a real ground-searcher capability witness, collision
-detection enabled, VMap height/LOS enabled, and independent non-render participant
-exclusion. Config values remain explicit source declarations, not authenticated
-capture. No-searcher, swimming/flying, disabled-config, dynamic-participant and
-used-area-list branches are not inferred or silently substituted.
+The supported branch has an owned habitat-1 or dry habitat-3 searcher capability
+witness, collision detection enabled, VMap height/LOS enabled, and independent
+non-render participant exclusion. Config values remain explicit source declarations,
+not authenticated capture. No-searcher, wet movement, flying, water-walk, disabled
+configuration, dynamic participants and used-area lists remain excluded. The
+primary and empty-selector geometry policy domains are v2 and bind the distinct
+ground or swimming-capable allowed-Z observations.
 
 A private sequential capability derives the primary XY and every raw signed
 fallback angle. Each ordinary candidate starts its height probe at target Z;
@@ -425,7 +450,7 @@ probe. Controller tests separately use the unchanged 2 ms mailbox allowance;
 neither establishes that worst-case search always fits a production frame.
 Deadline or work exhaustion rejects the entire fact without publication.
 
-## Route owner and initial ground filter prerequisite
+## Route owner and initial dry filter prerequisite
 
 `SourceRouteFilterProvider` consumes the runtime-owned `CreatureRouteRequest`
 with its exact source capability witness and current map position. Motion dispatch
@@ -439,9 +464,16 @@ It queries that snapshot at the owned position in source order for `IsInWater`
 `CanCheckLiquidLevel` through the source's `GetGrid` branch. Missing coverage is
 an unavailable dependency, never a false water predicate. The supported snapshot
 proves exact `NO_WATER`; even an above-water nonzero status cannot be treated as dry.
-The ground capability and observations produce the initial non-playerbot source
-filter (`NAV_GROUND`, no exclusions). All context, pose, inventory, epoch and
-geometry revision bindings remain attached to the internal result.
+The owned capability and observations produce the exact non-playerbot source
+filter: habitat 1 uses `NAV_GROUND` (1), while habitat 3 retains `CanSwim=true`
+and uses `NAV_GROUND | NAV_WATER | NAV_MAGMA_SLIME` (13), both with exclusions 0.
+`cmangos-8ec338a1-ground-or-water-capable-dry-route-filter-v2` and
+`benilla-source-route-owner-dry-filter-dependency-v2` bind this distinction.
+All context, pose, inventory, epoch and geometry revision bindings remain attached
+to the internal result. Each loaded constructor, cold/warm query and retained cache
+uses the actual filter. Dry updates preserve 13, and a stale filter-1 cache rejects
+for habitat 3. Mesh validation still admits only ground polygons; no wet route
+branch, nonzero liquid status or `getNavTerrain` result is admitted.
 
 This result supplies only the initial filter dependency. It does not implement
 persistent chase filters/corridor reuse, normal source smoothing, allowed-Z path
@@ -525,7 +557,7 @@ endpoint is an unavailable source shortcut branch, never an inferred NOPATH,
 NORMAL, complete Route, or a nearby-polygon substitute. Source-valid coordinates
 outside this native bridge's narrower numeric domain also remain unavailable.
 
-The first calculation updates the retained dry-ground filter from fresh loaded
+The first calculation updates the retained source-owned dry filter from fresh loaded
 liquid observations only after both tiles are present, and passes the immutable loaded cache lineage, original
 endpoints and exact width bits into the native straight calculation. A returned
 NOPATH or INCOMPLETE result can continue privately through a fresh loaded tile
@@ -720,7 +752,7 @@ The app geometry identity is
 outer-commit acknowledgement, total-cap-four and bounded original-job policies.
 Earlier uncommitted-proposal and monolithic-commit identities are incompatible.
 Commit-head delivery itself does not alter the native payload schema; the current
-payload is format 42 for complete authored one/two-owner source visitors.
+payload is format 43 for complete authored one/two-owner source visitors.
 `install_with_same_polygon` returns a proposal authority and an explicit paired
 commit sink. The selected mailbox refuses queries until the controller attaches
 that sink at the actual cache-free world boundary. A fresh opaque attachment and

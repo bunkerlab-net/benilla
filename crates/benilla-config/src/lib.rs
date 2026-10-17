@@ -245,7 +245,7 @@ impl<'de> Deserialize<'de> for Passphrase {
 struct RawP2p {
     classic_start_captures: Option<PathBuf>,
     encounter: Option<RawEncounter>,
-    #[serde(default)]
+    #[serde(default, rename = "iroh", alias = "internet")]
     internet: Option<benilla_p2p::InternetConfig>,
     psk: Passphrase,
     #[serde(default = "default_network")]
@@ -412,10 +412,10 @@ fn validate_p2p(raw: RawP2p) -> Result<P2pConfig, ConfigError> {
         .as_ref()
         .is_some_and(|p| p.as_os_str().is_empty())
     {
-        return Err(invalid("p2p.classic_start_captures must name a directory; omit it for legacy exploration starts"));
+        return Err(invalid("p2p.classic_start_captures must name a directory; omit it for built-in racial exploration starts"));
     }
     if raw.internet.is_some() && raw.encounter.is_some() {
-        return Err(invalid("internet and synthetic encounter modes cannot be combined; encounter currently requires its fixed TCP roster"));
+        return Err(invalid("p2p.iroh and synthetic encounter modes cannot be combined; encounter currently requires its fixed TCP roster"));
     }
     if raw.network.is_empty()
         || raw.network.len() > 64
@@ -454,7 +454,7 @@ fn validate_p2p(raw: RawP2p) -> Result<P2pConfig, ConfigError> {
     if let Some(internet) = &raw.internet {
         if !raw.peers.is_empty() || internet.peer_tickets.len() > usize::from(raw.max_peers) {
             return Err(invalid(
-                "internet mode requires empty p2p.peers and at most max_peers endpoint tickets",
+                "p2p.iroh requires empty p2p.peers and at most max_peers endpoint tickets",
             ));
         }
         internet

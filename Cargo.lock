@@ -889,6 +889,7 @@ dependencies = [
  "benilla-sim",
  "benilla-world-runtime",
  "crossbeam-channel",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "syn 2.0.117",
@@ -1054,6 +1055,7 @@ dependencies = [
  "benilla-world-store",
  "crossbeam-channel",
  "rand 0.8.6",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
 ]

@@ -38,7 +38,7 @@ row exists**. The app must validate actual options against the player's own `Cha
 No client data is redistributed here. Names/IDs are ordinary clean-room protocol facts; the
 numeric IDs already appear throughout `benilla-formats` and `benilla-app`.
 
-`SpawnPolicy::NorthshireMeetingV1` persists the unconfigured fork default: every race starts at
+`SpawnPolicy::NorthshireMeetingV1` identifies the legacy fork policy: every race started at
 the existing P2P exploration meeting point `[-8949.95, -132.49, 83.9]`, map 0, zone 12. It is
 **not a canonical racial starting-location table**. Source-backed race-start creation
 uses a new policy for new characters, never silent reinterpretation of existing saves. Position
@@ -200,7 +200,9 @@ an existing private `benilla-classic-source-slice-v2` capture.
 `ProfileStore::create_character_from_start` explicitly opts a new character into that
 selected map, zone, XYZ and orientation. A missing, mismatched, invalid or unsupported
 race/class does not fall back to Northshire. The original `create_character` API retains the legacy policy. The app uses the
-source-backed API when `p2p.classic_start_captures` is configured.
+source-backed API when `p2p.classic_start_captures` is configured; otherwise its
+normal creation path supplies built-in racial positions to `create_character_at_racial_start`
+and records `ClassicRacialV1`. Neither path reinterprets existing character positions.
 See [the integration boundary](../../docs/CLASSIC-EXPLORATION-STARTS.md).
 
 The new policy records the exact capture byte digest. Every login, movement checkpoint,

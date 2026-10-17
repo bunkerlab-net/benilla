@@ -2,7 +2,8 @@
 //! Pinned TerrainInfo::GetHeightStatic with height calculation and VMaps enabled.
 //! Actual decoded terrain and static geometry only; not composite liquid or support.
 use super::{
-    liquid::world_tile, vmap, Error, Hash, InventoriedProducts, PointHeight, VmapLiquidProducts,
+    liquid::{world_tile, DryLiquidSnapshot},
+    vmap, Error, Hash, InventoriedProducts, PointHeight, VmapLiquidProducts,
 };
 use sha2::{Digest, Sha256};
 use std::{ops::Deref, sync::Arc, time::Instant};
@@ -112,6 +113,10 @@ impl<'a> StaticHeightSnapshot<'a> {
             products,
             vmap,
         }
+    }
+    /// Complete dry proof decoded from the same inventory and VMap as this reader.
+    pub(super) fn dry_liquid(&self) -> Result<DryLiquidSnapshot, Error> {
+        self.products.dry_liquid_for_vmap(&self.vmap)
     }
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding

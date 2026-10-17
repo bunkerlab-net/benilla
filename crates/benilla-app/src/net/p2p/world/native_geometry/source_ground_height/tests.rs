@@ -425,3 +425,6 @@ fn raw_subnormal_bearing_is_not_narrowed_through_persistent_real() {
     assert_eq!(position, [1f32.to_bits(), angle, 10f32.to_bits()]);
     // This isolates raw arithmetic. No product coverage or admission at (0,0) is asserted.
 }
+
+#[path = "dry_swimming_tests.rs"]
+mod dry_swimming_tests;

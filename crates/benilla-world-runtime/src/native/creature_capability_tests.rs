@@ -350,9 +350,9 @@ fn rehashed(w: &NativeWorld, change: impl FnOnce(&mut serde_json::Value)) -> Che
     let mut state = serde_json::to_value(&c.state).unwrap();
     change(&mut state);
     c.state = serde_json::from_value(state).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v42\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v43\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v42\0",
+        b"benilla-native-checkpoint-v43\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -475,7 +475,7 @@ fn catalog_retains_scalar_policy_and_constructor_lifecycle_source_hashes() {
     let catalog = serde_json::to_value(p.creature_capabilities.as_ref().unwrap()).unwrap();
     assert_eq!(
         CREATURE_CAPABILITY_POLICY,
-        "cmangos-8ec338a1-native-creature-capability-v2"
+        "cmangos-8ec338a1-native-creature-capability-v3"
     );
     assert_eq!(catalog["policy"], CREATURE_CAPABILITY_POLICY);
     assert_eq!(catalog["spawns"]["2"]["addon_closure"], "Absent");
@@ -491,11 +491,11 @@ fn catalog_retains_scalar_policy_and_constructor_lifecycle_source_hashes() {
         catalog["source_policy"]["runtime_sources"],
         serde_json::json!(CREATURE_CAPABILITY_RUNTIME_SOURCE_SHA256)
     );
-    assert_eq!(NATIVE_FORMAT_VERSION, 42);
+    assert_eq!(NATIVE_FORMAT_VERSION, 43);
 }
 
 #[test]
-fn the_v2_witness_binding_rejects_an_exact_legacy_v1_source_hash() {
+fn the_v3_witness_binding_rejects_an_exact_legacy_v1_source_hash() {
     #[derive(serde::Serialize)]
     struct Policy {
         predicate: &'static str,
@@ -549,8 +549,15 @@ fn the_v2_witness_binding_rejects_an_exact_legacy_v1_source_hash() {
     assert_eq!(
         witness.source_binding(),
         crate::digest(
-            b"benilla-creature-capability-source-v2\0",
-            &(CREATURE_CAPABILITY_POLICY, policy, row),
+            b"benilla-creature-capability-source-v3\0",
+            &(
+                CREATURE_CAPABILITY_POLICY,
+                CREATURE_INITIALIZATION_POLICY,
+                benilla_sim::creature_swimming::POLICY,
+                benilla_sim::creature_swimming::SOURCE_SHA256,
+                policy,
+                row,
+            ),
         )
     );
     assert_ne!(witness.source_binding(), old_binding);

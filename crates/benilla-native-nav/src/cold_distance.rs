@@ -38,10 +38,11 @@ impl LoadedSourceColdDistanceCompatibility {
         mesh: &mut Mesh,
         from: [u32; 3],
         to: [u32; 3],
+        filter: SourceOwnerFilter,
         lookup_primitives: usize,
         until: Instant,
     ) -> Result<Option<Self>, SourceWarmCacheError> {
-        let initial = crate::warm_cache::cold_constructor_storage(mesh, until)?;
+        let initial = crate::warm_cache::cold_constructor_storage(mesh, filter, until)?;
         let Some(observed) = crate::warm_cache::native::cold_same_polygon(
             mesh,
             &initial,
@@ -184,7 +185,11 @@ impl Mesh {
         }
         #[cfg(benilla_native_detour)]
         {
-            let initial = crate::warm_cache::cold_constructor_storage(self, until)?;
+            let initial = crate::warm_cache::cold_constructor_storage(
+                self,
+                SourceOwnerFilter::GROUND,
+                until,
+            )?;
             let observed = crate::warm_cache::native::query_with_initialization(
                 self,
                 &initial,

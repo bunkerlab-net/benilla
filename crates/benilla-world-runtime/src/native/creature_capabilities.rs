@@ -9,7 +9,7 @@ use super::*;
 use benilla_sim::{creature_capabilities as source, creature_init::ExternalFeature};
 use serde::{Deserialize, Serialize};
 
-pub const CREATURE_CAPABILITY_POLICY: &str = "cmangos-8ec338a1-native-creature-capability-v2";
+pub const CREATURE_CAPABILITY_POLICY: &str = "cmangos-8ec338a1-native-creature-capability-v3";
 /// LF-normalized complete Creature.cpp and Unit.cpp. These source guards do not
 /// claim the scalar predicate oracle executes constructor or lifecycle callbacks.
 pub const CREATURE_CAPABILITY_RUNTIME_SOURCE_SHA256: [&str; 2] = [
@@ -77,6 +77,7 @@ pub enum CreatureCapabilityAddonClosure {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CreatureCapabilitySource {
+    pub initialization: CreatureInitializationClosure,
     /// Runtime stable spawn key (NpcId.spawn / ai.creature_id), not an independently
     /// authenticated imported database GUID.
     pub spawn_id: u64,
@@ -134,10 +135,17 @@ impl CreatureCapabilitySource {
         }
         Ok(())
     }
-    fn binding(&self) -> crate::Digest {
+    pub(super) fn binding(&self) -> crate::Digest {
         crate::digest(
-            b"benilla-creature-capability-source-v2\0",
-            &(CREATURE_CAPABILITY_POLICY, SOURCE_POLICY, self),
+            b"benilla-creature-capability-source-v3\0",
+            &(
+                CREATURE_CAPABILITY_POLICY,
+                CREATURE_INITIALIZATION_POLICY,
+                benilla_sim::creature_swimming::POLICY,
+                benilla_sim::creature_swimming::SOURCE_SHA256,
+                SOURCE_POLICY,
+                self,
+            ),
         )
     }
 }
@@ -192,6 +200,25 @@ impl CreatureCapabilityCatalog {
     pub fn source(&self, spawn_id: u64) -> Option<&CreatureCapabilitySource> {
         self.spawns.get(&spawn_id)
     }
+    /// Immutable predicate only; this does not construct live movement state or
+    /// claim an initialization liquid result.
+    pub fn source_capabilities(
+        &self,
+        profile: &Profile,
+        npc: crate::NpcId,
+    ) -> Result<source::MovementCapabilities, NativeError> {
+        self.validate(profile)?;
+        let habitat = self
+            .source(npc.spawn)
+            .ok_or(NativeError::AuthorityBinding)?
+            .templates
+            .one("effective creature capability template")?
+            .inhabit_type;
+        Ok(source::evaluate(
+            source::InhabitType::try_from_raw(habitat).map_err(|_| NativeError::InvalidProfile)?,
+            0,
+        ))
+    }
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         if self.policy != CREATURE_CAPABILITY_POLICY
             || self.source_policy != SOURCE_POLICY
@@ -222,13 +249,8 @@ impl CreatureCapabilityCatalog {
             if template.entry != npc.entry {
                 return Err(NativeError::InvalidProfile);
             }
-            // Actual GROUND short-circuits InitEntry's swimming/terrain branch.
-            // It says nothing about whether the current physical location is dry.
-            if template.inhabit_type != 1 {
-                return Err(NativeError::UnsupportedMechanic(
-                    "runtime creature capability habitat domain",
-                ));
-            }
+            row.initialization
+                .validate(profile, row, template.inhabit_type)?;
             creature_generation_binding::validate_capability_source(
                 profile
                     .creature_generations
@@ -264,17 +286,47 @@ pub struct CreatureCapabilityWitness {
     source_binding: crate::Digest,
     inhabit_type: u32,
     capability_movement_flags: u32,
+    swimming_movement_flags: u32,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    initialization: Option<Box<CreatureInitializationFacts>>,
 }
 impl CreatureCapabilityWitness {
     /// Request consistency against the selected immutable source catalog and the
-    /// closed ground-only lifecycle invariant. This does not prove liveness or
+    /// closed ground or positively-dry habitat-3 lifecycle invariant. This does not prove liveness or
     /// authenticate deserialized transcripts. Mutable capability domains must
     /// replace this check rather than silently reusing constructor defaults.
     pub fn validate_for(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
-        let expected = CreatureCapabilityState::new(profile, npc)?.ok_or(
-            NativeError::AuthorityUnavailable("creature capability source catalog"),
-        )?;
+        let expected =
+            CreatureCapabilityState::new_bound(profile, npc, self.initialization.clone())?.ok_or(
+                NativeError::AuthorityUnavailable("creature capability source catalog"),
+            )?;
         if self != expected.witness() {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(())
+    }
+    /// Bind initialization evidence to the actual outer world/query clock. The
+    /// profile-only check above cannot authorize copying a same-profile witness
+    /// between worlds or before its generation was created.
+    pub fn validate_context(
+        &self,
+        profile: &Profile,
+        binding: &Binding,
+    ) -> Result<(), NativeError> {
+        let npc = binding.npc.ok_or(NativeError::AuthorityBinding)?;
+        self.validate_for(profile, npc)?;
+        if binding.world == [0; 16]
+            || binding.profile != profile.digest()
+            || binding.authority_policy != profile.authority_policy
+            || binding.geometry != profile.geometry_revision
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        if self.initialization.as_ref().is_some_and(|facts| {
+            facts.request.binding.world != binding.world
+                || facts.request.binding.tick > binding.tick
+                || facts.request.binding.npc != Some(npc)
+        }) {
             return Err(NativeError::AuthorityBinding);
         }
         Ok(())
@@ -288,12 +340,18 @@ impl CreatureCapabilityWitness {
     pub fn inhabit_type(&self) -> u32 {
         self.inhabit_type
     }
-    /// Only LEVITATING/HOVER/CAN_FLY are owned here, not complete MovementInfo.
+    pub fn swimming_movement_flags(&self) -> u32 {
+        self.swimming_movement_flags
+    }
+    pub fn initialization(&self) -> Option<&CreatureInitializationFacts> {
+        self.initialization.as_deref()
+    }
+    /// Only LEVITATING/HOVER/CAN_FLY are projected here, not complete MovementInfo.
     pub fn capability_movement_flags(&self) -> u32 {
         self.capability_movement_flags
     }
     pub fn capabilities(&self) -> Result<source::MovementCapabilities, NativeError> {
-        if self.capability_movement_flags & !FLAG_MASK != 0 {
+        if self.capability_movement_flags & !FLAG_MASK != 0 || self.swimming_movement_flags != 0 {
             return Err(NativeError::InvalidState);
         }
         let habitat = source::InhabitType::try_from_raw(self.inhabit_type)
@@ -371,6 +429,24 @@ impl CreatureCapabilityState {
         &self.witness
     }
     pub(super) fn new(profile: &Profile, npc: crate::NpcId) -> Result<Option<Self>, NativeError> {
+        Self::new_bound(profile, npc, None)
+    }
+    pub(super) fn new_generation(
+        profile: &Profile,
+        npc: crate::NpcId,
+        owner: &CreatureGenerationOwner,
+    ) -> Result<Option<Self>, NativeError> {
+        if owner.npc_id() != npc || owner.profile_identity() != profile.digest() {
+            return Err(NativeError::AuthorityBinding);
+        }
+        owner.validate_initializations(profile)?;
+        Self::new_bound(profile, npc, owner.initialization().cloned().map(Box::new))
+    }
+    fn new_bound(
+        profile: &Profile,
+        npc: crate::NpcId,
+        initialization: Option<Box<CreatureInitializationFacts>>,
+    ) -> Result<Option<Self>, NativeError> {
         let Some(catalog) = &profile.creature_capabilities else {
             return Ok(None);
         };
@@ -379,6 +455,23 @@ impl CreatureCapabilityState {
         let template = row
             .templates
             .one("effective creature capability template")?;
+        match (&row.initialization, &initialization) {
+            (CreatureInitializationClosure::Ground, None) => {}
+            (CreatureInitializationClosure::DryWater { .. }, Some(facts)) => {
+                facts.request.validate_for(profile)?;
+                facts.validate_for(&facts.request)?;
+                if facts.request.binding.npc != Some(npc)
+                    || facts.request.capability_source != row.binding()
+                {
+                    return Err(NativeError::AuthorityBinding);
+                }
+            }
+            _ => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "generation-bound dry creature initialization",
+                ))
+            }
+        }
         // MovementInfo starts at zero. Creature's constructor SetWalk(true) and
         // optional RUN_ON_SPAWN only touch WALK_MODE. Actual GROUND SetLevitate(false),
         // absent hover/gravity flags and complete no-control/no-script closure
@@ -391,11 +484,14 @@ impl CreatureCapabilityState {
                 source_binding: row.binding(),
                 inhabit_type: template.inhabit_type,
                 capability_movement_flags: 0,
+                swimming_movement_flags: 0,
+                initialization,
             },
         }))
     }
     pub(super) fn validate(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
-        let expected = Self::new(profile, npc)?.ok_or(NativeError::InvalidState)?;
+        let expected = Self::new_bound(profile, npc, self.witness.initialization.clone())?
+            .ok_or(NativeError::InvalidState)?;
         if *self != expected {
             return Err(NativeError::InvalidState);
         }
@@ -411,6 +507,7 @@ impl CreatureCapabilityState {
         snapshot: Option<CreatureCapabilitySnapshot>,
         profile: &Profile,
         npc: crate::NpcId,
+        generation: Option<&CreatureGenerationOwner>,
     ) -> Result<Option<Self>, NativeError> {
         let state = snapshot.map(|snapshot| Self {
             witness: snapshot.witness,
@@ -422,6 +519,15 @@ impl CreatureCapabilityState {
             state
                 .validate(profile, npc)
                 .map_err(|_| NativeError::InvalidCheckpoint)?;
+            if let Some(owner) = generation {
+                let expected = Self::new_generation(profile, npc, owner)?
+                    .ok_or(NativeError::InvalidCheckpoint)?;
+                if state != &expected {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+            } else if state.witness.initialization.is_some() {
+                return Err(NativeError::InvalidCheckpoint);
+            }
         }
         Ok(state)
     }
@@ -429,6 +535,7 @@ impl CreatureCapabilityState {
         &mut self,
         profile: &Profile,
         npc: crate::NpcId,
+        generation: Option<&CreatureGenerationOwner>,
     ) -> Result<(), NativeError> {
         if npc.spawn != self.witness.npc.spawn
             || self.witness.npc.generation.checked_add(1) != Some(npc.generation)
@@ -438,7 +545,19 @@ impl CreatureCapabilityState {
         self.validate(profile, self.witness.npc)?;
         // JUST_ALIVED SetWalk/ResetEntry/LoadCreatureAddon cannot change these
         // bits within the same complete no-substitution and addon source closure.
-        *self = Self::new(profile, npc)?.ok_or(NativeError::InvalidState)?;
+        let next = match generation {
+            Some(owner) => Self::new_generation(profile, npc, owner)?,
+            None => Self::new(profile, npc)?,
+        }
+        .ok_or(NativeError::InvalidState)?;
+        // Source initialization only ORs SWIMMING. Every supported historical life
+        // is positively dry, so this preserves zero; it must never clear a wet bit.
+        if self.witness.swimming_movement_flags != next.witness.swimming_movement_flags {
+            return Err(NativeError::UnsupportedMechanic(
+                "swimming lifecycle continuity",
+            ));
+        }
+        *self = next;
         Ok(())
     }
 }

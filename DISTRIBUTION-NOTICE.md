@@ -20,6 +20,13 @@ this combination uses GPL version 3 or later. Consult
 and license documents in `crates/benilla-sim/licenses/`. The synthetic encounter
 harness is not a port of full Classic combat or a claim of full gameplay parity.
 
+The app includes eight factual racial starting poses checked against Classic-DB
+`ec4f596146be6467ea93c57397858e329e2db852`. It does not include SQL records or a
+world-content pack. The upstream authorship, GPLv3 license and separate copyright
+qualifications are retained under
+`crates/benilla-app/src/net/p2p/creation_start/licenses/`; see
+`docs/CLASSIC-EXPLORATION-STARTS.md` for exact scope and source evidence.
+
 The app's bounded dry static VMap ray port derives from the same CMaNGOS revision and
 G3D math. Its source scope, GPL and original G3D Modified BSD notices are linked in
 `crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md`.

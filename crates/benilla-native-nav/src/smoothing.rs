@@ -12,11 +12,23 @@ pub const SOURCE_PATHFINDER_CPP_SHA256: &str =
     "0fc2684275621af341e104d7593c7f66e5baa6251e088548deb5c547625294ef";
 pub const SOURCE_PATHFINDER_H_SHA256: &str =
     "5c98dfd9a7d28a5faf3a86866baf056cd6df40c06f4816f64070a92d4a89773b";
-/// A copied owner-derived filter; only the dry ground 1/0 subset is admitted here.
+/// Copied filter for a dry ground-only mesh: habitat 1 uses 1/0, habitat 3 uses 13/0.
+/// The caller must bind it to its owned capabilities and ordered dry observations.
+/// This loaded dependency cannot establish that ownership or admit any wet polygon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceOwnerFilter {
     pub include_flags: u16,
     pub exclude_flags: u16,
+}
+impl SourceOwnerFilter {
+    pub const GROUND: Self = Self {
+        include_flags: 1,
+        exclude_flags: 0,
+    };
+
+    pub(crate) const fn is_supported_dry(self) -> bool {
+        matches!(self.include_flags, 1 | 13) && self.exclude_flags == 0
+    }
 }
 /// Operational work caps, distinct from the source's semantic point limit.
 /// Zero is allowed to exercise cancellation. Maximum values are 4096 and 256.
@@ -403,7 +415,7 @@ mod native {
         budget: SourceSmoothingBudget,
         until: Instant,
     ) -> Result<LoadedSourceCorridor<'_>, SourceSmoothingError> {
-        if filter.include_flags != 1 || filter.exclude_flags != 0 {
+        if !filter.is_supported_dry() {
             return Err(Error::Unsupported.into());
         }
         if !(2..=74).contains(&point_limit) {

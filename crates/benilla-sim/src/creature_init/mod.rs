@@ -383,7 +383,7 @@ pub struct Plan<'a> {
     model_range: Option<(u32, u32)>,
     scale: SpellFloat,
 }
-impl Plan<'_> {
+impl<'a> Plan<'a> {
     pub fn model_roll_range(&self) -> Option<(u32, u32)> {
         self.model_range
     }
@@ -411,6 +411,25 @@ impl Plan<'_> {
     pub fn gender_roll_range(&self, model_roll: Option<u32>) -> Result<Option<(u32, u32)>> {
         let id = self.selected_model(model_roll)?;
         Ok((self.other_gender[&id] != 0).then_some((0, 1)))
+    }
+    /// Freeze the source InitEntry model/gender prefix before SelectLevel. The
+    /// opaque stage cannot be deserialized or supplied an independent model.
+    pub fn select_model(self, model: Option<u32>, gender: Option<u32>) -> Result<ModelPlan<'a>> {
+        let original = self.selected_model(model)?;
+        validate_roll(gender, self.gender_roll_range(model)?, "gender draw")?;
+        let display = if gender == Some(0) {
+            self.other_gender[&original]
+        } else {
+            original
+        };
+        let mut selected = self.models[&display];
+        selected.scale = self.scale;
+        Ok(ModelPlan {
+            plan: self,
+            model_roll: model,
+            gender_roll: gender,
+            selected,
+        })
     }
     pub fn resolve(self, rolls: SelectionRolls) -> Result<InitializedCreature> {
         self.resolve_with_model_receipt(rolls)
@@ -492,6 +511,53 @@ impl Plan<'_> {
         };
         let receipt = ModelSelectionReceipt::from_resolved(&self, rolls, original, &result.model)?;
         Ok((result, receipt))
+    }
+}
+/// Validated source-order boundary after display/gender selection and before any
+/// level draw. Geometry consumers may inspect the selected model without resolving
+/// stats early or inventing a level to obtain a model receipt.
+#[derive(Debug)]
+pub struct ModelPlan<'a> {
+    plan: Plan<'a>,
+    model_roll: Option<u32>,
+    gender_roll: Option<u32>,
+    selected: Model,
+}
+impl ModelPlan<'_> {
+    pub fn model(&self) -> &Model {
+        &self.selected
+    }
+    pub fn model_roll(&self) -> Option<u32> {
+        self.model_roll
+    }
+    pub fn gender_roll(&self) -> Option<u32> {
+        self.gender_roll
+    }
+    pub fn level_roll_range(&self) -> Option<(u32, u32)> {
+        self.plan.level_roll_range()
+    }
+    pub fn collision_height(
+        &self,
+        display_id: u32,
+        model_id: u32,
+        raw_height: SpellFloat,
+    ) -> Result<InitialCollisionHeight> {
+        InitialCollisionHeight::from_selected_model(
+            &self.selected,
+            display_id,
+            model_id,
+            raw_height,
+        )
+    }
+    pub fn resolve_with_model_receipt(
+        self,
+        level: Option<u32>,
+    ) -> Result<(InitializedCreature, ModelSelectionReceipt)> {
+        self.plan.resolve_with_model_receipt(SelectionRolls {
+            model: self.model_roll,
+            gender: self.gender_roll,
+            level,
+        })
     }
 }
 fn validate_roll(value: Option<u32>, range: Option<(u32, u32)>, name: &'static str) -> Result<()> {

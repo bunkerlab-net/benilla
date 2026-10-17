@@ -92,14 +92,18 @@ remain required before production entry can open.
 An explicitly selected source capability catalog binds each spawn to its raw
 effective creature entry, actual `InhabitType`, requested/effective spawn-template
 row and complete source exclusions. Missing rows or exclusions cannot become
-empty/default lookups. The bounded runtime accepts actual habitat `1` and the
-supported RUN spawn flag, with explicit addon absence or an exact reference to
+empty/default lookups. The bounded runtime accepts actual habitat `1`, or
+explicitly source-owned dry habitat `3`, and the supported RUN spawn flag, with
+explicit addon absence or an exact reference to
 the selected generation owner's validated sheath-only addon closure. Scripts,
 control, entry substitution and other capability mutation remain excluded.
-Retained addon movement flags are not applied by the pinned loader. Habitat `3`,
-including actual entry 6, still has source `CanWalk` but also permits swimming and
-is rejected by the ground-only capability, ground-height and route owners. Habitat
-`1` does not establish dry terrain at the creature's current position.
+Retained addon movement flags are not applied by the pinned loader. Habitat `3`
+retains `CanWalk=true` and `CanSwim=true`: its selected generation/model/height
+owner requires a dry initialization observation after model/gender selection and
+before the level draw, on cold entry and respawn. Missing authority rejects.
+Neither habitat establishes dry terrain by itself. See the
+[dry habitat contract](../../../../../../benilla-world-runtime/CREATURE-DRY-HABITAT.md)
+for exact receipt fields, allowed-Z/filter branches and actual entry-6 limitations.
 
 The runtime owns only the capability-relevant current movement bits and derives
 `CanWalk`, `CanSwim`, `CanFly` and the allowed-position-Z branch from those bits
@@ -120,8 +124,9 @@ NearPoint fallback, OwnerPathFinder routes or native content admission.
 
 Tests cover exact-request replay, movement/replan, failed-authority rollback,
 non-retryable mismatched echoes, failed-save publication followed by one retry,
-and reopen. Missing/mismatched catalogs or water-capable rows cannot create a
-world; changed or removed selected catalogs cannot reopen or rewrite its durable
+and reopen. Missing/mismatched catalogs, unproved dry initialization or wet
+observations cannot create a world; changed or removed selected catalogs cannot
+reopen or rewrite its durable
 save. Source spell death, corpse removal and respawn retain the catalog binding
 while rebinding the runtime witness to the new creature generation, including
 corpse and respawn reopen boundaries.
@@ -140,7 +145,7 @@ a later independent scalar change invalidates the selected profile.
 Generation-zero NPC state owns both source-bound width and height witnesses. The
 real controller Chase and moving-target replan freeze both in the typed Route
 request; height validation checks the shared model source, profile, generation
-and exact `owner_collision_height`. Native format 42 retains the witness through
+and exact `owner_collision_height`. Native format 43 retains the witness through
 checkpoint, journal replay and reopen. A missing schema field fails to decode;
 explicit null denotes an unavailable dependency. Initial receipts survive corpse
 reopen but are cleared at respawn, and relabeling one cannot authorize a later
@@ -167,7 +172,7 @@ edited scalars, changed source catalogs and a different starter identity fail cl
 
 The actual controller freezes the selected player's world/character identity,
 source binding and exact sampled target pose, flags and dimensions into typed
-NearPoint and Route requests. Native format 42 retains ownership through journal
+NearPoint and Route requests. Native format 43 retains ownership through journal
 replay, checkpoint and reopen. Tests exercise chase and moving-target replan,
 source/identity/pose/height/width echo forgery, atomic controller/store/projection
 failure, exact authority retry, single publication after a store retry, and both
@@ -359,7 +364,7 @@ The warm straight-calculation tests initialize collision width through Plan's
 opaque initial-model receipt and authored MPQ/DBC loading, then consume the exact
 runtime Route witness on the loaded navigation owner thread. Width is the source
 object-scale times raw field14, with no radius, display-scale or render-scale
-substitution. Native format 42 retains that witness in the explicitly synthetic
+substitution. Native format 43 retains that witness in the explicitly synthetic
 initial route's replay and reopen; the real loaded dependencies never enter the
 accepted authority journal.
 
@@ -399,7 +404,7 @@ in command order, including unchanged-position and rotation-only calls. The
 100 ms gate counts down after those commands; stationary expiry never queries
 terrain. The last accepted pose and the earlier cached-query pose remain distinct.
 
-Native format 42 stores the cache and monotone phase sequence in the native
+Native format 43 stores the cache and monotone phase sequence in the native
 checkpoint, without a nested standalone environment journal. The controller saves
 every enabled environment tick before publishing, including countdown-only ticks.
 A failed save retains the committed tick and withholds projection until retry;

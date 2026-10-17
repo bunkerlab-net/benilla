@@ -94,6 +94,7 @@ pub fn creature_capability_sources(
         p.npcs
             .iter()
             .map(|npc| CreatureCapabilitySource {
+                initialization: CreatureInitializationClosure::Ground,
                 spawn_id: npc.ai.creature_id,
                 spawn_entry: npc.entry,
                 requested_spawn_template_entry: 0,

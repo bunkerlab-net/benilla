@@ -726,3 +726,48 @@ fn nested_aura_storage_counts_toward_the_retained_byte_budget() {
         Err(InitError::Invalid("source retention byte bound"))
     );
 }
+
+#[test]
+fn model_stage_precedes_level_and_preserves_the_complete_receipt() {
+    let source = input();
+    let selected = rolls();
+    let stage = prepare(&source)
+        .unwrap()
+        .select_model(selected.model, selected.gender)
+        .unwrap();
+    let expected = prepare(&source)
+        .unwrap()
+        .resolve_with_model_receipt(selected)
+        .unwrap();
+    assert_eq!(stage.model(), &expected.0.model);
+    let height = stage
+        .collision_height(stage.model().display_id, 19, f(2.5))
+        .unwrap();
+    assert_eq!(
+        height,
+        expected
+            .1
+            .collision_height(expected.0.model.display_id, 19, f(2.5))
+            .unwrap()
+    );
+    assert_eq!(
+        stage.resolve_with_model_receipt(selected.level).unwrap(),
+        expected
+    );
+    assert!(prepare(&source)
+        .unwrap()
+        .select_model(None, selected.gender)
+        .is_err());
+    assert!(prepare(&source)
+        .unwrap()
+        .select_model(selected.model, Some(9))
+        .is_err());
+    // The selected model is available before a level exists; invalid later input
+    // cannot cause the earlier stage to silently select an exemplar level.
+    assert!(prepare(&source)
+        .unwrap()
+        .select_model(selected.model, selected.gender)
+        .unwrap()
+        .resolve_with_model_receipt(Some(99))
+        .is_err());
+}

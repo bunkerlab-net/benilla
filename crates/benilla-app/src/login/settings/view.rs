@@ -438,7 +438,13 @@ fn field_list(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
                 format!("{}{lock}", field.name),
                 13.0,
                 GOLD,
-                abs(s, 7.0, 0.0, 392.0, 16.0),
+                abs(
+                    s,
+                    layout::FIELD_TEXT_LEFT,
+                    layout::FIELD_TEXT_TOP,
+                    layout::FIELD_TEXT_WIDTH,
+                    layout::FIELD_LABEL_HEIGHT,
+                ),
             );
             let value = if field.secret {
                 if field.value.is_empty() {
@@ -460,7 +466,13 @@ fn field_list(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
                 Color::WHITE,
                 Node {
                     overflow: Overflow::clip(),
-                    ..abs(s, 7.0, 16.0, 392.0, 16.0)
+                    ..abs(
+                        s,
+                        layout::FIELD_TEXT_LEFT,
+                        layout::FIELD_TEXT_TOP + layout::FIELD_LABEL_HEIGHT,
+                        layout::FIELD_TEXT_WIDTH,
+                        layout::FIELD_VALUE_HEIGHT,
+                    )
                 },
             );
         });
@@ -523,33 +535,7 @@ fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin
         GOLD,
         abs(s, 16.0, 14.0, 400.0, 36.0),
     );
-    let help = match settings.fields[i].name.as_str() {
-        "p2p.psk" => {
-            "Any length is allowed (max 1024 UTF-8 bytes). Random words are safer. Exact spaces/case matter."
-        }
-        "p2p.internet.enabled" => {
-            "true selects QUIC + explicit relays; false selects direct TCP. Clear p2p.peers for Internet mode."
-        }
-        "p2p.internet.port_mapping" => {
-            "false is the safe default. true explicitly permits router port mapping after restart."
-        }
-        "p2p.encounter.roster" => {
-            "TOML list: [{ id = \"32 hex chars\", address = \"IP:port\" }, ...]. Fixed roster must include every peer."
-        }
-        "p2p.encounter.epoch" => {
-            "64 nonzero hex characters, shared freshly for each encounter restart. Internet + encounter is unsupported."
-        }
-        "p2p.internet.peer_tickets" => {
-            "TOML list of quoted endpoint tickets, shared privately. Tickets expire when the remote restarts."
-        }
-        "p2p.peers" | "p2p.internet.relay_urls" => {
-            "TOML list of quoted addresses, for example [\"address\", \"address\"]."
-        }
-        "wow.data" => {
-            "The Data folder in your own 1.12.1 install. Empty uses normal discovery; relative paths start beside the executable."
-        }
-        _ => "Changes stay in this draft until Save. Boolean startup fields use true or false.",
-    };
+    let help = field_help(&settings.fields[i].name).expect("startup field has help");
     skin.text(
         ui,
         help,
@@ -589,6 +575,73 @@ fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin
                 );
             });
     }
+}
+
+// Keep startup explanations here so every listed field has a specific, testable description.
+fn field_help(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "p2p.enabled" => {
+            "true enables P2P exploration after restart; false removes the P2P config and uses realm login. Peers need matching network, passphrase and ruleset."
+        }
+        "p2p.psk" => {
+            "Shared passphrase, up to 1024 UTF-8 bytes. Exact spaces/case matter. Empty gives no privacy; use random words. This authenticates peers, but does not find them."
+        }
+        "p2p.network" => {
+            "Shared group name; all peers must match. Use 1-64 ASCII letters, digits, hyphens, underscores or dots. This is not an address or a peer-discovery service."
+        }
+        "p2p.listen" => {
+            "Local bind IP:port, e.g. 0.0.0.0:7474 (all IPv4 interfaces). Uses TCP normally or QUIC/UDP in iroh mode. Choose a nonzero port; this is not a remote peer address."
+        }
+        "p2p.peers" => {
+            "Direct TCP peers as a TOML list, e.g. [\"192.168.1.20:7474\"]. Empty listens without dialing peers. Leave [] for iroh mode or a fixed encounter roster."
+        }
+        "p2p.max_peers" => {
+            "Maximum peer connections, 1-64 (default 16). Must cover the configured peers or tickets; for encounters, allow at least roster size minus one."
+        }
+        "p2p.timeout_ms" => {
+            "Peer handshake timeout in milliseconds, 100-60000 (default 5000 = 5 seconds). Increase for slow connections; it does not change the game tick rate."
+        }
+        "wow.data" => {
+            "The Data folder in your own 1.12.1 install. Empty uses normal discovery; relative paths start beside the executable."
+        }
+        "p2p.classic_start_captures" => {
+            "Optional private source-v2 start-capture directory. Empty uses built-in racial starts. Bad or missing configured captures block new creation only; saved positions stay unchanged."
+        }
+        "ruleset.xp_rate" => {
+            "XP multiplier, 0.001-1000 with up to 3 decimal places (1.0 = normal). Peers must match. Ordinary P2P exploration does not implement XP progression."
+        }
+        "ruleset.drop_rate" => {
+            "Drop-chance multiplier, 0.001-1000, up to 3 decimals (1.0 = normal). Chance caps at 100%; item quantity is unchanged. Peers must match. P2P exploration has no loot progression."
+        }
+        "p2p.iroh.enabled" => {
+            "true opts into iroh QUIC; false uses TCP. Clear p2p.peers and exchange endpoint tickets manually. A shared passphrase alone does not discover friends. Cannot combine with encounters."
+        }
+        "p2p.iroh.relay_urls" => {
+            "TOML list of allowed HTTPS relay URLs. [] means direct QUIC only, with no relay fallback or hole-punch assistance. No public relay is added automatically."
+        }
+        "p2p.iroh.peer_tickets" => {
+            "TOML list of quoted endpoint tickets shared privately. They contain addresses, not the passphrase. Refresh after a peer restarts; ticket relays must be in relay_urls."
+        }
+        "p2p.iroh.port_mapping" => {
+            "false disables router mapping (default). true permits UPnP/PCP/NAT-PMP mapping for iroh mode after restart. Router support and permission are still required."
+        }
+        "p2p.encounter.enabled" => {
+            "true enables synthetic chat combat tests with a fixed 2-16-player TCP roster and shared epoch. iroh mode is incompatible. Leave false for ordinary exploration."
+        }
+        "p2p.encounter.local_id" => {
+            "Your public ID in the fixed encounter roster: exactly 32 hex characters, not all zero. Must match one roster entry; every player needs a unique ID."
+        }
+        "p2p.encounter.epoch" => {
+            "Shared encounter session ID: exactly 64 hex characters, not all zero. All roster members must use the same fresh value for each encounter restart."
+        }
+        "p2p.encounter.tick_limit" => {
+            "Synthetic encounter simulation tick limit, 1-100000 (default 1200). All roster members must agree. This bounds the test; it is not a network timeout."
+        }
+        "p2p.encounter.roster" => {
+            "TOML list: [{ id = \"32 hex chars\", address = \"IP:port\" }, ...]. Include all 2-16 players with unique IDs/addresses. Your entry must match local_id and listen port."
+        }
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

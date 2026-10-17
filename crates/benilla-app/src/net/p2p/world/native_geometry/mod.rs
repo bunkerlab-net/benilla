@@ -10,6 +10,7 @@ mod products;
 #[cfg(test)]
 pub(crate) mod real_corridor_fixture;
 pub(crate) mod route_commit;
+mod source_creature_initialization;
 mod source_ground_height;
 mod source_location;
 mod source_navigation;

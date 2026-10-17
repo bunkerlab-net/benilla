@@ -687,6 +687,11 @@ fn unsupported_owner_masks_and_invalid_limits_reject_before_smoothing() {
         (0, 0),
         (2, 0),
         (3, 0),
+        (4, 0),
+        (12, 0),
+        (15, 0),
+        (13, 1),
+        (13, 4),
         (1, 1),
         (1, 2),
         (u16::MAX, 0),
@@ -901,4 +906,50 @@ fn dropping_prepared_handle_releases_its_exclusive_mesh_without_cached_corridor_
     assert_eq!(reverse.polygons.first(), Some(&reverse.start.polygon));
     assert_eq!(reverse.polygons.last(), Some(&reverse.end.polygon));
     assert_eq!(reverse.stop, SourceSmoothStop::TargetReached);
+}
+
+#[test]
+fn swimming_capable_dry_filter_remains_thirteen_through_smoothing_and_warm_seed() {
+    let mut mesh = existing_mesh();
+    let (from, to) = flat_endpoints();
+    let filter = SourceOwnerFilter {
+        include_flags: 13,
+        exclude_flags: 0,
+    };
+    let corridor = mesh
+        .loaded_source_corridor(
+            from,
+            to,
+            filter,
+            74,
+            SourceSmoothingBudget::default(),
+            until(),
+        )
+        .unwrap();
+    assert_eq!(corridor.filter(), filter);
+    let seed = corridor.warm_cache_seed().unwrap();
+    assert_eq!(seed.filter(), filter);
+    let smooth = corridor.smooth().unwrap();
+    assert_eq!(smooth.filter, filter);
+}
+
+#[test]
+fn supporting_filter_thirteen_does_not_admit_water_or_magma_polygons() {
+    let vertex_count = u32::from_le_bytes(LEFT[48..52].try_into().unwrap()) as usize;
+    let poly = 20 + 100 + vertex_count * 12;
+    for (flags, area) in [(4u16, 9u8), (8, 10), (13, 11), (1, 9)] {
+        let mut wet = LEFT.to_vec();
+        wet[poly + 28..poly + 30].copy_from_slice(&flags.to_le_bytes());
+        wet[poly + 31] = area;
+        assert!(matches!(
+            Mesh::load(
+                PARAMS,
+                &[TileInput {
+                    grid: [32, 32],
+                    bytes: &wet,
+                }]
+            ),
+            Err(Error::Unsupported)
+        ));
+    }
 }

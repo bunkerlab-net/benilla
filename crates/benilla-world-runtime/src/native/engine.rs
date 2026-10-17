@@ -206,7 +206,7 @@ impl NativeWorld {
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v42\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v43\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -1410,13 +1410,26 @@ impl<A: Authority> Frame<'_, A> {
                         npc.id.generation.checked_add(1).ok_or(NativeError::Limit)?;
                     match (&self.profile.creature_generations, &npc.source_generation) {
                         (Some(catalog), Some(owner)) => {
-                            let (next, draws) = owner.respawn(
+                            let profile = self.profile;
+                            let tick = self.state.tick;
+                            let seed = self.state.seed;
+                            let mut cursor = self.state.rng_counter;
+                            let (next, draws) = owner.respawn_with_initialization(
                                 catalog,
                                 npc.id,
-                                self.state.tick,
-                                self.state.seed,
-                                &mut self.state.rng_counter,
+                                tick,
+                                seed,
+                                &mut cursor,
+                                Some(profile),
+                                &mut |query| match self.ask(
+                                    Some(npc.id),
+                                    Query::CreatureInitialization(Box::new(query.clone())),
+                                )? {
+                                    Facts::CreatureInitialization(facts) => Ok(*facts),
+                                    _ => Err(NativeError::AuthorityBinding),
+                                },
                             )?;
+                            self.state.rng_counter = cursor;
                             npc.source_generation = Some(next);
                             self.draws.extend(draws);
                             p = npc.effective_profile(self.profile)?;
@@ -1450,7 +1463,11 @@ impl<A: Authority> Frame<'_, A> {
                         events.respawn(self.profile, npc.id, self.state.tick)?;
                     }
                     if let Some(capabilities) = &mut npc.source_capabilities {
-                        capabilities.respawn(self.profile, npc.id)?;
+                        capabilities.respawn(
+                            self.profile,
+                            npc.id,
+                            npc.source_generation.as_ref(),
+                        )?;
                     }
                     npc.health = npc
                         .source_generation
@@ -1603,7 +1620,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v42\0",
+            b"benilla-native-melee-action-v43\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1873,7 +1890,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v42\0",
+            b"benilla-native-melee-chain-v43\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

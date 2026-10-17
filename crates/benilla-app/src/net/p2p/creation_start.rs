@@ -5,17 +5,26 @@ use benilla_profile::{
 };
 use std::path::Path;
 
-pub(super) const LEGACY_WARNING: &str = "P2P racial starts are not configured: new characters use the legacy Northshire meeting point. Set p2p.classic_start_captures to your private source-v2 capture directory for racial starts. Saved characters keep their positions.";
+#[path = "creation_start/defaults.rs"]
+mod defaults;
 
 pub(super) enum CreationStart {
-    Legacy,
+    Racial {
+        race: u8,
+        class: u8,
+        position: benilla_profile::Position,
+    },
     Captured(ClassicStart),
 }
 impl CreationStart {
     pub(super) fn load(directory: Option<&Path>, race: u8, class: u8) -> anyhow::Result<Self> {
         validate_race_class(race, class)?;
         let Some(directory) = directory else {
-            return Ok(Self::Legacy);
+            return Ok(Self::Racial {
+                race,
+                class,
+                position: defaults::position(race)?,
+            });
         };
         if !directory.is_absolute() {
             anyhow::bail!("Classic start directory must be absolute after startup configuration");
@@ -36,7 +45,18 @@ impl CreationStart {
         input: NewCharacter,
     ) -> Result<CharacterId, Error> {
         match self {
-            Self::Legacy => store.create_character(input),
+            Self::Racial {
+                race,
+                class,
+                position,
+            } => {
+                if (input.race, input.class) != (race, class) {
+                    return Err(Error::Invalid(
+                        "racial start does not match the selected race/class",
+                    ));
+                }
+                store.create_character_at_racial_start(input, position)
+            }
             Self::Captured(start) => store.create_character_from_start(input, &start),
         }
     }

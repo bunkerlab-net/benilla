@@ -64,7 +64,8 @@ impl PathFinderCache {
             || (self.source == RouteSource::OwnerPathFinder
                 && self.revision == 1
                 && (self.path_type != 1 || self.active_len == 0))
-            || self.include_flags != 1
+            // Shape only: the host binds the exact 1/13 choice to its capability owner.
+            || !matches!(self.include_flags, 1 | 13)
             || self.exclude_flags != 0
         {
             return Err(MotionError::Invalid("retained pathfinder cache domain"));

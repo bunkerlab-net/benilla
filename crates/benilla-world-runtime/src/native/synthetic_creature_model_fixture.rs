@@ -170,6 +170,27 @@ pub fn catalog_with_height_fields(
     display_scale: f32,
     short_model: bool,
 ) -> CreatureCatalog {
+    catalog_with_distinct_heights(
+        width,
+        height,
+        height,
+        model_scale,
+        display_scale,
+        short_model,
+    )
+}
+/// Authored distinct heights loaded through the actual DBC reader.
+pub fn catalog_with_model_heights(root: f32, other: f32) -> CreatureCatalog {
+    catalog_with_distinct_heights(1.375, root, other, 2.5, 1.75, false)
+}
+fn catalog_with_distinct_heights(
+    width: f32,
+    height: f32,
+    other_height: f32,
+    model_scale: f32,
+    display_scale: f32,
+    short_model: bool,
+) -> CreatureCatalog {
     let mut model = [0_u32; 16];
     model[0] = 7;
     model[2] = 1;
@@ -178,6 +199,7 @@ pub fn catalog_with_height_fields(
     model[15] = height.to_bits();
     let mut other = model;
     other[0] = 9;
+    other[15] = other_height.to_bits();
     let mut display = [0_u32; 12];
     display[0] = 31;
     display[1] = 7;

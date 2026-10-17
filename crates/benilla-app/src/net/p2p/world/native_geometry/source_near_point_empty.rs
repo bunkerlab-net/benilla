@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Separately selected ground-searcher GetNearPointAt with empty source lists.
+//! Ground or physically dry swimming-capable GetNearPointAt with empty source lists.
 //! Exhaustion returns the source's restored first XY and carried/adjusted Z;
 //! that final return is not a LOS, support, accessibility or path certificate.
 use super::{
@@ -38,7 +38,7 @@ pub(crate) fn geometry_revision(
 ) -> Result<[u8; 32], Failure> {
     let primary = source_near_point::geometry_revision(snapshot, config)?;
     let mut hash = Sha256::new();
-    hash.update(b"benilla-source-near-point-empty-selector-ground-los-v1");
+    hash.update(b"benilla-source-near-point-empty-selector-ground-or-dry-swimming-los-v2");
     hash.update(primary);
     for policy in [
         near_point::selector::POLICY,

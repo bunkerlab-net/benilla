@@ -13,10 +13,10 @@ pub(in super::super) fn config(products: &InventoriedProducts) -> SourceHeightCo
         vmap_height_enabled: true,
     }
 }
-fn deadline() -> Instant {
+pub(super) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
-fn position(z: f32) -> [u32; 3] {
+pub(super) fn position(z: f32) -> [u32; 3] {
     let mid = 0.5f32 * (64.0 * super::super::terrain::GRID_SIZE);
     [mid - 21.0, mid - 1.0, z].map(f32::to_bits)
 }

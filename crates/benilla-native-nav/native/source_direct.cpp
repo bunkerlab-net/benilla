@@ -86,7 +86,7 @@ BenillaSourceDirect* benilla_source_direct_create(const dtNavMesh* mesh,
     *status = DT_FAILURE | DT_INVALID_PARAM;
     if (!mesh || !mesh->isValidPolyRef(startRef) || !mesh->isValidPolyRef(endRef) ||
         !startPos || !dtVisfinite(startPos) || !endPos || !dtVisfinite(endPos) ||
-        include != 1 || exclude != 0) return nullptr;
+        (include != 1 && include != 13) || exclude != 0) return nullptr;
     const dtMeshTile* tile = nullptr;
     const dtPoly* poly = nullptr;
     for (dtPolyRef ref : {startRef, endRef}) {

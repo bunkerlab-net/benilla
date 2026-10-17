@@ -432,7 +432,7 @@ fn synthetic_fixture_restore_rejects_cache_identity_revision_and_endpoint_mismat
     let mut a = SyntheticCache::default();
     s.start_chase(target(20.), false, input(), &mut a).unwrap();
     s.advance(250, Some(target(40.)), input(), &mut a).unwrap();
-    for case in 0..11 {
+    for case in 0..12 {
         let mut snapshot = s.snapshot();
         let Generator::Chase(c) = &mut snapshot.generator else {
             panic!("chase")
@@ -463,6 +463,7 @@ fn synthetic_fixture_restore_rejects_cache_identity_revision_and_endpoint_mismat
                 cache.requested_end = point(999.);
                 c.requested_goal = Some(point(999.));
             }
+            11 => cache.include_flags = 13,
             _ => unreachable!(),
         }
         assert!(MotionState::restore(snapshot).is_err(), "case {case}");

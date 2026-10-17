@@ -8,6 +8,13 @@ pub(super) const TESTS: [f32; 4] = [22.0, 468.0, 876.0, 40.0];
 pub(super) const STATUS: [f32; 4] = [22.0, 536.0, 876.0, 90.0];
 pub(super) const FOOTER: [f32; 4] = [22.0, 646.0, 876.0, 38.0];
 pub(super) const FIELD_HEIGHT: f32 = 35.0;
+// Two text line boxes centered inside the stock title highlight's inset gold face.
+pub(super) const FIELD_LABEL_HEIGHT: f32 = 15.0;
+pub(super) const FIELD_VALUE_HEIGHT: f32 = 14.0;
+pub(super) const FIELD_TEXT_TOP: f32 =
+    (FIELD_HEIGHT - FIELD_LABEL_HEIGHT - FIELD_VALUE_HEIGHT) / 2.0;
+pub(super) const FIELD_TEXT_LEFT: f32 = 16.0;
+pub(super) const FIELD_TEXT_WIDTH: f32 = 374.0;
 pub(super) const FIELD_TOP: f32 = 14.0;
 pub(super) const PAGE_TOP: f32 = 302.0;
 
@@ -52,6 +59,18 @@ mod tests {
             assert!(LIST[0] + LIST[2] < EDITOR[0]);
             assert!(LIST[1] + LIST[3] < TESTS[1]);
             assert!(TESTS[1] + TESTS[3] < STATUS[1]);
+        };
+    }
+
+    #[test]
+    fn row_text_has_equal_vertical_margins_and_room_for_font_line_height() {
+        const {
+            assert!(FIELD_TEXT_TOP >= 3.0);
+            assert!(FIELD_TEXT_TOP * 2.0 + FIELD_LABEL_HEIGHT + FIELD_VALUE_HEIGHT == FIELD_HEIGHT);
+            assert!(FIELD_LABEL_HEIGHT >= 13.0 * 1.15);
+            assert!(FIELD_VALUE_HEIGHT >= 12.0 * 1.15);
+            assert!(FIELD_TEXT_LEFT >= 12.0);
+            assert!(FIELD_TEXT_LEFT * 2.0 + FIELD_TEXT_WIDTH == 406.0);
         };
     }
 

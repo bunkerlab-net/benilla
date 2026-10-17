@@ -139,8 +139,10 @@ production consumer and does not touch the held offline compiler.
 ## Separate bounded loaded source-smoothing dependency
 
 `Mesh::loaded_source_corridor` prepares a fresh corridor on the validated immutable mesh,
-with an explicitly copied `SourceOwnerFilter`. The initial supported filter is exactly
-include=1/exclude=0, with the native default unit area costs. Unsupported masks reject;
+with an explicitly copied `SourceOwnerFilter`. Supported source-owned dry filters are
+include=1/exclude=0 for habitat 1 and include=13/exclude=0 for habitat 3, with the native
+default unit area costs. The mesh still accepts only ground flags/area; filter 13
+does not admit wet polygons. Other masks reject;
 they are never silently replaced. The handle retains an exclusive mesh borrow, original
 world endpoint bits, copied filter, source point limit, operational budgets and one absolute
 caller deadline. Its fields are private, and no API accepts caller-supplied polygon references.
@@ -407,7 +409,7 @@ ignore-normalization, force-destination and the previous source path-type bits. 
 path-type bits reject. `normalize_z && !ignore_normalization` rejects before work: owner
 height correction, liquids, transport coordinate transforms and world callbacks are absent.
 The API represents only non-playerbots, non-dungeon, non-transport smooth calculations with
-the existing dry-ground filter and source limit 74. Straight-line/raycast and straight-funnel
+the exact source-owned dry filter (1/0 or 13/0) and source limit 74. Straight-line/raycast and straight-funnel
 calculations are not represented by this API. In particular, source Chase first tries a
 separate straight-line/raycast calculation when its distance, elevation, line-of-sight and
 dry-state conditions allow (`TargetedMovementGenerator.cpp` 501-540). This terminal smooth
@@ -702,6 +704,12 @@ uses a legacy512 lookup, creates a separate direct query, or invokes raycast,
 sampled straight BuildPointPath or smoothing. Different polygon references,
 missing polygons and distances greater than seven publish no candidate.
 
+`loaded_cold_same_polygon_with_filter` additionally takes the exact copied
+`SourceOwnerFilter`; the legacy entry point supplies `1/0`. The explicit path
+retains `1/0` or source-owned dry `13/0` through the same loaded query and cache.
+The existing ground-polygon validator is unchanged. A habitat-3 filter does not
+admit wet polygons or recreate an owner initialization observation.
+
 `SourceSamePolygonConfig` requires explicit `normalize_z=false` and
 `ignore_normalization=false`; neither a server default nor a fabricated callback
 is used. The source NormalizePath condition returns immediately in this domain.
@@ -772,5 +780,5 @@ Constructor event/filter/configuration provenance, runtime dispatch, HaveTile an
 fresh filter-update composition, actual segment geometry, authority/cache commit,
 Route evidence and gameplay admission remain separate application prerequisites.
 Source NORMAL does not prove dry support, endpoint support or body clearance.
-No application/runtime code or admission gate is changed. Disabled-constructor
+This primitive grants no application/runtime admission. Disabled-constructor
 `m_defaultNavMeshQuery` and all other excluded undefined branches remain untouched.

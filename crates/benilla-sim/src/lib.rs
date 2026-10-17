@@ -19,6 +19,9 @@ pub mod creature_regeneration;
 /// Source-derived creature movement capabilities; runtime admission is separate.
 pub mod creature_capabilities;
 
+/// Scalar source swimming initialization; live geometry ownership is separate.
+pub mod creature_swimming;
+
 pub mod classic_targets;
 
 pub mod classic_spell;

@@ -5,6 +5,8 @@ mod admin;
 pub use admin::*;
 mod combat;
 mod creature_capabilities;
+mod creature_initialization;
+pub use creature_initialization::*;
 mod creature_equipment;
 mod creature_generation;
 mod creature_generation_binding;
@@ -124,8 +126,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 42;
-pub const NATIVE_POLICY: &str = "benilla-native-addon-capabilities-v42";
+pub const NATIVE_FORMAT_VERSION: u32 = 43;
+pub const NATIVE_POLICY: &str = "benilla-native-dry-habitat-v43";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -245,6 +247,32 @@ impl NativeWorld {
         seed: u64,
         entry_location: Option<InitialCastEntryLocationFacts>,
     ) -> Result<Self, NativeError> {
+        struct MissingInitialization;
+        impl Authority for MissingInitialization {
+            fn resolve(&mut self, _: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+                Err(NativeError::AuthorityUnavailable(
+                    "creature initialization liquid observation",
+                ))
+            }
+        }
+        Self::synthetic_component_test_with_initialization(
+            profile,
+            world,
+            player,
+            seed,
+            entry_location,
+            &mut MissingInitialization,
+        )
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub fn synthetic_component_test_with_initialization(
+        profile: Profile,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+        seed: u64,
+        entry_location: Option<InitialCastEntryLocationFacts>,
+        authority: &mut dyn Authority,
+    ) -> Result<Self, NativeError> {
         profile.validate()?;
         profile.require_realizable_initial_casts()?;
         if profile.admin.as_ref().is_some_and(|p| p.world != world) {
@@ -255,7 +283,6 @@ impl NativeWorld {
         }
         let initial_cast_genesis =
             InitialCastGenesis::realize(&profile, world, player, seed, entry_location.as_ref())?;
-        let profile_digest = profile.digest();
         let mut rng_counter = initial_cast_genesis.end_counter();
         let order: Vec<u64> = match &profile.creature_generations {
             Some(catalog) => catalog.cold_entry_order().to_vec(),
@@ -269,15 +296,29 @@ impl NativeWorld {
                 .as_ref()
                 .map(|catalog| {
                     catalog
-                        .initial(
+                        .initial_with_initialization(
+                            &profile,
                             world,
-                            profile_digest,
                             crate::NpcId {
                                 spawn,
                                 generation: 0,
                             },
                             seed,
                             &mut rng_counter,
+                            &mut |query| {
+                                let request = AuthorityRequest {
+                                    binding: query.binding.clone(),
+                                    query: Query::CreatureInitialization(Box::new(query.clone())),
+                                };
+                                let reply = authority.resolve(&request)?;
+                                if reply.request != request {
+                                    return Err(NativeError::AuthorityBinding);
+                                }
+                                match reply.facts {
+                                    Facts::CreatureInitialization(facts) => Ok(*facts),
+                                    _ => Err(NativeError::AuthorityBinding),
+                                }
+                            },
                         )
                         .map(|(owner, _draws)| owner)
                 })
@@ -300,13 +341,20 @@ impl NativeWorld {
                         &profile,
                     )?,
                     source_motion: NpcMotion::new(&profile, p)?,
-                    source_capabilities: CreatureCapabilityState::new(
-                        &profile,
-                        crate::NpcId {
-                            spawn: p.ai.creature_id,
-                            generation: 0,
-                        },
-                    )?,
+                    source_capabilities: match &source_generation {
+                        Some(owner) => CreatureCapabilityState::new_generation(
+                            &profile,
+                            owner.npc_id(),
+                            owner,
+                        )?,
+                        None => CreatureCapabilityState::new(
+                            &profile,
+                            crate::NpcId {
+                                spawn: p.ai.creature_id,
+                                generation: 0,
+                            },
+                        )?,
+                    },
                     source_collision_width: match &source_generation {
                         Some(owner) => CreatureCollisionWidthState::new_generation(
                             &profile,
@@ -425,7 +473,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v42\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v43\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

@@ -74,7 +74,7 @@ static bool finite_point(const float* p) {
 BenillaSourceSmoothing* benilla_source_create(dtNavMeshQuery* query,
     const float* start, const float* end, const dtPolyRef* path, uint32_t count,
     uint32_t limit, unsigned short include, unsigned short exclude) {
-    if (!query || count == 0 || count > limit || limit < 2 || limit > 74 || include != 1 || exclude != 0)
+    if (!query || count == 0 || count > limit || limit < 2 || limit > 74 || (include != 1 && include != 13) || exclude != 0)
         return nullptr;
     BenillaSourceSmoothing* s = new(std::nothrow) BenillaSourceSmoothing;
     if (!s) return nullptr;

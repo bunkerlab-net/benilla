@@ -156,3 +156,6 @@ mod route_commit;
 
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_location.rs"]
 mod source_location;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_creature_initialization.rs"]
+mod source_creature_initialization;

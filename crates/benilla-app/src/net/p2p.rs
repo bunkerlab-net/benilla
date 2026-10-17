@@ -34,7 +34,7 @@ pub(super) use native_geometry::plugin as native_geometry_plugin;
 use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
-const CONTENT_VERSION: &str = "benilla-saved-exploration-classic-starts-v4";
+const CONTENT_VERSION: &str = "benilla-saved-exploration-racial-starts-v5";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
 /// Public connection metadata plus the local setup mailbox; no signing keys or PSKs.
@@ -82,7 +82,7 @@ impl Drop for ClearTicket {
     }
 }
 
-const HELP: &str = "P2P exploration: saved local characters, movement and /say. New characters use configured local racial starts; without p2p.classic_start_captures they use the legacy Northshire meeting point. Position saves every 10 seconds and on logout. Combat, quests, XP, loot, spells and inventory progression are not implemented.";
+const HELP: &str = "P2P exploration: saved local characters, movement and /say. New characters use their racial starting locations by default; optional private captures override new starts. Existing characters keep their saved positions. Position saves every 10 seconds and on logout. Combat, quests, XP, loot, spells and inventory progression are not implemented.";
 const AVATAR_VERSION: u16 = 1;
 const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(10);
 

@@ -38,9 +38,15 @@ sharing with intended friends. A ticket does not contain the shared passphrase.
 
 A successful local test does not prove that a remote friend can connect, that a
 router mapping worked, or that relay/direct internet traversal works. Use the
-matching internet-mode instructions and test with both peers. Tests do not verify
+matching iroh-mode instructions and test with both peers. Tests do not verify
 WoW assets, rendering, combat completeness or persistent character saves.
 
 The settings panel and headless tests have not been visually verified against a
 real WoW installation in this cloud workspace. See [configuration](P2P-CONFIG.md)
 and [synthetic encounters](P2P-ENCOUNTER.md) for the current mode limits.
+
+The optional QUIC transport appears as `p2p.iroh.*` in the settings list. Existing
+`[p2p.internet]` configuration tables are accepted as an alias and normalized to
+`[p2p.iroh]` when saved. Configurations containing both names are rejected so no
+transport settings are silently ignored. The rename does not enable iroh or add
+relays automatically.

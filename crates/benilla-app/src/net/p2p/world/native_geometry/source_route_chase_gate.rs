@@ -193,7 +193,7 @@ impl SourceRouteChaseGateProvider {
             return Err(Failure::UnsupportedQuery);
         }
         // This checks the entire session (including selected environment), owner,
-        // current pose, query generation/tick, ground-only capabilities and warm cache.
+        // current pose, query generation/tick, source-bound dry capabilities and warm cache.
         let straight = self.straight.begin(session, context)?;
         let model = gate_model(&self.profile, session.world, self.player, route)?;
         Ok(BoundChaseGateQuery {
@@ -307,11 +307,9 @@ pub(super) fn gate_model(
     let width = route
         .require_collision_width(profile)
         .map_err(native_failure)?;
-    let source = profile
-        .creature_collision_widths
-        .as_ref()
-        .and_then(|catalog| catalog.source(route.owner.npc().spawn))
-        .ok_or(Failure::MissingGeometry)?;
+    let selection = width
+        .validated_model_selection(profile, route.owner.npc(), route.owner.initialization())
+        .map_err(native_failure)?;
     let owner_height = route
         .require_collision_height(profile)
         .map_err(native_failure)?;
@@ -319,7 +317,7 @@ pub(super) fn gate_model(
         .require_target_collision_height(profile, world, player)
         .map_err(native_failure)?;
     Ok(ChaseGateModel {
-        selection: source.selection().clone(),
+        selection,
         width: width.clone(),
         owner_height: owner_height.clone(),
         target_height: target_height.clone(),

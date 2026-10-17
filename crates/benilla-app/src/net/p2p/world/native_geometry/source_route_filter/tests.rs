@@ -42,8 +42,24 @@ fn setup(
     profile
         .initialize_creature_capabilities(fixture::creature_capability_sources(&profile))
         .unwrap();
+    let session = session(&profile, binding);
+    let mut world =
+        NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();
+    let mut authority = fixture::SyntheticMotionAuthority::default();
+    for tick in 1..=2 {
+        world.step(tick, None, &mut authority).unwrap();
+    }
+    let context = authority
+        .queries
+        .into_iter()
+        .find(|q| matches!(q.query, Query::SourceMotion(MotionQuery::Route(_))))
+        .unwrap();
+    (world, session, context)
+}
+
+fn session(profile: &Profile, binding: SnapshotBinding) -> Session {
     let motion = profile.source_motion.as_ref().unwrap();
-    let session = Session {
+    Session {
         world: [8; 16],
         profile: profile.digest(),
         policy: profile.authority_policy,
@@ -74,19 +90,7 @@ fn setup(
         source_location: None,
         player_environment: None,
         same_polygon_route: None,
-    };
-    let mut world =
-        NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();
-    let mut authority = fixture::SyntheticMotionAuthority::default();
-    for tick in 1..=2 {
-        world.step(tick, None, &mut authority).unwrap();
     }
-    let context = authority
-        .queries
-        .into_iter()
-        .find(|q| matches!(q.query, Query::SourceMotion(MotionQuery::Route(_))))
-        .unwrap();
-    (world, session, context)
 }
 
 fn request(provider: &SourceRouteFilterProvider, context: &AuthorityRequest) -> RouteFilterRequest {
@@ -418,4 +422,61 @@ fn bare_spatial_route_does_not_acquire_owner_capabilities_or_a_filter() {
         provider.begin(&session, &context),
         Err(Failure::UnsupportedQuery)
     ));
+}
+
+#[test]
+fn retained_filter_requires_exact_capability_choice_and_preserves_dry_observation_lineage() {
+    let (products, _) = products::authored_ground_height();
+    let snapshot = products.load_dry_liquid().unwrap();
+    let (world, session, context) = setup(snapshot.binding(), owner_position());
+    let provider = SourceRouteFilterProvider::bind(&session, world.profile(), snapshot).unwrap();
+    let bound = provider.begin(&session, &context).unwrap();
+    let initial = request(&provider, &context);
+    for (include_flags, exclude_flags) in [(13, 0), (0, 0), (3, 0), (1, 1), (u16::MAX, 0)] {
+        assert_eq!(
+            bound.query_retained_update(
+                initial.clone(),
+                benilla_native_nav::SourceOwnerFilter {
+                    include_flags,
+                    exclude_flags
+                },
+                None,
+                deadline(),
+            ),
+            Err(Failure::Binding)
+        );
+    }
+    let filter = benilla_native_nav::SourceOwnerFilter::GROUND;
+    let first = bound
+        .query_retained_update(initial.clone(), filter, None, deadline())
+        .unwrap();
+    assert_eq!(first.filter(), filter);
+    assert_eq!(first.continued_from_ticket(), None);
+    assert_eq!(
+        first.liquid_observations().map(|o| o.mask),
+        [
+            route_filter::LiquidMask::AllLiquids,
+            route_filter::LiquidMask::WaterOrOcean
+        ]
+    );
+    let mut continued = initial.clone();
+    continued.first_ticket += 4;
+    let next = bound
+        .query_retained_update(continued.clone(), filter, Some(&first), deadline())
+        .unwrap();
+    assert_eq!(next.filter(), filter);
+    assert_eq!(next.continued_from_ticket(), Some(initial.first_ticket));
+    assert_eq!(next.owner_position(), first.owner_position());
+    for field in 0..3 {
+        let mut stale = continued.clone();
+        match field {
+            0 => stale.first_ticket += 1,
+            1 => stale.snapshot.inventory[0] ^= 1,
+            _ => stale.context.binding.npc.as_mut().unwrap().generation += 1,
+        }
+        assert_eq!(
+            bound.query_retained_update(stale, filter, Some(&first), deadline()),
+            Err(Failure::Binding)
+        );
+    }
 }

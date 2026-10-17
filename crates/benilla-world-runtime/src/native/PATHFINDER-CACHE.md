@@ -4,7 +4,7 @@ Pinned reference: CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `PathFinder.cpp:306–383,410–789`, `PathFinder.h::clear`, and the Chase/Home
 movement-generator call sites. Existing source/license notices remain applicable.
 
-Native format **42**, policy `benilla-native-addon-capabilities-v42`, retains the
+Native format **43**, policy `benilla-native-dry-habitat-v43`, retains the
 optional retained cache to Chase snapshots, requests and completed calculation
 receipts. Older native checkpoints/records are incompatible; character/profile
 save formats are unchanged. An incompatible open preserves the existing files.
@@ -15,11 +15,15 @@ save formats are unchanged. An incompatible open preserves the existing files.
 point limit, terminal path type, last requested endpoint and filter. Inactive
 slots and appended tail remain significant: source clear does not clear storage,
 and smoothing uses separate scratch refs. The current domain is ordinary fixed
-74-point, ground filter `1/0`; dungeon growth and other filters are unsupported.
+74-point, with source-owned dry filter `1/0` for habitat 1 or `13/0` for habitat 3.
+The latter retains `CanSwim=true` while all loaded polygons remain validated ground.
+Dungeon growth, wet movement and other filters are unsupported.
 Operational storage is bounded at 4096 refs without truncation.
 
 Each cache binds creature/map/content/geometry, NPC generation and loaded
-inventory/source epoch/navigation policy. A checked revision increments once per
+inventory/source epoch/navigation policy. The expected filter is derived from the executing capability
+owner, including on restore; a well-formed filter 1 cache cannot replace a habitat-3
+filter 13 cache. A checked revision increments once per
 accepted completed calculation. A reply must echo the exact prior cache and
 requested endpoint; changing ownership, provenance, filter or point limit,
 shrinking storage or overflowing the revision fails. Native generation validation
@@ -68,7 +72,11 @@ cache-free bounded/synthetic fixtures remain usable, but cannot erase a cache.
 liquid/filter observations with the actual retained-cache lookup/cut/replacement
 query. It freezes the complete authority request, including prior cache revision,
 and binds the exact owner generation, geometry, inventory, source epoch and
-navigation policy. Ticket allocation is checked before work; one absolute deadline
+navigation policy. The source policy
+`cmangos-8ec338a1-ground-or-water-capable-dry-route-filter-v2` preserves the exact
+initial include flags across dry updates: ordered mask-15 then mask-10 `NO_WATER`
+observations do not turn 13 into 1. Any nonzero status rejects before navigation.
+Ticket allocation is checked before work; one absolute deadline
 covers the entire dependency. Missing/changed data or an unsupported branch
 publishes nothing.
 

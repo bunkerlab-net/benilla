@@ -99,9 +99,9 @@ are refused until cross-map membership is implemented.
 
 ## Deliberate first-slice limits
 
-New characters can use [configured local racial starts](CLASSIC-EXPLORATION-STARTS.md).
-Without that configuration, all races retain the legacy Northshire meeting point, with a
-diagnostic warning. Existing saved positions are never reset. No world rows are bundled.
+New characters use [built-in racial starts](CLASSIC-EXPLORATION-STARTS.md), with
+optional private capture overrides. Existing saved positions are never reset, including
+legacy Northshire characters. Only eight position facts are included, not world rows.
 Characters remain level one.
 Health/power fields are exploration UI baselines, not implemented class statistics. There are
 no implemented world NPCs/AI, combat abilities, spells, XP awards, quests, inventory, loot,

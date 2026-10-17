@@ -75,6 +75,13 @@ pub(super) fn validate_prefix(
         {
             return Err(NativeError::AuthorityBinding);
         }
+        if let Some(capabilities) = &npc.source_capabilities {
+            let expected = CreatureCapabilityState::new_generation(profile, npc.id, owner)?
+                .ok_or(NativeError::AuthorityBinding)?;
+            if capabilities != &expected {
+                return Err(NativeError::AuthorityBinding);
+            }
+        }
         let at_ms = |tick: u64| {
             tick.checked_mul(u64::from(profile.tick_ms))
                 .and_then(|value| value.checked_add(profile.clock_origin_ms))

@@ -29,8 +29,9 @@ impl ConfigEditor {
             return Err(invalid("configuration path must be absolute"));
         }
         let original = read(path)?;
-        let document = original.as_deref().unwrap_or("").parse::<DocumentMut>()
+        let mut document = original.as_deref().unwrap_or("").parse::<DocumentMut>()
             .map_err(|_| invalid("config.toml has invalid TOML syntax; repair its syntax before editing settings (source withheld)"))?;
+        migrate_iroh(&mut document)?;
         Ok(Self {
             path: path.to_owned(),
             original,
@@ -65,7 +66,11 @@ impl ConfigEditor {
             .as_value()
             .map(|v| match v {
                 Value::String(s) => s.value().clone(),
-                _ => v.to_string().trim().to_owned(),
+                _ => {
+                    let mut value = v.clone();
+                    value.decor_mut().clear();
+                    value.to_string().trim().to_owned()
+                }
             })
     }
     pub fn set_string(&mut self, section: &str, key: &str, value: &str) {
@@ -170,6 +175,27 @@ impl ConfigEditor {
         result.map(|()| config)
     }
 }
+/// Rename the key in the draft, retaining the table, unknown values and key formatting.
+/// Never merge both spellings: choosing one would silently discard connection settings.
+fn migrate_iroh(document: &mut DocumentMut) -> Result<(), ConfigError> {
+    let Some(p2p) = document.get_mut("p2p").and_then(Item::as_table_like_mut) else {
+        return Ok(());
+    };
+    if p2p.contains_key("internet") && p2p.contains_key("iroh") {
+        return Err(invalid(
+            "p2p.iroh and legacy p2p.internet cannot both be present; keep only p2p.iroh",
+        ));
+    }
+    if let Some(old_key) = p2p.key("internet") {
+        let key = toml_edit::Key::new("iroh")
+            .with_leaf_decor(old_key.leaf_decor().clone())
+            .with_dotted_decor(old_key.dotted_decor().clone());
+        let table = p2p.remove("internet").expect("existing legacy key");
+        p2p.entry_format(&key).or_insert(table);
+    }
+    Ok(())
+}
+
 fn read(path: &Path) -> Result<Option<String>, ConfigError> {
     match fs::symlink_metadata(path) {
         Ok(meta) if !meta.file_type().is_file() => {
@@ -368,26 +394,83 @@ mod tests {
         );
     }
     #[test]
+    fn legacy_iroh_migration_preserves_comments_and_saves_canonically() {
+        for source in [
+            "[p2p]\npsk = 'public fixture'\n# transport note\n[p2p.internet] # header note\nport_mapping = true # router note\nrelay_urls = []\n",
+            "[p2p]\npsk = 'public fixture'\ninternet = { port_mapping = true } # router note\n",
+            "[p2p]\npsk = 'public fixture'\ninternet.port_mapping = true # router note\n",
+        ] {
+            let t = Temp::new();
+            let path = t.path();
+            fs::write(&path, source).unwrap();
+            let mut editor = ConfigEditor::open(&path).unwrap();
+            assert!(editor.has_section("p2p.iroh"));
+            assert!(!editor.has_section("p2p.internet"));
+            assert_eq!(editor.get("p2p.iroh", "port_mapping").as_deref(), Some("true"));
+            assert_eq!(fs::read_to_string(&path).unwrap(), source);
+            editor.set_literal("p2p.iroh", "port_mapping", "false").unwrap();
+            assert!(!editor.save().unwrap().p2p.unwrap().internet.unwrap().port_mapping);
+            let saved = fs::read_to_string(&path).unwrap();
+            assert!(!saved.contains("internet"));
+            for comment in source.lines().filter_map(|line| line.split_once('#').map(|(_, comment)| comment)) {
+                assert!(saved.contains(comment), "lost comment {comment}");
+            }
+            ConfigEditor::open(&path).unwrap().save().unwrap();
+            assert_eq!(fs::read_to_string(&path).unwrap(), saved);
+        }
+    }
+    #[test]
+    fn legacy_iroh_migration_keeps_unknown_fields_and_failed_save_keeps_original() {
+        let t = Temp::new();
+        let path = t.path();
+        let source =
+            "[p2p]\npsk = 'public fixture'\n[p2p.internet]\nfuture_option = true # keep unknown\n";
+        fs::write(&path, source).unwrap();
+        let mut editor = ConfigEditor::open(&path).unwrap();
+        assert_eq!(
+            editor.get("p2p.iroh", "future_option").as_deref(),
+            Some("true")
+        );
+        assert!(editor.document.to_string().contains("# keep unknown"));
+        assert!(editor.save().is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        editor.remove("p2p.iroh", "future_option");
+        editor.save().unwrap();
+        assert!(!fs::read_to_string(&path).unwrap().contains("internet"));
+    }
+    #[test]
+    fn editor_rejects_ambiguous_iroh_tables_without_changing_original() {
+        for source in [
+            "[p2p.internet]\n[p2p.iroh]\n",
+            "[p2p.iroh]\n[p2p.internet]\n",
+        ] {
+            let t = Temp::new();
+            let path = t.path();
+            fs::write(&path, source).unwrap();
+            let error = ConfigEditor::open(&path).err().unwrap().to_string();
+            assert!(error.contains("cannot both be present"));
+            assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        }
+    }
+    #[test]
     fn nested_settings_preserve_other_nested_tables() {
         let t = Temp::new();
         let path = t.path();
         fs::write(
             &path,
-            "[p2p.internet]\nrelay_urls = [] # private relay\n[p2p.encounter]\nseed = 12\n",
+            "[p2p.iroh]\nrelay_urls = [] # private relay\n[p2p.encounter]\nseed = 12\n",
         )
         .unwrap();
         let mut editor = ConfigEditor::open(&path).unwrap();
         editor
-            .set_literal("p2p.internet", "port_mapping", "false")
+            .set_literal("p2p.iroh", "port_mapping", "false")
             .unwrap();
         assert_eq!(editor.get("p2p.encounter", "seed").as_deref(), Some("12"));
         assert!(editor.document.to_string().contains("# private relay"));
-        editor.remove_section("p2p.internet");
-        assert!(!editor.has_section("p2p.internet"));
+        editor.remove_section("p2p.iroh");
+        assert!(!editor.has_section("p2p.iroh"));
         assert!(editor.has_section("p2p.encounter"));
-        assert!(ConfigEditor::open(&path)
-            .unwrap()
-            .has_section("p2p.internet"));
+        assert!(ConfigEditor::open(&path).unwrap().has_section("p2p.iroh"));
     }
     #[test]
     fn malformed_repair_requires_save_and_preserves_original_backup() {

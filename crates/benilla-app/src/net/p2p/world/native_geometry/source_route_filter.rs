@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Loaded-product PathFinder createFilter/updateFilter dependency for an owned
-//! ground-only creature. This does not supply a route, movement fact or admission.
+//! dry ground or ground/water-capable creature. This supplies no route or admission.
 use super::{
     core::{Failure, Session},
     products::liquid::{
@@ -350,7 +350,7 @@ pub(super) fn validate_route_context(
     let npc = b.npc.ok_or(Failure::Binding)?;
     route
         .owner
-        .validate_for(profile, npc)
+        .validate_context(profile, b)
         .map_err(|_| Failure::Binding)?;
     let q = &route.request;
     let now = b
@@ -376,8 +376,13 @@ pub(super) fn validate_route_context(
         return Err(Failure::Invalid);
     }
     let capabilities = route.owner.capabilities().map_err(|_| Failure::Binding)?;
-    if !capabilities.can_walk() || capabilities.can_swim() || capabilities.can_fly() {
-        return Err(Failure::UnsupportedQuery);
+    let expected_flags =
+        route_filter::initial_include_flags(capabilities).ok_or(Failure::UnsupportedQuery)?;
+    if q.prior_cache
+        .as_ref()
+        .is_some_and(|cache| cache.include_flags != expected_flags || cache.exclude_flags != 0)
+    {
+        return Err(Failure::Binding);
     }
     let source = profile
         .source_motion
@@ -389,9 +394,10 @@ pub(super) fn validate_route_context(
         .bodies
         .get(&npc.spawn)
         .ok_or(Failure::UnresolvedBody)?;
+    let owner_height = initialized_owner_height(profile, route)?.unwrap_or(body.height);
     if body.radius != npc_profile.ai.bounding_radius
         || body.height != npc_motion.npc_policy.settings.collision_height
-        || q.owner_collision_height != body.height
+        || q.owner_collision_height != owner_height
     {
         return Err(Failure::UnresolvedBody);
     }
@@ -413,6 +419,60 @@ pub(super) fn validate_route_context(
     Ok(())
 }
 
+/// A dry initialization retains the selected model for this life. The frozen
+/// roster still describes the initial profile; it cannot replace a later model's
+/// height when deriving the concrete query body. Callers first validate context.
+pub(super) fn initialized_owner_height(
+    profile: &Profile,
+    route: &benilla_world_runtime::native::CreatureRouteRequest,
+) -> Result<Option<benilla_sim::creature_ai::Real>, Failure> {
+    let Some(initialization) = route.owner.initialization() else {
+        return Ok(None);
+    };
+    let initial = &initialization.request;
+    let selected = route
+        .require_collision_width(profile)
+        .map_err(|_| Failure::Binding)?
+        .validated_model_selection(profile, route.owner.npc(), Some(initialization))
+        .map_err(|_| Failure::Binding)?;
+    if selected.bounding_radius().bits()
+        != profile
+            .npc(route.owner.npc().spawn)
+            .ok_or(Failure::Binding)?
+            .ai
+            .bounding_radius
+            .bits()
+    {
+        return Err(Failure::UnresolvedBody);
+    }
+    // Initialization validates the immutable raw model source; this method
+    // validates the generation-owned width/height digest, a distinct domain.
+    let height = route
+        .require_collision_height(profile)
+        .map_err(|_| Failure::Binding)?;
+    let raw_model_source = profile
+        .creature_collision_heights
+        .as_ref()
+        .and_then(|catalog| catalog.source(route.owner.npc().spawn))
+        .ok_or(Failure::Binding)?
+        .width_source_binding();
+    if route.owner.inhabit_type() != 3
+        || initial.model_source != raw_model_source
+        || initial.binding.npc != Some(height.npc())
+        || initial.native_display_id != height.native_display_id()
+        || initial.model_id != height.model_id()
+        || initial.object_scale != height.object_scale()
+        || initial.raw_height != height.raw_height()
+        || initial.collision_height != height.height()
+    {
+        return Err(Failure::Binding);
+    }
+    Ok(Some(
+        benilla_sim::creature_ai::Real::from_bits(height.height().bits())
+            .map_err(|_| Failure::UnresolvedBody)?,
+    ))
+}
+
 impl BoundRouteFilterQuery<'_> {
     /// PathFinder.cpp:1092-1104: in the loaded ground/dry domain both predicates
     /// are false, so updateFilter does not write or recreate the retained filter.
@@ -423,10 +483,17 @@ impl BoundRouteFilterQuery<'_> {
         previous: Option<&RouteFilterUpdateDependency>,
         deadline: Instant,
     ) -> Result<RouteFilterUpdateDependency, Failure> {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &self.context.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        let expected_flags = route_filter::initial_include_flags(
+            route.owner.capabilities().map_err(|_| Failure::Binding)?,
+        )
+        .ok_or(Failure::UnsupportedQuery)?;
         if request.context != self.context
             || request.snapshot != self.provider.binding()
             || request.first_ticket == 0
-            || retained.include_flags != route_filter::NAV_GROUND
+            || retained.include_flags != expected_flags
             || retained.exclude_flags != 0
         {
             return Err(Failure::Binding);
@@ -444,9 +511,6 @@ impl BoundRouteFilterQuery<'_> {
                 return Err(Failure::Binding);
             }
         }
-        let Query::SourceMotion(MotionQuery::Route(route)) = &self.context.query else {
-            return Err(Failure::UnsupportedQuery);
-        };
         let point = route.owner_position;
         let position = [point.x.bits(), point.y.bits(), point.z.bits()];
         let mut observations = Vec::with_capacity(2);
@@ -525,7 +589,7 @@ impl BoundRouteFilterQuery<'_> {
         let capabilities = route.owner.capabilities().map_err(|_| Failure::Binding)?;
         let mut liquid = [None, None];
         let mut next = 0;
-        let filter = route_filter::create_ground_filter(capabilities, |mask| {
+        let filter = route_filter::create_dry_filter(capabilities, |mask| {
             let expected = match next {
                 0 => (route_filter::LiquidMask::AllLiquids, request.first_ticket),
                 1 => (route_filter::LiquidMask::WaterOrOcean, second_ticket),
@@ -601,7 +665,7 @@ fn require_participants(session: &Session) -> Result<(), Failure> {
 /// consistency is not an authenticated configuration or live source-epoch lease.
 pub(crate) fn geometry_revision(b: SnapshotBinding) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"benilla-source-route-owner-dry-filter-dependency-v1");
+    hash.update(b"benilla-source-route-owner-dry-filter-dependency-v2");
     for policy in [route_filter::POLICY, CREATURE_CAPABILITY_POLICY] {
         hash.update((policy.len() as u64).to_le_bytes());
         hash.update(policy.as_bytes());

@@ -318,6 +318,25 @@ pub struct InitialCollisionHeight {
     height: SpellFloat,
 }
 impl InitialCollisionHeight {
+    pub(super) fn from_selected_model(
+        model: &Model,
+        display_id: u32,
+        model_id: u32,
+        raw_height: SpellFloat,
+    ) -> Result<Self> {
+        if display_id != model.display_id || model_id == 0 {
+            return Err(InitError::Invalid("collision-height model identity"));
+        }
+        Ok(Self {
+            policy: CREATURE_COLLISION_HEIGHT_POLICY_ID,
+            native_display_id: display_id,
+            model_id,
+            object_scale: model.scale,
+            raw_height,
+            height: numeric::collision_height(model.scale, raw_height)?,
+        })
+    }
+
     pub fn policy(&self) -> &'static str {
         self.policy
     }

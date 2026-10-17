@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Instant};
 
 pub(super) const POLICY: &[u8] =
-    b"cmangos-8ec338a1-map-height-enabled-complete-dry-static-empty-dynamic-v1";
+    b"cmangos-8ec338a1-map-height-enabled-complete-dry-static-empty-dynamic-swimming-allowed-z-v2";
 
 /// Explicit recorded effective configuration, independently supplied by the source
 /// owner. Equality binds it to this inventory; it does not authenticate the capture.
@@ -46,6 +46,7 @@ pub(crate) struct MapHeightSnapshot<'a> {
     config: SourceHeightConfiguration,
     height: height::StaticHeightSnapshot<'a>,
     participants: NonRenderParticipants,
+    dry_liquid: super::liquid::DryLiquidSnapshot,
 }
 impl InventoriedProducts {
     pub(crate) fn load_map_height(
@@ -55,7 +56,7 @@ impl InventoriedProducts {
     ) -> Result<MapHeightSnapshot<'_>, Error> {
         let participants = self.map_height_participants(config, participants)?;
         let height = self.load_static_height()?;
-        Ok(MapHeightSnapshot::new(height, config, participants))
+        MapHeightSnapshot::new(height, config, participants)
     }
 
     /// Own the immutable products and decoded static geometry for a retained reader.
@@ -67,7 +68,7 @@ impl InventoriedProducts {
     ) -> Result<MapHeightSnapshot<'static>, Error> {
         let participants = self.map_height_participants(config, participants)?;
         let height = self.load_static_height_owned()?;
-        Ok(MapHeightSnapshot::new(height, config, participants))
+        MapHeightSnapshot::new(height, config, participants)
     }
 
     fn map_height_participants(
@@ -104,7 +105,7 @@ impl VmapLiquidProducts {
             .inventory
             .map_height_participants(config, participants)?;
         let height = self.load_dry_static_height_owned()?;
-        Ok(MapHeightSnapshot::new(height, config, participants))
+        MapHeightSnapshot::new(height, config, participants)
     }
 }
 impl<'a> MapHeightSnapshot<'a> {
@@ -112,14 +113,16 @@ impl<'a> MapHeightSnapshot<'a> {
         height: height::StaticHeightSnapshot<'a>,
         config: SourceHeightConfiguration,
         participants: NonRenderParticipants,
-    ) -> Self {
+    ) -> Result<Self, Error> {
+        let dry_liquid = height.dry_liquid()?;
         let b = height.binding();
         let mut policy = Sha256::new();
         policy.update(POLICY);
         policy.update(b.policy);
+        policy.update(dry_liquid.binding().policy);
         policy.update(config.effective_config);
         policy.update([u8::from(config.vmap_height_enabled)]);
-        Self {
+        Ok(Self {
             binding: SnapshotBinding {
                 map: b.map,
                 content: b.content,
@@ -130,10 +133,25 @@ impl<'a> MapHeightSnapshot<'a> {
             config,
             height,
             participants,
-        }
+            dry_liquid,
+        })
     }
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
+    }
+    /// The same-inventory byte-derived dry proof, also usable by initialization.
+    pub(crate) fn dry_liquid(&self) -> &super::liquid::DryLiquidSnapshot {
+        &self.dry_liquid
+    }
+    pub(crate) fn dry_liquid_binding(&self) -> super::liquid::SnapshotBinding {
+        self.dry_liquid().binding()
+    }
+    pub(crate) fn query_dry_liquid(
+        &self,
+        request: super::liquid::LiquidRequest,
+        deadline: Instant,
+    ) -> Result<super::liquid::LiquidReply, Error> {
+        self.dry_liquid().query(request, deadline)
     }
     pub(crate) fn configuration(&self) -> SourceHeightConfiguration {
         self.config
@@ -234,17 +252,25 @@ fn map_height(
 }
 
 /// Unit.cpp:11835-11857, the proven non-flying/non-swimming branch only.
-pub(crate) fn allowed_ground_z(mut z: f32, ground_z: f32) -> f32 {
-    if ground_z > -100_000.0 {
-        if z > ground_z {
-            return ground_z;
-        }
-        if z < ground_z {
+pub(crate) fn allowed_ground_z(z: f32, ground_z: f32) -> f32 {
+    allowed_position_z(z, ground_z, ground_z)
+}
+
+/// Unit.cpp:11850-11855. Strict comparisons preserve original Z bits on equality.
+fn allowed_position_z(mut z: f32, ground_z: f32, max_z: f32) -> f32 {
+    if max_z > -100_000.0 {
+        if z > max_z {
+            z = max_z;
+        } else if z < ground_z {
             z = ground_z;
         }
     }
     z
 }
+
+#[path = "ground_height/swimming.rs"]
+mod swimming;
+pub(crate) use swimming::{SwimmingAllowedZReply, SwimmingAllowedZRequest};
 
 #[cfg(test)]
 mod oracle_tests;

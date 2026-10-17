@@ -51,6 +51,24 @@ impl InventoriedProducts {
         // The real VMap decoder rejects LIQU payloads, malformed/unknown models and
         // non-tiled/worldspawn domains. Require every tree slot, not only a ray's visits.
         let vmap = self.load_static_vmap()?;
+        let liquid = self.dry_liquid_for_vmap(&vmap)?;
+        Ok((liquid, vmap))
+    }
+
+    /// Reuse an already decoded exact-inventory VMap; never substitute a map or
+    /// classify a wet static-height inventory as dry.
+    pub(super) fn dry_liquid_for_vmap(
+        &self,
+        vmap: &vmap::VmapSnapshot,
+    ) -> Result<DryLiquidSnapshot, Error> {
+        let binding = vmap.binding();
+        if binding.map != self.map
+            || binding.content != self.content
+            || binding.source_epoch != self.source_epoch
+            || binding.inventory != self.revision
+        {
+            return Err(Error::Identity);
+        }
         vmap.require_complete_dry_map()?;
         let mut tiles = BTreeSet::new();
         for (id, product) in &self.products {
@@ -66,13 +84,10 @@ impl InventoriedProducts {
         if tiles.is_empty() {
             return Err(Error::Missing);
         }
-        Ok((
-            DryLiquidSnapshot {
-                binding: dry_binding(self),
-                tiles,
-            },
-            vmap,
-        ))
+        Ok(DryLiquidSnapshot {
+            binding: dry_binding(self),
+            tiles,
+        })
     }
 }
 
@@ -118,6 +133,23 @@ impl DryLiquidSnapshot {
         request: LiquidRequest,
         deadline: Instant,
     ) -> Result<LiquidReply, Error> {
+        self.query_bounded(request, deadline, false)
+    }
+    /// GetWaterOrGroundLevel queries at Map::GetHeight's raw groundZ, including
+    /// the exact -200000 invalid-height sentinel. Ordinary query bounds stay closed.
+    pub(super) fn query_at_ground(
+        &self,
+        request: LiquidRequest,
+        deadline: Instant,
+    ) -> Result<LiquidReply, Error> {
+        self.query_bounded(request, deadline, true)
+    }
+    fn query_bounded(
+        &self,
+        request: LiquidRequest,
+        deadline: Instant,
+        allow_invalid_ground: bool,
+    ) -> Result<LiquidReply, Error> {
         if request.snapshot != self.binding || request.ticket == 0 {
             return Err(Error::Identity);
         }
@@ -125,7 +157,11 @@ impl DryLiquidSnapshot {
             return Err(Error::Deadline);
         }
         let p = request.position.map(f32::from_bits);
-        if p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
+        if p[..2].iter().any(|v| !v.is_finite() || v.abs() > 100_000.0)
+            || !p[2].is_finite()
+            || (p[2].abs() > 100_000.0
+                && !(allow_invalid_ground && request.position[2] == (-200_000f32).to_bits()))
+        {
             return Err(Error::Format);
         }
         let tile = world_tile(p[0], p[1])?;

@@ -9,6 +9,9 @@ mod planar;
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/products/mod.rs"]
 mod products;
 #[allow(dead_code)]
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_creature_initialization.rs"]
+mod source_creature_initialization;
+#[allow(dead_code)]
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_ground_height.rs"]
 mod source_ground_height;
 #[allow(dead_code)]

@@ -14,7 +14,8 @@ fn capabilities(habitat: u32, flags: u32) -> MovementCapabilities {
 fn dry_filter_and_unsupported_controls_match_unchanged_source_observations() {
     let mut rows = 0;
     let mut accepted = 0;
-    let mut wet_rejections = 0;
+    let mut ground_wet_rejections = 0;
+    let mut swimming_wet_rejections = Vec::new();
     for line in FIXTURE.lines().filter(|line| !line.starts_with('#')) {
         let row: Vec<&str> = line.split('\t').collect();
         assert_eq!(row.len(), 26, "{line}");
@@ -33,7 +34,7 @@ fn dry_filter_and_unsupported_controls_match_unchanged_source_observations() {
         }
         let statuses = [number(9) as u8, number(11) as u8];
         let mut calls = Vec::new();
-        let result = create_ground_filter(caps, |mask| {
+        let result = create_dry_filter(caps, |mask| {
             let index = calls.len();
             calls.push(mask);
             assert_eq!(
@@ -43,7 +44,7 @@ fn dry_filter_and_unsupported_controls_match_unchanged_source_observations() {
             );
             NoWater::try_from_status(statuses[index])
         });
-        if !walk || swim {
+        if !walk {
             assert_eq!(result, Err(Error::UnsupportedCapabilities), "{line}");
             assert!(calls.is_empty());
         } else if let Some(index) = statuses.iter().position(|status| *status != 0) {
@@ -55,12 +56,23 @@ fn dry_filter_and_unsupported_controls_match_unchanged_source_observations() {
                 "{line}"
             );
             assert_eq!(calls.len(), index + 1, "{line}");
-            wet_rejections += 1;
+            if swim {
+                swimming_wet_rejections.push(row[1]);
+            } else {
+                ground_wet_rejections += 1;
+            }
         } else {
             let filter = result.unwrap();
             assert_eq!(filter.include_flags(), number(15), "{line}");
             assert_eq!(filter.exclude_flags(), number(16), "{line}");
-            assert_eq!(filter.branch(), Branch::GroundDry);
+            assert_eq!(
+                filter.branch(),
+                if swim {
+                    Branch::GroundWaterDry
+                } else {
+                    Branch::GroundDry
+                }
+            );
             assert_eq!(number(17), filter.include_flags());
             assert_eq!(number(18), 1, "no updateFilter write on dry path");
             assert_eq!(number(20), 0, "no getNavTerrain/filter read on dry path");
@@ -71,8 +83,9 @@ fn dry_filter_and_unsupported_controls_match_unchanged_source_observations() {
         }
     }
     assert_eq!(rows, 87);
-    assert_eq!(accepted, 4);
-    assert_eq!(wet_rejections, 77);
+    assert_eq!(accepted, 5);
+    assert_eq!(ground_wet_rejections, 77);
+    assert_eq!(swimming_wet_rejections, ["wet_both_capabilities"]);
 }
 
 #[test]
@@ -157,4 +170,69 @@ fn original_masks_and_flags_and_full_source_hashes_are_pinned() {
         .map(|line| line.split_whitespace().next().unwrap())
         .collect();
     assert_eq!(hashes, SOURCE_SHA256);
+}
+
+#[test]
+fn swimming_capability_keeps_source_thirteen_but_all_nonzero_liquid_statuses_reject() {
+    let caps = capabilities(3, 0);
+    assert!(caps.can_walk() && caps.can_swim() && !caps.can_fly());
+    assert_eq!(initial_include_flags(caps), Some(13));
+    let mut calls = Vec::new();
+    let filter = create_dry_filter::<()>(caps, |mask| {
+        calls.push(mask);
+        Ok(NoWater::try_from_status(0).unwrap())
+    })
+    .unwrap();
+    assert_eq!(calls, [LiquidMask::AllLiquids, LiquidMask::WaterOrOcean]);
+    assert_eq!(filter.include_flags(), 13);
+    assert_eq!(filter.exclude_flags(), 0);
+    assert_eq!(filter.branch(), Branch::GroundWaterDry);
+    assert!(
+        caps.can_swim(),
+        "physical dryness cannot erase source habitat"
+    );
+    for position in 0..2 {
+        for status in 1..=u8::MAX {
+            let mut count = 0;
+            assert_eq!(
+                create_dry_filter(caps, |_| {
+                    let current = count;
+                    count += 1;
+                    NoWater::try_from_status(if current == position { status } else { 0 })
+                }),
+                Err(Error::Liquid(UnsupportedLiquidStatus { status }))
+            );
+            assert_eq!(count, position + 1);
+        }
+    }
+    assert_eq!(
+        create_ground_filter::<()>(caps, |_| panic!("ground-only caller widened")),
+        Err(Error::UnsupportedCapabilities)
+    );
+}
+
+#[test]
+fn dry_filter_rejects_nonwalking_and_flying_capabilities_before_observation() {
+    for habitat in 1..=7 {
+        for flags in [
+            0,
+            creature_capabilities::MOVEFLAG_LEVITATING,
+            creature_capabilities::MOVEFLAG_HOVER,
+            creature_capabilities::MOVEFLAG_CAN_FLY,
+        ] {
+            let caps = capabilities(habitat, flags);
+            let expected = match (habitat, flags) {
+                (1, 0) => Some(1),
+                (3, 0) => Some(13),
+                _ => None,
+            };
+            assert_eq!(initial_include_flags(caps), expected);
+            if expected.is_none() {
+                assert_eq!(
+                    create_dry_filter::<()>(caps, |_| panic!("unsupported owner queried")),
+                    Err(Error::UnsupportedCapabilities)
+                );
+            }
+        }
+    }
 }

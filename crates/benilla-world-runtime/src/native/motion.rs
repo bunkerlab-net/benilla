@@ -419,9 +419,18 @@ impl NpcMotion {
             _ => None,
         };
         for cache in prior_cache.into_iter().chain(current_cache) {
+            let capability = profile
+                .creature_capabilities
+                .as_ref()
+                .ok_or(NativeError::InvalidCheckpoint)?;
+            let include_flags = benilla_sim::route_filter::initial_include_flags(
+                capability.source_capabilities(profile, npc)?,
+            )
+            .ok_or(NativeError::InvalidCheckpoint)?;
             if cache.binding.owner_generation != npc.generation
                 || cache.binding.identity.creature != npc.spawn
-                || CreatureCapabilityState::new(profile, npc)?.is_none()
+                || cache.include_flags != include_flags
+                || cache.exclude_flags != 0
             {
                 return Err(NativeError::InvalidCheckpoint);
             }

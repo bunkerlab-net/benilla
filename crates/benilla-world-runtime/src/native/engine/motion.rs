@@ -153,7 +153,11 @@ impl<A: Authority> Spatial<'_, '_, A> {
             .as_ref()
             .ok_or(NativeError::AuthorityBinding)?;
         owner.validate_for(self.frame.profile, self.npc)?;
-        if cache.binding.owner_generation != self.npc.generation
+        let include_flags = benilla_sim::route_filter::initial_include_flags(owner.capabilities()?)
+            .ok_or(NativeError::AuthorityBinding)?;
+        if cache.include_flags != include_flags
+            || cache.exclude_flags != 0
+            || cache.binding.owner_generation != self.npc.generation
             || cache.binding.identity.creature != self.npc.spawn
             || cache.binding.identity.map != self.frame.profile.map_id
             || cache.binding.identity.content.0 != self.frame.profile.content_digest

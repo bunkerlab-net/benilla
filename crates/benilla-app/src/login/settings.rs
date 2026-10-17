@@ -66,10 +66,10 @@ const STARTUP: &[(&str, &str, bool)] = &[
     ("p2p.classic_start_captures", "", false),
     ("ruleset.xp_rate", "1.0", false),
     ("ruleset.drop_rate", "1.0", false),
-    ("p2p.internet.enabled", "false", false),
-    ("p2p.internet.relay_urls", "[]", false),
-    ("p2p.internet.peer_tickets", "[]", false),
-    ("p2p.internet.port_mapping", "false", false),
+    ("p2p.iroh.enabled", "false", false),
+    ("p2p.iroh.relay_urls", "[]", false),
+    ("p2p.iroh.peer_tickets", "[]", false),
+    ("p2p.iroh.port_mapping", "false", false),
     ("p2p.encounter.enabled", "false", false),
     ("p2p.encounter.local_id", "", false),
     ("p2p.encounter.epoch", "", false),
@@ -126,8 +126,8 @@ impl Settings {
                         self.config.as_ref().and_then(|c| {
                             if *name == "p2p.encounter.enabled" {
                                 Some(c.has_section("p2p.encounter").to_string())
-                            } else if *name == "p2p.internet.enabled" {
-                                Some(c.has_section("p2p.internet").to_string())
+                            } else if *name == "p2p.iroh.enabled" {
+                                Some(c.has_section("p2p.iroh").to_string())
                             } else if *name == "p2p.enabled" {
                                 Some(c.has_section("p2p").to_string())
                             } else {
@@ -176,15 +176,15 @@ impl Settings {
             .unwrap_or_else(|| editor.has_section("p2p"));
         let internet = self
             .changes
-            .get("p2p.internet.enabled")
+            .get("p2p.iroh.enabled")
             .map(String::as_str)
             .map(|v| match v {
                 "true" => Ok(true),
                 "false" => Ok(false),
-                _ => Err("p2p.internet.enabled must be true or false"),
+                _ => Err("p2p.iroh.enabled must be true or false"),
             })
             .transpose()?
-            .unwrap_or_else(|| editor.has_section("p2p.internet"));
+            .unwrap_or_else(|| editor.has_section("p2p.iroh"));
         let encounter = self
             .changes
             .get("p2p.encounter.enabled")
@@ -201,10 +201,10 @@ impl Settings {
                 continue;
             };
             if name == "p2p.enabled"
-                || name == "p2p.internet.enabled"
+                || name == "p2p.iroh.enabled"
                 || name == "p2p.encounter.enabled"
                 || (section.starts_with("p2p") && !enabled)
-                || (section == "p2p.internet" && !internet)
+                || (section == "p2p.iroh" && !internet)
                 || (section == "p2p.encounter" && !encounter)
             {
                 continue;
@@ -228,9 +228,9 @@ impl Settings {
                     .map_err(|e| e.to_string())?;
             }
         }
-        if internet && enabled && !editor.has_section("p2p.internet") {
+        if internet && enabled && !editor.has_section("p2p.iroh") {
             editor
-                .set_literal("p2p.internet", "port_mapping", "false")
+                .set_literal("p2p.iroh", "port_mapping", "false")
                 .map_err(|e| e.to_string())?;
         }
         if encounter && enabled && !editor.has_section("p2p.encounter") {
@@ -242,7 +242,7 @@ impl Settings {
             editor.remove_section("p2p.encounter");
         }
         if !internet {
-            editor.remove_section("p2p.internet");
+            editor.remove_section("p2p.iroh");
         }
         if !enabled {
             editor.remove_section("p2p");
@@ -330,7 +330,7 @@ pub(super) fn input(
                 } else if let Some(value) = ticket.as_ref().and_then(|t| t.get()) {
                     settings.ticket_preview = Some(value);
                 } else {
-                    settings.status="No active Internet endpoint ticket. Start an Internet connection first; tickets change on reconnect.".into();
+                    settings.status="No active iroh endpoint ticket. Start an iroh connection first; tickets change on reconnect.".into();
                 }
                 settings.refresh = true;
             }
@@ -339,7 +339,9 @@ pub(super) fn input(
                     clipboard.write(wl, &value);
                     settings.status=if clipboard.read(wl).as_deref()==Some(value.as_str()) { "Current endpoint ticket copied. Share privately; it includes network addresses, but never the passphrase." } else { "Could not verify clipboard copy. Check clipboard access and retry." }.into();
                 } else {
-                    settings.status="No active Internet endpoint ticket to copy. Start an Internet connection first.".into();
+                    settings.status =
+                        "No active iroh endpoint ticket to copy. Start an iroh connection first."
+                            .into();
                 }
                 settings.refresh = true;
             }

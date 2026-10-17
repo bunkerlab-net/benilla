@@ -57,7 +57,7 @@ fn malformed_rosters_fail_before_networking() {
 }
 
 #[test]
-fn internet_and_encounter_cannot_silently_select_one_backend() {
-    let error = parse(&(input("") + "\n[p2p.internet]\n")).unwrap_err();
+fn iroh_and_encounter_cannot_silently_select_one_backend() {
+    let error = parse(&(input("") + "\n[p2p.iroh]\n")).unwrap_err();
     assert!(error.to_string().contains("cannot be combined"));
 }

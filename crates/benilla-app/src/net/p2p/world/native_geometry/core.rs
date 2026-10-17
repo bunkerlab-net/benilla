@@ -238,7 +238,7 @@ impl PrimaryNearPointPolicy {
         // The selected source catalog and exact generation are part of the receipt;
         // matching a stable spawn or equal body dimensions cannot substitute it.
         near.searcher
-            .validate_for(&self.profile, npc)
+            .validate_context(&self.profile, &request.binding)
             .map_err(|_| Failure::Binding)?;
         let q = &near.request;
         let profile = &self.profile;
@@ -547,11 +547,19 @@ impl SamePolygonRoutePolicy {
             return Err(Failure::UnsupportedQuery);
         }
         let npc = context.binding.npc.ok_or(Failure::Binding)?;
-        session
+        let mut body = session
             .bodies
             .get(&npc.spawn)
             .copied()
-            .ok_or(Failure::UnresolvedBody)
+            .ok_or(Failure::UnresolvedBody)?;
+        if let Some(height) = super::source_route_filter::initialized_owner_height(profile, route)?
+        {
+            body.height = height;
+        }
+        if !body.validate() {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(body)
     }
 }
 
@@ -1679,7 +1687,11 @@ impl Mailbox {
             if staged {
                 eprintln!(
                     "native geometry Route job timing: tick={} ticket={} phase={} disposition={:?} elapsed={:?}",
-                    timing.2, timing.1, phase, disposition, timing.0.elapsed(),
+                    timing.2,
+                    timing.1,
+                    phase,
+                    disposition,
+                    timing.0.elapsed(),
                 );
             }
             // Pending always ends this invocation, including a full tail.
@@ -2106,6 +2118,10 @@ fn validate_route_facts(
         .same_polygon_route
         .as_ref()
         .ok_or(Failure::UnsupportedQuery)?;
+    let include_flags = benilla_sim::route_filter::initial_include_flags(
+        route.owner.capabilities().map_err(|_| Failure::Binding)?,
+    )
+    .ok_or(Failure::UnsupportedQuery)?;
     if calculation.source != motion::RouteSource::OwnerPathFinder
         || path.source != motion::RouteSource::OwnerPathFinder
         || path.path_identity == [0; 32]
@@ -2117,7 +2133,7 @@ fn validate_route_facts(
         || calculation.after_cache.binding.inventory != policy.binding.navigation.inventory
         || calculation.after_cache.binding.source_epoch != policy.binding.navigation.source_epoch
         || calculation.after_cache.active_len != 1
-        || calculation.after_cache.include_flags != 1
+        || calculation.after_cache.include_flags != include_flags
         || calculation.after_cache.exclude_flags != 0
     {
         return Err(Failure::Binding);

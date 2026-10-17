@@ -52,7 +52,7 @@ pub(crate) fn geometry_revision(
         return Err(Failure::Binding);
     }
     let mut h = Sha256::new();
-    h.update(b"benilla-source-near-point-primary-loaded-ground-los-v1");
+    h.update(b"benilla-source-near-point-primary-loaded-ground-or-dry-swimming-los-v2");
     h.update(source_ground_height::geometry_revision(height));
     h.update(vmap.policy);
     h.update(config.height.effective_config);

@@ -742,10 +742,12 @@ IDs, preserved raw depth, area occlusion and mixed WMO metadata. Normal and
 shift/float-cast-overflow-sanitized regeneration are byte-identical; all 93 prior
 source products remain unchanged. These fixtures contain no installation assets.
 
-## Map height and ground-only allowed-Z composition
+## Map height and dry allowed-Z composition
 
-`ground_height.rs` adds pinned `Map.cpp:2758-2765` and the non-flying/non-swimming
-branch of `Unit.cpp:11835-11857` over the existing loaded static-height products.
+`ground_height.rs` composes pinned `Map.cpp:2758-2765` with the non-flying ground
+and swimming-capable branches of `Unit.cpp:11835-11857` over complete-dry loaded
+products. `ground_height/swimming.rs` also retains the explicit
+`GridMap.cpp:1194-1219` GetWaterOrGroundLevel observation.
 Copyright CMaNGOS contributors, upstream GPL-2.0-or-later; Rust translation is
 GPL-3.0-or-later. The independent source
 [oracle and guarded fragments](../../../../../../../benilla-native-geometry-tests/tools/ground_height_README.md)
@@ -759,6 +761,13 @@ independent non-render-participant token permits the actual source empty-dynamic
 miss, negative infinity; absence of that token is an error. Ground allowed-Z uses
 `swim=false`, requires height strictly above -100000, and performs the two strict
 comparisons, preserving input signed-zero bits on equality and raw invalid heights.
+The swimming-capable branch sets `swim=true`, making the initial static search
+50 yards, then queries liquid at groundZ after dynamic selection. It retains
+mask 15, default classification height `2.03128f`, selected collision-height
+minimum depth and the no-water-walk branch separately. Only loaded NO_WATER is
+published; scalar wet controls do not broaden this product domain. Even an invalid
+ground sentinel does not skip the liquid query. The MapHeight policy is
+`cmangos-8ec338a1-map-height-enabled-complete-dry-static-empty-dynamic-swimming-allowed-z-v2`.
 
 The effective config digest is retained from the loaded inventory and must match
 an explicit map/content/epoch-bound enabled declaration. This declaration does not
@@ -769,7 +778,7 @@ derived dynamic arithmetic fail closed before any answer; an intentional source
 negative-infinity empty miss is distinct from nonfinite input. Missing geometry
 never becomes terrain zero, a dry fact or an empty dynamic tree.
 
-The application adapter exposes only an initial/reset ground-height dependency,
+The application adapter exposes an initial/reset allowed-height dependency,
 with complete immutable profile/session, source capability witness, outer/inner
 request, both poses, candidate position and ticket binding. It does not compute
 candidate XY, implement NearPoint fallback/LOS selection, or add a complete movement

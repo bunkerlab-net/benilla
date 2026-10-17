@@ -100,16 +100,20 @@ The configuration API redacts PSKs from debug output and does not expose seriali
 messages withhold source text and parser messages because those can include secrets; syntax and
 schema errors report a line/column when available. Config files are limited to 64 KiB.
 
-## Optional internet connectivity
+## Optional iroh connectivity
 
-Without `[p2p.internet]`, the transport is direct TCP. Adding that table selects iroh **1.3.0**
+The canonical table name is `[p2p.iroh]`. Existing `[p2p.internet]` tables remain
+accepted as a legacy alias; specifying both is an error. Saving through Connection
+setup writes the canonical name while preserving the configured values.
+
+Without `[p2p.iroh]`, the transport is direct TCP. Adding that table selects iroh **1.3.0**
 QUIC, with the same Noise PSK authentication and bounded message/session rules over one stream.
 Use empty `p2p.peers` in this mode; TCP endpoints are never silently used as a fallback.
 Internet mode currently supports exploration; fixed-roster encounters must remain on TCP until
 endpoint identities can be bound to their roster.
 
 ```toml
-[p2p.internet]
+[p2p.iroh]
 relay_urls = []
 peer_tickets = []
 port_mapping = false
@@ -188,8 +192,8 @@ different `BENILLA_HOME` per process. Never point `BENILLA_HOME` into the WoW in
    `peers = ["127.0.0.1:7475"]`; B listens on `127.0.0.1:7475` and lists
    `peers = ["127.0.0.1:7474"]`. Both use the same network name and ruleset.
 3. Start both, choose Start/Join, then create or select a local character and Enter World.
-   With unconfigured starts, both initially meet in Northshire; configured racial starts
-   require the characters to meet on the same map to see each other. The login display
+   New characters use racial starts by default. Choose the same race to start together,
+   or meet on the same map; different-continent avatars are not shown. The login display
    lists configured local endpoints; this is not a reachability test. No realm account is needed.
 4. Move, turn, jump, stop and use `/say` on each. Confirm the other sees the movement
    and message. Close one client; the other should remove its avatar. Restart the first;
@@ -209,6 +213,6 @@ client assets and a working display. The exploration contract version exchanged 
 is not a hash or attestation of the player's asset files.
 
 Internet mode currently applies to exploration only. A configuration containing both
-`[p2p.internet]` and `[p2p.encounter]` is rejected before networking starts; the synthetic
+`[p2p.iroh]` and `[p2p.encounter]` is rejected before networking starts; the synthetic
 encounter still requires its fixed direct-TCP roster. Neither mode silently overrides
 the other. Use [Login Settings](P2P-SETTINGS.md) to edit the startup file and restart.

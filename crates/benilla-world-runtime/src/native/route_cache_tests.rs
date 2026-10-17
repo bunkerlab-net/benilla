@@ -16,6 +16,7 @@ fn world() -> NativeWorld {
 pub(in crate::native) struct SyntheticCacheAuthority {
     inner: fixture::SyntheticMotionAuthority,
     corrupt_generation: bool,
+    corrupt_filter: bool,
     typed_source_claim: bool,
     fail_after_route: bool,
     calculated: bool,
@@ -88,6 +89,9 @@ impl Authority for SyntheticCacheAuthority {
         after.requested_end = q.request.goal;
         if self.corrupt_generation {
             after.binding.owner_generation += 1;
+        }
+        if self.corrupt_filter {
+            after.include_flags = 13;
         }
         let mut outcome = outcome.clone();
         if self.typed_source_claim {
@@ -296,5 +300,41 @@ fn synthetic_structurally_valid_first_owner_snapshot_cannot_rehydrate_native_cac
     assert_eq!(
         NpcMotion::restore(snapshot, w.profile(), &npc.ai, w.state().now_ms, npc.id),
         Err(NativeError::InvalidCheckpoint),
+    );
+}
+
+#[test]
+fn source_ground_owner_rejects_thirteen_on_live_reply_and_checkpoint_restore() {
+    let mut w = world();
+    let mut a = SyntheticCacheAuthority {
+        corrupt_filter: true,
+        ..Default::default()
+    };
+    loop {
+        let before = w.checkpoint().unwrap();
+        let result = w.step(w.state().tick + 1, None, &mut a);
+        if a.calculated {
+            assert_eq!(result, Err(NativeError::AuthorityBinding));
+            assert_eq!(w.checkpoint().unwrap(), before);
+            break;
+        }
+        result.unwrap();
+        assert!(w.state().tick < 10);
+    }
+    let mut w = world();
+    let mut a = SyntheticCacheAuthority::default();
+    seed(&mut w, &mut a);
+    let npc = &w.state().npcs[&2];
+    let mut snapshot = npc.source_motion.as_ref().unwrap().snapshot();
+    let m::Generator::Chase(chase) = &mut snapshot.motion.generator else {
+        panic!("chase")
+    };
+    chase.pathfinder_cache.as_mut().unwrap().include_flags = 13;
+    // The serialized cache shape is supported; only the native source owner can
+    // establish which exact flags apply. Rehashing cannot change that source.
+    m::MotionState::restore(snapshot.motion.clone()).unwrap();
+    assert_eq!(
+        NpcMotion::restore(snapshot, w.profile(), &npc.ai, w.state().now_ms, npc.id),
+        Err(NativeError::InvalidCheckpoint)
     );
 }

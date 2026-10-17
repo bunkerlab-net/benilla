@@ -48,8 +48,10 @@ Original `createFilter` checks walk then swim, sets include and exclude, then
 calls `updateFilter`. Non-PLAYERBOTS walking contributes only ground; swimming
 contributes water and magma/slime. Exclude is zero. Current `CanFly` is not read
 by this source method. The bounded Rust API separately rejects capabilities
-outside walking, nonswimming, nonflying; its host must derive and own those
-capabilities. Broader source controls do not broaden runtime admission.
+outside walking and nonflying; its host must derive and own those capabilities.
+Habitat 1 has include/exclude `1/0`; habitat 3 retains CanSwim=true and uses
+`13/0` even when physically dry. The source-checked ordered dry observations
+preserve that exact filter. Wet controls do not broaden runtime admission.
 
 `Unit::IsInWater` delegates to `TerrainInfo::IsInWater`. `CanCheckLiquidLevel`
 checks VMap height calculation first and short-circuits the actual grid query
@@ -72,7 +74,9 @@ is explicitly unsupported, even a second nonzero status without the underwater
 bit. Some independently scripted mask responses deliberately cannot describe a
 coherent real liquid surface; they witness source branch behavior only.
 
-The sim entry point is `create_ground_filter(capabilities, query)`. The query
+The sim entry point is `create_dry_filter(capabilities, query)`;
+`initial_include_flags` derives only the exact supported `1` or `13` from those
+capabilities. The legacy `create_ground_filter` still rejects CanSwim. The query
 receives `LiquidMask::AllLiquids` then `LiquidMask::WaterOrOcean` and returns a
 typed `NoWater`, constructed only from status zero. A callback error stops
 immediately. `Filter` has private fields and read-only include/exclude/branch

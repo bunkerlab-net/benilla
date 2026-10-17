@@ -307,10 +307,10 @@ fn passphrase_kdf_matches_independent_reference_vector() {
 }
 
 #[test]
-fn internet_mode_is_opt_in_and_router_mapping_defaults_off() {
+fn iroh_mode_is_opt_in_and_router_mapping_defaults_off() {
     let normal = parse(&config("")).unwrap().p2p.unwrap();
     assert!(normal.internet.is_none());
-    let internet = parse(&config("[p2p.internet]\n"))
+    let internet = parse(&config("[p2p.iroh]\n"))
         .unwrap()
         .p2p
         .unwrap()
@@ -322,12 +322,12 @@ fn internet_mode_is_opt_in_and_router_mapping_defaults_off() {
 }
 
 #[test]
-fn internet_validation_rejects_mixed_modes_and_bad_infrastructure() {
+fn iroh_validation_rejects_mixed_modes_and_bad_infrastructure() {
     for extra in [
-        "peers=['127.0.0.1:7475']\n[p2p.internet]",
-        "[p2p.internet]\nrelay_urls=['http://example.com']",
-        "[p2p.internet]\npeer_tickets=['not a ticket']",
-        "[p2p.internet]\nunknown_field=true",
+        "peers=['127.0.0.1:7475']\n[p2p.iroh]",
+        "[p2p.iroh]\nrelay_urls=['http://example.com']",
+        "[p2p.iroh]\npeer_tickets=['not a ticket']",
+        "[p2p.iroh]\nunknown_field=true",
     ] {
         assert!(parse(&config(extra)).is_err(), "accepted {extra}");
     }
@@ -390,5 +390,20 @@ fn classic_start_capture_directory_is_optional_and_executable_relative_without_i
         "classic_start_captures = ['unexpected']",
     ] {
         assert!(parse(&config(invalid)).is_err());
+    }
+}
+
+#[test]
+fn legacy_internet_alias_loads_identically_and_rejects_both_spellings() {
+    let canonical = parse(&config("[p2p.iroh]\nport_mapping = true")).unwrap();
+    let legacy = parse(&config("[p2p.internet]\nport_mapping = true")).unwrap();
+    assert_eq!(
+        canonical.p2p.unwrap().internet.unwrap().port_mapping,
+        legacy.p2p.unwrap().internet.unwrap().port_mapping
+    );
+    for tables in ["[p2p.iroh]\n[p2p.internet]", "[p2p.internet]\n[p2p.iroh]"] {
+        let error = parse(&config(tables)).unwrap_err().to_string();
+        assert!(error.contains("source withheld"));
+        assert!(!error.contains(TEST_PASSPHRASE));
     }
 }

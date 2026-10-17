@@ -102,8 +102,8 @@ Graphical assets, font/language tables and client talk gestures remain unverifie
 
 ## Transaction, continuation and incompatible format
 
-Native format 42 (`benilla-native-addon-capabilities-v42`) binds profile, state,
-record, checkpoint, melee and callback domains together. Native41 and earlier are rejected,
+Native format 43 (`benilla-native-dry-habitat-v43`) binds profile, state,
+record, checkpoint, melee and callback domains together. Native42 and earlier are rejected,
 even after outer checksums are recomputed. The periodic-roll reorder also changes
 callback witnesses and is an independent reason old journals cannot be replayed.
 Required option fields never silently default missing EventAI continuation or

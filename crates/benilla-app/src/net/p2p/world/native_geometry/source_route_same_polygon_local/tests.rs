@@ -128,8 +128,14 @@ fn setup() -> (NativeWorld, Consumer) {
 fn setup_with(
     configure: impl FnOnce(&mut benilla_world_runtime::native::Profile),
 ) -> (NativeWorld, Consumer) {
+    setup_with_habitat(configure, false)
+}
+fn setup_with_habitat(
+    configure: impl FnOnce(&mut benilla_world_runtime::native::Profile),
+    dry_habitat: bool,
+) -> (NativeWorld, Consumer) {
     let geometry = Fixture::new();
-    let (mut profile, _, products) = composed_inputs(
+    let (mut profile, _, mut products) = composed_inputs(
         geometry.products(),
         geometry.raw_geometry_revision(),
         &geometry
@@ -140,6 +146,22 @@ fn setup_with(
     );
     // Keep both source-calculated goals inside the precision fixture's first polygon.
     profile.player.start = benilla_sim::creature_ai::Point::new(5., 11., 0.).unwrap();
+    if dry_habitat {
+        super::super::source_route_same_polygon::dry_habitat_tests::install_profile(
+            &mut profile,
+            super::super::source_creature_initialization::snapshot_binding(&products.height),
+            &geometry
+                .app
+                .world()
+                .resource::<benilla_assets::MapCatalogRes>()
+                .0,
+        );
+        products.projection = geometry
+            .products()
+            .load_source_query_projection(&profile)
+            .unwrap();
+        profile.geometry_revision = products.binding().unwrap().geometry_revision().unwrap();
+    }
     configure(&mut profile);
     let mut session = super::super::source_route_same_polygon::tests::source_session(&profile);
     session.primary_near_point =
@@ -152,10 +174,24 @@ fn setup_with(
         )
         .unwrap(),
     );
+    let initial_height = dry_habitat.then(|| {
+        geometry
+            .products()
+            .load_dry_map_height_owned(
+                products.near_configuration.height,
+                session.participants.as_ref(),
+            )
+            .unwrap()
+    });
     // Actual registry and all providers exist before the runtime is constructed.
     let mut providers = products.bind(&session, &profile, f::player()).unwrap();
-    let world =
-        NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();
+    let world = if let Some(height) = initial_height {
+        super::super::source_route_same_polygon::dry_habitat_tests::initialized_world(
+            &profile, &session, height,
+        )
+    } else {
+        NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap()
+    };
     let boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
     providers
         .route
@@ -187,7 +223,15 @@ fn calculation(reply: &AuthorityReply) -> &motion::RouteCalculation {
 }
 #[test]
 fn real_corridor_first_route_survives_later_frame_failure_retry_and_retained_replan() {
-    let (mut world, mut consumer) = setup();
+    real_corridor_committed_retained_replan(false);
+}
+#[test]
+fn initialized_habitat_three_real_corridor_commits_filter_thirteen_and_retains_exact_cache() {
+    real_corridor_committed_retained_replan(true);
+}
+fn real_corridor_committed_retained_replan(dry_habitat: bool) {
+    let (mut world, mut consumer) = setup_with_habitat(|_| {}, dry_habitat);
+    let expected_filter = if dry_habitat { 13 } else { 1 };
     consumer.fail_after_route = true;
     for _ in 0..8 {
         let before = world.checkpoint().unwrap();
@@ -209,6 +253,19 @@ fn real_corridor_first_route_survives_later_frame_failure_retry_and_retained_rep
     let first = calculation(&consumer.replies[0]).clone();
     assert_eq!(first.source, motion::RouteSource::OwnerPathFinder);
     assert_eq!(first.after_cache.revision, 1);
+    assert_eq!(first.after_cache.include_flags, expected_filter);
+    assert_eq!(first.after_cache.exclude_flags, 0);
+    if dry_habitat {
+        let request = &consumer.replies[0].request;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+            unreachable!()
+        };
+        assert_eq!(route.owner.inhabit_type(), 3);
+        assert!(route.owner.capabilities().unwrap().can_swim());
+        let body = consumer.session.body(request).unwrap();
+        assert_ne!(body.height, consumer.session.bodies[&2].height);
+        assert_eq!(body.height, route.request.owner_collision_height);
+    }
     assert!(first.prior_cache.is_none());
     consumer.fail_after_route = false;
     world
@@ -252,13 +309,19 @@ fn real_corridor_first_route_survives_later_frame_failure_retry_and_retained_rep
     let retained = calculation(consumer.replies.last().unwrap());
     assert_eq!(retained.prior_cache.as_deref(), Some(&first.after_cache));
     assert_eq!(retained.after_cache.revision, 2);
+    assert_eq!(retained.after_cache.include_flags, expected_filter);
+    assert_eq!(retained.after_cache.exclude_flags, 0);
+    assert_eq!(
+        consumer.providers.route.committed_candidate().unwrap().1,
+        &retained.after_cache
+    );
     assert_eq!(
         retained.after_cache.poly_refs.len(),
         first.after_cache.poly_refs.len()
     );
     assert_eq!(retained.after_cache.binding, first.after_cache.binding);
     let accepted = consumer.replies.last().unwrap();
-    for mutation in 0..15 {
+    for mutation in 0..16 {
         let mut wrong = accepted.clone();
         if mutation == 0 {
             wrong.request.binding.world[0] ^= 1;
@@ -278,6 +341,7 @@ fn real_corridor_first_route_survives_later_frame_failure_retry_and_retained_rep
                     6 => calculation.after_cache.binding.navigation_policy[0] ^= 1,
                     7 => calculation.after_cache.revision += 1,
                     8 => calculation.prior_cache = None,
+                    15 => calculation.after_cache.include_flags = if dry_habitat { 1 } else { 13 },
                     _ => (),
                 }
                 if let motion::RouteOutcome::Complete(path) = &mut calculation.outcome {

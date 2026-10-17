@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Product-backed ground allowed-Z subqueries for bounded NearPoint providers.
+//! Product-backed ground and physically dry swimming-capable allowed-Z subqueries.
 //! Initial candidates enforce target Z; the empty-selector capability derives
 //! source-order probes and the final carried Z. No ground reply supplies LOS
 //! selection, a complete movement fact or admission.
 use super::{
     core::{Failure, Session},
     products::ground_height::{
-        allowed_ground_z, MapHeightRequest, MapHeightSnapshot, SnapshotBinding,
+        allowed_ground_z, MapHeightReply, MapHeightRequest, MapHeightSnapshot, SnapshotBinding,
+        SwimmingAllowedZReply, SwimmingAllowedZRequest,
     },
 };
 use benilla_sim::creature_motion::NearPointAngle;
@@ -41,14 +42,24 @@ pub(crate) struct GroundHeightRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GroundHeightReply {
     pub request: GroundHeightRequest,
+    pub source: AllowedHeightObservation,
     /// Raw Map::GetHeight bits; an invalid source height is not an error or support.
     pub ground_height: u32,
     /// Original candidate Z bits are retained on equality or invalid source height.
     pub allowed_z: u32,
 }
+/// Explicit source branch and complete observations; equal dry answers do not
+/// turn a swimming-capable call into the ground-only path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AllowedHeightObservation {
+    Ground(MapHeightReply),
+    Swimming(Box<SwimmingAllowedZReply>),
+}
 pub(crate) struct BoundGroundHeightQuery<'a, 'products> {
     provider: &'a SourceGroundHeightProvider<'products>,
     context: AuthorityRequest,
+    branch: AllowedPositionZBranch,
+    collision_height: u32,
 }
 impl<'products> SourceGroundHeightProvider<'products> {
     pub(crate) fn bind(
@@ -175,14 +186,13 @@ impl<'products> SourceGroundHeightProvider<'products> {
         };
         let npc = b.npc.ok_or(Failure::Binding)?;
         near.searcher
-            .validate_for(&self.profile, npc)
+            .validate_context(&self.profile, b)
             .map_err(|_| Failure::Binding)?;
-        if near
+        let branch = near
             .searcher
             .allowed_position_z_branch()
-            .map_err(|_| Failure::Binding)?
-            != AllowedPositionZBranch::Ground
-        {
+            .map_err(|_| Failure::Binding)?;
+        if branch == AllowedPositionZBranch::Flying {
             return Err(Failure::UnsupportedQuery);
         }
         let q = &near.request;
@@ -234,9 +244,24 @@ impl<'products> SourceGroundHeightProvider<'products> {
         {
             return Err(Failure::UnresolvedBody);
         }
+        let collision_height = if branch == AllowedPositionZBranch::Swimming {
+            // The capability witness retains the selected model for this exact life.
+            // A respawn may select a height different from the initial session body.
+            let initialization = near.searcher.initialization().ok_or(Failure::Binding)?;
+            if initialization.request.snapshot
+                != super::source_creature_initialization::snapshot_binding(&self.snapshot)
+            {
+                return Err(Failure::Binding);
+            }
+            initialization.request.collision_height.bits()
+        } else {
+            body.height.as_f32().to_bits()
+        };
         Ok(BoundGroundHeightQuery {
             provider: self,
             context: context.clone(),
+            branch,
+            collision_height,
         })
     }
 }
@@ -290,24 +315,54 @@ impl BoundGroundHeightQuery<'_, '_> {
             snapshot: request.snapshot,
             ticket: request.ticket,
             position: request.position,
-            swim: false,
+            swim: self.branch == AllowedPositionZBranch::Swimming,
         };
-        let reply = self
-            .provider
-            .snapshot
-            .query_with_budget(query, budget)
-            .map_err(Failure::product)?;
-        if reply.request != query {
-            return Err(Failure::Binding);
-        }
-        let allowed_z = allowed_ground_z(
-            f32::from_bits(request.position[2]),
-            f32::from_bits(reply.height),
-        )
-        .to_bits();
+        let (source, ground_height, allowed_z) = match self.branch {
+            AllowedPositionZBranch::Ground => {
+                let reply = self
+                    .provider
+                    .snapshot
+                    .query_with_budget(query, budget)
+                    .map_err(Failure::product)?;
+                if reply.request != query {
+                    return Err(Failure::Binding);
+                }
+                let allowed_z = allowed_ground_z(
+                    f32::from_bits(request.position[2]),
+                    f32::from_bits(reply.height),
+                )
+                .to_bits();
+                (
+                    AllowedHeightObservation::Ground(reply),
+                    reply.height,
+                    allowed_z,
+                )
+            }
+            AllowedPositionZBranch::Swimming => {
+                let swimming = SwimmingAllowedZRequest {
+                    height: query,
+                    collision_height: self.collision_height,
+                };
+                let reply = self
+                    .provider
+                    .snapshot
+                    .query_swimming_allowed_z_with_budget(swimming, budget)
+                    .map_err(Failure::product)?;
+                if reply.request != swimming {
+                    return Err(Failure::Binding);
+                }
+                (
+                    AllowedHeightObservation::Swimming(Box::new(reply)),
+                    reply.ground.height,
+                    reply.allowed_z,
+                )
+            }
+            AllowedPositionZBranch::Flying => return Err(Failure::UnsupportedQuery),
+        };
         Ok(GroundHeightReply {
             request,
-            ground_height: reply.height,
+            source,
+            ground_height,
             allowed_z,
         })
     }
@@ -317,7 +372,7 @@ impl BoundGroundHeightQuery<'_, '_> {
 /// query policies rather than treating this scalar dependency as full navigation.
 pub(crate) fn geometry_revision(b: SnapshotBinding) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(b"benilla-source-ground-initial-candidate-subquery-v2");
+    h.update(b"benilla-source-ground-or-dry-swimming-initial-candidate-subquery-v3");
     h.update(initial_candidate::policy_digest());
     h.update(b.map.to_le_bytes());
     h.update(b.content);

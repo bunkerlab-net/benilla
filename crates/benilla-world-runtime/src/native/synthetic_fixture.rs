@@ -179,6 +179,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::CreatureInitialization(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "synthetic fixture has no creature initialization terrain",
+                ));
+            }
             Query::SourceLocation(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "legacy fixture has no source-owned location",

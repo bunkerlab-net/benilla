@@ -108,7 +108,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v42\0",
+            b"benilla-native-profile-v43\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -623,6 +623,7 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    CreatureInitialization(Box<CreatureInitializationRequest>),
     SourceLocation(Box<SourceLocationQuery>),
     EventAiAudience(Box<EventAiAudienceRequest>),
     PlayerEnvironment(Box<PlayerEnvironmentQuery>),
@@ -740,6 +741,7 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    CreatureInitialization(Box<CreatureInitializationFacts>),
     SourceLocation(SourceLocationFacts),
     EventAiAudience(EventAiAudienceFacts),
     PlayerEnvironment(PlayerEnvironmentFacts),

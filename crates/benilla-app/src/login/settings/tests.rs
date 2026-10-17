@@ -231,3 +231,69 @@ fn classic_capture_path_uses_existing_optional_text_field_and_cancel_discards_it
     reopened.refresh_fields(&cvars);
     assert_eq!(reopened.fields[index].value, "");
 }
+
+#[test]
+fn legacy_internet_values_are_visible_under_iroh_and_disable_removes_the_table() {
+    let path =
+        std::env::temp_dir().join(format!("benilla-iroh-settings-{}.toml", std::process::id()));
+    let original = "[p2p]\npsk = \"\"\n[p2p.internet]\nport_mapping = true\nrelay_urls = []\n";
+    std::fs::write(&path, original).unwrap();
+    let mut settings = Settings {
+        config: Some(ConfigEditor::open(&path).unwrap()),
+        ..default()
+    };
+    settings.refresh_fields(&Cvars::default());
+    assert!(settings
+        .fields
+        .iter()
+        .all(|field| !field.name.starts_with("p2p.internet")));
+    for name in ["p2p.iroh.enabled", "p2p.iroh.port_mapping"] {
+        assert_eq!(
+            settings
+                .fields
+                .iter()
+                .find(|field| field.name == name)
+                .unwrap()
+                .value,
+            "true"
+        );
+    }
+    let draft = settings.prepare_config().unwrap();
+    assert!(draft.has_section("p2p.iroh"));
+    assert!(!draft.has_section("p2p.internet"));
+    settings
+        .changes
+        .insert("p2p.iroh.enabled".into(), "false".into());
+    let draft = settings.prepare_config().unwrap();
+    assert!(!draft.has_section("p2p.iroh"));
+    assert!(!draft.has_section("p2p.internet"));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        original,
+        "draft edits and opening do not write the migration"
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn enabling_iroh_creates_only_the_canonical_table_with_mapping_disabled() {
+    let path = std::env::temp_dir().join(format!(
+        "benilla-new-iroh-settings-{}.toml",
+        std::process::id()
+    ));
+    let mut settings = Settings {
+        config: Some(ConfigEditor::open(&path).unwrap()),
+        ..default()
+    };
+    settings.changes.insert("p2p.enabled".into(), "true".into());
+    settings
+        .changes
+        .insert("p2p.iroh.enabled".into(), "true".into());
+    let draft = settings.prepare_config().unwrap();
+    assert_eq!(
+        draft.get("p2p.iroh", "port_mapping").as_deref(),
+        Some("false")
+    );
+    assert!(!draft.has_section("p2p.internet"));
+    assert!(!path.exists());
+}

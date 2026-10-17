@@ -170,6 +170,22 @@ impl CreatureCollisionWidthSource {
             )
             .map_err(|_| NativeError::InvalidProfile)
     }
+    pub(super) fn selected_height_before_level(
+        &self,
+        selection: &source::ModelPlan<'_>,
+    ) -> Result<source::InitialCollisionHeight, NativeError> {
+        let row = self
+            .loaded_rows
+            .get(&selection.model().display_id)
+            .ok_or(NativeError::AuthorityBinding)?;
+        selection
+            .collision_height(
+                row.display_id,
+                row.model_id,
+                spell::SpellFloat::from_bits(row.raw_height_bits)?,
+            )
+            .map_err(|_| NativeError::InvalidProfile)
+    }
     /// Validate all possible model products before the shared RNG is advanced.
     pub(super) fn generation_selections(
         &self,
@@ -590,6 +606,73 @@ impl CreatureCollisionWidthWitness {
     }
     pub(super) fn generation_selection(&self) -> Option<&GenerationModelSelection> {
         self.generation_selection.as_ref()
+    }
+    /// Reconstruct the current selected model after validating this width receipt.
+    /// A dry initializer must describe the very same world, creation clock and
+    /// model/gender draw prefix, not merely an equal display or collision scalar.
+    /// This is transcript consistency; the emitting runtime binds the live owner.
+    pub fn validated_model_selection(
+        &self,
+        profile: &Profile,
+        npc: crate::NpcId,
+        initialization: Option<&CreatureInitializationFacts>,
+    ) -> Result<ModelSelectionReceipt, NativeError> {
+        self.validate_for(profile, npc)?;
+        let Some(evidence) = &self.generation_selection else {
+            if initialization.is_some() {
+                return Err(NativeError::AuthorityBinding);
+            }
+            return profile
+                .creature_collision_widths
+                .as_ref()
+                .and_then(|catalog| catalog.source(npc.spawn))
+                .map(|source| source.selection().clone())
+                .ok_or(NativeError::AuthorityBinding);
+        };
+        let selection = evidence.selection(profile, npc)?;
+        let source = profile
+            .creature_generations
+            .as_ref()
+            .and_then(|catalog| catalog.source(npc.spawn))
+            .ok_or(NativeError::AuthorityBinding)?;
+        let decisions = selection.draws();
+        let model = source::prepare(&source.input)?
+            .select_model(decisions[0].value(), decisions[1].value())?;
+        let mut before_level = evidence.first_counter;
+        let mut prefix_count = 0;
+        for draw in &evidence.draws {
+            match draw.purpose {
+                DrawPurpose::CreatureModel { npc: owner }
+                | DrawPurpose::CreatureGender { npc: owner }
+                    if owner == npc =>
+                {
+                    if draw.first_counter != before_level {
+                        return Err(NativeError::AuthorityBinding);
+                    }
+                    before_level = before_level
+                        .checked_add(u64::from(draw.consumed))
+                        .ok_or(NativeError::Limit)?;
+                    prefix_count += 1;
+                }
+                _ => break,
+            }
+        }
+        let expected = CreatureInitializationRequest::new(
+            profile,
+            evidence.world,
+            npc,
+            evidence.created_tick,
+            evidence.first_counter,
+            before_level,
+            &model,
+            &evidence.draws[..prefix_count],
+        )?;
+        match (expected, initialization) {
+            (None, None) => {}
+            (Some(request), Some(facts)) => facts.validate_for(&request)?,
+            _ => return Err(NativeError::AuthorityBinding),
+        }
+        Ok(selection)
     }
     pub fn validate_for(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
         let expected = match &self.generation_selection {

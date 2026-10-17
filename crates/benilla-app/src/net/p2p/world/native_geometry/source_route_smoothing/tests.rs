@@ -53,8 +53,23 @@ fn setup(
     profile
         .initialize_creature_capabilities(fixture::creature_capability_sources(&profile))
         .unwrap();
+    let session = session(&profile, binding);
+    let mut world =
+        NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();
+    let mut authority = fixture::SyntheticMotionAuthority::default();
+    for tick in 1..=2 {
+        world.step(tick, None, &mut authority).unwrap();
+    }
+    let context = authority
+        .queries
+        .into_iter()
+        .find(|q| matches!(q.query, Query::SourceMotion(MotionQuery::Route(_))))
+        .unwrap();
+    (world, session, context)
+}
+fn session(profile: &Profile, binding: super::super::products::liquid::SnapshotBinding) -> Session {
     let motion = profile.source_motion.as_ref().unwrap();
-    let session = Session {
+    Session {
         world: [8; 16],
         profile: profile.digest(),
         policy: profile.authority_policy,
@@ -85,20 +100,9 @@ fn setup(
         source_location: None,
         player_environment: None,
         same_polygon_route: None,
-    };
-    let mut world =
-        NativeWorld::synthetic_component_test(profile, session.world, f::player(), 1234).unwrap();
-    let mut authority = fixture::SyntheticMotionAuthority::default();
-    for tick in 1..=2 {
-        world.step(tick, None, &mut authority).unwrap();
     }
-    let context = authority
-        .queries
-        .into_iter()
-        .find(|q| matches!(q.query, Query::SourceMotion(MotionQuery::Route(_))))
-        .unwrap();
-    (world, session, context)
 }
+
 fn bind_provider(
     products: &InventoriedProducts,
     session: &Session,

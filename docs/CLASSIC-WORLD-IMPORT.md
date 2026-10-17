@@ -23,6 +23,11 @@ contains restrictions involving unauthorized connections, emulation/matchmaking
 and data mining. The applicable agreement and jurisdiction need qualified legal
 review before promising legal safety or publishing a content distribution.
 
+The eight factual racial starting poses documented in
+[exploration starts](CLASSIC-EXPLORATION-STARTS.md) are a narrow application-default
+lookup, not a world-content pack or SQL-row export. That exception does not admit
+other database contents or assert blanket legal clearance.
+
 Never commit MPQs, extracted DBC/maps/models, client interface files, local SQL
 rows, generated world exports, character/account data, or credentials. Keep local
 exports below the existing gitignored `benilla-config/` state root. Do not send

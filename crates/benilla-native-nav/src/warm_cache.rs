@@ -19,8 +19,15 @@ pub(crate) enum DistanceInitialization {
 }
 
 #[cfg(benilla_native_detour)]
-pub(crate) fn cold_constructor_storage(mesh: &Mesh, until: Instant) -> Result<WarmCache, Error> {
+pub(crate) fn cold_constructor_storage(
+    mesh: &Mesh,
+    filter: SourceOwnerFilter,
+    until: Instant,
+) -> Result<WarmCache, Error> {
     deadline(until)?;
+    if !filter.is_supported_dry() {
+        return Err(Error::Unsupported);
+    }
     let mut storage = Vec::new();
     storage
         .try_reserve_exact(SOURCE_WARM_CACHE_POINT_LIMIT)
@@ -28,10 +35,7 @@ pub(crate) fn cold_constructor_storage(mesh: &Mesh, until: Instant) -> Result<Wa
     storage.resize(SOURCE_WARM_CACHE_POINT_LIMIT, 0);
     Ok(WarmCache {
         mesh_id: mesh.instance_id,
-        filter: SourceOwnerFilter {
-            include_flags: 1,
-            exclude_flags: 0,
-        },
+        filter,
         storage,
         active_len: 0,
     })
@@ -148,13 +152,7 @@ pub(crate) fn seed(
     until: Instant,
 ) -> Result<WarmCache, Error> {
     deadline(until)?;
-    if point_limit != SOURCE_WARM_CACHE_POINT_LIMIT
-        || filter
-            != (SourceOwnerFilter {
-                include_flags: 1,
-                exclude_flags: 0,
-            })
-    {
+    if point_limit != SOURCE_WARM_CACHE_POINT_LIMIT || !filter.is_supported_dry() {
         return Err(Error::Unsupported);
     }
     if polygons.is_empty() || polygons.len() > point_limit {

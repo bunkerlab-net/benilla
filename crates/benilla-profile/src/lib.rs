@@ -7,8 +7,8 @@
 //! This is not a realm database or an anti-cheat system. The local owner can copy, edit, or
 //! roll back saves. There is no XP, inventory, spell, quest, loot, or combat authority here.
 //! Character creation fixes level at one. `SpawnPolicy::NorthshireMeetingV1` deliberately
-//! starts unconfigured characters at the exploration meeting point. Configured creation
-//! uses an existing local source-v2 capture through `create_character_from_start`.
+//! identifies legacy characters at the exploration meeting point. Normal app creation
+//! supplies racial defaults; configured creation can use a private source-v2 capture.
 //!
 //! See the crate README for durability, concurrency, platform, and appearance limitations.
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
@@ -143,6 +143,8 @@ impl Appearance {
 #[serde(rename_all = "snake_case")]
 pub enum SpawnPolicy {
     NorthshireMeetingV1,
+    /// App-provided racial default at creation; reopening uses only the saved pose.
+    ClassicRacialV1,
     /// Explicit opt-in source position; reopening always uses Character::position.
     ClassicSourceV1 {
         capture_sha256: [u8; 32],
@@ -406,6 +408,15 @@ impl ProfileStore {
             SpawnPolicy::NorthshireMeetingV1,
             SpawnPolicy::NorthshireMeetingV1.position()?,
         )
+    }
+    /// Persist an app-selected racial starting pose for a new exploration character.
+    /// Existing characters and legacy policy records are never reinterpreted.
+    pub fn create_character_at_racial_start(
+        &mut self,
+        input: NewCharacter,
+        position: Position,
+    ) -> Result<CharacterId, Error> {
+        self.create_character_at(input, SpawnPolicy::ClassicRacialV1, position)
     }
     /// Explicit opt-in: uses only this selected local capture; never falls back to Northshire.
     /// This does not admit native gameplay or alter an existing character.

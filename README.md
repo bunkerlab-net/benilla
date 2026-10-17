@@ -23,9 +23,9 @@ matchmaking service or elected game host runs in P2P mode.
 - Implemented: authenticated, encrypted TCP and optional iroh QUIC peer links; matching network,
   protocol, exploration-contract version and ruleset fingerprints; owner-authenticated saved
   avatars with optional [local source-backed racial starts](docs/CLASSIC-EXPLORATION-STARTS.md)
-  (legacy Northshire default when unconfigured); peer movement and `/say`; join/disconnect cleanup
+  (built-in racial defaults; optional private capture overrides); peer movement and `/say`; join/disconnect cleanup
 - Connectivity: explicit peer addresses on a LAN, reachable IPv6, or manually
-  forwarded TCP ports by default. Opt-in `[p2p.internet]` uses private endpoint tickets,
+  forwarded TCP ports by default. Opt-in `[p2p.iroh]` uses private endpoint tickets,
   iroh NAT hole punching and encrypted relay fallback through explicitly configured
   relay URLs. Router mapping (UPnP/PCP/NAT-PMP) is off unless explicitly enabled.
   Each participant still needs a logical link to every other participant. A passphrase
@@ -44,16 +44,19 @@ matchmaking service or elected game host runs in P2P mode.
   protocol projection and durable checkpoints. The app now contains a tested
   command/tick/checkpoint controller, but native-content entry remains gated; these
   mechanics are not yet available through the player UI
-- Native component [format 42](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
+- Native component [format 43](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
   binds seed-independent initial-cast plans and per-life creature initialization
   to shared-RNG receipts. Creature selection owns current/historical stats through
   actual death and respawn. Retained mainhand equipment and static NPC disarm
   bind virtual fields and source damage. Retained ordinary creature addons select
   a complete spawn row before a template row and apply bounded sheath state.
   Explicit generation-source closures compose those rows with capability, Home
-  and ordinary visitors without applying addon movement flags or widening the
-  ground-only habitat domain. Mounts, stand/emote state, addon auras, scripts and
-  production content remain gated.
+  and ordinary visitors without applying addon movement flags. A separately
+  selected [dry habitat-3 domain](crates/benilla-world-runtime/CREATURE-DRY-HABITAT.md)
+  retains swimming capability, observes source-ordered initialization, and uses
+  swimming-capable allowed Z and filter 13 over ground-only products. Wet
+  execution, mounts, stand/emote state, addon auras, scripts and production
+  content remain gated. This does not admit complete actual entry-6 content.
   Earlier native saves reject without migration; RNG v2, original World
   v2 and character saves retain their own contracts. Authored fixtures establish
   this mechanism only; actual Human source order/data and production admission

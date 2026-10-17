@@ -19,6 +19,7 @@ benilla-world-data = { path = "../benilla-world-data" }
 benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }
 benilla-world-store = { path = "../benilla-world-store" }
 crossbeam-channel = "0.5"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 benilla-native-nav = { path = "../benilla-native-nav" }

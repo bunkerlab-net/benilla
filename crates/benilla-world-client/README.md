@@ -46,10 +46,10 @@ silently lose events or project a different world's branch. Construct a fresh pr
 Project first, then acknowledge its saved checkpoint: acknowledgement intentionally
 clears the completed journal records.
 
-Native42 initialization receipts remain in the bound state across fresh and
+Native43 initialization receipts remain in the bound state across fresh and
 resumed projections. Initial-cast genesis consumes no gameplay cast ID, input
 sequence or projected cast packet. The previous-state digest uses the same
-native42 boundary as runtime replay; native41 and older digests cannot advance it.
+native43 boundary as runtime replay; native42 and older digests cannot advance it.
 
 Source-owned creature generations project their selected virtual mainhand display,
 packed class/subclass/material/inventory/sheath fields and initial unit sheath/misc
