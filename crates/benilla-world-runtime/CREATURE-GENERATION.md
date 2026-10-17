@@ -1,6 +1,6 @@
 # Source-owned creature generations
 
-This optional native48 component owns ordinary creature initialization per life.
+This optional native49 component owns ordinary creature initialization per life.
 It does not open production admission, import a creature database, authenticate
 captured rows, or resolve client assets. The raw arithmetic port and its
 exclusions remain in [CREATURE-INIT.md](../benilla-sim/CREATURE-INIT.md).
@@ -116,8 +116,8 @@ not evidence of universal source grid iteration or a real Human entry order.
 
 ## Persistence and transaction boundary
 
-Native format 48, policy `benilla-native-wander-leg-v48`, and v48
-profile/state/record/checkpoint/melee/callback hash domains reject native47 and
+Native format 49, policy `benilla-native-home-wander-v49`, and v49
+profile/state/record/checkpoint/melee/callback hash domains reject native48 and
 older envelopes without migration.
 Generation source policy v4 and capability source policy v3 bind the explicit
 initialization closure and required per-life receipt. Ordinary visitor source
@@ -131,7 +131,7 @@ death-delay deadlines, current AI profile/generation/timestamps, initial ordered
 prefix, globally disjoint retained spans and current counter bounds. Historical
 corpse removal retains its AI snapshot and complete bounded loot-timer call chain;
 the deadline is recomputed from that life's source corpse delay, with each call
-bound to the loaded loot policy. A tick marker alone is not enough. AI checkpoint 6 also
+bound to the loaded loot policy. A tick marker alone is not enough. AI checkpoint 7 also
 binds the exact effective profile and explicit owned-generation mode.
 
 The structural generation history bound is 256 lives per spawn; encoded owner

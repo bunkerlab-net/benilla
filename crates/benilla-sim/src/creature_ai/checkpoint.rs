@@ -2,7 +2,7 @@
 //! Checked AI checkpoints, separate from live non-deserializable authority state.
 use super::*;
 use serde::{Deserialize, Serialize};
-pub const AI_CHECKPOINT_VERSION: u32 = 6;
+pub const AI_CHECKPOINT_VERSION: u32 = 7;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiCheckpoint {
@@ -200,7 +200,8 @@ impl SoloCreatureAi {
                     && s.hostile_references.current_victim().is_none()
                     && s.unreachable_ms == 0
                     && s.motion.as_ref().is_some_and(|m| {
-                        m.purpose == MovementPurpose::Home && m.home == Some(s.combat_start)
+                        m.purpose == MovementPurpose::Home
+                            && m.home == Some(home_position(s.combat_start, profile.spawn))
                     })
             }
             Phase::Corpse | Phase::Despawned => {

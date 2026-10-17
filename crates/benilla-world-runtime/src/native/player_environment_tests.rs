@@ -464,9 +464,9 @@ fn native_roundtrip_replay_and_rehashed_cache_forgeries_fail_closed() {
             _ => unreachable!(),
         }
         c.state = serde_json::from_value(json).unwrap();
-        c.digest = crate::digest(b"benilla-native-state-v48\0", &c.state);
+        c.digest = crate::digest(b"benilla-native-state-v49\0", &c.state);
         c.checksum = crate::digest(
-            b"benilla-native-checkpoint-v48\0",
+            b"benilla-native-checkpoint-v49\0",
             &(&c.state, c.digest, c.history_tip),
         );
         assert!(
@@ -822,4 +822,125 @@ fn synchronous_player_notify_chase_observes_pre_countdown_cache_and_replays() {
     let mut replay = NativeWorld::restore_synthetic_component_test(p, initial).unwrap();
     replay.replay(w.records()).unwrap();
     assert_eq!(replay.checkpoint().unwrap(), w.checkpoint().unwrap());
+}
+
+#[test]
+fn frozen_owner_target_checks_match_full_height_water_and_failure_order() {
+    use std::sync::Arc;
+    let mut p = profile();
+    p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
+    let mut w = world(p);
+    let mut authority = AuthorityFixture::default();
+    step(&mut w, vec![pose(1.0, 0.0), pose(2.0, 0.5)], &mut authority).unwrap();
+    while !authority
+        .seen
+        .iter()
+        .any(|request| matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))))
+    {
+        assert!(w.state().tick < 10);
+        step(&mut w, vec![], &mut authority).unwrap();
+    }
+    let context = authority
+        .seen
+        .iter()
+        .find(|request| matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))))
+        .unwrap();
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        unreachable!()
+    };
+    let profile = ValidatedRouteModelProfile::new(Arc::new(w.profile().clone())).unwrap();
+    let world = w.state().world;
+    let player = w.state().player;
+    let check = |route: &CreatureRouteRequest, world, player| {
+        let saved = profile
+            .validate_owner_context(Arc::new(route.clone()), &context.binding)
+            .unwrap();
+        assert_eq!(
+            saved.require_target_collision_height(world, player),
+            route.require_target_collision_height(w.profile(), world, player)
+        );
+        assert_eq!(
+            saved.require_target_water(world, player),
+            route.require_target_water(w.profile(), world, player)
+        );
+    };
+    assert!(route
+        .require_target_water(w.profile(), world, player)
+        .is_ok());
+    check(route, world, player);
+    let mut other_world = world;
+    other_world[0] ^= 1;
+    check(route, other_world, player);
+    assert!(route
+        .require_target_water(w.profile(), other_world, player)
+        .is_err());
+    let mut other_player = player;
+    other_player.character[0] ^= 1;
+    check(route, world, other_player);
+    assert!(route
+        .require_target_water(w.profile(), world, other_player)
+        .is_err());
+    for field in [
+        "model",
+        "world",
+        "height",
+        "target_pose",
+        "missing_target",
+        "height_before_water",
+        "missing_water",
+        "water",
+        "sequence",
+        "digest",
+        "source",
+        "tick",
+        "moment",
+        "identity",
+        "kind_before_missing",
+    ] {
+        let mut json = serde_json::to_value(route).unwrap();
+        match field {
+            "model" => json["target_player_height"]["witness"]["model_id"] = 999.into(),
+            "world" => json["target_player_height"]["witness"]["world"][0] = 99.into(),
+            "height" => {
+                json["target_player_height"]["witness"]["height"] = 1.0_f32.to_bits().into()
+            }
+            "water" => json["target_player_water"]["in_water"] = true.into(),
+            "sequence" => json["target_player_water"]["snapshot"]["sequence"] = 0.into(),
+            "digest" => json["target_player_water"]["digest"][0] = 99.into(),
+            "source" => json["target_player_water"]["snapshot"]["owner"]["source"][0] = 99.into(),
+            "tick" => json["target_player_water"]["tick"] = 999.into(),
+            "moment" => json["target_player_water"]["moment"] = "BeforeCountdown".into(),
+            _ => (),
+        }
+        let mut changed: CreatureRouteRequest = serde_json::from_value(json).unwrap();
+        match field {
+            "target_pose" => {
+                changed.request.target.as_mut().unwrap().pose.position = f::point(99.0)
+            }
+            "missing_target" => {
+                changed.request.target = None;
+                changed.target_player_height = None;
+                changed.target_player_water = None;
+            }
+            "height_before_water" => {
+                changed.target_player_height = None;
+                changed.target_player_water = None;
+            }
+            "missing_water" => changed.target_player_water = None,
+            "identity" => changed.request.binding.identity.creature += 1,
+            "kind_before_missing" => {
+                changed.request.kind = benilla_sim::creature_motion::RouteKind::Backpedal;
+                changed.target_player_height = None;
+                changed.target_player_water = None;
+            }
+            _ => (),
+        }
+        assert!(
+            changed
+                .require_target_water(w.profile(), world, player)
+                .is_err(),
+            "{field}"
+        );
+        check(&changed, world, player);
+    }
 }

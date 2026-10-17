@@ -152,7 +152,7 @@ pub struct RouteRequest {
     /// Exact retained state of this generator before this calculation.
     pub prior_cache: Option<Box<PathFinderCache>>,
     /// Actual dispatch boundary, independent of calculation/cache success. Home
-    /// owns a separate stack-local PathFinder whose constructor is not modeled here.
+    /// owns a separate stack-local PathFinder, never another generator's cache.
     #[serde(deserialize_with = "super::pathfinder_dispatch::required_option")]
     pub pathfinder_dispatch: Option<super::PathfinderDispatch>,
 }

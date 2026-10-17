@@ -450,8 +450,8 @@ fn pre_receipt_native28_checkpoint_record_and_replay_are_rejected() {
     assert!(decode_records(&encode_records(&records).unwrap()).is_err());
     let mut replay = world(w.profile().clone());
     assert!(replay.replay(&records).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 48);
-    assert_eq!(NATIVE_POLICY, "benilla-native-wander-leg-v48");
+    assert_eq!(NATIVE_FORMAT_VERSION, 49);
+    assert_eq!(NATIVE_POLICY, "benilla-native-home-wander-v49");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -558,4 +558,74 @@ fn consistent_earlier_ability_receipt_cannot_replace_current_frame_or_replay_rec
         NativeWorld::restore_synthetic_component_test(w.profile().clone(), before.clone()).unwrap();
     assert!(replay.replay(&[record]).is_err());
     assert_eq!(replay.checkpoint().unwrap(), before);
+}
+
+#[test]
+fn frozen_owner_checks_match_full_ignore_validation_and_error_order() {
+    use std::sync::Arc;
+    let (world, route) = captured(profile());
+    let binding = &world
+        .last_tick()
+        .unwrap()
+        .replies
+        .iter()
+        .find(|reply| {
+            matches!(&reply.request.query,
+            Query::SourceMotion(MotionQuery::Route(saved)) if saved.as_ref() == &route)
+        })
+        .unwrap()
+        .request
+        .binding;
+    let profile = ValidatedRouteModelProfile::new(Arc::new(world.profile().clone())).unwrap();
+    let validated = profile
+        .validate_owner_context(Arc::new(route.clone()), binding)
+        .unwrap();
+    assert_eq!(
+        validated.require_owner_ignore_pathfinding(),
+        route.require_owner_ignore_pathfinding(world.profile())
+    );
+    for field in [
+        "policy",
+        "npc",
+        "profile_binding",
+        "source_binding",
+        "capability_binding",
+        "projected_unit_state",
+        "live_abilities",
+        "missing",
+        "identity_before_missing",
+    ] {
+        let mut json = serde_json::to_value(&route).unwrap();
+        let receipt = &mut json["owner_ignore_pathfinding"];
+        match field {
+            "policy" => receipt[field] = "invented-owner".into(),
+            "npc" => receipt[field]["generation"] = 1.into(),
+            "projected_unit_state" => receipt[field] = UNIT_STAT_IGNORE_PATHFINDING.into(),
+            "live_abilities" => receipt[field] = serde_json::json!([]),
+            "missing" | "identity_before_missing" => *receipt = serde_json::Value::Null,
+            _ => receipt[field][0] = ((receipt[field][0].as_u64().unwrap() + 1) % 256).into(),
+        }
+        let mut forged: CreatureRouteRequest = serde_json::from_value(json).unwrap();
+        if field == "identity_before_missing" {
+            forged.request.binding.identity.map += 1;
+        }
+        let saved = profile
+            .validate_owner_context(Arc::new(forged.clone()), binding)
+            .unwrap();
+        let direct = forged.require_owner_ignore_pathfinding(world.profile());
+        assert!(direct.is_err(), "{field}");
+        assert_eq!(saved.require_owner_ignore_pathfinding(), direct, "{field}");
+    }
+    // The caller's copy can change, but the opaque proof still owns the original.
+    let expected = validated
+        .require_owner_ignore_pathfinding()
+        .unwrap()
+        .clone();
+    let mut changed = route;
+    changed.owner_ignore_pathfinding = None;
+    assert!(!validated.matches_route(world.profile(), &changed));
+    assert_eq!(
+        validated.require_owner_ignore_pathfinding().unwrap(),
+        &expected
+    );
 }

@@ -112,7 +112,9 @@ bounded FIFO tail, then ends that service invocation. A concurrent refill may
 exhaust that slot; this returns deadline-unavailable rather than exceeding capacity.
 Actual missing/unsupported/binding errors are terminal even if time also elapsed.
 Repeatedly oversized work may still exhaust the original 500ms lifetime; retries
-are bounded availability attempts, not guaranteed progress or resumable native work.
+are bounded availability attempts, not guaranteed progress. Generic retry alone
+does not make native work resumable; the selected Route continuation retains only
+the explicitly completed stages described below.
 No provider witness or partial Route is reused as completed authority. Generic
 callbacks keep their prior successful-result semantics: the slice limits scheduling,
 while the original job expiry and cancellation fence still govern delivery. Only an
@@ -123,8 +125,20 @@ Only core can construct the token, from the exact immutable session/request;
 it cannot be cloned, serialized or retained by the higher-ranked callback. Raw
 entry points still validate fully. This certifies neither geometry nor continued
 dispatch liveness: Calculate and final reply validation keep all their checks.
-These error variants are crate-private and nonserialized; native state, facts,
-wire formats and work limits are unchanged. Each player job
+Selected initialized Route jobs retain separate context, width, model selection,
+height, body, dispatch, model and owner-state validations on the original Work.
+A privately constructed frozen-profile/owner proof binds the full request and
+live dispatch. It reuses only completed immutable checks, including target-model
+validation at the original target-water branch. Raw APIs keep their full checks.
+WanderPrepare adopts that same job and advances constructor, gate and preparation
+observations before job-bound reply validation. Equal-live concurrent jobs share
+the retained preparation allocation without replacing one another's evidence.
+Fresh LOS, water, terrain and collision observations are never promoted across an
+overdue attempt. Cancellation, original lease expiry and final timely certification
+still fence every delivered result. These are selected component progress rules,
+not a hard real-time claim or broader production admission.
+
+These error variants are crate-private and nonserialized; work limits are unchanged. Each player job
 contains at most 64 segments. Structural limits are checked before request cloning
 or enqueueing. One corridor caps loaded hull members at 4,096 and aggregate hull
 vertices/triangles at 262,144 before transformed allocation. The full-map loader caps
@@ -673,8 +687,9 @@ the private live `PathfinderDispatchReceipt`, complete selected configuration,
 matching outer world/profile/policy/tick/NpcId and exact inner dispatch binding.
 The receipt names the first actual Chase dispatch after forced relocation and
 before the straight gate, independently of any retained polygon cache. Nearby
-initial Chase does not imply construction. Home's separate stack-local
-PathFinder lifecycle is unsupported here. A live receipt may outlast its callback;
+initial Chase does not imply construction. Home uses a distinct first-use
+stack-local constructor and a bounded dry same-polygon continuation; see
+[the Home contract](../../../../../../benilla-world-runtime/HOME.md). A live receipt may outlast its callback;
 it is not a timestamp attestation of native loading. The eventual composer must
 bind this provider before driving the runtime and consume the event inside that
 actual callback. Captured requests exercise rejection/identity controls in tests
@@ -748,11 +763,11 @@ it leaves room for at most three uncommitted candidates. Loaded native rehydrati
 after reopening remains separately unsupported.
 
 The app geometry identity is
-`benilla-owned-dry-same-polygon-chase-commit-continuation-v4`, including the
+`benilla-owned-dry-same-polygon-chase-home-wander-commit-continuation-v6`, including the
 outer-commit acknowledgement, total-cap-four and bounded original-job policies.
 Earlier uncommitted-proposal and monolithic-commit identities are incompatible.
 Commit-head delivery itself does not alter the native payload schema; the current
-payload is format 48 for complete authored one/two-owner source visitors.
+payload is format 49 for complete authored one/two-owner source visitors.
 `install_with_same_polygon` returns a proposal authority and an explicit paired
 commit sink. The selected mailbox refuses queries until the controller attaches
 that sink at the actual cache-free world boundary. A fresh opaque attachment and

@@ -437,11 +437,12 @@ impl SourceLocationPolicy {
     }
 }
 
-/// Explicit transport capability for the bounded loaded first/retained Chase path.
+/// Explicit transport capability for bounded Chase, local Home and default Wander.
 /// This validates request ownership and domains, never raw geometry or native caches.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SamePolygonRoutePolicy {
     environment: PlayerEnvironmentPolicy,
+    model_profile: benilla_world_runtime::native::ValidatedRouteModelProfile,
     binding: super::source_route_same_polygon::SamePolygonBinding,
 }
 impl SamePolygonRoutePolicy {
@@ -453,8 +454,14 @@ impl SamePolygonRoutePolicy {
         if binding.geometry_revision()? != profile.geometry_revision {
             return Err(Failure::Binding);
         }
+        let environment = PlayerEnvironmentPolicy::from_profile(profile, player)?;
+        let model_profile = benilla_world_runtime::native::ValidatedRouteModelProfile::new(
+            Arc::clone(&environment.profile),
+        )
+        .map_err(|_| Failure::Binding)?;
         Ok(Self {
-            environment: PlayerEnvironmentPolicy::from_profile(profile, player)?,
+            environment,
+            model_profile,
             binding,
         })
     }
@@ -462,6 +469,9 @@ impl SamePolygonRoutePolicy {
         self.environment.check(session)?;
         if session.player_environment.as_ref() != Some(&self.environment)
             || session.geometry != self.binding.geometry_revision()?
+            || !self
+                .model_profile
+                .matches_profile(&self.environment.profile)
         {
             return Err(Failure::Binding);
         }
@@ -508,11 +518,14 @@ impl SamePolygonRoutePolicy {
                 | motion::RouteKind::ChaseReplan
                 | motion::RouteKind::Wander
                 | motion::RouteKind::WanderPrepare
-        ) || q.launch_origin != q.origin
+                | motion::RouteKind::HomeForceDestination
+        ) || (q.kind != motion::RouteKind::HomeForceDestination && q.launch_origin != q.origin)
             || q.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
             || matches!(
                 q.kind,
-                motion::RouteKind::Wander | motion::RouteKind::WanderPrepare
+                motion::RouteKind::Wander
+                    | motion::RouteKind::WanderPrepare
+                    | motion::RouteKind::HomeForceDestination
             ) != q.target.is_none()
         {
             return Err(Failure::UnsupportedQuery);
@@ -520,6 +533,14 @@ impl SamePolygonRoutePolicy {
         let dispatch = context
             .require_pathfinder_dispatch(profile)
             .map_err(|_| Failure::Binding)?;
+        if q.kind == motion::RouteKind::HomeForceDestination
+            && (!dispatch.first_construction()
+                || dispatch.constructor_kind() != motion::PathfinderConstructorKind::HomeLocal
+                || dispatch.construction_binding() != dispatch.dispatch_binding()
+                || q.prior_cache.is_some())
+        {
+            return Err(Failure::Binding);
+        }
         match q.prior_cache.as_deref() {
             None if dispatch.first_construction() || q.kind == motion::RouteKind::Wander => (),
             Some(prior) if !dispatch.first_construction() => {
@@ -559,15 +580,25 @@ impl SamePolygonRoutePolicy {
         session: &Session,
         context: &AuthorityRequest,
     ) -> Result<Body, Failure> {
+        self.resolve_owner_body_with_initialized(session, context, None)
+    }
+    fn resolve_owner_body_with_initialized(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+        initialized: Option<&super::source_route_filter::InitializedOwnerValidation>,
+    ) -> Result<Body, Failure> {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery);
         };
         let profile = &self.environment.profile;
-        if route
-            .require_owner_ignore_pathfinding(profile)
-            .map_err(|_| Failure::Binding)?
-            .ignore_pathfinding()
-        {
+        let owner_ignore = match initialized {
+            Some(validated) => validated.owner_ignore_for(profile, route)?,
+            None => route
+                .require_owner_ignore_pathfinding(profile)
+                .map_err(|_| Failure::Binding)?,
+        };
+        if owner_ignore.ignore_pathfinding() {
             return Err(Failure::UnsupportedQuery);
         }
         let npc = context.binding.npc.ok_or(Failure::Binding)?;
@@ -576,8 +607,11 @@ impl SamePolygonRoutePolicy {
             .get(&npc.spawn)
             .copied()
             .ok_or(Failure::UnresolvedBody)?;
-        if let Some(height) = super::source_route_filter::initialized_owner_height(profile, route)?
-        {
+        let initialized_height = match initialized {
+            Some(validated) => Some(validated.height_for(profile, route)?),
+            None => super::source_route_filter::initialized_owner_height(profile, route)?,
+        };
+        if let Some(height) = initialized_height {
             body.height = height;
         }
         if !body.validate() {
@@ -901,6 +935,7 @@ impl JobLease {
     }
 }
 struct OwnedRouteValidation {
+    initialized: Option<super::source_route_filter::InitializedOwnerValidation>,
     model: super::source_route_same_polygon::SamePolygonModel,
     session: Session,
     request: AuthorityRequest,
@@ -909,6 +944,8 @@ struct OwnedRouteValidation {
     selected_provider: OnceLock<Arc<()>>,
     #[cfg(test)]
     phase: std::cell::Cell<&'static str>,
+    #[cfg(test)]
+    previous_phase: std::cell::Cell<&'static str>,
 }
 impl OwnedRouteValidation {
     fn check(&self, session: &Session, work: &Work) -> Result<(), Failure> {
@@ -951,6 +988,7 @@ fn check_owned_route(
 /// Completed immutable subparts remain owned by this original queued Work. No
 /// provider, geometry fact, constructor or native cache can use a partial body.
 struct OwnedRouteBodyProgress {
+    initialized: Option<super::source_route_filter::InitializedOwnerValidation>,
     model: Option<super::source_route_same_polygon::SamePolygonModel>,
     session: Session,
     request: AuthorityRequest,
@@ -960,6 +998,10 @@ struct OwnedRouteBodyProgress {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RouteBodyPhase {
     Context,
+    ContextWidth,
+    ContextSelection,
+    ContextHeight,
+    ContextBody,
     Dispatch,
     Model,
     OwnerState,
@@ -969,6 +1011,10 @@ impl RouteBodyPhase {
     fn name(self) -> &'static str {
         match self {
             Self::Context => "body_context",
+            Self::ContextWidth => "body_context_width",
+            Self::ContextSelection => "body_context_selection",
+            Self::ContextHeight => "body_context_height",
+            Self::ContextBody => "body_context_body",
             Self::Dispatch => "body_dispatch",
             Self::Model => "body_model",
             Self::OwnerState => "body_owner_state",
@@ -1005,6 +1051,14 @@ impl<'call> RouteJob<'call> {
             return Err(Failure::Binding);
         }
         Ok(())
+    }
+    pub(super) fn validated_initialized(
+        &self,
+        profile: &Profile,
+    ) -> Result<Option<&'call super::source_route_filter::InitializedOwnerValidation>, Failure>
+    {
+        self.require_profile(profile)?;
+        Ok(self.validation.initialized.as_ref())
     }
     pub(super) fn validated_model(
         &self,
@@ -1093,6 +1147,10 @@ impl<'call> RouteJob<'call> {
     #[cfg(test)]
     pub(super) fn record_phase(&self, phase: &'static str) {
         self.validation.phase.set(phase);
+    }
+    #[cfg(test)]
+    pub(super) fn recorded_phase(&self) -> &'static str {
+        self.validation.previous_phase.get()
     }
 }
 pub(super) enum ServiceQuery<'call> {
@@ -1671,7 +1729,10 @@ impl Mailbox {
             );
             #[cfg(test)]
             if let Some(validation) = &work.route_validation {
-                validation.phase.set("resume_guard");
+                let previous = validation.phase.replace("resume_guard");
+                if previous != "resume_guard" {
+                    validation.previous_phase.set(previous);
+                }
             }
             let result = if staged {
                 self.advance_route_query(&mut work, deadline, &mut geometry)
@@ -1770,6 +1831,7 @@ impl Mailbox {
     ) -> Result<(), Failure> {
         if work.route_body.is_none() {
             work.route_body = Some(OwnedRouteBodyProgress {
+                initialized: None,
                 model: None,
                 session: self.session.clone(),
                 request: work.request.clone(),
@@ -1795,22 +1857,91 @@ impl Mailbox {
                 .as_ref()
                 .ok_or(Failure::UnsupportedQuery)?;
             let phase = progress.next;
-            let (body, model) = match phase {
+            let (body, model, initialized) = match phase {
                 RouteBodyPhase::Context => {
                     progress.session.check_request_binding(&progress.request)?;
-                    policy.validate_source_context(&progress.session, &progress.request)?;
-                    (None, None)
+                    policy.check(&progress.session)?;
+                    let initialized =
+                        super::source_route_filter::validate_initialized_route_context(
+                            &progress.session,
+                            &policy.model_profile,
+                            &progress.request,
+                        )?;
+                    (None, None, initialized)
+                }
+                RouteBodyPhase::ContextWidth => (
+                    None,
+                    None,
+                    progress
+                        .initialized
+                        .as_ref()
+                        .map(|initialized| initialized.validate_width())
+                        .transpose()?,
+                ),
+                RouteBodyPhase::ContextSelection => (
+                    None,
+                    None,
+                    progress
+                        .initialized
+                        .as_ref()
+                        .map(|initialized| initialized.validate_selection())
+                        .transpose()?,
+                ),
+                RouteBodyPhase::ContextHeight => (
+                    None,
+                    None,
+                    progress
+                        .initialized
+                        .as_ref()
+                        .map(|initialized| initialized.validate_height())
+                        .transpose()?,
+                ),
+                RouteBodyPhase::ContextBody => {
+                    let Query::SourceMotion(MotionQuery::Route(route)) = &progress.request.query
+                    else {
+                        return Err(Failure::UnsupportedQuery);
+                    };
+                    let height = progress
+                        .initialized
+                        .as_ref()
+                        .map(|initialized| {
+                            initialized.height_for(&policy.environment.profile, route)
+                        })
+                        .transpose()?;
+                    super::source_route_filter::validate_route_context_body(
+                        &progress.session,
+                        &policy.environment.profile,
+                        &progress.request,
+                        height,
+                    )?;
+                    (None, None, None)
                 }
                 RouteBodyPhase::Dispatch => {
                     policy.validate_dispatch(&progress.session, &progress.request)?;
-                    (None, None)
+                    (None, None, None)
                 }
-                RouteBodyPhase::Model => (
-                    None,
-                    Some(policy.validate_model(&progress.session, &progress.request)?),
-                ),
+                RouteBodyPhase::Model => {
+                    let Query::SourceMotion(MotionQuery::Route(route)) = &progress.request.query
+                    else {
+                        return Err(Failure::UnsupportedQuery);
+                    };
+                    let model =
+                        super::source_route_same_polygon::same_polygon_model_with_initialized(
+                            &policy.environment.profile,
+                            progress.session.world,
+                            policy.environment.player,
+                            route,
+                            progress.initialized.as_ref(),
+                        )?;
+                    (None, Some(model), None)
+                }
                 RouteBodyPhase::OwnerState => (
-                    Some(policy.resolve_owner_body(&progress.session, &progress.request)?),
+                    Some(policy.resolve_owner_body_with_initialized(
+                        &progress.session,
+                        &progress.request,
+                        progress.initialized.as_ref(),
+                    )?),
+                    None,
                     None,
                 ),
             };
@@ -1830,6 +1961,7 @@ impl Mailbox {
             if let Some(body) = body {
                 let progress = work.route_body.take().ok_or(Failure::Binding)?;
                 work.route_validation = Some(OwnedRouteValidation {
+                    initialized: progress.initialized,
                     model: progress.model.ok_or(Failure::Binding)?,
                     session: progress.session,
                     request: progress.request,
@@ -1838,6 +1970,8 @@ impl Mailbox {
                     selected_provider: OnceLock::new(),
                     #[cfg(test)]
                     phase: std::cell::Cell::new("body_complete"),
+                    #[cfg(test)]
+                    previous_phase: std::cell::Cell::new("body_complete"),
                 });
                 observed(phase, true);
                 return Ok(());
@@ -1846,8 +1980,15 @@ impl Mailbox {
             if let Some(model) = model {
                 progress.model = Some(model);
             }
+            if let Some(initialized) = initialized {
+                progress.initialized = Some(initialized);
+            }
             progress.next = match phase {
-                RouteBodyPhase::Context => RouteBodyPhase::Dispatch,
+                RouteBodyPhase::Context => RouteBodyPhase::ContextWidth,
+                RouteBodyPhase::ContextWidth => RouteBodyPhase::ContextSelection,
+                RouteBodyPhase::ContextSelection => RouteBodyPhase::ContextHeight,
+                RouteBodyPhase::ContextHeight => RouteBodyPhase::ContextBody,
+                RouteBodyPhase::ContextBody => RouteBodyPhase::Dispatch,
                 RouteBodyPhase::Dispatch => RouteBodyPhase::Model,
                 RouteBodyPhase::Model => RouteBodyPhase::OwnerState,
                 RouteBodyPhase::OwnerState => unreachable!(),

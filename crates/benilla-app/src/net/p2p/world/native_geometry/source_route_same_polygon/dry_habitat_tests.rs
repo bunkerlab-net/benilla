@@ -184,6 +184,18 @@ pub(crate) fn initialized_world(
     world
 }
 
+/// Original live dispatch and initialized model, without constructing a replacement receipt.
+pub(crate) fn captured_initialized_route_request() -> (Session, AuthorityRequest) {
+    let mut setup = setup();
+    let (world, mut consumer) = consumer(&mut setup);
+    drive_first(world, &mut consumer);
+    assert!(consumer.errors.is_empty(), "{:?}", consumer.errors);
+    (
+        consumer.session.clone(),
+        consumer.proposals[0].context.clone(),
+    )
+}
+
 #[test]
 fn loaded_habitat_three_composes_live_near_point_filter_thirteen_and_same_polygon_cache() {
     let mut setup = setup();
@@ -415,4 +427,118 @@ fn selected_radius_outside_frozen_roster_is_rejected_before_near_point_or_route(
         Err(Failure::UnresolvedBody)
     );
     assert_eq!(setup.routes.retained_candidate_count(), 0);
+}
+
+#[test]
+fn initialized_chase_staged_gate_preserves_fresh_observations_and_deadline_retry() {
+    use super::super::core::{self, ServiceQuery, ServiceStep};
+    use crossbeam_channel::TryRecvError;
+    let mut fixture = setup();
+    let (context, baseline, expected) = {
+        let (world, mut consumer) = consumer(&mut fixture);
+        drive_first(world, &mut consumer);
+        assert!(consumer.errors.is_empty());
+        (
+            consumer.requests[0].clone(),
+            consumer.proposals.pop().unwrap(),
+            consumer.observations,
+        )
+    };
+    let (_authority, mailbox) = core::mailbox(fixture.session.clone()).unwrap();
+    let (lease, reply) = mailbox.enqueue_service_test_request(1, context).unwrap();
+    let original_expiry = lease.deadline();
+    let mut observations = vec![];
+    for _ in 0..3 {
+        assert_eq!(
+            mailbox.serve_service_test_slice(1, true, until(), |query, deadline| {
+                let ServiceQuery::Route(job) = query else {
+                    panic!("Route job")
+                };
+                assert!(!fixture
+                    .routes
+                    .advance_job_observed(&job, 1, deadline, |stage| observations.push(stage))
+                    .map_err(SamePolygonError::failure)?);
+                Ok(ServiceStep::Pending)
+            }),
+            1
+        );
+    }
+    let before_gate = observations.len();
+    let slice = Instant::now() + std::time::Duration::from_millis(20);
+    assert!(slice < original_expiry);
+    let mut late = vec![];
+    assert_eq!(
+        mailbox.serve_service_test_slice(1, true, slice, |query, deadline| {
+            let ServiceQuery::Route(job) = query else {
+                panic!("Route job")
+            };
+            let result = fixture
+                .routes
+                .advance_job_observed(&job, 1, deadline, |stage| {
+                    late.push(stage);
+                    if matches!(
+                        stage,
+                        Observation::Gate(
+                            super::super::source_route_chase_gate::Observation::TargetWater(_)
+                        )
+                    ) {
+                        std::thread::sleep(slice.saturating_duration_since(Instant::now()));
+                    }
+                });
+            assert_eq!(result, Err(SamePolygonError::Dependency(Failure::Deadline)));
+            result
+                .map(|_| ServiceStep::Pending)
+                .map_err(SamePolygonError::failure)
+        }),
+        1
+    );
+    assert!(matches!(
+        fixture.routes.pending[0].phase,
+        staged::Phase::Prepared(_)
+    ));
+    assert!(matches!(
+        late.last(),
+        Some(Observation::Gate(
+            super::super::source_route_chase_gate::Observation::TargetWater(_)
+        ))
+    ));
+    assert_eq!(late, expected[before_gate..before_gate + late.len()]);
+    assert!(matches!(reply.try_result(), Err(TryRecvError::Empty)));
+    assert!(lease.is_active());
+    assert_eq!(lease.deadline(), original_expiry);
+    for _ in 0..2 {
+        assert_eq!(
+            mailbox.serve_service_test_slice(1, true, until(), |query, deadline| {
+                let ServiceQuery::Route(job) = query else {
+                    panic!("Route job")
+                };
+                assert!(!fixture
+                    .routes
+                    .advance_job_observed(&job, 1, deadline, |stage| observations.push(stage))
+                    .map_err(SamePolygonError::failure)?);
+                Ok(ServiceStep::Pending)
+            }),
+            1
+        );
+    }
+    assert_eq!(observations, expected);
+    assert_eq!(
+        mailbox.serve_service_test_slice(1, true, until(), |query, deadline| {
+            let ServiceQuery::Route(job) = query else {
+                panic!("Route job")
+            };
+            assert_eq!(job.recorded_phase(), "native_terminal");
+            assert!(fixture.routes.advance_job(&job, 1, deadline).unwrap());
+            let proposal = fixture.routes.terminal_for_job(&job).unwrap();
+            assert_eq!(proposal.gate, baseline.gate);
+            assert_eq!(proposal.model, baseline.model);
+            Err(Failure::UnsupportedQuery) // A gate never substitutes for concrete clearance.
+        }),
+        1
+    );
+    assert!(matches!(
+        reply.try_result(),
+        Ok(Err(Failure::UnsupportedQuery))
+    ));
+    assert!(!lease.is_active());
 }

@@ -156,7 +156,7 @@ pub(in crate::native) fn source_assistance_traversal(
         });
     }
     let receipt = AssistanceTraversalReceipt {
-        request: crate::digest(b"benilla-native-assistance-traversal-v48\0", request),
+        request: crate::digest(b"benilla-native-assistance-traversal-v49\0", request),
         candidates: receipts,
     };
     receipt.validate(request, facts)?;

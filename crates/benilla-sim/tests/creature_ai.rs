@@ -424,6 +424,74 @@ fn home_waits_for_validated_arrival_and_does_not_instantly_heal() {
 }
 
 #[test]
+fn home_empty_xyz_falls_back_before_command_distance_and_checkpoint_binding() {
+    let zero = Point::new(-0.0, 0.0, -0.0).unwrap();
+    assert!(zero.is_empty());
+    assert_eq!(zero, point(0.0));
+    let origins = [
+        zero,
+        point(4.0),
+        Point::new(0.0, 4.0, 0.0).unwrap(),
+        Point::new(0.0, 0.0, 4.0).unwrap(),
+    ];
+    for origin in origins {
+        let mut p = profile(Reaction::Aggressive);
+        p.spawn = point(10.0);
+        // Authored idle relocation, independent of the immutable respawn coordinate.
+        let mut saved =
+            serde_json::to_value(SoloCreatureAi::new(p.clone()).unwrap().checkpoint()).unwrap();
+        saved["position"] = serde_json::to_value(origin).unwrap();
+        let mut ai =
+            SoloCreatureAi::restore(serde_json::from_value(saved).unwrap(), p.clone(), 0, 0, 2)
+                .unwrap();
+        step(&mut ai, observation(1, 20, 12.0)).unwrap();
+        assert_eq!(ai.combat_start_position(), origin);
+        let mut o = observation(2, 20, 12.0);
+        o.target = None;
+        step(&mut ai, o).unwrap();
+        let home = if origin.is_empty() { p.spawn } else { origin };
+        assert_eq!(ai.motion().unwrap().home, Some(home));
+        assert_eq!(
+            SoloCreatureAi::restore(ai.checkpoint(), p.clone(), 40, 2, 2).unwrap(),
+            ai,
+        );
+        let mut saved = serde_json::to_value(ai.checkpoint()).unwrap();
+        saved["motion"]["home"] =
+            serde_json::to_value(if origin.is_empty() { origin } else { p.spawn }).unwrap();
+        assert!(SoloCreatureAi::restore(
+            serde_json::from_value(saved).unwrap(),
+            p.clone(),
+            40,
+            2,
+            2,
+        )
+        .is_err());
+        let mut saved = serde_json::to_value(ai.checkpoint()).unwrap();
+        saved["version"] = 6.into();
+        assert!(
+            SoloCreatureAi::restore(serde_json::from_value(saved).unwrap(), p, 40, 2, 2,).is_err()
+        );
+    }
+
+    let mut p = profile(Reaction::Aggressive);
+    p.spawn = point(200.0);
+    let mut saved =
+        serde_json::to_value(SoloCreatureAi::new(p.clone()).unwrap().checkpoint()).unwrap();
+    saved["position"] = serde_json::to_value(zero).unwrap();
+    let mut ai =
+        SoloCreatureAi::restore(serde_json::from_value(saved).unwrap(), p, 0, 0, 2).unwrap();
+    step(&mut ai, observation(1, 20, 12.0)).unwrap();
+    let before = ai.clone();
+    let mut o = observation(2, 20, 12.0);
+    o.target = None;
+    assert_eq!(
+        step(&mut ai, o),
+        Err(AiError::Unsupported(Unsupported::LongDistanceHomeDespawn))
+    );
+    assert_eq!(ai, before);
+}
+
+#[test]
 fn corpse_and_respawn_clocks_start_at_death_not_corpse_removal() {
     let mut ai = SoloCreatureAi::new(profile(Reaction::Aggressive)).unwrap();
     let mut o = observation(1, 20, 2.);

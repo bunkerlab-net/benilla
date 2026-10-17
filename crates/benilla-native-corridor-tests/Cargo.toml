@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license = "GPL-3.0-or-later"
 publish = false
-description = "Exact concrete app corridor and loaded native Wander tests without full app codegen"
+description = "Exact concrete app corridor and loaded native Wander/Home tests without full app codegen"
 
 [lints]
 workspace = true

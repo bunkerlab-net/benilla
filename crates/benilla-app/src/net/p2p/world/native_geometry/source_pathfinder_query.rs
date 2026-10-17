@@ -49,7 +49,6 @@ struct RegisteredConstructor {
 /// It is neither createFilter evidence nor proof that a whole calculate ran.
 pub(crate) struct SourceConstructorQuery<'a> {
     provider: Rc<()>,
-    index: usize,
     entry: &'a mut RegisteredConstructor,
     snapshot: SnapshotBinding,
     dispatch: PathfinderDispatchReceipt,
@@ -61,7 +60,6 @@ pub(crate) struct SourceConstructorQuery<'a> {
 /// Private fields retain the exact allocation and cannot adopt a replacement seal.
 pub(super) struct RegisteredConstructorHandle {
     provider: Rc<()>,
-    index: usize,
     npc: NpcId,
     construction: QueryBinding,
     first_event: PathfinderDispatchReceipt,
@@ -182,6 +180,21 @@ impl SourcePathfinderQueryProvider {
         self.constructors.len()
     }
 
+    /// Called only after the complete outer ACK validates. A cache-free current
+    /// generator still owns its constructor; replaced and local Home owners do not.
+    pub(super) fn retain_committed_generators(
+        &mut self,
+        boundary: &super::route_commit::RouteCommitBoundary,
+    ) {
+        self.constructors.retain(|entry| {
+            entry.first_event.constructor_kind()
+                != benilla_sim::creature_motion::PathfinderConstructorKind::HomeLocal
+                && boundary.heads().iter().any(|head| {
+                    head.npc() == entry.npc && head.construction() == Some(entry.construction)
+                })
+        });
+    }
+
     pub(super) fn prepare_constructor(
         &mut self,
         context: &AuthorityRequest,
@@ -193,7 +206,6 @@ impl SourcePathfinderQueryProvider {
     fn constructor_handle(query: SourceConstructorQuery<'_>) -> RegisteredConstructorHandle {
         RegisteredConstructorHandle {
             provider: query.provider,
-            index: query.index,
             npc: query.entry.npc,
             construction: query.entry.construction,
             first_event: query.entry.first_event.clone(),
@@ -226,12 +238,41 @@ impl SourcePathfinderQueryProvider {
         prefix: &RegisteredConstructorHandle,
         context: &AuthorityRequest,
     ) -> Result<RegisteredConstructorHandle, ConstructorQueryError> {
-        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
-            return Err(ConstructorQueryError::Binding);
-        };
         let event = context
             .require_pathfinder_dispatch(&self.profile)
             .map_err(|_| ConstructorQueryError::Binding)?;
+        self.continue_validated_wander_constructor(prefix, context, event)
+    }
+
+    pub(super) fn continue_wander_constructor_for_job(
+        &mut self,
+        prefix: &RegisteredConstructorHandle,
+        job: &super::core::RouteJob<'_>,
+    ) -> Result<RegisteredConstructorHandle, super::source_route_same_polygon::SamePolygonError>
+    {
+        let event = job.validated_dispatch(&self.profile)?;
+        if job.session().world != self.world {
+            return Err(ConstructorQueryError::Binding.into());
+        }
+        Ok(self.continue_validated_wander_constructor(prefix, job.request(), event)?)
+    }
+
+    fn continue_validated_wander_constructor(
+        &mut self,
+        prefix: &RegisteredConstructorHandle,
+        context: &AuthorityRequest,
+        event: &PathfinderDispatchReceipt,
+    ) -> Result<RegisteredConstructorHandle, ConstructorQueryError> {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(ConstructorQueryError::Binding);
+        };
+        if !route
+            .pathfinder_dispatch
+            .as_ref()
+            .is_some_and(|current| current.same_live_dispatch(event))
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
         let sample = route
             .request
             .wander
@@ -247,7 +288,6 @@ impl SourcePathfinderQueryProvider {
         self.reborrow(prefix)?;
         Ok(RegisteredConstructorHandle {
             provider: Rc::clone(&prefix.provider),
-            index: prefix.index,
             npc: prefix.npc,
             construction: prefix.construction,
             first_event: prefix.first_event.clone(),
@@ -279,7 +319,8 @@ impl SourcePathfinderQueryProvider {
         }
         let entry = self
             .constructors
-            .get_mut(handle.index)
+            .iter_mut()
+            .find(|entry| entry.npc == handle.npc && entry.construction == handle.construction)
             .ok_or(ConstructorQueryError::MissingConstructor)?;
         if entry.npc != handle.npc
             || entry.construction != handle.construction
@@ -293,7 +334,6 @@ impl SourcePathfinderQueryProvider {
             .map_err(ConstructorQueryError::Native)?;
         Ok(SourceConstructorQuery {
             provider: Rc::clone(&self.identity),
-            index: handle.index,
             entry,
             snapshot: handle.snapshot,
             dispatch: handle.dispatch.clone(),
@@ -399,7 +439,6 @@ impl SourcePathfinderQueryProvider {
         }
         Ok(SourceConstructorQuery {
             provider: Rc::clone(&self.identity),
-            index,
             entry: &mut self.constructors[index],
             snapshot: self.navigation.binding(),
             dispatch: event.clone(),

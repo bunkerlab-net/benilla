@@ -864,6 +864,12 @@ impl CreatureRouteRequest {
         profile: &Profile,
     ) -> Result<&CreatureCollisionWidthWitness, NativeError> {
         self.owner.validate_for(profile, self.owner.npc())?;
+        self.collision_width_after_owner(profile)
+    }
+    pub(in crate::native) fn collision_width_after_owner(
+        &self,
+        profile: &Profile,
+    ) -> Result<&CreatureCollisionWidthWitness, NativeError> {
         let identity = self.request.binding.identity;
         if identity.creature != self.owner.npc().spawn
             || identity.map != profile.map_id

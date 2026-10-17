@@ -355,3 +355,280 @@ fn synthetic_interrupted_first_source_cache_still_requires_initial_normal_termin
         assert!(MotionState::restore(malformed).is_err());
     }
 }
+
+#[test]
+fn home_local_constructor_keeps_only_historical_result_and_never_lends_a_cache() {
+    let (mut state, chase_request, _) = first_claim();
+    let mut authority = SyntheticOwnerClaim::default();
+    state
+        .start_home(pose(-2.), false, false, input(), &mut authority)
+        .unwrap();
+    let home_request = last_route(&authority.0).clone();
+    let home = home_request.pathfinder_dispatch.unwrap();
+    assert_eq!(
+        home.constructor_kind(),
+        PathfinderConstructorKind::HomeLocal
+    );
+    assert!(home.first_construction());
+    assert_eq!(home.construction_binding(), home_request.binding);
+    assert_eq!(home.dispatch_binding(), home_request.binding);
+    assert_ne!(home.construction_binding(), chase_request.binding);
+    assert!(home_request.prior_cache.is_none());
+    assert!(home_request.target.is_none());
+    let evidence = state.snapshot().spline.unwrap().local_home_cache.unwrap();
+    assert_eq!(evidence.revision, 1);
+    assert_eq!(evidence.source, RouteSource::OwnerPathFinder);
+    assert_eq!(MotionState::restore(state.snapshot()).unwrap(), state);
+    let bytes = serde_json::to_vec(&state.snapshot()).unwrap();
+    assert_eq!(
+        MotionState::restore(serde_json::from_slice(&bytes).unwrap()).unwrap(),
+        state
+    );
+    let events = state.advance(1000, None, input(), &mut authority).unwrap();
+    assert!(events.contains(&Event::HomeReached {
+        restore_inactive: true
+    }));
+    assert!(matches!(state.generator(), Generator::Idle));
+    // The finalized spline may keep the calculation transcript after its local
+    // owner is destroyed. A later generator never receives that cache.
+    assert_eq!(MotionState::restore(state.snapshot()).unwrap(), state);
+    state
+        .start_chase(target(20.), false, input(), &mut authority)
+        .unwrap();
+    let request = last_route(&authority.0);
+    assert!(request.prior_cache.is_none());
+    assert_eq!(
+        request.pathfinder_dispatch.unwrap().constructor_kind(),
+        PathfinderConstructorKind::ChaseLazy
+    );
+    assert!(request.pathfinder_dispatch.unwrap().first_construction());
+    assert!(state.snapshot().spline.unwrap().local_home_cache.is_none());
+}
+
+#[test]
+fn home_local_dispatch_and_historical_cache_tampering_fail_closed() {
+    let mut state = state();
+    let mut authority = SyntheticOwnerClaim::default();
+    state
+        .start_home(pose(-2.), false, false, input(), &mut authority)
+        .unwrap();
+    let original = state.snapshot();
+    for case in 0..11 {
+        let mut snapshot = original.clone();
+        let spline = snapshot.spline.as_mut().unwrap();
+        match case {
+            0 => spline.local_home_cache = None,
+            1 => spline.local_home_cache.as_mut().unwrap().revision += 1,
+            2 => spline.local_home_cache.as_mut().unwrap().requested_end = point(-3.),
+            3 => spline.local_home_cache.as_mut().unwrap().source = RouteSource::SyntheticFixture,
+            4 => {
+                spline
+                    .local_home_cache
+                    .as_mut()
+                    .unwrap()
+                    .binding
+                    .identity
+                    .creature += 1
+            }
+            5 => spline.route_request.prior_cache = spline.local_home_cache.clone(),
+            6 => spline.route_request.pathfinder_dispatch = None,
+            7 => {
+                spline.route_request.pathfinder_dispatch =
+                    Some(PathfinderDispatch::new(None, spline.route_request.binding).unwrap())
+            }
+            8 => spline.route_request.target = Some(target(20.)),
+            9 => spline.local_home_cache.as_mut().unwrap().path_type = 8,
+            10 => spline.local_home_cache.as_mut().unwrap().active_len = 0,
+            _ => unreachable!(),
+        }
+        assert!(
+            MotionState::restore(snapshot).is_err(),
+            "Home cache case {case}"
+        );
+    }
+    let spline = original.spline.unwrap();
+    for (field, value) in [
+        ("first_use", serde_json::json!(false)),
+        ("kind", serde_json::json!("ChaseLazy")),
+    ] {
+        let mut encoded = serde_json::to_value(spline.route_request.clone()).unwrap();
+        encoded["pathfinder_dispatch"][field] = value;
+        let malformed: RouteRequest = serde_json::from_value(encoded).unwrap();
+        assert!(malformed.validate_pathfinder_dispatch().is_err());
+    }
+    let mut encoded = serde_json::to_value(state.snapshot()).unwrap();
+    encoded["spline"]
+        .as_object_mut()
+        .unwrap()
+        .remove("local_home_cache");
+    assert!(serde_json::from_value::<MotionSnapshot>(encoded).is_err());
+}
+
+#[test]
+fn home_local_failure_rolls_back_chase_and_retry_repeats_the_fresh_constructor() {
+    let (mut state, _, _) = first_claim();
+    let before = state.clone();
+    let mut authority = SyntheticOwnerClaim(SyntheticCache {
+        failure: 11,
+        ..Default::default()
+    });
+    assert!(state
+        .start_home(pose(-2.), false, false, input(), &mut authority)
+        .is_err());
+    assert_eq!(state, before);
+    let failed = last_route(&authority.0).clone();
+    authority.0.failure = 0;
+    state
+        .start_home(pose(-2.), false, false, input(), &mut authority)
+        .unwrap();
+    assert_eq!(last_route(&authority.0), &failed);
+    assert!(failed.pathfinder_dispatch.unwrap().first_construction());
+}
+
+#[test]
+fn home_interrupts_the_suspended_default_before_its_fresh_local_query() {
+    let mut state = state();
+    state
+        .initialize_default(DefaultMovement::Wander {
+            center: point(0.),
+            radius: Real::integer(4),
+        })
+        .unwrap();
+    let mut authority = SyntheticOwnerClaim::default();
+    state
+        .start_chase(target(20.), false, input(), &mut authority)
+        .unwrap();
+    state
+        .advance(100, Some(target(20.)), input(), &mut authority)
+        .unwrap();
+    state
+        .advance(100, Some(target(20.)), input(), &mut authority)
+        .unwrap();
+    let old = state.pose();
+    let computed = state.spline_position().unwrap();
+    assert_ne!(old.position, computed);
+    let default = state.snapshot().suspended_wander.unwrap();
+    let (events, receipt) = state
+        .start_home_with_relocation(pose(0.), false, false, input(), &mut authority)
+        .unwrap();
+    let relocate = events
+        .iter()
+        .position(|e| {
+            matches!(
+                e,
+                Event::Relocated {
+                    notify_map: false,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let stop = events
+        .iter()
+        .position(|e| matches!(e, Event::SplineInterrupted { .. }))
+        .unwrap();
+    let home = events
+        .iter()
+        .position(|e| matches!(e, Event::HomeStarted { .. }))
+        .unwrap();
+    assert!(relocate < stop && stop < home);
+    assert!(receipt.is_some());
+    assert_eq!(state.pose().position, computed);
+    let request = last_route(&authority.0);
+    assert_eq!(request.origin, computed);
+    assert_eq!(request.launch_origin, computed);
+    assert_eq!(state.snapshot().suspended_wander.as_ref(), Some(&default));
+    assert_eq!(MotionState::restore(state.snapshot()).unwrap(), state);
+    state.advance(1000, None, input(), &mut authority).unwrap();
+    let Generator::Wander(reset) = state.generator() else {
+        panic!("default Wander reset")
+    };
+    assert_ne!(
+        reset.pathfinder_construction,
+        default.pathfinder_construction
+    );
+    assert!(reset.pathfinder_cache.is_none());
+    assert_eq!(reset.next_move_count, default.next_move_count);
+    assert_eq!(reset.next_move_timer_ms, 0);
+    assert!(state.snapshot().spline.is_none());
+}
+
+#[test]
+fn finalized_home_evidence_does_not_supply_in_range_chase_constructor_lineage() {
+    let mut state = state();
+    let mut authority = SyntheticOwnerClaim::default();
+    state
+        .start_home(pose(-2.), false, false, input(), &mut authority)
+        .unwrap();
+    state.advance(1000, None, input(), &mut authority).unwrap();
+    assert!(matches!(state.generator(), Generator::Idle));
+    let home = state.snapshot().spline.unwrap();
+    assert!(home.spline.finalized);
+    assert!(home.local_home_cache.is_some());
+    let queries = authority.0.queries.len();
+    assert!(state
+        .start_chase(target(-1.), false, input(), &mut authority)
+        .unwrap()
+        .is_empty());
+    assert_eq!(authority.0.queries.len(), queries);
+    let chase = chase(&state);
+    assert!(chase.pathfinder_construction.is_none());
+    assert!(chase.pathfinder_cache.is_none());
+    assert_eq!(state.snapshot().spline.as_ref(), Some(&home));
+    assert_eq!(MotionState::restore(state.snapshot()).unwrap(), state);
+    let bytes = serde_json::to_vec(&state.snapshot()).unwrap();
+    assert_eq!(
+        MotionState::restore(serde_json::from_slice(&bytes).unwrap()).unwrap(),
+        state
+    );
+}
+
+#[test]
+fn home_distance_domain_uses_the_second_wander_interrupt_position() {
+    for (start, target_x, accepted) in [(149., 200., false), (151., 100., true)] {
+        let mut state = MotionState::new(state().snapshot().identity, pose(start), 0, 0).unwrap();
+        state
+            .initialize_default(DefaultMovement::Wander {
+                center: point(0.),
+                radius: Real::integer(4),
+            })
+            .unwrap();
+        let mut authority = SyntheticOwnerClaim::default();
+        state
+            .start_chase(target(target_x), false, input(), &mut authority)
+            .unwrap();
+        for _ in 0..2 {
+            state
+                .advance(100, Some(target(target_x)), input(), &mut authority)
+                .unwrap();
+        }
+        let before = state.clone();
+        let stale = state.pose().position;
+        let computed = state.spline_position().unwrap();
+        let limit = Real::integer(150);
+        assert_eq!(stale.x.greater(limit), accepted);
+        assert_eq!(computed.x.greater(limit), !accepted);
+        let result = state.start_home(pose(0.), false, false, input(), &mut authority);
+        if accepted {
+            let events = result.unwrap();
+            assert!(events.iter().any(|event| matches!(
+                event,
+                Event::Relocated { pose, notify_map: false, .. } if pose.position == computed
+            )));
+            let request = last_route(&authority.0);
+            assert_eq!(request.kind, RouteKind::HomeForceDestination);
+            assert_eq!(request.origin, computed);
+            assert_eq!(request.launch_origin, computed);
+            assert_eq!(MotionState::restore(state.snapshot()).unwrap(), state);
+        } else {
+            assert_eq!(
+                result,
+                Err(MotionError::Unsupported(
+                    "long-distance outdoor home forced despawn"
+                ))
+            );
+            assert_eq!(state, before);
+            assert_eq!(last_route(&authority.0).kind, RouteKind::ChaseInitial);
+        }
+    }
+}

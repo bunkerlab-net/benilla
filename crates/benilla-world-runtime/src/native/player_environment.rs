@@ -740,6 +740,18 @@ impl CreatureRouteRequest {
         player: crate::PlayerId,
     ) -> Result<&PlayerEnvironmentTarget, NativeError> {
         self.owner.validate_for(profile, self.owner.npc())?;
+        self.target_water_after_owner(profile, world, player, || {
+            self.require_target_collision_height(profile, world, player)
+                .map(|_| ())
+        })
+    }
+    fn target_water_after_owner(
+        &self,
+        profile: &Profile,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+        validate_height: impl FnOnce() -> Result<(), NativeError>,
+    ) -> Result<&PlayerEnvironmentTarget, NativeError> {
         if !matches!(
             self.request.kind,
             motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan
@@ -748,7 +760,7 @@ impl CreatureRouteRequest {
                 "route has no Chase target-water branch",
             ));
         }
-        self.require_target_collision_height(profile, world, player)?;
+        validate_height()?;
         let target = self
             .request
             .target
@@ -764,6 +776,22 @@ impl CreatureRouteRequest {
         Ok(cache)
     }
 }
+impl ValidatedRouteModelOwner {
+    /// The cached target-water transcript is checked at its original source
+    /// branch; prior profile/owner checks cannot substitute a different request.
+    pub fn require_target_water(
+        &self,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+    ) -> Result<&PlayerEnvironmentTarget, NativeError> {
+        self.route()
+            .target_water_after_owner(self.profile(), world, player, || {
+                self.require_target_collision_height(world, player)
+                    .map(|_| ())
+            })
+    }
+}
+
 impl From<environment::EnvironmentError> for NativeError {
     fn from(error: environment::EnvironmentError) -> Self {
         Self::PlayerEnvironment(error)

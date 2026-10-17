@@ -4,6 +4,7 @@
 mod cold_distance;
 mod smoothing;
 mod source_cold_same_polygon;
+mod source_home_same_polygon;
 mod source_query;
 mod source_wander_same_polygon;
 mod tile_presence;
@@ -14,6 +15,7 @@ mod warm_straight_path;
 pub use cold_distance::*;
 pub use smoothing::*;
 pub use source_cold_same_polygon::*;
+pub use source_home_same_polygon::*;
 pub use source_query::*;
 pub use source_wander_same_polygon::*;
 pub use tile_presence::*;

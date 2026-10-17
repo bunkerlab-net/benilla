@@ -172,7 +172,8 @@ is meaningful without a bounded content/mechanics inventory.
   changes only the endpoint's undefined distance scalar. Concrete tests cover
   interruption, death/respawn, rollback and receipt replay from cache-free genesis.
   Initialize-time native constructor observations, loaded-cache restore, concrete
-  Home return, wet/cross-polygon routes and actual Northshire startup remain open.
+  Selected dry same-polygon Home return composes with default Wander;
+  wet/cross-polygon routes and actual Northshire startup remain open.
 - **Bounded native components:** source-owned model and cached player-environment
   witnesses feed exact Chase distance/vertical predicates, actual static LOS and
   owner dry-liquid observations. One immutable inventory can project proved-dry
@@ -184,7 +185,7 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 48 retains this required-option evidence and rejects earlier formats.
+  format 49 retains this required-option evidence and rejects earlier formats.
   The first ordinary Chase source-owner cache contract requires explicit first
   dispatch, revision one and Complete NORMAL with exact endpoints/all segment predicates. Retained
   use still requires exact prior and increment. Runtime-owned live dispatch is
@@ -196,7 +197,7 @@ is meaningful without a bounded content/mechanics inventory.
   Its runtime receipt binds generation and selected MMap configuration; a skipped
   initial Chase has no event until dispatch. The one-use live receipt must still
   be paired with a separately loaded query; deserialized evidence grants no lease.
-  Home's distinct local constructor remains outside this Chase seam. See the
+  Home's distinct local constructor has its own dry same-polygon continuation. See the
   [constructor contract](../crates/benilla-world-runtime/src/native/PATHFINDER-DISPATCH.md).
   Actual tile absence stays unavailable even when nearby polygons or the retained
   cache can be found. An independent unchanged-source oracle covers coordinate
@@ -259,7 +260,7 @@ is meaningful without a bounded content/mechanics inventory.
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 48, without changing the
+  service uses experimental native checkpoint format 49, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,

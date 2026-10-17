@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright CMaNGOS contributors; upstream GPL-2.0-or-later, Rust GPL-3.0-or-later.
 // CMaNGOS 8ec338a1 TargetedMovementGenerator.cpp:482-500. Upstream GPL-2.0-or-later.
-//! Modeled Chase constructor dispatch, not a native query allocation or cache proof.
+//! Modeled generator constructor dispatch, not a native query allocation or cache proof.
 use super::{MotionError, QueryBinding, RouteKind, RouteRequest};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -22,8 +22,21 @@ pub struct PathfinderDispatch {
 pub enum PathfinderConstructorKind {
     ChaseLazy,
     WanderInitialized,
+    /// HomeMovementGenerator.cpp:64 constructs a fresh stack-local owner per call.
+    HomeLocal,
 }
 impl PathfinderDispatch {
+    pub(super) fn home(dispatch: QueryBinding) -> Result<Self, MotionError> {
+        let result = Self {
+            kind: PathfinderConstructorKind::HomeLocal,
+            first_use: true,
+            construction: dispatch,
+            dispatch_query_id: dispatch.query_id,
+            dispatch_now_ms: dispatch.now_ms,
+        };
+        result.validate_for(dispatch)?;
+        Ok(result)
+    }
     /// Source Wander Initialize creates its persistent PathFinder before any route draws.
     pub(super) fn wander(
         construction: QueryBinding,
@@ -80,6 +93,8 @@ impl PathfinderDispatch {
             || (self.construction.query_id == binding.query_id && self.construction != binding)
             || (self.kind == PathfinderConstructorKind::ChaseLazy
                 && self.first_use != (self.construction == binding))
+            || (self.kind == PathfinderConstructorKind::HomeLocal
+                && (!self.first_use || self.construction != binding))
             || (self.kind == PathfinderConstructorKind::WanderInitialized
                 && self.construction.query_id >= binding.query_id)
         {
@@ -111,25 +126,30 @@ impl RouteRequest {
         Ok(())
     }
     /// Required presence is distinct from source/native ownership. Authored direct
-    /// requests may carry null, but actual Chase dispatch always supplies the event.
+    /// requests may not omit the event, including Home's fresh local constructor.
     pub fn validate_pathfinder_dispatch(&self) -> Result<(), MotionError> {
         self.validate_wander()?;
-        if self.pathfinder_dispatch.is_some_and(|dispatch| {
-            matches!(self.kind, RouteKind::Wander | RouteKind::WanderPrepare)
-                != (dispatch.constructor_kind() == PathfinderConstructorKind::WanderInitialized)
-        }) {
+        let expected = match self.kind {
+            RouteKind::HomeForceDestination => {
+                if self.prior_cache.is_some() || self.target.is_some() {
+                    return Err(MotionError::Invalid("Home local constructor inputs"));
+                }
+                PathfinderConstructorKind::HomeLocal
+            }
+            RouteKind::Wander | RouteKind::WanderPrepare => {
+                PathfinderConstructorKind::WanderInitialized
+            }
+            _ => PathfinderConstructorKind::ChaseLazy,
+        };
+        let dispatch = self.pathfinder_dispatch.ok_or(MotionError::Missing(
+            "pathfinder generator constructor dispatch",
+        ))?;
+        if dispatch.constructor_kind() != expected {
             return Err(MotionError::Invalid(
                 "pathfinder generator constructor kind",
             ));
         }
-        match (&self.pathfinder_dispatch, self.kind) {
-            (None, RouteKind::HomeForceDestination) => Ok(()),
-            (Some(_), RouteKind::HomeForceDestination) => {
-                Err(MotionError::Invalid("Home cannot retain Chase constructor"))
-            }
-            (Some(dispatch), _) => dispatch.validate_for(self.binding),
-            (None, _) => Err(MotionError::Missing("Chase constructor dispatch")),
-        }
+        dispatch.validate_for(self.binding)
     }
 }
 pub(super) fn required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>

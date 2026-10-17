@@ -13,7 +13,7 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native48 (`benilla-native-wander-leg-v48`), quest genesis policy v6,
+is native49 (`benilla-native-home-wander-v49`), quest genesis policy v6,
 and live training policy v3 with its unchanged journal layout v2. Quest genesis
 also binds the immutable prepared first-entry identity, when selected.
 Older policies are rejected rather than silently migrated.
@@ -93,7 +93,7 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 48 explicitly rejects prior schemas; cast checkpoints use version 3,
+Native format 49 explicitly rejects prior schemas; cast checkpoints use version 3,
 while common resource and aura checkpoints use versions 1 and 2 respectively. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight
@@ -172,7 +172,7 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Distinct-actor source-selected component loop
 
-The authored native48 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
+The authored native49 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
 composes the selected interaction, combat, spell-133, current-pose facing, complete
 visitor, quest, progression and loot hosts. A is the hostile kill target; neutral-to-all
 B is both starter and finisher with matching QUESTGIVER flags and relations. B keeps
@@ -266,7 +266,7 @@ self-unbinding are not used. Quest rewards and starter inventory still use the
 unchanged ordinary readiness; timed/auto-reward quest and effect audits remain.
 
 Inventory policy v5, corpse policy v1, loot genesis v3 and corpse-item receipt v2
-are bound under native48 profile/state/record/checkpoint identities. Native47 and earlier
+are bound under native49 profile/state/record/checkpoint identities. Native48 and earlier
 headers, policies, legacy digest domains and profile contexts reject, including
 rehashed outer checkpoints/journals; no serde defaults or replay migration exist.
 One-hop ungrouped body references have separate catalog/rate semantics; nested

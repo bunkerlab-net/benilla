@@ -5,6 +5,7 @@
 use super::*;
 use benilla_sim::creature_init::{self as source, InitialCollisionHeight};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub const CREATURE_COLLISION_HEIGHT_POLICY: &str =
     "cmangos-8ec338a1-native-generation-model-height-v2";
@@ -215,6 +216,13 @@ impl CreatureCollisionHeightWitness {
     }
     pub fn validate_for(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
         profile.validate()?;
+        self.validate_for_profile(profile, npc)
+    }
+    fn validate_for_profile(
+        &self,
+        profile: &Profile,
+        npc: crate::NpcId,
+    ) -> Result<(), NativeError> {
         let expected = match &self.generation_selection {
             Some(selection) => CreatureCollisionHeightState::from_generation_selection(
                 profile,
@@ -407,6 +415,15 @@ impl CreatureRouteRequest {
                 "current creature model collision height",
             ))?;
         height.validate_for(profile, self.owner.npc())?;
+        self.validate_height_width_binding(profile, width, height)?;
+        Ok(height)
+    }
+    fn validate_height_width_binding(
+        &self,
+        profile: &Profile,
+        width: &CreatureCollisionWidthWitness,
+        height: &CreatureCollisionHeightWitness,
+    ) -> Result<(), NativeError> {
         if height.width_source_binding != width.source_binding()
             || height.generation_selection.as_ref() != width.generation_selection()
             || height.native_display_id != width.native_display_id()
@@ -426,6 +443,102 @@ impl CreatureRouteRequest {
         {
             return Err(NativeError::AuthorityBinding);
         }
+        Ok(())
+    }
+}
+
+/// A completely validated, immutable profile for bounded model-witness checks.
+/// No deserialized receipt or caller-supplied digest can construct this proof.
+#[derive(Clone, Debug, Eq)]
+pub struct ValidatedRouteModelProfile {
+    profile: Arc<Profile>,
+}
+impl PartialEq for ValidatedRouteModelProfile {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.profile, &other.profile) || self.profile == other.profile
+    }
+}
+impl ValidatedRouteModelProfile {
+    pub fn new(profile: Arc<Profile>) -> Result<Self, NativeError> {
+        profile.validate()?;
+        Ok(Self { profile })
+    }
+    pub fn profile(&self) -> &Profile {
+        &self.profile
+    }
+    pub fn matches_profile(&self, profile: &Profile) -> bool {
+        std::ptr::eq(self.profile.as_ref(), profile) || self.profile.as_ref() == profile
+    }
+    /// Transcript consistency only; the caller still binds the original live job.
+    pub fn validate_owner_context(
+        &self,
+        route: Arc<CreatureRouteRequest>,
+        binding: &Binding,
+    ) -> Result<ValidatedRouteModelOwner, NativeError> {
+        route.owner.validate_context(&self.profile, binding)?;
+        Ok(ValidatedRouteModelOwner {
+            profile: self.clone(),
+            route,
+        })
+    }
+}
+
+/// Retained owner validation for the exact immutable profile and request allocation.
+#[derive(Clone)]
+pub struct ValidatedRouteModelOwner {
+    profile: ValidatedRouteModelProfile,
+    route: Arc<CreatureRouteRequest>,
+}
+impl ValidatedRouteModelOwner {
+    pub fn profile(&self) -> &Profile {
+        self.profile.profile()
+    }
+    pub fn route(&self) -> &CreatureRouteRequest {
+        &self.route
+    }
+    pub fn matches_route(&self, profile: &Profile, route: &CreatureRouteRequest) -> bool {
+        self.profile.matches_profile(profile)
+            && self.route.as_ref() == route
+            && self
+                .route
+                .pathfinder_dispatch
+                .as_ref()
+                .zip(route.pathfinder_dispatch.as_ref())
+                .is_some_and(|(saved, current)| saved.same_live_dispatch(current))
+    }
+    pub fn validate_width(&self) -> Result<ValidatedRouteModelWidth, NativeError> {
+        let width = self
+            .route
+            .collision_width_after_owner(self.profile())?
+            .clone();
+        Ok(ValidatedRouteModelWidth {
+            owner: self.clone(),
+            width,
+        })
+    }
+}
+
+/// Width and owner checks were completed on these same frozen objects.
+#[derive(Clone)]
+pub struct ValidatedRouteModelWidth {
+    owner: ValidatedRouteModelOwner,
+    width: CreatureCollisionWidthWitness,
+}
+impl ValidatedRouteModelWidth {
+    pub fn width(&self) -> &CreatureCollisionWidthWitness {
+        &self.width
+    }
+    pub fn require_height(&self) -> Result<&CreatureCollisionHeightWitness, NativeError> {
+        let profile = self.owner.profile();
+        let route = self.owner.route();
+        let height = route
+            .collision_height
+            .as_ref()
+            .ok_or(NativeError::AuthorityUnavailable(
+                "current creature model collision height",
+            ))?;
+        height.validate_for_profile(profile, route.owner.npc())?;
+        route.validate_height_width_binding(profile, &self.width, height)?;
         Ok(height)
     }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright CMaNGOS contributors; upstream GPL-2.0-or-later, Rust GPL-3.0-or-later.
 // CMaNGOS 8ec338a1 TargetedMovementGenerator.cpp:482-500 and PathFinder.cpp:37-106.
-//! Modeled Chase or initialized Wander dispatch, before provider path selection. This does
+//! Modeled Chase, initialized Wander or stack-local Home dispatch before path selection. This does
 //! not allocate a native query, prove its presence, or admit a Route result.
 use super::*;
 use benilla_sim::creature_motion as m;
@@ -12,7 +12,7 @@ use std::sync::{
 };
 
 pub const PATHFINDER_DISPATCH_POLICY: &str =
-    "cmangos-8ec338a1-native-pathfinder-generator-constructor-dispatch-v2";
+    "cmangos-8ec338a1-native-pathfinder-generator-constructor-dispatch-v3";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,7 +66,6 @@ impl PathfinderDispatchReceipt {
         request: &m::RouteRequest,
     ) -> Result<Option<Self>, NativeError> {
         request.validate_pathfinder_dispatch()?;
-        // Home's stack-local constructor is deliberately outside this Chase seam.
         let Some(dispatch) = request.pathfinder_dispatch else {
             return Ok(None);
         };

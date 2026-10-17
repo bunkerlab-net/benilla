@@ -173,6 +173,10 @@ pub enum Generator {
 pub struct ActiveSplineSnapshot {
     pub route_request: RouteRequest,
     pub route: CompleteRoute,
+    /// Immutable result evidence after Home's local PathFinder was destroyed.
+    /// Never a retained generator cache or authority to rehydrate a native query.
+    #[serde(deserialize_with = "super::pathfinder_dispatch::required_option")]
+    pub local_home_cache: Option<Box<PathFinderCache>>,
     pub spline_id: u64,
     pub path_identity: [u8; 32],
     pub route_source: RouteSource,
@@ -299,12 +303,31 @@ impl MotionState {
             LinearSpline::restore(s.spline.clone())?;
             validate_route(&s.route_request, &s.route)?;
             s.route_request.validate_pathfinder_dispatch()?;
+            if s.local_home_cache.is_some()
+                && s.route_request.kind != RouteKind::HomeForceDestination
+            {
+                return Err(MotionError::Invalid("local Home cache on another route"));
+            }
+            if let Some(cache) = &s.local_home_cache {
+                RouteCalculation {
+                    wander_no_path: None,
+                    source: s.route.source,
+                    outcome: RouteOutcome::Complete(s.route.clone()),
+                    prior_cache: None,
+                    after_cache: (**cache).clone(),
+                }
+                .validate_for(&s.route_request)?;
+            }
             if s.route.source == RouteSource::OwnerPathFinder {
                 s.route_request.validate_source_cache_dispatch()?;
-                let source_cache = match &state.generator {
-                    Generator::Chase(c) => c.pathfinder_cache.as_ref(),
-                    Generator::Wander(w) => w.pathfinder_cache.as_ref(),
-                    _ => None,
+                let source_cache = if s.route_request.kind == RouteKind::HomeForceDestination {
+                    s.local_home_cache.as_ref()
+                } else {
+                    match &state.generator {
+                        Generator::Chase(c) => c.pathfinder_cache.as_ref(),
+                        Generator::Wander(w) => w.pathfinder_cache.as_ref(),
+                        _ => None,
+                    }
                 };
                 if source_cache.is_none_or(|cache| cache.source != RouteSource::OwnerPathFinder) {
                     return Err(MotionError::Invalid(
@@ -448,6 +471,12 @@ impl MotionState {
                 if let Some(dispatch) = state
                     .spline
                     .as_ref()
+                    .filter(|s| {
+                        matches!(
+                            s.route_request.kind,
+                            RouteKind::ChaseInitial | RouteKind::ChaseReplan | RouteKind::Backpedal
+                        )
+                    })
                     .and_then(|s| s.route_request.pathfinder_dispatch.as_ref())
                 {
                     if c.pathfinder_construction != Some(dispatch.construction_binding()) {
@@ -798,7 +827,7 @@ impl MotionState {
         // TargetedMovementGenerator.cpp:498-499: lazy construction follows forced
         // relocation and precedes the straight gate/calculation in the authority.
         let pathfinder_dispatch = if kind == RouteKind::HomeForceDestination {
-            None
+            Some(PathfinderDispatch::home(binding)?)
         } else if kind == RouteKind::Wander {
             Some(PathfinderDispatch::wander(
                 construction.ok_or(MotionError::Missing("Wander initialized PathFinder"))?,
@@ -906,6 +935,11 @@ impl MotionState {
         self.state.spline = Some(ActiveSplineSnapshot {
             route_request: request,
             route: path.clone(),
+            local_home_cache: if kind == RouteKind::HomeForceDestination {
+                cache.clone()
+            } else {
+                None
+            },
             spline_id: self.state.spline_id,
             path_identity: path.path_identity,
             route_source: path.source,
@@ -1035,7 +1069,8 @@ impl MotionState {
             origin,
             position: self.pose().position,
             now_ms: self.now_ms(),
-            target: target.id,
+            purpose: crate::creature_ai::movement::MovementPurpose::Chase { target: target.id },
+            home: None,
         });
         Ok((events, receipt))
     }
@@ -1064,6 +1099,16 @@ impl MotionState {
         }
         input.validate()?;
         let mut staged = self.clone();
+        let mut events = vec![];
+        if staged.state.suspended_wander.is_some() {
+            // Clear(false) removes Chase; Mutate(Home) interrupts the underlying
+            // Wander again before Home Initialize (MotionMaster.cpp:300,614).
+            staged.interrupt(None, authority, &mut events)?;
+        } else {
+            staged.suspend_wander(None, authority, &mut events)?;
+        }
+        // Home::_setTargetLocation observes the map pose after Mutate interrupted
+        // the underlying default, including any synchronous spline relocation.
         if staged
             .pose()
             .position
@@ -1074,8 +1119,6 @@ impl MotionState {
                 "long-distance outdoor home forced despawn",
             ));
         }
-        let mut events = vec![];
-        staged.suspend_wander(None, authority, &mut events)?;
         events.push(Event::HomeStarted { was_active });
         // Home owns a fresh stack-local PathFinder and discards it after launch.
         let mut home_cache = None;
@@ -1099,6 +1142,31 @@ impl MotionState {
         };
         *self = staged;
         Ok(events)
+    }
+    /// Home can synchronously interrupt the retained default Wander beneath Chase.
+    /// Keep that source relocation bound to the current Home command for the AI mirror.
+    pub fn start_home_with_relocation(
+        &mut self,
+        destination: Pose,
+        walking: bool,
+        was_active: bool,
+        input: UnitInputs,
+        authority: &mut impl Authority,
+    ) -> Result<(Vec<Event>, Option<SourceRelocation>), MotionError> {
+        let origin = self.pose().position;
+        let events = self.start_home(destination, walking, was_active, input, authority)?;
+        let relocated = events
+            .iter()
+            .any(|event| matches!(event, Event::Relocated { .. }));
+        let receipt = relocated.then_some(SourceRelocation {
+            identity: self.state.identity,
+            origin,
+            position: self.pose().position,
+            now_ms: self.now_ms(),
+            purpose: crate::creature_ai::movement::MovementPurpose::Home,
+            home: Some(destination.position),
+        });
+        Ok((events, receipt))
     }
     fn interrupt(
         &mut self,
@@ -1482,7 +1550,8 @@ pub struct SourceRelocation {
     pub(crate) origin: Point,
     pub(crate) position: Point,
     pub(crate) now_ms: u64,
-    pub(crate) target: u64,
+    pub(crate) purpose: crate::creature_ai::movement::MovementPurpose,
+    pub(crate) home: Option<Point>,
 }
 
 /// An internal source completion and its ordered events. No serde implementation.

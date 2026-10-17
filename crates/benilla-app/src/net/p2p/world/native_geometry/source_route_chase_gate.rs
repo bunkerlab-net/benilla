@@ -304,6 +304,27 @@ pub(super) fn gate_model(
     player: PlayerId,
     route: &CreatureRouteRequest,
 ) -> Result<ChaseGateModel, Failure> {
+    gate_model_with_initialized(profile, world, player, route, None)
+}
+pub(super) fn gate_model_with_initialized(
+    profile: &Profile,
+    world: [u8; 16],
+    player: PlayerId,
+    route: &CreatureRouteRequest,
+    initialized: Option<&super::source_route_filter::InitializedOwnerValidation>,
+) -> Result<ChaseGateModel, Failure> {
+    if let Some(initialized) = initialized {
+        let validated = initialized.for_route(profile, route)?;
+        let target_height = initialized
+            .target_height_for(profile, route, world, player)
+            .map_err(native_failure)?;
+        return Ok(ChaseGateModel {
+            selection: validated.selection.clone(),
+            width: validated.width.clone(),
+            owner_height: validated.height.clone(),
+            target_height: target_height.clone(),
+        });
+    }
     let width = route
         .require_collision_width(profile)
         .map_err(native_failure)?;
@@ -329,6 +350,16 @@ impl LoadedChaseGate<'_> {
         context: &AuthorityRequest,
         first_ticket: u64,
         deadline: Instant,
+        observe: impl FnMut(Observation),
+    ) -> Result<ChaseGateObservations, Failure> {
+        self.query_with_initialized(context, first_ticket, deadline, None, observe)
+    }
+    pub(super) fn query_with_initialized(
+        &self,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        initialized: Option<&super::source_route_filter::InitializedOwnerValidation>,
         mut observe: impl FnMut(Observation),
     ) -> Result<ChaseGateObservations, Failure> {
         if first_ticket == 0 {
@@ -417,9 +448,13 @@ impl LoadedChaseGate<'_> {
             return Ok(result.reject(ChaseGateRejection::OwnerWater));
         }
         // Player::IsInWater reads its current owned cache; never query target XYZ.
-        let target = route
-            .require_target_water(self.profile, context.binding.world, self.player)
-            .map_err(native_failure)?;
+        let target = match initialized {
+            Some(validated) => {
+                validated.target_water_for(self.profile, route, context.binding.world, self.player)
+            }
+            None => route.require_target_water(self.profile, context.binding.world, self.player),
+        }
+        .map_err(native_failure)?;
         result.target_water = Some(target.clone());
         observe(Observation::TargetWater(target.in_water()));
         require_time(deadline)?;

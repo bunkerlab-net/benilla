@@ -334,6 +334,56 @@ pub(super) fn validate_route_context(
     profile: &Profile,
     context: &AuthorityRequest,
 ) -> Result<(), Failure> {
+    validate_route_context_prefix(session, profile, context)?;
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return Err(Failure::UnsupportedQuery);
+    };
+    let height = initialized_owner_height(profile, route)?;
+    validate_route_context_body(session, profile, context, height)
+}
+
+pub(super) fn validate_route_context_prefix(
+    session: &Session,
+    profile: &Profile,
+    context: &AuthorityRequest,
+) -> Result<(), Failure> {
+    validate_route_context_prefix_with(session, profile, context, |route, binding| {
+        route
+            .owner
+            .validate_context(profile, binding)
+            .map_err(|_| Failure::Binding)
+    })
+}
+
+pub(super) fn validate_initialized_route_context(
+    session: &Session,
+    profile: &benilla_world_runtime::native::ValidatedRouteModelProfile,
+    context: &AuthorityRequest,
+) -> Result<Option<InitializedOwnerValidation>, Failure> {
+    validate_route_context_prefix_with(session, profile.profile(), context, |route, binding| {
+        if route.owner.initialization().is_none() {
+            route
+                .owner
+                .validate_context(profile.profile(), binding)
+                .map_err(|_| Failure::Binding)?;
+            return Ok(None);
+        }
+        let owner = profile
+            .validate_owner_context(Arc::new(route.clone()), binding)
+            .map_err(|_| Failure::Binding)?;
+        Ok(InitializedOwnerValidation::begin(owner))
+    })
+}
+
+fn validate_route_context_prefix_with<R>(
+    session: &Session,
+    profile: &Profile,
+    context: &AuthorityRequest,
+    validate_owner: impl FnOnce(
+        &benilla_world_runtime::native::CreatureRouteRequest,
+        &benilla_world_runtime::native::Binding,
+    ) -> Result<R, Failure>,
+) -> Result<R, Failure> {
     require_participants(session)?;
     let b = &context.binding;
     if b.world != session.world
@@ -348,10 +398,7 @@ pub(super) fn validate_route_context(
         return Err(Failure::UnsupportedQuery);
     };
     let npc = b.npc.ok_or(Failure::Binding)?;
-    route
-        .owner
-        .validate_context(profile, b)
-        .map_err(|_| Failure::Binding)?;
+    let owner_validation = validate_owner(route, b)?;
     let q = &route.request;
     let now = b
         .tick
@@ -388,13 +435,37 @@ pub(super) fn validate_route_context(
         .source_motion
         .as_ref()
         .ok_or(Failure::UnresolvedBody)?;
+    profile.npc(npc.spawn).ok_or(Failure::Binding)?;
+    source.npc(npc.spawn).map_err(|_| Failure::UnresolvedBody)?;
+    session
+        .bodies
+        .get(&npc.spawn)
+        .ok_or(Failure::UnresolvedBody)?;
+    Ok(owner_validation)
+}
+
+pub(super) fn validate_route_context_body(
+    session: &Session,
+    profile: &Profile,
+    context: &AuthorityRequest,
+    initialized_height: Option<benilla_sim::creature_ai::Real>,
+) -> Result<(), Failure> {
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return Err(Failure::UnsupportedQuery);
+    };
+    let npc = context.binding.npc.ok_or(Failure::Binding)?;
+    let q = &route.request;
+    let source = profile
+        .source_motion
+        .as_ref()
+        .ok_or(Failure::UnresolvedBody)?;
     let npc_profile = profile.npc(npc.spawn).ok_or(Failure::Binding)?;
     let npc_motion = source.npc(npc.spawn).map_err(|_| Failure::UnresolvedBody)?;
     let body = session
         .bodies
         .get(&npc.spawn)
         .ok_or(Failure::UnresolvedBody)?;
-    let owner_height = initialized_owner_height(profile, route)?.unwrap_or(body.height);
+    let owner_height = initialized_height.unwrap_or(body.height);
     if body.radius != npc_profile.ai.bounding_radius
         || body.height != npc_motion.npc_policy.settings.collision_height
         || q.owner_collision_height != owner_height
@@ -429,7 +500,6 @@ pub(super) fn initialized_owner_height(
     let Some(initialization) = route.owner.initialization() else {
         return Ok(None);
     };
-    let initial = &initialization.request;
     let selected = route
         .require_collision_width(profile)
         .map_err(|_| Failure::Binding)?
@@ -450,6 +520,19 @@ pub(super) fn initialized_owner_height(
     let height = route
         .require_collision_height(profile)
         .map_err(|_| Failure::Binding)?;
+    initialized_height_for(profile, route, height).map(Some)
+}
+
+fn initialized_height_for(
+    profile: &Profile,
+    route: &benilla_world_runtime::native::CreatureRouteRequest,
+    height: &benilla_world_runtime::native::CreatureCollisionHeightWitness,
+) -> Result<benilla_sim::creature_ai::Real, Failure> {
+    let initial = &route
+        .owner
+        .initialization()
+        .ok_or(Failure::Binding)?
+        .request;
     let raw_model_source = profile
         .creature_collision_heights
         .as_ref()
@@ -467,10 +550,151 @@ pub(super) fn initialized_owner_height(
     {
         return Err(Failure::Binding);
     }
-    Ok(Some(
-        benilla_sim::creature_ai::Real::from_bits(height.height().bits())
-            .map_err(|_| Failure::UnresolvedBody)?,
-    ))
+    benilla_sim::creature_ai::Real::from_bits(height.height().bits())
+        .map_err(|_| Failure::UnresolvedBody)
+}
+
+/// Immutable initialization checks retained only by the original mailbox Work.
+/// A completed receipt binds the exact profile and route, not a digest-only claim.
+#[derive(Clone)]
+pub(super) struct InitializedOwnerValidation {
+    owner: benilla_world_runtime::native::ValidatedRouteModelOwner,
+    width: Option<benilla_world_runtime::native::ValidatedRouteModelWidth>,
+    selection: Option<benilla_sim::creature_init::ModelSelectionReceipt>,
+    height: Option<benilla_world_runtime::native::CreatureCollisionHeightWitness>,
+}
+pub(super) struct ValidatedInitializedOwner<'a> {
+    pub selection: &'a benilla_sim::creature_init::ModelSelectionReceipt,
+    pub width: &'a benilla_world_runtime::native::CreatureCollisionWidthWitness,
+    pub height: &'a benilla_world_runtime::native::CreatureCollisionHeightWitness,
+}
+impl InitializedOwnerValidation {
+    fn begin(owner: benilla_world_runtime::native::ValidatedRouteModelOwner) -> Option<Self> {
+        owner.route().owner.initialization()?;
+        Some(Self {
+            owner,
+            width: None,
+            selection: None,
+            height: None,
+        })
+    }
+    pub(super) fn validate_width(&self) -> Result<Self, Failure> {
+        if self.width.is_some() || self.selection.is_some() || self.height.is_some() {
+            return Err(Failure::Binding);
+        }
+        let width = self.owner.validate_width().map_err(|_| Failure::Binding)?;
+        let mut next = self.clone();
+        next.width = Some(width);
+        Ok(next)
+    }
+    pub(super) fn validate_selection(&self) -> Result<Self, Failure> {
+        if self.selection.is_some() || self.height.is_some() {
+            return Err(Failure::Binding);
+        }
+        let selected = self
+            .width
+            .as_ref()
+            .ok_or(Failure::Binding)?
+            .width()
+            .validated_model_selection(
+                self.owner.profile(),
+                self.owner.route().owner.npc(),
+                self.owner.route().owner.initialization(),
+            )
+            .map_err(|_| Failure::Binding)?;
+        if selected.bounding_radius().bits()
+            != self
+                .owner
+                .profile()
+                .npc(self.owner.route().owner.npc().spawn)
+                .ok_or(Failure::Binding)?
+                .ai
+                .bounding_radius
+                .bits()
+        {
+            return Err(Failure::UnresolvedBody);
+        }
+        let mut next = self.clone();
+        next.selection = Some(selected);
+        Ok(next)
+    }
+    pub(super) fn validate_height(&self) -> Result<Self, Failure> {
+        if self.selection.is_none() || self.height.is_some() {
+            return Err(Failure::Binding);
+        }
+        let height = self
+            .width
+            .as_ref()
+            .ok_or(Failure::Binding)?
+            .require_height()
+            .map_err(|_| Failure::Binding)?;
+        initialized_height_for(self.owner.profile(), self.owner.route(), height)?;
+        let mut next = self.clone();
+        next.height = Some(height.clone());
+        Ok(next)
+    }
+    pub(super) fn for_route<'a>(
+        &'a self,
+        profile: &Profile,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+    ) -> Result<ValidatedInitializedOwner<'a>, Failure> {
+        if !self.owner.matches_route(profile, route) {
+            return Err(Failure::Binding);
+        }
+        Ok(ValidatedInitializedOwner {
+            selection: self.selection.as_ref().ok_or(Failure::Binding)?,
+            width: self.width.as_ref().ok_or(Failure::Binding)?.width(),
+            height: self.height.as_ref().ok_or(Failure::Binding)?,
+        })
+    }
+    pub(super) fn target_height_for(
+        &self,
+        profile: &Profile,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+        world: [u8; 16],
+        player: benilla_world_runtime::PlayerId,
+    ) -> Result<
+        &benilla_world_runtime::native::PlayerCollisionHeightWitness,
+        benilla_world_runtime::native::NativeError,
+    > {
+        self.for_route(profile, route)
+            .map_err(|_| benilla_world_runtime::native::NativeError::AuthorityBinding)?;
+        self.owner.require_target_collision_height(world, player)
+    }
+    pub(super) fn target_water_for(
+        &self,
+        profile: &Profile,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+        world: [u8; 16],
+        player: benilla_world_runtime::PlayerId,
+    ) -> Result<
+        &benilla_world_runtime::native::PlayerEnvironmentTarget,
+        benilla_world_runtime::native::NativeError,
+    > {
+        self.for_route(profile, route)
+            .map_err(|_| benilla_world_runtime::native::NativeError::AuthorityBinding)?;
+        self.owner.require_target_water(world, player)
+    }
+    pub(super) fn owner_ignore_for(
+        &self,
+        profile: &Profile,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+    ) -> Result<&benilla_world_runtime::native::OwnerIgnorePathfindingReceipt, Failure> {
+        self.for_route(profile, route)?;
+        self.owner
+            .require_owner_ignore_pathfinding()
+            .map_err(|_| Failure::Binding)
+    }
+    pub(super) fn height_for(
+        &self,
+        profile: &Profile,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+    ) -> Result<benilla_sim::creature_ai::Real, Failure> {
+        benilla_sim::creature_ai::Real::from_bits(
+            self.for_route(profile, route)?.height.height().bits(),
+        )
+        .map_err(|_| Failure::UnresolvedBody)
+    }
 }
 
 impl BoundRouteFilterQuery<'_> {

@@ -1,4 +1,4 @@
-# Chase PathFinder constructor dispatch
+# Movement PathFinder constructor dispatch
 
 Pinned reference: CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `TargetedMovementGenerator.cpp:482–500`, `PathFinder.cpp:37–106`, and
@@ -16,8 +16,10 @@ and exact simulation time. `ChaseSnapshot.pathfinder_construction` retains that
 identity independently of polygon cache state. Same-generator retargeting and
 NoPath retain it; replacement/death discard it. A proximity-skipped initial Chase
 emits no constructor. Its first later Replan or Backpedal dispatch constructs it.
-Home's separate stack-local PathFinder constructor remains unsupported by this
-seam and carries explicit null; it never borrows Chase's retained identity.
+Home emits a distinct `HomeLocal` first-use constructor for each dispatch. Its
+construction and dispatch bindings are equal, with no prior cache or target.
+It never borrows Chase's retained identity. The selected loaded continuation is
+documented in [HOME.md](../../HOME.md).
 
 The native adapter privately mints `PathfinderDispatchReceipt` from that actual
 staged request, actual world/tick, current NPC generation, profile, capability owner and the existing
@@ -56,11 +58,14 @@ successful Route calculation.
 
 ## Bounded app Route continuation
 
-The app geometry policy `benilla-owned-dry-same-polygon-chase-commit-continuation-v4`
+The app geometry policy `benilla-owned-dry-same-polygon-chase-home-wander-commit-continuation-v6`
 binds the selected installed same-polygon Service to six bounded phases under
 one original mailbox job:
 
-1. Complete immutable Session/body/request validation.
+1. Complete immutable Session/body/request validation. Initialized-owner width,
+   model selection, height and remaining body checks have separate retained
+   subphases under the same original Work; later checks reuse its exact completed
+   private receipt rather than repeating initialization validation.
 2. Validate the immutable provider/context, dispatch and collision model.
 3. Recheck current native ancestry and candidate capacity; validate and retain the
    original constructor, then reserve candidate capacity.
@@ -113,10 +118,10 @@ runs the same Route fact and candidate checks as raw certification.
 
 ## Persistence contract
 
-Native format **48**, `benilla-native-wander-leg-v48`, and
-motion policy `cmangos-8ec338a1-ground-linear-default-wander-v4` bind
+Native format **49**, `benilla-native-home-wander-v49`, and
+motion policy `cmangos-8ec338a1-ground-linear-home-wander-v5` bind
 the first source-cache contract and constructor lifecycle. Profile/state/record/
-checkpoint/melee digest domains are v48. Native47 and earlier are rejected;
+checkpoint/melee digest domains are v49. Native48 and earlier are rejected;
 no migration or serde default invents evidence.
 MotionSnapshot also requires its exact policy, including Idle snapshots.
 The new simulation snapshot/request options and native Route option are required

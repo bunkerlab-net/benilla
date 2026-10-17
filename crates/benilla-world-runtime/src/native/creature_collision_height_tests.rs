@@ -42,9 +42,9 @@ fn rehashed(w: &NativeWorld, edit: impl FnOnce(&mut serde_json::Value)) -> Check
     let mut state = serde_json::to_value(&c.state).unwrap();
     edit(&mut state);
     c.state = serde_json::from_value(state).unwrap();
-    c.digest = crate::digest(b"benilla-native-state-v48\0", &c.state);
+    c.digest = crate::digest(b"benilla-native-state-v49\0", &c.state);
     c.checksum = crate::digest(
-        b"benilla-native-checkpoint-v48\0",
+        b"benilla-native-checkpoint-v49\0",
         &(&c.state, c.digest, c.history_tip),
     );
     c
@@ -525,7 +525,7 @@ fn native25_and_all_earlier_checkpoints_records_and_replay_are_refused() {
         assert!(replay.replay(&records).is_err());
         assert_eq!(replay.checkpoint().unwrap(), initial);
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 48);
+    assert_eq!(NATIVE_FORMAT_VERSION, 49);
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -569,4 +569,76 @@ fn retained_spline_route_height_cannot_diverge_from_profile_even_when_rehashed()
             NativeWorld::restore_synthetic_component_test(w.profile().clone(), forged).is_err()
         );
     }
+}
+
+#[test]
+fn frozen_route_model_checks_match_full_height_checks_and_freeze_the_inputs() {
+    use std::sync::Arc;
+    let mut w = world(profile());
+    let mut authority = motion::SyntheticMotionAuthority::default();
+    step(&mut w, &mut authority);
+    step(&mut w, &mut authority);
+    let context = authority
+        .queries
+        .iter()
+        .find(|query| route(query).is_some())
+        .unwrap();
+    let original = route(context).unwrap();
+    let mut selected = Arc::new(w.profile().clone());
+    let frozen = ValidatedRouteModelProfile::new(Arc::clone(&selected)).unwrap();
+    let mut request = Arc::new(original.clone());
+    let owner = frozen
+        .validate_owner_context(Arc::clone(&request), &context.binding)
+        .unwrap();
+    let width = owner.validate_width().unwrap();
+    assert_eq!(
+        width.width(),
+        original.require_collision_width(w.profile()).unwrap()
+    );
+    assert_eq!(
+        width.require_height(),
+        original.require_collision_height(w.profile())
+    );
+    Arc::make_mut(&mut selected).tick_ms += 1;
+    Arc::make_mut(&mut request).request.owner_collision_height = ai::Real::ONE;
+    assert!(!frozen.matches_profile(&selected));
+    assert!(!owner.matches_route(w.profile(), &request));
+    assert_eq!(owner.route(), original);
+    assert_eq!(
+        width.require_height(),
+        original.require_collision_height(w.profile())
+    );
+    for field in 0..6 {
+        let mut changed = original.clone();
+        match field {
+            0 => {
+                changed.collision_width = None;
+                changed.collision_height = None;
+            }
+            1 => changed.collision_height = None,
+            2 => changed.request.owner_collision_height = ai::Real::ONE,
+            3 => changed.request.binding.identity.geometry.0[0] ^= 1,
+            4 => changed.owner_position.x = ai::Real::ONE,
+            5 => {
+                let mut height = serde_json::to_value(&changed.collision_height).unwrap();
+                height["width_source_binding"][0] =
+                    (height["width_source_binding"][0].as_u64().unwrap() ^ 1).into();
+                changed.collision_height = serde_json::from_value(height).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let full = changed.require_collision_height(w.profile()).cloned();
+        let retained = frozen
+            .validate_owner_context(Arc::new(changed), &context.binding)
+            .and_then(|owner| owner.validate_width())
+            .and_then(|width| width.require_height().cloned());
+        assert_eq!(retained, full, "field={field}");
+        assert!(retained.is_err());
+    }
+    let mut invalid = w.profile().clone();
+    invalid.content_digest = [0; 32];
+    assert_eq!(
+        ValidatedRouteModelProfile::new(Arc::new(invalid.clone())).unwrap_err(),
+        original.require_collision_height(&invalid).unwrap_err()
+    );
 }

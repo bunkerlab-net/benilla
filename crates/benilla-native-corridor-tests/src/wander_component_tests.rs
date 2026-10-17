@@ -42,21 +42,22 @@ fn thin_host_executes_exact_concrete_corridor() {
     assert_eq!(geometry.certify([5., 5., 0.], [5., 6., 0.], body), Ok(()));
 }
 
-struct Consumer {
-    geometry: Fixture,
-    session: Session,
-    providers: SamePolygonProviders,
-    initialization: SourceCreatureInitializationProvider<'static>,
-    other: visitors::CompleteAuthority,
-    boundary: RouteCommitBoundary,
-    routes: Vec<AuthorityReply>,
-    initializations: Vec<AuthorityRequest>,
-    allow_chase: bool,
-    fail_after_movement: bool,
-    rejected: Option<AuthorityReply>,
+pub(super) struct Consumer {
+    pub(super) geometry: Fixture,
+    pub(super) session: Session,
+    pub(super) providers: SamePolygonProviders,
+    pub(super) initialization: SourceCreatureInitializationProvider<'static>,
+    pub(super) other: visitors::CompleteAuthority,
+    pub(super) boundary: RouteCommitBoundary,
+    pub(super) routes: Vec<AuthorityReply>,
+    pub(super) route_replies: Vec<AuthorityReply>,
+    pub(super) initializations: Vec<AuthorityRequest>,
+    pub(super) allow_chase: bool,
+    pub(super) fail_after_movement: bool,
+    pub(super) rejected: Option<AuthorityReply>,
 }
 impl Consumer {
-    fn acknowledge(&mut self, world: &NativeWorld) {
+    pub(super) fn acknowledge(&mut self, world: &NativeWorld) {
         let notice = RouteCommitNotice::capture(world, &self.boundary).unwrap();
         self.providers
             .route
@@ -99,10 +100,15 @@ impl Authority for Consumer {
                         || (self.allow_chase
                             && matches!(
                                 route.request.kind,
-                                motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan
+                                motion::RouteKind::ChaseInitial
+                                    | motion::RouteKind::ChaseReplan
+                                    | motion::RouteKind::HomeForceDestination
                             ))
                 );
-                assert_eq!(route.request.target.is_none(), is_wander);
+                assert_eq!(
+                    route.request.target.is_none(),
+                    is_wander || route.request.kind == motion::RouteKind::HomeForceDestination
+                );
                 assert_eq!(route.owner.inhabit_type(), 3);
                 assert!(route.owner.capabilities().unwrap().can_swim());
                 assert_eq!(route.owner.swimming_movement_flags(), 0);
@@ -213,6 +219,42 @@ impl Authority for Consumer {
                         }
                         path => panic!("unsupported authored Wander terminal {path}"),
                     }
+                } else if route.request.kind == motion::RouteKind::HomeForceDestination {
+                    let proposal = self
+                        .providers
+                        .route
+                        .calculate(&self.session, request, 1, until())
+                        .unwrap();
+                    let receipt = proposal
+                        .home_source_receipt()
+                        .expect("distinct Home receipt");
+                    assert_eq!(receipt.request, request);
+                    assert_eq!(
+                        receipt.dispatch.constructor_kind(),
+                        motion::PathfinderConstructorKind::HomeLocal
+                    );
+                    assert!(receipt.dispatch.first_construction());
+                    assert_eq!(
+                        receipt.dispatch.construction_binding(),
+                        route.request.binding
+                    );
+                    assert_eq!(receipt.dispatch.dispatch_binding(), route.request.binding);
+                    assert_eq!(receipt.constructor_filter.filter().include_flags(), 13);
+                    assert_eq!(receipt.constructor_filter.filter().exclude_flags(), 0);
+                    assert_eq!(receipt.update_filter.filter().include_flags, 13);
+                    assert_eq!(receipt.update_filter.filter().exclude_flags, 0);
+                    let native = proposal
+                        .home_terminal()
+                        .expect("typed stack-local Home terminal");
+                    assert!(native.force_destination());
+                    assert!(!native.straight_path());
+                    assert_eq!(native.path_type(), 1);
+                    assert_eq!(native.points().len(), 2);
+                    assert_eq!(proposal.after_cache().include_flags, 13);
+                    assert_eq!(proposal.after_cache().revision, 1);
+                    assert!(route.request.prior_cache.is_none());
+                    assert!(route.request.target.is_none());
+                    assert!(proposal.wander_terminal().is_none());
                 }
                 facts
             }
@@ -233,6 +275,9 @@ impl Authority for Consumer {
             request: request.clone(),
             facts,
         };
+        if matches!(&request.query, Query::SourceMotion(MotionQuery::Route(_))) {
+            self.route_replies.push(reply.clone());
+        }
         if matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route))
             if route.request.kind == motion::RouteKind::Wander)
         {
@@ -248,9 +293,16 @@ fn setup() -> (NativeWorld, Consumer) {
 fn setup_with_seed(seed: Option<u64>) -> (NativeWorld, Consumer) {
     setup_with_schedule(seed, None)
 }
-fn setup_with_schedule(
+pub(super) fn setup_with_schedule(
     seed: Option<u64>,
     initial_aggro_delay_ms: Option<u32>,
+) -> (NativeWorld, Consumer) {
+    setup_with_profile(seed, initial_aggro_delay_ms, |_| {})
+}
+pub(super) fn setup_with_profile(
+    seed: Option<u64>,
+    initial_aggro_delay_ms: Option<u32>,
+    configure: impl FnOnce(&mut Profile),
 ) -> (NativeWorld, Consumer) {
     // Keep the shared source-consistent authored Aggressive/faction-2 profile.
     // This does not import actual entry 6's neutral world reaction/content.
@@ -291,11 +343,15 @@ fn setup_with_schedule(
         center,
         radius: f::real(3.0),
     };
+    configure(&mut profile);
     let mut visitor_input = visitors::visitor_input(&profile, vec![2]);
     let SourceVisitorRows::Complete(owners) = &mut visitor_input.owners else {
         unreachable!()
     };
-    owners[0].default_movement_type = 1;
+    owners[0].default_movement_type = match profile.npc_motion(2).unwrap().default_movement {
+        motion::DefaultMovement::Idle => 0,
+        motion::DefaultMovement::Wander { .. } => 1,
+    };
     owners[0].addon_closure = SourceVisitorAddonClosure::GenerationSource {
         source_identity: profile
             .creature_generations
@@ -375,6 +431,7 @@ fn setup_with_schedule(
             other,
             boundary,
             routes: vec![],
+            route_replies: vec![],
             initializations: vec![],
             allow_chase: false,
             fail_after_movement: false,
@@ -383,7 +440,7 @@ fn setup_with_schedule(
     )
 }
 
-fn snapshot(world: &NativeWorld) -> motion::MotionSnapshot {
+pub(super) fn snapshot(world: &NativeWorld) -> motion::MotionSnapshot {
     world.state().npcs[&2]
         .source_motion
         .as_ref()
@@ -391,13 +448,13 @@ fn snapshot(world: &NativeWorld) -> motion::MotionSnapshot {
         .motion
         .snapshot()
 }
-fn wander(snapshot: &motion::MotionSnapshot) -> &motion::WanderSnapshot {
+pub(super) fn wander(snapshot: &motion::MotionSnapshot) -> &motion::WanderSnapshot {
     let motion::Generator::Wander(wander) = &snapshot.generator else {
         panic!("the default RANDOM owner must stay selected")
     };
     wander
 }
-fn calculation(reply: &AuthorityReply) -> &motion::RouteCalculation {
+pub(super) fn calculation(reply: &AuthorityReply) -> &motion::RouteCalculation {
     let Facts::SourceMotion(MotionFacts::Spatial(reply)) = &reply.facts else {
         panic!("source spatial route")
     };
@@ -406,7 +463,7 @@ fn calculation(reply: &AuthorityReply) -> &motion::RouteCalculation {
     };
     calculation
 }
-fn launched(record: &TickRecord) -> bool {
+pub(super) fn launched(record: &TickRecord) -> bool {
     record.events.iter().any(|event| {
         matches!(
             event,
@@ -417,7 +474,7 @@ fn launched(record: &TickRecord) -> bool {
         )
     })
 }
-fn assert_dry_owner(world: &NativeWorld) {
+pub(super) fn assert_dry_owner(world: &NativeWorld) {
     let npc = &world.state().npcs[&2];
     assert_eq!(world.profile().npcs[0].entry, 6);
     assert_eq!(
@@ -443,7 +500,7 @@ fn assert_dry_owner(world: &NativeWorld) {
     assert_eq!(npc.initialized_creature().unwrap().unit_flags & 0x8000, 0);
     assert_eq!(npc.ai.position(), snapshot(world).map_pose.position);
 }
-fn step(world: &mut NativeWorld, consumer: &mut Consumer) -> TickRecord {
+pub(super) fn step(world: &mut NativeWorld, consumer: &mut Consumer) -> TickRecord {
     let record = world
         .step(world.state().tick + 1, None, consumer)
         .unwrap()
@@ -454,7 +511,10 @@ fn step(world: &mut NativeWorld, consumer: &mut Consumer) -> TickRecord {
 
 /// Reject after Unit motion and before the outer transaction commits. The exact
 /// checkpoint includes pose, timer/count, RNG, pending events and retained path.
-fn reject_late_and_retry(world: &mut NativeWorld, consumer: &mut Consumer) -> TickRecord {
+pub(super) fn reject_late_and_retry(
+    world: &mut NativeWorld,
+    consumer: &mut Consumer,
+) -> TickRecord {
     let before = world.checkpoint().unwrap();
     let motion = snapshot(world);
     let queue = world.state().npcs[&2].events.queue_snapshot();
@@ -503,7 +563,7 @@ fn reject_late_and_retry(world: &mut NativeWorld, consumer: &mut Consumer) -> Ti
     record
 }
 
-fn assert_replay_from(world: &NativeWorld, checkpoint: Checkpoint) {
+pub(super) fn assert_replay_from(world: &NativeWorld, checkpoint: Checkpoint) {
     let tick = checkpoint.identity().tick;
     let mut replay =
         NativeWorld::restore_synthetic_component_test(world.profile().clone(), checkpoint).unwrap();
@@ -517,7 +577,7 @@ fn assert_replay_from(world: &NativeWorld, checkpoint: Checkpoint) {
     assert_eq!(replay.checkpoint().unwrap(), world.checkpoint().unwrap());
 }
 
-fn assert_loaded_checkpoint_rejected(world: &NativeWorld, checkpoint: &Checkpoint) {
+pub(super) fn assert_loaded_checkpoint_rejected(world: &NativeWorld, checkpoint: &Checkpoint) {
     let encoded = checkpoint.encode().unwrap();
     let decoded = Checkpoint::decode(&encoded).unwrap();
     assert_eq!(&decoded, checkpoint);
@@ -531,7 +591,11 @@ fn assert_loaded_checkpoint_rejected(world: &NativeWorld, checkpoint: &Checkpoin
 /// Recreate the exact loaded-cache checkpoint via recorded receipts from a
 /// cache-free origin, then continue its suffix in the same replay world. No
 /// checkpoint restore or live native-query ownership is inferred from replay.
-fn assert_replay_through(world: &NativeWorld, genesis: &Checkpoint, checkpoint: &Checkpoint) {
+pub(super) fn assert_replay_through(
+    world: &NativeWorld,
+    genesis: &Checkpoint,
+    checkpoint: &Checkpoint,
+) {
     assert_loaded_checkpoint_rejected(world, checkpoint);
     let mut replay =
         NativeWorld::restore_synthetic_component_test(world.profile().clone(), genesis.clone())
@@ -847,9 +911,8 @@ fn loaded_random_visibility_interrupts_at_stale_map_pose_and_replays() {
             if pose.position == computed)));
     assert_replay_through(&world, &initial, &moving);
     assert_replay_through(&world, &initial, &world.checkpoint().unwrap());
-    // HomeForceDestination remains outside the loaded provider's admitted route
-    // kinds. This concrete test stops at Chase; Home/Reset semantics have a
-    // separate simulation proof, not a concrete-geometry completion claim.
+    // The separate Home component test continues this same concrete provider
+    // through source evade, stack-local Home and default Wander Reset.
 }
 
 #[test]

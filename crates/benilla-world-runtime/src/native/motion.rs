@@ -315,6 +315,15 @@ impl NpcMotionSnapshot {
     }
 }
 impl NpcMotion {
+    pub(super) fn home_destination(
+        combat_start: Option<motion::Pose>,
+        respawn: motion::Pose,
+    ) -> motion::Pose {
+        // HomeMovementGenerator.cpp:53-54 uses XYZ only, then the full respawn pose.
+        combat_start
+            .filter(|pose| !pose.position.is_empty())
+            .unwrap_or(respawn)
+    }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn new(profile: &Profile, npc: &NpcProfile) -> Result<Option<Self>, NativeError> {
         if profile.source_motion.is_none() {
@@ -454,12 +463,24 @@ impl NpcMotion {
             motion::Generator::Wander(wander) => wander.pathfinder_cache.as_ref(),
             _ => None,
         };
-        for cache in prior_cache.into_iter().chain(current_cache).chain(
-            s.motion
-                .suspended_wander
-                .as_ref()
-                .and_then(|w| w.pathfinder_cache.as_ref()),
-        ) {
+        for cache in prior_cache
+            .into_iter()
+            .chain(current_cache)
+            .chain(
+                s.motion
+                    .suspended_wander
+                    .as_ref()
+                    .and_then(|w| w.pathfinder_cache.as_ref()),
+            )
+            // Home's local cache is transcript evidence only; it has no live head,
+            // but still binds this exact generation and capability filter on restore.
+            .chain(
+                s.motion
+                    .spline
+                    .as_ref()
+                    .and_then(|s| s.local_home_cache.as_ref()),
+            )
+        {
             let capability = profile
                 .creature_capabilities
                 .as_ref()
@@ -479,13 +500,17 @@ impl NpcMotion {
         if let Some(p) = s.combat_start {
             p.validate()?;
         }
-        // Home SetFacing wraps TAU to zero; all other captured pose bits must match.
-        let home_pose = s.combat_start.map(|mut pose| {
-            if pose.orientation.bits() == 0x40c9_0fdb {
-                pose.orientation = ai::Real::ZERO;
-            }
-            pose
-        });
+        let mut home_pose = Self::home_destination(
+            s.combat_start,
+            motion::Pose {
+                position: owner.ai.spawn,
+                orientation: ai::Real::from_bits(owner_genesis.npc_spawn_orientation.bits())?,
+            },
+        );
+        // Home SetFacing wraps TAU to zero; all other selected pose bits must match.
+        if home_pose.orientation.bits() == 0x40c9_0fdb {
+            home_pose.orientation = ai::Real::ZERO;
+        }
         let motion = motion::MotionState::restore(s.motion)?;
         let alive = !matches!(ai.phase(), ai::Phase::Corpse | ai::Phase::Despawned);
         if alive && motion.default_movement() != owner_genesis.default_movement {
@@ -500,7 +525,7 @@ impl NpcMotion {
             (Some(command), motion::Generator::Home { destination, .. })
                 if command.purpose == ai::movement::MovementPurpose::Home
                     && command.home == Some(destination.position)
-                    && home_pose == Some(*destination) => {}
+                    && home_pose == *destination => {}
             (None, motion::Generator::Idle) => {}
             (None, motion::Generator::Wander(_)) if ai.phase() == ai::Phase::Idle => {}
             _ => return Err(NativeError::InvalidCheckpoint),

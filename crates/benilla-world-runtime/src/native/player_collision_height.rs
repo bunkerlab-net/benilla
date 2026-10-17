@@ -243,6 +243,14 @@ impl PlayerCollisionHeightWitness {
         player: crate::PlayerId,
     ) -> Result<(), NativeError> {
         profile.validate()?;
+        self.validate_for_profile(profile, world, player)
+    }
+    fn validate_for_profile(
+        &self,
+        profile: &Profile,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+    ) -> Result<(), NativeError> {
         let expected = PlayerCollisionHeightState::new(profile, world, player)?.ok_or(
             NativeError::AuthorityUnavailable("current player model collision height"),
         )?;
@@ -357,7 +365,18 @@ impl PlayerCollisionHeightTarget {
         target: &motion::Target,
         binding: &motion::QueryBinding,
     ) -> Result<(), NativeError> {
-        self.witness.validate_for(profile, world, player)?;
+        self.validate_with_witness(profile, target, binding, |witness| {
+            witness.validate_for(profile, world, player)
+        })
+    }
+    fn validate_with_witness(
+        &self,
+        profile: &Profile,
+        target: &motion::Target,
+        binding: &motion::QueryBinding,
+        validate: impl FnOnce(&PlayerCollisionHeightWitness) -> Result<(), NativeError>,
+    ) -> Result<(), NativeError> {
+        validate(&self.witness)?;
         if target != &self.target
             || target.id != SOLO_UNIT
             || target.collision_height.bits() != self.witness.height.bits()
@@ -407,6 +426,15 @@ impl CreatureRouteRequest {
         player: crate::PlayerId,
     ) -> Result<&PlayerCollisionHeightWitness, NativeError> {
         self.owner.validate_for(profile, self.owner.npc())?;
+        self.target_height_after_owner(profile, |witness| {
+            witness.validate_for(profile, world, player)
+        })
+    }
+    fn target_height_after_owner(
+        &self,
+        profile: &Profile,
+        validate: impl FnOnce(&PlayerCollisionHeightWitness) -> Result<(), NativeError>,
+    ) -> Result<&PlayerCollisionHeightWitness, NativeError> {
         if self.request.kind == motion::RouteKind::HomeForceDestination {
             return Err(
                 if self.request.target.is_none() && self.target_player_height.is_none() {
@@ -429,10 +457,25 @@ impl CreatureRouteRequest {
                 .ok_or(NativeError::AuthorityUnavailable(
                     "current player model collision height",
                 ))?;
-        target.validate(profile, world, player, raw, &self.request.binding)?;
+        target.validate_with_witness(profile, raw, &self.request.binding, validate)?;
         if self.request.binding.identity.creature != self.owner.npc().spawn {
             return Err(NativeError::AuthorityBinding);
         }
         Ok(target.witness())
+    }
+}
+
+impl ValidatedRouteModelOwner {
+    /// Reuse only the completed immutable profile/owner validation. The full
+    /// target witness, pose, world/player and request binding are still checked.
+    pub fn require_target_collision_height(
+        &self,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+    ) -> Result<&PlayerCollisionHeightWitness, NativeError> {
+        self.route()
+            .target_height_after_owner(self.profile(), |witness| {
+                witness.validate_for_profile(self.profile(), world, player)
+            })
     }
 }

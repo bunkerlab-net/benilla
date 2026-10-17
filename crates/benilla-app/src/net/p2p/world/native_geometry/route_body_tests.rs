@@ -40,7 +40,11 @@ fn pause_after(service: &Mailbox, work: &mut Work, phase: RouteBodyPhase) {
     assert_eq!(
         work.route_body.as_ref().unwrap().next,
         match phase {
-            RouteBodyPhase::Context => RouteBodyPhase::Dispatch,
+            RouteBodyPhase::Context => RouteBodyPhase::ContextWidth,
+            RouteBodyPhase::ContextWidth => RouteBodyPhase::ContextSelection,
+            RouteBodyPhase::ContextSelection => RouteBodyPhase::ContextHeight,
+            RouteBodyPhase::ContextHeight => RouteBodyPhase::ContextBody,
+            RouteBodyPhase::ContextBody => RouteBodyPhase::Dispatch,
             RouteBodyPhase::Dispatch => RouteBodyPhase::Model,
             RouteBodyPhase::Model => RouteBodyPhase::OwnerState,
             RouteBodyPhase::OwnerState => panic!("final body is not partial"),
@@ -60,7 +64,7 @@ pub(crate) fn assert_loaded_quest_body_real_slice_progress(
     let lease = work.lease();
     let expiry = work.deadline;
     let mut attempts = 0;
-    let mut samples = Vec::with_capacity(4);
+    let mut samples = Vec::with_capacity(8);
     loop {
         attempts += 1;
         let start = Instant::now();
@@ -104,6 +108,10 @@ pub(crate) fn assert_loaded_quest_body_real_slice_progress(
             .collect::<Vec<_>>(),
         [
             RouteBodyPhase::Context,
+            RouteBodyPhase::ContextWidth,
+            RouteBodyPhase::ContextSelection,
+            RouteBodyPhase::ContextHeight,
+            RouteBodyPhase::ContextBody,
             RouteBodyPhase::Dispatch,
             RouteBodyPhase::Model,
             RouteBodyPhase::OwnerState,
@@ -116,7 +124,7 @@ pub(crate) fn assert_loaded_quest_body_real_slice_progress(
 }
 
 #[test]
-fn context_and_dispatch_make_progress_when_only_their_sum_exceeds_the_slice() {
+fn context_subparts_make_progress_when_only_their_sum_exceeds_the_slice() {
     let (session, request) = captured_route_request();
     let (_, service) = mailbox(session.clone()).unwrap();
     let (mut work, reply) = work(&service, request.clone());
@@ -147,11 +155,11 @@ fn context_and_dispatch_make_progress_when_only_their_sum_exceeds_the_slice() {
         [
             (RouteBodyPhase::Context, false),
             (RouteBodyPhase::Context, true),
-            (RouteBodyPhase::Dispatch, false),
+            (RouteBodyPhase::ContextWidth, false),
         ]
     );
     let progress = work.route_body.as_ref().unwrap();
-    assert_eq!(progress.next, RouteBodyPhase::Dispatch);
+    assert_eq!(progress.next, RouteBodyPhase::ContextWidth);
     assert!(progress.model.is_none());
     assert!(work.route_validation.is_none());
     assert!(reply.is_empty());
@@ -170,7 +178,7 @@ fn context_and_dispatch_make_progress_when_only_their_sum_exceeds_the_slice() {
                 if !saved {
                     now.set(
                         now.get()
-                            + Duration::from_micros(if phase == RouteBodyPhase::Dispatch {
+                            + Duration::from_micros(if phase == RouteBodyPhase::ContextWidth {
                                 1100
                             } else {
                                 100
@@ -183,6 +191,14 @@ fn context_and_dispatch_make_progress_when_only_their_sum_exceeds_the_slice() {
     assert_eq!(
         attempts,
         [
+            (RouteBodyPhase::ContextWidth, false),
+            (RouteBodyPhase::ContextWidth, true),
+            (RouteBodyPhase::ContextSelection, false),
+            (RouteBodyPhase::ContextSelection, true),
+            (RouteBodyPhase::ContextHeight, false),
+            (RouteBodyPhase::ContextHeight, true),
+            (RouteBodyPhase::ContextBody, false),
+            (RouteBodyPhase::ContextBody, true),
             (RouteBodyPhase::Dispatch, false),
             (RouteBodyPhase::Dispatch, true),
             (RouteBodyPhase::Model, false),
@@ -301,6 +317,10 @@ fn partial_body_rejects_changed_session_request_and_equal_byte_dispatch() {
     assert_eq!(fresh_request, request);
     for boundary in [
         RouteBodyPhase::Context,
+        RouteBodyPhase::ContextWidth,
+        RouteBodyPhase::ContextSelection,
+        RouteBodyPhase::ContextHeight,
+        RouteBodyPhase::ContextBody,
         RouteBodyPhase::Dispatch,
         RouteBodyPhase::Model,
     ] {
@@ -381,6 +401,10 @@ fn partial_body_cannot_move_to_equal_work_foreign_attachment_or_survive_cancella
     let (session, request) = captured_route_request();
     for boundary in [
         RouteBodyPhase::Context,
+        RouteBodyPhase::ContextWidth,
+        RouteBodyPhase::ContextSelection,
+        RouteBodyPhase::ContextHeight,
+        RouteBodyPhase::ContextBody,
         RouteBodyPhase::Dispatch,
         RouteBodyPhase::Model,
     ] {
@@ -427,6 +451,10 @@ fn partial_body_original_expiry_is_absolute_and_has_no_provider_or_reply() {
     let (session, request) = captured_route_request();
     for phase in [
         RouteBodyPhase::Context,
+        RouteBodyPhase::ContextWidth,
+        RouteBodyPhase::ContextSelection,
+        RouteBodyPhase::ContextHeight,
+        RouteBodyPhase::ContextBody,
         RouteBodyPhase::Dispatch,
         RouteBodyPhase::Model,
     ] {
@@ -563,6 +591,10 @@ fn cancellation_inside_every_body_subpart_retires_without_provider_or_reply() {
     let (session, request) = captured_route_request();
     for phase in [
         RouteBodyPhase::Context,
+        RouteBodyPhase::ContextWidth,
+        RouteBodyPhase::ContextSelection,
+        RouteBodyPhase::ContextHeight,
+        RouteBodyPhase::ContextBody,
         RouteBodyPhase::Dispatch,
         RouteBodyPhase::Model,
         RouteBodyPhase::OwnerState,
@@ -595,6 +627,10 @@ fn late_completion_of_each_body_subpart_never_certifies_it_or_restarts_prior_wor
     let (session, request) = captured_route_request();
     let phases = [
         RouteBodyPhase::Context,
+        RouteBodyPhase::ContextWidth,
+        RouteBodyPhase::ContextSelection,
+        RouteBodyPhase::ContextHeight,
+        RouteBodyPhase::ContextBody,
         RouteBodyPhase::Dispatch,
         RouteBodyPhase::Model,
         RouteBodyPhase::OwnerState,
@@ -738,4 +774,239 @@ fn partial_or_late_model_never_installs_a_reusable_model_receipt() {
     pause_after(&service, &mut work, RouteBodyPhase::Model);
     assert!(work.route_body.as_ref().unwrap().model.is_some());
     assert!(work.route_validation.is_none());
+}
+
+#[test]
+fn initialized_route_retains_only_timely_model_subparts_for_the_exact_work() {
+    let (session, request) = super::super::source_route_same_polygon::dry_habitat_tests::captured_initialized_route_request();
+    let direct = session.body(&request).unwrap();
+    for late in [
+        RouteBodyPhase::ContextWidth,
+        RouteBodyPhase::ContextSelection,
+        RouteBodyPhase::ContextHeight,
+    ] {
+        let (_, service) = mailbox(session.clone()).unwrap();
+        let (mut work, reply) = work(&service, request.clone());
+        let lease = work.lease();
+        let expiry = lease.deadline();
+        let start = Instant::now();
+        let slice = start + Duration::from_millis(2);
+        let now = Cell::new(start);
+        assert_eq!(
+            service.advance_route_body(
+                &mut work,
+                slice,
+                || now.get(),
+                |phase, saved| {
+                    if phase == late && !saved {
+                        now.set(slice);
+                    }
+                }
+            ),
+            Err(Failure::Deadline)
+        );
+        let progress = work.route_body.as_ref().unwrap();
+        assert_eq!(progress.next, late);
+        assert!(progress.model.is_none());
+        assert!(work.route_validation.is_none());
+        let initialized = progress.initialized.as_ref().unwrap();
+        let profile = &session
+            .same_polygon_route
+            .as_ref()
+            .unwrap()
+            .environment
+            .profile;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+            unreachable!()
+        };
+        assert!(initialized.for_route(profile, route).is_err());
+        assert!(reply.is_empty());
+        assert!(work.lease().same_job(&lease));
+        assert_eq!(work.deadline, expiry);
+        service
+            .advance_route_body(&mut work, slice, || start, |_, _| {})
+            .unwrap();
+        assert_eq!(work.route_validation.as_ref().unwrap().body, direct);
+        assert!(work.route_body.is_none());
+        assert!(reply.is_empty());
+    }
+}
+
+#[test]
+fn initialized_model_receipt_checks_order_and_exact_inputs() {
+    let (session, request) = super::super::source_route_same_polygon::dry_habitat_tests::captured_initialized_route_request();
+    let profile = &session
+        .same_polygon_route
+        .as_ref()
+        .unwrap()
+        .environment
+        .profile;
+    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+        unreachable!()
+    };
+    let begun = super::super::source_route_filter::validate_initialized_route_context(
+        &session,
+        &session.same_polygon_route.as_ref().unwrap().model_profile,
+        &request,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(begun.validate_selection().is_err());
+    assert!(begun.validate_height().is_err());
+    assert!(begun.for_route(profile, route).is_err());
+    assert!(begun.owner_ignore_for(profile, route).is_err());
+    let width = begun.validate_width().unwrap();
+    assert!(width.validate_width().is_err());
+    assert!(width.validate_height().is_err());
+    let selection = width.validate_selection().unwrap();
+    assert!(selection.validate_selection().is_err());
+    let complete = selection.validate_height().unwrap();
+    assert!(complete.validate_height().is_err());
+    let validated = complete.for_route(profile, route).unwrap();
+    assert_eq!(
+        validated.width,
+        route.require_collision_width(profile).unwrap()
+    );
+    assert_eq!(
+        validated.height,
+        route.require_collision_height(profile).unwrap()
+    );
+    assert_eq!(
+        complete.owner_ignore_for(profile, route).unwrap(),
+        route.require_owner_ignore_pathfinding(profile).unwrap()
+    );
+    let player = session
+        .same_polygon_route
+        .as_ref()
+        .unwrap()
+        .environment
+        .player;
+    assert_eq!(
+        complete.target_height_for(profile, route, session.world, player),
+        route.require_target_collision_height(profile, session.world, player)
+    );
+    assert_eq!(
+        complete.target_water_for(profile, route, session.world, player),
+        route.require_target_water(profile, session.world, player)
+    );
+    let mut changed_profile = (**profile).clone();
+    changed_profile.tick_ms += 1;
+    assert!(complete.for_route(&changed_profile, route).is_err());
+    assert!(complete.owner_ignore_for(&changed_profile, route).is_err());
+    assert!(complete
+        .target_height_for(&changed_profile, route, session.world, player)
+        .is_err());
+    assert!(complete
+        .target_water_for(&changed_profile, route, session.world, player)
+        .is_err());
+    let mut changed_route = route.clone();
+    changed_route.request.goal.x = ai::Real::ONE;
+    assert!(complete.for_route(profile, &changed_route).is_err());
+    assert!(complete.owner_ignore_for(profile, &changed_route).is_err());
+    assert!(complete
+        .target_height_for(profile, &changed_route, session.world, player)
+        .is_err());
+    assert!(complete
+        .target_water_for(profile, &changed_route, session.world, player)
+        .is_err());
+    let mut changed_owner = route.clone();
+    let mut owner_wire = serde_json::to_value(&changed_owner.owner).unwrap();
+    owner_wire["npc"]["generation"] = 1.into();
+    changed_owner.owner = serde_json::from_value(owner_wire).unwrap();
+    assert!(complete.for_route(profile, &changed_owner).is_err());
+    assert!(complete.owner_ignore_for(profile, &changed_owner).is_err());
+    assert!(complete
+        .target_height_for(profile, &changed_owner, session.world, player)
+        .is_err());
+    assert!(complete
+        .target_water_for(profile, &changed_owner, session.world, player)
+        .is_err());
+    let deserialized = serde_json::from_value(serde_json::to_value(route).unwrap()).unwrap();
+    assert_eq!(&deserialized, route.as_ref());
+    assert!(complete.for_route(profile, &deserialized).is_err());
+    assert!(complete.owner_ignore_for(profile, &deserialized).is_err());
+    assert!(complete
+        .target_height_for(profile, &deserialized, session.world, player)
+        .is_err());
+    assert!(complete
+        .target_water_for(profile, &deserialized, session.world, player)
+        .is_err());
+    let (_, fresh) = super::super::source_route_same_polygon::dry_habitat_tests::captured_initialized_route_request();
+    assert_eq!(fresh, request);
+    let Query::SourceMotion(MotionQuery::Route(fresh_route)) = &fresh.query else {
+        unreachable!()
+    };
+    assert!(complete.for_route(profile, fresh_route).is_err());
+    assert!(complete.owner_ignore_for(profile, fresh_route).is_err());
+    assert!(complete
+        .target_height_for(profile, fresh_route, session.world, player)
+        .is_err());
+    assert!(complete
+        .target_water_for(profile, fresh_route, session.world, player)
+        .is_err());
+}
+
+#[test]
+fn initialized_route_staged_checks_preserve_direct_failure_order() {
+    let (session, request) = super::super::source_route_same_polygon::dry_habitat_tests::captured_initialized_route_request();
+    for case in 0..7 {
+        let mut request = request.clone();
+        let Query::SourceMotion(MotionQuery::Route(route)) = &mut request.query else {
+            unreachable!()
+        };
+        let expected = match case {
+            0 => {
+                route.collision_width = None;
+                route.request.point_limit = 1;
+                Failure::Invalid
+            }
+            1 => {
+                route.collision_width = None;
+                route.request.target.as_mut().unwrap().id = 0;
+                Failure::Binding
+            }
+            2 => {
+                route.collision_height = None;
+                route.request.target.as_mut().unwrap().id = 0;
+                Failure::Binding
+            }
+            3 => {
+                route.request.target.as_mut().unwrap().collision_height = ai::Real::ONE;
+                route.owner_ignore_pathfinding = None;
+                Failure::UnresolvedBody
+            }
+            4 => {
+                route.owner_ignore_pathfinding = None;
+                Failure::Binding
+            }
+            5 | 6 => {
+                let mut height = serde_json::to_value(&route.collision_height).unwrap();
+                if case == 5 {
+                    height["width_source_binding"][0] =
+                        (height["width_source_binding"][0].as_u64().unwrap() ^ 1).into();
+                } else {
+                    height["generation_selection"]["first_counter"] = 1.into();
+                }
+                route.collision_height = serde_json::from_value(height).unwrap();
+                route.request.target.as_mut().unwrap().collision_height = ai::Real::ONE;
+                Failure::Binding
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(session.body(&request), Err(expected), "direct case={case}");
+        let (_, service) = mailbox(session.clone()).unwrap();
+        let (mut work, reply) = work(&service, request);
+        let lease = work.lease();
+        let start = Instant::now();
+        let result = service.advance_route_body(
+            &mut work,
+            start + Duration::from_millis(2),
+            || start,
+            |_, _| {},
+        );
+        assert_eq!(result, Err(expected), "staged case={case}");
+        assert!(work.route_validation.is_none());
+        assert!(reply.is_empty());
+        assert!(work.lease().same_job(&lease));
+    }
 }

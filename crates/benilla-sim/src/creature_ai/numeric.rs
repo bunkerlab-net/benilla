@@ -83,6 +83,10 @@ pub struct Point {
     pub z: Real,
 }
 impl Point {
+    /// Position::IsEmpty checks XYZ only; Real canonicalizes either signed zero.
+    pub fn is_empty(self) -> bool {
+        self.x == Real::ZERO && self.y == Real::ZERO && self.z == Real::ZERO
+    }
     pub fn new(x: f32, y: f32, z: f32) -> Result<Self, AiError> {
         let result = Self {
             x: Real::new(x)?,

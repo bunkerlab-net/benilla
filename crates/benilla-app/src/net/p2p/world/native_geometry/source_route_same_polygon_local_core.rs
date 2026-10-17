@@ -84,15 +84,15 @@ pub(super) fn resolve_job(
     if corridor.map != job.session().map || corridor.revision != provider.raw_geometry() {
         return Err(Failure::Binding.into());
     }
+    if !provider.advance_job(&job, first_ticket, deadline)? {
+        return Ok(ServiceStep::Pending);
+    }
     if matches!(&job.request().query, Query::SourceMotion(MotionQuery::Route(route))
         if route.request.kind == motion::RouteKind::WanderPrepare)
     {
         return provider
-            .prepare_wander(job.session(), job.request(), first_ticket, deadline)
+            .wander_prepared_for_job(&job)
             .map(|facts| ServiceStep::Complete(Box::new(facts)));
-    }
-    if !provider.advance_job(&job, first_ticket, deadline)? {
-        return Ok(ServiceStep::Pending);
     }
     let proposal = provider.terminal_for_job(&job)?;
     let facts = certify_proposal(
@@ -202,6 +202,22 @@ fn certify_proposal(
     // Real raw coverage, membership, body sweep, elevated LOS and whole swept
     // rectangle support/dry proof, including exact feet at both endpoints.
     corridor.certify(from, to, body)?;
+    if q.launch_origin != q.origin {
+        if q.kind != motion::RouteKind::HomeForceDestination {
+            return Err(Failure::Binding.into());
+        }
+        if Instant::now() >= deadline {
+            return Err(Failure::Deadline.into());
+        }
+        // Home's source PathFinder uses map pose, while MoveSplineInit corrects
+        // the first vertex. The actual launched segment needs its own fresh proof.
+        let launch = [
+            q.launch_origin.x.as_f32(),
+            q.launch_origin.y.as_f32(),
+            q.launch_origin.z.as_f32(),
+        ];
+        corridor.certify(launch, to, body)?;
+    }
     // This is separate from the Chase gate's owner-height / target-height ray.
     // Every route segment uses the owner's height at BOTH ends and includes M2.
     let sight = if staged {
@@ -228,7 +244,10 @@ fn certify_proposal(
         return Err(Failure::Deadline.into());
     }
     let mut identity = Sha256::new();
-    identity.update(b"benilla-source-owned-same-polygon-real-corridor-route-v1");
+    identity.update(b"benilla-source-owned-same-polygon-real-corridor-route-v2");
+    for value in [q.launch_origin.x, q.launch_origin.y, q.launch_origin.z] {
+        identity.update(value.bits().to_le_bytes());
+    }
     identity.update(session.geometry);
     identity.update(session.world);
     identity.update(session.profile);

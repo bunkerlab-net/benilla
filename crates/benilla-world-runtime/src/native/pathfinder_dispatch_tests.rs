@@ -227,8 +227,8 @@ fn old_native29_through_native31_are_not_migrated() {
         assert!(decode_records(&encode_records(&records).unwrap()).is_err());
         assert!(world(w.profile().clone()).replay(&records).is_err());
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 48);
-    assert_eq!(NATIVE_POLICY, "benilla-native-wander-leg-v48");
+    assert_eq!(NATIVE_FORMAT_VERSION, 49);
+    assert_eq!(NATIVE_POLICY, "benilla-native-home-wander-v49");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -481,7 +481,7 @@ fn outer_dispatch_dedup_matches_full_validation_and_preserves_error_order() {
                 "live pathfinder dispatch",
             )),
             12 => Err(NativeError::Motion(m::MotionError::Missing(
-                "Chase constructor dispatch",
+                "pathfinder generator constructor dispatch",
             ))),
             _ => Err(NativeError::AuthorityBinding),
         };
@@ -616,4 +616,148 @@ fn synthetic_typed_owner_valid_first_calculation_later_failure_rolls_back_and_re
         NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial).unwrap();
     replay.replay(&records).unwrap();
     assert_eq!(replay.checkpoint().unwrap(), w.checkpoint().unwrap());
+}
+
+#[test]
+fn home_local_one_use_receipt_rolls_back_replays_and_reopens_only_dead_local_evidence() {
+    use crate::native::motion::route_cache_tests::SyntheticCacheAuthority;
+    struct HomeClaim {
+        profile: Profile,
+        inner: SyntheticCacheAuthority,
+        fail: bool,
+        seen: Vec<AuthorityRequest>,
+    }
+    impl Authority for HomeClaim {
+        fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+            if route(request)
+                .is_some_and(|route| route.request.kind == m::RouteKind::HomeForceDestination)
+            {
+                let receipt = request.require_pathfinder_dispatch(&self.profile)?;
+                assert_eq!(
+                    receipt.constructor_kind(),
+                    m::PathfinderConstructorKind::HomeLocal
+                );
+                assert!(receipt.first_construction());
+                assert_eq!(receipt.construction_binding(), receipt.dispatch_binding());
+                receipt.claim_constructor_query()?;
+                self.seen.push(request.clone());
+                if self.fail {
+                    return Err(NativeError::AuthorityUnavailable(
+                        "authored Home post-claim failure",
+                    ));
+                }
+            }
+            self.inner.resolve(request)
+        }
+    }
+    let mut p = profile();
+    p.npcs[0].ai.hard_leash_radius = Some(f::real(1.));
+    let mut w = world(p.clone());
+    let initial = w.checkpoint().unwrap();
+    let mut authority = HomeClaim {
+        profile: p.clone(),
+        inner: SyntheticCacheAuthority::owner_claim(),
+        fail: true,
+        seen: vec![],
+    };
+    loop {
+        let before = w.checkpoint().unwrap();
+        let result = w.step(w.state().tick + 1, None, &mut authority);
+        if !authority.seen.is_empty() {
+            assert_eq!(
+                result,
+                Err(NativeError::AuthorityUnavailable(
+                    "authored Home post-claim failure"
+                ))
+            );
+            assert_eq!(w.checkpoint().unwrap(), before);
+            break;
+        }
+        result.unwrap();
+        assert!(w.state().tick < 100);
+    }
+    authority.fail = false;
+    w.step(w.state().tick + 1, None, &mut authority).unwrap();
+    assert_eq!(authority.seen.len(), 2);
+    assert_eq!(authority.seen[0], authority.seen[1]);
+    let failed = authority.seen[0].require_pathfinder_dispatch(&p).unwrap();
+    let retried = authority.seen[1].require_pathfinder_dispatch(&p).unwrap();
+    assert!(!failed.same_live_dispatch(retried));
+    assert!(retried.claim_constructor_query().is_err());
+    let route = route(&authority.seen[1]).unwrap();
+    assert!(route.request.prior_cache.is_none());
+    assert!(route.request.target.is_none());
+    let transcript: AuthorityRequest =
+        serde_json::from_value(serde_json::to_value(&authority.seen[1]).unwrap()).unwrap();
+    assert_eq!(transcript, authority.seen[1]);
+    assert!(transcript.require_pathfinder_dispatch(&p).is_err());
+    let mut wrong = authority.seen[1].clone();
+    let Query::SourceMotion(MotionQuery::Route(route)) = &mut wrong.query else {
+        unreachable!()
+    };
+    route.request.goal = f::point(99.);
+    assert!(wrong.require_pathfinder_dispatch(&p).is_err());
+    let npc = &w.state().npcs[&2];
+    let source = npc.source_motion.as_ref().unwrap();
+    let snapshot = source.snapshot();
+    assert!(matches!(
+        snapshot.motion.generator,
+        m::Generator::Home { .. }
+    ));
+    let cache = snapshot
+        .motion
+        .spline
+        .as_ref()
+        .unwrap()
+        .local_home_cache
+        .as_ref()
+        .unwrap()
+        .clone();
+    assert_eq!(cache.source, m::RouteSource::OwnerPathFinder);
+    assert_eq!(cache.revision, 1);
+    assert!(snapshot.motion.suspended_wander.is_none());
+    snapshot.validate_saved_session_reopen().unwrap();
+    // Only the completed Home calculation remains, never a retained PathFinder.
+    let reopened =
+        NativeWorld::restore_synthetic_component_test(p.clone(), w.checkpoint().unwrap()).unwrap();
+    assert_eq!(reopened.state_digest(), w.state_digest());
+    for case in 0..5 {
+        let mut wrong = snapshot.clone();
+        let cache = wrong
+            .motion
+            .spline
+            .as_mut()
+            .unwrap()
+            .local_home_cache
+            .as_mut()
+            .unwrap();
+        match case {
+            0 => cache.binding.owner_generation += 1,
+            1 => cache.include_flags = 13,
+            2 => cache.binding.identity.creature += 1,
+            3 => cache.binding.inventory = [0; 32],
+            4 => cache.revision += 1,
+            _ => unreachable!(),
+        }
+        assert!(
+            NpcMotion::restore(wrong, &p, &npc.ai, w.state().now_ms, npc.id).is_err(),
+            "Home restore case {case}"
+        );
+    }
+    let mut retained_default = snapshot;
+    retained_default.motion.suspended_wander = Some(m::WanderSnapshot {
+        center: p.npcs[0].ai.spawn,
+        radius: f::real(1.),
+        next_move_timer_ms: 0,
+        next_move_count: 1,
+        pathfinder_cache: Some(cache.clone()),
+        pathfinder_construction: retried.construction_binding(),
+    });
+    // Guard-only adversarial payload: historical Home evidence is not an excuse
+    // to reopen any retained native default cache beside it.
+    assert!(retained_default.validate_saved_session_reopen().is_err());
+    let records = decode_records(&encode_records(w.records()).unwrap()).unwrap();
+    let mut replay = NativeWorld::restore_synthetic_component_test(p, initial).unwrap();
+    replay.replay(&records).unwrap();
+    assert_eq!(replay.state_digest(), w.state_digest());
 }

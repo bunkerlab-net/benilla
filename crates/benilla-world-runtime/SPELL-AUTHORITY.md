@@ -76,10 +76,10 @@ Weapon-break/level callbacks change current attack times without retroactively
 changing an already-running countdown or its release-time equipment recipe.
 
 The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v7`.
-Native format 48 uses `benilla-native-wander-leg-v48` across profile,
+Native format 49 uses `benilla-native-home-wander-v49` across profile,
 state, record, checkpoint, melee-action, melee-chain and visitor-callback hashes.
-The melee-release receipt integrity domain is also explicitly v48.
-Native47 and earlier checkpoints/journals and old selected catalog policies
+The melee-release receipt integrity domain is also explicitly v49.
+Native48 and earlier checkpoints/journals and old selected catalog policies
 reject, including current outer rehashes and stale historical profile contexts.
 Original World v2 and separate character/profile save formats are unchanged.
 
@@ -271,8 +271,8 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 48, `benilla-native-wander-leg-v48`, with v48 profile/state/
-record/checkpoint/action/callback hash domains. Native47 and earlier reject without
+format 49, `benilla-native-home-wander-v49`, with v49 profile/state/
+record/checkpoint/action/callback hash domains. Native48 and earlier reject without
 an implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace
 them with a new world. Raw catalog changes also change the profile digest.

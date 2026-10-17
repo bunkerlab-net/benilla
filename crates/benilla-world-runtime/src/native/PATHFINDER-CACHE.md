@@ -4,7 +4,7 @@ Pinned reference: CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `PathFinder.cpp:306–383,410–789`, `PathFinder.h::clear`, and the Chase/Home
 movement-generator call sites. Existing source/license notices remain applicable.
 
-Native format **48**, policy `benilla-native-wander-leg-v48`, retains the
+Native format **49**, policy `benilla-native-home-wander-v49`, retains the
 optional retained cache to Chase snapshots, requests and completed calculation
 receipts. Older native checkpoints/records are incompatible; character/profile
 save formats are unchanged. An incompatible open preserves the existing files.
@@ -126,7 +126,8 @@ Pinned Chase first attempts a straight-line/raycast calculation under its own
 distance, vertical, LOS and liquid conditions before conditional smooth fallback.
 Home creates a fresh temporary PathFinder and is rejected by this warm provider.
 The native primitive separately tests force-destination arithmetic but does not
-provide a Home producer. A source NORMAL result may end early after NoSteerTarget;
+provide a Home producer. The separate [Home continuation](../../HOME.md)
+uses a fresh constructor and cold same-polygon NORMAL branch. A source NORMAL result may end early after NoSteerTarget;
 it does not satisfy or replace the existing CompleteRoute segment/endpoint proof.
 Source initial cold policy, full dispatch, normalized points, loaded checkpoint
 rehydration and production gameplay admission remain separate dependencies.

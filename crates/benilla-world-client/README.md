@@ -49,7 +49,7 @@ clears the completed journal records.
 Native48 initialization receipts remain in the bound state across fresh and
 resumed projections. Initial-cast genesis consumes no gameplay cast ID, input
 sequence or projected cast packet. The previous-state digest uses the same
-native48 boundary as runtime replay; native47 and older digests cannot advance it.
+native49 boundary as runtime replay; native48 and older digests cannot advance it.
 
 Source-owned creature generations project their selected virtual mainhand display,
 packed class/subclass/material/inventory/sheath fields and initial unit sheath/misc

@@ -91,13 +91,15 @@ membership or complete imported content.
 Recorded checkpoints preserve the semantic owner, but direct restore and saved-
 session reopen reject a retained native query/cache allocation. Receipt replay
 from cache-free genesis reconstructs and compares intermediate checkpoints, then
-continues through their suffix; it does not rehydrate a saved native allocation. Concrete
-HomeForceDestination routing is also outside the loaded provider domain, so
-source Reset semantics alone do not establish a fight/return-home/resume loop.
+continues through their suffix; it does not rehydrate a saved native allocation.
+
+The selected dry same-polygon HomeForceDestination continuation composes with
+this default owner; its constructor, second interruption and reset contract are
+documented in [HOME.md](HOME.md). Other Home routing branches remain unsupported.
 
 The pinned base entry-6 rows include 24 random-moving and seven idle map-0
 spawns. Successful bounded movement does not establish their final loader-order
 capture, actual model 10913 dimensions, complete behavioral content or normal
-solo startup. Native format 48 (`benilla-native-wander-leg-v48`) separates the
+solo startup. Native format 49 (`benilla-native-home-wander-v49`) separates the
 changed persisted owner/receipt shape; prior experimental formats reject
 without migration. Character/profile saves remain separate.

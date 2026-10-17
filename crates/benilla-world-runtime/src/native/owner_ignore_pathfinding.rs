@@ -77,6 +77,14 @@ impl OwnerIgnorePathfindingReceipt {
         live_abilities: &[Ability],
     ) -> Result<(crate::Digest, u32), NativeError> {
         capabilities.validate_for(profile, npc)?;
+        Self::source_after_owner(profile, npc, capabilities, live_abilities)
+    }
+    fn source_after_owner(
+        profile: &Profile,
+        npc: crate::NpcId,
+        capabilities: &CreatureCapabilityWitness,
+        live_abilities: &[Ability],
+    ) -> Result<(crate::Digest, u32), NativeError> {
         let interactions =
             profile
                 .interactions
@@ -145,6 +153,18 @@ impl CreatureRouteRequest {
     ) -> Result<&OwnerIgnorePathfindingReceipt, NativeError> {
         profile.validate()?;
         self.owner.validate_for(profile, self.owner.npc())?;
+        self.owner_ignore_with_source(profile, OwnerIgnorePathfindingReceipt::source)
+    }
+    fn owner_ignore_with_source(
+        &self,
+        profile: &Profile,
+        source: impl FnOnce(
+            &Profile,
+            crate::NpcId,
+            &CreatureCapabilityWitness,
+            &[Ability],
+        ) -> Result<(crate::Digest, u32), NativeError>,
+    ) -> Result<&OwnerIgnorePathfindingReceipt, NativeError> {
         let identity = self.request.binding.identity;
         if identity.creature != self.owner.npc().spawn
             || identity.map != profile.map_id
@@ -160,7 +180,7 @@ impl CreatureRouteRequest {
                 .ok_or(NativeError::AuthorityUnavailable(
                     "owned IGNORE_PATHFINDING state",
                 ))?;
-        let (source_binding, projected) = OwnerIgnorePathfindingReceipt::source(
+        let (source_binding, projected) = source(
             profile,
             self.owner.npc(),
             &self.owner,
@@ -176,5 +196,18 @@ impl CreatureRouteRequest {
             return Err(NativeError::AuthorityBinding);
         }
         Ok(receipt)
+    }
+}
+
+impl ValidatedRouteModelOwner {
+    /// Only the completed profile/owner checks are reused. Source closure, live
+    /// ability transcript and receipt binding retain their original order.
+    pub fn require_owner_ignore_pathfinding(
+        &self,
+    ) -> Result<&OwnerIgnorePathfindingReceipt, NativeError> {
+        self.route().owner_ignore_with_source(
+            self.profile(),
+            OwnerIgnorePathfindingReceipt::source_after_owner,
+        )
     }
 }

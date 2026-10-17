@@ -5,7 +5,7 @@ for **one ordinary outdoor creature and one authoritative player threat referenc
 It does not activate the native-world gate, replace the existing original fixture
 runtime, execute melee damage, or establish a playable starter zone. There are no
 Blizzard rows, client assets, database dumps, fixed-damage attacks or teleports here.
-The compatibility identity is `cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-default-motion-v7`.
+The compatibility identity is `cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-default-motion-v8`.
 
 ## Actual upstream selection and accepted domain
 
@@ -209,7 +209,7 @@ online never selects a victim. Selection clears dirty even with one reference.
 Target death removes references synchronously, including the borrowed mainhand
 attacker before callback return; evade/death clear them and respawn stays empty.
 
-Checkpoint version 6 requires the owned state and rejects missing fields, scalar
+Checkpoint version 7 requires the owned state and rejects missing fields, scalar
 threat migration, invalid online links, mismatched current victims and phase/ref
 contradictions. The sole same-frame detached-victim exception keeps target/chase
 without a reference; receipt tokens still compare all other prepared state.
@@ -242,10 +242,15 @@ may exceed the newly selected mainhand interval. A pending boundary blocks any
 further observation and cannot be restored or accepted as a fixed-step snapshot.
 Legacy synthetic AI never gains this rebind authority.
 
-Checkpoint version 6 binds the exact effective profile, ownership mode and
+Checkpoint version 7 binds the exact effective profile, ownership mode and
 current generation. `restore_generation_owned` requires the native owner to
 validate its retained initialization and latest death timing first. The ordinary
 restore entry point rejects owned checkpoints; neither path accepts a pending
 respawn rebind. Living generations retain old absolute corpse/respawn timestamps
 only as inert values, while active death clocks remain checked against the
 current life's corpse delay and freshly selected death delay.
+
+Home destination selection follows Position::IsEmpty: all-zero XYZ, including
+canonicalized signed zero, selects respawn; facing alone does not make a combat
+position nonempty. The standalone AI checkpoint version is 7, and old version 6
+snapshots reject rather than being reinterpreted under this destination rule.

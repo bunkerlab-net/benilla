@@ -11,7 +11,7 @@ mod spline;
 pub use numeric::chase_speed;
 pub use spline::{LinearSpline, SplineEvent, SplineSnapshot, MAX_PATH_POINTS};
 
-pub const CREATURE_MOTION_POLICY_ID: &str = "cmangos-8ec338a1-ground-linear-default-wander-v4";
+pub const CREATURE_MOTION_POLICY_ID: &str = "cmangos-8ec338a1-ground-linear-home-wander-v5";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MotionError {
     Invalid(&'static str),

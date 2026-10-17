@@ -25,10 +25,19 @@ Run the selected loop with the repository's build wrapper:
 mbx test -p benilla-native-corridor-tests wander_component_tests
 ```
 
-Concrete HomeForceDestination routing remains outside the loaded provider's
-supported domain. Motion-owner Home Reset tests establish retained move-count
-and replaced PathFinder behavior separately; they do not establish a concrete
-fight/return-home/Wander-resume loop.
+`home_component_tests` composes actual Chase, fresh HomeForceDestination
+same-polygon routing, arrival/finalization, retained default Reset and subsequent
+Wander. It also checks the distinct source-origin and corrected launch segment
+against real collision geometry, with transactional rejection and retry.
+`home_mailbox_tests` exercises the same loaded scene through the original 2 ms
+service slices and 500 ms lease, cancellation, rollback and commit acknowledgement.
+See [the selected Home contract](../benilla-world-runtime/HOME.md) for source
+order, constructor lifetime, compatibility and remaining unsupported branches.
+These authored tests do not establish normal populated-world startup.
+
+```sh
+mbx test -p benilla-native-corridor-tests home_ -- --test-threads=1
+```
 
 The visibility interruption scene uses an authored 400 ms initial notification
 delay to exercise actual aggressive AI combat between spline progress and the

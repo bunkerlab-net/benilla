@@ -605,7 +605,14 @@ fn constructor_dispatch_follows_forced_relocation_and_home_drops_chase_identity(
     );
     s.start_home(pose(-10.), false, false, input(), &mut a)
         .unwrap();
-    assert!(last_route(&a).pathfinder_dispatch.is_none());
+    let home = last_route(&a).pathfinder_dispatch.unwrap();
+    assert_eq!(
+        home.constructor_kind(),
+        PathfinderConstructorKind::HomeLocal
+    );
+    assert!(home.first_construction());
+    assert_eq!(home.construction_binding(), last_route(&a).binding);
+    assert_ne!(home.construction_binding(), original);
     s.start_chase(other, false, input(), &mut a).unwrap();
     let replacement = last_route(&a).pathfinder_dispatch.unwrap();
     assert!(replacement.first_construction());
@@ -670,6 +677,7 @@ fn previous_motion_policy_and_missing_policy_are_rejected_even_when_idle() {
     for policy in [
         "cmangos-8ec338a1-ground-linear-motion-binary32-v1",
         "cmangos-8ec338a1-ground-linear-motion-constructor-dispatch-v2",
+        "cmangos-8ec338a1-ground-linear-default-wander-v4",
     ] {
         let mut old = s.snapshot();
         old.policy = policy.into();

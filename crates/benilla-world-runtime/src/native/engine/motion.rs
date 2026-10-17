@@ -639,32 +639,32 @@ impl<A: Authority> Frame<'_, A> {
                         )?
                     }
                     MovementPurpose::Home => {
-                        let destination = source.combat_start.unwrap_or(m::Pose {
-                            position: self.profile.npc(npc.id.spawn).unwrap().ai.spawn,
-                            orientation: ai::Real::from_bits(g.npc_spawn_orientation.bits())?,
-                        });
+                        let destination = NpcMotion::home_destination(
+                            source.combat_start,
+                            m::Pose {
+                                position: self.profile.npc(npc.id.spawn).unwrap().ai.spawn,
+                                orientation: ai::Real::from_bits(g.npc_spawn_orientation.bits())?,
+                            },
+                        );
                         if command.home != Some(destination.position) {
                             return Err(NativeError::InvalidState);
                         }
-                        (
-                            self.source_spatial(
-                                npc.id,
-                                npc.source_generation.as_ref(),
-                                npc.source_capabilities.as_ref(),
-                                npc.source_collision_width.as_ref(),
-                                npc.source_collision_height.as_ref(),
-                                |a| {
-                                    source.motion.start_home(
-                                        destination,
-                                        g.home_walking,
-                                        source.active,
-                                        input,
-                                        a,
-                                    )
-                                },
-                            )?,
-                            None,
-                        )
+                        self.source_spatial(
+                            npc.id,
+                            npc.source_generation.as_ref(),
+                            npc.source_capabilities.as_ref(),
+                            npc.source_collision_width.as_ref(),
+                            npc.source_collision_height.as_ref(),
+                            |a| {
+                                source.motion.start_home_with_relocation(
+                                    destination,
+                                    g.home_walking,
+                                    source.active,
+                                    input,
+                                    a,
+                                )
+                            },
+                        )?
                     }
                     _ => return Err(NativeError::InvalidState),
                 };

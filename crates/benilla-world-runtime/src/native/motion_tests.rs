@@ -55,6 +55,92 @@ fn source_notify_launch_progress_home_and_reopen_have_exact_clocks_and_poses() {
     assert_eq!(replay.state_digest(), w.state_digest());
 }
 #[test]
+fn source_home_empty_xyz_uses_full_respawn_pose_and_replays_after_restore() {
+    for origin in [f::point(0.0), f::point(4.0)] {
+        let mut p = fixture::profile();
+        p.player.start = f::point(10.0);
+        p.npcs[0].ai.hard_leash_radius = Some(f::real(1.0));
+        let respawn = m::Pose {
+            position: p.npcs[0].ai.spawn,
+            orientation: f::real(1.0),
+        };
+        let combat = m::Pose {
+            position: origin,
+            orientation: f::real(2.0),
+        };
+        let expected = if origin.is_empty() { respawn } else { combat };
+        let mut w =
+            NativeWorld::synthetic_component_test(p.clone(), [8; 16], f::player(), 1234).unwrap();
+        // Authored idle relocation preserves the distinct immutable respawn pose.
+        let npc = w.state.npcs.get_mut(&2).unwrap();
+        let mut saved = serde_json::to_value(npc.ai.checkpoint()).unwrap();
+        saved["position"] = serde_json::to_value(origin).unwrap();
+        npc.ai = ai::SoloCreatureAi::restore(
+            serde_json::from_value(saved).unwrap(),
+            p.npcs[0].ai.clone(),
+            0,
+            0,
+            SOLO_UNIT,
+        )
+        .unwrap();
+        npc.source_motion
+            .as_mut()
+            .unwrap()
+            .motion
+            .lifecycle_relocate(combat)
+            .unwrap();
+        let initial = w.checkpoint().unwrap();
+        let mut a = fixture::SyntheticMotionAuthority::default();
+        while w.state().npcs[&2].ai.phase() != ai::Phase::ReturningHome {
+            assert!(w.state().tick < 100);
+            step(&mut w, &mut a);
+        }
+        let npc = &w.state().npcs[&2];
+        assert_eq!(npc.ai.combat_start_position(), origin);
+        assert_eq!(npc.ai.motion().unwrap().home, Some(expected.position));
+        let source = npc.source_motion.as_ref().unwrap();
+        assert_eq!(source.combat_start, Some(combat));
+        assert!(
+            matches!(source.motion.generator(), m::Generator::Home { destination, .. }
+            if *destination == expected)
+        );
+        let spline = source.motion.snapshot().spline.unwrap();
+        assert_eq!(spline.route_request.goal, expected.position);
+        assert_eq!(spline.facing, m::Facing::Angle(expected.orientation));
+        if origin.is_empty() {
+            let forged = altered_checkpoint(&w, |s| {
+                let motion = &mut s["npcs"]["2"]["source_motion"]["motion"];
+                motion["generator"]["Home"]["destination"]["orientation"] =
+                    serde_json::json!(combat.orientation);
+                motion["spline"]["facing"]["Angle"] = serde_json::json!(combat.orientation);
+            });
+            assert!(NativeWorld::restore_synthetic_component_test(p.clone(), forged).is_err());
+        }
+        let mut reopened =
+            NativeWorld::restore_synthetic_component_test(p.clone(), w.checkpoint().unwrap())
+                .unwrap();
+        a.visits = Some(false);
+        let mut b = fixture::SyntheticMotionAuthority {
+            visits: Some(false),
+            ..Default::default()
+        };
+        while w.state().npcs[&2].ai.phase() == ai::Phase::ReturningHome {
+            assert!(w.state().tick < 100);
+            step(&mut w, &mut a);
+            step(&mut reopened, &mut b);
+            assert_eq!(w.state_digest(), reopened.state_digest());
+            assert_eq!(w.last_tick(), reopened.last_tick());
+        }
+        assert_eq!(w.state().npcs[&2].ai.position(), expected.position);
+        let source = w.state().npcs[&2].source_motion.as_ref().unwrap();
+        assert_eq!(source.motion.pose(), expected);
+        assert_eq!(source.combat_start, None);
+        let mut replay = NativeWorld::restore_synthetic_component_test(p, initial).unwrap();
+        replay.replay(w.records()).unwrap();
+        assert_eq!(replay.state_digest(), w.state_digest());
+    }
+}
+#[test]
 fn source_missing_visitor_or_partial_route_rolls_back_inputs_clocks_and_rng() {
     let mut w = fixture::world();
     let before = w.state_digest();
@@ -531,9 +617,9 @@ fn altered_checkpoint(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Valu
     let mut value = serde_json::to_value(&checkpoint.state).unwrap();
     mutate(&mut value);
     checkpoint.state = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v48\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v49\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v48\0",
+        b"benilla-native-checkpoint-v49\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint

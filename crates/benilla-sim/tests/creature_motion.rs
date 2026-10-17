@@ -981,6 +981,78 @@ fn source_mode_never_polls_sight_in_later_ai_and_faces_before_mainhand() {
     ));
 }
 
+#[test]
+fn empty_combat_origin_binds_source_home_relocation_to_respawn() {
+    use benilla_sim::creature_ai as ai;
+    let mut profile = source_ai_profile();
+    profile.spawn = p(10., 0., 0.);
+    // Authored idle relocation leaves the respawn coordinate unchanged.
+    let mut saved = serde_json::to_value(
+        ai::SoloCreatureAi::new(profile.clone())
+            .unwrap()
+            .checkpoint(),
+    )
+    .unwrap();
+    saved["position"] = serde_json::to_value(p(0., 0., 0.)).unwrap();
+    let mut creature = ai::SoloCreatureAi::restore(
+        serde_json::from_value(saved).unwrap(),
+        profile.clone(),
+        0,
+        0,
+        1,
+    )
+    .unwrap();
+    let mut motion = state();
+    motion
+        .initialize_default(DefaultMovement::Wander {
+            center: profile.spawn,
+            radius: r(4.),
+        })
+        .unwrap();
+    let enemy = source_observation(1, &motion, None).target.unwrap();
+    creature.source_help_attack_start(&enemy, 0).unwrap();
+    assert_eq!(creature.combat_start_position(), p(0., 0., 0.));
+    let mut spatial = Synthetic::default();
+    motion
+        .start_chase_with_relocation(target(20.), false, input(), &mut spatial)
+        .unwrap();
+    let command = creature.motion().unwrap().clone();
+    for sequence in 1..=3 {
+        let target = (sequence != 3).then(|| target(20.));
+        let update = motion
+            .advance_for_command(&command, sequence, 100, target, input(), &mut spatial)
+            .unwrap();
+        let mut observation = source_observation(sequence, &motion, Some(update.movement));
+        if sequence == 3 {
+            observation.target = None;
+        }
+        creature.step(&mut Observation(observation)).unwrap();
+    }
+    assert_eq!(creature.phase(), ai::Phase::ReturningHome);
+    assert_eq!(creature.motion().unwrap().home, Some(profile.spawn));
+    assert_ne!(motion.spline_position().unwrap(), creature.position());
+    let before = creature.clone();
+    let mut wrong = motion.clone();
+    let (_, receipt) = wrong
+        .start_home_with_relocation(pose(0., 0., 0.), false, false, input(), &mut spatial)
+        .unwrap();
+    assert!(creature
+        .apply_source_relocation(receipt.unwrap(), Revision([2; 32]))
+        .is_err());
+    assert_eq!(creature, before);
+    let (_, receipt) = motion
+        .start_home_with_relocation(pose(10., 0., 0.), false, false, input(), &mut spatial)
+        .unwrap();
+    creature
+        .apply_source_relocation(receipt.unwrap(), Revision([2; 32]))
+        .unwrap();
+    assert_eq!(creature.position(), motion.pose().position);
+    assert_eq!(
+        ai::SoloCreatureAi::restore(creature.checkpoint(), profile, 300, 3, 1).unwrap(),
+        creature,
+    );
+}
+
 fn source_ai_profile_with_zero_corpse() -> benilla_sim::creature_ai::Profile {
     let mut p = source_ai_profile();
     p.corpse_decay_ms = 0;
@@ -1092,4 +1164,81 @@ fn wander_interruption_at_stale_map_pose_mints_exact_ai_relocation() {
         )))
         .unwrap();
     assert_eq!(creature.position(), motion.pose().position);
+
+    // Removing Chase exposes and interrupts the same default Wander a second
+    // time before Home Initialize. Idle-default Home retains its separate stale
+    // origin/launch correction test above.
+    let update = motion
+        .advance_for_command(&command, 5, 100, None, input(), &mut spatial)
+        .unwrap();
+    let mut observation = source_observation(5, &motion, Some(update.movement));
+    observation.target = None;
+    let combat = creature.clone();
+    creature.step(&mut Observation(observation)).unwrap();
+    assert_eq!(creature.phase(), ai::Phase::ReturningHome);
+    let command = creature.motion().unwrap().clone();
+    let destination = Pose {
+        position: command.home.unwrap(),
+        orientation: Real::ZERO,
+    };
+    let old = creature.position();
+    let computed = motion.spline_position().unwrap();
+    assert_ne!(computed, old);
+    let before_home = motion.clone();
+    let mut wrong_home_motion = before_home.clone();
+    let (_, wrong_home) = wrong_home_motion
+        .start_home_with_relocation(pose(9., 0., 0.), false, false, input(), &mut spatial)
+        .unwrap();
+    let before = creature.clone();
+    assert!(creature
+        .apply_source_relocation(wrong_home.unwrap(), Revision([2; 32]))
+        .is_err());
+    assert_eq!(creature, before);
+    let (events, receipt) = motion
+        .start_home_with_relocation(destination, false, false, input(), &mut spatial)
+        .unwrap();
+    let receipt = receipt.unwrap();
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::SplineInterrupted { .. })));
+    assert_eq!(motion.pose().position, computed);
+    let mut wrong_phase = combat;
+    let wrong_before = wrong_phase.clone();
+    assert!(wrong_phase
+        .apply_source_relocation(receipt.clone(), Revision([2; 32]))
+        .is_err());
+    assert_eq!(wrong_phase, wrong_before);
+    assert!(creature
+        .apply_source_relocation(receipt.clone(), Revision([9; 32]))
+        .is_err());
+    assert_eq!(creature, before);
+    creature
+        .apply_source_relocation(receipt.clone(), Revision([2; 32]))
+        .unwrap();
+    assert_eq!(creature.position(), computed);
+    let after = creature.clone();
+    assert!(creature
+        .apply_source_relocation(receipt, Revision([2; 32]))
+        .is_err());
+    assert_eq!(creature, after);
+    let query = spatial
+        .spatial
+        .queries
+        .iter()
+        .rev()
+        .find_map(|q| match q {
+            Query::Route(q) => Some(q),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(query.kind, RouteKind::HomeForceDestination);
+    assert_eq!(query.origin, computed);
+    assert_eq!(query.launch_origin, computed);
+    assert_eq!(query.goal, destination.position);
+    assert!(query.prior_cache.is_none());
+    assert_eq!(
+        query.pathfinder_dispatch.unwrap().constructor_kind(),
+        PathfinderConstructorKind::HomeLocal
+    );
+    assert_eq!(MotionState::restore(motion.snapshot()).unwrap(), motion);
 }

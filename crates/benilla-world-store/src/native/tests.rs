@@ -353,6 +353,7 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
         (45, "benilla-native-assistance-neighbors-v45"),
         (46, "benilla-native-peer-help-v46"),
         (47, "benilla-native-positive-peer-help-v47"),
+        (48, "benilla-native-wander-leg-v48"),
     ] {
         for incompatible in ["world.checkpoint", "world.previous"] {
             let t = Temp::new();
@@ -402,7 +403,7 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
 
 #[test]
 fn previous_native_records_cannot_enter_a_fresh_version_one_envelope() {
-    for version in [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47] {
+    for version in [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48] {
         let t = Temp::new();
         let mut world = f::world();
         let (mut store, _) = NativeStore::create(t.path(), &world).unwrap();
@@ -446,7 +447,7 @@ fn rewritten_native36_body_requires_non_null_genesis_inside_valid_version_one_en
         }
         assert!(serde_json::from_value::<Checkpoint>(checkpoint.clone()).is_err());
         // A native36 body has no genesis receipt. Rewriting its headers and all
-        // integrity hashes cannot supply the required native48 initialization.
+        // integrity hashes cannot supply the required native49 initialization.
         let hash = |kind: &str, value: &serde_json::Value| -> Digest {
             let mut h = Sha256::new();
             h.update(format!("benilla-native-{kind}-v47\0").as_bytes());

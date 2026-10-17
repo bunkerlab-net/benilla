@@ -645,3 +645,63 @@ fn registered_handle_reborrows_exact_query_and_rejects_foreign_or_replaced_seal(
     );
     assert!(provider.reborrow(&fresh).unwrap().current_selected());
 }
+
+#[test]
+fn committed_constructor_retirement_keeps_cache_free_head_and_stable_handle() {
+    let (p, _, mut provider) = setup();
+    let mut w = world(&p);
+    let initial = super::super::route_commit::RouteCommitBoundary::capture_initial(&w).unwrap();
+    let mut base = motion_fixture::SyntheticMotionAuthority::default();
+    let mut first = None;
+    for tick in 1..=8 {
+        w.step(tick, None, &mut base).unwrap();
+        first = base
+            .queries
+            .iter()
+            .find(|context| matches!(context.query, Query::SourceMotion(MotionQuery::Route(_))))
+            .cloned();
+        if first.is_some() {
+            break;
+        }
+    }
+    let context = first.expect("genuine first Chase dispatch");
+    let handle = provider.prepare_constructor(&context).unwrap();
+    let boundary = super::super::route_commit::RouteCommitBoundary::capture_initial(&w).unwrap();
+    let head = boundary
+        .heads()
+        .iter()
+        .find(|head| head.npc() == handle.npc)
+        .unwrap();
+    // Synthetic routes supply no cache, but the actual Chase keeps its constructor.
+    assert_eq!(head.construction(), Some(handle.construction));
+    assert!(head.cache().is_none());
+    let mut obsolete = handle.construction;
+    obsolete.query_id += 1;
+    // Registry-shape control only; no fabricated constructor serves a query.
+    provider.constructors.insert(
+        0,
+        RegisteredConstructor {
+            npc: handle.npc,
+            construction: obsolete,
+            first_event: handle.first_event.clone(),
+            query: provider.navigation.query().retain_default(),
+        },
+    );
+    assert_eq!(provider.constructor_count(), 2);
+    provider.retain_committed_generators(&boundary);
+    assert_eq!(provider.constructor_count(), 1);
+    provider
+        .reborrow(&handle)
+        .unwrap()
+        .select_and_check_tiles(until())
+        .unwrap();
+    provider.retain_committed_generators(&boundary);
+    assert_eq!(provider.constructor_count(), 1);
+    // Absence removes the exact old key; a saved handle cannot adopt a new owner.
+    provider.retain_committed_generators(&initial);
+    assert_eq!(provider.constructor_count(), 0);
+    assert_eq!(
+        provider.reborrow(&handle).err(),
+        Some(ConstructorQueryError::MissingConstructor)
+    );
+}

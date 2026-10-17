@@ -113,6 +113,13 @@ pub struct RouteCalculation {
 impl RouteCalculation {
     pub fn validate_for(&self, request: &RouteRequest) -> Result<(), MotionError> {
         request.validate_wander()?;
+        if request.kind == RouteKind::HomeForceDestination {
+            request.validate_pathfinder_dispatch()?;
+            if self.after_cache.revision != 1 || !matches!(self.outcome, RouteOutcome::Complete(_))
+            {
+                return Err(MotionError::Invalid("Home local calculation terminal"));
+            }
+        }
         if self.prior_cache != request.prior_cache {
             return Err(MotionError::Invalid("pathfinder calculation prior state"));
         }

@@ -22,9 +22,18 @@ pub use numeric::{
 };
 
 pub const CREATURE_AI_POLICY_ID: &str =
-    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-default-motion-v7";
+    "cmangos-8ec338a1-outdoor-solo-ai-binary32-rne-source-default-motion-v8";
 const COMBAT_TICK_MS: u32 = 1200;
 const UNREACHABLE_MS: u32 = 10_000;
+
+fn home_position(combat_start: Point, respawn: Point) -> Point {
+    // HomeMovementGenerator::_setTargetLocation falls back on Position::IsEmpty.
+    if combat_start.is_empty() {
+        respawn
+    } else {
+        combat_start
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1193,12 +1202,13 @@ impl SoloCreatureAi {
         Ok(())
     }
     fn evade(&mut self, reason: EvadeReason, effects: &mut Vec<Effect>) -> Result<(), AiError> {
+        let home = home_position(self.combat_start, self.profile.spawn);
         // HomeMovementGenerator switches to delayed forced despawn beyond 150 yards.
         // That separate lifecycle is outside this bounded controller.
         let home_limit = Real::integer(150);
         if self
             .position
-            .square_distance(self.combat_start, true)?
+            .square_distance(home, true)?
             .greater(home_limit.mul(home_limit)?)
         {
             return Err(AiError::Unsupported(Unsupported::LongDistanceHomeDespawn));
@@ -1210,7 +1220,7 @@ impl SoloCreatureAi {
         self.pursuit_ms = 0;
         self.phase = Phase::ReturningHome;
         effects.push(Effect::EvadeStarted(reason));
-        self.command(MovementPurpose::Home, Some(self.combat_start), effects)
+        self.command(MovementPurpose::Home, Some(home), effects)
     }
     /// Commit only the exact source-generated synchronous InterruptMoving
     /// relocation. This is outside a pending Unit/AI receipt update.
@@ -1220,8 +1230,16 @@ impl SoloCreatureAi {
         geometry_revision: Revision,
     ) -> Result<Effect, AiError> {
         self.require_finished_generation()?;
+        let source_phase = match receipt.purpose {
+            MovementPurpose::Chase { .. } => self.phase == Phase::Combat && receipt.home.is_none(),
+            MovementPurpose::Home => {
+                self.phase == Phase::ReturningHome
+                    && receipt.home == Some(home_position(self.combat_start, self.profile.spawn))
+            }
+            MovementPurpose::Wander => false,
+        };
         if self.pending_receipts.is_some()
-            || self.phase != Phase::Combat
+            || !source_phase
             || receipt.identity.creature != self.profile.creature_id
             || receipt.identity.map != self.profile.map_id
             || receipt.identity.content != self.profile.content_revision
@@ -1230,10 +1248,7 @@ impl SoloCreatureAi {
             || receipt.now_ms < self.now_ms
             || receipt.now_ms - self.now_ms > 60_000
             || self.motion.as_ref().is_none_or(|command| {
-                command.purpose
-                    != MovementPurpose::Chase {
-                        target: receipt.target,
-                    }
+                command.purpose != receipt.purpose || command.home != receipt.home
             })
         {
             return Err(AiError::Invalid("synchronous source relocation binding"));

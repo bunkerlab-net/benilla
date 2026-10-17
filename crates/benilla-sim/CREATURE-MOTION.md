@@ -81,7 +81,11 @@ arrival, reset to 400 rather than preserving excess elapsed time. A chase replan
 forces a current map relocation before its path query. Home queries from the
 old map pose, but Launch corrects its first vertex to the current spline pose;
 the route request includes both origins, and spatial evidence must cover the
-corrected path. InterruptMoving's relocate-only path is distinguished from map
+corrected path. When a retained default Wander is exposed by Clear(false), its second Interrupt
+runs before Home initialization and forces that current spline relocation.
+The selected loaded [Home continuation](../benilla-world-runtime/HOME.md) retains
+a distinct local constructor and historical spline evidence.
+InterruptMoving's relocate-only path is distinguished from map
 relocation, since it does not invoke OnRelocated.
 
 `start_chase` and `start_home` consume no elapsed time. New commands from the
@@ -231,7 +235,7 @@ single-tick line segment. Counter wrap is outside the admitted numeric domain.
 
 ## Constructor dispatch identity
 
-Motion policy `cmangos-8ec338a1-ground-linear-default-wander-v4`
+Motion policy `cmangos-8ec338a1-ground-linear-home-wander-v5`
 models TargetedMovementGenerator.cpp:498–499 at the actual dispatch boundary,
 after forced relocation and before the authority's straight gate. The required
 `pathfinder_dispatch` Route option identifies the first actual dispatch and each

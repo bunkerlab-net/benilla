@@ -15,6 +15,7 @@ pub(super) enum Phase {
     Prepared(Box<PreparedCalculation>),
     Gated(Box<PreparedCalculation>, Box<GateDependencies>),
     Terminal(Box<SamePolygonProposal>),
+    WanderPrepared(Rc<wander::WanderPreparation>),
 }
 impl Phase {
     fn context(&self) -> &AuthorityRequest {
@@ -22,11 +23,13 @@ impl Phase {
             Self::Validated(validation) => &validation.context,
             Self::Prepared(prepared) | Self::Gated(prepared, _) => &prepared.validation.context,
             Self::Terminal(proposal) => &proposal.context,
+            Self::WanderPrepared(prefix) => &prefix.prepared.validation.context,
         }
     }
     fn reservation(&self, npc: NpcId, construction: motion::QueryBinding) -> bool {
         let prepared = match self {
-            Self::Prepared(prepared) | Self::Gated(prepared, _) => prepared,
+            Self::Prepared(prepared) | Self::Gated(prepared, _) => prepared.as_ref(),
+            Self::WanderPrepared(prefix) => &prefix.prepared,
             Self::Validated(_) | Self::Terminal(_) => return false,
         };
         prepared.dependencies.reserved
@@ -229,20 +232,42 @@ impl SourceSamePolygonRouteProvider {
             Phase::Prepared(_) => "gate",
             Phase::Gated(..) => "native_terminal",
             Phase::Terminal(_) => "final_certification",
+            Phase::WanderPrepared(_) => "wander_prepared_validation",
         });
         let result = match &pending.phase {
             Phase::Validated(validation) => {
-                match self.prepare_constructor(validation, Some(job), deadline, &mut observe) {
-                    Ok(dependencies) => {
-                        let Phase::Validated(validation) = pending.phase else {
-                            unreachable!()
-                        };
-                        pending.phase = Phase::Prepared(Box::new(PreparedCalculation {
-                            validation: *validation,
-                            dependencies,
-                        }));
-                        Ok(false)
+                let cached = if is_wander_prepare(&validation.context) {
+                    self.cached_wander_preparation(validation)
+                } else {
+                    Ok(None)
+                };
+                match cached {
+                    Ok(Some(prefix)) => {
+                        require_time(deadline)
+                            .map_err(SamePolygonError::from)
+                            .map(|()| {
+                                pending.phase = Phase::WanderPrepared(prefix);
+                                false
+                            })
                     }
+                    Ok(None) => match self.prepare_constructor(
+                        validation,
+                        Some(job),
+                        deadline,
+                        &mut observe,
+                    ) {
+                        Ok(dependencies) => {
+                            let Phase::Validated(validation) = pending.phase else {
+                                unreachable!()
+                            };
+                            pending.phase = Phase::Prepared(Box::new(PreparedCalculation {
+                                validation: *validation,
+                                dependencies,
+                            }));
+                            Ok(false)
+                        }
+                        Err(error) => Err(error),
+                    },
                     Err(error) => Err(error),
                 }
             }
@@ -261,6 +286,20 @@ impl SourceSamePolygonRouteProvider {
                     Err(error) => Err(error),
                 }
             }
+            Phase::Gated(prepared, gate) if is_wander_prepare(&prepared.validation.context) => {
+                match self.calculate_wander_prefix(prepared, gate, deadline, &mut observe) {
+                    Ok((filter, native)) if lease.is_active() => {
+                        let Phase::Gated(prepared, gate) = pending.phase else {
+                            unreachable!()
+                        };
+                        let prefix = self.retain_wander_prefix(*prepared, *gate, filter, native);
+                        pending.phase = Phase::WanderPrepared(prefix);
+                        Ok(false)
+                    }
+                    Ok(_) => Err(Failure::Deadline.into()),
+                    Err(error) => Err(error),
+                }
+            }
             Phase::Gated(prepared, gate) => {
                 match self.calculate_terminal(prepared, gate, deadline, &mut observe) {
                     Ok(terminal) => {
@@ -276,6 +315,7 @@ impl SourceSamePolygonRouteProvider {
                 }
             }
             Phase::Terminal(proposal) => self.check_terminal(proposal).map(|()| true),
+            Phase::WanderPrepared(prefix) => self.check_wander_preparation(prefix).map(|()| true),
         };
         // Only earlier successful phases survive an incomplete deadline. Complete
         // remains Terminal until mailbox validation/publication retires this Work.
@@ -289,6 +329,58 @@ impl SourceSamePolygonRouteProvider {
             self.pending.push(pending);
         }
         result
+    }
+
+    fn check_wander_preparation(
+        &mut self,
+        prefix: &Rc<wander::WanderPreparation>,
+    ) -> Result<(), SamePolygonError> {
+        if !self
+            .wander_prefixes
+            .iter()
+            .any(|saved| Rc::ptr_eq(saved, prefix))
+        {
+            return Err(Failure::Binding.into());
+        }
+        self.check_prepared(&prefix.prepared)
+    }
+
+    pub(in super::super) fn wander_prepared_for_job(
+        &mut self,
+        job: &RouteJob<'_>,
+    ) -> Result<Facts, SamePolygonError> {
+        job.bind_provider(&self.identity)?;
+        self.check_current_boundary(job.request())?;
+        let lease = job.lease();
+        if !lease.is_active() {
+            return Err(Failure::Deadline.into());
+        }
+        let pending = self
+            .pending
+            .iter()
+            .find(|pending| pending.lease.same_job(&lease))
+            .ok_or(Failure::Binding)?;
+        let Phase::WanderPrepared(prefix) = &pending.phase else {
+            return Err(Failure::Binding.into());
+        };
+        if prefix.prepared.validation.context != *job.request()
+            || !same_dispatch(&prefix.prepared.validation.context, job.request())
+        {
+            return Err(Failure::Binding.into());
+        }
+        let prefix = Rc::clone(prefix);
+        self.check_wander_preparation(&prefix)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &job.request().query else {
+            return Err(Failure::Binding.into());
+        };
+        let facts = Facts::SourceMotion(benilla_world_runtime::native::MotionFacts::Spatial(
+            Box::new(motion::Reply {
+                request: motion::Query::Route(route.request.clone()),
+                fact: motion::Fact::WanderPrepared,
+            }),
+        ));
+        job.validate_facts(&facts)?;
+        Ok(facts)
     }
 
     pub(in super::super) fn terminal_for_job(
@@ -316,6 +408,11 @@ impl SourceSamePolygonRouteProvider {
         Ok(proposal)
     }
 }
+fn is_wander_prepare(context: &AuthorityRequest) -> bool {
+    matches!(&context.query, Query::SourceMotion(MotionQuery::Route(route))
+        if route.request.kind == motion::RouteKind::WanderPrepare)
+}
+
 fn same_dispatch(a: &AuthorityRequest, b: &AuthorityRequest) -> bool {
     let (Query::SourceMotion(MotionQuery::Route(a)), Query::SourceMotion(MotionQuery::Route(b))) =
         (&a.query, &b.query)
