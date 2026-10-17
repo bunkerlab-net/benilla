@@ -185,7 +185,7 @@ impl Storage {
         }
         Ok(bytes)
     }
-    pub(super) fn write(&self, bytes: &[u8], expected: Option<[u8; 32]>) -> Result<(), Error> {
+    fn verify_lock(&self) -> Result<(), Error> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -195,12 +195,22 @@ impl Storage {
                 return Err(Error::ConcurrentModification);
             }
         }
+        Ok(())
+    }
+    /// Read-only checkpoint verification, including the held lock's identity.
+    pub(super) fn verified_current(&self, expected: [u8; 32]) -> Result<Zeroizing<Vec<u8>>, Error> {
+        self.verify_lock()?;
+        let old = self.read()?;
+        if <[u8; 32]>::from(Sha256::digest(&old)) != expected {
+            return Err(Error::ConcurrentModification);
+        }
+        decode(&old)?;
+        Ok(old)
+    }
+    pub(super) fn write(&self, bytes: &[u8], expected: Option<[u8; 32]>) -> Result<(), Error> {
+        self.verify_lock()?;
         if let Some(expected) = expected {
-            let old = self.read()?;
-            if <[u8; 32]>::from(Sha256::digest(&old)) != expected {
-                return Err(Error::ConcurrentModification);
-            }
-            decode(&old)?;
+            let old = self.verified_current(expected)?;
             // Preserve the last fully valid current snapshot before replacing it.
             self.replace(PREVIOUS, &old)?;
         } else {

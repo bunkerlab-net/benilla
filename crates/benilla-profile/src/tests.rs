@@ -857,3 +857,53 @@ fn archive_validation_covers_owner_id_name_and_selected_character() {
         );
     }
 }
+
+#[test]
+fn unchanged_position_checkpoint_verifies_disk_without_rewriting() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let id = profile.create_character(input("Checkpoint")).unwrap();
+    let position = profile.character(id).unwrap().position;
+    let current = fs::read(path.join("profile.json")).unwrap();
+    let previous = fs::read(path.join("profile.previous.json")).unwrap();
+    let revision = profile.state.revision;
+    profile.save_position(id, position).unwrap();
+    assert_eq!(profile.state.revision, revision);
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), current);
+    assert_eq!(
+        fs::read(path.join("profile.previous.json")).unwrap(),
+        previous
+    );
+    let external = b"external mutation must not be overwritten";
+    fs::write(path.join("profile.json"), external).unwrap();
+    assert!(matches!(
+        profile.save_position(id, position),
+        Err(Error::ConcurrentModification)
+    ));
+    assert_eq!(fs::read(path.join("profile.json")).unwrap(), external);
+    assert_eq!(
+        fs::read(path.join("profile.previous.json")).unwrap(),
+        previous
+    );
+}
+
+#[test]
+fn unchanged_position_cannot_hide_uncertain_checkpoint() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let id = profile.create_character(input("Uncertain")).unwrap();
+    let position = profile.character(id).unwrap().position;
+    profile
+        .storage
+        .inject_fault(storage::SaveFault::AfterRename);
+    let mut moved = position;
+    moved.position[0] += 1.0;
+    assert!(matches!(
+        profile.save_position(id, moved),
+        Err(Error::CommitUncertain)
+    ));
+    assert!(matches!(
+        profile.save_position(id, position),
+        Err(Error::CommitUncertain)
+    ));
+}

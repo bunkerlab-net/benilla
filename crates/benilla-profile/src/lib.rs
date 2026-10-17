@@ -572,6 +572,12 @@ impl ProfileStore {
             .find(|c| c.id == id)
             .ok_or(Error::Invalid("character does not belong to this profile"))?;
         if character.position == position {
+            // An unchanged pose still represents a checkpoint: do not claim success if
+            // the last commit was uncertain or another writer replaced the saved profile.
+            if self.uncertain {
+                return Err(Error::CommitUncertain);
+            }
+            self.storage.verified_current(self.disk_hash)?;
             return Ok(());
         }
         character.position = position;
