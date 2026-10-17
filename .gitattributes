@@ -53,3 +53,7 @@ crates/benilla-native-nav/tools/retained_same_poly*.cpp text eol=lf
 crates/benilla-native-nav/tools/retained_same_poly*.md text eol=lf
 crates/benilla-native-nav/tools/retained_same_poly_source_fragments.test-fixture text eol=lf -whitespace
 crates/benilla-native-nav/tools/fixtures/retained-same-poly/*.test-fixture text eol=lf
+
+# SHA-pinned native combat numeric fixtures must retain exact source-oracle bytes.
+crates/benilla-world-runtime/src/native/combat/melee_timers/source_oracle.tsv text eol=lf
+crates/benilla-world-runtime/src/native/interactions/spell_projectile_delay_oracle.tsv text eol=lf
