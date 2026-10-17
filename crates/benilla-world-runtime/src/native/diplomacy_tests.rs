@@ -42,9 +42,9 @@ fn current(w: &NativeWorld, faction: u32) -> i32 {
 }
 fn resign(mut checkpoint: Checkpoint, state: serde_json::Value) -> Checkpoint {
     checkpoint.state = serde_json::from_value(state).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v36\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v37\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v36\0",
+        b"benilla-native-checkpoint-v37\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint
@@ -218,10 +218,10 @@ fn zero_gain_still_calls_reputation_callbacks_and_slot_flags_still_gate_spillove
 
 #[test]
 fn old_quest_policy_and_nested_identity_tampering_cannot_be_reblessed() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 36);
+    assert_eq!(NATIVE_FORMAT_VERSION, 37);
     assert_eq!(
         init::STARTER_INIT_POLICY_ID,
-        "cmangos-8ec338a1-level1-mage-init-softfloat-v3"
+        "cmangos-8ec338a1-level1-mage-init-softfloat-v4"
     );
     for modifier in [false, true] {
         let w = if modifier {
@@ -363,7 +363,7 @@ fn prior_initializer_profile_identity_rejects_without_changing_native33_shape() 
         .all(|a| a.aura_type != 156));
     // Exactly the prior profile digest contract for this unchanged no-aura input.
     let legacy = crate::digest(
-        b"benilla-native-profile-v36\0",
+        b"benilla-native-profile-v37\0",
         &(
             NATIVE_POLICY,
             NPC_SPELL_POLICY,
@@ -387,7 +387,7 @@ fn prior_initializer_profile_identity_rejects_without_changing_native33_shape() 
     let checkpoint = w.checkpoint().unwrap();
     let mut state = serde_json::to_value(&checkpoint.state).unwrap();
     state["profile"] = serde_json::json!(legacy);
-    assert_eq!(state["version"], 36);
+    assert_eq!(state["version"], 37);
     assert!(NativeWorld::restore_synthetic_component_test(
         w.profile().clone(),
         resign(checkpoint, state)
@@ -415,6 +415,9 @@ fn retained_general_modifier_does_not_open_native_on_kill_or_spell_reputation() 
         Err(NativeError::InvalidProfile)
     ));
     initial.spells[0].words[61] = 103;
+    profile
+        .initialize_player(&initial, synthetic_fixture::float(100.0), 1)
+        .unwrap();
     assert!(matches!(
         profile.initialize_spell_authority(&initial, source),
         Err(NativeError::UnsupportedMechanic(

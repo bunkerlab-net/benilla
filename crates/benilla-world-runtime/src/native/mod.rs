@@ -82,12 +82,12 @@ pub use interactions::{
     FacingNumericPolicy, InitialCastDependencies, InitialSpellLookup, InteractionAudit,
     InteractionCatalog, InteractionControlSeed, InteractionEvidence, InteractionFactionSource,
     InteractionInput, InteractionMoment, InteractionWitness, MeleeCombatFacts, MeleeEntryFacts,
-    NpcCombatAuthoritySource, NpcInteractionSource, NpcSemanticFacts, NpcSpellSource,
-    PeerSightDisposition, PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase,
-    SourceSpellQuery, SourceSpellRequest, SpellAreaSourceRow, SpellAreaSourceRows,
-    SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource, SpellCastTimeSource,
-    SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult, SpellRangeSource,
-    SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
+    NativeInitialCastSourceInput, NpcCombatAuthoritySource, NpcInteractionSource, NpcSemanticFacts,
+    NpcSpellSource, PeerSightDisposition, PlayerInteractionSource, SourceSpellFacts,
+    SourceSpellPhase, SourceSpellQuery, SourceSpellRequest, SpellAreaSourceRow,
+    SpellAreaSourceRows, SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource,
+    SpellCastTimeSource, SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult,
+    SpellRangeSource, SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
     SPELL_AUTHORITY_POLICY,
 };
 pub use motion::*;
@@ -98,15 +98,28 @@ pub use orientation::Orientation;
 mod persistence;
 mod quest_progression;
 pub use quest_progression::*;
+mod initial_cast_location;
+pub use initial_cast_location::{
+    InitialCastEntryLocationFacts, InitialCastEntryLocationQuery, InitialCastEntryLocationSource,
+};
+mod initial_cast_genesis;
+pub use initial_cast_genesis::{
+    GenesisDraw, GenesisEpoch, InitialCastBoundary, InitialCastGenesis, InitialCastSourceBinding,
+    INITIAL_CAST_GENESIS_POLICY,
+};
+#[cfg(test)]
+mod initial_cast_genesis_tests;
 mod rng;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub mod synthetic_initial_cast_fixture;
 use benilla_sim::{classic_spell as spell, creature_ai as ai, mage_resource as mana};
 pub use model::*;
 pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIdentity, TickRecord};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 36;
-pub const NATIVE_POLICY: &str = "benilla-native-source-combat-timers-v36";
+pub const NATIVE_FORMAT_VERSION: u32 = 37;
+pub const NATIVE_POLICY: &str = "benilla-native-initial-cast-genesis-v37";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -210,7 +223,18 @@ impl NativeWorld {
         player: crate::PlayerId,
         seed: u64,
     ) -> Result<Self, NativeError> {
+        Self::synthetic_component_test_with_initial_location(profile, world, player, seed, None)
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub fn synthetic_component_test_with_initial_location(
+        profile: Profile,
+        world: crate::WorldId,
+        player: crate::PlayerId,
+        seed: u64,
+        entry_location: Option<InitialCastEntryLocationFacts>,
+    ) -> Result<Self, NativeError> {
         profile.validate()?;
+        profile.require_realizable_initial_casts()?;
         if profile.admin.as_ref().is_some_and(|p| p.world != world) {
             return Err(NativeError::InvalidProfile);
         }
@@ -277,7 +301,11 @@ impl NativeWorld {
         if profile.source_motion.is_some() {
             player_events.schedule_notify(0, false)?;
         }
+        let initial_cast_genesis =
+            InitialCastGenesis::realize(&profile, world, player, seed, entry_location.as_ref())?;
         let state = State {
+            rng_counter: initial_cast_genesis.end_counter(),
+            initial_cast_genesis,
             source_location: None,
             event_ai: EventAiState::new(&profile)?,
             source_player_environment: PlayerEnvironmentState::new(&profile, world, player)?,
@@ -305,7 +333,6 @@ impl NativeWorld {
             npcs,
             casts: BTreeMap::new(),
             next_cast_id: 1,
-            rng_counter: 0,
             quest_progression: profile
                 .quest_progression
                 .as_ref()
@@ -317,14 +344,16 @@ impl NativeWorld {
                 .map(|g| PlayerCombatState::new(g, profile.clock_origin_ms))
                 .transpose()?,
         };
-        Ok(Self {
+        let result = Self {
             profile_digest: profile.digest(),
             profile,
             state,
             journal: Vec::new(),
             journal_bytes: 2,
             journal_tip: [0; 32],
-        })
+        };
+        result.checkpoint()?;
+        Ok(result)
     }
     pub fn profile(&self) -> &Profile {
         &self.profile
@@ -333,7 +362,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v36\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v37\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

@@ -162,7 +162,7 @@ dependencies; this receipt supplies none of them.
 
 ## Persistence and checks
 
-Native format 36 (`benilla-native-source-combat-timers-v36`) binds the typed route owner
+Native format 37 (`benilla-native-initial-cast-genesis-v37`) binds the typed route owner
 transcript through profile, state, record, checkpoint and source-action digest
 domains. Format 28 and earlier saves/records are rejected rather than rewriting
 `Spatial(Route)` receipts or inventing an owner witness. The original fixture

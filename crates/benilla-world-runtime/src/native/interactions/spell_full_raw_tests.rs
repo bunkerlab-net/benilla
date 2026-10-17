@@ -99,20 +99,14 @@ fn start(w: &mut NativeWorld, a: &mut impl Authority) {
 fn timers(w: &NativeWorld) -> [u32; 2] {
     w.state.combat.as_ref().unwrap().melee_timers.remaining_ms()
 }
-fn rehash(mut value: serde_json::Value) -> Checkpoint {
-    value["digest"] = serde_json::to_value(crate::digest(
-        b"benilla-native-state-v36\0",
-        &value["state"],
-    ))
-    .unwrap();
-    let digest: crate::Digest = serde_json::from_value(value["digest"].clone()).unwrap();
-    let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
-    value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v36\0",
-        &(&value["state"], digest, tip),
-    ))
-    .unwrap();
-    serde_json::from_value(value).unwrap()
+fn rehash(value: serde_json::Value) -> Checkpoint {
+    let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
+    checkpoint.digest = crate::digest(b"benilla-native-state-v37\0", &checkpoint.state);
+    checkpoint.checksum = crate::digest(
+        b"benilla-native-checkpoint-v37\0",
+        &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
+    );
+    Checkpoint::decode(&checkpoint.encode().unwrap()).unwrap()
 }
 
 #[test]
@@ -263,7 +257,7 @@ fn retained_reset_and_idle_state_reject_rehashed_tampering_after_projectile_fini
                 combat["melee_reset"]["release_receipt"]["request"]["binding"]["tick"] =
                     serde_json::json!(2)
             }
-            13 => combat["melee_reset"]["origin"]["x"] = serde_json::json!(0),
+            13 => combat["melee_reset"]["origin"]["x"] = serde_json::json!(f::real(1.0).bits()),
             14 => {
                 combat["melee_reset"]["release_receipt"]["request"]["query"]["SourceSpell"]
                     ["Semantics"]["scheduler"]["due"]["add_time_ms"] = serde_json::json!(100)
@@ -289,11 +283,12 @@ fn retained_reset_and_idle_state_reject_rehashed_tampering_after_projectile_fini
             let receipt: AuthorityReply =
                 serde_json::from_value(combat["melee_reset"]["release_receipt"].clone()).unwrap();
             combat["melee_reset"]["release_receipt_digest"] = serde_json::to_value(crate::digest(
-                b"benilla-native-melee-release-receipt-v36\0",
+                b"benilla-native-melee-release-receipt-v37\0",
                 &receipt,
             ))
             .unwrap();
         }
+        assert_ne!(changed, cp, "case{case} must change the retained evidence");
         assert!(
             NativeWorld::restore_synthetic_component_test(w.profile.clone(), rehash(changed))
                 .is_err(),
@@ -307,6 +302,107 @@ fn retained_reset_and_idle_state_reject_rehashed_tampering_after_projectile_fini
             .unwrap()
             .remove(field);
         assert!(serde_json::from_value::<Checkpoint>(missing).is_err());
+    }
+}
+
+#[test]
+fn native36_and_native35_release_receipts_reject_after_current_checkpoint_rehash() {
+    let mut w = world(7);
+    let mut authority = fixture::spatial_only();
+    start(&mut w, &mut authority);
+    for _ in 0..10 {
+        advance(&mut w, &mut authority);
+    }
+    assert!(w.state.casts.is_empty());
+    let checkpoint = serde_json::to_value(w.checkpoint().unwrap()).unwrap();
+    let retained = &checkpoint["state"]["combat"]["melee_reset"];
+    let receipt: AuthorityReply =
+        serde_json::from_value(retained["release_receipt"].clone()).unwrap();
+    assert_eq!(
+        retained["release_receipt_digest"],
+        serde_json::to_value(crate::digest(
+            b"benilla-native-melee-release-receipt-v37\0",
+            &receipt,
+        ))
+        .unwrap()
+    );
+    for (version, policy) in [
+        (35, "benilla-native-corpse-carried-items-v35"),
+        (36, "benilla-native-source-combat-timers-v36"),
+    ] {
+        for old_receipt_domain in [false, true] {
+            let mut forged = checkpoint.clone();
+            let reset = &mut forged["state"]["combat"]["melee_reset"];
+            let mut receipt: AuthorityReply =
+                serde_json::from_value(reset["release_receipt"].clone()).unwrap();
+            if !old_receipt_domain {
+                receipt.request.binding.profile =
+                    crate::native::tests::profile_identity_for_format(w.profile(), version, policy);
+                reset["release_receipt"] = serde_json::to_value(&receipt).unwrap();
+            }
+            reset["release_receipt_digest"] = serde_json::to_value(crate::digest(
+                format!(
+                    "benilla-native-melee-release-receipt-v{}\0",
+                    if old_receipt_domain { version } else { 37 }
+                )
+                .as_bytes(),
+                &receipt,
+            ))
+            .unwrap();
+            let decoded = rehash(forged);
+            assert!(
+                NativeWorld::restore_synthetic_component_test(w.profile.clone(), decoded).is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn native36_and_native35_source_phase_profiles_reject_with_rehashed_record_chain() {
+    let mut w = world(7);
+    let initial = w.checkpoint().unwrap();
+    let mut authority = fixture::spatial_only();
+    start(&mut w, &mut authority);
+    for _ in 0..10 {
+        advance(&mut w, &mut authority);
+    }
+    for (version, policy) in [
+        (35, "benilla-native-corpse-carried-items-v35"),
+        (36, "benilla-native-source-combat-timers-v36"),
+    ] {
+        for scheduled in [false, true] {
+            let mut records = w.records().to_vec();
+            let mut changed = 0;
+            for record in &mut records {
+                for reply in &mut record.replies {
+                    let context = match &reply.request.query {
+                        Query::SourceSpell(SourceSpellQuery::Semantics(context)) => context,
+                        _ => continue,
+                    };
+                    if context.scheduler.is_some() != scheduled {
+                        continue;
+                    }
+                    reply.request.binding.profile =
+                        crate::native::tests::profile_identity_for_format(
+                            w.profile(),
+                            version,
+                            policy,
+                        );
+                    changed += 1;
+                }
+            }
+            assert!(changed > 0, "scheduled={scheduled}");
+            for index in 1..records.len() {
+                records[index].previous_record = records[index - 1].digest();
+            }
+            let decoded = decode_records(&encode_records(&records).unwrap()).unwrap();
+            let mut replay =
+                NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone())
+                    .unwrap();
+            assert_eq!(replay.replay(&decoded), Err(NativeError::ReplayMismatch));
+            assert_eq!(replay.checkpoint().unwrap(), initial);
+            assert!(replay.records().is_empty());
+        }
     }
 }
 

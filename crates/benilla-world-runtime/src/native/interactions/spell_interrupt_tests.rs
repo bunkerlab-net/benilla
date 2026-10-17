@@ -191,11 +191,11 @@ fn selected_npc_damage_pushback_depends_on_bit_two_not_movement() {
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: crate::native::persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v36\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v37\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v36\0",
+        b"benilla-native-checkpoint-v37\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -206,12 +206,13 @@ fn rehash(mut value: serde_json::Value) -> Checkpoint {
 fn old_policy_only_and_old_bit_eight_contexts_refuse_restore_and_replay_after_outer_rehash() {
     assert_eq!(
         SPELL_AUTHORITY_POLICY,
-        "cmangos-8ec338a1-native-spell-authority-v6"
+        "cmangos-8ec338a1-native-spell-authority-v7"
     );
     for old_policy in [
         "cmangos-8ec338a1-native-spell-authority-v3",
         "cmangos-8ec338a1-native-spell-authority-v4",
         "cmangos-8ec338a1-native-spell-authority-v5",
+        "cmangos-8ec338a1-native-spell-authority-v6",
     ] {
         for old_bit_eight in [false, true] {
             let current = profile(u32::from(old_bit_eight), 200);
@@ -266,5 +267,5 @@ fn old_policy_only_and_old_bit_eight_contexts_refuse_restore_and_replay_after_ou
             assert_eq!(replay.checkpoint().unwrap(), initial);
         }
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 36);
+    assert_eq!(NATIVE_FORMAT_VERSION, 37);
 }

@@ -615,17 +615,17 @@ fn source_contract_rejects_published_format_ten_and_source_profile_substitution(
     p.initialize_spell_authority(&initial_input, source)
         .unwrap();
     assert!(NativeWorld::restore_synthetic_component_test(p, initial).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 36);
+    assert_eq!(NATIVE_FORMAT_VERSION, 37);
 }
 
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v36\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v37\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v36\0",
+        b"benilla-native-checkpoint-v37\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -775,15 +775,32 @@ fn initial_cast_interrupt_aura_flags_and_raw_cost_mismatch_never_select() {
         if let benilla_sim::starter_init::Rows::Complete(rows) = &mut initial.default_spells {
             rows.push(60100);
         }
-        // The raw initializer alone accepts this stat passive; the selected
-        // host closes the aura-removal lifecycle before reconstructing genesis.
+        // The raw initializer accepts this stat passive. Bind the changed
+        // source first, so the selected host reaches its aura-removal gate.
         benilla_sim::starter_init::initialize_mage(&initial).unwrap();
         assert!(matches!(
+            p.initialize_spell_authority(&initial, source.clone()),
+            Err(NativeError::InvalidProfile)
+        ));
+        let original = p.clone();
+        assert_eq!(
+            p.initialize_player(&initial, f::float(100.0), 1),
+            Err(NativeError::UnsupportedMechanic(
+                "source motion interruptible initial player auras"
+            ))
+        );
+        assert_eq!(p, original);
+        // A separately authored player-only fixture isolates the spell-selector
+        // guard from the source-motion/combat hosts' earlier rejection.
+        p = f::initialized_profile();
+        fixture::rekey(&mut p, &mut initial);
+        p.initialize_player(&initial, f::float(100.0), 1).unwrap();
+        assert_eq!(
             p.initialize_spell_authority(&initial, source),
             Err(NativeError::UnsupportedMechanic(
                 "initial spell aura-interrupt lifecycle"
             ))
-        ));
+        );
     }
     let (mut p, mut initial, mut source) = fixture::inputs();
     source.spells[0].words[32] += 1;

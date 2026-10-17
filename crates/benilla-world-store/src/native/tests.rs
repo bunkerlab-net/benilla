@@ -340,6 +340,8 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
         (15, "benilla-native-npc-triggered-v15"),
         (31, "benilla-native-first-owned-pathfinder-cache-v31"),
         (32, "benilla-native-owner-motion-genesis-v32"),
+        (35, "benilla-native-corpse-carried-items-v35"),
+        (36, "benilla-native-source-combat-timers-v36"),
     ] {
         for incompatible in ["world.checkpoint", "world.previous"] {
             let t = Temp::new();
@@ -384,6 +386,157 @@ fn prior_native_formats_current_or_previous_are_preserved_on_refusal() {
             );
             assert_eq!(fs::read(t.path().join("world.previous")).unwrap(), previous);
         }
+    }
+}
+
+#[test]
+fn native36_and_native35_records_cannot_enter_a_fresh_version_one_envelope() {
+    for version in [35, 36] {
+        let t = Temp::new();
+        let mut world = f::world();
+        let (mut store, _) = NativeStore::create(t.path(), &world).unwrap();
+        tick(&mut world);
+        store.checkpoint(&mut world).unwrap();
+        drop(store);
+        let path = t.path().join("world.checkpoint");
+        let mut envelope = Envelope::decode(&fs::read(&path).unwrap()).unwrap();
+        assert!(!envelope.records.is_empty());
+        envelope.records[0].version = version;
+        let forged = envelope.encode().unwrap();
+        assert_eq!(&forged[..8], b"BNNATV1\0");
+        assert_eq!(u32::from_le_bytes(forged[8..12].try_into().unwrap()), 1);
+        assert_eq!(
+            checksum(&forged[..forged.len() - 32]),
+            forged[forged.len() - 32..]
+        );
+        fs::write(&path, &forged).unwrap();
+        assert!(open(&t.path()).is_err());
+        assert_eq!(fs::read(path).unwrap(), forged);
+    }
+}
+
+#[test]
+fn rewritten_native36_body_requires_non_null_genesis_inside_valid_version_one_envelope() {
+    for missing in [false, true] {
+        let t = Temp::new();
+        let world = f::world();
+        let (store, _) = NativeStore::create(t.path(), &world).unwrap();
+        drop(store);
+        let path = t.path().join("world.checkpoint");
+        let original = fs::read(&path).unwrap();
+        let envelope = Envelope::decode(&original).unwrap();
+        let mut checkpoint = serde_json::to_value(&envelope.base).unwrap();
+        let state = checkpoint["state"].as_object_mut().unwrap();
+        assert!(state.contains_key("initial_cast_genesis"));
+        if missing {
+            state.remove("initial_cast_genesis");
+        } else {
+            state.insert("initial_cast_genesis".into(), serde_json::Value::Null);
+        }
+        assert!(serde_json::from_value::<Checkpoint>(checkpoint.clone()).is_err());
+        // A native36 body has no genesis receipt. Rewriting its headers and all
+        // integrity hashes cannot supply the required native37 initialization.
+        let hash = |kind: &str, value: &serde_json::Value| -> Digest {
+            let mut h = Sha256::new();
+            h.update(format!("benilla-native-{kind}-v37\0").as_bytes());
+            h.update(serde_json::to_vec(value).unwrap());
+            h.finalize().into()
+        };
+        checkpoint["digest"] = serde_json::to_value(hash("state", &checkpoint["state"])).unwrap();
+        checkpoint["checksum"] = serde_json::to_value(hash(
+            "checkpoint",
+            &serde_json::json!([
+                checkpoint["state"],
+                checkpoint["digest"],
+                checkpoint["history_tip"]
+            ]),
+        ))
+        .unwrap();
+        let snapshot = serde_json::to_vec(&checkpoint).unwrap();
+        let journal = encode_records(&envelope.records).unwrap();
+        let mut forged = original[..HEADER].to_vec();
+        forged[52..56].copy_from_slice(&(snapshot.len() as u32).to_le_bytes());
+        forged[56..60].copy_from_slice(&(journal.len() as u32).to_le_bytes());
+        forged.extend(snapshot);
+        forged.extend(journal);
+        forged.extend(checksum(&forged));
+        assert_eq!(u32::from_le_bytes(forged[8..12].try_into().unwrap()), 1);
+        assert_eq!(
+            checksum(&forged[..forged.len() - 32]),
+            forged[forged.len() - 32..]
+        );
+        fs::write(&path, &forged).unwrap();
+        assert!(open(&t.path()).is_err());
+        assert_eq!(fs::read(path).unwrap(), forged);
+    }
+}
+
+#[test]
+fn positive_genesis_baseline_survives_create_commit_acknowledge_and_reopen() {
+    use benilla_world_runtime::native::synthetic_initial_cast_fixture as initial;
+    let t = Temp::new();
+    let mut world = initial::world(7);
+    assert_eq!(world.state().tick, 0);
+    assert!(world.state().rng_counter > 0);
+    assert!(world.records().is_empty());
+    let initial_checkpoint = world.checkpoint().unwrap();
+    let genesis =
+        serde_json::to_value(&initial_checkpoint).unwrap()["state"]["initial_cast_genesis"].clone();
+    let identity = Identity::of(&initial_checkpoint);
+    let profile = world.profile().clone();
+    let (mut store, receipt) = NativeStore::create(t.path(), &world).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    assert_eq!(world.checkpoint().unwrap(), initial_checkpoint);
+    tick(&mut world);
+    let prepared = store.prepare(&world).unwrap();
+    let receipt = store.commit(prepared).unwrap();
+    receipt.acknowledge(&mut world).unwrap();
+    let expected = world.checkpoint().unwrap();
+    drop(store);
+    let (_, restored) = NativeStore::open(t.path(), identity, |checkpoint| {
+        NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint)
+    })
+    .unwrap();
+    assert_eq!(restored.checkpoint().unwrap(), expected);
+    assert_eq!(
+        serde_json::to_value(expected).unwrap()["state"]["initial_cast_genesis"],
+        genesis
+    );
+    assert!(t.path().join("world.previous").exists());
+}
+
+#[test]
+fn positive_genesis_survives_uncertain_publication_and_previous_good_recovery() {
+    use super::super::storage::SaveFault;
+    use benilla_world_runtime::native::synthetic_initial_cast_fixture as initial;
+    for fault in [SaveFault::AfterPreviousRename, SaveFault::AfterRename] {
+        let t = Temp::new();
+        let mut world = initial::world(7);
+        let genesis = world.state().initial_cast_genesis.clone();
+        assert!(genesis.end_counter() > 0);
+        let old = world.checkpoint().unwrap();
+        let identity = Identity::of(&old);
+        let profile = world.profile().clone();
+        let (mut store, _) = NativeStore::create(t.path(), &world).unwrap();
+        tick(&mut world);
+        let new = world.checkpoint().unwrap();
+        store.storage.inject_fault(fault);
+        assert!(store.checkpoint(&mut world).is_err());
+        assert!(store.requires_reopen());
+        assert_eq!(world.records().len(), 1);
+        assert_eq!(world.state().initial_cast_genesis, genesis);
+        drop(store);
+        let (_, restored) = NativeStore::open(t.path(), identity, |checkpoint| {
+            NativeWorld::restore_synthetic_component_test(profile.clone(), checkpoint)
+        })
+        .unwrap();
+        assert_eq!(restored.state().initial_cast_genesis, genesis);
+        let expected = if matches!(fault, SaveFault::AfterPreviousRename) {
+            old
+        } else {
+            new
+        };
+        assert_eq!(restored.checkpoint().unwrap(), expected);
     }
 }
 

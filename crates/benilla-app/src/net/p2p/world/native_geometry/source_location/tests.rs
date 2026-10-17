@@ -443,3 +443,118 @@ fn actual_location_provider_runs_nonempty_source_table_scope_and_rejects_matchin
         }
     }
 }
+
+#[test]
+fn first_entry_uses_owned_reader_with_full_nonempty_area_scope_and_exact_pose() {
+    use benilla_world_runtime::native::{
+        synthetic_initial_cast_fixture, InitialCastEntryLocationQuery,
+        InitialCastEntryLocationSource, SpellAreaSourceRow, SpellAreaSourceRows,
+    };
+    let (mut profile, input, prepared, mut source) = synthetic_initial_cast_fixture::inputs();
+    profile.player.start = ai::Point::new(0., 0., 7.).unwrap();
+    let snapshot = authored_source_location(profile.map_id, profile.content_digest, Some((9, 12)));
+    source.entry_location = Some(
+        InitialCastEntryLocationSource::new(
+            snapshot.location_binding(),
+            snapshot.location_catalog().clone(),
+        )
+        .unwrap(),
+    );
+    source.hooks.spell_area = SpellAreaSourceRows::CompleteTable(vec![SpellAreaSourceRow {
+        spell: 6298,
+        area: 148,
+        quest_start: 0,
+        quest_start_active: 0,
+        quest_end: 0,
+        condition_id: 0,
+        aura_spell: 0,
+        racemask: 0,
+        gender: 2,
+        autocast: 0,
+    }]);
+    let mut numeric = prepared.dependencies().clone();
+    numeric.hook_scope_identity = source.hook_scope_identity();
+    let prepared =
+        benilla_sim::starter_init::prepare_starter(&input, &numeric, prepared.order()).unwrap();
+    profile
+        .initialize_player_prepared(&input, &prepared, fixture::float(100.), 1)
+        .unwrap();
+    profile
+        .initialize_initial_cast_source(&input, source)
+        .unwrap();
+    let session = Session {
+        world: [8; 16],
+        profile: profile.digest(),
+        policy: profile.authority_policy,
+        content: profile.content_digest,
+        geometry: profile.geometry_revision,
+        map: profile.map_id,
+        bodies: BTreeMap::new(),
+        player: Some(PlayerMotion {
+            body: Body {
+                radius: profile.player.bounding_radius,
+                height: ai::Real::new(2.).unwrap(),
+            },
+            speed: ai::Real::new(7.).unwrap(),
+        }),
+        participants: Some(NonRenderParticipants::authored_fixture(
+            profile.content_digest,
+            profile.map_id,
+        )),
+        static_los: None,
+        primary_near_point: None,
+        empty_selector_near_point: None,
+        same_polygon_route: None,
+        player_environment: None,
+        source_location: None,
+    };
+    let query =
+        InitialCastEntryLocationQuery::new(&profile, session.world, fixture::player()).unwrap();
+    let provider =
+        InitialCastEntryLocationProvider::bind(&session, &profile, fixture::player(), snapshot)
+            .unwrap();
+    let facts = provider.resolve(&session, &query, deadline()).unwrap();
+    assert_eq!((facts.zone_id(), facts.area_id()), (12, 9));
+    let world = NativeWorld::synthetic_component_test_with_initial_location(
+        profile.clone(),
+        session.world,
+        fixture::player(),
+        7,
+        Some(facts),
+    )
+    .unwrap();
+    assert_eq!(world.state().rng_counter, 1);
+    let restored =
+        NativeWorld::restore_synthetic_component_test(profile.clone(), world.checkpoint().unwrap())
+            .unwrap();
+    assert_eq!(restored.checkpoint().unwrap(), world.checkpoint().unwrap());
+    let mut wrong = session.clone();
+    wrong.world[0] ^= 1;
+    assert_eq!(
+        provider.resolve(&wrong, &query, deadline()),
+        Err(Failure::Binding)
+    );
+    let mut shifted = profile.clone();
+    shifted.player.start.x = ai::Real::new(1.).unwrap();
+    let shifted_query =
+        InitialCastEntryLocationQuery::new(&shifted, session.world, fixture::player()).unwrap();
+    assert_eq!(
+        provider.resolve(&session, &shifted_query, deadline()),
+        Err(Failure::Binding)
+    );
+    assert_eq!(
+        provider.resolve(&session, &query, Instant::now()),
+        Err(Failure::Deadline)
+    );
+    let wrong_snapshot =
+        authored_source_location(profile.map_id, profile.content_digest, Some((9, 13)));
+    assert!(matches!(
+        InitialCastEntryLocationProvider::bind(
+            &session,
+            &profile,
+            fixture::player(),
+            wrong_snapshot
+        ),
+        Err(Failure::Binding)
+    ));
+}

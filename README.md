@@ -44,6 +44,12 @@ matchmaking service or elected game host runs in P2P mode.
   protocol projection and durable checkpoints. The app now contains a tested
   command/tick/checkpoint controller, but native-content entry remains gated; these
   mechanics are not yet available through the player UI
+- Native component [format 37](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
+  binds seed-independent initial-cast plans to a once-only first-world-entry RNG
+  receipt. Earlier native saves reject without migration; RNG v2, original World
+  v2 and character saves retain their own contracts. Authored fixtures establish
+  this mechanism only; actual Human source order/data and production admission
+  remain unproved
 - `benilla-sim` contains GPL-covered CMaNGOS-derived deterministic XP, selected
   stat/armor, quest-reward and target-validation primitives, plus bounded native
   spell/AI/melee, creation/equipment and death reducers with provenance and parity

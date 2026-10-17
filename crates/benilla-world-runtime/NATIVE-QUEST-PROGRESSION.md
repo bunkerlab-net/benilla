@@ -13,8 +13,9 @@ capture fits the supported domain.
 `Profile::initialize_quest_progression` takes the actual starter initializer and
 `QuestProgressionInput`. It stages and validates the entire optional genesis;
 merely loading a quest catalog does not bypass validation. Native format/policy
-is native36 (`benilla-native-source-combat-timers-v36`), quest genesis policy v5,
-and live training journal v2.
+is native37 (`benilla-native-initial-cast-genesis-v37`), quest genesis policy v6,
+and live training policy v3 with its unchanged journal layout v2. Quest genesis
+also binds the immutable prepared first-entry identity, when selected.
 Older policies are rejected rather than silently migrated.
 
 Required caller inputs include actual level/XP/class rows, source skill order and
@@ -92,7 +93,7 @@ training/stat histories. The cast checkpoint records the exact prepare recipe an
 release rank/cost, and restore also verifies the exact release timestamp against
 projectile travel. Unsupported next-level source context still rejects the whole
 transaction; true rank replacement and unsupported learning remain excluded.
-Native format 36 explicitly rejects prior schemas; cast checkpoints use version 3,
+Native format 37 explicitly rejects prior schemas; cast checkpoints use version 3,
 while common resource and aura checkpoints use versions 1 and 2 respectively. No migration or production
 NativeCapability admission is added. The authored controller harness drives the
 actual stock command/projection/store path with save failures and pending/flight
@@ -171,7 +172,7 @@ exactly-once delivery claim. Durable quest/XP/money awards themselves remain onc
 
 ## Distinct-actor source-selected component loop
 
-The authored native36 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
+The authored native37 [two-actor fixture](src/native/synthetic_distinct_quest_fixture.rs)
 composes the selected interaction, combat, spell-133, current-pose facing, complete
 visitor, quest, progression and loot hosts. A is the hostile kill target; neutral-to-all
 B is both starter and finisher with matching QUESTGIVER flags and relations. B keeps
@@ -254,7 +255,7 @@ cargo clippy -p benilla-sim -p benilla-world-runtime -p benilla-world-client \
 
 ## Corpse-carried metadata boundary
 
-Native36 retains corpse acquisition of inert carried metadata and
+Native37 retains corpse acquisition of inert carried metadata and
 ordinary empty bags through the checked inventory corpse policy. Unused spell
 cooldowns, all five charges and durability retain source values; Bag instances
 retain source container slots and zero creation charges. The existing sixteen
@@ -265,7 +266,7 @@ self-unbinding are not used. Quest rewards and starter inventory still use the
 unchanged ordinary readiness; timed/auto-reward quest and effect audits remain.
 
 Inventory policy v5, corpse policy v1, loot genesis v2 and corpse-item receipt v2
-are bound under native36 profile/state/record/checkpoint identities. Native35 and earlier
+are bound under native37 profile/state/record/checkpoint identities. Native36 and earlier
 headers, policies, legacy digest domains and profile contexts reject, including
 rehashed outer checkpoints/journals; no serde defaults or replay migration exist.
 References remain unsupported without separate catalog/rate semantics and genuine

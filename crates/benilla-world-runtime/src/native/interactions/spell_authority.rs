@@ -11,8 +11,12 @@ use std::collections::BTreeSet;
 mod initial_cast_source;
 #[path = "spell_area_source.rs"]
 mod spell_area_source;
-use initial_cast_source::InitialCastProof;
-pub use initial_cast_source::{InitialCastDependencies, InitialSpellLookup};
+pub use init::{SpellCastTimeSource, SpellDurationSource};
+pub(in crate::native) use initial_cast_source::InitialCastProof;
+pub(in crate::native) use initial_cast_source::InitialCastSourceSeal;
+pub use initial_cast_source::{
+    InitialCastDependencies, InitialSpellLookup, NativeInitialCastSourceInput,
+};
 pub use spell_area_source::{SpellAreaSourceRow, SpellAreaSourceRows};
 
 #[cfg(test)]
@@ -22,7 +26,7 @@ mod full_raw_tests;
 #[path = "spell_interrupt_tests.rs"]
 mod interrupt_tests;
 
-pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v6";
+pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v7";
 const CANT_CRIT: u32 = 0x2000_0000;
 const NOT_SHAPESHIFT: u32 = 0x0001_0000;
 const FIREBALL_BONUS_COEFFICIENT: u32 = 0x3dfb_e76d;
@@ -156,20 +160,6 @@ pub struct SpellRangeSource {
     pub maximum: spell::SpellFloat,
     pub flags: u32,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub struct SpellCastTimeSource {
-    pub id: u32,
-    pub base_ms: i32,
-    pub per_level_ms: i32,
-    pub minimum_ms: i32,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub struct SpellDurationSource {
-    pub id: u32,
-    pub base_ms: i32,
-    pub per_level_ms: i32,
-    pub maximum_ms: i32,
-}
 /// Numeric SpellEntry AFTER all spell_template overrides, not a client-only row.
 /// Retains all 173 DBC words and the server-only semantic fields separately.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -299,8 +289,16 @@ impl Profile {
         if full_raw {
             InitialCastProof::check_bound(initial)?;
         }
-        let mage = init::initialize_mage(initial)?;
-        let initial_cast = if full_raw {
+        let combat = self.combat.as_ref().ok_or(NativeError::InvalidProfile)?;
+        let mage = combat.initialized_projection(initial)?;
+        let initial_cast = if let Some(prepared) = &combat.prepared {
+            self.require_realizable_initial_casts()?;
+            Some(InitialCastProof::from_prepared(
+                initial,
+                prepared,
+                input.initial_cast_dependencies,
+            )?)
+        } else if full_raw {
             Some(InitialCastProof::new(
                 initial,
                 &mage,
@@ -334,11 +332,7 @@ impl Profile {
         // The typed availability list alone does not prove modifier exclusions.
         // Re-run the raw initializer and compare its owned genesis with this profile.
         let mut reconstructed = self.clone();
-        reconstructed.initialize_player(
-            initial,
-            combat.durability_hit_chance,
-            combat.defense_gain,
-        )?;
+        reconstructed.reinitialize_player(initial, combat)?;
         if reconstructed.combat != self.combat || reconstructed.player != self.player {
             return Err(NativeError::InvalidProfile);
         }
@@ -439,7 +433,7 @@ impl SpellAuthorityCatalog {
             .spells
             .values()
             .any(SpellAuthoritySource::requires_full_domain);
-        if full_raw != self.initial_cast.is_some() {
+        if (full_raw || combat.prepared.is_some()) != self.initial_cast.is_some() {
             return Err(NativeError::InvalidProfile);
         }
         let mut scope = self.spells.keys().copied().collect::<BTreeSet<_>>();
@@ -1041,6 +1035,11 @@ fn initial_modifier_identity(combat: &CombatGenesis) -> crate::Digest {
             &combat.equipment_weapons,
             &combat.initial_auras,
             combat.proficiencies,
+            combat.input_identity,
+            combat
+                .prepared
+                .as_ref()
+                .map(init::PreparedStarter::identity),
         ),
     )
 }

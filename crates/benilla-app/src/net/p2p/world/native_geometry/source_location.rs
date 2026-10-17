@@ -107,3 +107,107 @@ impl SourceLocationProvider {
 #[cfg(test)]
 #[path = "source_location/tests.rs"]
 pub(super) mod tests;
+
+/// Owned first-entry reader. A separate query prevents a tick-zero genesis fact
+/// from being substituted for the normal source-location update observation.
+pub(crate) struct InitialCastEntryLocationProvider {
+    snapshot: TerrainAreaSnapshot<'static>,
+    session: Session,
+    profile: Profile,
+    player: PlayerId,
+}
+impl InitialCastEntryLocationProvider {
+    pub(crate) fn bind(
+        session: &Session,
+        profile: &Profile,
+        player: PlayerId,
+        snapshot: TerrainAreaSnapshot<'static>,
+    ) -> Result<Self, Failure> {
+        session.check_participants()?;
+        profile.validate().map_err(|_| Failure::Binding)?;
+        if session.profile != profile.digest()
+            || session.map != profile.map_id
+            || session.content != profile.content_digest
+            || session.geometry != profile.geometry_revision
+            || session.policy != profile.authority_policy
+        {
+            return Err(Failure::Binding);
+        }
+        let query = benilla_world_runtime::native::InitialCastEntryLocationQuery::new(
+            profile,
+            session.world,
+            player,
+        )
+        .map_err(|_| Failure::Binding)?;
+        if query.snapshot_binding() != snapshot.location_binding() {
+            return Err(Failure::Binding);
+        }
+        // The byte-derived catalog digest is part of location_binding; the
+        // snapshot retains all actual terrain/VMap readers, not asserted IDs.
+        Ok(Self {
+            snapshot,
+            session: session.clone(),
+            profile: profile.clone(),
+            player,
+        })
+    }
+    pub(crate) fn resolve(
+        &self,
+        session: &Session,
+        query: &benilla_world_runtime::native::InitialCastEntryLocationQuery,
+        deadline: Instant,
+    ) -> Result<benilla_world_runtime::native::InitialCastEntryLocationFacts, Failure> {
+        if Instant::now() >= deadline {
+            return Err(Failure::Deadline);
+        }
+        if session != &self.session {
+            return Err(Failure::Binding);
+        }
+        query
+            .validate_for(&self.profile, session.world, self.player)
+            .map_err(|_| Failure::Binding)?;
+        if query.snapshot_binding() != self.snapshot.location_binding() {
+            return Err(Failure::Binding);
+        }
+        let pose = query.pose().position;
+        let request = TerrainAreaRequest {
+            snapshot: self.snapshot.binding(),
+            ticket: 1,
+            position: [pose.x.bits(), pose.y.bits(), pose.z.bits()],
+        };
+        let reply =
+            self.snapshot
+                .query_location(request, deadline)
+                .map_err(|error| match error {
+                    Error::Identity => Failure::Binding,
+                    Error::Deadline => Failure::Deadline,
+                    _ => Failure::MissingGeometry,
+                })?;
+        if reply.request != request {
+            return Err(Failure::Binding);
+        }
+        let facts = benilla_world_runtime::native::InitialCastEntryLocationFacts::new(
+            query,
+            self.snapshot.location_catalog(),
+            reply.result.area_flag,
+        )
+        .map_err(|_| Failure::Binding)?;
+        let area = reply.result.area.map(|a| SourceLocationArea {
+            id: a.id,
+            map_id: a.map_id,
+            zone: a.zone,
+            explore_flag: a.explore_flag,
+            liquid_override: a.liquid_override,
+        });
+        if facts.area() != area
+            || facts.zone_id() != reply.result.zone_id
+            || facts.area_id() != reply.result.area_id
+        {
+            return Err(Failure::Binding);
+        }
+        if Instant::now() >= deadline {
+            return Err(Failure::Deadline);
+        }
+        Ok(facts)
+    }
+}

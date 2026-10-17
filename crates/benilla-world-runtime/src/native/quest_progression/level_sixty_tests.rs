@@ -262,6 +262,9 @@ fn defense_sensitive_future_learning_is_not_hidden_by_level_only_probe() {
         spell_id: 60999,
         unavailable_reason: Some("authored future active".into()),
     });
+    // Rebind the exact changed source without learning the future spell, then
+    // independently exercise the defense-sensitive capacity admission guard.
+    p.initialize_player(&input, float(100.0), 1).unwrap();
     assert_eq!(
         p.initialize_quest_progression(&input, rows).unwrap_err(),
         NativeError::UnsupportedMechanic("unproved defense-sensitive progression training")

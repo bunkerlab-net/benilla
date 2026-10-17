@@ -75,11 +75,11 @@ queue ordering; a newer successful release replaces the witness in that order.
 Weapon-break/level callbacks change current attack times without retroactively
 changing an already-running countdown or its release-time equipment recipe.
 
-The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v6`.
-Native format 36 uses `benilla-native-source-combat-timers-v36` across profile,
+The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v7`.
+Native format 37 uses `benilla-native-initial-cast-genesis-v37` across profile,
 state, record, checkpoint, melee-action, melee-chain and visitor-callback hashes.
-The new melee-release receipt integrity domain is also explicitly v36.
-Native35 and earlier checkpoints/journals and old selected catalog policies
+The melee-release receipt integrity domain is also explicitly v37.
+Native36 and earlier checkpoints/journals and old selected catalog policies
 reject, including current outer rehashes and stale historical profile contexts.
 Original World v2 and separate character/profile save formats are unchanged.
 
@@ -94,7 +94,8 @@ Inputs retain all 173 numeric SpellEntry words **after spell_template overrides*
 server attributes and bonus coefficients, cast-time/duration/range/category/facing
 rows, NPC template resistance and immunity masks, actual min/max levels and kind,
 addon/spawn-addon auras and script/immunity evidence. Profile initialization
-replays the original player initializer and compares its combat/player genesis.
+replays the seed-independent preparation or completed deterministic initializer
+and compares its combat/player genesis.
 Its raw initial spells and equipped item proc/set/random/script fields remain
 bound to the catalog. Actual initial live-holder aura-interrupt flags reject: even passive numeric
 stat auras could otherwise disappear on ACTION/ACTION_LATE while native stats
@@ -127,15 +128,24 @@ cast (including nonholders), initial holders and
 all retained rank-chain references; an empty query result alone cannot establish
 that scope. Full-raw profiles exclude the incoming player-slow effect host.
 
-Full-raw initialization retains the complete bounded starter input and replays its
-ordered recursive InitialCast trace, including nonholders. Its canonical source
-identity must equal retained future-training input. Every future cast-on-learning
-row must already be active in that trace. A strict first holder domain permits
-only source-audited 20598, 20599 and the explicitly authored test ID 60100 with
-exact shapes; other initial casts reject rather than becoming inert. Diplomacy
-also needs its separately bound reputation host. Complete actual Human creation
-is not supported: Dodge 81's RNG-consuming empty effect and other initial weapon
-passives are not silently dropped.
+Initial-cast source policy v2 retains the complete bounded starter input and
+replays its ordered recursive InitialCast occurrences, including nonholders.
+Prepared initialization binds both creation and first-entry plans, their order
+evidence and indexed numeric dependencies to the same owned combat preparation.
+Its canonical source identity must equal retained future-training input; newly
+executed future initial casts cannot disappear behind unchanged final stats.
+A strict first holder domain permits source-audited 20598, 20599 and the explicitly
+authored test ID 60100 with exact shapes. Diplomacy also needs its separately
+bound reputation host.
+
+The prepared nonholder subset retains Dodge81's pending amount request and
+Detect3050's no-execution occurrence. Native construction realizes only the
+selected first-world-entry plan through the unchanged RNG v2 sampler, then binds
+its receipt into every checkpoint; seedless validation consumes no random words.
+See [initial-cast genesis](src/native/README.md#initial-cast-genesis) for the epoch,
+counter, restore and evidence limits. This synthetic mechanism does not establish
+actual Human loaded order, client DBC rows or a complete creation/entry closure;
+other unsupported initial casts are rejected rather than silently dropped.
 
 Indexed cast-time and duration evidence distinguishes Unknown, observed Missing,
 and Found tuples and binds exact raw indices. Shared indices must agree across
@@ -261,8 +271,8 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 36, `benilla-native-source-combat-timers-v36`, with v36 profile/state/
-record/checkpoint/action/callback hash domains. Native35 and earlier reject without
+format 37, `benilla-native-initial-cast-genesis-v37`, with v37 profile/state/
+record/checkpoint/action/callback hash domains. Native36 and earlier reject without
 an implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace
 them with a new world. Raw catalog changes also change the profile digest.

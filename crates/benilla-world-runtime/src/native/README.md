@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v36 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v37 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -11,9 +11,9 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 36, `benilla-native-source-combat-timers-v36`, binds source-owned player
-melee timers, retained reset witnesses and the selected full-raw spell domain in
-every profile, state, record, checkpoint, melee and callback hash domain. Native35
+Native format 37, `benilla-native-initial-cast-genesis-v37`, binds source-owned player
+melee timers, retained reset witnesses, initial-cast plans and the selected full-raw spell domain in
+every profile, state, record, checkpoint, melee and callback hash domain. Native36
 and earlier checkpoints and journals reject without migration, including rehashed outer envelopes and stale profile context. This
 format boundary does not open production admission or loaded-native cache restore;
 the existing explicitly reviewed cold `+0.0` distance exception is unchanged.
@@ -31,7 +31,7 @@ respawn invalidation are documented in [CREATURE-COLLISION-WIDTH.md](../../CREAT
 
 ## Source-owned spell combat timers
 
-Selected spell authority v5 retains the complete raw ID 133 row and proves a
+Selected spell authority v7 retains the complete raw ID 133 row and proves a
 neutral modifier domain before admitting its bounded full-raw fields. The
 `InterruptFlags` COMBAT bit resets owned BASE/OFF timers at successful release,
 after hit/damage/critical draws and before cooldown/mana/start-result events.
@@ -47,6 +47,46 @@ fields remain synthetic source-shaped evidence: actual DBC equality is unknown,
 the raw producer/compiler is still absent, and production admission remains
 closed. See [the spell authority contract](../../SPELL-AUTHORITY.md).
 
+## Initial-cast genesis
+
+Native37 selects `FirstWorldEntryOnly`: profile construction retains separate
+creation and first-entry plans without sampling, and native construction realizes
+the selected entry plan exactly once before tick0. The immutable preparation and
+both epoch/order identities remain bound into combat, source-spell, training and
+quest genesis. The realized receipt binds the final profile, world, player, seed,
+ordered operations, trace and exact RNG counter span; it is required even when
+initialization draws no words. Missing or null receipts are invalid.
+
+The existing `benilla-native-sha256-counter-le64-rejection-fraction53-v2` sampler
+is unchanged. Initialization draws use its counter0 onward without consuming a
+gameplay cast ID, input sequence, TickRecord or projected spell packet. Runtime
+draws continue at the verified receipt end. Restore recomputes initialization,
+requires that lower bound, and applies the checked per-tick upper bound relative
+to it. Checkpoint replay, compaction and reopening do not charge it twice.
+
+This verifies initialization against the checkpoint-selected seed; NativeStore's
+selected identity does not independently pin an expected seed. The genesis lower
+bound and checked tick budget do not authenticate arbitrary compacted gameplay
+history or prove that every later in-window counter was actually reached.
+
+The prepared stochastic subset is the audited targetless Dodge81 empty handler;
+it retains its amount request despite no surviving holder or state effect.
+Detect3050 retains its no-execution occurrence and consumes no RNG. Authored
+order evidence is restricted to the explicit synthetic component domain.
+Unknown actual loaded order, indexed dependencies, source rows or reachable
+closure cannot become a Human admission certificate. No source-global mt19937
+word parity is claimed, and production admission remains closed.
+
+First-entry area evidence uses a separate exact-start-pose query after final profile,
+world and player binding. An owned terrain/DBC reader supplies the actual area flag;
+the receipt retains the query and re-resolves zone/area from the complete bound DBC.
+The complete raw spell_area table may be nonempty: reachable initial spell/aura keys
+and nonzero current zone/area keys remain closed. Index zero is never inserted in
+the source area index. A missing entry witness is accepted only for an explicitly
+complete empty table with no location source selected. Restore checks content
+consistency; it does not rerun terrain readers or authenticate a regenerated
+historical area flag. Normal native admission remains closed.
+
 ## Owner pathfinding bit receipt
 
 Typed Route requests optionally carry `OwnerIgnorePathfindingReceipt`, privately
@@ -59,7 +99,7 @@ UnitState bits are not projected. Consumers use
 The immutable captured abilities support transcript consistency checks. Replay
 regenerates the receipt from live staged abilities and compares the exact request;
 a self-consistent historical receipt alone does not establish current state.
-Native v36 requires the `owner_ignore_pathfinding` option field: explicit null is
+Native v37 requires the `owner_ignore_pathfinding` option field: explicit null is
 unavailable, omitted fields and v29 or earlier records/checkpoints reject.
 See [the full source contract](../../CREATURE-CAPABILITIES.md#single-bit-owner-pathfinding-closure).
 From the repository root, verify the six pinned source files and source expressions:
@@ -133,7 +173,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 36, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 37, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -213,14 +253,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 36 changes experimental simulation checkpoints/records, not
+typed. Native format 37 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 36 does not change character/profile files.
+remains rejected. Native format 37 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.
@@ -235,7 +275,7 @@ height scalars. Respawn clears it; current-model mutation and native admission r
 
 Optional fresh-player model height ownership is documented in [Player collision height](../../PLAYER-COLLISION-HEIGHT.md). It retains the actual starter identity and loaded selection, with no production admission or cached-water claim.
 
-Native v36 also requires actual first/retained Chase constructor dispatch evidence,
+Native v37 also requires actual first/retained Chase constructor dispatch evidence,
 independent of cache or route success. The private live receipt is paired with a
 separately loaded query; serialized replay evidence cannot recreate that lease.
 See [PathFinder constructor dispatch](PATHFINDER-DISPATCH.md) for timing, Home
@@ -247,11 +287,11 @@ all segment checks. Retained replies still need exact prior state and increment.
 The runtime requires its own request-side live dispatch; this does not prove the
 app's native query, source calculation or geometry. Structural motion replay is
 separate from native loaded-cache restore, which remains rejected. No production
-session, participant or source-epoch admission is opened by native36.
+session, participant or source-epoch admission is opened by native37.
 
 ### Owner-keyed motion genesis
 
-Native format 36 (`benilla-native-source-combat-timers-v36`) requires an explicit
+Native format 37 (`benilla-native-initial-cast-genesis-v37`) requires an explicit
 `MotionGenesis.npcs` map keyed by exact stable spawn. Each `NpcMotionGenesis` owns
 its speed/body settings, orientation, initial activity, walking choices, detection
 range and combat-entry flag. Player/spell inputs, ordinary initial/relocation
@@ -269,8 +309,8 @@ selected authored lane does not supply a loaded visitor/visibility producer.
 Motion arithmetic, production admission/startup and loaded-native cache reopening
 remain unchanged.
 
-Native35 and older checkpoints/journals reject without migration. Profile, state,
-record, checkpoint and melee digest domains are v36; original World v2, character
+Native36 and older checkpoints/journals reject without migration. Profile, state,
+record, checkpoint and melee digest domains are v37; original World v2, character
 profiles and the store envelope are unchanged. Fixtures are authored component
 evidence, not captured client/DB data.
 
@@ -328,6 +368,6 @@ selected owner permutation is fixture data, never universal spawn order.
 This lane is for authored runtime and headless actual-controller injection. It
 establishes no private raw-input capture, loaded map-visitor producer, graphical
 create-to-reopen result, or production NativeCapability. The loaded geometry
-singleton policies and loaded-native cache reopen guard remain closed. Native35
+singleton policies and loaded-native cache reopen guard remain closed. Native36
 and older decode/restore/replay paths reject rather than migrating, and store
 refusal preserves current and previous files.

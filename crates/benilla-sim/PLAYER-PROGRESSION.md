@@ -190,8 +190,12 @@ dependents, effects, and recursive skill/spell consequences. It must reject any
 closure that would change this reducer's fixed modifier cells, add/remove/reorder
 skills, or produce other unsupported effects. There is no assumption that an
 already-known spell or an empty supplied list makes that closure inert.
-`LiveTraining` now admits bounded actual initializer learning and rejects fixed
-skill, modifier, passive, proficiency and other unsupported spellbook changes.
+`LiveTraining` v3 admits bounded active-spell learning and rejects newly entered
+initial casts before execution, including deterministic empty handlers. Unchanged
+final fields cannot prove amount/proc/finish closure or authorize new RNG work.
+It also rejects fixed skill, modifier, passive, proficiency and other unsupported
+spellbook changes. Prepared genesis binds the complete two-epoch preparation
+identity; completed deterministic genesis retains its separate source identity.
 Native genesis probes every supplied consecutive level with the actual host. It
 also rejects unproved defense-value-sensitive threshold learning, which could
 otherwise appear only after combat between level callbacks.

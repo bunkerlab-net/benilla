@@ -112,6 +112,9 @@ impl InitialAuraMetadata {
 /// Only the source initializer can construct this value. It is not an admission token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CombatGenesis {
+    pub(super) input_identity: crate::Digest,
+    pub(super) prepared: Option<init::PreparedStarter>,
+    pub(super) initial_cast_source: Option<interactions::spell_authority::InitialCastSourceSeal>,
     pub(super) starter_identity: PlayerStarterIdentity,
     pub(super) stats: CharacterStats,
     pub(super) initial_health: u32,
@@ -163,18 +166,69 @@ impl Profile {
             self.validate()?;
         }
         let mut next = self.clone();
-        next.initialize_player_inner(input, durability_hit_chance, defense_gain)?;
+        next.initialize_player_inner(input, None, durability_hit_chance, defense_gain)?;
         *self = next;
+        Ok(())
+    }
+    /// Seedless draft projection. A complete source seal is mandatory before execution.
+    pub fn initialize_player_prepared(
+        &mut self,
+        input: &init::StarterInput,
+        prepared: &init::PreparedStarter,
+        durability_hit_chance: spell::SpellFloat,
+        defense_gain: u16,
+    ) -> Result<(), NativeError> {
+        interactions::spell_authority::InitialCastProof::check_bound(input)?;
+        prepared.validate_against(input)?;
+        let mut next = self.clone();
+        next.initialize_player_inner(input, Some(prepared), durability_hit_chance, defense_gain)?;
+        *self = next;
+        Ok(())
+    }
+
+    pub(in crate::native) fn reinitialize_player(
+        &mut self,
+        input: &init::StarterInput,
+        genesis: &CombatGenesis,
+    ) -> Result<(), NativeError> {
+        self.initialize_player_inner(
+            input,
+            genesis.prepared.as_ref(),
+            genesis.durability_hit_chance,
+            genesis.defense_gain,
+        )?;
+        self.combat
+            .as_mut()
+            .ok_or(NativeError::InvalidProfile)?
+            .initial_cast_source = genesis.initial_cast_source.clone();
         Ok(())
     }
     fn initialize_player_inner(
         &mut self,
         input: &init::StarterInput,
+        prepared: Option<&init::PreparedStarter>,
         durability_hit_chance: spell::SpellFloat,
         defense_gain: u16,
     ) -> Result<(), NativeError> {
-        let mage = init::initialize_mage(input)?;
-        let skills = init::first_entry_skills(input, &mage)?;
+        let retained_seal = self
+            .combat
+            .as_ref()
+            .filter(|g| {
+                g.input_identity == input.source_identity() && g.prepared.as_ref() == prepared
+            })
+            .and_then(|g| g.initial_cast_source.clone());
+        let mage = match prepared {
+            Some(prepared) => {
+                interactions::spell_authority::InitialCastProof::check_bound(input)?;
+                prepared.validate_against(input)?;
+                prepared.created().clone()
+            }
+            None => init::initialize_mage(input)?,
+        };
+        let skills = match prepared {
+            Some(prepared) => prepared.first_entry().skills.clone(),
+            None => init::first_entry_skills(input, &mage)?,
+        };
         if !mage.can_dodge || mage.can_parry || mage.can_block {
             return Err(NativeError::UnsupportedMechanic(
                 "starter avoidance abilities",
@@ -308,6 +362,9 @@ impl Profile {
         self.player.normal_mana_per_second = stats.normal_regen;
         self.player.interrupted_mana_per_second = stats.interrupted_regen;
         self.combat = Some(CombatGenesis {
+            input_identity: input.source_identity(),
+            prepared: prepared.cloned(),
+            initial_cast_source: retained_seal,
             starter_identity: PlayerStarterIdentity {
                 race: input.race,
                 class: input.class,
@@ -342,6 +399,24 @@ impl Profile {
             death: None,
         });
         self.validate()
+    }
+}
+impl CombatGenesis {
+    pub(in crate::native) fn initialized_projection(
+        &self,
+        input: &init::StarterInput,
+    ) -> Result<init::InitializedMage, NativeError> {
+        if self.input_identity != input.source_identity() {
+            return Err(NativeError::InvalidProfile);
+        }
+        match &self.prepared {
+            Some(prepared) => {
+                interactions::spell_authority::InitialCastProof::check_bound(input)?;
+                prepared.validate_against(input)?;
+                Ok(prepared.created().clone())
+            }
+            None => Ok(init::initialize_mage(input)?),
+        }
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -5,7 +5,9 @@
 //! This initializes state; it does not certify the caller's capture completeness.
 //! See STARTER-INIT.md for row closure, source ordering, and excluded semantics.
 mod equipment;
+pub mod initial_cast_phases;
 mod items;
+mod preparation;
 mod skills;
 mod stats;
 mod training;
@@ -13,6 +15,11 @@ use crate::mage_resource::{CurrentSkill, CurrentSkills};
 pub use equipment::{EquipmentItemModifiers, EquipmentRecompute, StatRecipe, StatRecipeSnapshot};
 pub use items::{
     EquippedItem, GrantSource, InventoryStack, ItemDamage, ItemGrant, ItemRow, ItemSpell, ItemStat,
+};
+pub use preparation::{
+    prepare_starter, InitialCastOrderEvidence, InitialSpellLookup, PreparedStarter,
+    SpellCastTimeSource, SpellDurationSource, StarterCastOrder, StarterInitialDependencies,
+    StarterInitialDependency, STARTER_PREPARATION_POLICY,
 };
 pub use skills::{
     first_entry, first_entry_skills, DefaultSkill, FirstEntryState, InitializedSkill,
@@ -23,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub use training::{
     LiveTraining, TrainingCallSnapshot, TrainingSnapshot, TrainingView, LIVE_TRAINING_POLICY_ID,
 };
-pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v3";
+pub const STARTER_INIT_POLICY_ID: &str = "cmangos-8ec338a1-level1-mage-init-softfloat-v4";
 pub type Result<T> = std::result::Result<T, InitError>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitError {
@@ -53,7 +60,7 @@ fn missing(table: &'static str, id: u32) -> InitError {
 }
 /// Every queried source relationship must be captured, including an empty result.
 /// Missing is intentionally distinct from a proven empty vector.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Rows<T> {
     Missing,
     Complete(Vec<T>),
@@ -125,7 +132,7 @@ pub enum AbilityAvailability {
     PassiveDormant,
     SkillStep,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct InitialAura {
     pub spell_id: u32,
     pub effect_index: u8,
@@ -167,6 +174,13 @@ pub enum InitEvent {
     },
     InitialCast {
         spell: u32,
+    },
+    /// Symbolic exact empty-handler amount; no completed dispatch is claimed.
+    PendingInitialAmount {
+        spell: u32,
+        index: u8,
+        low: i32,
+        high: i32,
     },
     EffectApplied {
         spell: u32,
@@ -290,6 +304,8 @@ impl InitializedMage {
     }
 }
 struct Init<'a> {
+    initial_casts: Option<preparation::CastCollector<'a>>,
+    reject_live_casts: bool,
     input: &'a StarterInput,
     stats: stats::Stats,
     skills: BTreeMap<u16, InitializedSkill>,
@@ -319,6 +335,12 @@ fn unique<T>(rows: &[T], id: impl Fn(&T) -> u32) -> Result<()> {
 /// Atomically derives a fresh state or returns the exact missing/unsupported row.
 /// Active ability availability is explicitly supplied by a separate gameplay compiler.
 pub fn initialize_mage(input: &StarterInput) -> Result<InitializedMage> {
+    Ok(initialize_mage_inner(input, None)?.0)
+}
+fn initialize_mage_inner<'a>(
+    input: &'a StarterInput,
+    initial_casts: Option<preparation::CastCollector<'a>>,
+) -> Result<(InitializedMage, Option<preparation::CastCollector<'a>>)> {
     if input.class != 8
         || input.class_power_type != 0
         || input.level != 1
@@ -349,6 +371,8 @@ pub fn initialize_mage(input: &StarterInput) -> Result<InitializedMage> {
         r.row_id
     })?;
     let mut s = Init {
+        initial_casts,
+        reject_live_casts: false,
         input,
         stats: stats::Stats::new(
             input.create_attributes,
@@ -388,26 +412,29 @@ pub fn initialize_mage(input: &StarterInput) -> Result<InitializedMage> {
         .push(InitEvent::RestoreCreatedResources(s.stats.resources));
     s.stat_trace();
     let stat_recipe = StatRecipe::new(&s.stats, &equipped, &input.items)?;
-    Ok(InitializedMage {
-        create_attributes: s.stats.create,
-        effective_attributes: s.stats.effective,
-        create_health: s.stats.create_health,
-        create_mana: s.stats.create_mana,
-        resources: s.stats.resources,
-        resistances: s.stats.resistances,
-        skills: s.skills,
-        abilities: s.known,
-        initial_auras: s.initial_auras,
-        stat_recipe,
-        equipped,
-        inventory,
-        weapon_proficiency: s.weapon_proficiency,
-        armor_proficiency: s.armor_proficiency,
-        can_dodge: true,
-        can_parry: s.can_parry,
-        can_block: s.can_block,
-        trace: s.trace,
-    })
+    Ok((
+        InitializedMage {
+            create_attributes: s.stats.create,
+            effective_attributes: s.stats.effective,
+            create_health: s.stats.create_health,
+            create_mana: s.stats.create_mana,
+            resources: s.stats.resources,
+            resistances: s.stats.resistances,
+            skills: s.skills,
+            abilities: s.known,
+            initial_auras: s.initial_auras,
+            stat_recipe,
+            equipped,
+            inventory,
+            weapon_proficiency: s.weapon_proficiency,
+            armor_proficiency: s.armor_proficiency,
+            can_dodge: true,
+            can_parry: s.can_parry,
+            can_block: s.can_block,
+            trace: s.trace,
+        },
+        s.initial_casts,
+    ))
 }
 impl Init<'_> {
     fn step(&mut self) -> Result<()> {
@@ -520,6 +547,14 @@ impl Init<'_> {
         Ok(())
     }
     fn cast_initial(&mut self, row: &SpellRow) -> Result<()> {
+        // Even EffectEmpty enters amount/proc/finish paths. Live learning has no
+        // newly cast source seal or RNG receipt, so unchanged state is insufficient.
+        if self.reject_live_casts {
+            return Err(unsupported("live training initial cast", row.id, 0));
+        }
+        if self.initial_casts.is_some() {
+            return self.cast_initial_prepared(row);
+        }
         self.step()?;
         let w = &row.words;
         let id = row.id;
@@ -630,88 +665,7 @@ impl Init<'_> {
                         misc_value: misc,
                         amount,
                     });
-                    match aura {
-                        29 | 80 | 137 => {
-                            let min = if aura == 29 { -2 } else { -1 };
-                            if !(min..=4).contains(&misc) {
-                                return Err(unsupported("stat aura misc", id, misc as u32));
-                            }
-                            let before = self.stats.resources;
-                            for stat in 0..5 {
-                                if misc < 0 || misc == stat as i32 {
-                                    self.stats.attribute(
-                                        stat,
-                                        match aura {
-                                            29 => 2,
-                                            80 => 1,
-                                            _ => 3,
-                                        },
-                                        amount,
-                                    )?;
-                                }
-                            }
-                            if aura == 137
-                                && misc == 2
-                                && w[6] & 0x10 != 0
-                                && before.max_health > 0
-                                && self.stats.resources.health > 0
-                            {
-                                self.stats.resources.health = self
-                                    .stats
-                                    .resources
-                                    .max_health
-                                    .checked_mul(before.health)
-                                    .ok_or(InitError::Numeric("stamina aura HP product"))?
-                                    / before.max_health;
-                                self.stats.resources.health = self
-                                    .stats
-                                    .resources
-                                    .health
-                                    .max(1)
-                                    .min(self.stats.resources.max_health);
-                            }
-                            self.stat_trace();
-                        }
-                        22 | 83 | 101 | 142 => {
-                            if misc <= 0 || misc & !127 != 0 {
-                                return Err(unsupported("resistance aura mask", id, misc as u32));
-                            }
-                            for school in 0..7 {
-                                if misc & (1 << school) != 0 {
-                                    self.stats.resistance(
-                                        school,
-                                        match aura {
-                                            22 => 2,
-                                            83 => 0,
-                                            101 => 3,
-                                            _ => 1,
-                                        },
-                                        amount,
-                                    )?;
-                                }
-                            }
-                            self.stat_trace();
-                        }
-                        30 | 98 => {
-                            let skill = misc as u16;
-                            let amount = i16::try_from(amount)
-                                .map_err(|_| InitError::Numeric("initial skill aura amount"))?;
-                            self.skill_auras.push((skill, amount, aura == 98));
-                            self.skill_bonus(skill, amount, aura == 98)?;
-                        }
-                        // HandleNoImmediateEffect retains this amount for
-                        // Player::CalculateReputationGain; it changes no stat cell.
-                        156 => {
-                            if w[6] & 0x40 == 0 || w[11] != 0 || w[22] != 0 {
-                                return Err(unsupported(
-                                    "initial reputation aura lifecycle",
-                                    id,
-                                    aura,
-                                ));
-                            }
-                        }
-                        _ => return Err(unsupported("initial aura", id, aura)),
-                    }
+                    self.apply_aura_modifier(row, aura, misc, amount)?;
                 }
                 _ => return Err(unsupported("initial effect", id, effect)),
             }
@@ -721,6 +675,95 @@ impl Init<'_> {
                 effect,
                 aura,
             });
+        }
+        Ok(())
+    }
+    fn apply_aura_modifier(
+        &mut self,
+        row: &SpellRow,
+        aura: u32,
+        misc: i32,
+        amount: i32,
+    ) -> Result<()> {
+        let id = row.id;
+        let w = &row.words;
+        match aura {
+            29 | 80 | 137 => {
+                let min = if aura == 29 { -2 } else { -1 };
+                if !(min..=4).contains(&misc) {
+                    return Err(unsupported("stat aura misc", id, misc as u32));
+                }
+                let before = self.stats.resources;
+                for stat in 0..5 {
+                    if misc < 0 || misc == stat as i32 {
+                        self.stats.attribute(
+                            stat,
+                            match aura {
+                                29 => 2,
+                                80 => 1,
+                                _ => 3,
+                            },
+                            amount,
+                        )?;
+                    }
+                }
+                if aura == 137
+                    && misc == 2
+                    && w[6] & 0x10 != 0
+                    && before.max_health > 0
+                    && self.stats.resources.health > 0
+                {
+                    self.stats.resources.health = self
+                        .stats
+                        .resources
+                        .max_health
+                        .checked_mul(before.health)
+                        .ok_or(InitError::Numeric("stamina aura HP product"))?
+                        / before.max_health;
+                    self.stats.resources.health = self
+                        .stats
+                        .resources
+                        .health
+                        .max(1)
+                        .min(self.stats.resources.max_health);
+                }
+                self.stat_trace();
+            }
+            22 | 83 | 101 | 142 => {
+                if misc <= 0 || misc & !127 != 0 {
+                    return Err(unsupported("resistance aura mask", id, misc as u32));
+                }
+                for school in 0..7 {
+                    if misc & (1 << school) != 0 {
+                        self.stats.resistance(
+                            school,
+                            match aura {
+                                22 => 2,
+                                83 => 0,
+                                101 => 3,
+                                _ => 1,
+                            },
+                            amount,
+                        )?;
+                    }
+                }
+                self.stat_trace();
+            }
+            30 | 98 => {
+                let skill = misc as u16;
+                let amount = i16::try_from(amount)
+                    .map_err(|_| InitError::Numeric("initial skill aura amount"))?;
+                self.skill_auras.push((skill, amount, aura == 98));
+                self.skill_bonus(skill, amount, aura == 98)?;
+            }
+            // HandleNoImmediateEffect retains this amount for
+            // Player::CalculateReputationGain; it changes no stat cell.
+            156 => {
+                if w[6] & 0x40 == 0 || w[11] != 0 || w[22] != 0 {
+                    return Err(unsupported("initial reputation aura lifecycle", id, aura));
+                }
+            }
+            _ => return Err(unsupported("initial aura", id, aura)),
         }
         Ok(())
     }

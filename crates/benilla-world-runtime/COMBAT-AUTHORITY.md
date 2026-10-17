@@ -102,9 +102,9 @@ controller code without Bevy linking; they are not playable-client evidence.
 
 ## Format transition
 
-This profile/receipt contract uses native format 36 and
-`benilla-native-source-combat-timers-v36`, with separate v36 profile, state,
-record, checkpoint and melee-action/chain hash domains. Native35 and all older
+This profile/receipt contract uses native format 37 and
+`benilla-native-initial-cast-genesis-v37`, with separate v37 profile, state,
+record, checkpoint and melee-action/chain hash domains. Native36 and all older
 checkpoints and records are explicitly rejected by decode, restore and replay;
 there is no implicit migration or reinterpretation of authored facts as source
 semantics. OriginalFixture format 2 is unchanged.

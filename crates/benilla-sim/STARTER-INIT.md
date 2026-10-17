@@ -2,17 +2,25 @@
 
 `starter_init::initialize_mage` is a pure, transactional translation of a bounded
 fresh level-one mage initialization path. Its policy is
-`cmangos-8ec338a1-level1-mage-init-softfloat-v3`. It includes no native character
+`cmangos-8ec338a1-level1-mage-init-softfloat-v4`. It includes no native character
 rows, game assets, assumed race abilities, or class/race stat presets.
 
 ## Policy compatibility
+
+Policy v4 adds a separate seed-independent `prepare_starter` contract and rejects
+newly executed initial casts during live training, including no-state handlers.
+It changes initializer/input/training identities. Completed `initialize_mage`
+and `first_entry` calls still reject unresolved random work. Live-training v3
+keeps its snapshot layout version2; its mandatory new identity rejects older
+snapshots rather than relabeling them. Native receipt/schema compatibility is
+specified separately by the runtime.
 
 Policy v3 retains unconditional, permanent, self-applied initial aura156 for the
 reputation consumer described below. Policy v2 added the passive
 DurationIndex0/resolved-duration0 permanence branch. The initializer policy is
 included in the native runtime profile digest and live-training identity.
 Profiles bound under v1 or v2 have different identities; their checkpoints and
-journals reject under v3 even if a particular input has no reputation aura and
+journals reject under later policies even if a particular input has no reputation aura and
 its resulting stats are unchanged. This initializer policy leaves the native checkpoint field layout
 unchanged: compatibility is rejected through its mandatory profile/genesis
 contracts. There is no automatic migration or rebase. Recreate a compatible
@@ -117,6 +125,70 @@ undefined conversion behavior. Create attributes are unsigned byte values;
 effective attributes, resources and aggregate modifier cells are bounded by one million. Negative stat fields clamp to zero through the source SetStatInt32Value behavior. Source `-100%`
 modifier handling, total-percent nonpositive clamp, stamina/intellect break at
 20, integer item-stat base cells, and final current-resource clamps are retained.
+
+## Source-dependent symbolic preparation
+
+`prepare_starter(input, numeric_dependencies, order)` runs the same default-skill,
+default-spell and recursive `Init::learn` paths as completed initialization, then
+replays actual first-entry learning. The returned `PreparedStarter` is opaque and
+has no public constructor or deserializer. It retains both epoch plans, their
+order-evidence kinds, the complete input identity, the complete numeric envelope,
+and deterministic creation/entry projections. `validate_against` rebuilds the
+whole preparation; serialization exposes its identity only. No seed, roll,
+caller-authored occurrence list or claimed draw count enters preparation.
+
+The source path uses a private shared phase classifier, separate from
+`InitialCastPlan::from_authored` and its synthetic prerequisite assertions. At
+an actual cast transition it records the retained raw row and source identity,
+resolves the exact cast-time/duration indices, and projects the classified
+operations. Default and recursive duplicate mentions are suppressed only by the
+actual known-spell transition. Detect3050 remains an occurrence with no scheduled
+amount or handler. Targetless operations run before self-holder operations; all
+holder aura entries are registered before modifiers are applied.
+
+Only the audited targetless Dodge81 effect20 shape may leave a pending amount:
+base points0, base dice0, sides6, no scaling or extra effect consumer. It records
+`PendingInitialAmount` and the sealed plan's `irand(0,6)` operation. It emits no
+fake `EffectApplied`, calculates no placeholder amount, and samples no RNG. Its
+empty handler changes neither state nor control flow; the source Unit constructor
+already enables dodge. Each epoch permits at most one pending occurrence. Any
+other stochastic, triggered, scripted or unsupported recursive cast rejects.
+The completed wrappers cannot consume this projection as completed random work.
+
+`StarterInitialDependencies` requires explicit store and hook-scope identities,
+full per-spell source hashes, server coefficient fields, and the exact sorted
+union of IDs actually cast in the two traversals. `Unknown`, `Missing { index }`,
+and `Found(raw tuple)` remain distinct. Missing requires the exact raw index;
+Found requires the matching indexed row. The bounded synchronous policy admits
+only matching zero cast-time tuples and duration tuples `(0,0,0)` or
+`(-1,0,-1)`. Derived duration must equal the supplied `SpellRow.duration_ms`.
+Missing duration21 never establishes racial permanence. Conflicting observations
+of one shared index reject even when both would resolve to zero. No numeric row
+or `Some(0)` is invented by the bridge.
+
+Creation retains input default-vector order. First entry requires an explicit
+exact permutation of normalized loaded-skill keys and uses that vector for the
+actual training traversal. Missing, duplicate or extra keys reject. Authored
+order is a synthetic contract, not observed SQL/DBC order. Observed order retains
+capture and loader identities, without authenticating them. Unknown and reserved
+projection-equivalence evidence reject; the legacy canonical deterministic
+projection proof does not certify stochastic occurrence order. Both epoch tags
+and order kinds bind identities, including when their final stats agree.
+
+`LiveTraining::from_prepared` revalidates and binds the preparation identity in
+addition to the complete source input. `source_identity` and
+`preparation_identity` remain separately available. Every newly reached live
+initial cast rejects before execution, even a deterministic empty handler whose
+final skills and modifiers would be unchanged. Existing known-spell no-ops and
+ordinary supported active-spell learning retain their previous semantics.
+
+These contracts can be tested with authored generic evidence. Neither opaque
+identity nor an `ObservedLoadedOrder` tag verifies a real capture. Native use
+must independently retain/revalidate complete hooks, area scope and loaded
+source consistency. Actual Human capture/order/DBC gaps and native admission
+remain closed. The native `FirstWorldEntryOnly` stream boundary retains creation
+as an unsampled prerequisite projection and realizes only the selected entry
+plan once, before tick0; preparation itself never claims a completed RNG receipt.
 
 ## Supported semantics
 

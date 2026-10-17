@@ -29,7 +29,7 @@ references. It emits the source error once with the source-time item GUIDs.
 There is no `ItemPushResult` for relocation. The existing controller checkpoint
 and outbox transaction withholds these packets until the save is durable.
 Checkpoint/replay recomputes movements rather than trusting supplied receipts.
-Native format 36 rejects older experimental native saves; exploration character
+Native format 37 rejects older experimental native saves; exploration character
 profiles are unchanged.
 
 This is a component integration, not live exploration inventory. Production

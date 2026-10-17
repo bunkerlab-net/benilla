@@ -16,6 +16,8 @@ pub(super) fn authored_dependency(
         aura_script_names: SpellSourceRows::Complete(vec![]),
         server_side: 0,
         server_attributes: 0,
+        bonus_coefficients: [0; 3],
+        attack_power_coefficients: [0; 3],
     }
 }
 fn passive(id: u32) -> init::SpellRow {

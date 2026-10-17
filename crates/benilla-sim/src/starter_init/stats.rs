@@ -26,10 +26,20 @@ fn trunc(v: Single) -> Result<i32> {
 /// converts the recovered base points to float and then adds base dice in float.
 pub(super) fn constant_effect_amount(base_points: i32, base_dice: u32) -> Result<i32> {
     let dice = i32::try_from(base_dice).map_err(|_| InitError::Numeric("base dice"))?;
+    effect_amount_with_addition(base_points, base_dice, dice)
+}
+/// HandleEffect's random branch changes only the float addition, not the cached
+/// integer base-point/base-dice guard. The caller validates the requested range.
+pub(super) fn effect_amount_with_addition(
+    base_points: i32,
+    base_dice: u32,
+    addition: i32,
+) -> Result<i32> {
+    let dice = i32::try_from(base_dice).map_err(|_| InitError::Numeric("base dice"))?;
     base_points
         .checked_add(dice)
         .ok_or(InitError::Numeric("cached initial effect value"))?;
-    trunc(add(n(base_points.into())?, n(dice.into())?)?)
+    trunc(add(n(base_points.into())?, n(addition.into())?)?)
 }
 fn round(v: Single) -> Result<u32> {
     let x = check(v.to_u128_r(32, Round::NearestTiesToAway, &mut false))?;

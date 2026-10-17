@@ -107,7 +107,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v36\0",
+            b"benilla-native-profile-v37\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -159,6 +159,11 @@ impl Profile {
     pub fn validate(&self) -> Result<(), NativeError> {
         if let Some(combat) = &self.combat {
             combat.validate_melee_genesis()?;
+            // Draft preparation may lack a seal; an installed seal must remain
+            // consistent when later catalogs or source snapshots are selected.
+            if let Some(seal) = &combat.initial_cast_source {
+                seal.validate(self)?;
+            }
         }
         if let Some(policy) = &self.admin {
             policy.validate()?;
@@ -330,6 +335,7 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub initial_cast_genesis: InitialCastGenesis,
     pub(super) source_location: Option<SourceLocationFacts>,
     pub(super) event_ai: Option<EventAiState>,
     pub(super) source_player_environment: Option<PlayerEnvironmentState>,

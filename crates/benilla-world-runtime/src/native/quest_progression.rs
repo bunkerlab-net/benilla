@@ -23,7 +23,7 @@ pub use kills::{creature_guid, KillCreatureRow, KillDependencyAudit, NativeKillP
 pub use reputation::NativeReputationState;
 
 pub const QUEST_PROGRESSION_POLICY: &str =
-    "benilla-native-ordinary-quest-reputation-reconstruction-v5";
+    "benilla-native-ordinary-quest-reputation-reconstruction-v6";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestNpcRow {
@@ -152,7 +152,7 @@ impl QuestProgressionGenesis {
         }
         rows.derived_audit.validate()?;
         rows.kill.validate(profile, rows.loot.is_some())?;
-        let mage = init::initialize_mage(input)?;
+        let mage = initial_combat.initialized_projection(input)?;
         reputation::validate_input(
             rows.reputation.as_ref(),
             &rows.quests,
@@ -206,14 +206,13 @@ impl QuestProgressionGenesis {
                 ));
             }
         }
-        let training = init::LiveTraining::from_initializer(input, &mage)?;
+        let training = match &initial_combat.prepared {
+            Some(prepared) => init::LiveTraining::from_prepared(input, prepared)?,
+            None => init::LiveTraining::from_initializer(input, &mage)?,
+        };
         let mut verified = profile.clone();
         verified.quest_progression = None;
-        verified.initialize_player(
-            input,
-            initial_combat.durability_hit_chance,
-            initial_combat.defense_gain,
-        )?;
+        verified.reinitialize_player(input, initial_combat)?;
         let mut initial_combat = initial_combat.clone();
         initial_combat.death = None;
         if verified.combat.as_ref() != Some(&initial_combat) {
@@ -346,7 +345,7 @@ impl QuestProgressionGenesis {
         }
         capacity::validate(&out, &host, probe.view())?;
         out.identity = crate::digest(
-            b"benilla-native-quest-progression-genesis-v5\0",
+            b"benilla-native-quest-progression-genesis-v6\0",
             &(
                 (
                     QUEST_PROGRESSION_POLICY,
@@ -377,7 +376,7 @@ impl QuestProgressionGenesis {
                 ),
                 out.levels.identity(),
                 out.initial.view(),
-                out.training.identity(),
+                (out.training.identity(), out.training.preparation_identity()),
                 &out.initial_derived_inputs,
                 &out.abilities,
                 &out.npc_rows,
@@ -453,13 +452,13 @@ impl QuestProgressionGenesis {
         reputation::validate_binding(
             self.reputation.as_ref(),
             self.training.input(),
-            &init::initialize_mage(self.training.input())?,
+            &combat.initialized_projection(self.training.input())?,
             &combat,
         )?;
         self.kill.validate(profile, self.loot.is_some())
     }
-    pub(in crate::native) fn initial_training_identity(&self) -> [u8; 32] {
-        self.training.identity()
+    pub(in crate::native) fn initial_training_source_identity(&self) -> [u8; 32] {
+        self.training.source_identity()
     }
     pub(in crate::native) fn admin_supported_maximum(&self) -> u32 {
         self.levels

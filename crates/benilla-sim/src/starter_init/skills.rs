@@ -368,6 +368,17 @@ pub fn first_entry(
     input: &super::StarterInput,
     created: &super::InitializedMage,
 ) -> Result<FirstEntryState> {
+    Ok(first_entry_inner(input, created, None, None)?.0)
+}
+pub(super) fn first_entry_inner<'a>(
+    input: &'a super::StarterInput,
+    created: &super::InitializedMage,
+    initial_casts: Option<super::preparation::CastCollector<'a>>,
+    entry_skill_order: Option<&[u16]>,
+) -> Result<(
+    FirstEntryState,
+    Option<super::preparation::CastCollector<'a>>,
+)> {
     if input.level != 1 || input.class != 8 || !(1..=8).contains(&input.race) {
         return Err(InitError::Invalid("first-entry mage identity"));
     }
@@ -623,6 +634,8 @@ pub fn first_entry(
     // Replay the actual fresh-login phases. There are no saved spell rows or
     // saved auras in this admitted dependent-spell/passive-aura subset.
     let mut replay = Init {
+        initial_casts,
+        reject_live_casts: false,
         input,
         stats: super::stats::Stats::new(
             input.create_attributes,
@@ -643,7 +656,19 @@ pub fn first_entry(
         budget: 4096,
     };
     let loaded_ids: Vec<_> = replay.skills.keys().copied().collect();
-    for id in &loaded_ids {
+    let traversal = if let Some(order) = entry_skill_order {
+        let ids: std::collections::BTreeSet<_> = order.iter().copied().collect();
+        if order.len() != loaded_ids.len()
+            || ids.len() != order.len()
+            || !ids.iter().copied().eq(loaded_ids.iter().copied())
+        {
+            return Err(InitError::Invalid("first-entry skill order permutation"));
+        }
+        order
+    } else {
+        &loaded_ids
+    };
+    for id in traversal {
         let value = replay.skills[id].value;
         replay
             .trace
@@ -733,10 +758,13 @@ pub fn first_entry(
             ));
         }
     }
-    Ok(FirstEntryState {
-        skills: result,
-        trace: replay.trace,
-    })
+    Ok((
+        FirstEntryState {
+            skills: result,
+            trace: replay.trace,
+        },
+        replay.initial_casts,
+    ))
 }
 
 /// Canonical trace of source phases after proving unordered training commutes.

@@ -175,7 +175,7 @@ is meaningful without a bounded content/mechanics inventory.
   filter update. The receipt proves only that single bit is clear under the
   explicit control/script/aura closure, including current executable abilities;
   it does not claim complete UnitState or effective MMap settings. Native record
-  format 32 retains this required-option evidence and rejects earlier formats.
+  format 37 retains this required-option evidence and rejects earlier formats.
   The first source-owner cache contract requires explicit first dispatch, revision
   one and Complete NORMAL with exact endpoints/all segment predicates. Retained
   use still requires exact prior and increment. Runtime-owned live dispatch is
@@ -229,7 +229,7 @@ is meaningful without a bounded content/mechanics inventory.
   front arcs, spell-facing arcs and motion bearings with a pinned software-IEEE
   glibc profile. Receipts are recomputed during replay; unrelated LOS, range,
   visibility, navigation and raw-content dependencies remain open. This bounded
-  service uses experimental native checkpoint format 15, without changing the
+  service uses experimental native checkpoint format 37, without changing the
   separate character/profile save format or admitting production gameplay.
   Each native NPC now owns a real source EventProcessor for AI notifications,
   preserving corpse updates, DEAD clock suspension, forced respawn replacement,
@@ -267,8 +267,8 @@ is meaningful without a bounded content/mechanics inventory.
   Source spell/learning/initial-effect inputs must be complete; unknown critical
   semantics cannot disappear. Unsupported learned active executors remain visibly
   unavailable only after their learning/stat effects have been validated. Selected
-  spell authority v6 retains the bounded full-raw ID 133 fields only after a
-  source-backed neutral modifier closure. Native36 owns idle player BASE/OFF
+  spell authority v7 retains the bounded full-raw ID 133 fields only after a
+  source-backed neutral modifier closure. Native37 owns idle player BASE/OFF
   attack timers, source equipment Delay/break transitions, successful-release
   COMBAT resets and durable historical reset validation. Full-raw execution also
   requires an owned pose-bound zone/area observation and scoped absence from a
@@ -276,7 +276,11 @@ is meaningful without a bounded content/mechanics inventory.
   The authored full-raw
   fixture does not establish actual DBC equality; the producer/compiler and
   native admission remain closed. See [the bounded spell contract](../crates/benilla-world-runtime/SPELL-AUTHORITY.md).
-  General channels, procs, triggered scripts and arbitrary aura interactions remain open.
+  Native37 retains source-derived creation/entry plans and realizes the selected
+  first-entry RNG receipt once, before tick0. The authored Dodge81/Detect3050
+  phase fixtures do not establish actual Human loaded order, DBC rows or
+  production admission. General channels, procs, triggered scripts and arbitrary
+  aura interactions remain open.
   Existing realm-client spell UI/protocol code alone is not a local executor.
 - **Dependencies:** the exact spell schema and local DBCs, target selection,
   modifiers, resources, reagents/equipment, immunities, spatial rules, scheduling,

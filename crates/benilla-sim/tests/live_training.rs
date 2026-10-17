@@ -344,11 +344,29 @@ fn full_future_closure_and_support_change_training_identity() {
 }
 
 #[test]
-fn inert_passive_learning_and_authored_callback_order_are_retained() {
+fn live_v3_rejects_new_empty_casts_but_preserves_active_callback_order() {
     let mut input = input();
     input.spells[1].words[6] = 0x40;
     input.spells[1].words[61] = 20;
     input.spells[1].words[82] = 1;
+    let mage = initialize_mage(&input).unwrap();
+    let mut live = LiveTraining::from_initializer(&input, &mage).unwrap();
+    let before = live.snapshot();
+    let first = trained_view(&input, &mage);
+    // An empty handler still enters amount/target/proc/finish source phases.
+    // Live v3 cannot infer source closure from unchanged final state.
+    assert!(matches!(
+        live.apply(&callback(&first), &first),
+        Err(InitError::Unsupported {
+            domain: "live training initial cast",
+            id: TRAINED,
+            ..
+        })
+    ));
+    assert_eq!(live.snapshot(), before);
+
+    // Preserve the callback-order/restore coverage with ordinary active learning.
+    input.spells[1] = spell(TRAINED);
     let mage = initialize_mage(&input).unwrap();
     let fresh = LiveTraining::from_initializer(&input, &mage).unwrap();
     let mut live = fresh.clone();
@@ -359,7 +377,7 @@ fn inert_passive_learning_and_authored_callback_order_are_retained() {
     live.apply(&callback(&second), &second).unwrap();
     assert_eq!(
         live.abilities()[&TRAINED].availability,
-        AbilityAvailability::PassiveApplied
+        AbilityAvailability::Available
     );
     let saved = live.snapshot();
     assert_eq!(saved.calls[0].learned_spells, [TRAINED]);
@@ -442,7 +460,7 @@ fn same_value_defense_setter_is_unsupported_and_rolls_back_learning() {
     assert!(matches!(
         live.apply(&event, &view),
         Err(InitError::Unsupported {
-            domain: "live training changed fixed skills",
+            domain: "live training initial cast",
             ..
         })
     ));
@@ -464,6 +482,21 @@ fn same_value_defense_setter_is_unsupported_and_rolls_back_learning() {
         learned_spells: vec![TRAINED],
     });
     assert!(LiveTraining::restore_authoritative(&fresh, &saved, &view).is_err());
+    // A non-cast SpellLearnSkill relation still reaches the original fixed-skill
+    // callback guard; same-value SetSkill has observable status/defense effects.
+    input.spells[1].words[6] = 0;
+    input.spells[1].words[61] = 118;
+    let mage = initialize_mage(&input).unwrap();
+    let mut direct = LiveTraining::from_initializer(&input, &mage).unwrap();
+    let before = direct.snapshot();
+    assert!(matches!(
+        direct.apply(&event, &view),
+        Err(InitError::Unsupported {
+            domain: "live training changed fixed skills",
+            ..
+        })
+    ));
+    assert_eq!(direct.snapshot(), before);
 }
 
 #[test]
@@ -510,7 +543,7 @@ fn temporary_skill_setter_mutation_is_rejected_even_if_later_effect_restores_it(
     assert!(matches!(
         live.apply(&callback(&view), &view),
         Err(InitError::Unsupported {
-            domain: "live training changed fixed skills",
+            domain: "live training initial cast",
             ..
         })
     ));
@@ -579,7 +612,7 @@ fn inactive_additions_notify_active_descendants_but_never_themselves() {
 }
 
 #[test]
-fn passive_effect_learning_precedes_non_auto_dependencies_without_duplicate_packets() {
+fn creation_effect_learning_keeps_recursive_order_but_new_live_casts_are_unsealed() {
     let mut input = nested_input();
     let root = &mut input.spells[1];
     root.words[6] = 0x40;
@@ -599,13 +632,53 @@ fn passive_effect_learning_precedes_non_auto_dependencies_without_duplicate_pack
     let mage = initialize_mage(&input).unwrap();
     let mut live = LiveTraining::from_initializer(&input, &mage).unwrap();
     let view = trained_view(&input, &mage);
-    live.apply(&callback(&view), &view).unwrap();
+    let before = live.snapshot();
+    assert!(matches!(
+        live.apply(&callback(&view), &view),
+        Err(InitError::Unsupported {
+            domain: "live training initial cast",
+            id: TRAINED,
+            ..
+        })
+    ));
+    assert_eq!(live.snapshot(), before);
+
+    // The completed creation reducer still executes effect36 at its source point,
+    // before ordered non-auto dependencies, and suppresses known child duplicates.
+    input.default_spells = Rows::Complete(vec![SEED, TRAINED]);
+    input.skill_abilities = Rows::Complete(vec![]);
+    let creation = initialize_mage(&input).unwrap();
+    let inserted: Vec<_> = creation
+        .trace
+        .iter()
+        .filter_map(|event| match event {
+            InitEvent::SpellLearned { spell } => Some(*spell),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(inserted, [SEED, TRAINED, CHILD, LEAF, SIBLING]);
+    let effect = creation
+        .trace
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                InitEvent::EffectApplied {
+                    spell: TRAINED,
+                    effect: 36,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let sibling = creation
+        .trace
+        .iter()
+        .position(|event| matches!(event, InitEvent::SpellLearned { spell: SIBLING }))
+        .unwrap();
+    assert!(effect < sibling);
     assert_eq!(
-        live.snapshot().calls[0].learned_spells,
-        [LEAF, CHILD, SIBLING, TRAINED]
-    );
-    assert_eq!(
-        live.abilities()[&TRAINED].availability,
+        creation.abilities[&TRAINED].availability,
         AbilityAvailability::PassiveApplied
     );
 }
@@ -644,7 +717,7 @@ fn nested_notification_journals_round_trip_and_reject_order_membership_and_versi
     let encoded = serde_json::to_vec(&live.snapshot()).unwrap();
     let saved: TrainingSnapshot = serde_json::from_slice(&encoded).unwrap();
     assert_eq!(saved.version, 2);
-    assert!(LIVE_TRAINING_POLICY_ID.ends_with("-v2"));
+    assert!(LIVE_TRAINING_POLICY_ID.ends_with("-v3"));
     assert_eq!(
         LiveTraining::restore_authoritative(&fresh, &saved, &view)
             .unwrap()
@@ -768,7 +841,11 @@ fn skill_step_false_return_with_active_child_stays_transactionally_unsupported()
     let view = trained_view(&input, &mage);
     assert_eq!(
         live.apply(&callback(&view), &view),
-        Err(InitError::Invalid("live training changed spellbook domain"))
+        Err(InitError::Unsupported {
+            domain: "live training initial cast",
+            id: TRAINED,
+            detail: 0
+        })
     );
     assert_eq!(live.snapshot(), before);
     let mut tampered = before;
@@ -862,7 +939,7 @@ fn learning_a_new_general_reputation_passive_rejects_without_mutating_training_o
     assert!(matches!(
         live.apply(&callback(&view), &view),
         Err(InitError::Unsupported {
-            domain: "live training changed fixed modifiers/passives",
+            domain: "live training initial cast",
             ..
         })
     ));
@@ -883,4 +960,125 @@ fn learning_a_new_general_reputation_passive_rejects_without_mutating_training_o
         learned_spells: vec![TRAINED],
     });
     assert!(LiveTraining::restore_authoritative(&fresh, &forged, &view).is_err());
+}
+
+#[test]
+fn newly_executed_no_state_initial_casts_reject_for_completed_and_prepared_training() {
+    for opcode in [20, 25, 26, 37, 39, 118] {
+        let mut input = input();
+        input.spells[1].words[6] = 0x40;
+        input.spells[1].words[61] = opcode;
+        input.spells[1].words[82] = 1;
+        let mage = initialize_mage(&input).unwrap();
+        let prepared = prepare_starter(
+            &input,
+            &StarterInitialDependencies {
+                source_identity: input.source_identity(),
+                store_identity: [31; 32],
+                hook_scope_identity: [32; 32],
+                queried_spell_ids: vec![],
+                rows: Rows::Complete(vec![]),
+            },
+            &StarterCastOrder {
+                creation: InitialCastOrderEvidence::Authored { identity: [33; 32] },
+                first_entry: InitialCastOrderEvidence::Authored { identity: [34; 32] },
+                entry_skill_order: Some(vec![95]),
+            },
+        )
+        .unwrap();
+        for mut live in [
+            LiveTraining::from_initializer(&input, &mage).unwrap(),
+            LiveTraining::from_prepared(&input, &prepared).unwrap(),
+        ] {
+            let before = live.snapshot();
+            let view = trained_view(&input, &mage);
+            assert!(matches!(
+                live.apply(&callback(&view), &view),
+                Err(InitError::Unsupported {
+                    domain: "live training initial cast",
+                    id: TRAINED,
+                    detail: 0
+                })
+            ));
+            assert_eq!(live.snapshot(), before);
+        }
+    }
+}
+
+#[test]
+fn actual_pending_dodge_shape_cannot_enter_live_training() {
+    let mut input = input();
+    let mut dodge = spell(81);
+    dodge.duration_ms = Some(0);
+    for (cell, value) in [
+        (6, 0x50),
+        (25, 101),
+        (28, 1),
+        (29, 1),
+        (36, 1),
+        (59, u32::MAX),
+        (61, 20),
+        (64, 6),
+        (97, 0x3f80_0000),
+        (106, 90),
+        (164, 1),
+        (165, 1),
+        (166, u32::MAX),
+        (167, 0x3f80_0000),
+        (168, 0x3f80_0000),
+        (169, 0x3f80_0000),
+    ] {
+        dodge.words[cell] = value;
+    }
+    input.spells[1] = dodge.clone();
+    input.skill_abilities = Rows::Complete(vec![mapping(1, 95, 81, 6, 1)]);
+    input.active_support.clear();
+    let order = StarterCastOrder {
+        creation: InitialCastOrderEvidence::Authored { identity: [61; 32] },
+        first_entry: InitialCastOrderEvidence::Authored { identity: [62; 32] },
+        entry_skill_order: Some(vec![95]),
+    };
+    let deps = StarterInitialDependencies {
+        source_identity: input.source_identity(),
+        store_identity: [63; 32],
+        hook_scope_identity: [64; 32],
+        queried_spell_ids: vec![],
+        rows: Rows::Complete(vec![]),
+    };
+    let prepared = prepare_starter(&input, &deps, &order).unwrap();
+    let mut live = LiveTraining::from_prepared(&input, &prepared).unwrap();
+    let before = live.snapshot();
+    let view = trained_view(&input, prepared.created());
+    assert!(matches!(
+        live.apply(&callback(&view), &view),
+        Err(InitError::Unsupported {
+            domain: "live training initial cast",
+            id: 81,
+            detail: 0,
+        })
+    ));
+    assert_eq!(live.snapshot(), before);
+
+    // The same untouched row is exactly the audited pending shape when genuinely
+    // reached during initialization, rather than an arbitrary rejected random row.
+    input.default_spells = Rows::Complete(vec![SEED, 81]);
+    input.skill_abilities = Rows::Complete(vec![]);
+    let initial = StarterInitialDependencies {
+        source_identity: input.source_identity(),
+        queried_spell_ids: vec![81],
+        rows: Rows::Complete(vec![StarterInitialDependency {
+            spell_id: 81,
+            source_hash: dodge.source_hash(),
+            cast_time: InitialSpellLookup::Missing { index: 0 },
+            duration: InitialSpellLookup::Missing { index: 0 },
+            server_side: 0,
+            server_attributes: 0,
+            bonus_coefficients: [0x3f80_0000, 0, 0],
+            attack_power_coefficients: [0; 3],
+        }]),
+        ..deps
+    };
+    let prepared = prepare_starter(&input, &initial, &order).unwrap();
+    assert_eq!(prepared.first_entry_plan().draw_requests().len(), 1);
+    assert!(initialize_mage(&input).is_err());
 }

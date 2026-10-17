@@ -101,6 +101,10 @@ jobs:
         run: |
           python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
           python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+      - name: initial-cast-phase-source-oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_initial_cast_phase_oracle.py
+          python3 crates/benilla-sim/tools/generate_initial_cast_phase_fixture.py --check
       - name: packaging-tests
         run: python3 scripts/test-package-player.py
       - name: Report unavailable data checks

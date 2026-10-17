@@ -537,8 +537,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 36);
-        assert_eq!(NATIVE_POLICY, "benilla-native-source-combat-timers-v36");
+        assert_eq!(NATIVE_FORMAT_VERSION, 37);
+        assert_eq!(NATIVE_POLICY, "benilla-native-initial-cast-genesis-v37");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

@@ -11,7 +11,7 @@ production admission and contains only authored placeholder test rows.
 Its hash binds faction rows, their four race/class slots, explicit resolved reward
 rates and spillover results, world rates, the ordered retained initial aura156
 list with exact raw-spell fingerprints, and excluded dependencies into quest
-progression genesis v5 and native format 36. Quest lifecycle v3 binds all reputation
+progression genesis v6 and native format 37. Quest lifecycle v3 binds all reputation
 reward slots/flags, min/max eligibility gates and objective columns. Every relevant
 faction lookup must resolve; unlisted lookup is an error. `None` means unavailable
 and is accepted only when all reputation columns in the selected quest closure are
@@ -55,9 +55,9 @@ the source reputation query, never the client `FactionInfo` race-slot helper.
 
 ## Persistence and session delivery
 
-Reputation policy v2, initializer policy v3 and quest genesis v5 are bound through
-the existing native36 profile/genesis hashes. The native checkpoint, journal and
-client packet field layouts are unchanged; earlier-context saves reject even for
+Reputation policy v2, initializer policy v4 and quest genesis v6 are bound through
+the existing native37 profile/genesis hashes. Native37 adds its required initial-cast receipt without changing reputation
+packet fields; earlier-context saves reject even for
 no-aura inputs. A recomputed outer checksum cannot repair stale nested catalog,
 training or quest-policy identities. The separate character/profile format is
 unchanged and no migration is provided.

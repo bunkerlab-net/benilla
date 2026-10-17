@@ -32,7 +32,10 @@ impl ClientCatalog for Catalog {
         false
     }
     fn contains_spell(&self, id: u32) -> bool {
-        matches!(id, 133 | 60001 | 60002 | 60004 | 60005 | 61004 | 61005)
+        matches!(
+            id,
+            81 | 133 | 3050 | 60001 | 60002 | 60004 | 60005 | 61004 | 61005
+        )
     }
     fn player_power_type(&self, _: PlayerId) -> Option<u8> {
         Some(0)
@@ -220,6 +223,98 @@ fn pump_to(c: &mut NativeController, tick: u64) -> Vec<SessionEvent> {
     }
     events
 }
+
+#[test]
+fn native37_controller_create_and_reopen_retain_genesis_without_initial_cast_packets() {
+    let h = Harness::new();
+    let profile = n::synthetic_initial_cast_fixture::profile();
+    let mut controller = h.start(profile.clone());
+    assert_eq!(controller.tick(), 0);
+    assert_eq!(controller.world.state().next_sequence, 0);
+    assert_eq!(controller.world.state().next_cast_id, 1);
+    assert!(controller.world.state().rng_counter > 0);
+    let genesis = controller.world.state().initial_cast_genesis.clone();
+    assert_eq!(controller.world.state().rng_counter, genesis.end_counter());
+    let initial = controller.initial_events().unwrap();
+    assert!(!initial.iter().any(|event| matches!(
+        event,
+        SessionEvent::SpellStart { .. } | SessionEvent::SpellGo { .. }
+    )));
+    pump_to(&mut controller, 1);
+    let expected = controller.world.checkpoint().unwrap();
+    controller.shutdown().unwrap();
+    drop(controller);
+    let mut restored = h.reopen(profile);
+    assert_eq!(restored.world.checkpoint().unwrap(), expected);
+    assert_eq!(restored.world.state().initial_cast_genesis, genesis);
+    assert_eq!(restored.world.state().next_sequence, 0);
+    assert_eq!(restored.world.state().next_cast_id, 1);
+    pump_to(&mut restored, 2);
+    assert_eq!(restored.world.state().initial_cast_genesis, genesis);
+}
+
+#[test]
+fn native36_checkpoint_inside_fresh_store_checksum_cannot_reopen_or_replace_controller_world() {
+    use sha2::{Digest as _, Sha256};
+    let h = Harness::new();
+    let mut controller = h.start(stationary());
+    controller.shutdown().unwrap();
+    drop(controller);
+    let path = h.path().join("world.checkpoint");
+    let original = fs::read(&path).unwrap();
+    let length = u32::from_le_bytes(original[52..56].try_into().unwrap()) as usize;
+    let mut checkpoint: serde_json::Value =
+        serde_json::from_slice(&original[60..60 + length]).unwrap();
+    checkpoint["version"] = 36.into();
+    checkpoint["state"]["version"] = 36.into();
+    checkpoint["state"]["policy"] = "benilla-native-source-combat-timers-v36".into();
+    let typed: n::Checkpoint = serde_json::from_value(checkpoint.clone()).unwrap();
+    let encoded = String::from_utf8(typed.encode().unwrap()).unwrap();
+    let start = encoded.find("\"state\":").unwrap() + "\"state\":".len();
+    let end = encoded.rfind(",\"digest\":").unwrap();
+    let state = &encoded[start..end];
+    let hash = |domain: &[u8], bytes: &[u8]| -> runtime::Digest {
+        let mut hasher = Sha256::new();
+        hasher.update(domain);
+        hasher.update(bytes);
+        hasher.finalize().into()
+    };
+    checkpoint["digest"] =
+        serde_json::to_value(hash(b"benilla-native-state-v37\0", state.as_bytes())).unwrap();
+    let body = format!(
+        "[{state},{},{}]",
+        checkpoint["digest"], checkpoint["history_tip"]
+    );
+    checkpoint["checksum"] =
+        serde_json::to_value(hash(b"benilla-native-checkpoint-v37\0", body.as_bytes())).unwrap();
+    let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
+    let snapshot = typed.encode().unwrap();
+    let mut forged = original[..60].to_vec();
+    forged[52..56].copy_from_slice(&(snapshot.len() as u32).to_le_bytes());
+    forged.extend(snapshot);
+    forged.extend(&original[60 + length..original.len() - 32]);
+    forged.extend(hash(b"benilla-native-store-v1\0", &forged));
+    fs::write(&path, &forged).unwrap();
+    assert!(h
+        .enter(
+            Entry::Open { world: [8; 16] },
+            stationary(),
+            fixture::KernelAuthority::default()
+        )
+        .is_err());
+    assert!(h
+        .enter(
+            Entry::Create {
+                world: [8; 16],
+                seed: 7
+            },
+            stationary(),
+            fixture::KernelAuthority::default()
+        )
+        .is_err());
+    assert_eq!(fs::read(path).unwrap(), forged);
+}
+
 #[test]
 fn selected_identity_native_clock_and_saves_never_touch_profile() {
     let h = Harness::new();

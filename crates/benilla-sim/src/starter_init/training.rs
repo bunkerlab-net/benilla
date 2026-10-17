@@ -12,7 +12,7 @@ use crate::player_progression::{self as progression, Event, SkillStatus, Snapsho
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const LIVE_TRAINING_POLICY_ID: &str = "cmangos-8ec338a1-live-fixed-skill-training-v2";
+pub const LIVE_TRAINING_POLICY_ID: &str = "cmangos-8ec338a1-live-fixed-skill-training-v3";
 const MAX_CALLS: usize = 4096;
 const MAX_SPELLS: usize = 4096;
 
@@ -69,6 +69,7 @@ pub struct LiveTraining {
     known: BTreeMap<u32, KnownAbility>,
     calls: Vec<TrainingCallSnapshot>,
     identity: [u8; 32],
+    preparation_identity: Option<[u8; 32]>,
 }
 impl LiveTraining {
     /// Public fields of InitializedMage are not authority: reinitialize and
@@ -87,7 +88,34 @@ impl LiveTraining {
             known: created.abilities.clone(),
             calls: vec![],
             identity: input_identity(input),
+            preparation_identity: None,
         })
+    }
+    /// Rebuild the entire immutable two-epoch preparation before accepting its projection.
+    pub fn from_prepared(input: &StarterInput, prepared: &super::PreparedStarter) -> Result<Self> {
+        prepared.validate_against(input)?;
+        let created = prepared.created();
+        let entry = prepared.first_entry();
+        complete_learning_closure(input, &entry.skills, &created.abilities)?;
+        let mut h = Sha256::new();
+        h.update(b"cmangos-8ec338a1-prepared-live-training-v1\0");
+        h.update(input_identity(input));
+        h.update(prepared.identity());
+        Ok(Self {
+            input: input.clone(),
+            created: created.clone(),
+            initial_skills: entry.skills.clone(),
+            known: created.abilities.clone(),
+            calls: vec![],
+            identity: h.finalize().into(),
+            preparation_identity: Some(prepared.identity()),
+        })
+    }
+    pub fn source_identity(&self) -> [u8; 32] {
+        input_identity(&self.input)
+    }
+    pub fn preparation_identity(&self) -> Option<[u8; 32]> {
+        self.preparation_identity
     }
     pub fn identity(&self) -> [u8; 32] {
         self.identity
@@ -283,6 +311,8 @@ impl LiveTraining {
             .map(|a| (a.aura_type, a.misc_value))
             .collect();
         let mut replay = Init {
+            initial_casts: None,
+            reject_live_casts: true,
             input: &input,
             stats,
             skills: skills.clone(),

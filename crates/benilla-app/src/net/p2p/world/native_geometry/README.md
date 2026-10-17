@@ -720,7 +720,7 @@ The app geometry identity is
 outer-commit acknowledgement, total-cap-four and bounded original-job policies.
 Earlier uncommitted-proposal and monolithic-commit identities are incompatible.
 Commit-head delivery itself does not alter the native payload schema; the current
-payload is format 35 for complete authored one/two-owner source visitors.
+payload is format 37 for complete authored one/two-owner source visitors.
 `install_with_same_polygon` returns a proposal authority and an explicit paired
 commit sink. The selected mailbox refuses queries until the controller attaches
 that sink at the actual cache-free world boundary. A fresh opaque attachment and
@@ -873,3 +873,11 @@ navigation domain follows from these authored component tests.
 The independently selected [source-location provider](SOURCE-LOCATION.md) reads exact
 zone/area from owned terrain/VMap/DBC products. It does not infer location from liquid
 status, prove spell-area closure or open gameplay admission.
+
+The first-entry provider uses the same owned terrain/VMap/DBC products through a
+separate exact-start-pose request, before the ticked location-query domain. It binds
+the final profile, world, player, session and source snapshot, and returns a raw
+flag with catalog-derived zone/area for the native genesis receipt. Its authored
+component test retains a nonempty raw spell_area table; it does not select a
+production session or supply missing client assets. Stored receipt validation is
+content consistency, not authenticated historical terrain evidence.

@@ -1090,7 +1090,7 @@ mod tests {
             false
         }
         fn contains_spell(&self, id: u32) -> bool {
-            matches!(id, 133 | 60001 | 60002)
+            matches!(id, 81 | 133 | 3050 | 60001 | 60002)
         }
         fn player_power_type(&self, _: PlayerId) -> Option<u8> {
             Some(0)
@@ -1208,6 +1208,72 @@ mod tests {
         w.step(2, None, &mut a).unwrap();
         assert!(matches!(p.advance(&w), Err(Error::StaleProjection)));
         assert_eq!(p.previous.tick, 0);
+    }
+
+    #[test]
+    fn native37_projection_rejects_native36_previous_digest_without_advancing() {
+        use sha2::{Digest as _, Sha256};
+        let mut world = world();
+        let mut projection = NativeProjection::new(&world, world.state().player, &Catalog).unwrap();
+        let checkpoint = String::from_utf8(world.checkpoint().unwrap().encode().unwrap()).unwrap();
+        let start = checkpoint.find("\"state\":").unwrap() + "\"state\":".len();
+        let end = checkpoint.rfind(",\"digest\":").unwrap();
+        let mut hash = Sha256::new();
+        hash.update(b"benilla-native-state-v36\0");
+        hash.update(&checkpoint.as_bytes()[start..end]);
+        let old: Digest = hash.finalize().into();
+        let current = projection.previous_digest;
+        assert_ne!(old, current);
+        projection.previous_digest = old;
+        world
+            .step(1, None, &mut SyntheticAuthority::default())
+            .unwrap();
+        assert!(matches!(
+            projection.advance(&world),
+            Err(Error::StaleProjection)
+        ));
+        assert_eq!(projection.previous.tick, 0);
+        assert_eq!(projection.previous_digest, old);
+        projection.previous_digest = current;
+        projection.advance(&world).unwrap();
+        assert_eq!(projection.previous_digest, world.state_digest());
+    }
+
+    #[test]
+    fn initial_cast_genesis_is_retained_without_a_projected_gameplay_cast() {
+        use n::synthetic_initial_cast_fixture as initial;
+        let mut world = initial::world(7);
+        assert_eq!(world.state().tick, 0);
+        assert_eq!(world.state().next_sequence, 0);
+        assert_eq!(world.state().next_cast_id, 1);
+        assert!(world.state().rng_counter > 0);
+        assert!(world.records().is_empty());
+        let initial = world.checkpoint().unwrap();
+        let mut projection = NativeProjection::new(&world, world.state().player, &Catalog).unwrap();
+        let events = projection.initial_events(&world).unwrap();
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            SessionEvent::SpellStart { .. } | SessionEvent::SpellGo { .. }
+        )));
+        assert_eq!(projection.previous_digest, world.state_digest());
+        world
+            .step(1, None, &mut SyntheticAuthority::default())
+            .unwrap();
+        projection.advance(&world).unwrap();
+        let restored = n::NativeWorld::restore_synthetic_component_test(
+            world.profile().clone(),
+            world.checkpoint().unwrap(),
+        )
+        .unwrap();
+        let resumed = NativeProjection::new(&restored, restored.state().player, &Catalog).unwrap();
+        assert_eq!(resumed.previous_digest, projection.previous_digest);
+        assert_eq!(
+            serde_json::to_value(initial).unwrap()["state"]["initial_cast_genesis"],
+            serde_json::to_value(restored.checkpoint().unwrap()).unwrap()["state"]
+                ["initial_cast_genesis"]
+        );
+        assert_eq!(world.state().next_sequence, 0);
+        assert_eq!(world.state().next_cast_id, 1);
     }
 }
 #[cfg(test)]

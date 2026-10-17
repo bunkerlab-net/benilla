@@ -442,6 +442,7 @@ impl NativeWorld {
                         || c.owner != self.state.player
                         || npc.original_loot_recipient != Some(c.owner)
                         || npc.ai.death_at_ms() != Some(c.death_at_ms)
+                        || c.first_counter < self.state.initial_cast_genesis.end_counter()
                         || c.first_counter > c.end_counter
                         || c.end_counter > self.state.rng_counter
                         || c.draws.len() > 4096
