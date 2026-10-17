@@ -23,6 +23,7 @@ fn panel_app() -> App {
     settings.open = true;
     settings.refresh_fields(&Cvars::default());
     settings.fields[1].value = "private sample passphrase".into();
+    settings.fields[1].saved_value = "private sample passphrase".into();
     settings.fields[1].locked = false;
     settings.select(1);
     settings.edit.cursor = 3;
@@ -63,7 +64,7 @@ fn artless_recovery_has_readable_fonts_actions_and_masked_input() {
             .query_filtered::<Entity, (With<GlueBtn>, With<FallbackFace>)>()
             .iter(app.world())
             .count()
-            >= 10
+            >= 8
     );
     assert_eq!(
         app.world_mut()
@@ -71,7 +72,7 @@ fn artless_recovery_has_readable_fonts_actions_and_masked_input() {
             .iter(app.world())
             .filter(|a| matches!(a, Action::Select(_)))
             .count(),
-        PAGE_SIZE
+        7
     );
     let settings = app.world().resource::<Settings>();
     assert!(settings.config.is_none() && settings.changes.is_empty());
@@ -126,7 +127,7 @@ fn late_art_and_resize_rebuild_without_resetting_draft_focus_or_reveal() {
             .query_filtered::<&ImageNode, With<GlueBtn>>()
             .iter(app.world())
             .count()
-            >= 10
+            >= 8
     );
     assert_eq!(
         app.world_mut()
@@ -150,12 +151,12 @@ fn late_art_and_resize_rebuild_without_resetting_draft_focus_or_reveal() {
     assert_eq!(
         (
             settings.selected,
-            settings.offset,
+            settings.group,
             settings.edit.cursor,
             settings.edit.sel_start,
             settings.edit.sel_end
         ),
-        (Some(1), 0, 4, 2, 6)
+        (Some(1), FieldGroup::Connection, 4, 2, 6)
     );
     assert!(!settings.edit.password);
     assert!(settings.config.is_none() && settings.changes.is_empty());
@@ -269,13 +270,17 @@ fn stock_frame_tints_do_not_turn_the_tooltip_mask_into_a_grey_panel() {
 fn repeated_navigation_and_reopening_keeps_one_panel_and_all_actions() {
     let mut app = panel_app();
     for _ in 0..3 {
-        for offset in [0, PAGE_SIZE, PAGE_SIZE * 2, PAGE_SIZE, 0] {
+        for group in [
+            FieldGroup::Connection,
+            FieldGroup::Iroh,
+            FieldGroup::World,
+            FieldGroup::Encounter,
+            FieldGroup::Connection,
+        ] {
             {
                 let mut settings = app.world_mut().resource_mut::<Settings>();
                 settings.open = true;
-                settings.keep_edit();
-                settings.offset = offset;
-                settings.select(offset);
+                settings.select_group(group);
                 settings.refresh = true;
             }
             app.update();
@@ -300,22 +305,22 @@ fn repeated_navigation_and_reopening_keeps_one_panel_and_all_actions() {
             assert_eq!(
                 actions
                     .iter()
-                    .filter(|a| matches!(a, Action::Previous))
+                    .filter(|a| matches!(a, Action::Group(_)))
                     .count(),
-                1
-            );
-            assert_eq!(
-                actions.iter().filter(|a| matches!(a, Action::Next)).count(),
-                1
+                4
             );
             let settings = app.world().resource::<Settings>();
-            assert_eq!(settings.selected, Some(offset));
+            assert_eq!(settings.group, group);
             assert_eq!(
                 actions
                     .iter()
                     .filter(|a| matches!(a, Action::Select(_)))
                     .count(),
-                (settings.fields.len() - offset).min(PAGE_SIZE)
+                settings
+                    .fields
+                    .iter()
+                    .filter(|field| FieldGroup::for_field(&field.name) == group)
+                    .count()
             );
         }
         app.world_mut().resource_mut::<Settings>().open = false;
@@ -368,7 +373,6 @@ fn every_startup_setting_renders_its_own_brief_explanation() {
         {
             let mut settings = app.world_mut().resource_mut::<Settings>();
             settings.select(index);
-            settings.offset = index / PAGE_SIZE * PAGE_SIZE;
         }
         app.update();
         assert!(app
@@ -399,7 +403,7 @@ fn field_text_stack_is_centered_and_inset_for_selected_and_unselected_rows() {
             }
         })
         .collect();
-    assert_eq!(rows.len(), PAGE_SIZE);
+    assert_eq!(rows.len(), 7);
     for (index, children, row) in rows {
         assert_eq!(row.height, Val::Px(layout::FIELD_HEIGHT * s));
         let texts: Vec<_> = children
@@ -432,5 +436,108 @@ fn field_text_stack_is_centered_and_inset_for_selected_and_unselected_rows() {
     assert_eq!(
         layout::FIELD_TEXT_TOP * 2.0 + layout::FIELD_LABEL_HEIGHT + layout::FIELD_VALUE_HEIGHT,
         layout::FIELD_HEIGHT
+    );
+}
+
+#[test]
+fn booleans_use_checkboxes_instead_of_text_inputs_and_groups_have_no_paging() {
+    let mut app = panel_app();
+    for name in [
+        "p2p.enabled",
+        "p2p.iroh.enabled",
+        "p2p.iroh.port_mapping",
+        "p2p.encounter.enabled",
+    ] {
+        let index = app
+            .world()
+            .resource::<Settings>()
+            .fields
+            .iter()
+            .position(|field| field.name == name)
+            .unwrap();
+        app.world_mut().resource_mut::<Settings>().select(index);
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<Edit>>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+        assert_eq!(
+            app.world_mut()
+                .query::<&Action>()
+                .iter(app.world())
+                .filter(|action| matches!(action, Action::ToggleBoolean(i) if *i == index))
+                .count(),
+            1
+        );
+        assert_eq!(
+            app.world_mut()
+                .query::<&Action>()
+                .iter(app.world())
+                .filter(|action| matches!(action, Action::Group(_)))
+                .count(),
+            4
+        );
+        assert!(app
+            .world_mut()
+            .query::<&Text>()
+            .iter(app.world())
+            .all(|text| text.0 != "Next" && text.0 != "Previous" && !text.0.starts_with("Page ")));
+    }
+}
+
+#[test]
+fn live_apply_requires_explicit_disconnect_controls() {
+    let mut app = panel_app();
+    app.world_mut().resource_mut::<Settings>().apply_status =
+        Some(crate::net::reconfigure::ApplyStatus::NeedsDisconnect);
+    app.update();
+    for confirm in [true, false] {
+        assert_eq!(
+            app.world_mut()
+                .query::<&Action>()
+                .iter(app.world())
+                .filter(|action| if confirm {
+                    matches!(action, Action::ConfirmApply)
+                } else {
+                    matches!(action, Action::KeepConnection)
+                })
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn unsaved_indicator_detects_uncommitted_typing_while_apply_is_pending() {
+    let mut app = panel_app();
+    app.world_mut().resource_mut::<Settings>().apply_status =
+        Some(crate::net::reconfigure::ApplyStatus::Pending);
+    app.update();
+    assert!(app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .any(|text| text.0 == "No unsaved changes"));
+    let before = root(&mut app);
+    app.world_mut()
+        .resource_mut::<Settings>()
+        .edit
+        .set_text("new unsaved draft");
+    app.update();
+    assert_ne!(root(&mut app), before);
+    assert!(app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .any(|text| text.0 == "Unsaved draft changes"));
+    assert!(
+        !app.world_mut()
+            .query::<&Text>()
+            .iter(app.world())
+            .any(|text| text.0.contains("new unsaved draft")),
+        "secret remains masked while dirty state refreshes"
     );
 }

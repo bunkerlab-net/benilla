@@ -1,5 +1,5 @@
 //! Bounded connection-setup geometry in the glue screen's 768-high coordinates.
-//! This fork-only dialog borrows stock glue chrome; it does not change startup semantics.
+//! This fork-only dialog borrows stock glue chrome and bounds every group without paging.
 pub(super) const WIDTH: f32 = 920.0;
 pub(super) const HEIGHT: f32 = 704.0;
 pub(super) const LIST: [f32; 4] = [22.0, 112.0, 430.0, 348.0];
@@ -15,8 +15,8 @@ pub(super) const FIELD_TEXT_TOP: f32 =
     (FIELD_HEIGHT - FIELD_LABEL_HEIGHT - FIELD_VALUE_HEIGHT) / 2.0;
 pub(super) const FIELD_TEXT_LEFT: f32 = 16.0;
 pub(super) const FIELD_TEXT_WIDTH: f32 = 374.0;
-pub(super) const FIELD_TOP: f32 = 14.0;
-pub(super) const PAGE_TOP: f32 = 302.0;
+pub(super) const GROUP_TOP: f32 = 12.0;
+pub(super) const FIELD_TOP: f32 = 52.0;
 
 pub(super) fn scale(width: f32, height: f32) -> f32 {
     (height / 768.0).min(width / 960.0).min(2.2)
@@ -52,10 +52,10 @@ mod tests {
     }
 
     #[test]
-    fn all_eight_fields_and_paging_fit_without_using_footer_space() {
+    fn largest_group_and_tabs_fit_without_using_footer_space() {
         const {
-            assert!(FIELD_TOP + 8.0 * FIELD_HEIGHT <= PAGE_TOP);
-            assert!(PAGE_TOP + 34.0 <= LIST[3]);
+            assert!(GROUP_TOP + 32.0 < FIELD_TOP);
+            assert!(FIELD_TOP + 7.0 * FIELD_HEIGHT + 12.0 <= LIST[3]);
             assert!(LIST[0] + LIST[2] < EDITOR[0]);
             assert!(LIST[1] + LIST[3] < TESTS[1]);
             assert!(TESTS[1] + TESTS[3] < STATUS[1]);

@@ -2,7 +2,9 @@ use super::*;
 use crate::glue::{
     art::{tc_rect, GlueArt, GOLD, REALM_TAB_TC},
     backdrop::{backdrop_border, tiled_bg_node},
-    widgets::{abs, glue_button, glue_edit_box, overlay, GlueBtnKind, Hilight, LockHighlight},
+    widgets::{
+        abs, glue_button, glue_edit_box, overlay, ArtSwap, GlueBtnKind, Hilight, LockHighlight,
+    },
 };
 use bevy::{
     input::mouse::{MouseScrollUnit, MouseWheel},
@@ -25,7 +27,8 @@ const BOX_FILL: Color = Color::srgb(0.09, 0.09, 0.09);
 #[derive(PartialEq)]
 pub(in crate::login) struct StyleKey {
     scale: f32,
-    art: [bool; 10],
+    dirty: bool,
+    art: [bool; 13],
     font: Handle<Font>,
     edit_font: Handle<Font>,
 }
@@ -223,6 +226,7 @@ pub(in crate::login) fn render(
     );
     let style = StyleKey {
         scale: s,
+        dirty: settings.has_unsaved_changes(),
         art: [
             art.dialog_bg.is_some(),
             art.dialog_border.is_some(),
@@ -234,6 +238,9 @@ pub(in crate::login) fn render(
             art.tab_active.is_some(),
             art.dialog_header.is_some(),
             art.title_highlight.is_some(),
+            art.tab_inactive.is_some(),
+            art.checkbox.is_some(),
+            art.tab_highlight.is_some(),
         ],
         font: font.clone(),
         edit_font: edit_font.clone(),
@@ -309,7 +316,7 @@ fn content(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
     .with_children(|title| skin.text(title, "Connection setup", 12.0, GOLD, Node::default()));
     skin.text(
         ui,
-        "Executable config.toml • Save requires restart • Passphrase is stored locally",
+        "Executable config.toml • Save applies supported connection changes • Passphrase is stored locally",
         13.0,
         Color::WHITE,
         abs(s, 28.0, 57.0, 864.0, 20.0),
@@ -320,17 +327,33 @@ fn content(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
     ui.spawn(abs(s, x, y, w, h)).with_children(|list| {
         skin.frame(list, false);
         field_list(list, settings, skin);
+        skin.text(
+            list,
+            if settings.has_unsaved_changes() {
+                "Unsaved draft changes"
+            } else {
+                "No unsaved changes"
+            },
+            12.0,
+            GOLD,
+            abs(s, 16.0, 316.0, 398.0, 20.0),
+        );
     });
     let [x, y, w, h] = layout::EDITOR;
     ui.spawn(abs(s, x, y, w, h)).with_children(|editor| {
         skin.frame(editor, false);
         if let Some(i) = settings.selected { edit_field(editor, settings, i, skin); }
         else {
-            skin.text(editor, "Select a startup setting", 16.0, GOLD, abs(s, 16.0, 18.0, 400.0, 26.0));
-            skin.text(editor, "Select a row to edit its value. Changes remain in this draft until Save; closing discards them.",
+            skin.text(editor, "Select a setting", 16.0, GOLD, abs(s, 16.0, 18.0, 400.0, 26.0));
+            skin.text(editor, "Choose a group, then a setting. Changes remain in this draft until Save; closing discards unsaved edits.",
                 14.0, Color::WHITE, abs(s, 16.0, 58.0, 400.0, 70.0));
         }
-        if settings.config.is_none() {
+        if matches!(settings.apply_status, Some(crate::net::reconfigure::ApplyStatus::NeedsDisconnect)) {
+            editor.spawn(abs(s, 12.0, 198.0, 408.0, 34.0)).with_children(|r| {
+                skin.button(r, Action::ConfirmApply, "Disconnect and apply", 204.0);
+                skin.button(r, Action::KeepConnection, "Keep current connection", 204.0);
+            });
+        } else if settings.config.is_none() {
             editor.spawn(abs(s, 16.0, 198.0, 400.0, 34.0)).with_children(|r| {
                 skin.button(r, Action::Repair, "Start blank repair (backup on Save)", 400.0);
             });
@@ -381,19 +404,19 @@ fn content(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
         },
     ))
     .with_children(|r| {
-        skin.button(r, Action::Save, "Save startup settings", 240.0);
+        skin.button(r, Action::Save, "Save settings", 240.0);
         skin.button(r, Action::Cancel, "Close / discard unsaved", 260.0);
     });
 }
 
 fn field_list(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
     let s = skin.s;
+    group_tabs(ui, settings, skin);
     for (slot, (i, field)) in settings
         .fields
         .iter()
         .enumerate()
-        .skip(settings.offset)
-        .take(PAGE_SIZE)
+        .filter(|(_, field)| FieldGroup::for_field(&field.name) == settings.group)
         .enumerate()
     {
         let selected = settings.selected == Some(i);
@@ -435,7 +458,7 @@ fn field_list(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
             let lock = if field.locked { " [read-only]" } else { "" };
             skin.text(
                 r,
-                format!("{}{lock}", field.name),
+                format!("{}{lock}", field_label(&field.name)),
                 13.0,
                 GOLD,
                 abs(
@@ -446,7 +469,13 @@ fn field_list(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
                     layout::FIELD_LABEL_HEIGHT,
                 ),
             );
-            let value = if field.secret {
+            let value = if is_boolean(&field.name) {
+                if field.value == "true" {
+                    "Enabled".into()
+                } else {
+                    "Disabled".into()
+                }
+            } else if field.secret {
                 if field.value.is_empty() {
                     "(empty; no privacy)".to_owned()
                 } else {
@@ -477,45 +506,73 @@ fn field_list(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
             );
         });
     }
-    ui.spawn(abs(s, 12.0, layout::PAGE_TOP, 406.0, 34.0))
-        .with_children(|r| {
-            skin.button(r, Action::Previous, "Previous", 128.0);
-            r.spawn(Node {
-                width: Val::Px(150.0 * s),
-                height: Val::Px(34.0 * s),
+}
+
+fn group_tabs(ui: &mut ChildSpawnerCommands, settings: &Settings, skin: &Skin) {
+    let s = skin.s;
+    for (index, group) in FieldGroup::ALL.into_iter().enumerate() {
+        let active = settings.group == group;
+        ui.spawn((
+            Button,
+            Action::Group(group),
+            LockHighlight(active),
+            Node {
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                ..default()
-            })
-            .with_children(|page| {
-                // The active realm-tab's three pieces keep the stock end caps intact.
-                if let Some((sheet, size)) = &skin.art.tab_active {
-                    for (part, tc) in REALM_TAB_TC.iter().enumerate() {
-                        let (left, width) = [(0.0, 20.0), (20.0, 110.0), (130.0, 20.0)][part];
-                        page.spawn((
-                            ImageNode {
-                                image: sheet.clone(),
-                                rect: Some(tc_rect(*size, *tc)),
-                                ..default()
-                            },
-                            abs(s, left, 0.0, width, 32.0),
-                        ));
-                    }
+                ..abs(
+                    s,
+                    12.0 + index as f32 * 101.5,
+                    layout::GROUP_TOP,
+                    101.5,
+                    32.0,
+                )
+            },
+        ))
+        .with_children(|tab| {
+            let art = if active {
+                &skin.art.tab_active
+            } else {
+                &skin.art.tab_inactive
+            };
+            if let Some((sheet, size)) = art {
+                for (part, tc) in REALM_TAB_TC.iter().enumerate() {
+                    let (left, width) = [(0.0, 20.0), (20.0, 61.5), (81.5, 20.0)][part];
+                    tab.spawn((
+                        ImageNode {
+                            image: sheet.clone(),
+                            rect: Some(tc_rect(*size, *tc)),
+                            ..default()
+                        },
+                        abs(s, left, 0.0, width, 32.0),
+                    ));
                 }
-                skin.text(
-                    page,
-                    format!(
-                        "Page {} / {}",
-                        settings.offset / PAGE_SIZE + 1,
-                        settings.fields.len().div_ceil(PAGE_SIZE).max(1)
-                    ),
-                    12.0,
-                    GOLD,
-                    Node::default(),
-                );
-            });
-            skin.button(r, Action::Next, "Next", 128.0);
+            } else {
+                tab.spawn((
+                    BackgroundColor(if active {
+                        Color::srgb(0.22, 0.16, 0.06)
+                    } else {
+                        BOX_FILL
+                    }),
+                    overlay(),
+                ));
+            }
+            if let Some(hi) = &skin.art.tab_highlight {
+                tab.spawn((
+                    Hilight,
+                    Visibility::Hidden,
+                    bevy::ui_render::ui_material::MaterialNode(hi.clone()),
+                    overlay(),
+                ));
+            }
+            skin.text(
+                tab,
+                group.label(),
+                12.0,
+                if active { GOLD } else { Color::WHITE },
+                Node::default(),
+            );
         });
+    }
 }
 
 fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin: &Skin) {
@@ -523,8 +580,8 @@ fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin
     skin.text(
         ui,
         format!(
-            "Edit {}{}",
-            settings.fields[i].name,
+            "{}{}",
+            field_label(&settings.fields[i].name),
             if settings.fields[i].locked {
                 " (read-only)"
             } else {
@@ -535,6 +592,13 @@ fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin
         GOLD,
         abs(s, 16.0, 14.0, 400.0, 36.0),
     );
+    skin.text(
+        ui,
+        &settings.fields[i].name,
+        11.0,
+        Color::WHITE,
+        abs(s, 16.0, 37.0, 400.0, 16.0),
+    );
     let help = field_help(&settings.fields[i].name).expect("startup field has help");
     skin.text(
         ui,
@@ -543,23 +607,27 @@ fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin
         Color::WHITE,
         abs(s, 16.0, 54.0, 400.0, 64.0),
     );
-    ui.spawn(Node {
-        overflow: Overflow::clip(),
-        ..abs(s, 12.0, 122.0, 408.0, 36.0)
-    })
-    .with_children(|r| {
-        glue_edit_box(
-            r,
-            skin.art,
-            &skin.edit_font,
-            (),
-            Edit,
-            (408.0, 36.0),
-            (BOX_BORDER, BOX_FILL),
-            (12.0, 12.0, 0.0, 5.0),
-            s,
-        );
-    });
+    if is_boolean(&settings.fields[i].name) {
+        boolean_editor(ui, settings, i, skin);
+    } else {
+        ui.spawn(Node {
+            overflow: Overflow::clip(),
+            ..abs(s, 12.0, 122.0, 408.0, 36.0)
+        })
+        .with_children(|r| {
+            glue_edit_box(
+                r,
+                skin.art,
+                &skin.edit_font,
+                (),
+                Edit,
+                (408.0, 36.0),
+                (BOX_BORDER, BOX_FILL),
+                (12.0, 12.0, 0.0, 5.0),
+                s,
+            );
+        });
+    }
     if settings.fields[i].secret {
         ui.spawn(abs(s, 12.0, 160.0, 120.0, 34.0))
             .with_children(|r| {
@@ -577,11 +645,91 @@ fn edit_field(ui: &mut ChildSpawnerCommands, settings: &Settings, i: usize, skin
     }
 }
 
+fn boolean_editor(ui: &mut ChildSpawnerCommands, settings: &Settings, index: usize, skin: &Skin) {
+    let enabled = settings.edit.text == "true";
+    let s = skin.s;
+    // Stock AccountLogin checkbox art and pressed/hover behavior; no typed boolean values.
+    let mut checkbox = ui.spawn((
+        Button,
+        Action::ToggleBoolean(index),
+        abs(s, 16.0, 128.0, 20.0, 20.0),
+    ));
+    if let Some(art) = &skin.art.checkbox {
+        checkbox.insert((
+            ImageNode::new(art.up.clone()),
+            ArtSwap {
+                up: art.up.clone(),
+                down: art.down.clone(),
+            },
+        ));
+        checkbox.with_children(|check| {
+            if enabled {
+                check.spawn((ImageNode::new(art.checked.clone()), overlay()));
+            }
+            if let Some(hi) = &art.hi {
+                check.spawn((
+                    Hilight,
+                    Visibility::Hidden,
+                    bevy::ui_render::ui_material::MaterialNode(hi.clone()),
+                    overlay(),
+                ));
+            }
+        });
+    } else {
+        checkbox.insert((
+            BackgroundColor(BOX_FILL),
+            BorderColor::all(BOX_BORDER),
+            Node {
+                border: UiRect::all(Val::Px(s)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..abs(s, 16.0, 128.0, 20.0, 20.0)
+            },
+        ));
+        if enabled {
+            checkbox.with_children(|check| skin.text(check, "x", 14.0, GOLD, Node::default()));
+        }
+    }
+    skin.text(
+        ui,
+        if enabled { "Enabled" } else { "Disabled" },
+        14.0,
+        Color::WHITE,
+        abs(s, 44.0, 128.0, 350.0, 24.0),
+    );
+}
+
+fn field_label(name: &str) -> &str {
+    match name {
+        "p2p.enabled" => "Enable P2P",
+        "p2p.psk" => "Passphrase",
+        "p2p.network" => "Network name",
+        "p2p.listen" => "Listen address",
+        "p2p.peers" => "TCP peers",
+        "p2p.max_peers" => "Peer limit",
+        "p2p.timeout_ms" => "Handshake timeout (ms)",
+        "wow.data" => "WoW Data folder",
+        "p2p.classic_start_captures" => "Racial start overrides",
+        "ruleset.xp_rate" => "XP multiplier",
+        "ruleset.drop_rate" => "Drop-chance multiplier",
+        "p2p.iroh.enabled" => "Enable iroh (QUIC)",
+        "p2p.iroh.relay_urls" => "Allowed relays",
+        "p2p.iroh.peer_tickets" => "Peer tickets",
+        "p2p.iroh.port_mapping" => "Allow router port mapping",
+        "p2p.encounter.enabled" => "Enable synthetic encounter",
+        "p2p.encounter.local_id" => "Local player ID",
+        "p2p.encounter.epoch" => "Shared session ID",
+        "p2p.encounter.tick_limit" => "Simulation tick limit",
+        "p2p.encounter.roster" => "Fixed player roster",
+        _ => name,
+    }
+}
+
 // Keep startup explanations here so every listed field has a specific, testable description.
 fn field_help(name: &str) -> Option<&'static str> {
     Some(match name {
         "p2p.enabled" => {
-            "true enables P2P exploration after restart; false removes the P2P config and uses realm login. Peers need matching network, passphrase and ruleset."
+            "Enable P2P exploration. Unchecking deletes all saved P2P settings on Save; switching to/from realm login requires restart. Peers need matching network, passphrase and ruleset."
         }
         "p2p.psk" => {
             "Shared passphrase, up to 1024 UTF-8 bytes. Exact spaces/case matter. Empty gives no privacy; use random words. This authenticates peers, but does not find them."
@@ -602,7 +750,7 @@ fn field_help(name: &str) -> Option<&'static str> {
             "Peer handshake timeout in milliseconds, 100-60000 (default 5000 = 5 seconds). Increase for slow connections; it does not change the game tick rate."
         }
         "wow.data" => {
-            "The Data folder in your own 1.12.1 install. Empty uses normal discovery; relative paths start beside the executable."
+            "The Data folder in your own 1.12.1 install. Empty uses normal discovery; relative paths start beside the executable. Changing this folder requires a game restart."
         }
         "p2p.classic_start_captures" => {
             "Optional private source-v2 start-capture directory. Empty uses built-in racial starts. Bad or missing configured captures block new creation only; saved positions stay unchanged."
@@ -614,7 +762,7 @@ fn field_help(name: &str) -> Option<&'static str> {
             "Drop-chance multiplier, 0.001-1000, up to 3 decimals (1.0 = normal). Chance caps at 100%; item quantity is unchanged. Peers must match. P2P exploration has no loot progression."
         }
         "p2p.iroh.enabled" => {
-            "true opts into iroh QUIC; false uses TCP. Clear p2p.peers and exchange endpoint tickets manually. A shared passphrase alone does not discover friends. Cannot combine with encounters."
+            "Enable QUIC; disable for TCP. Unchecking deletes saved relays/tickets on Save. Clear TCP peers; exchange tickets manually. No passphrase discovery. Incompatible with encounters."
         }
         "p2p.iroh.relay_urls" => {
             "TOML list of allowed HTTPS relay URLs. [] means direct QUIC only, with no relay fallback or hole-punch assistance. No public relay is added automatically."
@@ -623,10 +771,10 @@ fn field_help(name: &str) -> Option<&'static str> {
             "TOML list of quoted endpoint tickets shared privately. They contain addresses, not the passphrase. Refresh after a peer restarts; ticket relays must be in relay_urls."
         }
         "p2p.iroh.port_mapping" => {
-            "false disables router mapping (default). true permits UPnP/PCP/NAT-PMP mapping for iroh mode after restart. Router support and permission are still required."
+            "Off disables router mapping (default). On permits UPnP/PCP/NAT-PMP mapping for iroh mode. Router support and permission are still required."
         }
         "p2p.encounter.enabled" => {
-            "true enables synthetic chat combat tests with a fixed 2-16-player TCP roster and shared epoch. iroh mode is incompatible. Leave false for ordinary exploration."
+            "Enable synthetic chat combat tests for 2-16 players with a fixed TCP roster/shared epoch; incompatible with iroh. Unchecking deletes saved roster/session settings on Save. Leave off for exploration."
         }
         "p2p.encounter.local_id" => {
             "Your public ID in the fixed encounter roster: exactly 32 hex characters, not all zero. Must match one roster entry; every player needs a unique ID."

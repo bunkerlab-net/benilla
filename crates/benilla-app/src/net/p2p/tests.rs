@@ -299,6 +299,131 @@ fn normal_application_shutdown_checkpoints_last_local_movement() {
 }
 
 #[test]
+fn asynchronous_retirement_releases_profile_and_preserves_character() {
+    let dir = Temp::new();
+    let (handles, mut start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    listed(&handles);
+    let guid = create(&handles, "Reloadpose", 1, 1, 0);
+    enter(&handles, guid);
+    let moved = [SPAWN[0] + 7.0, SPAWN[1], SPAWN[2]];
+    handles
+        .commands
+        .send(ClientCommand::Move {
+            kind: super::super::MoveKind::Heartbeat,
+            flags: 0,
+            pos: moved,
+            orientation: 0.4,
+            pitch: 0.0,
+            fall_time: 0,
+            jump: None,
+            transport: None,
+        })
+        .unwrap();
+    start.begin_retirement();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(result) = start.finish_retirement() {
+            result.unwrap();
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(5));
+    }
+    let store = ProfileStore::open(dir.profile()).unwrap();
+    assert_eq!(store.selected_character().unwrap().position.position, moved);
+    drop(store);
+    let (new_handles, _new_start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    assert_eq!(listed(&new_handles)[0].guid, guid);
+}
+
+fn retire(start: &mut P2pStart) -> std::result::Result<(), String> {
+    start.begin_retirement();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(result) = start.finish_retirement() {
+            return result;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn bind_failure_does_not_block_settings_retirement() {
+    let dir = Temp::new();
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let (handles, mut start) = open(
+        &dir.profile(),
+        settings(occupied.local_addr().unwrap(), &[]),
+    );
+    listed(&handles);
+    let guid = create(&handles, "Bindretry", 1, 1, 0);
+    handles.pick.send(CharRequest::Enter(guid)).unwrap();
+    next_matching(&handles, |event| {
+        matches!(
+            event,
+            SessionEvent::Disconnected {
+                end: SessionEnd::Lost,
+                ..
+            }
+        )
+    });
+    assert!(retire(&mut start).is_ok());
+    let (handles, _start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    assert_eq!(listed(&handles)[0].guid, guid);
+}
+
+#[test]
+fn failed_final_checkpoint_blocks_replacement_and_preserves_disk() {
+    let dir = Temp::new();
+    let (handles, mut start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    listed(&handles);
+    let guid = create(&handles, "Saveguard", 1, 1, 0);
+    enter(&handles, guid);
+    let path = dir.profile().join("profile.json");
+    let external = b"external mutation must not be overwritten";
+    std::fs::write(&path, external).unwrap();
+    let error = retire(&mut start).unwrap_err();
+    assert!(error.contains("could not save local position"));
+    assert_eq!(std::fs::read(&path).unwrap(), external);
+    assert!(start.finish_retirement().unwrap().is_err());
+}
+
+#[test]
+fn retirement_reports_worker_failure_instead_of_claiming_checkpoint() {
+    let (_, mut start) = prepare(settings(free_endpoint(), &[]), P2pEndpointTicket::default());
+    *start.failure.lock().unwrap() = Some("checkpoint denied".into());
+    start.begin_retirement();
+    let error = start.finish_retirement().unwrap().unwrap_err();
+    assert!(error.contains("checkpoint denied"));
+    assert!(!start.can_start());
+}
+
+#[test]
+fn unchanged_settings_cannot_hide_a_checkpoint_failure() {
+    use crate::net::reconfigure::{ApplyStatus, NetworkReconfigure};
+    let settings = settings(free_endpoint(), &[]);
+    let config = benilla_config::AppConfig {
+        p2p: Some(settings.0.clone()),
+        wow: Default::default(),
+        ruleset: settings.1,
+    };
+    let (_, start) = prepare(settings.clone(), P2pEndpointTicket::default());
+    *start.failure.lock().unwrap() = Some("unverified final checkpoint".into());
+    let mut reload = NetworkReconfigure::default();
+    reload.request(config, false);
+    let mut world = bevy::prelude::World::new();
+    world.insert_resource(settings);
+    world.insert_resource(start);
+    world.insert_resource(reload);
+    crate::net::reconfigure::drive(&mut world);
+    assert!(matches!(
+        world.resource::<NetworkReconfigure>().status,
+        ApplyStatus::Failed(_)
+    ));
+}
+
+#[test]
 fn invalid_create_and_save_failure_are_visible_and_never_claim_success() {
     let dir = Temp::new();
     let (handles, start) = open(&dir.profile(), settings(free_endpoint(), &[]));
@@ -431,7 +556,7 @@ fn peer_intro_requires_authenticated_owner_valid_traits_and_unique_game_identity
             0 => bad.level = 60,
             1 => bad.class = 11,
             2 => bad.appearance.face = 14,
-            3 => bad.position.map_id = 1,
+            3 => bad.position.map_id = 999,
             _ => bad.name = "Bad;name".into(),
         }
         assert!(validate_peer_character([2; 16], &bad, &own, &BTreeMap::new(), &cat).is_err());
@@ -495,6 +620,85 @@ fn absent_and_preintro_peers_cannot_move_chat_or_overwrite_an_entity() {
 }
 
 #[test]
+fn different_map_peer_stays_admitted_without_local_events_and_rejoin_can_be_visible() {
+    let own = fixture(1, 1, "Local");
+    let mut other = fixture(2, 2, "Remote");
+    other.position.map_id = 1;
+    let cat = AvatarCatalog::fixture();
+    let mut peers = [(other.owner_id, None)].into();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let avatar = Frame::Avatar {
+        version: AVATAR_VERSION,
+        character: other.clone(),
+    }
+    .encode()
+    .unwrap();
+    apply_peer_frame(&tx, other.owner_id, &avatar, &mut peers, &own, &cat).unwrap();
+    assert_eq!(
+        peers[&other.owner_id],
+        Some(other.clone()),
+        "off-map admission must not request transport rejection"
+    );
+    assert!(rx.is_empty(), "no off-map name or avatar is published");
+    for frame in [
+        Frame::Move {
+            position: SPAWN,
+            orientation: 0.0,
+            flags: 0,
+            pitch: 0.0,
+            fall_time: 0,
+            jump: None,
+            heartbeat: true,
+            time: 1,
+        },
+        Frame::Say {
+            text: "not local chat".into(),
+        },
+        Frame::TextEmote {
+            text_id: 1,
+            target: character_guid(&own),
+        },
+        Frame::Presentation {
+            stand_state: 1,
+            state_emote: None,
+        },
+    ] {
+        apply_peer_frame(
+            &tx,
+            other.owner_id,
+            &frame.encode().unwrap(),
+            &mut peers,
+            &own,
+            &cat,
+        )
+        .unwrap();
+        assert!(
+            rx.is_empty(),
+            "off-map movement, say and emotes stay map-local"
+        );
+        assert!(peers[&other.owner_id].is_some());
+    }
+    assert!(
+        apply_peer_frame(&tx, other.owner_id, b"malformed", &mut peers, &own, &cat).is_err(),
+        "off-map peers still undergo frame validation"
+    );
+    // Maps change only between sessions in this protocol. A fresh same-map introduction
+    // after leaving/rejoining publishes the remote avatar normally.
+    peers.remove(&other.owner_id);
+    other.position.map_id = own.position.map_id;
+    peers.insert(other.owner_id, None);
+    let avatar = Frame::Avatar {
+        version: AVATAR_VERSION,
+        character: other.clone(),
+    }
+    .encode()
+    .unwrap();
+    apply_peer_frame(&tx, other.owner_id, &avatar, &mut peers, &own, &cat).unwrap();
+    let events: Vec<_> = rx.try_iter().collect();
+    assert!(events.iter().any(|event| matches!(event, SessionEvent::ObjectCreate { guid, .. } if *guid == character_guid(&other))));
+}
+
+#[test]
 fn frame_codec_is_versioned_bounded_and_does_not_echo_payload_errors() {
     let avatar = Frame::Avatar {
         version: AVATAR_VERSION,
@@ -537,6 +741,20 @@ fn two_saved_owner_bound_peers_enter_move_chat_and_only_save_their_own_character
     let (b, sb) = open(&db.profile(), settings(free_endpoint(), &[endpoint]));
     listed(&b);
     let b_id = create(&b, "Peertwo", 2, 7, 1);
+    // Racial defaults put the Orc on Kalimdor. This ownership/movement/chat fixture
+    // deliberately saves both peers on one map; cross-map avatars must stay invisible.
+    drop(sb);
+    drop(b);
+    {
+        let mut store = ProfileStore::open(db.profile()).unwrap();
+        let id = store.characters()[0].id;
+        assert_eq!(store.characters()[0].position.map_id, 1);
+        store
+            .save_position(id, SpawnPolicy::NorthshireMeetingV1.position().unwrap())
+            .unwrap();
+    }
+    let (b, sb) = open(&db.profile(), settings(free_endpoint(), &[endpoint]));
+    assert_eq!(listed(&b)[0].guid, b_id);
     enter(&b, b_id);
     assert_ne!(a_id, b_id);
     next_matching(
@@ -673,7 +891,7 @@ fn malformed_and_forged_peer_frames_disconnect_only_the_offender() {
                 .unwrap()
             }
             2 => {
-                character.position.map_id = 1;
+                character.position.map_id = 999;
                 Frame::Avatar {
                     version: AVATAR_VERSION,
                     character,

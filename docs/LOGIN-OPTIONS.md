@@ -22,7 +22,12 @@ with an explanatory tooltip. Local options are not represented as server setting
 **Connection setup** is a separate native recovery/configuration panel. It edits
 executable-adjacent `config.toml`, retains the transactional save/repair behavior,
 and exposes explicitly clicked diagnostics and endpoint-ticket reveal/copy.
-Startup changes need a restart. It remains usable if the game-data/UI load fails.
+Connection, Iroh, World and Encounter groups keep their current field after saving;
+boolean controls are checkboxes. Supported P2P connection changes apply through a safe
+service reload, with explicit confirmation before disconnecting an active session.
+Game-data paths, backend switches and recovery/offline runs still require restart.
+See [connection settings](P2P-SETTINGS.md) for application and checkpoint safeguards.
+It remains usable if the game-data/UI load fails.
 An empty P2P passphrase is permitted but provides no privacy; short passphrases are
 easy to guess. Exact text is retained and the parser's 1024-byte resource cap applies.
 

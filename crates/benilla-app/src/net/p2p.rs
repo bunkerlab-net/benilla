@@ -69,7 +69,7 @@ impl P2pEndpointTicket {
             state.listen = Some(listen);
         }
     }
-    fn clear(&self) {
+    pub(super) fn clear(&self) {
         if let Ok(mut state) = self.0.lock() {
             *state = EndpointState::default();
         }
@@ -271,6 +271,18 @@ fn emit(events: &Sender<SessionEvent>, event: SessionEvent) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("P2P application event queue unavailable"))
 }
 
+/// A final checkpoint failed; unlike a transport error, replacement cannot prove profile safety.
+#[derive(Debug)]
+struct CheckpointFailed;
+impl std::fmt::Display for CheckpointFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "could not save local position; session stopped, check local profile before rejoining",
+        )
+    }
+}
+impl std::error::Error for CheckpointFailed {}
+
 /// An inert local-character gate. Opening options cannot create a profile or a transport.
 #[derive(bevy::prelude::Resource)]
 pub(crate) struct P2pStart {
@@ -281,6 +293,7 @@ pub(crate) struct P2pStart {
     generation: Arc<AtomicU64>,
     local_zone: Arc<AtomicU32>,
     worker: Option<thread::JoinHandle<()>>,
+    failure: Arc<Mutex<Option<String>>>,
 }
 struct StartRequest {
     root: Option<std::path::PathBuf>,
@@ -331,6 +344,11 @@ impl P2pStart {
         self.start_request(request)
     }
     fn start_request(&mut self, request: StartRequest) -> std::result::Result<(), String> {
+        if let Some(error) = self.retirement_failure() {
+            return Err(format!(
+                "Saved profile needs attention before reopening: {error}"
+            ));
+        }
         if self.stop.load(Ordering::SeqCst)
             || self
                 .ready
@@ -345,6 +363,7 @@ impl P2pStart {
                 self.stop.clone(),
                 self.local_zone.clone(),
             );
+            let failure = self.failure.clone();
             self.worker = Some(
                 thread::Builder::new()
                     .name("benilla-peer-world".into())
@@ -390,6 +409,11 @@ impl P2pStart {
                             ticket.clear();
                             if let Err(error) = result {
                                 bevy::log::error!("p2p: {error:#}");
+                                if error.downcast_ref::<CheckpointFailed>().is_some() {
+                                    if let Ok(mut failure) = failure.lock() {
+                                        *failure = Some(format!("{error:#}"));
+                                    }
+                                }
                                 let _ = events.try_send(SessionEvent::Disconnected {
                                     reason: format!("P2P session ended: {error:#}"),
                                     end: SessionEnd::Lost,
@@ -410,6 +434,48 @@ impl P2pStart {
         self.requests
             .send(request)
             .map_err(|_| "P2P character service stopped. Restart to retry.".to_string())
+    }
+    pub(super) fn retirement_failure(&self) -> Option<String> {
+        match self.failure.lock() {
+            Ok(failure) => failure.clone(),
+            Err(_) => Some(
+                "Could not verify the saved profile; restart after checking local state.".into(),
+            ),
+        }
+    }
+    /// Stop without blocking the render thread. The worker checkpoints before it exits.
+    pub(super) fn begin_retirement(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+    /// Joining is safe only after `is_finished`; an error must prevent replacement.
+    pub(super) fn finish_retirement(&mut self) -> Option<std::result::Result<(), String>> {
+        if self
+            .worker
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished())
+        {
+            return None;
+        }
+        if let Some(worker) = self.worker.take() {
+            if worker.join().is_err() {
+                let error = "Character worker stopped unexpectedly; verify the saved profile before restarting.".to_string();
+                if let Ok(mut failure) = self.failure.lock() {
+                    *failure = Some(error.clone());
+                }
+                return Some(Err(error));
+            }
+        }
+        Some(match self.failure.lock() {
+            Ok(failure) => match failure.as_ref() {
+                Some(error) => Err(format!(
+                    "Session could not finish safely: {error}. Network changes were not applied."
+                )),
+                None => Ok(()),
+            },
+            Err(_) => {
+                Err("Could not verify the saved profile; network changes were not applied.".into())
+            }
+        })
     }
     fn shutdown(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
@@ -485,6 +551,7 @@ pub(super) fn prepare(
         generation,
         local_zone: Arc::new(AtomicU32::new(0)),
         worker: None,
+        failure: Arc::new(Mutex::new(None)),
     };
     (handles, start)
 }
@@ -577,9 +644,6 @@ fn validate_peer_character(
     if character.owner_id != peer {
         bail!("peer character owner does not match authenticated identity");
     }
-    if character.position.map_id != own.position.map_id {
-        bail!("peer character is on a different exploration map");
-    }
     validate_character_guid(
         character_guid(character),
         character_guid(own),
@@ -612,13 +676,24 @@ fn apply_peer_frame(
         return Ok(());
     };
     let frame = Frame::decode(payload)?;
+    // A valid remote continent is a visibility boundary, not an authentication failure.
+    // Keep its authenticated descriptor and transport; this protocol has no map-transfer frame.
+    if joined
+        .as_ref()
+        .is_some_and(|other| other.position.map_id != character.position.map_id)
+        && !matches!(&frame, Frame::Avatar { .. })
+    {
+        return Ok(());
+    }
     match frame {
         Frame::Avatar {
             character: other, ..
         } if joined.is_none() => {
             validate_peer_character(peer_id, &other, character, peers, catalog)?;
-            emit(events, character_name(&other))?;
-            emit(events, character_avatar(&other, catalog)?)?;
+            if other.position.map_id == character.position.map_id {
+                emit(events, character_name(&other))?;
+                emit(events, character_avatar(&other, catalog)?)?;
+            }
             peers.insert(peer_id, Some(other));
         }
         Frame::Move {
@@ -701,9 +776,14 @@ fn reject_peer(
     events: &Sender<SessionEvent>,
     peers: &mut BTreeMap<PeerId, Option<Character>>,
     peer: PeerId,
+    own_map: u32,
 ) -> Result<()> {
     // Remove first: already queued frames cannot mutate any local/remaining entity.
-    if let Some(Some(character)) = peers.remove(&peer) {
+    if let Some(Some(character)) = peers.remove(&peer).filter(|entry| {
+        entry
+            .as_ref()
+            .is_some_and(|character| character.position.map_id == own_map)
+    }) {
         emit(
             events,
             SessionEvent::ObjectDestroyed(character_guid(&character)),
@@ -952,7 +1032,13 @@ fn run_exploration_character(
                 Event::PeerJoined(hello) => {
                     let peer = hello.peer_id;
                     if peer == id || peers.contains_key(&peer) || denied.contains(&peer) {
-                        reject_peer(&network, events, &mut peers, peer)?;
+                        reject_peer(
+                            &network,
+                            events,
+                            &mut peers,
+                            peer,
+                            character.position.map_id,
+                        )?;
                         continue;
                     }
                     peers.insert(peer, None);
@@ -978,7 +1064,11 @@ fn run_exploration_character(
                         .map_err(|_| anyhow::anyhow!("peer send queue unavailable"))?;
                 }
                 Event::PeerLeft(peer) => {
-                    if let Some(Some(other)) = peers.remove(&peer) {
+                    if let Some(Some(other)) = peers.remove(&peer).filter(|entry| {
+                        entry
+                            .as_ref()
+                            .is_some_and(|other| other.position.map_id == character.position.map_id)
+                    }) {
                         emit(
                             events,
                             SessionEvent::ObjectDestroyed(character_guid(&other)),
@@ -993,7 +1083,13 @@ fn run_exploration_character(
                         if denied.len() < 256 {
                             denied.insert(peer_id);
                         }
-                        reject_peer(&network, events, &mut peers, peer_id)?;
+                        reject_peer(
+                            &network,
+                            events,
+                            &mut peers,
+                            peer_id,
+                            character.position.map_id,
+                        )?;
                     }
                 }
                 Event::Rejected { address, reason } => {

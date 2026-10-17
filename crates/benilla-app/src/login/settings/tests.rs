@@ -55,12 +55,14 @@ fn refreshing_fields_retains_draft_and_secret_is_masked_again_on_selection() {
     settings.fields = vec![Field {
         name: "p2p.psk".into(),
         value: "private sample passphrase".into(),
+        saved_value: "private sample passphrase".into(),
         secret: true,
         locked: false,
     }];
     settings.select(0);
     assert!(settings.edit.password);
     settings.edit.password = false;
+    settings.selected = None;
     settings.select(0);
     assert!(settings.edit.password);
 }
@@ -121,6 +123,7 @@ fn headless_panel_reopen_and_close_leave_no_duplicate_or_secret_text() {
             settings.open = true;
             settings.refresh_fields(&cvars);
             settings.fields[1].value = "private sample passphrase".into();
+            settings.fields[1].saved_value = "private sample passphrase".into();
             settings.select(1);
         }
         app.update();
@@ -296,4 +299,190 @@ fn enabling_iroh_creates_only_the_canonical_table_with_mapping_disabled() {
     );
     assert!(!draft.has_section("p2p.internet"));
     assert!(!path.exists());
+}
+
+#[test]
+fn groups_cover_all_fields_without_pages_and_remember_selection_and_drafts() {
+    let mut settings = Settings::default();
+    settings.refresh_fields(&Cvars::default());
+    for field in &mut settings.fields {
+        field.locked = false;
+    }
+    for group in FieldGroup::ALL {
+        let count = settings
+            .fields
+            .iter()
+            .filter(|field| FieldGroup::for_field(&field.name) == group)
+            .count();
+        assert!((1..=7).contains(&count));
+    }
+    let network = settings
+        .fields
+        .iter()
+        .position(|field| field.name == "p2p.network")
+        .unwrap();
+    settings.select(network);
+    settings.edit.set_text("draft-network");
+    settings.edit.cursor = 3;
+    settings.select(network);
+    assert_eq!(settings.edit.cursor, 3, "repeated row click keeps caret");
+    settings.select_group(FieldGroup::Iroh);
+    let iroh = settings.selected;
+    settings.select_group(FieldGroup::World);
+    settings.select_group(FieldGroup::Iroh);
+    assert_eq!(settings.selected, iroh);
+    settings.select_group(FieldGroup::Connection);
+    assert_eq!(settings.selected, Some(network));
+    assert_eq!(settings.edit.text, "draft-network");
+    assert_eq!(settings.changes["p2p.network"], "draft-network");
+}
+
+#[test]
+fn boolean_toggles_are_typed_draft_changes_and_respect_read_only_fields() {
+    let mut settings = Settings::default();
+    settings.refresh_fields(&Cvars::default());
+    for name in [
+        "p2p.enabled",
+        "p2p.iroh.enabled",
+        "p2p.iroh.port_mapping",
+        "p2p.encounter.enabled",
+    ] {
+        let index = settings
+            .fields
+            .iter()
+            .position(|field| field.name == name)
+            .unwrap();
+        settings.toggle_boolean(index);
+        assert_eq!(settings.fields[index].value, "false");
+        settings.fields[index].locked = false;
+        settings.toggle_boolean(index);
+        assert_eq!(settings.fields[index].value, "true");
+        assert_eq!(settings.changes[name], "true");
+        settings.toggle_boolean(index);
+        assert_eq!(settings.fields[index].value, "false");
+        assert!(!settings.changes.contains_key(name));
+    }
+    let network = settings
+        .fields
+        .iter()
+        .position(|field| field.name == "p2p.network")
+        .unwrap();
+    settings.fields[network].locked = false;
+    settings.toggle_boolean(network);
+    assert_eq!(settings.fields[network].value, "benilla");
+    settings.toggle_boolean(usize::MAX);
+}
+
+#[test]
+fn successful_save_keeps_group_field_caret_and_other_changes_then_failure_keeps_draft() {
+    let path =
+        std::env::temp_dir().join(format!("benilla-save-context-{}.toml", std::process::id()));
+    let mut settings = Settings {
+        config: Some(ConfigEditor::open(&path).unwrap()),
+        ..default()
+    };
+    let mut cvars = Cvars::default();
+    settings.refresh_fields(&cvars);
+    let xp = settings
+        .fields
+        .iter()
+        .position(|field| field.name == "ruleset.xp_rate")
+        .unwrap();
+    let drop = settings
+        .fields
+        .iter()
+        .position(|field| field.name == "ruleset.drop_rate")
+        .unwrap();
+    settings.select(xp);
+    settings.edit.set_text("1.25");
+    settings.select(drop);
+    settings.edit.set_text("1.5");
+    settings.edit.cursor = 1;
+    let edit = settings.edit.clone();
+    settings.save(&mut cvars).unwrap();
+    assert_eq!(settings.group, FieldGroup::World);
+    assert_eq!(settings.selected, Some(drop));
+    assert_eq!(settings.edit, edit);
+    assert!(settings.changes.is_empty());
+    assert_eq!(
+        settings
+            .config
+            .as_ref()
+            .unwrap()
+            .get("ruleset", "xp_rate")
+            .as_deref(),
+        Some("1.25")
+    );
+    let saved = std::fs::read_to_string(&path).unwrap();
+    settings.edit.set_text("not-a-number");
+    assert!(settings.save(&mut cvars).is_err());
+    assert_eq!(settings.group, FieldGroup::World);
+    assert_eq!(settings.selected, Some(drop));
+    assert_eq!(settings.edit.text, "not-a-number");
+    assert_eq!(settings.changes["ruleset.drop_rate"], "not-a-number");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    assert!(settings.has_unsaved_changes());
+    settings = Settings::default(); // Escape/Close discard only the unsaved in-memory draft.
+    assert!(!settings.has_unsaved_changes());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn restoring_original_value_clears_dirty_state_without_losing_other_edits() {
+    let mut settings = Settings::default();
+    settings.refresh_fields(&Cvars::default());
+    for field in &mut settings.fields {
+        field.locked = false;
+    }
+    let network = settings
+        .fields
+        .iter()
+        .position(|field| field.name == "p2p.network")
+        .unwrap();
+    let listen = settings
+        .fields
+        .iter()
+        .position(|field| field.name == "p2p.listen")
+        .unwrap();
+    settings.select(network);
+    settings.edit.set_text("other-network");
+    settings.keep_edit();
+    assert!(settings.has_unsaved_changes());
+    settings.edit.set_text("benilla");
+    assert!(
+        !settings.has_unsaved_changes(),
+        "undo is visible before committing the edit buffer"
+    );
+    settings.keep_edit();
+    assert!(settings.changes.is_empty());
+    settings.select(listen);
+    settings.edit.set_text("0.0.0.0:7475");
+    settings.select(network);
+    settings.edit.set_text("temporary");
+    settings.keep_edit();
+    settings.edit.set_text("benilla");
+    settings.keep_edit();
+    assert!(!settings.changes.contains_key("p2p.network"));
+    assert_eq!(settings.changes["p2p.listen"], "0.0.0.0:7475");
+    assert!(settings.has_unsaved_changes());
+}
+
+#[test]
+fn ticket_preview_is_invalidated_when_endpoint_changes_or_apply_starts() {
+    let mut settings = Settings {
+        ticket_preview: Some("old endpoint".into()),
+        ..default()
+    };
+    settings.sync_ticket_preview(Some("old endpoint"));
+    assert_eq!(settings.ticket_preview.as_deref(), Some("old endpoint"));
+    assert!(!settings.refresh);
+    settings.sync_ticket_preview(Some("new endpoint"));
+    assert!(settings.ticket_preview.is_none());
+    assert!(settings.refresh);
+    settings.ticket_preview = Some("current endpoint".into());
+    settings.refresh = false;
+    settings.sync_ticket_preview(None); // Pending/Applied transitions or missing current endpoint.
+    assert!(settings.ticket_preview.is_none());
+    assert!(settings.refresh);
 }

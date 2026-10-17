@@ -1064,6 +1064,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn network_reload_clears_queued_pick_after_returning_to_login() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .insert_state(ClientState::Login)
+            .insert_resource(Roster::with_pending_pick(vec![character(7, "Seven")], 7))
+            .add_message::<crate::net::DisconnectedMessage>()
+            .add_systems(Update, back_on_disconnect);
+        // Retirement already moved the screen to Login while the worker checkpointed.
+        // A pick queued before Connected still must not auto-answer the replacement roster.
+        app.world_mut()
+            .write_message(crate::net::DisconnectedMessage {
+                reason: "P2P connection closed for saved network settings".into(),
+                end: benilla_protocol::SessionEnd::Lost,
+                session_over: true,
+            });
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<Roster>().pending_pick, None);
+        assert_eq!(
+            *app.world().resource::<State<ClientState>>().get(),
+            ClientState::Login
+        );
+    }
+
     /// A teardown whose session is not over (a logout, or a reconnect) still enters the world.
     #[test]
     fn a_teardown_that_is_not_the_end_leaves_the_entry_alone() {

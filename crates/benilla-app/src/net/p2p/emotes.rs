@@ -17,6 +17,7 @@ pub(super) fn emit_text_emote(
     }
     let target_name = std::iter::once(own)
         .chain(peers.values().flatten())
+        .filter(|c| c.position.map_id == own.position.map_id)
         .find(|c| character_guid(c) == target)
         .map(|c| c.name.clone())
         .unwrap_or_default();
@@ -116,6 +117,26 @@ mod tests {
             .with_text_row(9003, 8003, 1)
             .with_text_row(9004, 0, 0);
         catalog
+    }
+
+    #[test]
+    fn off_map_emote_targets_do_not_reveal_names() {
+        let own = super::super::tests::fixture(1, 1, "Local");
+        let mut other = super::super::tests::fixture(2, 2, "Hidden");
+        other.position.map_id = 1;
+        let peers = [(other.owner_id, Some(other.clone()))].into();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        emit_text_emote(
+            &tx,
+            character_guid(&own),
+            9001,
+            character_guid(&other),
+            &own,
+            &peers,
+            &catalog(),
+        )
+        .unwrap();
+        assert!(rx.try_iter().any(|event| matches!(event, SessionEvent::TextEmote { target_name, .. } if target_name.is_empty())));
     }
 
     #[test]

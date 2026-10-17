@@ -329,7 +329,9 @@ pub(super) fn browse(
                         local_zone,
                     );
                     // All exits (logout, transport loss, app close) checkpoint only our local record.
-                    store.save_position(character.id, character.position).context("could not save local position; session stopped, check local profile before rejoining")?;
+                    store
+                        .save_position(character.id, character.position)
+                        .context(CheckpointFailed)?;
                     result?;
                     ticket.clear();
                     if stop.load(std::sync::atomic::Ordering::SeqCst) {

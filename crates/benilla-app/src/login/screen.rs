@@ -581,7 +581,26 @@ pub(super) fn refresh_listen_addresses(
     ticket: Res<crate::net::P2pEndpointTicket>,
     mut cached: Local<Option<(std::net::SocketAddr, String)>>,
     mut texts: Query<&mut Text, With<ListenAddressReadout>>,
+    mut captions: Query<&mut Text, Without<ListenAddressReadout>>,
+    buttons: Query<(Entity, &LoginAction)>,
+    children: Query<&Children>,
 ) {
+    // Repaint the existing button in place: rebuilding LoginUi would discard open drafts.
+    if let Some(settings) = p2p.as_ref() {
+        for (button, action) in &buttons {
+            if *action != LoginAction::Login {
+                continue;
+            }
+            for child in children.iter_descendants(button) {
+                if let Ok(mut text) = captions.get_mut(child) {
+                    let label = p2p_start_label(settings);
+                    if text.0 != label {
+                        text.0 = label.into();
+                    }
+                }
+            }
+        }
+    }
     let label = if let Some(settings) = p2p {
         let listening = ticket.local_addr();
         let listen = listening.unwrap_or(settings.0.listen);
@@ -730,6 +749,39 @@ fn p2p_start_label(settings: &crate::net::P2pSettings) -> &'static str {
 mod options_visibility_tests {
     use super::*;
     use crate::ui_script::login_options::LoginOptions;
+
+    #[test]
+    fn reloaded_encounter_mode_updates_existing_start_caption_both_ways() {
+        let config = benilla_config::AppConfig::parse(
+            "[p2p]\npsk = \"public label test phrase only\"\n",
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        let mut settings = crate::net::P2pSettings(config.p2p.unwrap(), config.ruleset);
+        let mut app = App::new();
+        app.init_resource::<crate::net::P2pEndpointTicket>()
+            .add_systems(Update, refresh_listen_addresses);
+        let button = app.world_mut().spawn(LoginAction::Login).id();
+        let caption = app
+            .world_mut()
+            .spawn((Text::new("old"), ChildOf(button)))
+            .id();
+        for encounter in [false, true, false] {
+            settings.0.encounter = encounter.then(|| benilla_config::EncounterConfig {
+                local_id: [1; 16],
+                epoch: [2; 32],
+                roster: vec![],
+                tick_limit: 10,
+            });
+            app.insert_resource(settings.clone());
+            app.update();
+            assert_eq!(
+                app.world().get::<Text>(caption).unwrap().0,
+                p2p_start_label(&settings)
+            );
+            assert!(app.world().get_entity(button).is_ok());
+        }
+    }
 
     #[test]
     fn pending_and_failed_options_keep_landing_visible_until_active() {

@@ -1,5 +1,5 @@
 //! Connection setup: executable-adjacent startup config and explicit diagnostics.
-//! Draft edits do nothing until Save; startup changes require restarting the process.
+//! Draft edits do nothing until Save; validated connection changes have a separate apply lifecycle.
 mod diagnostics;
 mod layout;
 #[cfg(test)]
@@ -20,6 +20,7 @@ pub(crate) struct ConfigRecovery(pub String);
 struct Field {
     name: String,
     value: String,
+    saved_value: String,
     secret: bool,
     locked: bool,
 }
@@ -27,7 +28,10 @@ struct Field {
 pub(crate) struct Settings {
     pub(super) open: bool,
     fields: Vec<Field>,
-    offset: usize,
+    group: FieldGroup,
+    group_selection: [Option<usize>; 4],
+    apply_status: Option<crate::net::reconfigure::ApplyStatus>,
+    data_restart_required: bool,
     selected: Option<usize>,
     pub(super) edit: EditBoxState,
     changes: BTreeMap<String, String>,
@@ -41,8 +45,10 @@ pub(crate) struct Settings {
 #[derive(Component, Clone, Copy)]
 pub(super) enum Action {
     Select(usize),
-    Previous,
-    Next,
+    Group(FieldGroup),
+    ToggleBoolean(usize),
+    ConfirmApply,
+    KeepConnection,
     Save,
     Cancel,
     Reveal,
@@ -53,7 +59,46 @@ pub(super) enum Action {
     RevealTicket,
     CopyTicket,
 }
-const PAGE_SIZE: usize = 8;
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(usize)]
+pub(super) enum FieldGroup {
+    #[default]
+    Connection,
+    Iroh,
+    World,
+    Encounter,
+}
+impl FieldGroup {
+    const ALL: [Self; 4] = [Self::Connection, Self::Iroh, Self::World, Self::Encounter];
+    fn label(self) -> &'static str {
+        match self {
+            Self::Connection => "Connection",
+            Self::Iroh => "Iroh",
+            Self::World => "World",
+            Self::Encounter => "Encounter",
+        }
+    }
+    fn for_field(name: &str) -> Self {
+        if name.starts_with("p2p.iroh.") {
+            Self::Iroh
+        } else if name.starts_with("p2p.encounter.") {
+            Self::Encounter
+        } else if name.starts_with("ruleset.")
+            || name == "wow.data"
+            || name == "p2p.classic_start_captures"
+        {
+            Self::World
+        } else {
+            Self::Connection
+        }
+    }
+}
+fn is_boolean(name: &str) -> bool {
+    matches!(
+        name,
+        "p2p.enabled" | "p2p.iroh.enabled" | "p2p.iroh.port_mapping" | "p2p.encounter.enabled"
+    )
+}
 const STARTUP: &[(&str, &str, bool)] = &[
     ("p2p.enabled", "false", false),
     ("p2p.psk", "", true),
@@ -100,12 +145,32 @@ impl Settings {
         }
         self.refresh_fields(cvars);
     }
+    fn has_unsaved_changes(&self) -> bool {
+        self.fields.iter().enumerate().any(|(index, field)| {
+            let value = if self.selected == Some(index) {
+                &self.edit.text
+            } else {
+                &field.value
+            };
+            !field.locked && value != &field.saved_value
+        })
+    }
+    fn sync_ticket_preview(&mut self, current: Option<&str>) {
+        if self.ticket_preview.is_some() && self.ticket_preview.as_deref() != current {
+            self.ticket_preview = None;
+            self.refresh = true;
+        }
+    }
     fn keep_edit(&mut self) {
         if let Some(i) = self.selected {
-            if !self.fields[i].locked && self.fields[i].value != self.edit.text {
+            if !self.fields[i].locked {
                 self.fields[i].value.clone_from(&self.edit.text);
-                self.changes
-                    .insert(self.fields[i].name.clone(), self.edit.text.clone());
+                if self.edit.text == self.fields[i].saved_value {
+                    self.changes.remove(&self.fields[i].name);
+                } else {
+                    self.changes
+                        .insert(self.fields[i].name.clone(), self.edit.text.clone());
+                }
             }
         }
     }
@@ -113,32 +178,35 @@ impl Settings {
         self.keep_edit();
         self.selected = None;
         self.edit = EditBoxState::default();
-        self.offset = 0;
+
         self.fields = STARTUP
             .iter()
             .map(|(name, default, secret)| {
                 let (section, key) = name.rsplit_once('.').unwrap();
+                let saved_value = self
+                    .config
+                    .as_ref()
+                    .and_then(|c| {
+                        if *name == "p2p.encounter.enabled" {
+                            Some(c.has_section("p2p.encounter").to_string())
+                        } else if *name == "p2p.iroh.enabled" {
+                            Some(c.has_section("p2p.iroh").to_string())
+                        } else if *name == "p2p.enabled" {
+                            Some(c.has_section("p2p").to_string())
+                        } else {
+                            c.get(section, key)
+                        }
+                    })
+                    .unwrap_or_else(|| (*default).into());
                 let value = self
                     .changes
                     .get(*name)
                     .cloned()
-                    .or_else(|| {
-                        self.config.as_ref().and_then(|c| {
-                            if *name == "p2p.encounter.enabled" {
-                                Some(c.has_section("p2p.encounter").to_string())
-                            } else if *name == "p2p.iroh.enabled" {
-                                Some(c.has_section("p2p.iroh").to_string())
-                            } else if *name == "p2p.enabled" {
-                                Some(c.has_section("p2p").to_string())
-                            } else {
-                                c.get(section, key)
-                            }
-                        })
-                    })
-                    .unwrap_or_else(|| (*default).into());
+                    .unwrap_or_else(|| saved_value.clone());
                 Field {
                     name: (*name).into(),
                     value,
+                    saved_value,
                     secret: *secret,
                     locked: self.config.is_none(),
                 }
@@ -150,12 +218,52 @@ impl Settings {
         if index >= self.fields.len() {
             return;
         }
+        if self.selected == Some(index) {
+            return;
+        }
         self.keep_edit();
+        self.group = FieldGroup::for_field(&self.fields[index].name);
+        self.group_selection[self.group as usize] = Some(index);
         self.selected = Some(index);
         self.edit = EditBoxState::default();
         self.edit.max_bytes = Some(4096);
         self.edit.password = self.fields[index].secret;
         self.edit.set_text(&self.fields[index].value);
+        self.refresh = true;
+    }
+    fn select_group(&mut self, group: FieldGroup) {
+        if self.group == group {
+            return;
+        }
+        self.keep_edit();
+        self.group = group;
+        self.selected = None;
+        self.edit = EditBoxState::default();
+        let selected = self.group_selection[group as usize].or_else(|| {
+            self.fields
+                .iter()
+                .position(|field| FieldGroup::for_field(&field.name) == group)
+        });
+        if let Some(index) = selected {
+            self.select(index);
+        }
+        self.refresh = true;
+    }
+    fn toggle_boolean(&mut self, index: usize) {
+        if index >= self.fields.len()
+            || self.fields[index].locked
+            || !is_boolean(&self.fields[index].name)
+        {
+            return;
+        }
+        self.select(index);
+        let value = if self.edit.text == "true" {
+            "false"
+        } else {
+            "true"
+        };
+        self.edit.set_text(value);
+        self.keep_edit();
         self.refresh = true;
     }
     fn prepare_config(&mut self) -> Result<ConfigEditor, String> {
@@ -252,17 +360,26 @@ impl Settings {
         }
         Ok(editor)
     }
-    fn save(&mut self, cvars: &mut Cvars) -> Result<(), String> {
+    fn save(&mut self, cvars: &mut Cvars) -> Result<benilla_config::AppConfig, String> {
         self.keep_edit();
         let mut editor = self.prepare_config()?;
-        editor.save().map_err(|e| e.to_string())?;
+        let saved = editor.save().map_err(|e| e.to_string())?;
+        self.data_restart_required |= self.changes.contains_key("wow.data");
+        let selected = self.selected;
+        let edit = self.edit.clone();
         self.config = Some(editor);
         self.changes.clear();
-        self.status = "Startup settings saved. Restart Benilla to use them; the current connection is unchanged.".into();
+        self.status = "Settings saved.".into();
         self.selected = None;
         self.edit = EditBoxState::default();
         self.refresh_fields(cvars);
-        Ok(())
+        if let Some(index) = selected {
+            self.select(index);
+            if self.edit.text == edit.text {
+                self.edit = edit;
+            }
+        }
+        Ok(saved)
     }
 }
 pub(super) fn input(
@@ -275,6 +392,7 @@ pub(super) fn input(
     clipboard: (NonSendMut<HostClipboard>, Res<crate::bindings::LayoutNames>),
     raw: Query<&bevy::window::RawHandleWrapper, With<bevy::window::PrimaryWindow>>,
     ticket: Option<Res<crate::net::P2pEndpointTicket>>,
+    mut reconfigure: Option<ResMut<crate::net::reconfigure::NetworkReconfigure>>,
 ) {
     if !settings.open {
         keyboard.clear();
@@ -298,16 +416,19 @@ pub(super) fn input(
                 return;
             }
             Action::Select(i) => settings.select(i),
-            Action::Previous | Action::Next => {
-                settings.keep_edit();
-                settings.selected = None;
-                settings.edit = EditBoxState::default();
-                settings.offset = if matches!(action, Action::Next) {
-                    (settings.offset + PAGE_SIZE)
-                        .min(settings.fields.len().saturating_sub(1) / PAGE_SIZE * PAGE_SIZE)
-                } else {
-                    settings.offset.saturating_sub(PAGE_SIZE)
-                };
+            Action::Group(group) => settings.select_group(group),
+            Action::ToggleBoolean(index) => settings.toggle_boolean(index),
+            Action::ConfirmApply => {
+                if let Some(runtime) = reconfigure.as_mut() {
+                    runtime.confirm_disconnect();
+                }
+            }
+            Action::KeepConnection => {
+                if let Some(runtime) = reconfigure.as_mut() {
+                    runtime.cancel_pending();
+                }
+                settings.status =
+                    "Saved to disk; current connection unchanged. Save again at login to apply, or restart.".into();
                 settings.refresh = true;
             }
             Action::Reveal => {
@@ -315,10 +436,24 @@ pub(super) fn input(
                 settings.refresh = true;
             }
             Action::Save => {
-                if let Err(error) = settings.save(&mut cvars) {
-                    settings.status = error;
+                if reconfigure.as_ref().is_some_and(|runtime| {
+                    runtime.status == crate::net::reconfigure::ApplyStatus::Pending
+                }) {
+                    settings.status = "A connection change is underway. Your draft is retained; wait before saving again.".into();
                     settings.refresh = true;
+                    continue;
                 }
+                match settings.save(&mut cvars) {
+                    Ok(saved) => {
+                        if let Some(runtime) = reconfigure.as_mut() {
+                            runtime.request(saved, false);
+                        } else {
+                            settings.status = "Settings saved. Restart required: live connection setup is unavailable.".into();
+                        }
+                    }
+                    Err(error) => settings.status = error,
+                }
+                settings.refresh = true;
             }
             Action::TestLocal | Action::TestPeers => {
                 diagnostics::start(&mut settings, matches!(action, Action::TestPeers))
@@ -366,10 +501,49 @@ pub(super) fn input(
             }
         }
     }
+    if let Some(runtime) = reconfigure.as_ref() {
+        if settings.apply_status.as_ref() != Some(&runtime.status) {
+            use crate::net::reconfigure::ApplyStatus;
+            if matches!(runtime.status, ApplyStatus::Pending | ApplyStatus::Applied) {
+                settings.sync_ticket_preview(None);
+            }
+            settings.status = match &runtime.status {
+                ApplyStatus::Idle => settings.status.clone(),
+                ApplyStatus::Pending => "Settings saved. Applying connection settings…".into(),
+                ApplyStatus::NeedsDisconnect => "Settings saved. Applying will disconnect the current session. Choose Disconnect and apply, or Keep current connection.".into(),
+                ApplyStatus::Applied => "Saved connection settings applied.".into(),
+                ApplyStatus::RestartRequired(reason) => format!("Settings saved. Restart required: {reason}"),
+                ApplyStatus::Failed(reason) => format!("Settings saved, but applying failed: {reason}"),
+            };
+            if settings.has_unsaved_changes() {
+                settings
+                    .status
+                    .push_str(" Newer draft edits are still unsaved.");
+            }
+            if settings.data_restart_required {
+                settings
+                    .status
+                    .push_str(" Data folder changes require restarting Benilla.");
+            }
+            settings.apply_status = Some(runtime.status.clone());
+            settings.refresh = true;
+        }
+    }
+    if settings.ticket_preview.is_some() {
+        let current = ticket.as_ref().and_then(|endpoint| endpoint.get());
+        settings.sync_ticket_preview(current.as_deref());
+    }
+    if keys.just_pressed(KeyCode::Space) {
+        if let Some(index) = settings.selected {
+            if is_boolean(&settings.fields[index].name) {
+                settings.toggle_boolean(index);
+            }
+        }
+    }
     let mods = textinput::mods_now(&keys);
     let editable = settings
         .selected
-        .is_some_and(|i| !settings.fields[i].locked);
+        .is_some_and(|i| !settings.fields[i].locked && !is_boolean(&settings.fields[i].name));
     for event in keyboard.read() {
         if editable {
             textinput::feed_key(

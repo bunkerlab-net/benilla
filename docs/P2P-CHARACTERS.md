@@ -3,7 +3,8 @@
 Exploration uses a local profile and the existing character-select and character-create
 screens. It does not require a realm account or an online peer to play alone.
 
-1. Configure the install and P2P connection in Connection setup, then restart if changed.
+1. Configure the install and P2P connection in Connection setup. Apply supported connection
+   changes there; restart for a changed game-data path or backend.
 2. Choose **Create / select character**. On first use this explicitly creates the local
    profile. It opens no listener, dials no peer and requests no router mapping.
 3. Create a named Classic race/class/gender character with the existing appearance controls,
@@ -94,8 +95,12 @@ and ruleset compatibility remain part of the authenticated handshake.
 This is not anti-cheat, global name reservation, account recovery or an authoritative game
 server. An owner can edit/roll back their local files, copy their key, or send false but bounded
 movement. Different owners can use the same display name. Internet endpoint tickets are still
-transport-session-specific, not permanent character identifiers. Different-map peer avatars
-are refused until cross-map membership is implemented.
+transport-session-specific, not permanent character identifiers. Authenticated characters on
+different maps remain connected, but their avatars, movement, presentation, emotes and local
+/say are not projected into the current map. Rejoining with saved characters on the same map
+restores normal peer visibility. This is presentation scoping, not secrecy from authenticated
+group members: gameplay frames still use the shared mesh broadcast. This does not implement
+live map-transfer announcements.
 
 ## Deliberate first-slice limits
 

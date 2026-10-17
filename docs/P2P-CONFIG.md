@@ -133,7 +133,7 @@ port_mapping = false
 A ticket contains an independently random public endpoint identity and its reachable addresses,
 not the passphrase, group key or a hash derived from them. Share it privately; it exposes network
 metadata. It is maintained in memory for deliberate reveal/copy, never automatically logged or
-saved. The identity changes on restart, so get a fresh ticket each time. With a relay configured,
+saved. The identity changes on restart or a settings-driven service reload, so get a fresh ticket each time. With a relay configured,
 wait until its address appears in the current ticket before sharing it across NATs. Add an
 active friend's ticket to your config and start your client; they can accept without your ticket.
 For more players, ensure every pair has a link. Tickets do not implement global or LAN discovery.
@@ -199,7 +199,8 @@ different `BENILLA_HOME` per process. Never point `BENILLA_HOME` into the WoW in
    and message. Close one client; the other should remove its avatar. Restart the first;
    select the same saved character and confirm its identity/appearance and last successful
    position checkpoint are restored. Keep separate profile folders for independent players.
-5. Change one passphrase, network name or ruleset rate, restart that client, and confirm no
+5. Change one passphrase, network name or ruleset rate, save/apply at the P2P login screen
+   (or restart that client), and confirm no
    remote avatar is admitted. Separately verify a 64-hex string is derived as an ordinary
    passphrase, and a protocol-version-1 client cannot join version 2. Connection failures are
    diagnostic events, never a fallback to a realm.
@@ -215,4 +216,5 @@ is not a hash or attestation of the player's asset files.
 Internet mode currently applies to exploration only. A configuration containing both
 `[p2p.iroh]` and `[p2p.encounter]` is rejected before networking starts; the synthetic
 encounter still requires its fixed direct-TCP roster. Neither mode silently overrides
-the other. Use [Login Settings](P2P-SETTINGS.md) to edit the startup file and restart.
+the other. Use [Login Settings](P2P-SETTINGS.md) to edit and apply supported P2P changes;
+backend switches and game-data changes still require restarting.

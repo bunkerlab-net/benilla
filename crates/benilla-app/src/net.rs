@@ -26,6 +26,7 @@ pub(crate) mod listen_addresses;
 mod motion;
 mod objects;
 mod p2p;
+pub(crate) mod reconfigure;
 pub(crate) use p2p::{P2pEndpointTicket, P2pStart};
 
 /// Fork-only backend settings, inserted before the networking plugin is built.
@@ -91,6 +92,8 @@ impl Plugin for NetPlugin {
         );
         p2p::native_geometry_plugin(app);
         crate::ui_script::world_setup_plugin(app);
+        app.init_resource::<reconfigure::NetworkReconfigure>()
+            .add_systems(Last, reconfigure::drive);
         app.init_resource::<P2pEndpointTicket>();
         let ticket = app.world().resource::<P2pEndpointTicket>().clone();
         let handles = match (connect, app.world().get_resource::<P2pSettings>()) {
