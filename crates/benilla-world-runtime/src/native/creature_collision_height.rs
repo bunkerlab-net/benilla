@@ -196,6 +196,23 @@ impl CreatureCollisionHeightWitness {
     pub fn height(&self) -> spell::SpellFloat {
         self.height
     }
+    /// The height and width must name the identical generation draw evidence,
+    /// even when distinct draws select models with equal collision dimensions.
+    pub(in crate::native) fn validate_width_selection(
+        &self,
+        width: &CreatureCollisionWidthWitness,
+    ) -> Result<(), NativeError> {
+        if self.npc != width.npc()
+            || self.width_source_binding != width.source_binding()
+            || self.generation_selection.as_ref() != width.generation_selection()
+            || self.native_display_id != width.native_display_id()
+            || self.model_id != width.model_id()
+            || self.object_scale != width.object_scale()
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(())
+    }
     pub fn validate_for(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
         profile.validate()?;
         let expected = match &self.generation_selection {

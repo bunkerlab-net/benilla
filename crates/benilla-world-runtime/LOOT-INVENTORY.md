@@ -4,7 +4,7 @@ This is a fresh GPL-3.0-or-later reconstruction from CMaNGOS Classic
 `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`, not recovery of the lost patch.
 `NativeCapability` remains uninhabited. Authored source comparisons and controller
 integration tests do not admit real content or establish a playable starting zone.
-Native format is 46 (`benilla-native-peer-help-v46`). Loot generation policy
+Native format is 47 (`benilla-native-positive-peer-help-v47`). Loot generation policy
 is v2 and loot genesis is v3. Older saves do not migrate implicitly.
 
 ## Captured inputs and fail-closed scope

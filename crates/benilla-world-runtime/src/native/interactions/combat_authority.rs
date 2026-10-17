@@ -492,6 +492,7 @@ fn decision(value: relations::TargetDecision) -> Result<bool, NativeError> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CombatPhase {
     Sight,
+    PeerHelp,
     CombatReceipt,
     UnitPrelude,
     AfterMovement,

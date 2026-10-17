@@ -225,7 +225,7 @@ fn pump_to(c: &mut NativeController, tick: u64) -> Vec<SessionEvent> {
 }
 
 #[test]
-fn native46_controller_create_and_reopen_retain_genesis_without_initial_cast_packets() {
+fn native47_controller_create_and_reopen_retain_genesis_without_initial_cast_packets() {
     let h = Harness::new();
     let profile = n::synthetic_initial_cast_fixture::profile();
     let mut controller = h.start(profile.clone());
@@ -267,6 +267,7 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
         (43, "benilla-native-dry-habitat-v43"),
         (44, "benilla-native-combat-assistance-v44"),
         (45, "benilla-native-assistance-neighbors-v45"),
+        (46, "benilla-native-peer-help-v46"),
     ] {
         use sha2::{Digest as _, Sha256};
         let h = Harness::new();
@@ -293,13 +294,13 @@ fn previous_native_checkpoints_inside_fresh_store_checksum_cannot_reopen_or_repl
             hasher.finalize().into()
         };
         checkpoint["digest"] =
-            serde_json::to_value(hash(b"benilla-native-state-v46\0", state.as_bytes())).unwrap();
+            serde_json::to_value(hash(b"benilla-native-state-v47\0", state.as_bytes())).unwrap();
         let body = format!(
             "[{state},{},{}]",
             checkpoint["digest"], checkpoint["history_tip"]
         );
         checkpoint["checksum"] =
-            serde_json::to_value(hash(b"benilla-native-checkpoint-v46\0", body.as_bytes()))
+            serde_json::to_value(hash(b"benilla-native-checkpoint-v47\0", body.as_bytes()))
                 .unwrap();
         let typed: n::Checkpoint = serde_json::from_value(checkpoint).unwrap();
         let snapshot = typed.encode().unwrap();

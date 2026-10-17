@@ -658,7 +658,7 @@ impl PlayerEnvironmentTarget {
     pub fn target(&self) -> &motion::Target {
         &self.target
     }
-    fn validate(
+    pub(in crate::native) fn validate(
         &self,
         profile: &Profile,
         world: crate::WorldId,

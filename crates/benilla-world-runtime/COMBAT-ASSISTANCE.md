@@ -56,8 +56,9 @@ fields and the exact current scene, not provider-supplied eligibility booleans.
 Same entry is not self. Defensive AI/NO_AGGRO_ON_SIGHT is not an assistance
 predicate. A neutral candidate can pass generic CanAttack due to the player's
 reverse hostility yet fail IsEnemy, denying assistance before range or LOS.
-A hostile Defensive candidate reaches the explicitly unsupported range/LOS
-continuation. No alive or CanInitiateAttack guard is invented for this path.
+A hostile Defensive candidate continues to the strict source range check.
+A range rejection needs the current caller/candidate poses and combat reaches;
+a passing range still requires the separately supported LOS/receiver continuation. No alive or CanInitiateAttack guard is invented for this path.
 
 The request retains raw help radius separately from Cell visitation radius:
 `CellImpl.h:54–77` adds owner bounding radius and caps at
@@ -69,10 +70,10 @@ re-evaluating them against a later creature generation or combat state. Invalid
 evidence rolls back preceding EventAI actions, RNG draws and queue allocation.
 
 The assistance events live in the same NpcEvents EventProcessor as ordinary
-notify and spell events. There is no parallel clock or queue. Entry reached
-inside that same NPC's active callback is outside the initial supported domain;
-it must not schedule against a placeholder queue while the processor is lent
-out to its callback transaction.
+notify and spell events. There is no parallel clock or queue. Combat entry reached inside that NPC's active notify callback schedules on the
+actual borrowed EventTransaction. Its clock and insertion allocator remain the
+Unit's owners; the temporary empty queue is never a scheduling authority.
+The entered NPC's own queue is used when it is the visited peer instead.
 
 ## Visible-peer help prefix
 
@@ -95,23 +96,35 @@ state is an error. CanCheckForHelp is the actual retained flag changed by Unit
 queue callbacks; it is never recomputed from world time or the nominal delay.
 The ordinary source control closure continues to exclude external control writers.
 
-A runtime-derived denial receipt accompanies the ordinary peer-sight disposition.
-The required help option is null for pre-help returns. Structural receipt checks
+Runtime-derived denial and positive-assistance receipt options accompany the
+peer-sight disposition. A denial occupies the help option; a successful attempt
+occupies the assistance option. Both are null only for pre-help returns.
+Structural receipt checks
 bind owner IDs, selected source and player victim; replay regenerates the actual
 callback and rejects a false null, substituted denial or changed live flags. This
 is not standalone authentication of an arbitrarily rewritten checkpoint.
 A denied help attempt resumes MoveInLineOfSight: Defensive returns NonAggressive,
 while Aggressive still runs its ordinary initiation and NPC/NPC relation checks.
-Successful semantic checks reach an explicit unsupported helper-victim
-accessibility continuation. No receiver AttackStart is synthesized.
+The selected positive continuation resolves accessibility from the player's
+cached IsInWater owner and the helper's current CanSwim/CanWalk/CanFly owners.
+It then asks for the exact victim-visibility, helper-to-peer map membership and
+ignore-M2 LOS predicates in source order. Range arithmetic is runtime-derived
+from current poses and both combat reaches, with a strict binary32 comparison.
+The player visibility and map-membership facts remain explicitly authored in
+component tests; loaded geometry does not prove either fact.
 
-The remaining source chain tests helper-victim accessibility and visibility,
+After CanAssistInCombatAgainst succeeds, the engine executes source AttackStart
+against the resolved player, including EventAI combat entry and Unit assistance
+queue effects, before the next visitor. The resulting proof retains the exact
+callback, current generation/model owners and evaluated predicate answers.
+
+The positive source chain tests helper-victim accessibility and visibility,
 then observer-to-combat-peer distance and LOS (ignoreM2Model=true), then
 CanAssistInCombatAgainst. This differs from pull-assistance candidate traversal,
 where CanAssistInCombatAgainst precedes distance and LOS. Its distance parameter
 is CONFIG_FLOAT_CREATURE_CHECK_FOR_HELP_RADIUS (default 5), not the creature's
-CallForHelp or family-assistance radius. The negative prefix does not consume or
-invent evidence for any of these unreached geometric predicates.
+CallForHelp or family-assistance radius. A negative prefix does not consume or
+invent evidence for any unreached geometric predicate.
 
 ## Physical Unit lifetime
 
@@ -128,8 +141,8 @@ checkpoint restoration and replay together. An independent required NPC anchor
 counts and chains assistance transitions, so deleting completed history cannot
 make a used owner look freshly initialized after its queue drains. These
 redundant consistency checks do not authenticate a wholly fabricated checkpoint.
-Native format 46 and policy
-`benilla-native-peer-help-v46` bind the changed state; native45 and older
+Native format 47 and policy
+`benilla-native-positive-peer-help-v47` bind the changed state; native46 and older
 experimental identities reject without migration.
 
 ## What this does not establish
@@ -146,7 +159,7 @@ owners up to the existing MAX_NPCS resource bound. Shared entry EventAI rows
 produce separate holders and occurrence counters; GUID rows stay per spawn.
 Current entry-keyed spell and interaction closures reject differing effective
 spawn overrides rather than silently merging them.
-Nonempty assistance dispatch, positive peer-help continuation, group/linking behavior and the
+Nonempty delayed assistance dispatch, general attacker-set fallback, group/linking behavior and the
 24 base random-moving entry-6 spawns are outside this component. Actual client
 models/terrain, complete source/loader-order capture and the closed production
 admission boundary are still required before normal solo startup can use real
@@ -166,8 +179,9 @@ seventh dry initialization retries with the same successful draw sequence.
 
 These authored positions stay inside the actually loaded fixture tile. The
 fixture does not supply Northshire terrain, imported spawn membership, actual
-client models or a real-time performance benchmark. Positive peer help and unsupported helper-victim fallback still reject explicitly;
-successful component execution does not establish those separate source owners.
+client models or a real-time performance benchmark. Unsupported helper-victim
+fallback still rejects explicitly. Neutral entry-6 neighbors keep their source
+denial against the player; positive help requires a genuinely hostile template.
 
 The visible-neighbor acceptance uses actual initial AiNotify events scheduled
 before, at and after the combat owner's actual queued help re-enable deadline.
@@ -187,3 +201,22 @@ extracts and compiles pinned source blocks with declared scalar/receiver shims.
 Its positive and negative guards distinguish source event/lifetime behavior
 from authored geometry and receiver membership. Runtime scalar comparisons and
 the dry-scene component loop exercise separate acceptance surfaces.
+
+The positive-help component uses a separate authored hostile Defensive helper
+(entry 990006) beside six unchanged neutral entry-6 owners. Its full initial-pull
+traversal rejects that helper at the smaller pull radius. After the caller's real
+help re-enable event, the helper's own initial notify reaches CheckForHelp and
+joins the player fight. Its independent EventAI holder emits speech and consumes
+its two source RNG draws; the assistance history binds the exact PeerHelp
+callback digest. Subsequent ordinary updates perform melee, then a targeted
+lethal spell drives corpse and fresh dry respawn. Checkpoint restoration and
+complete journal replay retain that lifecycle. A late final-owner failure rolls
+back the join, text, draws and queue changes, while ten forged positive receipts
+and three negative dependency controls reject as specified.
+
+This positive scene executes OwnerToVisited. A genuine later-relocation scene
+for positive VisitedToOwner remains unexecuted. Separate real own-notify combat
+and low-level source callback-entry tests prove borrowed queue scheduling,
+including zero-delay insertion/execution order; they do not establish that
+missing reverse-direction scene. The component's visibility and same-map answers
+remain authored; helper-to-peer ignore-M2 LOS uses the loaded fixture geometry.

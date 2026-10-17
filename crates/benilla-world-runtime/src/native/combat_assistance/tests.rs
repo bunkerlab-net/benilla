@@ -69,7 +69,7 @@ fn enter(events: &mut NpcEvents, delay: u32, flags: u32) -> AssistancePayload {
     let request = request(events);
     let receivers = (flags & NO_CALL_ASSIST == 0).then(|| facts(&request));
     let traversal = receivers.as_ref().map(|_| AssistanceTraversalReceipt {
-        request: crate::digest(b"benilla-native-assistance-traversal-v46\0", &request),
+        request: crate::digest(b"benilla-native-assistance-traversal-v47\0", &request),
         candidates: vec![AssistanceCandidateReceipt {
             container: AssistanceSelfContainer::Grid,
             npc: events.npc,
@@ -485,4 +485,93 @@ fn independent_original_cpp_source_vectors_match_the_unit_owner() {
             }
         }
     }
+}
+
+#[test]
+fn callback_entry_uses_live_transaction_and_matches_source_zero_delay_order() {
+    // Source SetInCombatState EntryEvent oracle, not an inferred queue model.
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../scripts/native_assistance_source_oracle/vectors.json"
+    )))
+    .unwrap();
+    let vector = vectors["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "callback_entry_zero_delay_source_only")
+        .unwrap();
+    let source = vector["observations"].as_array().unwrap().last().unwrap();
+    let mut events = events();
+    events.queue.add_event(1, EventKind::AiNotify, 0).unwrap();
+    let mut queue = std::mem::take(&mut events.queue);
+    let mut tx = queue.begin_update(7).unwrap();
+    let entry = tx.pop_due().unwrap().unwrap();
+    let entry_callback = tx.callback_snapshot().unwrap();
+    events.callback = Some(entry_callback.clone());
+    let token = events
+        .prepare_assistance_with_transaction(0, 2, Some(&mut tx))
+        .unwrap();
+    let mut request = request(&events);
+    request.callback = EventAiCallbackKind::Sight {
+        notification_owner: VisitorParticipant::Creature(events.npc),
+        callback: entry_callback,
+    };
+    let receivers = Some(facts(&request));
+    let traversal = Some(AssistanceTraversalReceipt {
+        request: crate::digest(b"benilla-native-assistance-traversal-v47\0", &request),
+        candidates: vec![AssistanceCandidateReceipt {
+            container: AssistanceSelfContainer::Grid,
+            npc: events.npc,
+            denial: AssistanceDenial::SelfCandidate,
+        }],
+    });
+    events
+        .finish_assistance_with_transaction(request, receivers, traversal, token, 2, Some(&mut tx))
+        .unwrap();
+    assert_eq!(
+        events.queue.clock_ms(),
+        0,
+        "placeholder must remain untouched"
+    );
+    assert_eq!(events.queue.next_event_id(), 1);
+    assert_eq!(events.clock_ms(), 7);
+    let scheduled = events.queue_snapshot().queued;
+    assert_eq!(scheduled.len(), 2);
+    for (actual, expected) in scheduled
+        .iter()
+        .zip(source["scheduled"].as_array().unwrap().iter().skip(1))
+    {
+        assert_eq!(actual.event_id, expected["id"].as_u64().unwrap());
+        assert_eq!(actual.add_time_ms, expected["add_clock"].as_u64().unwrap());
+        assert_eq!(actual.exec_time_ms, expected["deadline"].as_u64().unwrap());
+    }
+    tx.finish_execute(true).unwrap();
+    events.callback = None;
+    let mut executed = vec![entry.event_id];
+    let mut outcomes = vec![];
+    while let Some(due) = tx.pop_due().unwrap() {
+        executed.push(due.event_id);
+        outcomes.push(
+            events
+                .dispatch_assistance(1, due, Some(f::player()), true)
+                .unwrap(),
+        );
+        tx.finish_execute(true).unwrap();
+    }
+    tx.commit().unwrap();
+    events.queue = queue;
+    assert_eq!(serde_json::to_value(executed).unwrap(), source["executed"]);
+    assert_eq!(events.clock_ms(), source["queue_clock"].as_u64().unwrap());
+    assert_eq!(
+        outcomes,
+        [
+            AssistanceOutcome::Reenabled,
+            AssistanceOutcome::EmptyContinuation {
+                call_assistance: false
+            }
+        ]
+    );
+    assert!(events.assistance().unwrap().can_check_for_help());
+    events.validate_assistance_queue().unwrap();
 }

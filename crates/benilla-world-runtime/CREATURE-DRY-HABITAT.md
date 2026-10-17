@@ -1,6 +1,6 @@
 # Source-owned dry execution for habitat 3
 
-Native format 46 (`benilla-native-peer-help-v46`) supports a bounded dry
+Native format 47 (`benilla-native-positive-peer-help-v47`) supports a bounded dry
 execution domain for retained `InhabitType=3` (`GROUND|WATER`). Its predicates
 remain `CanWalk=true`, `CanSwim=true`, `CanFly=false`; a dry observation never
 rewrites the habitat or selects the ground-only query branch. Wet initialization,
@@ -199,14 +199,16 @@ is not evidence for that receiver query or those Unit events. Even a one-creatur
 authored scene with no helper effects cannot establish their flag/queue lifecycle.
 The separately selected [assistance owner](COMBAT-ASSISTANCE.md) composes that
 flag/queue lifecycle with explicitly authored complete ordered candidate traversal
-and runtime-derived semantic denials before range/LOS.
+and runtime-derived semantic and range denials.
 The base dry component alone does not supply it; nonempty dispatch and unknown
 traversal remain unsupported.
 The ordinary visitor catalog now admits multiple independent spawns of a shared
 entry under existing resource limits. This removes a catalog limitation; real
-map membership, client assets and positive peer help remain separate dependencies.
+map membership and client assets remain separate dependencies. Selected positive
+peer help additionally requires the explicit assistance and predicate owners;
+dry initialization alone does not supply them.
 
-Native45 and earlier profile/state/record/checkpoint/melee/callback identities
+Native46 and earlier profile/state/record/checkpoint/melee/callback identities
 reject without migration. RNG v2, original World v2, character files and the
 native store envelope remain unchanged. Rehashed receipts do not recreate live
 loaded authority or erase any of these remaining dependencies.

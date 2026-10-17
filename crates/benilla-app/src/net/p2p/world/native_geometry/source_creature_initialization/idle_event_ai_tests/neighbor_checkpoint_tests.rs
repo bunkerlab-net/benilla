@@ -154,7 +154,7 @@ fn rebind_request(payload: &mut serde_json::Value) {
         serde_json::from_value(payload["request"].clone()).unwrap();
     payload["receivers"]["AuthoredCompleteTraversal"]["request"] = payload["request"].clone();
     let mut hash = Sha256::new();
-    hash.update(b"benilla-native-assistance-traversal-v46\0");
+    hash.update(b"benilla-native-assistance-traversal-v47\0");
     hash.update(serde_json::to_vec(&request).unwrap());
     let digest: [u8; 32] = hash.finalize().into();
     payload["traversal"]["request"] = serde_json::json!(digest);

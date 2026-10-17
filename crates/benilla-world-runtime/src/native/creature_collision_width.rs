@@ -674,6 +674,27 @@ impl CreatureCollisionWidthWitness {
         }
         Ok(selection)
     }
+    /// Bind a historical model selection to its actual world and creation clock.
+    /// This checks transcript consistency; only the live owner supplies the witness.
+    pub fn validate_context(
+        &self,
+        profile: &Profile,
+        binding: &Binding,
+    ) -> Result<(), NativeError> {
+        let npc = binding.npc.ok_or(NativeError::AuthorityBinding)?;
+        self.validate_for(profile, npc)?;
+        if binding.world == [0; 16]
+            || binding.profile != profile.digest()
+            || binding.authority_policy != profile.authority_policy
+            || binding.geometry != profile.geometry_revision
+            || self.generation_selection.as_ref().is_some_and(|selection| {
+                selection.world != binding.world || selection.created_tick > binding.tick
+            })
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(())
+    }
     pub fn validate_for(&self, profile: &Profile, npc: crate::NpcId) -> Result<(), NativeError> {
         let expected = match &self.generation_selection {
             Some(selection) => CreatureCollisionWidthState::from_generation_selection(

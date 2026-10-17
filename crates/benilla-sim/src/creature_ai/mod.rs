@@ -677,6 +677,38 @@ impl SoloCreatureAi {
         *self = next;
         Ok(effects)
     }
+    /// UnitAI::CheckForHelp invokes AttackStart directly, without AttackedBy or
+    /// observation/timer advancement. The host proves the ordered help predicates
+    /// and supplies the current map time, including a peer already updated this frame.
+    pub fn source_help_attack_start(
+        &mut self,
+        target: &Target,
+        event_ms: u64,
+    ) -> Result<Vec<Effect>, AiError> {
+        self.require_finished_generation()?;
+        if self.pending_receipts.is_some()
+            || self.phase != Phase::Idle
+            || event_ms < self.now_ms
+            || target.id == 0
+            || target.level == 0
+            || !target.alive
+            || !target.online
+        {
+            return Err(AiError::Invalid("source help AttackStart binding"));
+        }
+        target.position.validate()?;
+        target.combat_reach.nonnegative("target reach")?;
+        target
+            .bounding_radius
+            .nonnegative("target bounding radius")?;
+        let mut next = self.clone();
+        let mut effects = Vec::new();
+        next.now_ms = event_ms;
+        next.attack_start(target, &mut effects)?;
+        next.now_ms = self.now_ms;
+        *self = next;
+        Ok(effects)
+    }
     /// Creature-owned visitor runs after earlier damage receipts but before its
     /// spline/AI phase. Extend only the matching source prelude's prepared state.
     pub fn source_sight_after_receipts(

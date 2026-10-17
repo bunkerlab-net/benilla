@@ -29,8 +29,8 @@ summary. Failure logs are retained too. Compilation uses:
 -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all
 ```
 
-`--refresh-excerpts` refreshes bundled source excerpts only after checking all fourteen
-pinned whole-file SHA-256 values. `--write-fixture` regenerates all three JSON vector fixtures
+`--refresh-excerpts` refreshes bundled source excerpts only after checking all fifteen
+pinned whole-file SHA-256 values. `--write-fixture` regenerates all four JSON vector fixtures
 strictly from their respective source executables. Neither option reads runtime outputs.
 Normal `--check` regenerates observations in scratch and requires byte-for-byte
 identity with the bundled fixture. [verification.json](verification.json)
@@ -145,7 +145,7 @@ captured payloads or resetting `CanCheckForHelp`. An old saved-true event can ru
 after respawn/reentry. Destroying or aborting either lambda does not Execute it,
 so teardown does not reenable help.
 
-`test_oracle.py` runs all three source executables with fixture equality first, then 53
+`test_oracle.py` runs all four source executables with fixture equality first, then 59
 regression/negative tests. Negative guards cover every pinned whole file, mutated
 bundled excerpts, rehashed excerpt+manifest tampering, hook placement, negating
 the saved boolean, lifecycle event cancellation and an added lambda Abort.
@@ -259,7 +259,7 @@ predicate/reaction source methods already used by the candidate oracle.
 `World.cpp:473` supplies the compiled default configuration assignment, 5.0f.
 The exact `MoveInLineOfSight` call site is retained as uncompiled placement
 and radius-selection evidence; this shell does not execute that caller.
-All fourteen relevant original source files are whole-file SHA-256 pinned.
+All relevant original source files are whole-file SHA-256 pinned.
 
 These controls establish the source order, which differs from pull-assistance
 candidate collection:
@@ -320,6 +320,37 @@ Negative guards reject changed victim priority, gate order, target roles,
 LOS argument, AI order, config selection/default, template radius substitution,
 and any drift in pinned whole files or bundled excerpts. Runtime transactional
 refusal, persistence/replay, and admission remain separate obligations.
+
+## Player-victim accessibility: separate exact-source proof
+
+`accessibility_driver.cpp` is a fourth independent executable. Its 32 authored
+inputs and source-generated results are in `accessibility_cases.py` and
+`accessibility_vectors.json`. All three earlier fixtures remain byte-for-byte
+unchanged; CheckForHelp still uses its explicitly authored accessibility leaf.
+
+This shell compiles the complete unchanged `Unit::isInAccessablePlaceFor`
+(`Unit.cpp:4460`), the virtual `Unit::IsInWater` declaration, the exact override
+`Player::IsInWater` (`Player.h:1997`), and the source `EnvironmentFlags` enum.
+The new whole-file Player.h SHA-256 is pinned alongside the prior fourteen files.
+The call enters the original Unit accessibility body through a base pointer to a
+Player. Its water query dispatches to the source Player override, which reads
+cached `m_environmentFlags`; reaching the base terrain-water implementation
+throws. An observed integer wrapper logs the cached value without replacing the
+mask expression. Querying capability predicates on the victim also throws.
+
+The exhaustive sixteen water/CanSwim/CanWalk/CanFly combinations establish that
+water reads only the helper's CanSwim, while land reads CanWalk and only then
+CanFly if necessary. Sixteen additional controls distinguish the water bit from
+other cached environment bits. No authored accessibility result is supplied.
+Source/dispatch mutation tests guard the victim/helper roles, predicate order,
+virtual override and exact water mask; extracted-file tampering also rejects.
+
+The cached flags and helper capability return values remain authored inputs.
+This is not Player environment-cache initialization, refresh, movement/lifecycle
+ownership, or creature capability derivation. Those are separate runtime and
+source proofs. It does not implement terrain, geometry, CheckForHelp integration,
+combat joining or production admission. Combining the independent fixture results
+does not itself establish those missing integrations.
 
 ## License and authorship
 

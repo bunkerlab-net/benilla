@@ -4,6 +4,8 @@
 //! Northshire map load or client-asset verification.
 use super::*;
 
+#[path = "positive_help_tests.rs"]
+pub(super) mod positive_help_tests;
 #[path = "neighbor_visible_help_tests.rs"]
 mod visible_help_tests;
 
@@ -41,7 +43,7 @@ fn cluster_profile(binding: CreatureInitializationSnapshot) -> Profile {
     p
 }
 
-pub(super) fn expand_cluster_owners(mut p: Profile) -> Profile {
+pub(super) fn expand_cluster_owners_with_helper(mut p: Profile, helper: Option<u64>) -> Profile {
     let binding = match &p
         .creature_capabilities
         .as_ref()
@@ -90,8 +92,33 @@ pub(super) fn expand_cluster_owners(mut p: Profile) -> Profile {
         let mut g = generation.clone();
         g.spawn_id = spawn;
         g.input.spawn_id = spawn;
+        if helper == Some(spawn) {
+            // A separate authored source, never a hostile reinterpretation of
+            // entry 6. Opposite the player, outside the original pull radius.
+            n.entry = 990006;
+            n.name = "Authored defensive helper".into();
+            n.faction_template = 3;
+            n.ai.spawn = ai::Point::new(
+                npc.ai.spawn.x.as_f32() + 5.5,
+                npc.ai.spawn.y.as_f32(),
+                npc.ai.spawn.z.as_f32(),
+            )
+            .unwrap();
+            g.spawn_entry = n.entry;
+            g.input.template.entry = n.entry;
+            g.input.template.faction = n.faction_template;
+            let init::Rows::Complete(addons) = &mut g.input.template_addons else {
+                unreachable!()
+            };
+            addons[0].entry = n.entry;
+        }
         let mut c = capability.clone();
         c.spawn_id = spawn;
+        c.spawn_entry = n.entry;
+        let CreatureCapabilityRows::Complete(templates) = &mut c.templates else {
+            unreachable!()
+        };
+        templates[0].entry = n.entry;
         c.addon_closure = CreatureCapabilityAddonClosure::GenerationSource {
             source_identity: g.identity(),
         };
@@ -110,7 +137,19 @@ pub(super) fn expand_cluster_owners(mut p: Profile) -> Profile {
         widths.push(
             CreatureCollisionWidthSource::from_initial_model(
                 spawn,
-                selection.clone(),
+                if helper == Some(spawn) {
+                    init::prepare(&generations.last().unwrap().input)
+                        .unwrap()
+                        .resolve_with_model_receipt(init::SelectionRolls {
+                            model: Some(0),
+                            gender: Some(0),
+                            level: Some(1),
+                        })
+                        .unwrap()
+                        .1
+                } else {
+                    selection.clone()
+                },
                 &models::catalog_with_model_heights(2.875, 4.125),
             )
             .unwrap(),
@@ -134,6 +173,73 @@ pub(super) fn expand_cluster_owners(mut p: Profile) -> Profile {
         ))
         .unwrap(),
     );
+    if helper.is_some() {
+        // Rebuild entry-keyed catalogs from this new authored source set. The
+        // public initializers validate their entire profile, so use a separate
+        // non-generation catalog-construction draft until the mutually bound
+        // real visitor/height owners below are ready. This draft never executes
+        // or contributes capability/geometry evidence to the resulting world.
+        let mut draft = p.clone();
+        draft.interactions = None;
+        draft.source_visitors = None;
+        draft.source_motion = None;
+        draft.creature_generations = None;
+        draft.creature_capabilities = None;
+        draft.creature_collision_widths = None;
+        draft.creature_collision_heights = None;
+        let mut input = combat::source_rows(&p);
+        input.npcs.sort_by_key(|row| row.entry);
+        input.npcs.dedup_by_key(|row| row.entry);
+        input
+            .factions
+            .iter_mut()
+            .find(|row| row.template_id == 2)
+            .unwrap()
+            .enemy_group_mask = 0;
+        let mut hostile = input
+            .factions
+            .iter()
+            .find(|row| row.template_id == 2)
+            .unwrap()
+            .clone();
+        hostile.template_id = 3;
+        hostile.faction = 990006;
+        hostile.enemy_group_mask = 1;
+        input.factions.push(hostile);
+        draft.initialize_interactions(input).unwrap();
+        draft.source_motion = p.source_motion.clone();
+        for owner in draft.source_motion.as_mut().unwrap().npcs.values_mut() {
+            owner.npc_policy.home.addon_closure = HomeAddonClosure::Absent;
+        }
+        draft.creature_capabilities = Some(
+            CreatureCapabilityCatalog::validate_sources(motion::creature_capability_sources(
+                &draft,
+            ))
+            .unwrap(),
+        );
+        draft.source_visitors = Some(
+            SourceVisitorCatalog::validate_sources(visitors::visitor_input(
+                &draft,
+                UPDATE_ORDER.to_vec(),
+            ))
+            .unwrap(),
+        );
+        draft
+            .initialize_combat_authority(
+                [6, 990006]
+                    .map(|entry| NpcCombatAuthoritySource {
+                        entry,
+                        extra_flags: 2,
+                        static_flags1: 0,
+                        static_flags2: 0,
+                        static_flags3: 0,
+                        static_flags4: 0,
+                    })
+                    .into(),
+            )
+            .unwrap();
+        p.interactions = draft.interactions;
+    }
     let mut input = visitors::visitor_input(&p, UPDATE_ORDER.to_vec());
     let SourceVisitorRows::Complete(rows) = &mut input.owners else {
         unreachable!()

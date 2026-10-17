@@ -80,9 +80,9 @@ fn changed(w: &NativeWorld, mutate: impl FnOnce(&mut serde_json::Value)) -> Chec
         "mutation must change the checkpoint"
     );
     cp.state = serde_json::from_value(state).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v46\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v47\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v46\0",
+        b"benilla-native-checkpoint-v47\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -206,21 +206,44 @@ fn selected_raw_source_requires_positive_radius_exact_generation_and_complete_no
     }
 }
 #[test]
-fn selected_aggressive_own_notify_entry_remains_explicitly_closed_and_atomic() {
-    let mut w = world(selected(2000), 7);
-    let mut a = Empty::default();
-    step(&mut w, &mut a);
-    let before = w.checkpoint().unwrap();
-    // The first notify's in-place AI callback cannot publish a pair through a
-    // placeholder queue. The admitted hostile callback does not use this path.
-    let result = w.step(2, None, &mut a);
-    assert!(matches!(
-        result,
-        Err(NativeError::UnsupportedMechanic(
-            "assistance entry inside owning NPC callback"
-        ))
-    ));
-    assert_eq!(w.checkpoint().unwrap(), before);
+fn selected_aggressive_own_notify_entry_owns_queue_event_ai_and_same_update_zero_delay() {
+    for delay in [0, 2000] {
+        let mut w = world(selected(delay), 7);
+        let initial = w.clone();
+        let mut a = Empty::default();
+        step(&mut w, &mut a);
+        w.step(2, None, &mut a).unwrap();
+        let npc = &w.state.npcs[&2];
+        assert_eq!(npc.ai.phase(), ai::Phase::Combat);
+        assert_eq!(
+            npc.ai.last_receipt_id(),
+            0,
+            "sight must not fabricate AttackedBy"
+        );
+        let assistance = npc.events.assistance().unwrap();
+        let AssistanceHistory::Enter(entry) = &assistance.history()[0] else {
+            panic!("source combat entry");
+        };
+        let EventAiCallbackKind::Sight {
+            notification_owner,
+            callback,
+        } = &entry.request.callback
+        else {
+            panic!("actual source sight cause");
+        };
+        assert_eq!(*notification_owner, VisitorParticipant::Creature(npc.id));
+        assert_eq!(entry.request.unit_clock_ms, callback.due.now_ms);
+        assert_eq!(entry.deadline_ms, callback.due.now_ms + u64::from(delay));
+        assert_eq!(entry.reenable_event, callback.queue.next_event_id);
+        assert_eq!(entry.linking_event, entry.reenable_event + 1);
+        assert!(entry.request.event_ai_callback.is_some());
+        assert_eq!(assistance.pending().count(), usize::from(delay != 0));
+        assert_eq!(assistance.can_check_for_help(), delay == 0);
+        assert_eq!(restore(&w).checkpoint().unwrap(), w.checkpoint().unwrap());
+        let mut replay = initial;
+        replay.replay(w.records()).unwrap();
+        assert_eq!(replay.checkpoint().unwrap(), w.checkpoint().unwrap());
+    }
 }
 
 #[test]

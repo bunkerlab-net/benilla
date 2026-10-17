@@ -10,9 +10,12 @@ mod combat_authority;
 mod facing;
 mod peer_sight;
 pub use facing::FacingNumericPolicy;
-pub(in crate::native) use peer_sight::source_peer_sight;
+pub(in crate::native) use peer_sight::{
+    source_peer_sight_after_help, source_peer_sight_prepare, PeerSightPreparation,
+};
 pub use peer_sight::{
-    PeerHelpDenial, PeerHelpDenialReceipt, PeerSightDisposition, PeerSightReceipt,
+    PeerHelpContinuation, PeerHelpDenial, PeerHelpDenialReceipt, PeerHelpFacts, PeerHelpQuery,
+    PeerHelpReceipt, PeerHelpRequest, PeerSightDisposition, PeerSightReceipt,
 };
 pub(in crate::native) mod spell_authority;
 use benilla_formats::FactionTemplate;

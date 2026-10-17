@@ -44,7 +44,7 @@ matchmaking service or elected game host runs in P2P mode.
   protocol projection and durable checkpoints. The app now contains a tested
   command/tick/checkpoint controller, but native-content entry remains gated; these
   mechanics are not yet available through the player UI
-- Native component [format 46](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
+- Native component [format 47](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
   binds seed-independent initial-cast plans and per-life creature initialization
   to shared-RNG receipts. Creature selection owns current/historical stats through
   actual death and respawn. Retained mainhand equipment and static NPC disarm

@@ -60,7 +60,7 @@ impl MeleeResetWitness {
             execution: cast.execution.checkpoint(),
             release_receipt: release_receipt.clone(),
             release_receipt_digest: crate::digest(
-                b"benilla-native-melee-release-receipt-v46\0",
+                b"benilla-native-melee-release-receipt-v47\0",
                 release_receipt,
             ),
             intervals_ms,
@@ -98,7 +98,7 @@ impl MeleeResetWitness {
         if self.policy != POLICY
             || self.release_receipt_digest
                 != crate::digest(
-                    b"benilla-native-melee-release-receipt-v46\0",
+                    b"benilla-native-melee-release-receipt-v47\0",
                     &self.release_receipt,
                 )
             || (self.profile, self.domain, self.world, self.player) != identity

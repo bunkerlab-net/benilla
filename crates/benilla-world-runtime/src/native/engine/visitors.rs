@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1, GridNotifiersImpl.h:49–56,104–123,147–181.
-//! Selected complete authored grid/world traversal. Peer callbacks are read-only;
-//! any reached unrepresented help/attack branch rejects the enclosing staged frame.
+//! Selected complete authored grid/world traversal. Proven peer help mutates the
+//! helper's real combat/queue owners; unrepresented branches reject the staged frame.
 use super::*;
-use benilla_sim::{creature_motion as m, event_processor::EventCallbackSnapshot};
+use benilla_sim::{
+    creature_motion as m,
+    event_processor::{EventCallbackSnapshot, EventTransaction},
+};
 
 #[derive(Clone, Copy)]
 struct Visit {
@@ -50,7 +53,7 @@ impl<A: Authority> Frame<'_, A> {
         let scene = self.visitor_scene(working)?;
         Ok(SceneWitness {
             frame: interactions::witness(self.profile_digest, &scene, self.interaction_moment())?,
-            callback: crate::digest(b"benilla-native-visitor-callback-v46\0", callback),
+            callback: crate::digest(b"benilla-native-visitor-callback-v47\0", callback),
         })
     }
     fn visitor_binding(owner: VisitorParticipant) -> Option<NpcId> {
@@ -264,31 +267,122 @@ impl<A: Authority> Frame<'_, A> {
     }
     fn selected_peer_sight(
         &mut self,
-        working: &Npc,
-        callback: &EventCallbackSnapshot,
+        working: &mut Npc,
+        transaction: &mut EventTransaction<'_>,
         visit: Visit,
     ) -> Result<(), NativeError> {
-        if !self.selected_visible(Some(working), callback, visit)? {
+        let callback = transaction.callback_snapshot()?;
+        working.events.callback = Some(callback.clone());
+        if !self.selected_visible(Some(working), &callback, visit)? {
             return Ok(());
         }
         let VisitorParticipant::Creature(target) = visit.target else {
             return Err(NativeError::InvalidState);
         };
-        let disposition = interactions::source_peer_sight(
-            self.profile,
-            self.state,
-            Some(working),
+        let request = self.sight_request(Some(working), &callback, visit)?;
+        // Geometry sees the same complete pre-help scene as the predicate host.
+        // Only the live Unit borrow below can mutate combat and event ownership.
+        let scene = self.state.clone();
+        let owner = working.clone();
+        let profile = self.profile;
+        let preparation = interactions::source_peer_sight_prepare(
+            profile,
+            &scene,
+            Some(&owner),
             visit.observer,
             target,
+            &request,
+            &mut |query| {
+                let Facts::SourceMotion(MotionFacts::PeerHelp(facts)) = self.ask(
+                    Some(visit.observer),
+                    Query::SourceMotion(MotionQuery::PeerHelp(Box::new(query))),
+                )?
+                else {
+                    return Err(NativeError::AuthorityBinding);
+                };
+                Ok(facts)
+            },
         )?;
-        let request = self.sight_request(Some(working), callback, visit)?;
+        let disposition = match preparation {
+            interactions::PeerSightPreparation::Complete(receipt) => receipt,
+            interactions::PeerSightPreparation::Assist(receipt) => {
+                let cause = EventAiCallbackKind::PeerHelp {
+                    request: Box::new(request.clone()),
+                    receipt: Box::new(receipt.clone()),
+                };
+                if visit.observer == working.id {
+                    self.source_help_attack_start(working, &cause, Some(transaction))?;
+                } else {
+                    // Temporarily restore the notifying Unit's exact live overlay
+                    // while the visited helper owns its independent ordinary queue.
+                    if self
+                        .state
+                        .npcs
+                        .insert(working.id.spawn, working.clone())
+                        .is_some()
+                    {
+                        return Err(NativeError::AuthorityBinding);
+                    }
+                    let mut helper = self
+                        .state
+                        .npcs
+                        .remove(&visit.observer.spawn)
+                        .filter(|npc| npc.id == visit.observer)
+                        .ok_or(NativeError::AuthorityBinding)?;
+                    let result = self.source_help_attack_start(&mut helper, &cause, None);
+                    self.state.npcs.insert(helper.id.spawn, helper);
+                    *working = self
+                        .state
+                        .npcs
+                        .remove(&working.id.spawn)
+                        .ok_or(NativeError::AuthorityBinding)?;
+                    result?;
+                }
+                // CheckForHelp returns into MoveInLineOfSight after AttackStart,
+                // EventAI, assistance scheduling, and chase initialization.
+                interactions::source_peer_sight_after_help(
+                    self.profile,
+                    self.state,
+                    Some(working),
+                    visit.observer,
+                    target,
+                    receipt,
+                )?
+            }
+        };
         self.record_sight(request, SightDisposition::Peer(disposition))
+    }
+    fn source_help_attack_start(
+        &mut self,
+        npc: &mut Npc,
+        cause: &EventAiCallbackKind,
+        transaction: Option<&mut EventTransaction<'_>>,
+    ) -> Result<(), NativeError> {
+        // Unit::Attack rechecks its own target relation. There is no AttackedBy
+        // receipt, threat amount, synthetic damage, or observation clock advance.
+        let facts = self.source_npc_facts(npc, CombatPhase::PeerHelp)?;
+        let observation = self.source_observation(npc, facts, None, Vec::new())?;
+        let target = observation
+            .target
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
+        let effects = npc.ai.source_help_attack_start(target, self.state.now_ms)?;
+        if npc.ai.phase() != ai::Phase::Combat
+            || npc.ai.target() != Some(SOLO_UNIT)
+            || !effects
+                .iter()
+                .any(|e| matches!(e, ai::Effect::CombatStarted { target: SOLO_UNIT }))
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        self.source_prefix_effects_with_transaction(npc, &effects, cause, transaction)
     }
     fn selected_player_sight(
         &mut self,
         npc: &mut Npc,
         callback: &EventCallbackSnapshot,
         visit: Visit,
+        transaction: Option<&mut EventTransaction<'_>>,
     ) -> Result<(), NativeError> {
         if !self.selected_visible(Some(npc), callback, visit)? {
             return Ok(());
@@ -296,13 +390,14 @@ impl<A: Authority> Frame<'_, A> {
         let facts = self.source_npc_facts_with_visibility(npc, CombatPhase::Sight, Some(true))?;
         let observation = self.source_observation(npc, facts, None, Vec::new())?;
         let effects = npc.ai.source_sight_event(&observation)?;
-        self.source_prefix_effects(
+        self.source_prefix_effects_with_transaction(
             npc,
             &effects,
             &EventAiCallbackKind::Sight {
                 notification_owner: visit.owner,
                 callback: callback.clone(),
             },
+            transaction,
         )?;
         let request = self.sight_request(Some(npc), callback, visit)?;
         self.record_sight(request, SightDisposition::PlayerSightApplied)
@@ -338,6 +433,7 @@ impl<A: Authority> Frame<'_, A> {
                     observer: id,
                     target: owner,
                 },
+                None,
             );
             self.state.npcs.insert(id.spawn, npc);
             result?;
@@ -347,9 +443,10 @@ impl<A: Authority> Frame<'_, A> {
     pub(super) fn source_selected_npc_notify(
         &mut self,
         npc: &mut Npc,
-        callback: &EventCallbackSnapshot,
+        transaction: &mut EventTransaction<'_>,
     ) -> Result<(), NativeError> {
-        let (grid, world) = self.selected_membership(Some(npc), callback)?;
+        let callback = transaction.callback_snapshot()?;
+        let (grid, world) = self.selected_membership(Some(npc), &callback)?;
         if npc.health == 0 {
             return Ok(());
         }
@@ -367,10 +464,10 @@ impl<A: Authority> Frame<'_, A> {
                 observer: id,
                 target: owner,
             };
-            self.selected_peer_sight(npc, callback, visit)?;
+            self.selected_peer_sight(npc, transaction, visit)?;
             self.selected_peer_sight(
                 npc,
-                callback,
+                transaction,
                 Visit {
                     direction: VisitorDirection::OwnerToVisited,
                     observer: npc.id,
@@ -383,9 +480,11 @@ impl<A: Authority> Frame<'_, A> {
             if self.state.health == 0 {
                 continue;
             }
+            let callback = transaction.callback_snapshot()?;
+            npc.events.callback = Some(callback.clone());
             self.selected_player_sight(
                 npc,
-                callback,
+                &callback,
                 Visit {
                     owner,
                     container: VisitorContainer::WorldPlayers,
@@ -394,6 +493,7 @@ impl<A: Authority> Frame<'_, A> {
                     observer: npc.id,
                     target: VisitorParticipant::Player(player),
                 },
+                Some(transaction),
             )?;
         }
         Ok(())

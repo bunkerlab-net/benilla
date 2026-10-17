@@ -165,9 +165,9 @@ last countdown tick rather than moving that source callback or timer phase. Dist
 separate dependencies; this witness does not select straightPath or certify that
 the complete Chase gate ran. Home and Backpedal carry explicit absence.
 
-Native format 46 and `benilla-native-peer-help-v46` include the
+Native format 47 and `benilla-native-positive-peer-help-v47` include the
 optional owned cache, required optional latest-pose and route-witness fields,
-and v46 profile/state/record/checkpoint/melee domains. Missing fields and older
+and v47 profile/state/record/checkpoint/melee domains. Missing fields and older
 native checkpoints reject rather than fabricate initial state. Independent
 component v2 encoding, exploration character data and raw native admission stay
 unchanged. Hashes establish consistency, never historical authenticity; complete

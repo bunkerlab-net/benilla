@@ -8,6 +8,7 @@ impl<A: Authority> Frame<'_, A> {
         npc: &mut Npc,
         target: u64,
         callback: Option<&EventAiCallbackKind>,
+        mut transaction: Option<&mut benilla_sim::event_processor::EventTransaction<'_>>,
     ) -> Result<(), NativeError> {
         let Some(catalog) = self.profile.combat_assistance() else {
             return Ok(());
@@ -17,22 +18,53 @@ impl<A: Authority> Frame<'_, A> {
                 "assistance late combat entry",
             ))?
             .clone();
-        // This first host admits source hostile-entry receipts outside its own
-        // active callback. It does not mutate a temporarily lent Unit queue.
-        let EventAiCallbackKind::CombatReceipt { receipt } = &callback else {
-            return Err(NativeError::UnsupportedMechanic(
-                "assistance non-receipt combat entry",
-            ));
-        };
         if self.read_only
             || target != SOLO_UNIT
             || npc.ai.phase() != ai::Phase::Combat
             || npc.ai.target() != Some(target)
-            || receipt.id != npc.ai.last_receipt_id()
-            || npc.events.callback.is_some()
+            || matches!(&callback, EventAiCallbackKind::CombatReceipt { receipt } if receipt.id != npc.ai.last_receipt_id())
+            || npc.events.callback.is_some() != transaction.is_some()
+            || callback.owns_active_queue(npc.id) != transaction.is_some()
         {
             return Err(NativeError::AuthorityBinding);
         }
+        match &callback {
+            EventAiCallbackKind::CombatReceipt { receipt }
+                if receipt.id == npc.ai.last_receipt_id() => {}
+            EventAiCallbackKind::Sight {
+                notification_owner, ..
+            } if *notification_owner == VisitorParticipant::Player(self.state.player)
+                || *notification_owner == VisitorParticipant::Creature(npc.id) => {}
+            EventAiCallbackKind::PeerHelp { request, receipt }
+                if request.observer == VisitorParticipant::Creature(npc.id) =>
+            {
+                receipt.validate_for(self.profile, self.state.player, request)?;
+            }
+            _ => return Err(NativeError::AuthorityBinding),
+        }
+        let mut cause_scene = self.state.clone();
+        if cause_scene.npcs.insert(npc.id.spawn, npc.clone()).is_some() {
+            return Err(NativeError::AuthorityBinding);
+        }
+        if let Some((owner, sight)) = callback.source_sight() {
+            match owner {
+                VisitorParticipant::Player(player)
+                    if *player == self.state.player
+                        && self.state.player_events.notify == Some(sight.due.event_id) =>
+                {
+                    // The player dispatcher lends its queue too; this immutable
+                    // validation overlay uses its exact passed callback snapshot.
+                    cause_scene.player_events.queue =
+                        benilla_sim::event_processor::EventProcessor::restore(sight.queue.clone())?;
+                }
+                VisitorParticipant::Creature(owner)
+                    if cause_scene.npcs.get(&owner.spawn).is_some_and(|n| {
+                        n.id == *owner && n.events.callback.as_ref() == Some(sight)
+                    }) => {}
+                _ => return Err(NativeError::AuthorityBinding),
+            }
+        }
+        callback.validate_for(self.profile, &cause_scene, npc.id, self.state.tick)?;
         let source = catalog.source(npc.id.spawn)?;
         if npc
             .source_generation
@@ -43,9 +75,16 @@ impl<A: Authority> Frame<'_, A> {
         }
         let source_digest = catalog.digest();
         let extra_flags = self.profile.assistance_extra_flags(npc.id.spawn)?;
-        let token = npc
-            .events
-            .prepare_assistance(catalog.delay_ms(), extra_flags)?;
+        let token = match transaction.as_deref_mut() {
+            Some(queue) => npc.events.prepare_assistance_with_transaction(
+                catalog.delay_ms(),
+                extra_flags,
+                Some(queue),
+            )?,
+            None => npc
+                .events
+                .prepare_assistance(catalog.delay_ms(), extra_flags)?,
+        };
         let event_ai_callback = self
             .state
             .event_ai
@@ -120,7 +159,18 @@ impl<A: Authority> Frame<'_, A> {
         } else {
             (None, None)
         };
-        npc.events
-            .finish_assistance(request, receivers, traversal, token, extra_flags)
+        match transaction {
+            Some(queue) => npc.events.finish_assistance_with_transaction(
+                request,
+                receivers,
+                traversal,
+                token,
+                extra_flags,
+                Some(queue),
+            ),
+            None => npc
+                .events
+                .finish_assistance(request, receivers, traversal, token, extra_flags),
+        }
     }
 }

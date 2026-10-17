@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The two UnitLambdaEvents share the physical NPC EventProcessor and lifetime history.
 use super::*;
-use benilla_sim::event_processor::{CallbackKind, DueEvent, EventKind};
+use benilla_sim::event_processor::{
+    BasicEventSnapshot, CallbackKind, DueEvent, EventKind, EventProcessor, EventTransaction,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AssistanceStopReason {
@@ -62,7 +64,7 @@ impl CombatAssistanceAnchor {
     fn append(&mut self, history: &AssistanceHistory) -> Result<(), NativeError> {
         self.count = self.count.checked_add(1).ok_or(NativeError::Limit)?;
         self.tip = crate::digest(
-            b"benilla-native-assistance-chain-v46\0",
+            b"benilla-native-assistance-chain-v47\0",
             &(self.tip, self.count, history),
         );
         Ok(())
@@ -129,6 +131,7 @@ impl CombatAssistanceState {
             let additional = match history {
                 AssistanceHistory::Enter(payload) => {
                     1 + payload.request.scene_inventory.len()
+                        + 3 * payload.request.callback.callback_work()
                         + payload
                             .traversal
                             .as_ref()
@@ -275,6 +278,48 @@ pub(in crate::native) struct AssistanceEntryToken {
     reenable_insertion: u64,
     deadline_ms: u64,
 }
+/// Mutable access always stays with the live Unit processor. A callback view
+/// is refreshed after each insertion so scene witnesses observe that same queue.
+enum AssistanceQueue<'a, 'b> {
+    Owned(&'a mut EventProcessor),
+    Callback(&'a mut EventTransaction<'b>),
+}
+impl AssistanceQueue<'_, '_> {
+    fn clock_ms(&self) -> u64 {
+        match self {
+            Self::Owned(q) => q.clock_ms(),
+            Self::Callback(q) => q.clock_ms(),
+        }
+    }
+    fn next_event_id(&self) -> u64 {
+        match self {
+            Self::Owned(q) => q.next_event_id(),
+            Self::Callback(q) => q.next_event_id(),
+        }
+    }
+    fn event(&self, id: u64) -> Option<&BasicEventSnapshot> {
+        match self {
+            Self::Owned(q) => q.event(id),
+            Self::Callback(q) => q.event(id),
+        }
+    }
+    fn add_event(&mut self, id: u64, kind: EventKind, at: u64) -> Result<(), NativeError> {
+        match self {
+            Self::Owned(q) => q.add_event(id, kind, at)?,
+            Self::Callback(q) => q.add_event(id, kind, at)?,
+        }
+        Ok(())
+    }
+    fn refresh(
+        &self,
+        callback: &mut Option<benilla_sim::event_processor::EventCallbackSnapshot>,
+    ) -> Result<(), NativeError> {
+        if let Self::Callback(q) = self {
+            *callback = Some(q.callback_snapshot()?);
+        }
+        Ok(())
+    }
+}
 impl NpcEvents {
     pub fn assistance(&self) -> Option<&CombatAssistanceState> {
         self.assistance.as_ref()
@@ -286,27 +331,45 @@ impl NpcEvents {
     ) -> Result<AssistanceEntryToken, NativeError> {
         if self.callback.is_some() {
             return Err(NativeError::UnsupportedMechanic(
-                "assistance entry inside owning NPC callback",
+                "assistance requires owning live transaction",
             ));
         }
+        self.prepare_assistance_with_transaction(delay_ms, extra_flags, None)
+    }
+    pub(in crate::native) fn prepare_assistance_with_transaction(
+        &mut self,
+        delay_ms: u32,
+        extra_flags: u32,
+        transaction: Option<&mut EventTransaction<'_>>,
+    ) -> Result<AssistanceEntryToken, NativeError> {
+        let mut queue = match transaction {
+            Some(q) if self.callback.as_ref() == Some(&q.callback_snapshot()?) => {
+                AssistanceQueue::Callback(q)
+            }
+            None if self.callback.is_none() => AssistanceQueue::Owned(&mut self.queue),
+            _ => return Err(NativeError::AuthorityBinding),
+        };
         let selected = self.assistance.as_mut().ok_or(NativeError::InvalidState)?;
         selected.reserve(3)?;
-        let deadline_ms = self.queue.calculate_time(u64::from(delay_ms))?;
-        let reenable_event = self.queue.next_event_id();
+        let deadline_ms = queue
+            .clock_ms()
+            .checked_add(u64::from(delay_ms))
+            .ok_or(NativeError::Limit)?;
+        let reenable_event = queue.next_event_id();
         selected.can_check_for_help = false;
-        self.queue.add_event(
+        queue.add_event(
             reenable_event,
             EventKind::ReenableHelp {
                 occurrence: selected.next_occurrence,
             },
             deadline_ms,
         )?;
-        let reenable_insertion = self
-            .queue
+        let reenable_insertion = queue
             .event(reenable_event)
             .and_then(|e| e.queue)
             .ok_or(NativeError::InvalidState)?
             .insertion_id;
+        queue.refresh(&mut self.callback)?;
         // Source saves the previous latch, not its negation, then marks it true.
         let saved_already_called = extra_flags & NO_CALL_ASSIST == 0 && selected.already_called;
         selected.already_called = true;
@@ -326,12 +389,36 @@ impl NpcEvents {
         token: AssistanceEntryToken,
         extra_flags: u32,
     ) -> Result<(), NativeError> {
-        if self.callback.is_some()
-            || request.binding.world != self.world
+        self.finish_assistance_with_transaction(
+            request,
+            receivers,
+            traversal,
+            token,
+            extra_flags,
+            None,
+        )
+    }
+    pub(in crate::native) fn finish_assistance_with_transaction(
+        &mut self,
+        request: CombatAssistanceRequest,
+        receivers: Option<CombatAssistanceFacts>,
+        traversal: Option<AssistanceTraversalReceipt>,
+        token: AssistanceEntryToken,
+        extra_flags: u32,
+        transaction: Option<&mut EventTransaction<'_>>,
+    ) -> Result<(), NativeError> {
+        let mut queue = match transaction {
+            Some(q) if self.callback.as_ref() == Some(&q.callback_snapshot()?) => {
+                AssistanceQueue::Callback(q)
+            }
+            None if self.callback.is_none() => AssistanceQueue::Owned(&mut self.queue),
+            _ => return Err(NativeError::AuthorityBinding),
+        };
+        if request.binding.world != self.world
             || request.binding.npc != Some(self.npc)
-            || request.unit_clock_ms != self.queue.clock_ms()
+            || request.unit_clock_ms != queue.clock_ms()
             || request.occurrence != token.occurrence
-            || self.queue.next_event_id()
+            || queue.next_event_id()
                 != token
                     .reenable_event
                     .checked_add(1)
@@ -344,20 +431,20 @@ impl NpcEvents {
             (None, None, false) => {}
             _ => return Err(NativeError::AuthorityBinding),
         }
-        let linking_event = self.queue.next_event_id();
-        self.queue.add_event(
+        let linking_event = queue.next_event_id();
+        queue.add_event(
             linking_event,
             EventKind::AggroLinking {
                 occurrence: token.occurrence,
             },
             token.deadline_ms,
         )?;
-        let linking_insertion = self
-            .queue
+        let linking_insertion = queue
             .event(linking_event)
             .and_then(|e| e.queue)
             .ok_or(NativeError::InvalidState)?
             .insertion_id;
+        queue.refresh(&mut self.callback)?;
         self.assistance
             .as_mut()
             .ok_or(NativeError::InvalidState)?
@@ -499,6 +586,7 @@ pub(in crate::native) fn validate_current(
                 let mut last_clock = 0;
                 let mut last_generation = 0;
                 let mut last_receipt = 0;
+                let mut callbacks = BTreeSet::new();
                 let mut last_event = 0;
                 let mut combat_active = false;
                 for history in &actual.history {
@@ -557,21 +645,19 @@ pub(in crate::native) fn validate_current(
                     match history {
                         AssistanceHistory::Enter(p) => {
                             let r = &p.request;
-                            let EventAiCallbackKind::CombatReceipt { receipt } = &r.callback else {
-                                return Err(NativeError::InvalidCheckpoint);
-                            };
+                            r.callback.validate_for(profile, state, id, tick)?;
+                            if let EventAiCallbackKind::CombatReceipt { receipt } = &r.callback {
+                                if receipt.id <= last_receipt {
+                                    return Err(NativeError::InvalidCheckpoint);
+                                }
+                                last_receipt = receipt.id;
+                            }
+                            let callback_key = crate::digest(
+                                b"benilla-native-assistance-cause-v47\0",
+                                &(id, &r.callback),
+                            );
                             if combat_active
-                                || receipt.id <= last_receipt
-                                || receipt.id > npc.ai.last_receipt_id()
-                                || !matches!(
-                                    receipt.event,
-                                    ai::CombatEvent::AttackedBy { target: SOLO_UNIT }
-                                        | ai::CombatEvent::Threat {
-                                            target: SOLO_UNIT,
-                                            kind: ai::ThreatKind::DirectDamage,
-                                            ..
-                                        }
-                                )
+                                || !callbacks.insert(callback_key)
                                 || life.death_tick().is_some_and(|death| tick > death)
                                 || r.binding.world != state.world
                                 || r.binding.profile != profile.digest()
@@ -632,7 +718,6 @@ pub(in crate::native) fn validate_current(
                                 return Err(NativeError::InvalidCheckpoint);
                             }
                             validate_event_ai_link(profile, state, r)?;
-                            last_receipt = receipt.id;
                             last_event = p.linking_event;
                             combat_active = true;
                             expected.enter((**p).clone())?;
@@ -653,10 +738,9 @@ pub(in crate::native) fn validate_current(
                             outcome,
                             ..
                         } => {
-                            // Entry inside the owning live callback is excluded, so
-                            // Execute occurs at the first subsequent Unit update
-                            // whose queue clock reaches the deadline. DEAD changes
-                            // map time but cannot postpone this local-clock boundary.
+                            // A same-queue callback can insert a zero-delay lambda
+                            // that executes later in this update. A peer's ordinary
+                            // queue starts dispatch at its next Unit update instead.
                             let step = u64::from(profile.tick_ms);
                             let rounded = due
                                 .scheduled_ms
@@ -664,9 +748,22 @@ pub(in crate::native) fn validate_current(
                                 .ok_or(NativeError::InvalidCheckpoint)?
                                 / step
                                 * step;
+                            let occurrence = match due.kind {
+                                EventKind::ReenableHelp { occurrence }
+                                | EventKind::AggroLinking { occurrence } => occurrence,
+                                _ => return Err(NativeError::InvalidCheckpoint),
+                            };
+                            let entered_inside = expected
+                                .pending
+                                .get(&occurrence)
+                                .ok_or(NativeError::InvalidCheckpoint)?
+                                .payload
+                                .request
+                                .callback
+                                .owns_active_queue(id);
                             let first_update = due
                                 .add_time_ms
-                                .checked_add(step)
+                                .checked_add(if entered_inside { 0 } else { step })
                                 .ok_or(NativeError::InvalidCheckpoint)?;
                             if due.now_ms != rounded.max(first_update)
                                 || *in_combat != combat_active

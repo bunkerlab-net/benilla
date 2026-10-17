@@ -767,8 +767,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 46);
-        assert_eq!(NATIVE_POLICY, "benilla-native-peer-help-v46");
+        assert_eq!(NATIVE_FORMAT_VERSION, 47);
+        assert_eq!(NATIVE_POLICY, "benilla-native-positive-peer-help-v47");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

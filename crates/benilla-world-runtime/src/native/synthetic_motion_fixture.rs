@@ -233,6 +233,7 @@ impl Authority for SyntheticMotionAuthority {
             ),
             MotionQuery::SceneVisitor(_)
             | MotionQuery::VisitorVisibility(_)
+            | MotionQuery::PeerHelp(_)
             | MotionQuery::VisitorSight(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "selected visitor requires complete authored authority",

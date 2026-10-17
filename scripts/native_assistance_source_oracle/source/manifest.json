@@ -102,6 +102,46 @@
     },
     {
       "compiled": true,
+      "first_byte": 175814,
+      "first_line": 4460,
+      "last_byte_exclusive": 175975,
+      "last_line": 4465,
+      "name": "PlayerVictimAccessibility.inc",
+      "sha256": "da586f52b5bf8739d7f318d78329d10665e0b9320b3cc8436aef8f200ad6640f",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 79982,
+      "first_line": 1700,
+      "last_byte_exclusive": 80022,
+      "last_line": 1700,
+      "name": "AccessibilityUnitWaterDispatch.inc",
+      "sha256": "ad0e2247058fa58d52be97e83015425f139885b2e6899f1074f6c9df01ae11e4",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 88491,
+      "first_line": 1997,
+      "last_byte_exclusive": 88592,
+      "last_line": 1997,
+      "name": "AccessibilityPlayerWater.inc",
+      "sha256": "f8e8cdca371ccdd8a2f0712abe835a4790dbdaa699ede2a41ab3150bbd29da96",
+      "source": "src/game/Entities/Player.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 2295,
+      "first_line": 82,
+      "last_byte_exclusive": 3457,
+      "last_line": 96,
+      "name": "AccessibilityEnvironmentFlags.inc",
+      "sha256": "1a8d7ea0e10c0553a6769bc2087d826c3c2b916242c0bca005830372bf6c1901",
+      "source": "src/game/Entities/Player.h"
+    },
+    {
+      "compiled": true,
       "first_byte": 51693,
       "first_line": 1239,
       "last_byte_exclusive": 52025,
@@ -599,6 +639,7 @@
     "src/game/AI/BaseAI/UnitAI.h": "2ae4ffeb2203221637ad3723af933ca512c201b988d49078f5e2de62498c7fa6",
     "src/game/Entities/Creature.cpp": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
     "src/game/Entities/Creature.h": "a92b0e95e5bf7827389fcca0acc0edaba48a1a083efbf5a01a752a4d171664fc",
+    "src/game/Entities/Player.h": "acd3ff726fafecd582673ec918157584d71fde6e3a1f59e26f0374b379cdffbb",
     "src/game/Entities/Relations.cpp": "06e453c80b33cddf1606004055a5d1407a46007b20fef73c5dc917156256f77b",
     "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
     "src/game/Entities/Unit.h": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",

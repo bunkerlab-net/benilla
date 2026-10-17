@@ -29,7 +29,16 @@ fn composed_profile(binding: CreatureInitializationSnapshot, chance: u32) -> Pro
     compose_owned_profile(p, chance, false)
 }
 
-fn compose_owned_profile(mut p: Profile, chance: u32, neutral_neighbors: bool) -> Profile {
+fn compose_owned_profile(p: Profile, chance: u32, neutral_neighbors: bool) -> Profile {
+    compose_owned_profile_with_helper(p, chance, neutral_neighbors, None)
+}
+
+fn compose_owned_profile_with_helper(
+    mut p: Profile,
+    chance: u32,
+    neutral_neighbors: bool,
+    helper: Option<u64>,
+) -> Profile {
     // Already in melee reach, outside backpedal distance. No dry observation is
     // used as a certificate for habitat-3 near-point, chase or random movement.
     let spawn = p.npcs[0].ai.spawn;
@@ -103,22 +112,40 @@ fn compose_owned_profile(mut p: Profile, chance: u32, neutral_neighbors: bool) -
     }])
     .unwrap();
     if neutral_neighbors {
-        p = neighbor_tests::expand_cluster_owners(p);
+        p = neighbor_tests::expand_cluster_owners_with_helper(p, helper);
     }
     p = text::install(p, chance);
-    let template = &p
-        .creature_generations
-        .as_ref()
-        .unwrap()
-        .source(2)
-        .unwrap()
-        .input
-        .template;
-    spell_sources.npcs[0].minimum_level = template.minimum_level;
-    spell_sources.npcs[0].maximum_level = template.maximum_level;
-    spell_sources.npcs[0].creature_type = template.creature_type;
-    spell_sources.npcs[0].ai_name = "EventAI".into();
-    spell_sources.npcs[0].event_scripts = SpellSourceRows::Complete(vec![text::EVENT]);
+    if let Some(helper) = helper {
+        p = neighbor_tests::positive_help_tests::install_helper_text(p, helper);
+    }
+    spell_sources.npcs = spells::source(&p).npcs;
+    spell_sources.npcs.sort_by_key(|row| row.entry);
+    spell_sources.npcs.dedup_by_key(|row| row.entry);
+    for row in &mut spell_sources.npcs {
+        let npc = p.npcs.iter().find(|npc| npc.entry == row.entry).unwrap();
+        let template = &p
+            .creature_generations
+            .as_ref()
+            .unwrap()
+            .source(npc.ai.creature_id)
+            .unwrap()
+            .input
+            .template;
+        row.minimum_level = template.minimum_level;
+        row.maximum_level = template.maximum_level;
+        row.creature_type = template.creature_type;
+        let owner = p
+            .source_visitors
+            .as_ref()
+            .unwrap()
+            .owner(npc.ai.creature_id)
+            .unwrap();
+        row.ai_name = owner.ai_name.clone();
+        let SourceVisitorRows::Complete(events) = &owner.entry_events else {
+            unreachable!()
+        };
+        row.event_scripts = SpellSourceRows::Complete(events.clone());
+    }
     p.initialize_spell_authority(&initial, spell_sources)
         .unwrap();
     p

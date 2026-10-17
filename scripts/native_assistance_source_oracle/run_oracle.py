@@ -13,10 +13,12 @@ import sys
 sys.dont_write_bytecode = True
 import candidate_cases
 import peer_help_cases
+import accessibility_cases
 
 ROOT = Path(__file__).resolve().parent
 REVISION = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f"
 HASHES = {
+    "src/game/Entities/Player.h": "acd3ff726fafecd582673ec918157584d71fde6e3a1f59e26f0374b379cdffbb",
     "src/game/AI/BaseAI/UnitAI.cpp": "7d8f1ad603a419489759713a5bc0e2bf03ab677f51b64bcb2333807e17048934",
     "src/game/AI/BaseAI/UnitAI.h": "2ae4ffeb2203221637ad3723af933ca512c201b988d49078f5e2de62498c7fa6",
     "src/game/World/World.cpp": "405e2a0def584dc2e4a9a9bc2861aac4aacefcecc8ec2fa08856324e32d866dd",
@@ -110,6 +112,13 @@ def extract(core):
     ai = "src/game/AI/BaseAI/UnitAI.cpp"
     ai_header = "src/game/AI/BaseAI/UnitAI.h"
     method("CheckForHelp.inc", ai, "void UnitAI::CheckForHelp(Unit* who, Unit* me, float distance)")
+    # Independent accessibility body; existing CheckForHelp leaf controls stay unchanged.
+    method("PlayerVictimAccessibility.inc", unit, "bool Unit::isInAccessablePlaceFor(Unit const* unit) const")
+    snippet("AccessibilityUnitWaterDispatch.inc", "src/game/Entities/Unit.h",
+            "        virtual bool IsInWater() const;\n")
+    snippet("AccessibilityPlayerWater.inc", "src/game/Entities/Player.h",
+            "        bool IsInWater() const override { return (m_environmentFlags & ENVIRONMENT_FLAG_IN_WATER); }\n")
+    method("AccessibilityEnvironmentFlags.inc", "src/game/Entities/Player.h", "enum EnvironmentFlags\n", True)
     method("GetAttackerForHelper.inc", "src/game/Entities/Unit.h", "        Unit* getAttackerForHelper()")
     method("HelpAIOrders.inc", ai_header, "enum AIOrders\n", True)
     snippet("HelpGetAIOrder.inc", ai_header,
@@ -273,11 +282,32 @@ def verify_peer_help_source(excerpts):
             raise ValueError("peer-help unexpectedly reads template CallForHelp")
 
 
+def verify_accessibility_source(excerpts):
+    expected = {
+        "PlayerVictimAccessibility.inc": ["if (IsInWater())", "return unit->CanSwim();",
+            "return unit->CanWalk() || unit->CanFly();"],
+        "AccessibilityUnitWaterDispatch.inc": ["virtual bool IsInWater() const;"],
+        "AccessibilityPlayerWater.inc": ["bool IsInWater() const override",
+            "return (m_environmentFlags & ENVIRONMENT_FLAG_IN_WATER);"],
+        "AccessibilityEnvironmentFlags.inc": ["ENVIRONMENT_FLAG_IN_WATER       = 0x01"],
+    }
+    for name, needles in expected.items():
+        body = excerpts[name].decode()
+        if any(needle not in body for needle in needles):
+            raise ValueError(f"player accessibility source shape changed: {name}")
+        positions = [body.index(needle) for needle in needles]
+        if positions != sorted(positions):
+            raise ValueError(f"player accessibility source order changed: {name}")
+        if "GetTerrain" in body:
+            raise ValueError(f"player accessibility unexpectedly queries terrain: {name}")
+
+
 def validate_source(core, source_dir=ROOT / "source", refresh=False):
     excerpts, manifest = extract(core)
     verify_placement(excerpts)
     verify_candidate_source(excerpts)
     verify_peer_help_source(excerpts)
+    verify_accessibility_source(excerpts)
     manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
     if refresh:
         for name, data in excerpts.items():
@@ -452,7 +482,38 @@ def main():
             raise ValueError("source-generated peer-help fixture differs; inspect source outputs")
         if args.write_fixture:
             (ROOT / "peer_help_vectors.json").write_bytes(helper_bytes)
+        # Fourth independent executable: real virtual Player cache dispatch, not
+        # the authored accessibility leaf used by the unchanged CheckForHelp corpus.
+        for name in ["accessibility_driver.cpp", "accessibility_cases.py"]:
+            shutil.copyfile(ROOT / name, run / name)
+        record_command(run, "accessibility-compile", [args.compiler, *flags,
+            str(run / "accessibility_driver.cpp"), "-o", str(run / "accessibility-oracle")])
+        accessibility = accessibility_cases.cases()
+        accessibility_inputs = accessibility_cases.command_stream(accessibility)
+        (run / "accessibility-inputs.txt").write_bytes(accessibility_inputs)
+        accessibility_outputs = record_command(run, "accessibility-execute",
+            [str(run / "accessibility-oracle")], input=accessibility_inputs)
+        accessibility_observed = [json.loads(line) for line in accessibility_outputs.splitlines()]
+        if len(accessibility_observed) != len(accessibility):
+            raise ValueError("accessibility observation count mismatch")
+        for row, observation in zip(accessibility, accessibility_observed):
+            if observation.pop("case") != row["name"]:
+                raise ValueError("accessibility observation identity mismatch")
+            row["observation"] = observation
+        accessibility_fixture = dict(schema_version=1, source_revision=REVISION,
+            coverage="unchanged Unit::isInAccessablePlaceFor and virtual Player::IsInWater cache accessor; authored cached environment flags and helper capability leaves; no cache lifecycle, terrain, geometry, CheckForHelp integration or production admission proof",
+            cases=accessibility)
+        accessibility_bytes = (json.dumps(accessibility_fixture, indent=2) + "\n").encode()
+        (run / "accessibility_vectors.json").write_bytes(accessibility_bytes)
+        if args.check and (ROOT / "accessibility_vectors.json").read_bytes() != accessibility_bytes:
+            raise ValueError("source-generated accessibility fixture differs; inspect source outputs")
+        if args.write_fixture:
+            (ROOT / "accessibility_vectors.json").write_bytes(accessibility_bytes)
         summary = dict(status="passed", cases=len(rows), observations=len(observed),
+            accessibility_cases=len(accessibility),
+            accessibility_fixture_sha256=sha(accessibility_bytes),
+            accessibility_driver_sha256=sha((ROOT / "accessibility_driver.cpp").read_bytes()),
+            accessibility_inputs_sha256=sha((ROOT / "accessibility_cases.py").read_bytes()),
             peer_help_cases=len(helpers), peer_help_observations=len(helper_observed),
             peer_help_fixture_sha256=sha(helper_bytes),
             peer_help_driver_sha256=sha((ROOT / "peer_help_driver.cpp").read_bytes()),

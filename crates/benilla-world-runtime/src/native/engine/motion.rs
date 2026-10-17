@@ -566,6 +566,7 @@ impl<A: Authority> Frame<'_, A> {
         npc: &mut Npc,
         effect: &ai::Effect,
         callback: Option<&EventAiCallbackKind>,
+        transaction: Option<&mut benilla_sim::event_processor::EventTransaction<'_>>,
     ) -> Result<(), NativeError> {
         if npc.source_motion.is_none() {
             return Ok(());
@@ -578,16 +579,11 @@ impl<A: Authority> Frame<'_, A> {
         let g = self.profile.npc_motion(npc.id.spawn)?;
         match effect {
             ai::Effect::CombatStarted { target } => {
-                if self.profile.combat_assistance().is_some() && npc.events.callback.is_some() {
-                    return Err(NativeError::UnsupportedMechanic(
-                        "assistance entry inside owning NPC callback",
-                    ));
-                }
                 let source = npc.source_motion.as_mut().unwrap();
                 source.combat_start = Some(source.motion.pose());
                 npc.events.entered_combat()?;
                 self.event_ai_enter_combat(npc, *target, callback)?;
-                self.combat_entry_assistance(npc, *target, callback)?;
+                self.combat_entry_assistance(npc, *target, callback, transaction)?;
                 self.enter_player_combat();
             }
             ai::Effect::Motion(command) => {
@@ -692,12 +688,21 @@ impl<A: Authority> Frame<'_, A> {
         effects: &[ai::Effect],
         callback: &EventAiCallbackKind,
     ) -> Result<(), NativeError> {
+        self.source_prefix_effects_with_transaction(npc, effects, callback, None)
+    }
+    pub(super) fn source_prefix_effects_with_transaction(
+        &mut self,
+        npc: &mut Npc,
+        effects: &[ai::Effect],
+        callback: &EventAiCallbackKind,
+        mut transaction: Option<&mut benilla_sim::event_processor::EventTransaction<'_>>,
+    ) -> Result<(), NativeError> {
         for effect in effects {
             self.events.push(Event::Npc {
                 id: npc.id,
                 effect: effect.clone(),
             });
-            self.source_ai_effect(npc, effect, Some(callback))?;
+            self.source_ai_effect(npc, effect, Some(callback), transaction.as_deref_mut())?;
         }
         Ok(())
     }
@@ -768,18 +773,19 @@ impl<A: Authority> Frame<'_, A> {
             if due.callback == CallbackKind::Execute {
                 npc.events.can_aggro = npc.health > 0;
                 if self.profile.source_visitors.is_some() {
-                    self.source_selected_npc_notify(npc, &callback)?;
+                    self.source_selected_npc_notify(npc, &mut transaction)?;
                 } else if self.source_visitor(npc, VisitorOwner::Creature(npc.id), &callback)? {
                     let facts = self.source_facts(npc, CombatPhase::Sight)?;
                     let observation = self.source_observation(npc, facts, None, Vec::new())?;
                     let effects = npc.ai.source_sight_event(&observation)?;
-                    self.source_prefix_effects(
+                    self.source_prefix_effects_with_transaction(
                         npc,
                         &effects,
                         &EventAiCallbackKind::Sight {
                             notification_owner: VisitorParticipant::Creature(npc.id),
                             callback: callback.clone(),
                         },
+                        Some(&mut transaction),
                     )?;
                 }
                 transaction.finish_execute(true)?;

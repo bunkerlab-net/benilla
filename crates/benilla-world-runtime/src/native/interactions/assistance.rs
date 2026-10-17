@@ -120,9 +120,31 @@ pub(in crate::native) fn source_assistance_traversal(
                     .npc_semantics(profile, &overlay)?
                     .can_attack_on_sight
                 {
-                    return Err(NativeError::UnsupportedMechanic(
-                        "assistance candidate reached range/LOS",
-                    ));
+                    // Bound authored Cell traversal supplies represented same-map membership.
+                    // CanAssist/CanAttack precede the source strict 3D reach comparison.
+                    let candidate_pose = candidate
+                        .source_motion
+                        .as_ref()
+                        .ok_or(NativeError::InvalidState)?
+                        .motion
+                        .pose();
+                    if peer_sight::source_within_distance(
+                        request.owner_pose.position,
+                        candidate_pose.position,
+                        request.radius,
+                        owner.effective_profile(profile)?.ai.combat_reach,
+                        candidate.effective_profile(profile)?.ai.combat_reach,
+                    )? {
+                        return Err(NativeError::UnsupportedMechanic(
+                            "assistance candidate reached LOS",
+                        ));
+                    }
+                    receipts.push(AssistanceCandidateReceipt {
+                        container,
+                        npc: id,
+                        denial: AssistanceDenial::OutOfRange,
+                    });
+                    continue;
                 }
                 AssistanceDenial::CannotAttackEnemyOnSight
             }
@@ -134,7 +156,7 @@ pub(in crate::native) fn source_assistance_traversal(
         });
     }
     let receipt = AssistanceTraversalReceipt {
-        request: crate::digest(b"benilla-native-assistance-traversal-v46\0", request),
+        request: crate::digest(b"benilla-native-assistance-traversal-v47\0", request),
         candidates: receipts,
     };
     receipt.validate(request, facts)?;

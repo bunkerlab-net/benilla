@@ -9,7 +9,8 @@ use super::{
 use benilla_sim::creature_ai::movement::Check;
 use benilla_world_runtime::native::{
     AuthorityRequest, CombatFacts, CombatPhase, CombatQuery, Facts, MotionFacts, MotionQuery,
-    Query, SourceSpellFacts, SourceSpellPhase, SourceSpellQuery,
+    PeerHelpFacts, PeerHelpQuery, Profile, Query, SourceSpellFacts, SourceSpellPhase,
+    SourceSpellQuery,
 };
 use sha2::{Digest, Sha256};
 use std::time::Instant;
@@ -132,6 +133,85 @@ impl SourceVmapProvider {
         } else {
             Facts::SourceSpell(SourceSpellFacts::LineOfSight(value))
         })
+    }
+    /// Selected component adapter for CheckForHelp's helper-to-peer static LOS.
+    /// The runtime owns accessibility, range, eligibility and AttackStart. This
+    /// does not grant loaded map membership or victim IsVisibleForOrDetect facts.
+    #[allow(
+        dead_code,
+        reason = "explicit component adapter; production admission remains closed"
+    )]
+    pub(crate) fn peer_help_line_of_sight(
+        &self,
+        session: &Session,
+        profile: &Profile,
+        request: &AuthorityRequest,
+        deadline: Instant,
+    ) -> Result<Facts, Failure> {
+        self.check_session(session)?;
+        session.check_participants()?;
+        let Query::SourceMotion(MotionQuery::PeerHelp(query)) = &request.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        let PeerHelpQuery::PeerLineOfSight(help) = query.as_ref() else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        help.validate_for(profile, help.victim, &help.sight)
+            .map_err(|_| Failure::Binding)?;
+        if request.binding != help.binding
+            || help.binding.world != session.world
+            || help.binding.profile != session.profile
+            || help.binding.authority_policy != session.policy
+            || help.binding.geometry != session.geometry
+            || help.content != session.content
+            || help.map != session.map
+            || help.binding.tick == 0
+        {
+            return Err(Failure::Binding);
+        }
+        for id in [help.helper, help.peer] {
+            if !session.bodies.contains_key(&id.spawn) {
+                return Err(Failure::UnresolvedBody);
+            }
+        }
+        // Each endpoint uses its current generation's independently validated
+        // collision height, never the player's height or a rendered body size.
+        let eye = |pose: benilla_sim::creature_motion::Pose, height: f32| {
+            [
+                pose.position.x.as_f32(),
+                pose.position.y.as_f32(),
+                pose.position.z.as_f32() + height,
+            ]
+            .map(f32::to_bits)
+        };
+        let ray = RayRequest {
+            snapshot: self.snapshot.binding(),
+            ticket: 1,
+            from: eye(
+                help.helper_pose,
+                f32::from_bits(help.helper_height.height().bits()),
+            ),
+            to: eye(
+                help.peer_pose,
+                f32::from_bits(help.peer_height.height().bits()),
+            ),
+            ignore_m2: true,
+        };
+        let reply = self
+            .snapshot
+            .query(ray, deadline)
+            .map_err(Failure::product)?;
+        if reply.request != ray {
+            return Err(Failure::Binding);
+        }
+        let check = match reply.result {
+            StaticRay::Miss => Check::Passed,
+            StaticRay::Hit { .. } => Check::Failed,
+        };
+        Ok(Facts::SourceMotion(MotionFacts::PeerHelp(PeerHelpFacts {
+            query: query.clone(),
+            check,
+        })))
     }
     fn check_session(&self, session: &Session) -> Result<(), Failure> {
         if session.world != self.session.world

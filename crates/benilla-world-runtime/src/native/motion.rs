@@ -679,6 +679,7 @@ pub enum SightDisposition {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum MotionQuery {
+    PeerHelp(Box<PeerHelpQuery>),
     Combat(CombatQuery),
     HostileSpellRelation(HostileSpellRequest),
     HostileSpellVisibility(HostileSpellRequest),
@@ -699,6 +700,7 @@ pub enum MotionQuery {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum MotionFacts {
+    PeerHelp(PeerHelpFacts),
     Combat(CombatFacts),
     HostileSpellRelation(ai::movement::Check),
     HostileSpellVisibility(ai::movement::Check),

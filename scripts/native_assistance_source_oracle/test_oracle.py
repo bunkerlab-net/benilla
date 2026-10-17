@@ -36,6 +36,8 @@ class AssistanceOracle(unittest.TestCase):
         cls.candidates = {row["name"]: row for row in cls.candidate_fixture["cases"]}
         cls.helper_fixture = json.loads((Path(cls.run_metadata["output"]) / "peer_help_vectors.json").read_text())
         cls.helpers = {row["name"]: row for row in cls.helper_fixture["cases"]}
+        cls.accessibility_fixture = json.loads((Path(cls.run_metadata["output"]) / "accessibility_vectors.json").read_text())
+        cls.accessibility = cls.accessibility_fixture["cases"]
         cls.excerpts, cls.manifest = oracle.extract(CORE)
 
     def obs(self, name, index=-1):
@@ -68,7 +70,8 @@ class AssistanceOracle(unittest.TestCase):
     def test_bundled_excerpt_tampering_rejects(self):
         for name in ["MarkCallAssistanceOnPull.inc", "SetInCombatState.inc", "EventProcessor.cpp", "CreatureUpdate.inc",
                      "AnyAssistCreatureInRangeCheck.inc", "CanAssistInCombatAgainst.inc", "UnitReaction.inc",
-                     "CheckForHelp.inc", "GetAttackerForHelper.inc", "HelpWorldRadiusDefault.inc"]:
+                     "CheckForHelp.inc", "GetAttackerForHelper.inc", "HelpWorldRadiusDefault.inc",
+                     "PlayerVictimAccessibility.inc", "AccessibilityPlayerWater.inc"]:
             with self.subTest(excerpt=name), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp) / "source"
                 shutil.copytree(oracle.ROOT / "source", root)
@@ -612,12 +615,89 @@ class AssistanceOracle(unittest.TestCase):
         self.assertEqual(self.run_metadata['peer_help_observations'], 57)
         self.assertEqual(hashlib.sha256((oracle.ROOT / 'peer_help_vectors.json').read_bytes()).hexdigest(),
                          self.run_metadata['peer_help_fixture_sha256'])
-        # The two established fixtures must remain byte-for-byte unchanged.
+        # The three established fixtures must remain byte-for-byte unchanged.
         self.assertEqual(self.run_metadata['fixture_sha256'], '8aaaca48b61b6d2f472ef292c142ba35b9e3e341df48d83c9b243f433ecd3aea')
         self.assertEqual(self.run_metadata['candidate_fixture_sha256'], '9ba3ffe467f2cae8dd60e03356443654b51969f295e4ed5e2d79e8827057a747')
+        self.assertEqual(self.run_metadata['peer_help_fixture_sha256'], '736f8f0e267d63c641f15974d67f1f3d8ddd3e502726e521c0eb8cc7432f63b8')
         for name in ['peer-help-compile', 'peer-help-execute']:
             self.assertEqual((Path(self.run_metadata['output']) / f'{name}.returncode').read_text(), '0\n')
             self.assertEqual((Path(self.run_metadata['output']) / f'{name}.stderr').read_text(), '')
+
+
+    def test_accessibility_wet_cache_reads_only_helper_swim(self):
+        count = 0
+        for row in self.accessibility[:16]:
+            value = row['input']
+            if value['environment_flags'] == 1:
+                count += 1
+                self.assertEqual(row['observation'], dict(accessible=value['can_swim'], leaves=[
+                    'cached_environment_flags:77:1',
+                    'can_swim:1:' + str(value['can_swim']).lower()]))
+        self.assertEqual(count, 8)
+
+    def test_accessibility_dry_cache_walk_short_circuits_flight(self):
+        count = 0
+        for row in self.accessibility[:16]:
+            value = row['input']
+            if value['environment_flags'] == 0:
+                count += 1
+                leaves = ['cached_environment_flags:77:0',
+                    'can_walk:1:' + str(value['can_walk']).lower()]
+                if not value['can_walk']:
+                    leaves.append('can_fly:1:' + str(value['can_fly']).lower())
+                self.assertEqual(row['observation'], dict(
+                    accessible=value['can_walk'] or value['can_fly'], leaves=leaves))
+        self.assertEqual(count, 8)
+
+    def test_accessibility_environment_water_bit_is_not_any_liquid(self):
+        for row in self.accessibility[16:]:
+            value = row['input']
+            water = bool(value['environment_flags'] & 1)
+            self.assertEqual(row['observation']['accessible'],
+                value['can_swim'] if water else value['can_walk'], row['name'])
+            self.assertEqual(row['observation']['leaves'][0],
+                'cached_environment_flags:77:' + str(value['environment_flags']))
+            self.assertEqual(row['observation']['leaves'][1].split(':')[0],
+                'can_swim' if water else 'can_walk')
+
+    def test_accessibility_virtual_dispatch_and_source_body_guards(self):
+        oracle.verify_accessibility_source(self.excerpts)
+        for name, original, changed in [
+            ('PlayerVictimAccessibility.inc', b'unit->CanSwim()', b'CanSwim()'),
+            ('PlayerVictimAccessibility.inc', b'unit->CanWalk() || unit->CanFly()', b'unit->CanFly() || unit->CanWalk()'),
+            ('AccessibilityUnitWaterDispatch.inc', b'virtual bool', b'bool'),
+            ('AccessibilityPlayerWater.inc', b'override', b''),
+            ('AccessibilityPlayerWater.inc', b'm_environmentFlags & ENVIRONMENT_FLAG_IN_WATER', b'm_environmentFlags'),
+            ('AccessibilityEnvironmentFlags.inc', b'IN_WATER       = 0x01', b'IN_WATER       = 0x02'),
+        ]:
+            with self.subTest(excerpt=name, mutation=changed):
+                excerpts = dict(self.excerpts)
+                self.assertIn(original, excerpts[name])
+                excerpts[name] = excerpts[name].replace(original, changed)
+                with self.assertRaisesRegex(ValueError, 'player accessibility source shape changed'):
+                    oracle.verify_accessibility_source(excerpts)
+
+    def test_accessibility_new_player_source_and_all_excerpts_are_pinned(self):
+        self.assertEqual(oracle.HASHES['src/game/Entities/Player.h'],
+            'acd3ff726fafecd582673ec918157584d71fde6e3a1f59e26f0374b379cdffbb')
+        names = {'PlayerVictimAccessibility.inc', 'AccessibilityUnitWaterDispatch.inc',
+            'AccessibilityPlayerWater.inc', 'AccessibilityEnvironmentFlags.inc'}
+        records = [row for row in self.manifest['excerpts'] if row['name'] in names]
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(row['compiled'] for row in records))
+
+    def test_accessibility_fixture_and_executable_are_independent(self):
+        self.assertEqual(self.run_metadata['accessibility_cases'], 32)
+        self.assertIn('authored cached environment flags and helper capability leaves',
+            self.accessibility_fixture['coverage'])
+        self.assertIn('no cache lifecycle', self.accessibility_fixture['coverage'])
+        self.assertTrue(all('accessible' not in row['input'] for row in self.accessibility))
+        self.assertEqual(hashlib.sha256((oracle.ROOT / 'accessibility_vectors.json').read_bytes()).hexdigest(),
+            self.run_metadata['accessibility_fixture_sha256'])
+        for name in ['accessibility-compile', 'accessibility-execute']:
+            run = Path(self.run_metadata['output'])
+            self.assertEqual((run / (name + '.returncode')).read_text().strip(), '0')
+            self.assertEqual((run / (name + '.stderr')).read_bytes(), b'')
 
 
 if __name__ == "__main__":

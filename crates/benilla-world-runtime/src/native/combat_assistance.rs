@@ -40,11 +40,15 @@ pub(in crate::native) struct CombatAssistanceCatalog {
     policy: &'static str,
     sources: BTreeMap<u64, CombatAssistanceSource>,
     aggro_delay_ms: u32,
+    peer_help_radius: Option<ai::Real>,
 }
 impl CombatAssistanceCatalog {
     pub(in crate::native) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         if self.policy != COMBAT_ASSISTANCE_POLICY || self.sources.len() != profile.npcs.len() {
             return Err(NativeError::AuthorityBinding);
+        }
+        if self.peer_help_radius.is_some_and(|r| r.as_f32() < 0.0) {
+            return Err(NativeError::InvalidProfile);
         }
         let visitors =
             profile
@@ -91,12 +95,12 @@ impl CombatAssistanceCatalog {
                 SourceVisitorRows::Complete(_) => {
                     return Err(NativeError::UnsupportedMechanic(
                         "assistance linking/group/control hooks",
-                    ))
+                    ));
                 }
                 _ => {
                     return Err(NativeError::AuthorityUnavailable(
                         "complete assistance hook sources",
-                    ))
+                    ));
                 }
             }
         }
@@ -111,7 +115,10 @@ impl CombatAssistanceCatalog {
             .ok_or(NativeError::AuthorityBinding)
     }
     pub(in crate::native) fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-combat-assistance-source-v46\0", self)
+        crate::digest(b"benilla-native-combat-assistance-source-v47\0", self)
+    }
+    pub(in crate::native) fn peer_help_radius(&self) -> Option<ai::Real> {
+        self.peer_help_radius
     }
     pub(in crate::native) fn delay_ms(&self) -> u32 {
         self.aggro_delay_ms
@@ -144,10 +151,33 @@ impl Profile {
             policy: COMBAT_ASSISTANCE_POLICY,
             sources: rows,
             aggro_delay_ms,
+            peer_help_radius: None,
         });
         next.validate()?;
         *self = next;
         Ok(())
+    }
+    /// Captured CONFIG_FLOAT_CREATURE_CHECK_FOR_HELP_RADIUS, distinct from
+    /// the template CallForHelp field used by combat-entry assistance.
+    pub fn initialize_peer_help_radius(&mut self, radius: ai::Real) -> Result<(), NativeError> {
+        if radius.as_f32() < 0.0 {
+            return Err(NativeError::InvalidProfile);
+        }
+        let mut next = self.clone();
+        next.interactions
+            .as_mut()
+            .and_then(|c| c.combat_authority.as_mut())
+            .and_then(|c| c.assistance.as_mut())
+            .ok_or(NativeError::AuthorityUnavailable(
+                "peer help source assistance catalog",
+            ))?
+            .peer_help_radius = Some(radius);
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+    pub fn peer_help_radius(&self) -> Option<ai::Real> {
+        self.combat_assistance()?.peer_help_radius()
     }
     pub(in crate::native) fn combat_assistance(&self) -> Option<&CombatAssistanceCatalog> {
         self.interactions
@@ -328,6 +358,7 @@ pub enum AssistanceDenial {
     OwnerUninteractible,
     NotFriendlyToOwner,
     CannotAttackEnemyOnSight,
+    OutOfRange,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -350,7 +381,7 @@ impl AssistanceTraversalReceipt {
         facts: &CombatAssistanceFacts,
     ) -> Result<(), NativeError> {
         let candidates = request.candidates(facts)?;
-        if self.request != crate::digest(b"benilla-native-assistance-traversal-v46\0", request)
+        if self.request != crate::digest(b"benilla-native-assistance-traversal-v47\0", request)
             || candidates.len() != self.candidates.len()
             || candidates
                 .iter()

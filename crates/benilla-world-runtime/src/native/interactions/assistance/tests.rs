@@ -112,6 +112,37 @@ fn friendly_defensive_profile(hostile_to_player: bool) -> Profile {
         .unwrap();
     profile
 }
+/// Realize the oracle's explicitly authored range leaf with exact runtime poses.
+/// The source threshold is radius + (owner reach + candidate reach), with a strict
+/// comparison. Equality denies; one binary32 ULP inside admits the LOS continuation.
+/// These positions do not turn the oracle's authored range leaf into geometry proof.
+fn with_candidate_range(mut profile: Profile, radius: ai::Real, within: bool) -> Profile {
+    let reaches = profile.npc(2).unwrap().ai.combat_reach.as_f32()
+        + profile.npc(3).unwrap().ai.combat_reach.as_f32();
+    let threshold = radius.as_f32() + reaches;
+    assert!(threshold > 0.0);
+    let distance = if within {
+        f32::from_bits(threshold.to_bits() - 1)
+    } else {
+        threshold
+    };
+    profile
+        .npcs
+        .iter_mut()
+        .find(|npc| npc.ai.creature_id == 2)
+        .unwrap()
+        .ai
+        .spawn = ai::Point::new(0.0, 0.0, 0.0).unwrap();
+    profile
+        .npcs
+        .iter_mut()
+        .find(|npc| npc.ai.creature_id == 3)
+        .unwrap()
+        .ai
+        .spawn = ai::Point::new(distance, 0.0, 0.0).unwrap();
+    profile.validate().unwrap();
+    profile
+}
 fn mark_in_combat(world: &mut NativeWorld, spawn: u64) {
     let npc = &world.state.npcs[&spawn];
     let mut observation = ai::Observation {
@@ -245,26 +276,34 @@ fn provider_membership_never_supplies_semantics_and_outside_is_explicit() {
 #[test]
 fn defensive_candidate_neutral_to_enemy_denies_but_hostile_reaches_unsupported_range_los() {
     for hostile in [false, true] {
-        let world = traversal_world(friendly_defensive_profile(hostile));
-        let request = scene_request(&world);
-        let facts = complete_traversal(&request, &[2, 3], &[], &[]);
-        let before = world.state.clone();
-        let result = derive(&world, &request, &facts);
-        if hostile {
-            assert_eq!(
-                result,
-                Err(NativeError::UnsupportedMechanic(
-                    "assistance candidate reached range/LOS"
-                ))
-            );
-        } else {
-            assert_eq!(
-                result.unwrap().candidates[1].denial,
-                AssistanceDenial::CannotAttackEnemyOnSight
-            );
+        for within in [false, true] {
+            let profile =
+                with_candidate_range(friendly_defensive_profile(hostile), f::real(5.0), within);
+            let world = traversal_world(profile);
+            let request = scene_request(&world);
+            let facts = complete_traversal(&request, &[2, 3], &[], &[]);
+            let before = world.state.clone();
+            let result = derive(&world, &request, &facts);
+            if hostile && within {
+                assert_eq!(
+                    result,
+                    Err(NativeError::UnsupportedMechanic(
+                        "assistance candidate reached LOS"
+                    ))
+                );
+            } else {
+                assert_eq!(
+                    result.unwrap().candidates[1].denial,
+                    if hostile {
+                        AssistanceDenial::OutOfRange
+                    } else {
+                        AssistanceDenial::CannotAttackEnemyOnSight
+                    }
+                );
+            }
+            assert_eq!(world.state, before);
+            assert_eq!(world.profile.npcs[1].ai.reaction, ai::Reaction::Defensive);
         }
-        assert_eq!(world.state, before);
-        assert_eq!(world.profile.npcs[1].ai.reaction, ai::Reaction::Defensive);
     }
 }
 #[test]
@@ -333,7 +372,7 @@ fn same_entry_is_not_self_and_mixed_containers_preserve_callback_order() {
     assert_eq!(
         derive(&world, &request, &facts),
         Err(NativeError::UnsupportedMechanic(
-            "assistance candidate reached range/LOS",
+            "assistance candidate reached LOS",
         ))
     );
     mark_in_combat(&mut world, 4);
@@ -470,6 +509,14 @@ fn original_cpp_candidate_vectors_match_runtime_semantic_prefix() {
         ),
         ("hostile_defensive_eligible", None),
         ("same_entry_distinct_guid_eligible", None),
+        (
+            "range_failure_skips_los",
+            Some(AssistanceDenial::OutOfRange),
+        ),
+        (
+            "semantic_denial_skips_false_range_and_los",
+            Some(AssistanceDenial::AlreadyInCombat),
+        ),
     ] {
         let case = vectors["cases"]
             .as_array()
@@ -558,13 +605,18 @@ fn original_cpp_candidate_vectors_match_runtime_semantic_prefix() {
                     .collect(),
             )
             .unwrap();
+        let radius = ai::Real::from_bits(input["radius_bits"].as_u64().unwrap() as u32).unwrap();
+        let profile = with_candidate_range(
+            profile,
+            radius,
+            unit(101)["authored_within_range"].as_bool().unwrap(),
+        );
         let mut world = traversal_world(profile);
         if unit(101)["flags"].as_u64().unwrap() & 0x0008_0000 != 0 {
             mark_in_combat(&mut world, 3);
         }
         let mut request = scene_request(&world);
-        request.radius =
-            ai::Real::from_bits(input["radius_bits"].as_u64().unwrap() as u32).unwrap();
+        request.radius = radius;
         let candidate_sequence = input["authored_candidate_sequence"].as_array().unwrap();
         assert_eq!(candidate_sequence.len(), 1);
         let (candidate, facts) = if candidate_sequence[0] == 1 {
@@ -592,18 +644,31 @@ fn original_cpp_candidate_vectors_match_runtime_semantic_prefix() {
                 expected,
                 "{name}"
             );
+            let leaves = source["leaves"].as_array().unwrap();
             assert!(
-                source["leaves"].as_array().unwrap().iter().all(|leaf| {
-                    let leaf = leaf.as_str().unwrap();
-                    !leaf.starts_with("range_query:") && !leaf.starts_with("los_query:")
-                }),
+                leaves
+                    .iter()
+                    .all(|leaf| !leaf.as_str().unwrap().starts_with("los_query:")),
                 "{name}"
             );
+            assert_eq!(
+                leaves
+                    .iter()
+                    .any(|leaf| leaf.as_str().unwrap().starts_with("range_query:")),
+                expected == AssistanceDenial::OutOfRange,
+                "{name}"
+            );
+            if expected == AssistanceDenial::OutOfRange {
+                assert!(
+                    leaves.iter().any(|leaf| leaf == "authored_range:101:false"),
+                    "{name}"
+                );
+            }
         } else {
             assert_eq!(
                 actual,
                 Err(NativeError::UnsupportedMechanic(
-                    "assistance candidate reached range/LOS"
+                    "assistance candidate reached LOS"
                 )),
                 "{name}"
             );

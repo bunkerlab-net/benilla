@@ -19,6 +19,181 @@ pub enum EventAiCallbackKind {
         notification_owner: VisitorParticipant,
         callback: EventCallbackSnapshot,
     },
+    PeerHelp {
+        request: Box<VisitorSightRequest>,
+        receipt: Box<PeerHelpReceipt>,
+    },
+}
+impl EventAiCallbackKind {
+    pub(in crate::native) fn source_sight(
+        &self,
+    ) -> Option<(&VisitorParticipant, &EventCallbackSnapshot)> {
+        match self {
+            Self::Sight {
+                notification_owner,
+                callback,
+            } => Some((notification_owner, callback)),
+            Self::PeerHelp { request, .. } => {
+                Some((&request.notification_owner, &request.callback))
+            }
+            Self::CombatReceipt { .. } => None,
+        }
+    }
+    pub(in crate::native) fn callback_work(&self) -> usize {
+        let count = |c: &EventCallbackSnapshot| c.queue.queued.len() + c.queue.detached.len();
+        match self {
+            Self::CombatReceipt { .. } => 0,
+            Self::Sight { callback, .. } => count(callback),
+            Self::PeerHelp { request, receipt } => {
+                let c = &receipt.continuation;
+                count(&request.callback)
+                    + count(&c.request.sight.callback)
+                    + [&c.visibility, &c.same_map, &c.line_of_sight]
+                        .into_iter()
+                        .flatten()
+                        .map(|f| count(&f.query.request().sight.callback))
+                        .sum::<usize>()
+            }
+        }
+    }
+    pub(in crate::native) fn owns_active_queue(&self, npc: crate::NpcId) -> bool {
+        self.source_sight()
+            .is_some_and(|(owner, _)| *owner == VisitorParticipant::Creature(npc))
+    }
+    pub(in crate::native) fn validate_for(
+        &self,
+        profile: &Profile,
+        state: &State,
+        npc: crate::NpcId,
+        tick: u64,
+    ) -> Result<(), NativeError> {
+        match self {
+            Self::CombatReceipt { receipt } => {
+                if receipt.id == 0
+                    || receipt.id
+                        > state
+                            .npcs
+                            .get(&npc.spawn)
+                            .ok_or(NativeError::InvalidCheckpoint)?
+                            .ai
+                            .last_receipt_id()
+                    || !matches!(
+                        receipt.event,
+                        ai::CombatEvent::AttackedBy { target: SOLO_UNIT }
+                            | ai::CombatEvent::Threat {
+                                target: SOLO_UNIT,
+                                kind: ai::ThreatKind::DirectDamage,
+                                ..
+                            }
+                    )
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+            }
+            Self::Sight {
+                notification_owner: VisitorParticipant::Creature(owner),
+                ..
+            } if *owner != npc => {
+                return Err(NativeError::InvalidCheckpoint);
+            }
+            Self::PeerHelp { request, receipt } => {
+                receipt.validate_for(profile, state.player, request)?;
+                if receipt.request().binding.world != state.world
+                    || receipt.request().binding.tick != tick
+                    || request.observer != VisitorParticipant::Creature(npc)
+                    || request.container != VisitorContainer::GridCreatures
+                    || request.visit_index as usize >= profile.npcs.len()
+                    || request.witness.frame.draft == [0; 32]
+                    || !matches!(request.witness.frame.moment, InteractionMoment::Frame { action_ordinal } if action_ordinal < 20_000)
+                    || request.witness.callback
+                        != crate::digest(
+                            b"benilla-native-visitor-callback-v47\0",
+                            &request.callback,
+                        )
+                    || match request.direction {
+                        VisitorDirection::OwnerToVisited => {
+                            request.notification_owner != request.observer
+                        }
+                        VisitorDirection::VisitedToOwner => {
+                            request.notification_owner != request.target
+                        }
+                    }
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+                let VisitorParticipant::Creature(target) = request.target else {
+                    return Err(NativeError::InvalidCheckpoint);
+                };
+                let life = state
+                    .npcs
+                    .get(&target.spawn)
+                    .and_then(|n| n.source_generation.as_ref())
+                    .and_then(|g| g.historical(target))
+                    .ok_or(NativeError::InvalidCheckpoint)?;
+                if life.creation_tick() > tick
+                    || life.death_tick().is_some_and(|death| death < tick)
+                {
+                    return Err(NativeError::InvalidCheckpoint);
+                }
+            }
+            _ => {}
+        }
+        if let Some((notification_owner, callback)) = self.source_sight() {
+            use benilla_sim::event_processor::{
+                CallbackKind, EventKind, EventProcessor, MAX_CALLBACKS_PER_UPDATE,
+            };
+            let queue = EventProcessor::restore(callback.queue.clone())?;
+            let elapsed = tick
+                .checked_mul(u64::from(profile.tick_ms))
+                .ok_or(NativeError::InvalidCheckpoint)?;
+            let live_queue = match notification_owner {
+                VisitorParticipant::Player(p) if *p == state.player => {
+                    state.player_events.queue_snapshot()
+                }
+                VisitorParticipant::Creature(n) if state.npcs.contains_key(&n.spawn) => {
+                    state.npcs[&n.spawn].events.queue_snapshot()
+                }
+                _ => return Err(NativeError::InvalidCheckpoint),
+            };
+            let detached = queue
+                .event(callback.due.event_id)
+                .ok_or(NativeError::InvalidCheckpoint)?;
+            if callback.due.callback != CallbackKind::Execute
+                || callback.due.kind != EventKind::AiNotify
+                || callback.due.diff_ms != Some(profile.tick_ms)
+                || callback.due.now_ms != callback.queue.clock_ms
+                || callback.due.now_ms > elapsed
+                || (matches!(notification_owner, VisitorParticipant::Player(_))
+                    && callback.due.now_ms != elapsed)
+                || callback.queue.aborting
+                || callback.queue.detached.len() != 1
+                || callback.callback_ordinal == 0
+                || callback.callback_ordinal as usize > MAX_CALLBACKS_PER_UPDATE
+                || callback.queue.next_event_id > live_queue.next_event_id
+                || callback.queue.next_insertion_id > live_queue.next_insertion_id
+                || callback.queue.clock_ms > live_queue.clock_ms
+                || detached.kind != callback.due.kind
+                || detached.to_abort
+                || detached.queue.is_some()
+                || detached.add_time_ms != callback.due.add_time_ms
+                || detached.exec_time_ms != callback.due.exec_time_ms
+                || callback.due.scheduled_ms != callback.due.exec_time_ms
+                || callback.due.scheduled_ms > callback.due.now_ms
+                || callback.due.insertion_id == 0
+                || callback.due.insertion_id >= callback.queue.next_insertion_id
+                || callback.queue.queued.iter().any(|event| {
+                    event
+                        .queue
+                        .is_some_and(|key| key.insertion_id == callback.due.insertion_id)
+                })
+                || (matches!(notification_owner, VisitorParticipant::Creature(_))
+                    && callback.due.insertion_id != callback.due.event_id)
+            {
+                return Err(NativeError::InvalidCheckpoint);
+            }
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,7 +212,7 @@ pub struct EventAiCallback {
 }
 impl EventAiCallback {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-event-ai-callback-v46\0", self)
+        crate::digest(b"benilla-native-event-ai-callback-v47\0", self)
     }
     fn validate(&self, profile: &Profile, state: &State) -> Result<(), NativeError> {
         let selected = profile.event_ai().ok_or(NativeError::InvalidCheckpoint)?;
@@ -79,82 +254,8 @@ impl EventAiCallback {
         }
         self.speaker_pose.validate()?;
         self.player_pose.validate()?;
-        match &self.kind {
-            EventAiCallbackKind::CombatReceipt { receipt } => {
-                if receipt.id == 0
-                    || receipt.id > state.npcs[&self.npc.spawn].ai.last_receipt_id()
-                    || !matches!(
-                        receipt.event,
-                        ai::CombatEvent::AttackedBy { target: SOLO_UNIT }
-                            | ai::CombatEvent::Threat {
-                                target: SOLO_UNIT,
-                                kind: ai::ThreatKind::DirectDamage,
-                                ..
-                            }
-                    )
-                {
-                    return Err(NativeError::InvalidCheckpoint);
-                }
-            }
-            EventAiCallbackKind::Sight {
-                notification_owner,
-                callback,
-            } => {
-                use benilla_sim::event_processor::{
-                    CallbackKind, EventKind, EventProcessor, MAX_CALLBACKS_PER_UPDATE,
-                };
-                let queue = EventProcessor::restore(callback.queue.clone())?;
-                let elapsed = self
-                    .tick
-                    .checked_mul(u64::from(profile.tick_ms))
-                    .ok_or(NativeError::InvalidCheckpoint)?;
-                let live_queue = match notification_owner {
-                    VisitorParticipant::Player(p) if *p == state.player => {
-                        state.player_events.queue_snapshot()
-                    }
-                    VisitorParticipant::Creature(n) if *n == self.npc => {
-                        state.npcs[&n.spawn].events.queue_snapshot()
-                    }
-                    _ => return Err(NativeError::InvalidCheckpoint),
-                };
-                let detached = queue
-                    .event(callback.due.event_id)
-                    .ok_or(NativeError::InvalidCheckpoint)?;
-                if callback.due.callback != CallbackKind::Execute
-                    || callback.due.kind != EventKind::AiNotify
-                    || callback.due.diff_ms != Some(profile.tick_ms)
-                    || callback.due.now_ms != callback.queue.clock_ms
-                    || callback.due.now_ms > elapsed
-                    || (matches!(notification_owner, VisitorParticipant::Player(_))
-                        && callback.due.now_ms != elapsed)
-                    || callback.queue.aborting
-                    || callback.queue.detached.len() != 1
-                    || callback.callback_ordinal == 0
-                    || callback.callback_ordinal as usize > MAX_CALLBACKS_PER_UPDATE
-                    || callback.queue.next_event_id > live_queue.next_event_id
-                    || callback.queue.next_insertion_id > live_queue.next_insertion_id
-                    || callback.queue.clock_ms > live_queue.clock_ms
-                    || detached.kind != callback.due.kind
-                    || detached.to_abort
-                    || detached.queue.is_some()
-                    || detached.add_time_ms != callback.due.add_time_ms
-                    || detached.exec_time_ms != callback.due.exec_time_ms
-                    || callback.due.scheduled_ms != callback.due.exec_time_ms
-                    || callback.due.scheduled_ms > callback.due.now_ms
-                    || callback.due.insertion_id == 0
-                    || callback.due.insertion_id >= callback.queue.next_insertion_id
-                    || callback.queue.queued.iter().any(|event| {
-                        event
-                            .queue
-                            .is_some_and(|key| key.insertion_id == callback.due.insertion_id)
-                    })
-                    || (matches!(notification_owner, VisitorParticipant::Creature(_))
-                        && callback.due.insertion_id != callback.due.event_id)
-                {
-                    return Err(NativeError::InvalidCheckpoint);
-                }
-            }
-        }
+        self.kind
+            .validate_for(profile, state, self.npc, self.tick)?;
         Ok(())
     }
 }
@@ -216,7 +317,7 @@ impl EventAiCallbackAnchor {
     ) -> Result<(), NativeError> {
         self.count = self.count.checked_add(1).ok_or(NativeError::Limit)?;
         self.tip = crate::digest(
-            b"benilla-native-event-ai-callback-chain-v46\0",
+            b"benilla-native-event-ai-callback-chain-v47\0",
             &(self.tip, self.count, evaluation),
         );
         Ok(())
@@ -331,24 +432,17 @@ impl EventAiState {
                     if e.actions.len() > MAX_EVENTS {
                         return Err(NativeError::TooLarge);
                     }
-                    let queue = match &e.callback.kind {
-                        EventAiCallbackKind::Sight { callback, .. } => {
-                            callback.queue.queued.len() + callback.queue.detached.len()
-                        }
-                        _ => 0,
-                    };
+                    let queue = e.callback.kind.callback_work();
                     // Callback validation/anchor hashing and each action's
                     // request hashing, speech clone and comparison traverse the
                     // callback queue. Count nested recorded speech copies too;
                     // malformed copies must not evade typed-restore work bounds.
                     let action_work = 4 + 4 * e.actions.len() as u64;
                     let speech_queues = e.actions.iter().try_fold(0u64, |sum, action| {
-                        let count = match action.speech.as_ref().map(|s| &s.callback.kind) {
-                            Some(EventAiCallbackKind::Sight { callback, .. }) => {
-                                callback.queue.queued.len() + callback.queue.detached.len()
-                            }
-                            _ => 0,
-                        };
+                        let count = action
+                            .speech
+                            .as_ref()
+                            .map_or(0, |s| s.callback.kind.callback_work());
                         sum.checked_add(count as u64).ok_or(NativeError::TooLarge)
                     })?;
                     (queue as u64)

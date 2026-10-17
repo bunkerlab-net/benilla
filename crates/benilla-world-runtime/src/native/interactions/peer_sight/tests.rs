@@ -833,8 +833,8 @@ fn help_uses_active_victim_with_empty_threat_cache_before_can_aggro_and_reaction
         let before = w.state.clone();
         assert_eq!(
             full_sight(&w),
-            Err(NativeError::UnsupportedMechanic(
-                "peer help victim accessibility continuation"
+            Err(NativeError::AuthorityUnavailable(
+                "peer help callback witness"
             ))
         );
         assert_eq!(w.state, before);
@@ -1042,6 +1042,7 @@ fn help_prefix_matches_pinned_cpp_source_leaves_without_admitting_excluded_state
                 observer_can_initiate: None,
                 observer_can_attack_victim: None,
                 denial: PeerHelpDenial::CannotInitiateAttack,
+                continuation: None,
             };
             assert_eq!(
                 receipt.early_denial(),

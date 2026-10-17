@@ -1,7 +1,7 @@
 # Native component integration boundary
 
 This is a distinct component-test domain inside the existing world runtime.
-`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v46 cannot
+`OriginalFixture` World and its v2 saves remain unchanged. `NativeWorld` v47 cannot
 admit production content: `NativeCapability` is uninhabited until the raw compiler
 validates the source closure and every critical semantic dependency. That is an
 implementation condition, not a requirement that developers possess game assets.
@@ -11,12 +11,12 @@ The opt-in `synthetic-native-tests` feature exposes only synthetic construction 
 restoration. Feature unification, preparation JSON, hashes, and source initializer
 outputs cannot produce `NativeCapability`. Fabricated test rows are not native data.
 
-Native format 46, `benilla-native-peer-help-v46`, binds source-owned player
+Native format 47, `benilla-native-positive-peer-help-v47`, binds source-owned player
 melee timers, retained reset witnesses, initial-cast plans, ordinary creature addon
 source rows, explicit capability/Home/visitor addon closures, source-owned dry
 habitat-3 initialization and the selected full-raw spell domain in every profile,
 state, record, checkpoint, melee and
-callback hash domain. Native45 and earlier checkpoints and
+callback hash domain. Native46 and earlier checkpoints and
 journals reject without migration, including rehashed outer envelopes and stale
 profile context. This format boundary does not open production admission or
 loaded-native cache restore;
@@ -77,7 +77,7 @@ closed. See [the spell authority contract](../../SPELL-AUTHORITY.md).
 
 ## Initial-cast genesis
 
-Native46 selects `FirstWorldEntryOnly`: profile construction retains separate
+Native47 selects `FirstWorldEntryOnly`: profile construction retains separate
 creation and first-entry plans without sampling, and native construction realizes
 the selected entry plan exactly once before tick0. The immutable preparation and
 both epoch/order identities remain bound into combat, source-spell, training and
@@ -127,7 +127,7 @@ UnitState bits are not projected. Consumers use
 The immutable captured abilities support transcript consistency checks. Replay
 regenerates the receipt from live staged abilities and compares the exact request;
 a self-consistent historical receipt alone does not establish current state.
-Native v46 requires the `owner_ignore_pathfinding` option field: explicit null is
+Native v47 requires the `owner_ignore_pathfinding` option field: explicit null is
 unavailable, omitted fields and v29 or earlier records/checkpoints reject.
 See [the full source contract](../../CREATURE-CAPABILITIES.md#single-bit-owner-pathfinding-closure).
 From the repository root, verify the six pinned source files and source expressions:
@@ -201,7 +201,7 @@ values, 4000-ms dodge reactive, combat counters and worn equipment are durable.
   binary64; source comparison is strict promoted-float chance > double roll
 - Draw records bind semantic purpose/action/NPC generation. Action chains bind full
   current defense/cast/resource snapshots, so same-HP misses cannot be reused
-- Checkpoints bind native format 46, policy, RNG mapping, domain, content, authority, geometry,
+- Checkpoints bind native format 47, policy, RNG mapping, domain, content, authority, geometry,
   history-chain tip, cooldown maps, recomputable casts/auras, AI lifecycle/motion,
   exact mana timers, skills/reactive/combat clocks, checked equipment recipes and
   [per-NPC event ownership](../../NPC-EVENTS.md) with DEAD/respawn clock continuity
@@ -281,14 +281,14 @@ melee/spell arc checks from their executing request poses.
 
 The selected [source spell host](../../SPELL-AUTHORITY.md) derives current
 semantic facts and bounded hit/crit chances, while spatial dependencies remain
-typed. Native format 46 changes experimental simulation checkpoints/records, not
+typed. Native format 47 changes experimental simulation checkpoints/records, not
 the separate character/profile save format; incompatible open preserves files.
 
 The [player decrease-speed holder boundary](PLAYER-SLOW.md) adds explicit raw
 source and host closure, source-ordered apply/replace/expire/death, current
 movement budgets, client fields/durations/speed orders and exact session ACKs.
 Its source-effect entry and NPC triggered-cast host remain fixture-only; rear melee
-remains rejected. Native format 46 does not change character/profile files.
+remains rejected. Native format 47 does not change character/profile files.
 
 Explicit per-world [admin level, XP and carried-item operations](ADMIN.md) share the durable
 controller/store boundary. Its production UI host remains unavailable.
@@ -303,7 +303,7 @@ height scalars. Respawn clears it; current-model mutation and native admission r
 
 Optional fresh-player model height ownership is documented in [Player collision height](../../PLAYER-COLLISION-HEIGHT.md). It retains the actual starter identity and loaded selection, with no production admission or cached-water claim.
 
-Native v46 also requires actual first/retained Chase constructor dispatch evidence,
+Native v47 also requires actual first/retained Chase constructor dispatch evidence,
 independent of cache or route success. The private live receipt is paired with a
 separately loaded query; serialized replay evidence cannot recreate that lease.
 See [PathFinder constructor dispatch](PATHFINDER-DISPATCH.md) for timing, Home
@@ -315,11 +315,11 @@ all segment checks. Retained replies still need exact prior state and increment.
 The runtime requires its own request-side live dispatch; this does not prove the
 app's native query, source calculation or geometry. Structural motion replay is
 separate from native loaded-cache restore, which remains rejected. No production
-session, participant or source-epoch admission is opened by native46.
+session, participant or source-epoch admission is opened by native47.
 
 ### Owner-keyed motion genesis
 
-Native format 46 (`benilla-native-peer-help-v46`) requires an explicit
+Native format 47 (`benilla-native-positive-peer-help-v47`) requires an explicit
 `MotionGenesis.npcs` map keyed by exact stable spawn. Each `NpcMotionGenesis` owns
 its speed/body settings, orientation, initial activity, walking choices, detection
 range and combat-entry flag. Player/spell inputs, ordinary initial/relocation
@@ -345,8 +345,8 @@ selected authored lane does not supply a loaded visitor/visibility producer.
 Motion arithmetic, production admission/startup and loaded-native cache reopening
 remain unchanged.
 
-Native45 and older checkpoints/journals reject without migration. Profile, state,
-record, checkpoint and melee digest domains are v46; original World v2, character
+Native46 and older checkpoints/journals reject without migration. Profile, state,
+record, checkpoint and melee digest domains are v47; original World v2, character
 profiles and the store envelope are unchanged. Fixtures are authored component
 evidence, not captured client/DB data.
 

@@ -1042,3 +1042,57 @@ fn online_callback_rejects_wrong_target_or_receipt_interlude_transactionally() {
     ai.finish_receipts(o, token, &mut |_, _, _| Ok(MainhandResult::Unchanged))
         .unwrap();
 }
+
+#[test]
+fn source_help_attack_start_supports_defensive_peers_without_combat_receipts_or_timer_steps() {
+    for already_updated in [false, true] {
+        let mut ai = SoloCreatureAi::new(profile(Reaction::Defensive)).unwrap();
+        if already_updated {
+            step(&mut ai, observation(1, 100, 2.)).unwrap();
+        }
+        let before = serde_json::to_value(ai.checkpoint()).unwrap();
+        let effects = ai.source_help_attack_start(&target(2.), 100).unwrap();
+        let after = serde_json::to_value(ai.checkpoint()).unwrap();
+        for field in [
+            "sequence",
+            "now_ms",
+            "receipt_id",
+            "mainhand_ms",
+            "movement_request_id",
+        ] {
+            assert_eq!(after[field], before[field], "{field}");
+        }
+        assert_eq!(ai.phase(), Phase::Combat);
+        assert_eq!(ai.target(), Some(2));
+        assert_eq!(ai.hostile_reference().unwrap().threat(), Real::ZERO);
+        assert_eq!(effects[0], Effect::CombatStarted { target: 2 });
+        assert!(matches!(effects[1], Effect::Motion(_)));
+        assert_eq!(ai.current_victim(), None);
+        let seq = if already_updated { 2 } else { 1 };
+        step(&mut ai, observation(seq, 100, 2.)).unwrap();
+        assert_eq!(ai.current_victim(), Some(2));
+    }
+}
+
+#[test]
+fn source_help_attack_start_rechecks_attack_target_and_passive_reaction() {
+    let mut passive = SoloCreatureAi::new(profile(Reaction::Passive)).unwrap();
+    let before = passive.clone();
+    assert!(passive
+        .source_help_attack_start(&target(2.), 100)
+        .unwrap()
+        .is_empty());
+    assert_eq!(passive, before);
+    let mut denied = SoloCreatureAi::new(profile(Reaction::Defensive)).unwrap();
+    let before = denied.clone();
+    let mut victim = target(2.);
+    victim.can_attack_in_combat = false;
+    assert!(denied
+        .source_help_attack_start(&victim, 100)
+        .unwrap()
+        .is_empty());
+    assert_eq!(denied, before);
+    victim.alive = false;
+    assert!(denied.source_help_attack_start(&victim, 100).is_err());
+    assert_eq!(denied, before);
+}
