@@ -790,3 +790,128 @@ fn public_reader_consumes_complete_filesystem_dbcs_and_survives_their_deletion()
     drop(stage);
     assert_eq!(snapshot.query(query, deadline()).unwrap(), expected);
 }
+
+/// Original authored full-byte stores and terrain, independent of liquid status.
+pub(crate) fn authored_source_location(
+    map_id: u32,
+    content: Hash,
+    area_row: Option<(u32, u32)>,
+) -> TerrainAreaSnapshot<'static> {
+    let (mut spec, files) = fixture(false, &flat(0., 55));
+    let old_map = spec.map;
+    let old_tile = spec.tiles[0];
+    let new_tile = TileId { x: 32, y: 32 };
+    let remap = |id: ProductId| match id {
+        ProductId::Terrain(tile) if tile == old_tile => ProductId::Terrain(new_tile),
+        ProductId::VmapTile(tile) if tile == old_tile => ProductId::VmapTile(new_tile),
+        ProductId::MmapTile(tile) if tile == old_tile => ProductId::MmapTile(new_tile),
+        id => id,
+    };
+    spec.map = map_id;
+    spec.binding.content = content;
+    spec.tiles[0] = new_tile;
+    let mut renamed = BTreeMap::new();
+    for product in &mut spec.products {
+        let bytes = files[&product.id.filename(old_map).unwrap()].clone();
+        product.id = remap(product.id.clone());
+        product.dependencies = product.dependencies.iter().cloned().map(remap).collect();
+        renamed.insert(product.id.filename(map_id).unwrap(), bytes);
+    }
+    let products = Arc::new(load(spec, &renamed).unwrap());
+    let rows: Vec<_> = area_row
+        .map(|(id, zone)| area(id, map_id, zone, 55, 0))
+        .into_iter()
+        .collect();
+    products
+        .load_terrain_area_owned(
+            &dbc(&rows, &[0]),
+            &dbc::<20>(&[], &[0]),
+            &dbc(&[map(map_id, 0)], &[0]),
+        )
+        .unwrap()
+}
+
+#[test]
+fn get_zone_and_area_uses_row_zone_without_parent_lookup() {
+    let products = products(8., 66);
+    let inputs = Dbcs {
+        areas: dbc(&[area(9, 7, 12, 66, 0)], &[0]),
+        wmos: dbc::<20>(&[], &[0]),
+        maps: dbc::<42>(&[], &[0]),
+    };
+    let snapshot = inputs.snapshot(&products);
+    let query = request(&snapshot);
+    let reply = snapshot.query_location(query, deadline()).unwrap();
+    assert_eq!(reply.request, query);
+    assert_eq!(reply.result.zone_id, 12);
+    assert_eq!(reply.result.area_id, 9);
+    assert_eq!(reply.result.area.unwrap().map_id, 7);
+    assert_eq!(snapshot.area_by_id(12), None);
+    let complete = snapshot.query(query, deadline()).unwrap();
+    assert_eq!(complete.result.parent_area, None);
+    assert_eq!(complete.result.area, reply.result.area);
+}
+
+#[test]
+fn get_zone_and_area_preserves_real_zero_missing_and_zone_fallback() {
+    let products = products(0., 0);
+    for (rows, expected_row, zone, area_id) in [
+        (vec![], None, 0, 0),
+        (vec![area(0, 0, 0, 0, 0)], Some(0), 0, 0),
+        (vec![area(0, 0, 12, 0, 0)], Some(0), 12, 0),
+        (vec![area(9, 0, 0, 0, 0)], Some(9), 9, 9),
+    ] {
+        let inputs = Dbcs {
+            areas: dbc(&rows, &[0]),
+            wmos: dbc::<20>(&[], &[0]),
+            maps: dbc(&[map(0, expected_row.unwrap_or(0))], &[0]),
+        };
+        let snapshot = inputs.snapshot(&products);
+        let result = snapshot
+            .query_location(request(&snapshot), deadline())
+            .unwrap()
+            .result;
+        assert_eq!(result.area.map(|row| row.id), expected_row);
+        assert_eq!((result.zone_id, result.area_id), (zone, area_id));
+    }
+}
+
+#[test]
+fn location_never_converts_missing_geometry_identity_or_deadline_to_zero() {
+    let snapshot = authored_source_location(7, [3; 32], Some((9, 12)));
+    let query = TerrainAreaRequest {
+        snapshot: snapshot.binding(),
+        ticket: 1,
+        position: [0f32.to_bits(), 0f32.to_bits(), 7f32.to_bits()],
+    };
+    assert_eq!(
+        snapshot.query_location(query, Instant::now()),
+        Err(Error::Deadline)
+    );
+    for field in 0..6 {
+        let mut changed = query;
+        match field {
+            0 => changed.snapshot.map += 1,
+            1 => changed.snapshot.content[0] ^= 1,
+            2 => changed.snapshot.source_epoch[0] ^= 1,
+            3 => changed.snapshot.inventory[0] ^= 1,
+            4 => changed.snapshot.policy[0] ^= 1,
+            _ => changed.ticket = 0,
+        }
+        assert_eq!(
+            snapshot.query_location(changed, deadline()),
+            Err(Error::Identity)
+        );
+    }
+    for position in [[0.125, 0., 7.], [f32::NAN, 0., 7.], [0., f32::INFINITY, 7.]] {
+        assert!(snapshot
+            .query_location(
+                TerrainAreaRequest {
+                    position: position.map(f32::to_bits),
+                    ..query
+                },
+                deadline(),
+            )
+            .is_err());
+    }
+}

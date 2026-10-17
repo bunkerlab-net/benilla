@@ -122,6 +122,23 @@ impl HistoryPrefix {
     }
 }
 impl ExecutionBinding {
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(in crate::native) fn historical_melee_attack_times(
+        &self,
+        profile: &Profile,
+    ) -> Result<[u32; 2], NativeError> {
+        let genesis = profile
+            .combat
+            .as_ref()
+            .ok_or(NativeError::InvalidCheckpoint)?;
+        let recipe = self
+            .progression
+            .as_ref()
+            .map(|p| p.recipe.clone())
+            .unwrap_or_else(|| genesis.recipe.snapshot());
+        genesis.source_attack_times_for_recipe(&recipe)
+    }
+
     pub(in crate::native) fn capture(
         profile: &Profile,
         state: &State,

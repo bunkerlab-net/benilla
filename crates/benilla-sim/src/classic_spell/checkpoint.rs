@@ -363,6 +363,46 @@ impl MageProjectileCast {
     pub fn launch_context(&self) -> Option<LaunchContext> {
         self.launch
     }
+    /// Check the exact structural transition of two independently restored
+    /// checkpoints. This binds preserved cast state, not the provenance of RNG.
+    pub fn validate_release_transition(
+        &self,
+        before: &Self,
+        diff_ms: u32,
+    ) -> Result<(), SpellError> {
+        if !before.release_due(self.last_update_ms, diff_ms)
+            || before.last_update_ms.checked_add(u64::from(diff_ms)) != Some(self.last_update_ms)
+            || before.release.is_some()
+            || before.launch.is_some()
+            || self.release.is_none()
+        {
+            return Err(SpellError::State("release checkpoint transition"));
+        }
+        let launch = self
+            .launch
+            .ok_or(SpellError::State("release checkpoint launch"))?;
+        let impact_at_ms = self
+            .last_update_ms
+            .checked_add(u64::from(projectile_delay(
+                launch.distance_squared,
+                before.spec.projectile_speed,
+            )?))
+            .ok_or(SpellError::State("release checkpoint impact"))?;
+        let mut expected = before.checkpoint();
+        expected.last_update_ms = self.last_update_ms;
+        expected.first_update = false;
+        expected.casting_elapsed_ms = expected
+            .casting_elapsed_ms
+            .checked_add(u64::from(diff_ms))
+            .ok_or(SpellError::State("release checkpoint elapsed"))?;
+        expected.state = CastState::Traveling { impact_at_ms };
+        expected.launch = self.launch;
+        expected.release = self.release;
+        if expected != self.checkpoint() {
+            return Err(SpellError::State("release checkpoint preserved fields"));
+        }
+        Ok(())
+    }
     /// Whether release checks must be run this frame; excludes the creation-tick skip.
     pub fn release_due(&self, now_ms: u64, diff_ms: u32) -> bool {
         !(self.first_update && now_ms == self.created_ms)

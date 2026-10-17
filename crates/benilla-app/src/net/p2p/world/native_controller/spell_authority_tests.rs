@@ -199,6 +199,7 @@ fn real_static_los_missing_and_changed_geometry_pause_without_publication_then_r
         static_los: Some(StaticLosPolicy::from_profile(&data, true).unwrap()),
         primary_near_point: None,
         empty_selector_near_point: None,
+        source_location: None,
         player_environment: None,
         same_polygon_route: None,
     };

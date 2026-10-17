@@ -615,17 +615,17 @@ fn source_contract_rejects_published_format_ten_and_source_profile_substitution(
     p.initialize_spell_authority(&initial_input, source)
         .unwrap();
     assert!(NativeWorld::restore_synthetic_component_test(p, initial).is_err());
-    assert_eq!(NATIVE_FORMAT_VERSION, 35);
+    assert_eq!(NATIVE_FORMAT_VERSION, 36);
 }
 
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v35\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v36\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v35\0",
+        b"benilla-native-checkpoint-v36\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -709,6 +709,10 @@ fn singleton_domain_retains_nonempty_rank_group_rows_but_refuses_unknown_and_sec
             required_spell: 0,
         },
     ]);
+    assert!(p
+        .initialize_spell_authority(&initial, source.clone())
+        .is_err());
+    source.modifier_spell_ids = SpellSourceRows::Complete(vec![133, 143]);
     p.initialize_spell_authority(&initial, source.clone())
         .unwrap();
     let mut w = world(p.clone());

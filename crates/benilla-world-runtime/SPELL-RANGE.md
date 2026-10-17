@@ -57,9 +57,9 @@ generation, profile/geometry binding, source row, reaches and both poses.
 A mismatch or observer failure rolls back the entire staged frame, including
 inputs, clocks, casts, scheduler, RNG and journal; a retry executes once.
 
-The source spell policy is v2 and binds a private range-policy algorithm and
+The source spell policy is v5 and binds a private range-policy algorithm and
 normalized `Spell.cpp` / `Object.cpp` hashes into the profile digest. Native
-checkpoint/record format 35 (`benilla-native-corpse-carried-items-v35`) and v35 digest
+checkpoint/record format 36 (`benilla-native-source-combat-timers-v36`) and v36 digest
 domains refuse format 19 external-range history without migration. Character
 profile saves and OriginalFixture format 2 are unchanged. `NativeCapability`
 remains uninhabited, production startup remains closed, and no native producer,

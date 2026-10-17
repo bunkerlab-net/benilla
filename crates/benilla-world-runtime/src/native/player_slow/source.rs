@@ -63,7 +63,7 @@ fn empty<T>(rows: &SpellSourceRows<T>, name: &'static str) -> Result<(), NativeE
     }
 }
 fn hooks(h: &SpellHookSources) -> Result<(), NativeError> {
-    empty(&h.spell_area, "slow spell_area source closure")?;
+    h.spell_area.empty()?;
     empty(&h.spell_script_names, "slow spell scripts source closure")?;
     empty(&h.conditions, "slow conditions source closure")?;
     empty(&h.spell_proc_event, "slow spell_proc_event source closure")?;
@@ -379,7 +379,7 @@ pub(crate) fn synthetic_source(spell_id: u32, amount: i32, duration_ms: u32) -> 
             category_flags: 0,
             facing_flags: 0,
             hooks: SpellHookSources {
-                spell_area: SpellSourceRows::Complete(vec![]),
+                spell_area: crate::native::SpellAreaSourceRows::CompleteTable(vec![]),
                 spell_script_names: SpellSourceRows::Complete(vec![]),
                 conditions: SpellSourceRows::Complete(vec![]),
                 spell_proc_event: SpellSourceRows::Complete(vec![]),

@@ -214,6 +214,28 @@ fn complete_original_source_area_chain_matches_all_supported_loaded_byte_profile
                         "{} {} store {store} profile {profile}",
                         dataset, row[3]
                     );
+                    let location = snapshot.query_location(query, deadline()).unwrap();
+                    assert_eq!(location.request, query);
+                    assert_eq!(location.result.area_flag, expected.area_flag);
+                    assert_eq!(location.result.area, expected.area);
+                    // The original-source harness verifies GetZoneAndAreaId against
+                    // these same recorded rows without performing a parent lookup.
+                    let area_id = expected.area.map_or(0, |area| area.id);
+                    let zone_id =
+                        expected.area.map_or(
+                            0,
+                            |area| {
+                                if area.zone != 0 {
+                                    area.zone
+                                } else {
+                                    area.id
+                                }
+                            },
+                        );
+                    assert_eq!(
+                        (location.result.zone_id, location.result.area_id),
+                        (zone_id, area_id)
+                    );
                     count += 1;
                 }
             }

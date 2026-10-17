@@ -439,6 +439,7 @@ pub(crate) fn source_session(p: &Profile) -> Session {
         static_los: None,
         primary_near_point: None,
         empty_selector_near_point: None,
+        source_location: None,
         player_environment: Some(PlayerEnvironmentPolicy::from_profile(p, f::player()).unwrap()),
         same_polygon_route: None,
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Actual-byte TerrainInfo area resolution, a prerequisite for wet liquid overrides.
+//! Actual-byte TerrainInfo area resolution and TerrainManager zone/area selection.
 //! Not a wet liquid status, player environment state, source lease or admission proof.
 use super::{
     liquid::world_tile,
@@ -10,6 +10,7 @@ use super::{
     },
     Error, Hash, PointHeight, VmapLiquidProducts,
 };
+use benilla_world_runtime::native::{SourceLocationCatalog, SourceLocationSnapshotBinding};
 use sha2::{Digest, Sha256};
 use std::{ops::Deref, sync::Arc, time::Instant};
 
@@ -77,6 +78,22 @@ pub(crate) struct TerrainAreaReply {
     pub result: TerrainAreaResult,
 }
 
+/// GetZoneAndAreaId does not look up the parent row. Present ID zero is retained
+/// separately from a complete-store miss, even when both scalar IDs are zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TerrainLocationResult {
+    pub area_flag: u16,
+    pub area: Option<ResolvedArea>,
+    pub zone_id: u32,
+    pub area_id: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TerrainLocationReply {
+    pub request: TerrainAreaRequest,
+    pub result: TerrainLocationResult,
+}
+
 /// Borrowed readers and retained readers share the same immutable product closure.
 #[derive(Clone, Debug)]
 pub(super) enum WetProducts<'a> {
@@ -102,6 +119,7 @@ pub(crate) struct TerrainAreaSnapshot<'a> {
     areas: AreaTable,
     wmo_areas: WmoAreaTable,
     maps: MapTable,
+    location_catalog: SourceLocationCatalog,
 }
 
 impl VmapLiquidProducts {
@@ -151,6 +169,9 @@ impl<'a> TerrainAreaSnapshot<'a> {
         }
         let wmo_areas = WmoAreaTable::decode(wmo_area_table_dbc)?;
         let maps = MapTable::decode(map_dbc)?;
+        let location_catalog =
+            SourceLocationCatalog::decode(area_table_dbc, wmo_area_table_dbc, map_dbc)
+                .map_err(|_| Error::Format)?;
         let raw = products.load_vmap_area()?;
         let source = raw.binding();
         let mut policy = Sha256::new();
@@ -172,6 +193,7 @@ impl<'a> TerrainAreaSnapshot<'a> {
             areas,
             wmo_areas,
             maps,
+            location_catalog,
         })
     }
 }
@@ -179,6 +201,51 @@ impl<'a> TerrainAreaSnapshot<'a> {
 impl TerrainAreaSnapshot<'_> {
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
+    }
+
+    pub(crate) fn location_binding(&self) -> SourceLocationSnapshotBinding {
+        SourceLocationSnapshotBinding {
+            map: self.binding.map,
+            content: self.binding.content,
+            source_epoch: self.binding.source_epoch,
+            inventory: self.binding.inventory,
+            policy: self.binding.policy,
+            catalog: self.location_catalog.digest(),
+        }
+    }
+
+    /// Complete byte-derived catalog from the exact stores used by this reader.
+    pub(crate) fn location_catalog(&self) -> &SourceLocationCatalog {
+        &self.location_catalog
+    }
+
+    /// GridMap.cpp:1415–1421 follows GetAreaFlag and final indexed DBC resolution.
+    /// It uses the selected row's zone directly, without checking a parent row.
+    pub(crate) fn query_location(
+        &self,
+        request: TerrainAreaRequest,
+        deadline: Instant,
+    ) -> Result<TerrainLocationReply, Error> {
+        if request.snapshot != self.binding || request.ticket == 0 {
+            return Err(Error::Identity);
+        }
+        let mut budget = QueryBudget::new(deadline);
+        budget.take()?;
+        let resolved = self.resolve(request.position.map(f32::from_bits), false, &mut budget)?;
+        let area_id = resolved.area.map_or(0, |area| area.id);
+        let zone_id = resolved
+            .area
+            .map_or(0, |area| if area.zone != 0 { area.zone } else { area.id });
+        budget.complete()?;
+        Ok(TerrainLocationReply {
+            request,
+            result: TerrainLocationResult {
+                area_flag: resolved.area_flag,
+                area: resolved.area,
+                zone_id,
+                area_id,
+            },
+        })
     }
 
     pub(crate) fn query(
@@ -326,7 +393,7 @@ impl TerrainAreaSnapshot<'_> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 #[cfg(test)]
 mod oracle_tests;

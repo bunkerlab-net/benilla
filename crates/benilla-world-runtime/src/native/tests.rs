@@ -207,11 +207,11 @@ fn mutate_resigned(
     let state: super::persistence::StateCheckpoint =
         serde_json::from_value(cp["state"].clone()).unwrap();
     cp["digest"] =
-        serde_json::to_value(crate::digest(b"benilla-native-state-v35\0", &state)).unwrap();
+        serde_json::to_value(crate::digest(b"benilla-native-state-v36\0", &state)).unwrap();
     let digest: crate::Digest = serde_json::from_value(cp["digest"].clone()).unwrap();
     let tip: crate::Digest = serde_json::from_value(cp["history_tip"].clone()).unwrap();
     cp["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v35\0",
+        b"benilla-native-checkpoint-v36\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -375,7 +375,7 @@ fn original_fixture_snapshot_has_no_native_decode_path() {
     let original = br#"{"version":2,"content_digest":[],"rules_digest":[],"state":{}}"#;
     assert!(Checkpoint::decode(original).is_err());
     assert_eq!(crate::FORMAT_VERSION, 2);
-    assert_eq!(NATIVE_FORMAT_VERSION, 35);
+    assert_eq!(NATIVE_FORMAT_VERSION, 36);
     // The compiler token is uninhabited even when the synthetic feature is unified.
     assert_eq!(std::mem::size_of::<NativeCapability>(), 0);
 }
@@ -420,56 +420,68 @@ fn resign_identity_checkpoint(
     checkpoint
 }
 
+const PREVIOUS_NATIVE_IDENTITIES: [(u32, &str); 2] = [
+    (34, "benilla-native-event-ai-aggro-text-v34"),
+    (35, "benilla-native-corpse-carried-items-v35"),
+];
+
 #[test]
-fn native35_profile_state_record_and_checkpoint_domains_are_exact() {
-    assert_eq!(NATIVE_FORMAT_VERSION, 35);
-    assert_eq!(NATIVE_POLICY, "benilla-native-corpse-carried-items-v35");
+fn native36_profile_state_record_and_checkpoint_domains_are_exact() {
+    assert_eq!(NATIVE_FORMAT_VERSION, 36);
+    assert_eq!(NATIVE_POLICY, "benilla-native-source-combat-timers-v36");
     assert_eq!(crate::FORMAT_VERSION, 2);
     let mut w = world();
     assert_eq!(
         w.profile().digest(),
-        profile_identity_for_format(w.profile(), 35, NATIVE_POLICY)
+        profile_identity_for_format(w.profile(), 36, NATIVE_POLICY)
     );
-    for (format, policy) in [
-        (34, "benilla-native-event-ai-aggro-text-v34"),
-        (34, NATIVE_POLICY),
-        (35, "benilla-native-event-ai-aggro-text-v34"),
-    ] {
-        assert_ne!(
-            w.profile().digest(),
-            profile_identity_for_format(w.profile(), format, policy)
-        );
+    for (old_format, old_policy) in PREVIOUS_NATIVE_IDENTITIES {
+        for (format, policy) in [
+            (old_format, old_policy),
+            (old_format, NATIVE_POLICY),
+            (36, old_policy),
+        ] {
+            assert_ne!(
+                w.profile().digest(),
+                profile_identity_for_format(w.profile(), format, policy)
+            );
+        }
     }
     let initial = w.checkpoint().unwrap();
     advance(&mut w, 2, &mut SyntheticAuthority::default());
     let checkpoint = w.checkpoint().unwrap();
     let value = serde_json::to_value(&checkpoint).unwrap();
-    assert_eq!(value["version"], 35);
-    assert_eq!(value["state"]["version"], 35);
+    assert_eq!(value["version"], 36);
+    assert_eq!(value["state"]["version"], 36);
     assert_eq!(value["state"]["policy"], NATIVE_POLICY);
     assert_eq!(
         checkpoint.digest,
-        crate::digest(b"benilla-native-state-v35\0", &checkpoint.state)
+        crate::digest(b"benilla-native-state-v36\0", &checkpoint.state)
     );
     assert_eq!(checkpoint.digest, w.state_digest());
     assert_eq!(
         checkpoint.checksum,
         crate::digest(
-            b"benilla-native-checkpoint-v35\0",
+            b"benilla-native-checkpoint-v36\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         )
     );
     for record in w.records() {
-        assert_eq!(record.version, 35);
+        assert_eq!(record.version, 36);
         assert_eq!(record.profile, w.profile().digest());
         assert_eq!(
             record.digest(),
-            crate::digest(b"benilla-native-record-v35\0", record)
+            crate::digest(b"benilla-native-record-v36\0", record)
         );
-        assert_ne!(
-            record.digest(),
-            crate::digest(b"benilla-native-record-v34\0", record)
-        );
+        for (format, _) in PREVIOUS_NATIVE_IDENTITIES {
+            assert_ne!(
+                record.digest(),
+                crate::digest(
+                    format!("benilla-native-record-v{format}\0").as_bytes(),
+                    record
+                )
+            );
+        }
     }
     assert_eq!(
         Checkpoint::decode(&checkpoint.encode().unwrap()).unwrap(),
@@ -482,71 +494,79 @@ fn native35_profile_state_record_and_checkpoint_domains_are_exact() {
 }
 
 #[test]
-fn native34_checkpoint_headers_and_policies_reject_even_with_current_outer_hashes() {
+fn native35_and_native34_checkpoint_headers_and_policies_reject_with_current_outer_hashes() {
     let w = world();
     let initial = w.checkpoint().unwrap();
-    for (outer, state, policy) in [
-        (34, 34, "benilla-native-event-ai-aggro-text-v34"),
-        (34, 35, NATIVE_POLICY),
-        (35, 34, NATIVE_POLICY),
-        (35, 35, "benilla-native-event-ai-aggro-text-v34"),
-    ] {
-        for hash_format in [34, 35] {
-            let mut value = serde_json::to_value(&initial).unwrap();
-            value["version"] = outer.into();
-            value["state"]["version"] = state.into();
-            value["state"]["policy"] = policy.into();
-            let old = resign_identity_checkpoint(value, hash_format, hash_format);
-            assert_eq!(
-                Checkpoint::decode(&old.encode().unwrap()).unwrap_err(),
-                NativeError::InvalidCheckpoint
-            );
-            assert!(
-                NativeWorld::restore_synthetic_component_test(w.profile().clone(), old).is_err()
-            );
+    for (old_format, old_policy) in PREVIOUS_NATIVE_IDENTITIES {
+        for (outer, state, policy) in [
+            (old_format, old_format, old_policy),
+            (old_format, 36, NATIVE_POLICY),
+            (36, old_format, NATIVE_POLICY),
+            (36, 36, old_policy),
+        ] {
+            for hash_format in [old_format, 36] {
+                let mut value = serde_json::to_value(&initial).unwrap();
+                value["version"] = outer.into();
+                value["state"]["version"] = state.into();
+                value["state"]["policy"] = policy.into();
+                let old = resign_identity_checkpoint(value, hash_format, hash_format);
+                assert_eq!(
+                    Checkpoint::decode(&old.encode().unwrap()).unwrap_err(),
+                    NativeError::InvalidCheckpoint
+                );
+                assert!(
+                    NativeWorld::restore_synthetic_component_test(w.profile().clone(), old)
+                        .is_err()
+                );
+            }
         }
     }
 }
 
 #[test]
-fn native34_state_checkpoint_and_profile_context_cannot_be_resealed_as_native35() {
+fn native35_and_native34_state_checkpoint_and_profile_context_cannot_reseal_as_native36() {
     let w = world();
     let initial = w.checkpoint().unwrap();
-    for (state_format, checkpoint_format) in [(34, 34), (34, 35), (35, 34)] {
-        let old = resign_identity_checkpoint(
-            serde_json::to_value(&initial).unwrap(),
-            state_format,
-            checkpoint_format,
-        );
-        assert_eq!(
-            Checkpoint::decode(&old.encode().unwrap()).unwrap_err(),
-            NativeError::InvalidCheckpoint
-        );
-        assert!(matches!(
-            NativeWorld::restore_synthetic_component_test(w.profile().clone(), old),
-            Err(NativeError::InvalidCheckpoint)
-        ));
-    }
-    for (format, policy) in [
-        (34, "benilla-native-event-ai-aggro-text-v34"),
-        (34, NATIVE_POLICY),
-        (35, "benilla-native-event-ai-aggro-text-v34"),
-    ] {
-        let mut value = serde_json::to_value(&initial).unwrap();
-        value["state"]["profile"] =
-            serde_json::to_value(profile_identity_for_format(w.profile(), format, policy)).unwrap();
-        let old = resign_identity_checkpoint(value, 35, 35);
-        // Decode checks the envelope; only restore has the executable profile context.
-        let decoded = Checkpoint::decode(&old.encode().unwrap()).unwrap();
-        assert!(matches!(
-            NativeWorld::restore_synthetic_component_test(w.profile().clone(), decoded),
-            Err(NativeError::Incompatible)
-        ));
+    for (old_format, old_policy) in PREVIOUS_NATIVE_IDENTITIES {
+        for (state_format, checkpoint_format) in
+            [(old_format, old_format), (old_format, 36), (36, old_format)]
+        {
+            let old = resign_identity_checkpoint(
+                serde_json::to_value(&initial).unwrap(),
+                state_format,
+                checkpoint_format,
+            );
+            assert_eq!(
+                Checkpoint::decode(&old.encode().unwrap()).unwrap_err(),
+                NativeError::InvalidCheckpoint
+            );
+            assert!(matches!(
+                NativeWorld::restore_synthetic_component_test(w.profile().clone(), old),
+                Err(NativeError::InvalidCheckpoint)
+            ));
+        }
+        for (format, policy) in [
+            (old_format, old_policy),
+            (old_format, NATIVE_POLICY),
+            (36, old_policy),
+        ] {
+            let mut value = serde_json::to_value(&initial).unwrap();
+            value["state"]["profile"] =
+                serde_json::to_value(profile_identity_for_format(w.profile(), format, policy))
+                    .unwrap();
+            let old = resign_identity_checkpoint(value, 36, 36);
+            // Decode checks the envelope; only restore has the executable profile context.
+            let decoded = Checkpoint::decode(&old.encode().unwrap()).unwrap();
+            assert!(matches!(
+                NativeWorld::restore_synthetic_component_test(w.profile().clone(), decoded),
+                Err(NativeError::Incompatible)
+            ));
+        }
     }
 }
 
 #[test]
-fn native34_record_versions_and_rehashed_context_reject_without_committing_a_prefix() {
+fn native35_and_native34_records_and_rehashed_context_reject_without_committing_a_prefix() {
     let mut w = world();
     let initial = w.checkpoint().unwrap();
     advance(&mut w, 1, &mut SyntheticAuthority::default());
@@ -554,34 +574,386 @@ fn native34_record_versions_and_rehashed_context_reject_without_committing_a_pre
     advance(&mut w, 1, &mut SyntheticAuthority::default());
     let end = w.checkpoint().unwrap();
     let records = w.records().to_vec();
-    for case in 0..5 {
+    for (format, policy) in PREVIOUS_NATIVE_IDENTITIES {
+        for case in 0..7 {
+            let mut forged = records.clone();
+            match case {
+                0 => forged[1].version = format,
+                1 => forged[1].profile = profile_identity_for_format(w.profile(), format, policy),
+                2 => {
+                    forged[1].before = crate::digest(
+                        format!("benilla-native-state-v{format}\0").as_bytes(),
+                        &middle.state,
+                    )
+                }
+                3 => {
+                    forged[1].after = crate::digest(
+                        format!("benilla-native-state-v{format}\0").as_bytes(),
+                        &end.state,
+                    )
+                }
+                4 => {
+                    forged[1].previous_record = crate::digest(
+                        format!("benilla-native-record-v{format}\0").as_bytes(),
+                        &forged[0],
+                    )
+                }
+                5 => {
+                    forged[1].profile =
+                        profile_identity_for_format(w.profile(), format, NATIVE_POLICY)
+                }
+                _ => forged[1].profile = profile_identity_for_format(w.profile(), 36, policy),
+            }
+            let bytes = encode_records(&forged).unwrap();
+            if case == 0 {
+                assert_eq!(decode_records(&bytes), Err(NativeError::InvalidCheckpoint));
+            } else {
+                assert_eq!(decode_records(&bytes).unwrap(), forged);
+            }
+            let mut replay =
+                NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial.clone())
+                    .unwrap();
+            assert_eq!(replay.replay(&forged), Err(NativeError::ReplayMismatch));
+            assert_eq!(replay.checkpoint().unwrap(), initial);
+            assert!(replay.records().is_empty());
+        }
+    }
+}
+
+#[test]
+fn native36_melee_domains_are_exact_and_old_evidence_cannot_reseal_as_current_records() {
+    let mut p = initialized_profile();
+    p.npcs[0].ai.spawn = point(1.0);
+    p.npcs[0].ai.reaction = ai::Reaction::Aggressive;
+    let mut w = NativeWorld::synthetic_component_test(p, [1; 16], player(), 9).unwrap();
+    let mut authority = KernelAuthority::default();
+    let (before, record) = (0..100)
+        .find_map(|_| {
+            let before = w.clone();
+            let record = w
+                .step(w.state.tick + 1, None, &mut authority)
+                .unwrap()
+                .clone();
+            record
+                .replies
+                .iter()
+                .any(|r| matches!(r.request.query, Query::NativeMelee { .. }))
+                .then_some((before, record))
+        })
+        .expect("first ordinary melee action");
+    assert!(before.state.casts.is_empty());
+    assert_eq!(before.state.combat.as_ref().unwrap().next_action, 1);
+    let request = &record
+        .replies
+        .iter()
+        .find(|r| matches!(r.request.query, Query::NativeMelee { .. }))
+        .unwrap()
+        .request;
+    let Query::NativeMelee {
+        npc_orientation,
+        action,
+        state_binding,
+        player_position,
+        npc_position,
+        ..
+    } = request.query
+    else {
+        unreachable!()
+    };
+    let id = request.binding.npc.unwrap();
+    // This first attack has no cast, reactive, damage or equipment prefix. The
+    // source CombatStarted callback enters combat before the action is bound.
+    let mut combat = before.state.combat.as_ref().unwrap().clone();
+    if !combat.in_combat {
+        combat.in_combat = true;
+        combat.combat_tick_ms = 1200;
+    }
+    let action_payload = (
+        before.state.world,
+        before.state.player,
+        record.tick,
+        before.profile_digest,
+        before.profile.geometry_revision,
+        id,
+        npc_position,
+        before.state.npcs[&id.spawn].health,
+        npc_orientation,
+        player_position,
+        before.state.orientation,
+        before.state.health,
+        before.state.resources.caster.checkpoint(),
+        combat.snapshot(),
+        Vec::<(u64, spell::CastCheckpoint)>::new(),
+    );
+    assert_eq!(
+        state_binding,
+        crate::digest(b"benilla-native-melee-action-v36\0", &action_payload)
+    );
+    let tip = record
+        .events
+        .iter()
+        .find_map(|event| match event {
+            Event::Combat(CombatEvent::ActionCommitted {
+                action: observed,
+                binding,
+                tip,
+            }) => {
+                assert_eq!((*observed, *binding), (action, state_binding));
+                Some(*tip)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let chain_payload = (
+        before.state.combat.as_ref().unwrap().action_tip,
+        action,
+        state_binding,
+        w.state.rng_counter,
+    );
+    assert_eq!(
+        tip,
+        crate::digest(b"benilla-native-melee-chain-v36\0", &chain_payload)
+    );
+    let next = w
+        .step(w.state.tick + 1, None, &mut authority)
+        .unwrap()
+        .clone();
+    let initial = before.checkpoint().unwrap();
+    for (format, _) in PREVIOUS_NATIVE_IDENTITIES {
+        for old_action in [false, true] {
+            let mut forged = vec![record.clone(), next.clone()];
+            if old_action {
+                let old_binding = crate::digest(
+                    format!("benilla-native-melee-action-v{format}\0").as_bytes(),
+                    &action_payload,
+                );
+                assert_ne!(state_binding, old_binding);
+                for reply in &mut forged[0].replies {
+                    if let Query::NativeMelee { state_binding, .. } = &mut reply.request.query {
+                        *state_binding = old_binding;
+                    }
+                }
+            } else {
+                let old_tip = crate::digest(
+                    format!("benilla-native-melee-chain-v{format}\0").as_bytes(),
+                    &chain_payload,
+                );
+                assert_ne!(tip, old_tip);
+                for event in &mut forged[0].events {
+                    if let Event::Combat(CombatEvent::ActionCommitted { tip, .. }) = event {
+                        *tip = old_tip;
+                    }
+                }
+            }
+            forged[1].previous_record = forged[0].digest();
+            let decoded = decode_records(&encode_records(&forged).unwrap()).unwrap();
+            let mut replay = NativeWorld::restore_synthetic_component_test(
+                before.profile.clone(),
+                initial.clone(),
+            )
+            .unwrap();
+            assert_eq!(replay.replay(&decoded), Err(NativeError::ReplayMismatch));
+            assert_eq!(replay.checkpoint().unwrap(), initial);
+            assert!(replay.records().is_empty());
+        }
+    }
+}
+
+#[test]
+fn native35_and_native34_visitor_callback_evidence_rejects_with_rehashed_record_chain() {
+    use super::synthetic_two_owner_fixture as fixture;
+    let mut w =
+        NativeWorld::synthetic_component_test(fixture::profile(), [8; 16], player(), 7).unwrap();
+    let initial = w.checkpoint().unwrap();
+    advance(&mut w, 3, &mut fixture::CompleteAuthority::default());
+    let records = w.records().to_vec();
+    let callbacks = records
+        .iter()
+        .flat_map(|r| &r.replies)
+        .filter_map(|reply| match &reply.request.query {
+            Query::SourceMotion(MotionQuery::SceneVisitor(r)) => Some((&r.witness, &r.callback)),
+            Query::SourceMotion(
+                MotionQuery::VisitorVisibility(r) | MotionQuery::VisitorSight(r),
+            ) => Some((&r.witness, &r.callback)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(!callbacks.is_empty());
+    for (witness, callback) in callbacks {
+        assert_eq!(
+            witness.callback,
+            crate::digest(b"benilla-native-visitor-callback-v36\0", callback)
+        );
+    }
+    for (format, _) in PREVIOUS_NATIVE_IDENTITIES {
         let mut forged = records.clone();
-        match case {
-            0 => forged[1].version = 34,
-            1 => {
-                forged[1].profile = profile_identity_for_format(
-                    w.profile(),
-                    34,
-                    "benilla-native-event-ai-aggro-text-v34",
-                )
-            }
-            2 => forged[1].before = crate::digest(b"benilla-native-state-v34\0", &middle.state),
-            3 => forged[1].after = crate::digest(b"benilla-native-state-v34\0", &end.state),
-            _ => {
-                forged[1].previous_record =
-                    crate::digest(b"benilla-native-record-v34\0", &forged[0])
+        let mut changed = 0;
+        for record in &mut forged {
+            for reply in &mut record.replies {
+                let pair = match &mut reply.request.query {
+                    Query::SourceMotion(MotionQuery::SceneVisitor(r)) => {
+                        Some((&mut r.witness, &r.callback))
+                    }
+                    Query::SourceMotion(
+                        MotionQuery::VisitorVisibility(r) | MotionQuery::VisitorSight(r),
+                    ) => Some((&mut r.witness, &r.callback)),
+                    _ => None,
+                };
+                if let Some((witness, callback)) = pair {
+                    witness.callback = crate::digest(
+                        format!("benilla-native-visitor-callback-v{format}\0").as_bytes(),
+                        callback,
+                    );
+                    changed += 1;
+                }
             }
         }
-        let bytes = encode_records(&forged).unwrap();
-        if case == 0 {
-            assert_eq!(decode_records(&bytes), Err(NativeError::InvalidCheckpoint));
-        } else {
-            assert_eq!(decode_records(&bytes).unwrap(), forged);
+        assert!(changed > 0);
+        for index in 1..forged.len() {
+            forged[index].previous_record = forged[index - 1].digest();
         }
+        let decoded = decode_records(&encode_records(&forged).unwrap()).unwrap();
         let mut replay =
             NativeWorld::restore_synthetic_component_test(w.profile().clone(), initial.clone())
                 .unwrap();
-        assert_eq!(replay.replay(&forged), Err(NativeError::ReplayMismatch));
+        assert_eq!(replay.replay(&decoded), Err(NativeError::ReplayMismatch));
+        assert_eq!(replay.checkpoint().unwrap(), initial);
+        assert!(replay.records().is_empty());
+    }
+}
+
+fn replace_identity_digest(
+    value: &mut serde_json::Value,
+    old: &serde_json::Value,
+    replacement: &serde_json::Value,
+) -> usize {
+    if value == old {
+        *value = replacement.clone();
+        return 1;
+    }
+    match value {
+        serde_json::Value::Object(fields) => fields
+            .values_mut()
+            .map(|v| replace_identity_digest(v, old, replacement))
+            .sum(),
+        serde_json::Value::Array(values) => values
+            .iter_mut()
+            .map(|v| replace_identity_digest(v, old, replacement))
+            .sum(),
+        _ => 0,
+    }
+}
+
+#[test]
+fn native35_and_native34_event_ai_evidence_rejects_rehashed_checkpoints_and_records() {
+    use super::synthetic_event_ai_fixture as fixture;
+    let mut w = fixture::world(7);
+    let initial = w.checkpoint().unwrap();
+    advance(&mut w, 3, &mut fixture::Authority::default());
+    let evaluation = w
+        .records()
+        .iter()
+        .flat_map(|r| &r.events)
+        .find_map(|event| match event {
+            Event::EventAiEvaluation(evaluation) => Some(evaluation.as_ref()),
+            _ => None,
+        })
+        .unwrap();
+    let callback = evaluation.callback.digest();
+    assert_eq!(
+        callback,
+        crate::digest(
+            b"benilla-native-event-ai-callback-v36\0",
+            &evaluation.callback
+        )
+    );
+    assert_eq!(
+        evaluation.actions[0]
+            .audience
+            .as_ref()
+            .unwrap()
+            .request
+            .callback,
+        callback
+    );
+    let checkpoint = w.checkpoint().unwrap();
+    let value = serde_json::to_value(&checkpoint).unwrap();
+    assert_eq!(
+        value["state"]["event_ai"]["history"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        value["state"]["npcs"]["2"]["events"]["event_ai_anchor"]["count"],
+        1
+    );
+    assert_eq!(
+        value["state"]["npcs"]["2"]["events"]["event_ai_anchor"]["tip"],
+        serde_json::to_value(crate::digest(
+            b"benilla-native-event-ai-callback-chain-v36\0",
+            &([0u8; 32], 1u64, evaluation)
+        ))
+        .unwrap()
+    );
+    for (format, _) in PREVIOUS_NATIVE_IDENTITIES {
+        let old_callback = crate::digest(
+            format!("benilla-native-event-ai-callback-v{format}\0").as_bytes(),
+            &evaluation.callback,
+        );
+        assert_ne!(callback, old_callback);
+        for old_action in [false, true] {
+            let mut forged = value.clone();
+            let tip = if old_action {
+                assert!(
+                    replace_identity_digest(
+                        &mut forged["state"]["event_ai"],
+                        &serde_json::to_value(callback).unwrap(),
+                        &serde_json::to_value(old_callback).unwrap()
+                    ) > 0
+                );
+                let changed: EventAiEvaluation = serde_json::from_value(
+                    forged["state"]["event_ai"]["history"][0]["EnterCombat"].clone(),
+                )
+                .unwrap();
+                // Reseal the independent anchor as well; restored semantic history
+                // must still reject the old callback identity inside its audience.
+                crate::digest(
+                    b"benilla-native-event-ai-callback-chain-v36\0",
+                    &([0u8; 32], 1u64, changed),
+                )
+            } else {
+                crate::digest(
+                    format!("benilla-native-event-ai-callback-chain-v{format}\0").as_bytes(),
+                    &([0u8; 32], 1u64, evaluation),
+                )
+            };
+            forged["state"]["npcs"]["2"]["events"]["event_ai_anchor"]["tip"] =
+                serde_json::to_value(tip).unwrap();
+            let forged = resign_identity_checkpoint(forged, 36, 36);
+            let decoded = Checkpoint::decode(&forged.encode().unwrap()).unwrap();
+            assert!(
+                NativeWorld::restore_synthetic_component_test(w.profile.clone(), decoded).is_err()
+            );
+        }
+        let mut forged = serde_json::to_value(w.records()).unwrap();
+        assert!(
+            replace_identity_digest(
+                &mut forged,
+                &serde_json::to_value(callback).unwrap(),
+                &serde_json::to_value(old_callback).unwrap()
+            ) > 0
+        );
+        let mut forged: Vec<TickRecord> = serde_json::from_value(forged).unwrap();
+        for index in 1..forged.len() {
+            forged[index].previous_record = forged[index - 1].digest();
+        }
+        let decoded = decode_records(&encode_records(&forged).unwrap()).unwrap();
+        let mut replay =
+            NativeWorld::restore_synthetic_component_test(w.profile.clone(), initial.clone())
+                .unwrap();
+        assert_eq!(replay.replay(&decoded), Err(NativeError::ReplayMismatch));
         assert_eq!(replay.checkpoint().unwrap(), initial);
         assert!(replay.records().is_empty());
     }

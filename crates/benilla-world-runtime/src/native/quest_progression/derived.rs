@@ -265,11 +265,8 @@ impl QuestProgressionState {
         if before_recipe.broken_slots.contains(&slot) {
             return Err(NativeError::InvalidState);
         }
-        let mut actual_recipe = before_combat.recipe.clone();
-        let actual = actual_recipe.set_item_broken(slot, true, resources(&before))?;
         let mut expected_combat = before_combat.clone();
-        expected_combat.recipe = actual_recipe;
-        expected_combat.stats = combat::CharacterStats::from_result(&actual);
+        let actual = expected_combat.apply_item_break(slot, resources(&before))?;
         if actual != *recompute || expected_combat != *after_combat {
             return Err(NativeError::InvalidState);
         }

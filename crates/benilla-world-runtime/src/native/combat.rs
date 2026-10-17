@@ -4,6 +4,9 @@ use super::*;
 use benilla_sim::{npc_melee as melee, starter_init as init};
 use serde::{Deserialize, Serialize};
 
+mod melee_timers;
+pub use melee_timers::PlayerMeleeTimers;
+
 pub const DEFENSE_SKILL: u16 = 95;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,6 +74,10 @@ fn serialize_recipe<S: serde::Serializer>(r: &init::StatRecipe, s: S) -> Result<
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(super) struct InitialWeapon {
     pub(in crate::native) slot: u8,
+    pub(in crate::native) item_id: u32,
+    pub(in crate::native) class: u32,
+    pub(in crate::native) subclass: u32,
+    pub(in crate::native) inventory_type: u32,
     pub(in crate::native) skill: u16,
     pub(in crate::native) delay_ms: u32,
     pub(in crate::native) damage: Vec<(u32, u32, u32)>,
@@ -117,6 +124,7 @@ pub struct CombatGenesis {
     pub(super) initial_auras: Vec<InitialAuraMetadata>,
     pub(super) initial_inventory: Vec<(u32, u32)>,
     pub(super) equipment_weapons: Vec<InitialWeapon>,
+    pub(super) melee_timers: PlayerMeleeTimers,
     pub(super) proficiencies: (u32, u32),
     pub(super) durability_hit_chance: spell::SpellFloat,
     pub(super) defense_gain: u16,
@@ -262,6 +270,36 @@ impl Profile {
                 .collect(),
         };
         equipment::EquipmentState::from_snapshot(equipment.clone())?;
+        let equipment_weapons = mage
+            .equipped
+            .values()
+            .map(|i| {
+                let raw = input
+                    .items
+                    .iter()
+                    .find(|r| r.id == i.item)
+                    .ok_or(NativeError::InvalidProfile)?;
+                Ok(InitialWeapon {
+                    slot: i.slot,
+                    item_id: i.item,
+                    class: raw.class,
+                    subclass: raw.subclass,
+                    inventory_type: raw.inventory_type,
+                    skill: i.weapon_skill,
+                    delay_ms: i.delay_ms,
+                    damage: i
+                        .damage
+                        .iter()
+                        .map(|d| (d.min_bits, d.max_bits, d.school))
+                        .collect(),
+                })
+            })
+            .collect::<Result<Vec<_>, NativeError>>()?;
+        let melee_timers = PlayerMeleeTimers::from_initializer(
+            &equipment_weapons,
+            &equipment,
+            &mage.stat_recipe.snapshot(),
+        )?;
         self.player.level = input.level;
         self.player.max_health = stats.max_health;
         self.player.max_mana = stats.max_mana;
@@ -295,20 +333,8 @@ impl Profile {
                 })
                 .collect(),
             initial_inventory: mage.inventory.iter().map(|i| (i.item, i.count)).collect(),
-            equipment_weapons: mage
-                .equipped
-                .values()
-                .map(|i| InitialWeapon {
-                    slot: i.slot,
-                    skill: i.weapon_skill,
-                    delay_ms: i.delay_ms,
-                    damage: i
-                        .damage
-                        .iter()
-                        .map(|d| (d.min_bits, d.max_bits, d.school))
-                        .collect(),
-                })
-                .collect(),
+            equipment_weapons,
+            melee_timers,
             proficiencies: (mage.weapon_proficiency, mage.armor_proficiency),
             durability_hit_chance,
             defense_gain,
@@ -324,6 +350,8 @@ pub struct PlayerCombatState {
     pub skills: BTreeMap<u16, SkillState>,
     pub equipment: equipment::EquipmentState,
     pub(super) recipe: init::StatRecipe,
+    pub melee_timers: PlayerMeleeTimers,
+    pub(in crate::native) melee_reset: Option<crate::native::melee_reset::MeleeResetWitness>,
     pub standing: bool,
     pub has_channeled_spell: bool,
     pub has_auto_repeat_spell: bool,
@@ -343,6 +371,9 @@ pub(super) struct CombatSnapshot {
     skills: BTreeMap<u16, SkillState>,
     equipment: equipment::EquipmentSnapshot,
     recipe: init::StatRecipeSnapshot,
+    melee_timers: PlayerMeleeTimers,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub(in crate::native) melee_reset: Option<crate::native::melee_reset::MeleeResetWitness>,
     standing: bool,
     has_channeled_spell: bool,
     has_auto_repeat_spell: bool,
@@ -358,11 +389,14 @@ pub(super) struct CombatSnapshot {
 impl PlayerCombatState {
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn new(g: &CombatGenesis, origin: u64) -> Result<Self, NativeError> {
+        g.validate_melee_genesis()?;
         Ok(Self {
             stats: g.stats.clone(),
             skills: g.skills.clone(),
             equipment: equipment::EquipmentState::from_snapshot(g.equipment.clone())?,
             recipe: g.recipe.clone(),
+            melee_timers: g.melee_timers.clone(),
+            melee_reset: None,
             standing: true,
             has_channeled_spell: false,
             has_auto_repeat_spell: false,
@@ -393,6 +427,8 @@ impl PlayerCombatState {
             skills: self.skills.clone(),
             equipment: self.equipment.snapshot(),
             recipe: self.recipe.snapshot(),
+            melee_timers: self.melee_timers.clone(),
+            melee_reset: self.melee_reset.clone(),
             standing: self.standing,
             has_channeled_spell: self.has_channeled_spell,
             has_auto_repeat_spell: self.has_auto_repeat_spell,
@@ -502,11 +538,13 @@ impl PlayerCombatState {
         {
             return Err(NativeError::InvalidCheckpoint);
         }
-        Ok(Self {
+        let restored = Self {
             stats: s.stats,
             skills: s.skills,
             equipment,
             recipe,
+            melee_timers: s.melee_timers,
+            melee_reset: s.melee_reset,
             standing: s.standing,
             has_channeled_spell: s.has_channeled_spell,
             has_auto_repeat_spell: s.has_auto_repeat_spell,
@@ -518,14 +556,23 @@ impl PlayerCombatState {
             action_tip: s.action_tip,
             death,
             death_killer: s.death_killer,
-        })
+        };
+        restored
+            .validate_melee_timers(g)
+            .map_err(|_| NativeError::InvalidCheckpoint)?;
+        Ok(restored)
     }
     pub(super) fn apply_item_break(
         &mut self,
         slot: u8,
         live: init::Resources,
     ) -> Result<init::EquipmentRecompute, NativeError> {
-        let result = self.recipe.set_item_broken(slot, true, live)?;
+        let mut recipe = self.recipe.clone();
+        let result = recipe.set_item_broken(slot, true, live)?;
+        // Player::_ApplyItemBonuses(false) runs before durability reaches zero.
+        // It updates the attack-time field, never the running attack countdown.
+        self.melee_timers.item_broken(slot, &recipe.snapshot())?;
+        self.recipe = recipe;
         self.stats = CharacterStats::from_result(&result);
         Ok(result)
     }

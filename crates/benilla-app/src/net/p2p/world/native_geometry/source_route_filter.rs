@@ -315,6 +315,7 @@ impl SourceRouteFilterProvider {
             || session.primary_near_point != self.session.primary_near_point
             || session.empty_selector_near_point != self.session.empty_selector_near_point
             || session.player_environment != self.session.player_environment
+            || session.source_location != self.session.source_location
             || session.same_polygon_route != self.session.same_polygon_route
         {
             return Err(Failure::Binding);

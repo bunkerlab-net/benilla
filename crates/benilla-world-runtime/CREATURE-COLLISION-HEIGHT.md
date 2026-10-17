@@ -48,11 +48,11 @@ is implemented, respawn clears both initial width and height ownership. Later
 NPC generations cannot reuse or relabel generation-zero height. Height-independent
 routes continue with explicit `None`.
 
-Native format **35**, policy `benilla-native-corpse-carried-items-v35`, retains
+Native format **36**, policy `benilla-native-source-combat-timers-v36`, retains
 optional profile height catalog, checkpoint `source_collision_height`, and typed
 Route `collision_height`. Every serialized optional field must exist, using
 explicit null for absence. Profile/state/record/checkpoint/melee digest domains
-are v35; native34 and every earlier experimental format are rejected without
+are v36; native35 and every earlier experimental format are rejected without
 migration defaults. OriginalFixture v2 and character/profile transports are
 unchanged. Native admission remains uninhabited.
 

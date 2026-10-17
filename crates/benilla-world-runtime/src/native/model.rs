@@ -107,7 +107,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v35\0",
+            b"benilla-native-profile-v36\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -157,6 +157,9 @@ impl Profile {
             .collect()
     }
     pub fn validate(&self) -> Result<(), NativeError> {
+        if let Some(combat) = &self.combat {
+            combat.validate_melee_genesis()?;
+        }
         if let Some(policy) = &self.admin {
             policy.validate()?;
             if self.quest_progression.is_none() {
@@ -327,6 +330,7 @@ pub struct Npc {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
+    pub(super) source_location: Option<SourceLocationFacts>,
     pub(super) event_ai: Option<EventAiState>,
     pub(super) source_player_environment: Option<PlayerEnvironmentState>,
     pub(super) source_player_collision_height: Option<PlayerCollisionHeightState>,
@@ -551,6 +555,7 @@ pub enum CastPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Query {
+    SourceLocation(Box<SourceLocationQuery>),
     EventAiAudience(Box<EventAiAudienceRequest>),
     PlayerEnvironment(Box<PlayerEnvironmentQuery>),
     NpcSpell(NpcSpellQuery),
@@ -667,6 +672,7 @@ pub struct MeleeOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Facts {
+    SourceLocation(SourceLocationFacts),
     EventAiAudience(EventAiAudienceFacts),
     PlayerEnvironment(PlayerEnvironmentFacts),
     NpcSpell(NpcSpellFacts),

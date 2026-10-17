@@ -369,6 +369,74 @@ impl PlayerEnvironmentPolicy {
     }
 }
 
+/// Exact player/source selection for independent zone and area observations.
+/// A selected catalog does not certify a pose; the owned provider must query it.
+#[derive(Clone, Debug, Eq)]
+pub(crate) struct SourceLocationPolicy {
+    profile: Arc<Profile>,
+    profile_digest: Digest,
+    player: PlayerId,
+    body: Body,
+}
+impl PartialEq for SourceLocationPolicy {
+    fn eq(&self, other: &Self) -> bool {
+        self.profile_digest == other.profile_digest
+            && self.player == other.player
+            && self.body == other.body
+            && (Arc::ptr_eq(&self.profile, &other.profile) || self.profile == other.profile)
+    }
+}
+impl SourceLocationPolicy {
+    pub(crate) fn from_profile(profile: &Profile, player: PlayerId) -> Result<Self, Failure> {
+        profile.validate().map_err(|_| Failure::Binding)?;
+        profile.source_location().ok_or(Failure::UnsupportedQuery)?;
+        let body = Body {
+            radius: profile.player.bounding_radius,
+            height: profile
+                .source_motion
+                .as_ref()
+                .ok_or(Failure::UnresolvedBody)?
+                .player_collision_height,
+        };
+        if !body.validate() || player.owner == [0; 16] || player.character == [0; 16] {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(Self {
+            profile: Arc::new(profile.clone()),
+            profile_digest: profile.digest(),
+            player,
+            body,
+        })
+    }
+    pub(super) fn check(&self, session: &Session) -> Result<(), Failure> {
+        if self.profile_digest != session.profile
+            || self.profile.map_id != session.map
+            || self.profile.content_digest != session.content
+            || self.profile.geometry_revision != session.geometry
+            || self.profile.authority_policy != session.policy
+        {
+            return Err(Failure::Binding);
+        }
+        if session.player.is_none_or(|player| player.body != self.body) {
+            return Err(Failure::UnresolvedBody);
+        }
+        Ok(())
+    }
+    fn body(&self, session: &Session, request: &AuthorityRequest) -> Result<Body, Failure> {
+        self.check(session)?;
+        let Query::SourceLocation(query) = &request.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        if request.binding.npc.is_some() || request.binding.tick != query.tick() {
+            return Err(Failure::Binding);
+        }
+        query
+            .validate_for(&self.profile, session.world, self.player)
+            .map_err(|_| Failure::Binding)?;
+        Ok(self.body)
+    }
+}
+
 /// Explicit transport capability for the bounded loaded first/retained Chase path.
 /// This validates request ownership and domains, never raw geometry or native caches.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -504,6 +572,7 @@ pub(crate) struct Session {
     pub primary_near_point: Option<PrimaryNearPointPolicy>,
     pub empty_selector_near_point: Option<EmptySelectorNearPointPolicy>,
     pub player_environment: Option<PlayerEnvironmentPolicy>,
+    pub source_location: Option<SourceLocationPolicy>,
     pub same_polygon_route: Option<SamePolygonRoutePolicy>,
 }
 /// One successful immutable body validation for these exact borrowed objects.
@@ -564,6 +633,13 @@ impl Session {
             Query::SourceMotion(MotionQuery::Route(_)) => {
                 return self
                     .same_polygon_route
+                    .as_ref()
+                    .ok_or(Failure::UnsupportedQuery)?
+                    .body(self, request);
+            }
+            Query::SourceLocation(_) => {
+                return self
+                    .source_location
                     .as_ref()
                     .ok_or(Failure::UnsupportedQuery)?
                     .body(self, request);
@@ -665,6 +741,10 @@ impl Session {
             && !(self.primary_near_point.is_some() && self.empty_selector_near_point.is_some())
             && self
                 .player_environment
+                .as_ref()
+                .is_none_or(|p| p.check(self).is_ok())
+            && self
+                .source_location
                 .as_ref()
                 .is_none_or(|p| p.check(self).is_ok())
             && self
@@ -1916,6 +1996,7 @@ fn query_kind(query: &Query) -> &'static str {
         Query::Movement(_) => "Movement",
         Query::PlayerMovement { .. } => "PlayerMovement",
         Query::PlayerEnvironment(_) => "PlayerEnvironment",
+        Query::SourceLocation(_) => "SourceLocation",
         Query::SourceMotion(MotionQuery::Route(_)) => "Route",
         Query::SourceMotion(MotionQuery::NearPoint(_)) => "NearPoint",
         Query::SourceMotion(MotionQuery::Combat(_)) => "Combat",
@@ -1939,6 +2020,18 @@ pub(super) fn validate_facts(
             validate_route_facts(session, request, route, reply)
         }
         (Query::Movement(m), Facts::Movement(outcome)) => validate_outcome(m, outcome),
+        (Query::SourceLocation(query), Facts::SourceLocation(facts)) => {
+            session.body(request)?;
+            let catalog = session
+                .source_location
+                .as_ref()
+                .and_then(|policy| policy.profile.source_location())
+                .ok_or(Failure::Binding)?
+                .catalog();
+            facts
+                .validate_with_catalog(query, catalog)
+                .map_err(|_| Failure::Binding)
+        }
         (Query::PlayerEnvironment(query), Facts::PlayerEnvironment(facts)) => {
             session.body(request)?;
             facts.validate_for(query).map_err(|_| Failure::Binding)
@@ -2355,3 +2448,7 @@ mod staged_job_tests;
 #[cfg(test)]
 #[path = "route_body_tests.rs"]
 mod route_body_tests;
+
+#[cfg(test)]
+#[path = "source_location_mailbox_tests.rs"]
+mod source_location_mailbox_tests;

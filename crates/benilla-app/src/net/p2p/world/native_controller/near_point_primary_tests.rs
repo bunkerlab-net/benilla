@@ -266,6 +266,7 @@ fn setup(z: f32) -> (n::Profile, ProductAuthority) {
         static_los: None,
         primary_near_point: Some(core::PrimaryNearPointPolicy::from_profile(&data).unwrap()),
         empty_selector_near_point: None,
+        source_location: None,
         player_environment: None,
         same_polygon_route: None,
     };

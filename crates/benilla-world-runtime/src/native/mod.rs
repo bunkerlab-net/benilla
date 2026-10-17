@@ -5,6 +5,7 @@ mod admin;
 pub use admin::*;
 mod combat;
 mod creature_capabilities;
+mod melee_reset;
 mod owner_ignore_pathfinding;
 pub use owner_ignore_pathfinding::*;
 #[cfg(test)]
@@ -15,7 +16,9 @@ mod pathfinder_configuration;
 pub use pathfinder_configuration::*;
 mod player_collision_height;
 mod player_environment;
+mod source_location;
 pub use player_environment::*;
+pub use source_location::*;
 #[cfg(test)]
 mod player_environment_tests;
 #[cfg(test)]
@@ -76,14 +79,15 @@ pub mod synthetic_event_ai_fixture;
 pub mod synthetic_two_owner_fixture;
 pub use interactions::{
     CombatAuthorityCatalog, CombatFacts, CombatPhase, CombatQuery, CombatRequest, CombatWitness,
-    FacingNumericPolicy, InteractionAudit, InteractionCatalog, InteractionControlSeed,
-    InteractionEvidence, InteractionFactionSource, InteractionInput, InteractionMoment,
-    InteractionWitness, MeleeCombatFacts, MeleeEntryFacts, NpcCombatAuthoritySource,
-    NpcInteractionSource, NpcSemanticFacts, NpcSpellSource, PeerSightDisposition,
-    PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase, SourceSpellQuery,
-    SourceSpellRequest, SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource,
-    SpellCastTimeSource, SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult,
-    SpellRangeSource, SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
+    FacingNumericPolicy, InitialCastDependencies, InitialSpellLookup, InteractionAudit,
+    InteractionCatalog, InteractionControlSeed, InteractionEvidence, InteractionFactionSource,
+    InteractionInput, InteractionMoment, InteractionWitness, MeleeCombatFacts, MeleeEntryFacts,
+    NpcCombatAuthoritySource, NpcInteractionSource, NpcSemanticFacts, NpcSpellSource,
+    PeerSightDisposition, PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase,
+    SourceSpellQuery, SourceSpellRequest, SpellAreaSourceRow, SpellAreaSourceRows,
+    SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource, SpellCastTimeSource,
+    SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult, SpellRangeSource,
+    SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
     SPELL_AUTHORITY_POLICY,
 };
 pub use motion::*;
@@ -101,8 +105,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 35;
-pub const NATIVE_POLICY: &str = "benilla-native-corpse-carried-items-v35";
+pub const NATIVE_FORMAT_VERSION: u32 = 36;
+pub const NATIVE_POLICY: &str = "benilla-native-source-combat-timers-v36";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -274,6 +278,7 @@ impl NativeWorld {
             player_events.schedule_notify(0, false)?;
         }
         let state = State {
+            source_location: None,
             event_ai: EventAiState::new(&profile)?,
             source_player_environment: PlayerEnvironmentState::new(&profile, world, player)?,
             source_player_collision_height: PlayerCollisionHeightState::new(
@@ -328,7 +333,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v35\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v36\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

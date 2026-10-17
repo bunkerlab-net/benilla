@@ -869,3 +869,7 @@ harness compiles the shared controller assertions and tests loaded input/proposa
 composition only. The actual installed Service/physics tests require full app CI;
 no production admission, installed private content, graphical playability or wider
 navigation domain follows from these authored component tests.
+
+The independently selected [source-location provider](SOURCE-LOCATION.md) reads exact
+zone/area from owned terrain/VMap/DBC products. It does not infer location from liquid
+status, prove spell-area closure or open gameplay admission.

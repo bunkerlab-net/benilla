@@ -33,18 +33,18 @@ fn world(profile: Profile) -> NativeWorld {
 }
 
 #[test]
-fn raw_interrupt_mask_accepts_only_movement_and_pushback_all_combinations() {
+fn raw_interrupt_mask_accepts_source_bits_with_owned_combat_domain_all_combinations() {
     let (_, _, source) = fixture::inputs();
     let mut raw = source.spells[0].clone();
     // All combinations of the five source-defined flags, including actual
     // Fireball's 0x0f and the previously misinterpreted 0x08/0x0a masks.
     for flags in 0..32 {
         raw.words[21] = flags;
-        assert_eq!(raw.validate().is_ok(), flags <= 3, "flags={flags:#x}");
+        assert_eq!(raw.validate().is_ok(), flags <= 15, "flags={flags:#x}");
     }
     // Every unsupported bit, alone and combined with every supported mask.
-    for bit in 2..32 {
-        for supported in 0..4 {
+    for bit in 4..32 {
+        for supported in 0..16 {
             raw.words[21] = (1 << bit) | supported;
             assert_eq!(
                 raw.validate(),
@@ -82,7 +82,7 @@ fn each_raw_interrupt_boolean_is_bound_independently_of_the_other() {
 
 #[test]
 fn selected_unsupported_interrupt_masks_fail_atomically_before_world_construction() {
-    for flags in [4, 8, 10, 15, 16, 31, 0x8000_0000] {
+    for flags in [16, 31, 0x8000_0000] {
         let (mut profile, initial, source) = inputs(flags, 200);
         let before = profile.clone();
         assert_eq!(
@@ -191,11 +191,11 @@ fn selected_npc_damage_pushback_depends_on_bit_two_not_movement() {
 fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let state: crate::native::persistence::StateCheckpoint =
         serde_json::from_value(value["state"].clone()).unwrap();
-    let digest = crate::digest(b"benilla-native-state-v35\0", &state);
+    let digest = crate::digest(b"benilla-native-state-v36\0", &state);
     value["digest"] = serde_json::to_value(digest).unwrap();
     let tip: crate::Digest = serde_json::from_value(value["history_tip"].clone()).unwrap();
     value["checksum"] = serde_json::to_value(crate::digest(
-        b"benilla-native-checkpoint-v35\0",
+        b"benilla-native-checkpoint-v36\0",
         &(&state, digest, tip),
     ))
     .unwrap();
@@ -206,59 +206,65 @@ fn rehash(mut value: serde_json::Value) -> Checkpoint {
 fn old_policy_only_and_old_bit_eight_contexts_refuse_restore_and_replay_after_outer_rehash() {
     assert_eq!(
         SPELL_AUTHORITY_POLICY,
-        "cmangos-8ec338a1-native-spell-authority-v4"
+        "cmangos-8ec338a1-native-spell-authority-v6"
     );
-    for old_bit_eight in [false, true] {
-        let current = profile(u32::from(old_bit_eight), 200);
-        let mut old = current.clone();
-        let catalog = old
-            .interactions
-            .as_mut()
-            .unwrap()
-            .spell_authority
-            .as_mut()
-            .unwrap();
-        catalog.policy = "cmangos-8ec338a1-native-spell-authority-v3";
-        if old_bit_eight {
-            catalog.spells.get_mut(&133).unwrap().words[21] = 8;
-            catalog.initial_modifiers.spell_words[0][21] = 8;
+    for old_policy in [
+        "cmangos-8ec338a1-native-spell-authority-v3",
+        "cmangos-8ec338a1-native-spell-authority-v4",
+        "cmangos-8ec338a1-native-spell-authority-v5",
+    ] {
+        for old_bit_eight in [false, true] {
+            let current = profile(u32::from(old_bit_eight), 200);
+            let mut old = current.clone();
+            let catalog = old
+                .interactions
+                .as_mut()
+                .unwrap()
+                .spell_authority
+                .as_mut()
+                .unwrap();
+            catalog.policy = old_policy;
+            if old_bit_eight {
+                catalog.spells.get_mut(&133).unwrap().words[21] = 8;
+                catalog.initial_modifiers.spell_words[0][21] = 8;
+            }
+            assert_eq!(old.validate(), Err(NativeError::InvalidProfile));
+            let old_digest = old.digest();
+            assert_ne!(old_digest, current.digest());
+            let mut world = world(current.clone());
+            let initial = world.checkpoint().unwrap();
+            let mut authority = fixture::spatial_only();
+            let cast = f::cast(&world, 133);
+            world.step(1, Some(cast), &mut authority).unwrap();
+            world.step(2, None, &mut authority).unwrap();
+            for checkpoint in [initial.clone(), world.checkpoint().unwrap()] {
+                let mut value = serde_json::to_value(checkpoint).unwrap();
+                value["state"]["profile"] = serde_json::to_value(old_digest).unwrap();
+                let old_checkpoint = rehash(value);
+                let decoded = Checkpoint::decode(&old_checkpoint.encode().unwrap()).unwrap();
+                assert_eq!(
+                    NativeWorld::restore_synthetic_component_test(current.clone(), decoded.clone())
+                        .err(),
+                    Some(NativeError::Incompatible)
+                );
+                assert_eq!(
+                    NativeWorld::restore_synthetic_component_test(old.clone(), decoded).err(),
+                    Some(NativeError::InvalidProfile)
+                );
+            }
+            let mut records = world.records().to_vec();
+            assert_eq!(records.len(), 2);
+            records[1].profile = old_digest;
+            // A record's digest is derived; recomputing it does not authorize a
+            // different profile. The reader preserves its old identity verbatim,
+            // and replay must roll back the valid first record on the old tail.
+            assert_ne!(records[1].digest(), world.records()[1].digest());
+            let records = decode_records(&encode_records(&records).unwrap()).unwrap();
+            let mut replay =
+                NativeWorld::restore_synthetic_component_test(current, initial.clone()).unwrap();
+            assert_eq!(replay.replay(&records), Err(NativeError::ReplayMismatch));
+            assert_eq!(replay.checkpoint().unwrap(), initial);
         }
-        assert_eq!(old.validate(), Err(NativeError::InvalidProfile));
-        let old_digest = old.digest();
-        assert_ne!(old_digest, current.digest());
-        let mut world = world(current.clone());
-        let initial = world.checkpoint().unwrap();
-        let mut authority = fixture::spatial_only();
-        let cast = f::cast(&world, 133);
-        world.step(1, Some(cast), &mut authority).unwrap();
-        world.step(2, None, &mut authority).unwrap();
-        for checkpoint in [initial.clone(), world.checkpoint().unwrap()] {
-            let mut value = serde_json::to_value(checkpoint).unwrap();
-            value["state"]["profile"] = serde_json::to_value(old_digest).unwrap();
-            let old_checkpoint = rehash(value);
-            let decoded = Checkpoint::decode(&old_checkpoint.encode().unwrap()).unwrap();
-            assert_eq!(
-                NativeWorld::restore_synthetic_component_test(current.clone(), decoded.clone())
-                    .err(),
-                Some(NativeError::Incompatible)
-            );
-            assert_eq!(
-                NativeWorld::restore_synthetic_component_test(old.clone(), decoded).err(),
-                Some(NativeError::InvalidProfile)
-            );
-        }
-        let mut records = world.records().to_vec();
-        assert_eq!(records.len(), 2);
-        records[1].profile = old_digest;
-        // A record's digest is derived; recomputing it does not authorize a
-        // different profile. The reader preserves its old identity verbatim,
-        // and replay must roll back the valid first record on the old tail.
-        assert_ne!(records[1].digest(), world.records()[1].digest());
-        let records = decode_records(&encode_records(&records).unwrap()).unwrap();
-        let mut replay =
-            NativeWorld::restore_synthetic_component_test(current, initial.clone()).unwrap();
-        assert_eq!(replay.replay(&records), Err(NativeError::ReplayMismatch));
-        assert_eq!(replay.checkpoint().unwrap(), initial);
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 35);
+    assert_eq!(NATIVE_FORMAT_VERSION, 36);
 }

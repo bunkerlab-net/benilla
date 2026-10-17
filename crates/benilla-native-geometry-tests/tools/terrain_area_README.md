@@ -185,3 +185,10 @@ Original CMaNGOS/G3D notices remain in the
 [existing fixture licensing record](fixtures/vmap_source/README.md), and the
 original extracted/compiled source retains its notices. This authored generator
 and harness are GPL-3.0-or-later.
+
+The same hash-guarded source harness also executes the original
+`TerrainInfo::GetZoneAndAreaId` and `TerrainManager::GetZoneAndAreaIdByAreaFlag`
+(`GridMap.cpp:1049–1052,1415–1421`) for every recorded row. It verifies direct selected-row
+zone/ID projection without a parent-row dependency; existing fixture bytes and TSV
+columns are unchanged. The Rust loaded-byte comparison independently checks the new
+location path against those same area rows, including missing entries and real ID zero.

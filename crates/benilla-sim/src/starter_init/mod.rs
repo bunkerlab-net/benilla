@@ -193,7 +193,7 @@ pub enum InitEvent {
     RestoreCreatedResources(Resources),
 }
 /// A fresh non-GM, not-in-world, unshapeshifted mage. No persisted character input.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StarterInput {
     pub race: u8,
     pub class: u8,
@@ -217,6 +217,13 @@ pub struct StarterInput {
     pub items: Vec<ItemRow>,
     /// Captured hooks must explicitly be absent for the admitted item subset.
     pub item_creation_hooks: bool,
+}
+impl StarterInput {
+    /// Complete canonical raw input identity shared with LiveTraining. This is
+    /// a content binding, not a certification of source capture completeness.
+    pub fn source_identity(&self) -> [u8; 32] {
+        training::input_identity(self)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InitializedMage {

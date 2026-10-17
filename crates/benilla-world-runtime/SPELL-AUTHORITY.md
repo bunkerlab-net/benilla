@@ -7,7 +7,8 @@ legacy unselected synthetic host deliberately keeps its old contract.
 
 This is an intermediate source-compatible domain, not general spell parity or
 certification of stock Fireball data. Only active spell ID 133, fire school,
-MAGE family 3 with family flags 0 or bit 0, ordinary MAGIC damage, one direct
+MAGE family 3 with family flags 0, bit 0 or the retained `0x40000001` mask,
+ordinary MAGIC damage, one direct
 school-damage effect and at most one periodic-damage effect are admitted. All
 active effects must use explicit enemy target A=6/B=0, chain count at most one,
 and zero radius/mechanic/trigger/modifier fields. Instant entry rejects explicitly.
@@ -21,40 +22,71 @@ world-boss target-level overrides and partial-resistance paths remain excluded.
 Historical source-authority preparation/release/aura witnesses use the same
 level-60 ceiling, including after reload.
 
-### Interrupt flag boundary
+### Interrupt flags and source-owned melee timers
 
 SpellEntry word 21 is `InterruptFlags`, distinct from words 22/23's aura/channel
 flags. The pinned `SpellDefines.h:351–357` defines movement as `0x01`, player
 damage pushback as `0x02`, stun as `0x04`, combat as `0x08`, and player damage
-cancellation as `0x10`. Only movement and pushback, independently or together,
-are admitted here. `Spell::update` (`Spell.cpp:3537–3547`) tests the movement bit
-on position change; `Spell::Delayed` (`6812`) tests the pushback bit.
+cancellation as `0x10`. The selected host admits the low four bits independently
+or together. `Spell::update` (`Spell.cpp:3537–3547`) tests movement on position
+change; `Spell::Delayed` (`6812`) tests pushback. The pinned source labels
+STUN unimplemented and its complete symbol scan finds no symbolic consumer;
+actual incoming stun, silence and interrupt effects remain outside
+the catalog's closed source domain. Damage-cancel and unknown bits still reject.
 
-Every other bit rejects before catalog installation. In particular, `0x08` is
-not movement: `Spell.h:589` and `Spell.cpp:3446–3453` use it to reset mainhand
-and applicable offhand timers; `Spell.cpp:7474` also uses it for interruptibility.
-Those source callbacks are not supplied by this spell host. The source labels
-`0x04` unimplemented pending research; rejection makes no claim that stun
-semantics are inert. `0x10` selects the distinct damage-cancel branch in
-`Unit.cpp:1284–1287` and remains excluded from selected spell authority even
-though the unselected generic combat component has a separate implementation.
-Unknown bits reject as well. Actual Fireball's `0x0f` mask is therefore still
-unsupported; this correction does not admit its other raw fields or content.
+COMBAT executes `_handle_immediate_phase` (`Spell.cpp:3446–3453`) against owned
+player BASE/OFF timers. Source cooldown, power consumption and cast-result/Go
+precede the reset; immediate effect-value and critical draws follow it. The
+existing atomic projectile component computes those draws before exposing its
+successful launch, then this host resets the timers before publishing buffered
+events. This deterministic reset commutes with those draws only in the proved
+idle/no-script/no-effect-observer domain; it is not a literal call-order oracle.
+The same `Unit::Update`
+then decrements both counters by the update diff. Rejection, movement cancellation
+and interruption before release do not reset them. The admitted domain is
+mainhand-only, idle (no melee-attacking state or victim), form-zero, no disarm,
+and attack-speed factor one. General melee attacks, offhand/ranged equipment,
+haste and attack-speed modifiers remain excluded. Combat membership alone is
+not a player melee-attacking state.
 
-The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v4`.
-It is serialized into the selected Profile digest. Old v3 catalogs fail profile
-validation, and old selected-profile checkpoint/record identities fail restore
-and replay, including after recomputing native35 outer hashes. This also rejects
-old contexts whose raw flags were zero and only the policy changed. There is no
-defaulted migration or interpretation of old `0x08` as movement. Global native
-format 35 stays unchanged: unselected profiles have no spell-authority catalog,
-and their execution, state format and identity inputs are unchanged.
+Initialization derives the attack-time float fields from source base values and
+retained equipped weapon Delay, with source uint32/binary32 conversion. Equipment
+break callbacks restore the base field. A required latest reset witness binds
+profile/world/player/cast/target identity, historical prepare/release bindings,
+the exact derived ReleaseHit receipt, pre-release source-history tuple, executing
+event queue/dispatch, source execution and release-time intervals. Exact structural
+release-transition validation preserves pre-release pushback state; a still-live
+cast must also agree with the retained launch. It survives projectile cleanup,
+target death and respawn. Restore re-derives the source interval and exact current
+countdown. Rehashing only the outer checkpoint cannot repair a conflicting
+receipt/history/owner/epoch binding. This is source consistency validation, not
+authentication of arbitrarily rewritten compacted history.
 
-The interrupt regressions cover all 32 combinations of defined bits, each
-unsupported bit through bit 31 combined with every supported mask, all raw/spec
-boolean pairs, transactional initialization failure, actual scheduled movement
-and turn handling, and NPC damage/pushback plus replay and checkpoint restore.
-These authored fixtures are not a stock Fireball or full C++ lifecycle oracle.
+Only the latest reset is retained, with bounded event-queue and progression-prefix
+work charged to checkpoint restoration. No reset-history list grows per cast.
+Positive effective mana cost binds it to the independently retained latest
+TakePower timestamp even after event/projectile cleanup; zero-cost COMBAT and
+zero-minimum-projectile-delay COMBAT remain explicitly unsupported. The latter
+avoids restoring a transient zero-delay release as a live cast; source speed24
+is unaffected. Legacy non-COMBAT spells retain their separate behavior. Owned
+commands and restore enforce at most one preparing player cast, so two player
+releases cannot occur in the same Unit phase. Co-due notifications retain source
+queue ordering; a newer successful release replaces the witness in that order.
+Weapon-break/level callbacks change current attack times without retroactively
+changing an already-running countdown or its release-time equipment recipe.
+
+The immutable catalog policy is `cmangos-8ec338a1-native-spell-authority-v6`.
+Native format 36 uses `benilla-native-source-combat-timers-v36` across profile,
+state, record, checkpoint, melee-action, melee-chain and visitor-callback hashes.
+The new melee-release receipt integrity domain is also explicitly v36.
+Native35 and earlier checkpoints/journals and old selected catalog policies
+reject, including current outer rehashes and stale historical profile contexts.
+Original World v2 and separate character/profile save formats are unchanged.
+
+The retained full-raw ID 133 fixture uses authored source-shaped values, including
+the `0x0f` interrupt mask. It is not evidence of actual DBC equality or a complete
+C++ lifecycle oracle. The source producer/compiler and native admission remain
+closed.
 
 ## Raw closure and ownership
 
@@ -64,18 +96,53 @@ rows, NPC template resistance and immunity masks, actual min/max levels and kind
 addon/spawn-addon auras and script/immunity evidence. Profile initialization
 replays the original player initializer and compares its combat/player genesis.
 Its raw initial spells and equipped item proc/set/random/script fields remain
-bound to the catalog. Initial aura-interrupt flags reject: even passive numeric
+bound to the catalog. Actual initial live-holder aura-interrupt flags reject: even passive numeric
 stat auras could otherwise disappear on ACTION/ACTION_LATE while native stats
-remained unchanged. Unknown source rows never mean empty rows.
+remained unchanged. A known inactive spell does not create a holder dependency.
+The constructor seals all retained initial raw rows; read validation also checks
+holder amounts, attributes, effects and control metadata against them. Unknown
+source rows never mean empty rows. Equipped on-use spells are conservatively
+excluded along with proc/equip spells; no item-use execution is introduced.
 
-All applicable spell-area, condition, script, proc, affect, bonus, threat and
-elixir hook sets must be explicitly complete and empty. The catalog does not
+All applicable condition, script, proc, affect, bonus, threat and elixir hook sets
+must be explicitly complete and empty. Full-raw spell_area evidence is a distinct
+complete global raw table, not a spell-ID-filtered empty result. Its scoped
+absence contract is described below. The catalog does not
 accept an externally asserted resistance, immunity, CanCrit or allowed verdict.
 NPC resistances and immunity masks must be raw zero; totems, critters, world-boss
 rank/level overrides, spell lists, control and addon/script modifiers reject.
-The only admitted attribute bit is CANT_CRIT; unknown bits and damage classes
+The admitted attribute bits are CANT_CRIT and NOT_SHAPESHIFT; the latter
+requires the source-owned form-zero domain. Unknown bits and damage classes
 reject before RNG. The positive ID boundary closes source hardcoded LOS, cast-time,
 wand-school, rolling-Ignite, aura stack/remove and evade-retention exceptions.
+
+The complete raw domain also retains ProcChance 101 with proven zero effective
+proc flags, item subclass mask `0xffffffff` only with equipped class -1, default
+1.0 damage multipliers in empty effect slots, and the exact direct bonus
+coefficient bits `0x3dfbe76d`. Their source branches are neutral only after the
+catalog proves the initialized stat/resistance/skill/reputation holder set,
+complete-empty modifier hooks and equipped proc/set/random/script sources. The
+explicit queried spell-ID union covers the active identity, every ordered initial
+cast (including nonholders), initial holders and
+all retained rank-chain references; an empty query result alone cannot establish
+that scope. Full-raw profiles exclude the incoming player-slow effect host.
+
+Full-raw initialization retains the complete bounded starter input and replays its
+ordered recursive InitialCast trace, including nonholders. Its canonical source
+identity must equal retained future-training input. Every future cast-on-learning
+row must already be active in that trace. A strict first holder domain permits
+only source-audited 20598, 20599 and the explicitly authored test ID 60100 with
+exact shapes; other initial casts reject rather than becoming inert. Diplomacy
+also needs its separately bound reputation host. Complete actual Human creation
+is not supported: Dodge 81's RNG-consuming empty effect and other initial weapon
+passives are not silently dropped.
+
+Indexed cast-time and duration evidence distinguishes Unknown, observed Missing,
+and Found tuples and binds exact raw indices. Shared indices must agree across
+all initial and active spells. No convention about indices 0, 1, 16 or 35 supplies
+a missing value. The bounded synchronous holder policy requires a proven zero
+cast time and source-derived permanence, absent aura scripts, and no applicable
+rank relationship. These supplied evidence inputs are not raw-capture certificates.
 
 Complete applicable spell_group/spell_group_spell and spell_chain rows are retained
 and shape-validated, including nonempty rows. They do not have to be absent for
@@ -91,6 +158,38 @@ The source producer is still missing. These explicit input structures describe
 what it must capture, not proof that an actual database/DBC closure was read.
 Synthetic fixtures use ID 133 with authored values and establish no content
 admission. `NativeCapability` remains uninhabited and production startup closed.
+
+## Scoped area-source precondition
+
+Selected full-raw execution requires an owned source-location dependency before
+any first/current-frame effect and before an accepted destination becomes the
+player pose. The separate GetZoneAndAreaId provider retains actual terrain/VMap
+products and complete AreaTable, WMOAreaTable and Map bytes. It binds the exact
+map, content, source epoch, inventory, catalog, session, player, tick, ticket and
+binary32 pose. It does not reuse liquid observations, which can skip area lookup.
+The source selects zone from the resolved row's zone, or that row's ID when zone
+is zero; missing row yields zero IDs, while a real row ID zero remains a lookup.
+No parent-row lookup or invented map-to-zone assignment substitutes for this.
+
+Every spell-area source copy retains the same complete ten-column raw table.
+The host conservatively rejects any potentially applicable row selected by the
+active/initial/rank/holder/aura dependency scope or the actual zone/area indexes.
+Unrelated rows are permitted: the table need not be globally empty. The source
+loader does not insert area-index-zero entries, although global rows can still
+matter through spell or aura keys. The host does not guess condition, race,
+gender, quest or aura eligibility to waive a potentially relevant row.
+
+A retained location witness must match the current pose and source identity;
+missing, stale or inconsistent state rejects. Failed movement does not install
+a destination witness. Every new frame after restore obtains a fresh observation.
+These are execution-scope preconditions, not invented UpdateZone/UpdateArea
+timers or callbacks. Runtime facts validate catalog lookup consistency; only the
+installed app provider obtains the flag from owned geometry. Serialized/rehashed
+facts alone cannot authenticate a coordinated fabrication of geometry history.
+
+Public source-table evidence and authored byte-fixture tests do not establish
+actual Northshire terrain or client DBC equality. Ordinary native admission stays
+closed, and actual client assets remain required for any such claim.
 
 ## Source phases and spatial dependencies
 
@@ -162,9 +261,9 @@ publication after a successful source release: publication remains pending,
 retry publishes once without rerunning dice, and reopen preserves continuation.
 
 This changes the experimental **simulation checkpoint/record** contract to native
-format 35, `benilla-native-corpse-carried-items-v35`, with v35 profile/state/
-record/checkpoint/action hash domains. Published formats 10 through 19 reject without an
-implicit migration. Separate character/profile save formats are unchanged.
+format 36, `benilla-native-source-combat-timers-v36`, with v36 profile/state/
+record/checkpoint/action/callback hash domains. Native35 and earlier reject without
+an implicit migration. Separate character/profile save formats are unchanged.
 Incompatible open preserves current and previous save files; it does not replace
 them with a new world. Raw catalog changes also change the profile digest.
 

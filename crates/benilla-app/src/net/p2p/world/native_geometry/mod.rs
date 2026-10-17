@@ -11,6 +11,7 @@ mod products;
 pub(crate) mod real_corridor_fixture;
 pub(crate) mod route_commit;
 mod source_ground_height;
+mod source_location;
 mod source_navigation;
 mod source_near_point;
 mod source_near_point_empty;
@@ -61,6 +62,7 @@ struct Service {
     primary_near_point: Option<source_near_point::SourceNearPointProvider>,
     empty_selector: Option<source_near_point_empty::SourceEmptySelectorNearPointProvider>,
     player_environment: Option<source_player_environment::SourcePlayerEnvironmentProvider>,
+    source_location: Option<source_location::SourceLocationProvider>,
     same_polygon_route: Option<source_route_same_polygon::SourceSamePolygonRouteProvider>,
 }
 
@@ -157,6 +159,33 @@ pub(crate) fn install_with_player_environment(
     install_products(world, session, None, None, None, None, Some(provider))
 }
 
+/// Select an independent owned GetZoneAndAreaId reader. This has no liquid
+/// shortcut and cannot construct participant, spell closure or admission proof.
+pub(crate) fn install_with_source_location(
+    world: &mut World,
+    mut session: Session,
+    profile: &benilla_world_runtime::native::Profile,
+    player: benilla_world_runtime::PlayerId,
+    snapshot: products::terrain_area::TerrainAreaSnapshot<'static>,
+) -> Result<LocalAuthority, Failure> {
+    session.source_location = Some(core::SourceLocationPolicy::from_profile(profile, player)?);
+    let provider =
+        source_location::SourceLocationProvider::bind(&session, profile, player, snapshot)?;
+    let (authority, mailbox) = core::mailbox(session)?;
+    world.insert_non_send_resource(Service {
+        mailbox,
+        budget: default(),
+        vmap: None,
+        navigation: None,
+        primary_near_point: None,
+        empty_selector: None,
+        player_environment: None,
+        source_location: Some(provider),
+        same_polygon_route: None,
+    });
+    Ok(authority)
+}
+
 fn install_products(
     world: &mut World,
     session: Session,
@@ -175,6 +204,7 @@ fn install_products(
         primary_near_point,
         empty_selector,
         player_environment,
+        source_location: None,
         same_polygon_route: None,
     });
     Ok(authority)
@@ -215,6 +245,7 @@ pub(crate) fn install_with_same_polygon(
         primary_near_point: Some(providers.near_point),
         empty_selector: None,
         player_environment: Some(providers.environment),
+        source_location: None,
         same_polygon_route: Some(providers.route),
     });
     Ok((authority, sink))
@@ -267,6 +298,7 @@ fn process(
         primary_near_point,
         empty_selector,
         player_environment,
+        source_location,
         same_polygon_route,
         ..
     } = &mut **service;
@@ -309,6 +341,12 @@ fn process(
         let body = validated.body();
         if !live.0 {
             return Err(Failure::MissingGeometry);
+        }
+        if matches!(&request.query, Query::SourceLocation(_)) {
+            return source_location
+                .as_ref()
+                .ok_or(Failure::MissingGeometry)?
+                .resolve(session, request, deadline);
         }
         if matches!(&request.query, Query::PlayerEnvironment(_)) {
             return player_environment

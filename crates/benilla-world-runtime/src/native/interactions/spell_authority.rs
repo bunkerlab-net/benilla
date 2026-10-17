@@ -7,15 +7,30 @@ use super::*;
 use benilla_sim::starter_init as init;
 use std::collections::BTreeSet;
 
+#[path = "initial_cast_source.rs"]
+mod initial_cast_source;
+#[path = "spell_area_source.rs"]
+mod spell_area_source;
+use initial_cast_source::InitialCastProof;
+pub use initial_cast_source::{InitialCastDependencies, InitialSpellLookup};
+pub use spell_area_source::{SpellAreaSourceRow, SpellAreaSourceRows};
+
+#[cfg(test)]
+#[path = "spell_full_raw_tests.rs"]
+mod full_raw_tests;
 #[cfg(test)]
 #[path = "spell_interrupt_tests.rs"]
 mod interrupt_tests;
 
-pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v4";
+pub const SPELL_AUTHORITY_POLICY: &str = "cmangos-8ec338a1-native-spell-authority-v6";
 const CANT_CRIT: u32 = 0x2000_0000;
+const NOT_SHAPESHIFT: u32 = 0x0001_0000;
+const FIREBALL_BONUS_COEFFICIENT: u32 = 0x3dfb_e76d;
 // SpellDefines.h:351–357. Aura/channel interrupt flags are different enums.
 const INTERRUPT_MOVEMENT: u32 = 0x01;
 const INTERRUPT_DAMAGE_PUSHBACK: u32 = 0x02;
+const INTERRUPT_STUN: u32 = 0x04;
+const INTERRUPT_COMBAT: u32 = 0x08;
 
 /// Complete applicable source rows, including an observed empty result. Unknown
 /// is never absence. These data inputs are not a raw-producer certification.
@@ -61,7 +76,8 @@ pub struct SpellRankSource {
 /// rows, retained even though the singleton holder domain never compares them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SpellHookSources {
-    pub spell_area: SpellSourceRows<u32>,
+    /// Complete unfiltered spell_area table, never a per-spell key list.
+    pub spell_area: SpellAreaSourceRows,
     pub spell_script_names: SpellSourceRows<String>,
     pub conditions: SpellSourceRows<u32>,
     pub spell_proc_event: SpellSourceRows<u32>,
@@ -76,7 +92,7 @@ pub struct SpellHookSources {
 }
 impl SpellHookSources {
     fn validate(&self) -> Result<(), NativeError> {
-        self.spell_area.empty("spell_area source closure")?;
+        self.spell_area.complete()?;
         self.spell_script_names
             .empty("spell script source closure")?;
         self.conditions.empty("spell condition source closure")?;
@@ -203,10 +219,20 @@ pub struct SpellAuthorityInput {
     pub npcs: Vec<NpcSpellSource>,
     pub session: SpellSessionSource,
     pub modifier_hooks: SpellHookSources,
+    /// Exact queried union: active spells, every actual initial cast (including
+    /// nonholders), retained initial holders, and every
+    /// applicable rank-chain ID. Empty hook results do not imply this scope.
+    pub modifier_spell_ids: SpellSourceRows<u32>,
+    /// Complete exact initial-cast ID scope, including casts with no surviving holder.
+    /// Required by the full-raw domain; legacy source spell behavior is unchanged.
+    pub initial_cast_dependencies: SpellSourceRows<InitialCastDependencies>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 struct InitialModifierSource {
     spell_words: Vec<Vec<u32>>,
+    source_rows: crate::Digest,
+    holders: Vec<InitialAuraMetadata>,
+    combat_source: crate::Digest,
     // Item::ApplyEnchantment is excluded by the initializer. Retain every
     // equipped item's spell triggers, set/random/script fields as raw evidence.
     equipped_items: Vec<InitialItemModifierSource>,
@@ -223,13 +249,16 @@ struct InitialItemModifierSource {
 /// Profile; current state and phase history can only be borrowed by the frame.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SpellAuthorityCatalog {
+    pub(in crate::native) source_location: Option<SourceLocationSource>,
     policy: &'static str,
     range_policy: SpellRangeNumericPolicy,
     spells: BTreeMap<u32, SpellAuthoritySource>,
     npcs: BTreeMap<u32, NpcSpellSource>,
     session: SpellSessionSource,
     modifier_hooks: SpellHookSources,
+    modifier_spell_ids: SpellSourceRows<u32>,
     initial_modifiers: InitialModifierSource,
+    initial_cast: Option<InitialCastProof>,
 }
 /// Private immutable numeric identity; only source spell initialization selects it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -246,6 +275,14 @@ impl SpellRangeNumericPolicy {
     }
 }
 impl Profile {
+    pub(in crate::native) fn spell_location_catalog(&self) -> Option<&SpellAuthorityCatalog> {
+        self.interactions.as_ref()?.spell_authority.as_ref()
+    }
+    pub(in crate::native) fn spell_location_catalog_mut(
+        &mut self,
+    ) -> Option<&mut SpellAuthorityCatalog> {
+        self.interactions.as_mut()?.spell_authority.as_mut()
+    }
     /// Read-only projection contract selector; this does not grant content admission.
     pub fn has_source_spell_authority(&self) -> bool {
         selected(self)
@@ -255,7 +292,31 @@ impl Profile {
         initial: &init::StarterInput,
         input: SpellAuthorityInput,
     ) -> Result<(), NativeError> {
-        if initial.spells.iter().any(|row| row.words[22] != 0) {
+        let full_raw = input
+            .spells
+            .iter()
+            .any(|row| row.words.len() == 173 && row.requires_full_domain());
+        if full_raw {
+            InitialCastProof::check_bound(initial)?;
+        }
+        let mage = init::initialize_mage(initial)?;
+        let initial_cast = if full_raw {
+            Some(InitialCastProof::new(
+                initial,
+                &mage,
+                input.initial_cast_dependencies,
+            )?)
+        } else {
+            None
+        };
+        // Learning Honorless Target, for example, does not create a holder.
+        if mage.initial_auras.iter().any(|a| {
+            initial
+                .spells
+                .iter()
+                .find(|r| r.id == a.spell_id)
+                .is_none_or(|row| row.words[22] != 0)
+        }) {
             return Err(NativeError::UnsupportedMechanic(
                 "initial spell aura-interrupt lifecycle",
             ));
@@ -325,6 +386,7 @@ impl Profile {
                 spells: raw.spells.map(|s| (s.id, s.trigger)),
             });
         }
+        let source_location = self.source_location().cloned();
         let mut next = self.clone();
         next.interactions
             .as_mut()
@@ -332,14 +394,23 @@ impl Profile {
                 "spell authority requires source interaction catalog",
             ))?
             .spell_authority = Some(SpellAuthorityCatalog {
+            source_location,
             policy: SPELL_AUTHORITY_POLICY,
             range_policy: SpellRangeNumericPolicy::pinned(),
             spells,
             npcs,
             session: input.session,
             modifier_hooks: input.modifier_hooks,
+            modifier_spell_ids: input.modifier_spell_ids,
+            initial_cast,
             initial_modifiers: InitialModifierSource {
+                source_rows: crate::digest(
+                    b"cmangos-8ec338a1-native-initial-modifier-rows-v1\0",
+                    &spell_words,
+                ),
                 spell_words,
+                holders: combat.initial_auras.clone(),
+                combat_source: initial_modifier_identity(combat),
                 equipped_items,
             },
         });
@@ -349,6 +420,175 @@ impl Profile {
     }
 }
 impl SpellAuthorityCatalog {
+    fn validate_neutral_domain(&self, profile: &Profile) -> Result<(), NativeError> {
+        let combat = profile.combat.as_ref().ok_or(NativeError::InvalidProfile)?;
+        if self.spells.values().any(|r| r.words.len() != 173) {
+            return Err(NativeError::InvalidProfile);
+        }
+        if self.initial_modifiers.combat_source != initial_modifier_identity(combat)
+            || self.initial_modifiers.source_rows
+                != crate::digest(
+                    b"cmangos-8ec338a1-native-initial-modifier-rows-v1\0",
+                    &self.initial_modifiers.spell_words,
+                )
+            || self.initial_modifiers.holders != combat.initial_auras
+        {
+            return Err(NativeError::InvalidProfile);
+        }
+        let full_raw = self
+            .spells
+            .values()
+            .any(SpellAuthoritySource::requires_full_domain);
+        if full_raw != self.initial_cast.is_some() {
+            return Err(NativeError::InvalidProfile);
+        }
+        let mut scope = self.spells.keys().copied().collect::<BTreeSet<_>>();
+        if let Some(initial) = &self.initial_cast {
+            initial.validate(
+                profile,
+                std::iter::once(&self.modifier_hooks)
+                    .chain(self.spells.values().map(|row| &row.hooks)),
+                self.spells.values(),
+            )?;
+            if !initial.raw_rows().map(|row| row.as_slice()).eq(self
+                .initial_modifiers
+                .spell_words
+                .iter()
+                .map(Vec::as_slice))
+            {
+                return Err(NativeError::InvalidProfile);
+            }
+            scope.extend(initial.cast_ids());
+        }
+        for holder in &self.initial_modifiers.holders {
+            let raw = self
+                .initial_modifiers
+                .spell_words
+                .iter()
+                .find(|row| row.first() == Some(&holder.spell_id))
+                .ok_or(NativeError::InvalidProfile)?;
+            let i = usize::from(holder.effect_index);
+            // These source-applied stat/resistance/skill/reputation holders do
+            // not enter any damage-done/taken, haste, control, or spellmod list.
+            if raw.len() != 173
+                || i >= 3
+                || raw[61 + i] != 6
+                || raw[91 + i] != holder.aura_type
+                || raw[106 + i] as i32 != holder.misc_value
+                || raw[6] != holder.attributes
+                || raw[9] != holder.attributes_ex3
+                || raw[16] != holder.caster_aura_state
+                || raw[22] != holder.aura_interrupt_flags
+                || !matches!(raw[64 + i], 0 | 1)
+                || raw[70 + i] != 0
+                || raw[73 + i] != 0
+                || raw[112 + i] != 0
+                || raw[22] != 0
+                || raw[24] != 0
+                || raw[26] != 0
+                || !matches!(
+                    holder.aura_type,
+                    22 | 29 | 30 | 80 | 83 | 98 | 101 | 137 | 142 | 156
+                )
+            {
+                return Err(NativeError::UnsupportedMechanic(
+                    "neutral spell initial holder source",
+                ));
+            }
+            let amount = spell::EffectValue {
+                base_points: raw[76 + i] as i32,
+                base_dice: i32::try_from(raw[67 + i]).map_err(|_| NativeError::InvalidProfile)?,
+                die_sides: raw[64 + i] as i32,
+                points_per_level: spell::SpellFloat::ZERO,
+                dice_per_level: spell::SpellFloat::ZERO,
+                base_level: 0,
+                spell_level: 0,
+                max_level: 0,
+            }
+            .evaluate(5, None)?;
+            if amount != holder.amount {
+                return Err(NativeError::InvalidProfile);
+            }
+            scope.insert(holder.spell_id);
+        }
+        for hooks in
+            std::iter::once(&self.modifier_hooks).chain(self.spells.values().map(|s| &s.hooks))
+        {
+            let SpellSourceRows::Complete(ranks) = &hooks.spell_rank_chain else {
+                return Err(NativeError::AuthorityUnavailable(
+                    "neutral modifier rank scope",
+                ));
+            };
+            for rank in ranks {
+                scope.extend(
+                    [
+                        rank.spell_id,
+                        rank.previous_spell,
+                        rank.first_spell,
+                        rank.required_spell,
+                    ]
+                    .into_iter()
+                    .filter(|id| *id != 0),
+                );
+            }
+        }
+        let SpellSourceRows::Complete(actual) = &self.modifier_spell_ids else {
+            return Err(NativeError::AuthorityUnavailable(
+                "neutral modifier queried spell scope",
+            ));
+        };
+        if actual.len() > 4096 || !actual.iter().copied().eq(scope) {
+            return Err(NativeError::AuthorityBinding);
+        }
+        if self.initial_modifiers.equipped_items.len() != combat.equipment.items.len()
+            || self
+                .initial_modifiers
+                .equipped_items
+                .iter()
+                .zip(&combat.equipment.items)
+                .any(|(raw, item)| {
+                    raw.id != item.item_id
+                        || raw.item_set != 0
+                        || raw.random_property != 0
+                        || raw.scripted
+                        || raw.spells.iter().any(|(id, _)| *id != 0)
+                })
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "neutral spell equipment modifier source",
+            ));
+        }
+        for row in self.spells.values() {
+            if self
+                .initial_modifiers
+                .spell_words
+                .iter()
+                .find(|raw| raw.first() == Some(&row.words[0]))
+                != Some(&row.words)
+            {
+                return Err(NativeError::InvalidProfile);
+            }
+        }
+        let interactions = profile
+            .interactions
+            .as_ref()
+            .ok_or(NativeError::InvalidProfile)?;
+        interactions.player.control.validate()?;
+        if self
+            .spells
+            .values()
+            .any(SpellAuthoritySource::requires_full_domain)
+            && profile.player_slow.is_some()
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "full raw spell incoming-effect source domain",
+            ));
+        }
+        // The initializer has no restored Unit; the owned melee state enforces
+        // unit_state0/m_attacking=null, form0 and speed1 through restore/update.
+        combat.validate_melee_genesis()?;
+        Ok(())
+    }
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
         if self.policy != SPELL_AUTHORITY_POLICY
             || self.range_policy != SpellRangeNumericPolicy::pinned()
@@ -371,6 +611,11 @@ impl SpellAuthorityCatalog {
             return Err(NativeError::UnsupportedMechanic("spell session state"));
         }
         self.modifier_hooks.validate()?;
+        self.validate_neutral_domain(profile)?;
+        self.validate_area_sources()?;
+        if let Some(source) = &self.source_location {
+            source.validate(profile)?;
+        }
         self.session
             .session_scripts
             .empty("spell session script source closure")?;
@@ -512,6 +757,16 @@ impl SpellAuthorityCatalog {
     }
 }
 impl SpellAuthoritySource {
+    fn requires_full_domain(&self) -> bool {
+        let w = &self.words;
+        w[6] == NOT_SHAPESHIFT
+            || w[161] == 0x4000_0001
+            || self.bonus_coefficients != [0; 3]
+            || w[25] == 101
+            || w[59] == u32::MAX
+            || w[21] & (INTERRUPT_STUN | INTERRUPT_COMBAT) != 0
+            || (0..3).any(|i| w[61 + i] == 0 && w[167 + i] != 0)
+    }
     fn validate(&self) -> Result<(), NativeError> {
         let w = &self.words;
         if w.len() != 173 || w[0] == 0 || w[0] > u16::MAX.into() || !(1..=6).contains(&w[1]) {
@@ -520,18 +775,21 @@ impl SpellAuthoritySource {
         self.hooks.validate()?;
         // Ordinary mage MAGIC, explicit enemy target. Unknown bits stay closed.
         // CANT_CRIT is admitted deliberately and overrides the player's crit stat.
-        if w[6] != 0
+        if !matches!(w[6], 0 | NOT_SHAPESHIFT)
             || w[7] != 0
             || w[8] & !CANT_CRIT != 0
             || w[9] != 0
             || w[10] != 0
             || w[160] != 3
-            || !matches!(w[161], 0 | 1)
+            || !matches!(w[161], 0 | 1 | 0x4000_0001)
             || w[162] != 0
             || w[164] != 1
             || self.server_side != 0
             || self.server_attributes != 0
-            || self.bonus_coefficients != [0; 3]
+            || !matches!(
+                self.bonus_coefficients,
+                [0, 0, 0] | [FIREBALL_BONUS_COEFFICIENT, 0, 0]
+            )
             || self.attack_power_coefficients != [0; 3]
         {
             return Err(NativeError::UnsupportedMechanic(
@@ -541,8 +799,8 @@ impl SpellAuthoritySource {
         // All remaining semantic fields outside the admitted numeric/effect inputs
         // are checked; unused visual/text fields 3,38,115..155,166 are retained.
         for index in [
-            4, 5, 11, 12, 14, 15, 16, 17, 22, 23, 24, 25, 26, 31, 34, 35, 39, 59, 60, 159, 163,
-            170, 171, 172,
+            4, 5, 11, 12, 14, 15, 16, 17, 22, 23, 24, 26, 31, 34, 35, 39, 60, 159, 163, 170, 171,
+            172,
         ] {
             if w[index] != 0 {
                 return Err(NativeError::UnsupportedMechanic(
@@ -550,16 +808,31 @@ impl SpellAuthoritySource {
                 ));
             }
         }
-        // STUN (0x04) is unimplemented in the pinned core. COMBAT (0x08)
-        // resets melee timers and gates interruptibility; it is not movement.
-        // DAMAGE_CANCELS (0x10) and unknown flags also remain outside this host.
-        if w[21] & !(INTERRUPT_MOVEMENT | INTERRUPT_DAMAGE_PUSHBACK) != 0 {
+        // STUN has no consumer in the pinned source. Incoming actual stun,
+        // silence and interrupt operations are closed by the catalog domain.
+        // COMBAT executes _handle_immediate_phase's owned timer reset.
+        if w[21]
+            & !(INTERRUPT_MOVEMENT | INTERRUPT_DAMAGE_PUSHBACK | INTERRUPT_STUN | INTERRUPT_COMBAT)
+            != 0
+        {
             return Err(NativeError::UnsupportedMechanic(
                 "raw spell interrupt lifecycle",
             ));
         }
+        if w[21] & INTERRUPT_COMBAT != 0 && w[32] == 0 {
+            return Err(NativeError::UnsupportedMechanic(
+                "zero-cost combat-reset release history",
+            ));
+        }
+        // ProcChance is read only after the effective proc flags, including
+        // spell_proc_event, are nonzero. Both sources are closed above.
+        if !matches!(w[25], 0 | 101) {
+            return Err(NativeError::UnsupportedMechanic("raw inactive proc chance"));
+        }
         if !matches!(w[13], 0 | 2)
             || w[58] != u32::MAX
+            // Item::IsFitToSpellRequirements never reads this mask for class -1.
+            || !matches!(w[59], 0 | u32::MAX)
             || w[40..58].iter().any(|x| *x != 0)
             || w[165] > 1
             || self.category_flags != 0
@@ -608,7 +881,9 @@ impl SpellAuthoritySource {
         for i in 0..3 {
             if w[61 + i] == 0 {
                 // Empty slots may not hide semantic effects or targets.
-                if (64..=112).step_by(3).any(|base| w[base + i] != 0) || w[167 + i] != 0 {
+                if (64..=112).step_by(3).any(|base| w[base + i] != 0)
+                    || !matches!(w[167 + i], 0 | 0x3f80_0000)
+                {
                     return Err(NativeError::UnsupportedMechanic(
                         "nonempty raw empty effect slot",
                     ));
@@ -637,7 +912,7 @@ impl SpellAuthoritySource {
                 _ => {
                     return Err(NativeError::UnsupportedMechanic(
                         "raw spell effect morphology",
-                    ))
+                    ));
                 }
             }
         }
@@ -674,6 +949,18 @@ impl SpellAuthoritySource {
     ) -> Result<(), NativeError> {
         self.validate()?;
         spec.validate()?;
+        if self.words[21] & INTERRUPT_COMBAT != 0 && spec.mana_cost == 0 {
+            return Err(NativeError::UnsupportedMechanic(
+                "zero-cost combat-reset release history",
+            ));
+        }
+        if self.words[21] & INTERRUPT_COMBAT != 0
+            && spell::projectile_delay(spell::SpellFloat::ZERO, spec.projectile_speed)? == 0
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "zero-delay combat-reset release history",
+            ));
+        }
         if spec.cast_ms == 0 {
             return Err(NativeError::UnsupportedMechanic(
                 "instant spell entry lifecycle",
@@ -735,6 +1022,48 @@ pub(in crate::native) fn selected(profile: &Profile) -> bool {
         .as_ref()
         .is_some_and(|c| c.spell_authority.is_some())
 }
+
+fn initial_modifier_identity(combat: &CombatGenesis) -> crate::Digest {
+    crate::digest(
+        b"cmangos-8ec338a1-native-neutral-damage-source-v1\0",
+        &(
+            // Exact pinned Unit.cpp contains the done/taken/benefit/coefficient
+            // functions; the neutral projection does not remove ordinary crit.
+            "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+            // Player initialization/equipment/form ownership, exact interrupt
+            // declaration and Spell control/reset consumers belong to this proof.
+            "d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e",
+            "07c3fd11a40c993ab8feeb718d21a7a2ae9b5c1700efd2e03ac53e76c6f938bf",
+            "ebcabd3073f188541e6a1abcc82a8d0ee6d48d360dc5ab16d9e63b3e87d75201",
+            &combat.starter_identity,
+            combat.recipe.snapshot(),
+            &combat.equipment,
+            &combat.equipment_weapons,
+            &combat.initial_auras,
+            combat.proficiencies,
+        ),
+    )
+}
+
+pub(in crate::native) fn resets_melee_timers(
+    profile: &Profile,
+    ability: u32,
+) -> Result<bool, NativeError> {
+    let Some(catalog) = profile
+        .interactions
+        .as_ref()
+        .and_then(|c| c.spell_authority.as_ref())
+    else {
+        return Ok(false);
+    };
+    let raw = catalog
+        .spells
+        .get(&ability)
+        .ok_or(NativeError::AuthorityBinding)?;
+    // This host only executes ordinary nontriggered spells. Ex2 timer-reset
+    // suppression is excluded by raw validation, rather than silently ignored.
+    Ok(raw.words[21] & INTERRUPT_COMBAT != 0)
+}
 /// Private live view; no public constructor or deserializable authority snapshot.
 pub(in crate::native) struct CurrentSpell<'a> {
     view: CurrentView<'a>,
@@ -756,6 +1085,12 @@ impl<'a> CurrentSpell<'a> {
             .spell_authority
             .as_ref()
             .ok_or(NativeError::InvalidState)?;
+        source.validate_neutral_domain(profile)?;
+        state
+            .combat
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?
+            .validate_melee_timers(profile.combat.as_ref().ok_or(NativeError::InvalidState)?)?;
         if state.npcs.len() != profile.npcs.len() {
             return Err(NativeError::AuthorityBinding);
         }
@@ -915,6 +1250,7 @@ pub(in crate::native) fn validate_historical_binding(
         .spells
         .get(&binding.ability.id)
         .ok_or(NativeError::InvalidCheckpoint)?;
+    catalog.validate_neutral_domain(profile)?;
     raw.matches_spec(binding.ability.school, binding.spec()?)?;
     raw.matches_cost(binding.spec()?, binding.historical_create_mana(profile)?)?;
     if !(1..=60).contains(&binding.level) {

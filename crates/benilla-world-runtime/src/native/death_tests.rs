@@ -319,9 +319,9 @@ fn resigned_death_clock_killer_and_detached_state_tamper_is_rejected() {
             _ => unreachable!(),
         }
         let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v35\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v36\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v35\0",
+            b"benilla-native-checkpoint-v36\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(
@@ -445,9 +445,9 @@ fn rehashed_owned_hostile_reference_forgery_is_rejected() {
             _ => unreachable!(),
         }
         let mut checkpoint: Checkpoint = serde_json::from_value(v).unwrap();
-        checkpoint.digest = crate::digest(b"benilla-native-state-v35\0", &checkpoint.state);
+        checkpoint.digest = crate::digest(b"benilla-native-state-v36\0", &checkpoint.state);
         checkpoint.checksum = crate::digest(
-            b"benilla-native-checkpoint-v35\0",
+            b"benilla-native-checkpoint-v36\0",
             &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
         );
         assert!(

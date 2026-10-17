@@ -48,6 +48,7 @@ fn setup() -> (Session, AuthorityRequest) {
         static_los: None,
         primary_near_point: Some(PrimaryNearPointPolicy::from_profile(&profile).unwrap()),
         empty_selector_near_point: None,
+        source_location: None,
         player_environment: None,
         same_polygon_route: None,
     };

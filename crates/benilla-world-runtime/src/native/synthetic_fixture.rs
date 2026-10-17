@@ -178,6 +178,11 @@ pub struct SyntheticAuthority {
 impl Authority for SyntheticAuthority {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let facts = match &request.query {
+            Query::SourceLocation(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "legacy fixture has no source-owned location",
+                ));
+            }
             Query::EventAiAudience(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "legacy fixture has no complete camera membership",

@@ -407,7 +407,7 @@ fn complete_learning_closure(
 
 /// Length-delimited, fixed-width encoding of every caller-supplied field. Source
 /// vector order is retained; Missing differs from a captured empty relationship.
-fn input_identity(input: &StarterInput) -> [u8; 32] {
+pub(super) fn input_identity(input: &StarterInput) -> [u8; 32] {
     struct Hash(Sha256);
     impl Hash {
         fn words(&mut self, values: impl IntoIterator<Item = u32>) {

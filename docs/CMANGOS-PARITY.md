@@ -266,8 +266,17 @@ is meaningful without a bounded content/mechanics inventory.
   damage, mana timing, interruption/pushback and checked aura/cast persistence.
   Source spell/learning/initial-effect inputs must be complete; unknown critical
   semantics cannot disappear. Unsupported learned active executors remain visibly
-  unavailable only after their learning/stat effects have been validated. General
-  channels, procs, triggered scripts and arbitrary aura interactions remain open.
+  unavailable only after their learning/stat effects have been validated. Selected
+  spell authority v6 retains the bounded full-raw ID 133 fields only after a
+  source-backed neutral modifier closure. Native36 owns idle player BASE/OFF
+  attack timers, source equipment Delay/break transitions, successful-release
+  COMBAT resets and durable historical reset validation. Full-raw execution also
+  requires an owned pose-bound zone/area observation and scoped absence from a
+  complete raw spell_area table; unrelated global rows do not force rejection.
+  The authored full-raw
+  fixture does not establish actual DBC equality; the producer/compiler and
+  native admission remain closed. See [the bounded spell contract](../crates/benilla-world-runtime/SPELL-AUTHORITY.md).
+  General channels, procs, triggered scripts and arbitrary aura interactions remain open.
   Existing realm-client spell UI/protocol code alone is not a local executor.
 - **Dependencies:** the exact spell schema and local DBCs, target selection,
   modifiers, resources, reagents/equipment, immunities, spatial rules, scheduling,

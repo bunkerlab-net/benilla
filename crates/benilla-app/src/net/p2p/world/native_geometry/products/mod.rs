@@ -688,3 +688,6 @@ pub(crate) fn authored_hole_ground_height() -> (
 pub(crate) use terrain_wet_liquid::tests::{
     authored_player_environment, authored_player_environment_with_spell,
 };
+
+#[cfg(test)]
+pub(crate) use terrain_area::tests::authored_source_location;

@@ -153,3 +153,6 @@ mod source_route_same_polygon;
 #[allow(dead_code)]
 #[path = "../../benilla-app/src/net/p2p/world/native_geometry/route_commit.rs"]
 mod route_commit;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_location.rs"]
+mod source_location;

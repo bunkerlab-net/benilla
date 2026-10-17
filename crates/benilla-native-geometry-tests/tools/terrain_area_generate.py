@@ -49,7 +49,9 @@ def terrain_source(root):
         'float GridMap::getHeightFromFloat(', 'float GridMap::getHeightFromUint16(',
         'float GridMap::getHeightFromUint8(', 'bool GridMap::isHole(', 'uint16 GridMap::getArea(',
         'GridMap* TerrainInfo::GetGrid(', 'inline bool IsOutdoorWMO(',
-        'bool TerrainInfo::GetAreaInfo(', 'uint16 TerrainInfo::GetAreaFlag('))
+        'bool TerrainInfo::GetAreaInfo(', 'uint16 TerrainInfo::GetAreaFlag(',
+        'void TerrainInfo::GetZoneAndAreaId(',
+        'void TerrainManager::GetZoneAndAreaIdByAreaFlag('))
     dbc_formats = '\n'.join(exact_line(checked['DBCfmt.h'], rf'^const char {name}\[\] = ".*?";$')
         for name in ('AreaTableEntryfmt', 'MapEntryfmt', 'WMOAreaTableEntryfmt'))
     dbc_structs = base.method(checked['DBCEnums.h'], 'enum MapTypes', ';')

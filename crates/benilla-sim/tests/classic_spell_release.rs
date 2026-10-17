@@ -564,3 +564,28 @@ fn release_power_loss_preserves_gcd_balance_cooldowns_and_rng() {
         .is_err());
     assert_eq!(cast, before);
 }
+
+#[test]
+fn release_transition_preserves_pre_release_pushback_state() {
+    let spec = recipe(5, 100);
+    let (mut cast, mut resources) = prepare(spec.clone());
+    let before = cast.clone();
+    let now = u64::from(spec.cast_ms);
+    cast.update(now, spec.cast_ms, &mut resources, checks(), Some(launch(5)))
+        .unwrap();
+    cast.validate_release_transition(&before, spec.cast_ms)
+        .unwrap();
+    let mut changed = serde_json::to_value(cast.checkpoint()).unwrap();
+    changed["pushbacks"] = serde_json::json!(1);
+    // The checkpoint is independently well formed, but this release cannot
+    // invent a preceding damage notification that its before-state lacks.
+    let forged =
+        MageProjectileCast::restore(serde_json::from_value(changed).unwrap(), spec.clone(), now)
+            .unwrap();
+    assert!(forged
+        .validate_release_transition(&before, spec.cast_ms)
+        .is_err());
+    assert!(cast
+        .validate_release_transition(&before, spec.cast_ms - 1)
+        .is_err());
+}

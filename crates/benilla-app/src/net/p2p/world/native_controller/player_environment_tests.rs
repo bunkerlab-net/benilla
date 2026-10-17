@@ -93,6 +93,7 @@ fn setup(h: &Harness, tick_ms: u32) -> (n::Profile, EnvironmentAuthority, Contro
         primary_near_point: None,
         empty_selector_near_point: None,
         same_polygon_route: None,
+        source_location: None,
         player_environment: Some(
             core::PlayerEnvironmentPolicy::from_profile(&profile, player_id).unwrap(),
         ),

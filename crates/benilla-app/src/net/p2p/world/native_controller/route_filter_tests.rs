@@ -202,6 +202,7 @@ fn setup(covered: bool) -> (n::Profile, ProductAuthority) {
         static_los: None,
         primary_near_point: None,
         empty_selector_near_point: None,
+        source_location: None,
         player_environment: None,
         same_polygon_route: None,
     };

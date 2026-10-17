@@ -5,7 +5,7 @@ use benilla_sim::starter_init as init;
 
 pub fn hooks() -> SpellHookSources {
     SpellHookSources {
-        spell_area: SpellSourceRows::Complete(vec![]),
+        spell_area: SpellAreaSourceRows::CompleteTable(vec![]),
         spell_script_names: SpellSourceRows::Complete(vec![]),
         conditions: SpellSourceRows::Complete(vec![]),
         spell_proc_event: SpellSourceRows::Complete(vec![]),
@@ -138,6 +138,22 @@ pub fn source(p: &Profile) -> SpellAuthorityInput {
             session_scripts: SpellSourceRows::Complete(vec![]),
         },
         modifier_hooks: hooks(),
+        initial_cast_dependencies: SpellSourceRows::Complete(vec![]),
+        modifier_spell_ids: SpellSourceRows::Complete(
+            p.abilities
+                .iter()
+                .filter_map(|a| {
+                    matches!(a.admission, AbilityAdmission::Available(_)).then_some(a.id)
+                })
+                .chain(
+                    p.combat
+                        .iter()
+                        .flat_map(|c| c.initial_auras.iter().map(|a| a.spell_id)),
+                )
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        ),
     }
 }
 pub fn rekey(p: &mut Profile, initial: &mut init::StarterInput) {
@@ -204,6 +220,16 @@ impl Authority for SpatialOnly {
             !matches!(request.query, Query::Spell { .. }),
             "legacy authored SpellFacts escaped selected source host"
         );
+        if let Query::SourceLocation(query) = &request.query {
+            return Ok(AuthorityReply {
+                request: request.clone(),
+                facts: Facts::SourceLocation(SourceLocationFacts::new(
+                    query,
+                    &authored_location_catalog(),
+                    7,
+                )?),
+            });
+        }
         let Query::SourceSpell(query) = &request.query else {
             return self.base.resolve(request);
         };
@@ -256,4 +282,43 @@ pub fn spatial_only() -> SpatialOnly {
     let mut a = SpatialOnly::default();
     a.base.base.visits = Some(false);
     a
+}
+
+/// Deliberately authored full WDBC framing; never extracted game assets.
+pub fn authored_location_catalog() -> SourceLocationCatalog {
+    fn dbc<const N: usize>(rows: &[[u32; N]]) -> Vec<u8> {
+        let mut bytes = b"WDBC".to_vec();
+        for value in [rows.len() as u32, N as u32, (N * 4) as u32, 1] {
+            bytes.extend(value.to_le_bytes());
+        }
+        for row in rows {
+            for value in row {
+                bytes.extend(value.to_le_bytes());
+            }
+        }
+        bytes.push(0);
+        bytes
+    }
+    let areas = [(9, 12, 7), (12, 0, 8), (148, 0, 9)].map(|(id, zone, flag)| {
+        let mut row = [0; 25];
+        row[0] = id;
+        row[2] = zone;
+        row[3] = flag;
+        row
+    });
+    SourceLocationCatalog::decode(&dbc(&areas), &dbc::<20>(&[]), &dbc(&[[0; 42]])).unwrap()
+}
+pub fn initialize_authored_location(profile: &mut Profile) {
+    let catalog = authored_location_catalog();
+    let snapshot = SourceLocationSnapshotBinding {
+        map: profile.map_id,
+        content: profile.content_digest,
+        source_epoch: [73; 32],
+        inventory: [74; 32],
+        policy: [75; 32],
+        catalog: catalog.digest(),
+    };
+    profile
+        .initialize_source_location(snapshot, catalog)
+        .unwrap();
 }

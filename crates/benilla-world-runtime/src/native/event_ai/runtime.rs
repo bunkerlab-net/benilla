@@ -37,7 +37,7 @@ pub struct EventAiCallback {
 }
 impl EventAiCallback {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-event-ai-callback-v35\0", self)
+        crate::digest(b"benilla-native-event-ai-callback-v36\0", self)
     }
     fn validate(&self, profile: &Profile, state: &State) -> Result<(), NativeError> {
         let selected = profile.event_ai().ok_or(NativeError::InvalidCheckpoint)?;
@@ -203,7 +203,7 @@ impl EventAiCallbackAnchor {
     ) -> Result<(), NativeError> {
         self.count = self.count.checked_add(1).ok_or(NativeError::Limit)?;
         self.tip = crate::digest(
-            b"benilla-native-event-ai-callback-chain-v35\0",
+            b"benilla-native-event-ai-callback-chain-v36\0",
             &(self.tip, self.count, evaluation),
         );
         Ok(())

@@ -45,6 +45,7 @@ fn session(profile: &Profile) -> Session {
         primary_near_point: None,
         empty_selector_near_point: None,
         same_polygon_route: None,
+        source_location: None,
         player_environment: Some(
             PlayerEnvironmentPolicy::from_profile(profile, fixture::player()).unwrap(),
         ),

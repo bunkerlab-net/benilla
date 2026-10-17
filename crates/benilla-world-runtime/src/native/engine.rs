@@ -11,6 +11,7 @@ mod hostile_spell;
 mod npc_spell;
 mod player_environment;
 mod player_slow;
+mod source_location;
 mod spell_authority;
 mod spell_range;
 use spell_authority::SpellHistory;
@@ -105,6 +106,8 @@ impl NativeWorld {
         {
             return Err(NativeError::TooLarge);
         }
+        super::source_location::validate_current(&self.profile, &self.state)?;
+        melee_reset::validate_current(&self.profile, &self.state)?;
         let before = self.state_digest();
         let mut next = self.state.clone();
         next.tick = tick;
@@ -129,6 +132,7 @@ impl NativeWorld {
             movement_path: Vec::new(),
             player_auras_updated: false,
         };
+        frame.source_location(frame.state.position, frame.state.orientation)?;
         for i in &inputs {
             let event_start = frame.events.len();
             let next_cast = frame.state.next_cast_id;
@@ -168,6 +172,9 @@ impl NativeWorld {
             }
             frame.auras()?;
         }
+        if let Some(combat) = &mut frame.state.combat {
+            combat.advance_melee_timers(frame.profile.tick_ms);
+        }
         frame.player_reactives();
         frame.player_environment_update()?;
         frame.player_death_update()?;
@@ -194,10 +201,11 @@ impl NativeWorld {
         {
             return Err(NativeError::Limit);
         }
+        melee_reset::validate_current(frame.profile, frame.state)?;
         let replies = frame.replies;
         let events = frame.events;
         let draws = frame.draws;
-        let after = crate::digest(b"benilla-native-state-v35\0", &self.snapshot_of(&next));
+        let after = crate::digest(b"benilla-native-state-v36\0", &self.snapshot_of(&next));
         let record = TickRecord {
             version: NATIVE_FORMAT_VERSION,
             profile: self.profile_digest,
@@ -708,6 +716,7 @@ impl<A: Authority> Frame<'_, A> {
             self.moved = true;
             self.movement_path.push(destination);
         }
+        self.source_location(destination, orientation)?;
         // Pure turns do not fabricate travelled distance, interrupt movement-sensitive
         // casts, append path segments or refresh the frame's immutable elapsed budget.
         if destination != self.state.position || orientation != self.state.orientation {
@@ -852,6 +861,7 @@ impl<A: Authority> Frame<'_, A> {
         } else {
             None
         };
+        let before_execution = c.execution.checkpoint();
         let events = c.execution.update_from_event_with_release(
             self.state.now_ms,
             diff_ms,
@@ -865,6 +875,32 @@ impl<A: Authority> Frame<'_, A> {
             .any(|event| matches!(event, spell::SpellEvent::Launched { .. }))
         {
             c.release_binding = Some(release_binding.ok_or(NativeError::InvalidState)?);
+            if interactions::spell_authority::resets_melee_timers(self.profile, c.ability)? {
+                let genesis = self
+                    .profile
+                    .combat
+                    .as_ref()
+                    .ok_or(NativeError::InvalidState)?;
+                let intervals = self
+                    .state
+                    .combat
+                    .as_mut()
+                    .ok_or(NativeError::InvalidState)?
+                    .reset_melee_timers(genesis)?;
+                let witness = melee_reset::MeleeResetWitness::capture(
+                    self.profile,
+                    self.state,
+                    &c,
+                    before_execution,
+                    self.replies.iter().rev().find(|reply| matches!(&reply.request.query, Query::SourceSpell(SourceSpellQuery::Semantics(context)) if context.cast_id == id && context.phase == SourceSpellPhase::ReleaseHit)).ok_or(NativeError::InvalidState)?,
+                    intervals,
+                )?;
+                self.state
+                    .combat
+                    .as_mut()
+                    .ok_or(NativeError::InvalidState)?
+                    .melee_reset = Some(witness);
+            }
         }
         self.spell_events(id, c.ability, c.target, events)?;
         let after_update = c.execution.state();
@@ -1454,7 +1490,7 @@ impl<A: Authority> Frame<'_, A> {
             .map(|(id, c)| (*id, c.execution.checkpoint()))
             .collect::<Vec<_>>();
         let binding = crate::digest(
-            b"benilla-native-melee-action-v35\0",
+            b"benilla-native-melee-action-v36\0",
             &(
                 self.state.world,
                 self.state.player,
@@ -1723,7 +1759,7 @@ impl<A: Authority> Frame<'_, A> {
         let c = self.state.combat.as_mut().unwrap();
         c.next_action = c.next_action.checked_add(1).ok_or(NativeError::Limit)?;
         c.action_tip = crate::digest(
-            b"benilla-native-melee-chain-v35\0",
+            b"benilla-native-melee-chain-v36\0",
             &(c.action_tip, action, binding, self.state.rng_counter),
         );
         self.events

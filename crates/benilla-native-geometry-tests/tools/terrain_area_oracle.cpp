@@ -24,6 +24,9 @@ struct OracleLog {
     }
 } sLog;
 // PINNED_GRID_CLASS
+struct TerrainManager {
+    static void GetZoneAndAreaIdByAreaFlag(uint32&, uint32&, uint16, uint32);
+};
 struct TerrainInfo {
     uint32 m_mapId;
     VMAP::VMapManager2* m_vmgr;
@@ -36,6 +39,7 @@ struct TerrainInfo {
     }
     bool GetAreaInfo(float, float, float, uint32&, int32&, int32&, int32&) const;
     uint16 GetAreaFlag(float, float, float, bool* = nullptr, int32* = nullptr) const;
+    void GetZoneAndAreaId(uint32&, uint32&, float, float, float, int32* = nullptr) const;
 };
 // PINNED_TERRAIN_METHODS
 
@@ -249,6 +253,11 @@ static void terrainAreaQueries(const std::filesystem::path& root, VMAP::StaticMa
         const uint16 flag = terrain.GetAreaFlag(world.x,world.y,world.z);
         const auto* area = GetAreaEntryByAreaFlagAndMap(flag,0);
         const auto* parent = area && area->zone ? GetAreaEntryByAreaID(area->zone) : nullptr;
+        uint32 zoneId = 0xffffffffu, areaId = 0xffffffffu;
+        terrain.GetZoneAndAreaId(zoneId, areaId, world.x, world.y, world.z);
+        require(areaId == (area ? area->ID : 0u) &&
+                zoneId == (area ? (area->zone ? area->zone : area->ID) : 0u),
+                "original GetZoneAndAreaId uses selected row directly, including zero and missing");
         if (store == 0 && profile <= 10 && name == "internal_0_z1088421888") {
             const bool expected[] = {true,true,true,false,true,false,true,true,true,false,false};
             require(raw.hit && accepted == expected[profile],"strict terrain occlusion boundaries and hole dispatch");

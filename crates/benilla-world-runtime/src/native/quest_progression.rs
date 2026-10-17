@@ -458,6 +458,9 @@ impl QuestProgressionGenesis {
         )?;
         self.kill.validate(profile, self.loot.is_some())
     }
+    pub(in crate::native) fn initial_training_identity(&self) -> [u8; 32] {
+        self.training.identity()
+    }
     pub(in crate::native) fn admin_supported_maximum(&self) -> u32 {
         self.levels
             .supplied_levels()

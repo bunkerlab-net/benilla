@@ -95,6 +95,7 @@ fn setup_selected_with_player_height(
         static_los: None,
         primary_near_point: (!empty)
             .then(|| PrimaryNearPointPolicy::from_profile(&profile).unwrap()),
+        source_location: None,
         player_environment: None,
         same_polygon_route: None,
         empty_selector_near_point: empty
