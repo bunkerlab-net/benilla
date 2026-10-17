@@ -855,6 +855,9 @@ fn initialized_model_receipt_checks_order_and_exact_inputs() {
     assert!(begun.validate_height().is_err());
     assert!(begun.for_route(profile, route).is_err());
     assert!(begun.owner_ignore_for(profile, route).is_err());
+    assert!(begun
+        .dispatch_for(profile, route, &request.binding)
+        .is_err());
     let width = begun.validate_width().unwrap();
     assert!(width.validate_width().is_err());
     assert!(width.validate_height().is_err());
@@ -875,6 +878,12 @@ fn initialized_model_receipt_checks_order_and_exact_inputs() {
         complete.owner_ignore_for(profile, route).unwrap(),
         route.require_owner_ignore_pathfinding(profile).unwrap()
     );
+    assert_eq!(
+        complete
+            .dispatch_for(profile, route, &request.binding)
+            .unwrap(),
+        request.require_pathfinder_dispatch(profile).unwrap()
+    );
     let player = session
         .same_polygon_route
         .as_ref()
@@ -894,6 +903,9 @@ fn initialized_model_receipt_checks_order_and_exact_inputs() {
     assert!(complete.for_route(&changed_profile, route).is_err());
     assert!(complete.owner_ignore_for(&changed_profile, route).is_err());
     assert!(complete
+        .dispatch_for(&changed_profile, route, &request.binding)
+        .is_err());
+    assert!(complete
         .target_height_for(&changed_profile, route, session.world, player)
         .is_err());
     assert!(complete
@@ -903,6 +915,9 @@ fn initialized_model_receipt_checks_order_and_exact_inputs() {
     changed_route.request.goal.x = ai::Real::ONE;
     assert!(complete.for_route(profile, &changed_route).is_err());
     assert!(complete.owner_ignore_for(profile, &changed_route).is_err());
+    assert!(complete
+        .dispatch_for(profile, &changed_route, &request.binding)
+        .is_err());
     assert!(complete
         .target_height_for(profile, &changed_route, session.world, player)
         .is_err());
@@ -916,6 +931,9 @@ fn initialized_model_receipt_checks_order_and_exact_inputs() {
     assert!(complete.for_route(profile, &changed_owner).is_err());
     assert!(complete.owner_ignore_for(profile, &changed_owner).is_err());
     assert!(complete
+        .dispatch_for(profile, &changed_owner, &request.binding)
+        .is_err());
+    assert!(complete
         .target_height_for(profile, &changed_owner, session.world, player)
         .is_err());
     assert!(complete
@@ -925,6 +943,9 @@ fn initialized_model_receipt_checks_order_and_exact_inputs() {
     assert_eq!(&deserialized, route.as_ref());
     assert!(complete.for_route(profile, &deserialized).is_err());
     assert!(complete.owner_ignore_for(profile, &deserialized).is_err());
+    assert!(complete
+        .dispatch_for(profile, &deserialized, &request.binding)
+        .is_err());
     assert!(complete
         .target_height_for(profile, &deserialized, session.world, player)
         .is_err());
@@ -938,6 +959,9 @@ fn initialized_model_receipt_checks_order_and_exact_inputs() {
     };
     assert!(complete.for_route(profile, fresh_route).is_err());
     assert!(complete.owner_ignore_for(profile, fresh_route).is_err());
+    assert!(complete
+        .dispatch_for(profile, fresh_route, &request.binding)
+        .is_err());
     assert!(complete
         .target_height_for(profile, fresh_route, session.world, player)
         .is_err());
@@ -1009,4 +1033,76 @@ fn initialized_route_staged_checks_preserve_direct_failure_order() {
         assert!(reply.is_empty());
         assert!(work.lease().same_job(&lease));
     }
+}
+
+#[test]
+fn initialized_dispatch_reuse_preserves_outer_binding_and_direct_errors() {
+    let (session, request) = super::super::source_route_same_polygon::dry_habitat_tests::captured_initialized_route_request();
+    let policy = session.same_polygon_route.as_ref().unwrap();
+    let profile = &policy.environment.profile;
+    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+        unreachable!()
+    };
+    let initialized = super::super::source_route_filter::validate_initialized_route_context(
+        &session,
+        &policy.model_profile,
+        &request,
+    )
+    .unwrap()
+    .unwrap()
+    .validate_width()
+    .unwrap()
+    .validate_selection()
+    .unwrap()
+    .validate_height()
+    .unwrap();
+    for case in 0..8 {
+        let mut changed = request.clone();
+        match case {
+            0 => changed.binding.tick += 1,
+            1 => changed.binding.world[0] ^= 1,
+            2 => changed.binding.npc.as_mut().unwrap().generation += 1,
+            3 => changed.binding.npc = None,
+            4 => changed.binding.profile[0] ^= 1,
+            5 => changed.binding.authority_policy[0] ^= 1,
+            6 => changed.binding.geometry[0] ^= 1,
+            7 => {}
+            _ => unreachable!(),
+        }
+        let direct = policy.validate_dispatch(&session, &changed);
+        let owned =
+            policy.validate_dispatch_with_initialized(&session, &changed, Some(&initialized));
+        assert_eq!(owned, direct, "case={case}");
+        if case == 7 {
+            assert_eq!(owned, Ok(()));
+        } else {
+            assert_eq!(owned, Err(Failure::Binding));
+        }
+        assert_eq!(
+            initialized
+                .dispatch_for(profile, route, &changed.binding)
+                .map(|_| ()),
+            changed
+                .require_pathfinder_dispatch(profile)
+                .map(|_| ())
+                .map_err(|_| Failure::Binding),
+        );
+    }
+    // Diagnostic only: no wall-clock assertion and no budget change. CI's actual
+    // mailbox regression below still has the original 2ms slice and 500ms lease.
+    let start = Instant::now();
+    for _ in 0..16 {
+        policy.validate_dispatch(&session, &request).unwrap();
+    }
+    let direct = start.elapsed();
+    let start = Instant::now();
+    for _ in 0..16 {
+        policy
+            .validate_dispatch_with_initialized(&session, &request, Some(&initialized))
+            .unwrap();
+    }
+    eprintln!(
+        "initialized dispatch exact-proof comparison: direct16={direct:?} owned16={:?}",
+        start.elapsed()
+    );
 }

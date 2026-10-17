@@ -95,6 +95,15 @@ profile serialization, new constructor claims or saved-query rehydration. Raw
 and direct calls still perform full validation. No borrowed native query, physics
 view or attempt-local validation token survives an invocation.
 
+The initialized dispatch body subphase reuses only successful owner and selected
+configuration/profile checks held by `ValidatedRouteModelOwner` and its opaque
+frozen profile. Constructor selection and all receipt/request/outer binding checks
+still execute at dispatch time. The configuration-only shortcut requires that
+opaque validated profile, never a caller boolean or bare profile digest. Public
+raw validators retain their full checks; differential tests preserve their error
+ordering, including wrong-outer-NPC fallback. No native query or live constructor
+claim is created by this validation reuse.
+
 Pending jobs are owner-thread-only and bounded to 16. The validated-context phase
 owns no native candidate or capacity reservation. After constructor preparation,
 distinct live jobs reserve

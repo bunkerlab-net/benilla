@@ -130,6 +130,14 @@ height, body, dispatch, model and owner-state validations on the original Work.
 A privately constructed frozen-profile/owner proof binds the full request and
 live dispatch. It reuses only completed immutable checks, including target-model
 validation at the original target-water branch. Raw APIs keep their full checks.
+The dispatch subphase also uses that exact completed owner/profile proof instead
+of revalidating initialization and the selected immutable profile/configuration.
+It still performs constructor owner lookup and enabled selection, receipt dispatch
+and live-allocation checks, request hash/position checks, outer callback binding,
+and prior-cache checks in their original order. Missing initialization takes the
+full validator; wrong outer NPC retains its full error-order fallback. Changed
+profile contents or a deserialized/fresh dispatch cannot reuse the proof; equal
+transcript bytes alone are insufficient.
 WanderPrepare adopts that same job and advances constructor, gate and preparation
 observations before job-bound reply validation. Equal-live concurrent jobs share
 the retained preparation allocation without replacing one another's evidence.

@@ -507,6 +507,14 @@ impl SamePolygonRoutePolicy {
         session: &Session,
         context: &AuthorityRequest,
     ) -> Result<(), Failure> {
+        self.validate_dispatch_with_initialized(session, context, None)
+    }
+    fn validate_dispatch_with_initialized(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+        initialized: Option<&super::source_route_filter::InitializedOwnerValidation>,
+    ) -> Result<(), Failure> {
         let profile = &self.environment.profile;
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery);
@@ -530,9 +538,12 @@ impl SamePolygonRoutePolicy {
         {
             return Err(Failure::UnsupportedQuery);
         }
-        let dispatch = context
-            .require_pathfinder_dispatch(profile)
-            .map_err(|_| Failure::Binding)?;
+        let dispatch = match initialized {
+            Some(initialized) => initialized.dispatch_for(profile, route, &context.binding)?,
+            None => context
+                .require_pathfinder_dispatch(profile)
+                .map_err(|_| Failure::Binding)?,
+        };
         if q.kind == motion::RouteKind::HomeForceDestination
             && (!dispatch.first_construction()
                 || dispatch.constructor_kind() != motion::PathfinderConstructorKind::HomeLocal
@@ -1917,7 +1928,11 @@ impl Mailbox {
                     (None, None, None)
                 }
                 RouteBodyPhase::Dispatch => {
-                    policy.validate_dispatch(&progress.session, &progress.request)?;
+                    policy.validate_dispatch_with_initialized(
+                        &progress.session,
+                        &progress.request,
+                        progress.initialized.as_ref(),
+                    )?;
                     (None, None, None)
                 }
                 RouteBodyPhase::Model => {

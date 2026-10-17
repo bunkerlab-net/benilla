@@ -6,6 +6,9 @@ use crate::native::{
 };
 
 fn profile() -> Profile {
+    profile_with_enabled_configuration(true)
+}
+fn profile_with_enabled_configuration(enabled: bool) -> Profile {
     let mut p = combat::profile();
     p.npcs[0].ai.spawn = f::point(8.);
     p.initialize_creature_capabilities(motion::creature_capability_sources(&p))
@@ -38,7 +41,7 @@ fn profile() -> Profile {
     std::fs::remove_file(path).unwrap();
     p.initialize_pathfinder_configuration(
         SelectedMMapConfiguration {
-            enabled: true,
+            enabled,
             effective_disabled_maps: EffectiveDisabledMMapSet::Complete(Default::default()),
             source_instance_id: 0,
         },
@@ -512,6 +515,209 @@ fn outer_dispatch_dedup_matches_full_validation_and_preserves_error_order() {
     assert_eq!(
         receipt.claim_constructor_query(),
         Err(NativeError::AuthorityBinding)
+    );
+}
+
+#[test]
+fn frozen_owner_dispatch_matches_full_errors_and_keeps_exact_live_inputs() {
+    let (w, _) = captured(profile());
+    let context = w
+        .last_tick()
+        .unwrap()
+        .replies
+        .iter()
+        .find(|reply| route(&reply.request).is_some())
+        .unwrap()
+        .request
+        .clone();
+    let mut selected = Arc::new(w.profile().clone());
+    let frozen = ValidatedRouteModelProfile::new(Arc::clone(&selected)).unwrap();
+    for case in 0..27 {
+        let mut changed = context.clone();
+        let Query::SourceMotion(MotionQuery::Route(request)) = &mut changed.query else {
+            unreachable!()
+        };
+        match case {
+            0 => (),
+            1 => changed.binding.world[0] ^= 1,
+            2 => changed.binding.tick += 1,
+            3 => changed.binding.profile[0] ^= 1,
+            4 => changed.binding.authority_policy[0] ^= 1,
+            5 => changed.binding.geometry[0] ^= 1,
+            6 => changed.binding.npc = None,
+            7 => changed.binding.npc.as_mut().unwrap().generation += 1,
+            8 => {
+                changed.binding.npc.as_mut().unwrap().spawn = u64::MAX;
+                changed.binding.world[0] ^= 1;
+            }
+            9 => {
+                request.pathfinder_dispatch = None;
+                changed.binding.npc = None;
+            }
+            10 => {
+                request.pathfinder_dispatch.as_mut().unwrap().live = None;
+                changed.binding.npc = None;
+            }
+            11 => {
+                request.request.pathfinder_dispatch = None;
+                request.pathfinder_dispatch = None;
+                changed.binding.npc = None;
+            }
+            12 => request.request.goal = f::point(80.),
+            13 => request.owner_position = f::point(80.),
+            14 => request.request.target.as_mut().unwrap().id += 1,
+            15 => request.request.target.as_mut().unwrap().pose.position = f::point(80.),
+            16 => request.request.target.as_mut().unwrap().collision_height = f::real(1.),
+            17..=24 => {
+                let receipt = request.pathfinder_dispatch.as_mut().unwrap();
+                match case {
+                    17 => receipt.evidence.policy = "invented-dispatch".into(),
+                    18 => receipt.evidence.profile_binding[0] ^= 1,
+                    19 => receipt.evidence.configuration_binding[0] ^= 1,
+                    20 => receipt.evidence.npc.generation += 1,
+                    21 => receipt.evidence.request_binding[0] ^= 1,
+                    22 => receipt.evidence.world[0] ^= 1,
+                    23 => receipt.evidence.dispatch_tick += 1,
+                    24 => {
+                        let mut dispatch = serde_json::to_value(receipt.evidence.dispatch).unwrap();
+                        dispatch["construction"]["query_id"] = 0.into();
+                        receipt.evidence.dispatch = serde_json::from_value(dispatch).unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            25 => {
+                request.pathfinder_dispatch.as_mut().unwrap().live = None;
+                request
+                    .pathfinder_dispatch
+                    .as_mut()
+                    .unwrap()
+                    .evidence
+                    .policy = "invalid".into();
+            }
+            26 => {
+                request.request.goal = f::point(80.);
+                changed.binding.npc.as_mut().unwrap().spawn = u64::MAX;
+            }
+            _ => unreachable!(),
+        }
+        // Freeze the route under its genuine owner context; each changed outer
+        // callback still reaches the dispatch validator's original error order.
+        let owned = frozen
+            .validate_owner_context(Arc::new(route(&changed).unwrap().clone()), &context.binding)
+            .unwrap();
+        let full = changed.require_pathfinder_dispatch(w.profile()).map(|_| ());
+        assert_eq!(
+            owned
+                .require_pathfinder_dispatch(&changed.binding)
+                .map(|_| ()),
+            full,
+            "case={case}"
+        );
+        if case == 0 {
+            assert!(full.is_ok());
+        } else {
+            assert!(full.is_err(), "case={case}");
+        }
+        match case {
+            8 => assert_eq!(full, Err(NativeError::UnknownTarget)),
+            9 => assert_eq!(
+                full,
+                Err(NativeError::AuthorityUnavailable(
+                    "owned pathfinder constructor dispatch"
+                ))
+            ),
+            10 => assert_eq!(
+                full,
+                Err(NativeError::AuthorityUnavailable(
+                    "live pathfinder dispatch"
+                ))
+            ),
+            11 => assert_eq!(
+                full,
+                Err(NativeError::Motion(m::MotionError::Missing(
+                    "pathfinder generator constructor dispatch"
+                )))
+            ),
+            25 | 26 => assert_eq!(full, Err(NativeError::AuthorityBinding)),
+            _ => (),
+        }
+    }
+    let mut request = Arc::new(route(&context).unwrap().clone());
+    let owner = frozen
+        .validate_owner_context(Arc::clone(&request), &context.binding)
+        .unwrap();
+    let receipt = owner.require_pathfinder_dispatch(&context.binding).unwrap();
+    assert!(receipt.same_live_dispatch(context.require_pathfinder_dispatch(w.profile()).unwrap()));
+    Arc::make_mut(&mut selected).tick_ms += 1;
+    Arc::make_mut(&mut request).request.goal = f::point(80.);
+    assert!(!frozen.matches_profile(&selected));
+    assert!(!owner.matches_route(w.profile(), &request));
+    let transcript: CreatureRouteRequest =
+        serde_json::from_value(serde_json::to_value(owner.route()).unwrap()).unwrap();
+    assert_eq!(&transcript, owner.route());
+    assert!(!owner.matches_route(w.profile(), &transcript));
+    let (_, replacement) = captured(w.profile().clone());
+    assert_eq!(&replacement, owner.route());
+    assert!(!owner.matches_route(w.profile(), &replacement));
+    // Validation never takes the constructor claim, including after another
+    // caller consumes it. Only the provider's explicit claim is one-use.
+    receipt.claim_constructor_query().unwrap();
+    owner.require_pathfinder_dispatch(&context.binding).unwrap();
+    assert_eq!(
+        receipt.claim_constructor_query(),
+        Err(NativeError::AuthorityBinding)
+    );
+}
+
+#[test]
+fn frozen_owner_dispatch_defers_missing_or_disabled_configuration_errors() {
+    let (w, _) = captured(profile());
+    let context = w
+        .last_tick()
+        .unwrap()
+        .replies
+        .iter()
+        .find(|reply| route(&reply.request).is_some())
+        .unwrap()
+        .request
+        .clone();
+    for disabled in [false, true] {
+        let mut changed = if disabled {
+            profile_with_enabled_configuration(false)
+        } else {
+            w.profile().clone()
+        };
+        if !disabled {
+            changed.pathfinder_configuration = None;
+        }
+        let frozen = ValidatedRouteModelProfile::new(Arc::new(changed.clone())).unwrap();
+        let mut binding = context.binding.clone();
+        binding.profile = changed.digest();
+        let owner = frozen
+            .validate_owner_context(Arc::new(route(&context).unwrap().clone()), &binding)
+            .unwrap();
+        let expected = if disabled {
+            NativeError::UnsupportedMechanic("pathfinder disabled constructor configuration")
+        } else {
+            NativeError::AuthorityUnavailable("selected pathfinder configuration")
+        };
+        assert_eq!(
+            context.require_pathfinder_dispatch(&changed).map(|_| ()),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            owner
+                .require_pathfinder_dispatch(&context.binding)
+                .map(|_| ()),
+            Err(expected)
+        );
+    }
+    let mut invalid = w.profile().clone();
+    invalid.tick_ms = 0;
+    assert_eq!(
+        ValidatedRouteModelProfile::new(Arc::new(invalid.clone())).unwrap_err(),
+        context.require_pathfinder_dispatch(&invalid).unwrap_err(),
     );
 }
 

@@ -490,6 +490,9 @@ pub struct ValidatedRouteModelOwner {
     route: Arc<CreatureRouteRequest>,
 }
 impl ValidatedRouteModelOwner {
+    pub(super) fn validated_profile(&self) -> &ValidatedRouteModelProfile {
+        &self.profile
+    }
     pub fn profile(&self) -> &Profile {
         self.profile.profile()
     }

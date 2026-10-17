@@ -685,6 +685,20 @@ impl InitializedOwnerValidation {
             .require_owner_ignore_pathfinding()
             .map_err(|_| Failure::Binding)
     }
+    /// Reuse only the completed immutable owner/profile checks for this exact
+    /// live request. Dispatch metadata, configuration, request hash and outer
+    /// binding retain their full ordered validation before any native query.
+    pub(super) fn dispatch_for(
+        &self,
+        profile: &Profile,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+        binding: &benilla_world_runtime::native::Binding,
+    ) -> Result<&benilla_world_runtime::native::PathfinderDispatchReceipt, Failure> {
+        self.for_route(profile, route)?;
+        self.owner
+            .require_pathfinder_dispatch(binding)
+            .map_err(|_| Failure::Binding)
+    }
     pub(super) fn height_for(
         &self,
         profile: &Profile,

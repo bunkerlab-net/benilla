@@ -135,6 +135,31 @@ impl PathfinderDispatchReceipt {
                     "selected pathfinder configuration",
                 ))?;
         let configuration = source.constructor_binding(profile, npc.spawn)?;
+        self.validate_after_configuration(profile, npc, &configuration)
+    }
+    fn validate_for_owned_profile(
+        &self,
+        validated: &ValidatedRouteModelProfile,
+        npc: crate::NpcId,
+    ) -> Result<(), NativeError> {
+        let profile = validated.profile();
+        let source =
+            profile
+                .pathfinder_configuration
+                .as_ref()
+                .ok_or(NativeError::AuthorityUnavailable(
+                    "selected pathfinder configuration",
+                ))?;
+        let configuration =
+            source.constructor_binding_for_validated_profile(validated, npc.spawn)?;
+        self.validate_after_configuration(profile, npc, &configuration)
+    }
+    fn validate_after_configuration(
+        &self,
+        profile: &Profile,
+        npc: crate::NpcId,
+        configuration: &PathfinderConfigurationWitness,
+    ) -> Result<(), NativeError> {
         let binding = self.dispatch_binding();
         self.evidence.dispatch.validate_for(binding)?;
         if self.evidence.policy != PATHFINDER_DISPATCH_POLICY
@@ -189,7 +214,7 @@ impl PathfinderDispatchReceipt {
         Ok(())
     }
     // Called only immediately after CreatureRouteRequest validated this exact
-    // receipt against the same immutable profile. No validation survives a yield.
+    // receipt against the same immutable profile. Receipt checks stay invocation-local.
     fn validate_context_after_request(
         &self,
         profile: &Profile,
@@ -245,6 +270,14 @@ impl CreatureRouteRequest {
         profile: &Profile,
     ) -> Result<&PathfinderDispatchReceipt, NativeError> {
         self.owner.validate_for(profile, self.owner.npc())?;
+        self.pathfinder_dispatch_after_owner(|receipt| {
+            receipt.validate_for(profile, self.owner.npc())
+        })
+    }
+    fn pathfinder_dispatch_after_owner(
+        &self,
+        validate_receipt: impl FnOnce(&PathfinderDispatchReceipt) -> Result<(), NativeError>,
+    ) -> Result<&PathfinderDispatchReceipt, NativeError> {
         self.request.validate_pathfinder_dispatch()?;
         let receipt =
             self.pathfinder_dispatch
@@ -252,7 +285,7 @@ impl CreatureRouteRequest {
                 .ok_or(NativeError::AuthorityUnavailable(
                     "owned pathfinder constructor dispatch",
                 ))?;
-        receipt.validate_for(profile, self.owner.npc())?;
+        validate_receipt(receipt)?;
         if self.request.pathfinder_dispatch != Some(receipt.evidence.dispatch)
             || receipt.evidence.request_binding
                 != crate::digest(b"benilla-pathfinder-dispatch-request-v1\0", &self.request)
@@ -260,6 +293,21 @@ impl CreatureRouteRequest {
         {
             return Err(NativeError::AuthorityBinding);
         }
+        Ok(receipt)
+    }
+}
+
+impl ValidatedRouteModelOwner {
+    /// Reuse only completed checks on the owned immutable profile and owner.
+    /// Dispatch metadata, live receipt, request and outer binding are checked now.
+    pub fn require_pathfinder_dispatch(
+        &self,
+        binding: &Binding,
+    ) -> Result<&PathfinderDispatchReceipt, NativeError> {
+        let receipt = self.route().pathfinder_dispatch_after_owner(|receipt| {
+            receipt.validate_for_owned_profile(self.validated_profile(), self.route().owner.npc())
+        })?;
+        receipt.validate_context_after_request(self.profile(), binding)?;
         Ok(receipt)
     }
 }

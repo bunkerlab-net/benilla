@@ -257,6 +257,22 @@ impl PathfinderConfigurationSource {
     ) -> Result<PathfinderConfigurationWitness, NativeError> {
         profile.validate()?;
         self.validate(profile)?;
+        self.constructor_binding_after_validation(profile, spawn_id)
+    }
+    /// The opaque owner already validated this exact immutable selected source.
+    /// Owner lookup and enabled-constructor checks still run at dispatch time.
+    pub(super) fn constructor_binding_for_validated_profile(
+        &self,
+        validated: &ValidatedRouteModelProfile,
+        spawn_id: u64,
+    ) -> Result<PathfinderConfigurationWitness, NativeError> {
+        self.constructor_binding_after_validation(validated.profile(), spawn_id)
+    }
+    fn constructor_binding_after_validation(
+        &self,
+        profile: &Profile,
+        spawn_id: u64,
+    ) -> Result<PathfinderConfigurationWitness, NativeError> {
         if profile.pathfinder_configuration.as_ref() != Some(self) {
             return Err(NativeError::AuthorityBinding);
         }

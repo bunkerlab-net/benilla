@@ -508,3 +508,52 @@ fn replacing_a_draft_selection_changes_its_digest_and_invalidates_old_evidence()
     ));
     witness.validate_for(&original, 2).unwrap();
 }
+
+#[test]
+fn frozen_constructor_configuration_keeps_selection_and_error_order() {
+    use std::sync::Arc;
+    for enabled in [false, true] {
+        let mut p = profile();
+        p.initialize_pathfinder_configuration(
+            selected(enabled, &[], 0),
+            &catalog(&[(p.map_id, 0)]),
+        )
+        .unwrap();
+        let frozen = ValidatedRouteModelProfile::new(Arc::new(p.clone())).unwrap();
+        let source = p.pathfinder_configuration().unwrap();
+        for spawn in [2, u64::MAX] {
+            assert_eq!(
+                source.constructor_binding_for_validated_profile(&frozen, spawn),
+                source.constructor_binding(&p, spawn),
+            );
+        }
+        let mut foreign = source.clone();
+        foreign.selected.enabled = !enabled;
+        assert_eq!(
+            foreign.constructor_binding_for_validated_profile(&frozen, u64::MAX),
+            Err(NativeError::AuthorityBinding),
+        );
+        assert_eq!(
+            foreign.constructor_binding(&p, u64::MAX),
+            Err(NativeError::AuthorityBinding),
+        );
+        for invalid in 0..3 {
+            let mut changed = p.clone();
+            let source = changed.pathfinder_configuration.as_mut().unwrap();
+            match invalid {
+                0 => source.selected.effective_disabled_maps = EffectiveDisabledMMapSet::Missing,
+                1 => source.selected.source_instance_id = 1,
+                2 => source.policy = "invalid-configuration",
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                ValidatedRouteModelProfile::new(Arc::new(changed.clone())).unwrap_err(),
+                changed
+                    .pathfinder_configuration()
+                    .unwrap()
+                    .constructor_binding(&changed, u64::MAX)
+                    .unwrap_err(),
+            );
+        }
+    }
+}
