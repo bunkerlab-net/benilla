@@ -50,7 +50,7 @@ impl<A: Authority> Frame<'_, A> {
         let scene = self.visitor_scene(working)?;
         Ok(SceneWitness {
             frame: interactions::witness(self.profile_digest, &scene, self.interaction_moment())?,
-            callback: crate::digest(b"benilla-native-visitor-callback-v43\0", callback),
+            callback: crate::digest(b"benilla-native-visitor-callback-v46\0", callback),
         })
     }
     fn visitor_binding(owner: VisitorParticipant) -> Option<NpcId> {
@@ -205,6 +205,9 @@ impl<A: Authority> Frame<'_, A> {
         request: VisitorSightRequest,
         disposition: SightDisposition,
     ) -> Result<(), NativeError> {
+        if let SightDisposition::Peer(receipt) = &disposition {
+            receipt.validate_for(self.profile, self.state.player, &request)?;
+        }
         if self.replies.len() >= 20_000 {
             return Err(NativeError::TooLarge);
         }

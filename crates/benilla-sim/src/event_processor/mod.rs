@@ -20,11 +20,18 @@ pub const MAX_CALLBACKS_PER_UPDATE: usize = 4096;
 #[serde(deny_unknown_fields)]
 pub enum EventKind {
     AiNotify,
+    ReenableHelp { occurrence: u64 },
+    AggroLinking { occurrence: u64 },
     SpellUpdate { cast_id: u64 },
 }
 impl EventKind {
     fn validate(self) -> Result<(), EventError> {
-        if matches!(self, Self::SpellUpdate { cast_id: 0 }) {
+        if matches!(
+            self,
+            Self::SpellUpdate { cast_id: 0 }
+                | Self::ReenableHelp { occurrence: 0 }
+                | Self::AggroLinking { occurrence: 0 }
+        ) {
             return Err(EventError::Invalid("zero cast identity"));
         }
         Ok(())

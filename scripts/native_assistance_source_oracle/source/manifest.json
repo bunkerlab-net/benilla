@@ -1,0 +1,612 @@
+{
+  "excerpts": [
+    {
+      "compiled": true,
+      "first_byte": 299799,
+      "first_line": 7909,
+      "last_byte_exclusive": 304169,
+      "last_line": 8015,
+      "name": "SetInCombatState.inc",
+      "sha256": "2229524b2c44903b6e9cca2b74d8391b633a222947dafcafb88919514194b3d5",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 17406,
+      "first_line": 559,
+      "last_byte_exclusive": 18624,
+      "last_line": 582,
+      "name": "TriggerAggroLinkingEvent.inc",
+      "sha256": "3da868900a50108c73b4f601b401f998b753b833ee55b745927d9b1759e08e3d",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 241773,
+      "first_line": 6365,
+      "last_byte_exclusive": 242308,
+      "last_line": 6386,
+      "name": "CombatStop.inc",
+      "sha256": "95b5c95c8cea853f5af415f1d2a3db6df0f56bd6ba1438c42289a537b684249a",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 320534,
+      "first_line": 8534,
+      "last_byte_exclusive": 321807,
+      "last_line": 8576,
+      "name": "UnitSetDeathState.inc",
+      "sha256": "345588220fd3311ee76e8feac0a593b2813e68a97c83d74d5c4cc6034e9f7f9b",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 78384,
+      "first_line": 2178,
+      "last_byte_exclusive": 79195,
+      "last_line": 2198,
+      "name": "MarkCallAssistanceOnPull.inc",
+      "sha256": "328210bf7c572abe59e8b7e11a7f9eaceb208c7c2ba09ed3a6bc94fd46341ca9",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 79196,
+      "first_line": 2200,
+      "last_byte_exclusive": 79739,
+      "last_line": 2215,
+      "name": "CallAssistanceOnPull.inc",
+      "sha256": "ded662b5d0fa6ec16a1d3d836f36ab93fe55288702cc0a042c8dbc263834fcca",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 25553,
+      "first_line": 705,
+      "last_byte_exclusive": 28359,
+      "last_line": 784,
+      "name": "CreatureUpdate.inc",
+      "sha256": "89e8693ab8d8f9ea25b082614c3de754a5bdd9af69c3e382313767e4863d3e6c",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 67873,
+      "first_line": 1864,
+      "last_byte_exclusive": 70983,
+      "last_line": 1946,
+      "name": "CreatureSetDeathState.inc",
+      "sha256": "ae729a4c871e80c69a27dbc2e17efde400b9e83c147927a2eb21f99e1de54aa9",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 8380,
+      "first_line": 262,
+      "last_byte_exclusive": 10058,
+      "last_line": 315,
+      "name": "RemoveCorpse.inc",
+      "sha256": "679129627c4dee09f25fde6117f5affd52587a7f32a628a45cb32deb1da29e4e",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 17291,
+      "first_line": 495,
+      "last_byte_exclusive": 18385,
+      "last_line": 522,
+      "name": "CheckForHelp.inc",
+      "sha256": "4aedb8c359e8679ac9ef0e252ab6fa1dcc02b97fede65b43311480703d8aaf29",
+      "source": "src/game/AI/BaseAI/UnitAI.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 51693,
+      "first_line": 1239,
+      "last_byte_exclusive": 52025,
+      "last_line": 1248,
+      "name": "GetAttackerForHelper.inc",
+      "sha256": "3d508ea5e32298344bd34626517fedd75c8bc7ee16aed8671abc3e5c84813b06",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 3712,
+      "first_line": 88,
+      "last_byte_exclusive": 3904,
+      "last_line": 98,
+      "name": "HelpAIOrders.inc",
+      "sha256": "dedd0f1e6aa66eee60a72c523074dc88e8f3644b6d655b103e959b3954035aad",
+      "source": "src/game/AI/BaseAI/UnitAI.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 19387,
+      "first_line": 461,
+      "last_byte_exclusive": 19452,
+      "last_line": 461,
+      "name": "HelpGetAIOrder.inc",
+      "sha256": "0ff924889c14cdf814179a0f256cbd53597c9afc739bba59ed84284e4f568fcc",
+      "source": "src/game/AI/BaseAI/UnitAI.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 54065,
+      "first_line": 1291,
+      "last_byte_exclusive": 54186,
+      "last_line": 1291,
+      "name": "HelpGetVictim.inc",
+      "sha256": "e7abeb92f2b026d4304068449162146076a4ebb5fd1bb47865763d1ed5819a8d",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 43197,
+      "first_line": 1075,
+      "last_byte_exclusive": 43242,
+      "last_line": 1075,
+      "name": "HelpAttackerSet.inc",
+      "sha256": "bd2d1d88b924ede3985d44d5a7920d46cf309b11c89d6564293559c6f05e7d9b",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 120524,
+      "first_line": 2277,
+      "last_byte_exclusive": 120621,
+      "last_line": 2277,
+      "name": "HelpIsConfused.inc",
+      "sha256": "46a7f7dc348841cd24e1a083f3c4beda84343b8f9f9f698a6aa9f15bc06efb71",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 120930,
+      "first_line": 2283,
+      "last_byte_exclusive": 121025,
+      "last_line": 2283,
+      "name": "HelpIsStunned.inc",
+      "sha256": "5643898c64b730a6af6adbbcd12af74b20520871e3be043c6b7b2f898994b33b",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 128578,
+      "first_line": 2436,
+      "last_byte_exclusive": 128645,
+      "last_line": 2436,
+      "name": "HelpUnitCanCall.inc",
+      "sha256": "92ee6e88fb11ab986f238db478931e985e270dadcd25ea51c0f98ee21aa64ab4",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 128645,
+      "first_line": 2437,
+      "last_byte_exclusive": 128707,
+      "last_line": 2437,
+      "name": "HelpUnitCanCheck.inc",
+      "sha256": "fd36c4624da998f776011decddb39e5166bce9bf283f7590e2cf09f49eaded2a",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 20302,
+      "first_line": 473,
+      "last_byte_exclusive": 20413,
+      "last_line": 473,
+      "name": "HelpWorldRadiusDefault.inc",
+      "sha256": "b88da1900a68b0cdbbcf125182c3e04cf5acf345cce3e65b62e178727fffc8df",
+      "source": "src/game/World/World.cpp"
+    },
+    {
+      "compiled": false,
+      "first_byte": 2857,
+      "first_line": 83,
+      "last_byte_exclusive": 3019,
+      "last_line": 84,
+      "name": "HelpSightCaller.inc",
+      "sha256": "691827dbcaaa57a64eaa213f39baa593dc6c22f6729297b5b596f887ae68523b",
+      "source": "src/game/AI/BaseAI/UnitAI.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 3402,
+      "first_line": 72,
+      "last_byte_exclusive": 4117,
+      "last_line": 91,
+      "name": "GetControllingPlayer.inc",
+      "sha256": "cccdcea2e4e21aa7664283b69bc72382d78aa920b22d508d98ff334088fdf64a",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 4396,
+      "first_line": 100,
+      "last_byte_exclusive": 5676,
+      "last_line": 143,
+      "name": "FactionTemplateReaction.inc",
+      "sha256": "0173bad31aea06107fef56707dfdbffc6cb07e6dc3b481311e957dd7ffa893ba",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 6167,
+      "first_line": 154,
+      "last_byte_exclusive": 7624,
+      "last_line": 188,
+      "name": "FactionUnitReaction.inc",
+      "sha256": "7a9d41963c61ce502607a2a94264d8a10de91441ec6caf84abd1e4b5111ddfbf",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 7899,
+      "first_line": 197,
+      "last_byte_exclusive": 11351,
+      "last_line": 268,
+      "name": "UnitReaction.inc",
+      "sha256": "221483cf10b0816eb92da55d1b6b24839fb037026a46039fdbdf4831922fb791",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 13206,
+      "first_line": 326,
+      "last_byte_exclusive": 13304,
+      "last_line": 329,
+      "name": "IsEnemy.inc",
+      "sha256": "4594128320b1eaf331869a9b06bc2fd1ae2f1270ee8aaa9211eee66889851ad3",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 13605,
+      "first_line": 338,
+      "last_byte_exclusive": 13701,
+      "last_line": 341,
+      "name": "IsFriend.inc",
+      "sha256": "140d4fd6f45e76f47fa67902a8b74ff856ee5a48ac20ef83e8dd00c7ce6f967c",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 14079,
+      "first_line": 351,
+      "last_byte_exclusive": 16577,
+      "last_line": 417,
+      "name": "CanAttack.inc",
+      "sha256": "ade177b1f7c806a95268f815de74b421354e6cf78036d679607f5ba44119d2f8",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 17979,
+      "first_line": 458,
+      "last_byte_exclusive": 19778,
+      "last_line": 511,
+      "name": "CanAssist.inc",
+      "sha256": "62118dafd42386e0e2796eea1dd69fc9f1daf2cb1f23edd1f872245675193a2a",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 43153,
+      "first_line": 1144,
+      "last_byte_exclusive": 43894,
+      "last_line": 1162,
+      "name": "CanAttackOnSight.inc",
+      "sha256": "a2c35704decd5bf25f0d2e368acd0c8a5ceebb09ae0f0015a4232820e7416a8f",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 53772,
+      "first_line": 1420,
+      "last_byte_exclusive": 54211,
+      "last_line": 1435,
+      "name": "CanAssistInCombatAgainst.inc",
+      "sha256": "efcc605544ffc0378d7bdd03d5287b02ecff3e1f85b2a937d87559f58110fcb6",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 54625,
+      "first_line": 1446,
+      "last_byte_exclusive": 54989,
+      "last_line": 1464,
+      "name": "CanJoinInAttacking.inc",
+      "sha256": "9f6383befa4c0b9d9b494d7b84cec06eefe773242c3a0bc90be1cbf51fbee162",
+      "source": "src/game/Entities/Relations.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 8235,
+      "first_line": 265,
+      "last_byte_exclusive": 8634,
+      "last_line": 282,
+      "name": "AnyAssistCreatureInRangeCheck.inc",
+      "sha256": "9a570e19765122e6ac140ca71042e25a55c6615a6677f066dfca3f329d1ab5a5",
+      "source": "src/game/Grids/GridNotifiers.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 42540,
+      "first_line": 1211,
+      "last_byte_exclusive": 43007,
+      "last_line": 1225,
+      "name": "AnyAssistCreatureInRangeCheckDecl.inc",
+      "sha256": "13a9115061616f3896f82845c0f0970e4d14bdb79870e5867814805ffe6298a5",
+      "source": "src/game/Grids/GridNotifiers.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 12596,
+      "first_line": 411,
+      "last_byte_exclusive": 12955,
+      "last_line": 422,
+      "name": "CreatureListSearcherDecl.inc",
+      "sha256": "274c0414c64a9743631464f8c4e5398984d9a0b85bf908ee9386a19ed3116f34",
+      "source": "src/game/Grids/GridNotifiers.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 17140,
+      "first_line": 594,
+      "last_byte_exclusive": 17399,
+      "last_line": 600,
+      "name": "CreatureListSearcherVisit.inc",
+      "sha256": "cf0cf430de0aa14c6b76f890acdc0aadf06f95d6e8d93466d3da8d880c231013",
+      "source": "src/game/Grids/GridNotifiersImpl.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 18676,
+      "first_line": 466,
+      "last_byte_exclusive": 22389,
+      "last_line": 504,
+      "name": "CandidateUnitFlags.inc",
+      "sha256": "df5dc51d4efce2bda774496c7ba421362230039364e0f1f6c8e5bb53e0cd8d3e",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 10867,
+      "first_line": 329,
+      "last_byte_exclusive": 15823,
+      "last_line": 403,
+      "name": "CandidateUnitState.inc",
+      "sha256": "8c2ef733e020d78220564e4460f8d89d4a4c419d5f3d85d1da6c3ca161091c06",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 76122,
+      "first_line": 1615,
+      "last_byte_exclusive": 76213,
+      "last_line": 1615,
+      "name": "CandidateIsInCombat.inc",
+      "sha256": "b96d1d31bf3ac6f4e4d7db96e544c5c1a6c5bf81aeb36b5bf925ddf1ca2805d2",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 121986,
+      "first_line": 2298,
+      "last_byte_exclusive": 122083,
+      "last_line": 2298,
+      "name": "IsFeigningDeathSuccessfully.inc",
+      "sha256": "6bfe0c732f48d4cd72de5dad6e10b2d29a880bfe9f474cbbba1d63bf6450637f",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 3697,
+      "first_line": 114,
+      "last_byte_exclusive": 3921,
+      "last_line": 124,
+      "name": "CandidateReputationRank.inc",
+      "sha256": "0936d447b535fad1bafc35c37c8d6c6fc6ea83ee6af9309ab0bcc9060c838501",
+      "source": "src/game/Globals/SharedDefines.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 81137,
+      "first_line": 2271,
+      "last_byte_exclusive": 81467,
+      "last_line": 2283,
+      "name": "CreatureCanInitiateAttack.inc",
+      "sha256": "9dd7c1fb8608f267598ed2fa5d115edaaeb5c9437c293f776e5aa50535fbafb1",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 125988,
+      "first_line": 2386,
+      "last_byte_exclusive": 126092,
+      "last_line": 2386,
+      "name": "CanEnterCombat.inc",
+      "sha256": "d9a6be26468b0814df8bc1563f75e91a77aa949cc0bd9d9c2e4710c8c6a439c3",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 143249,
+      "first_line": 2798,
+      "last_byte_exclusive": 143596,
+      "last_line": 2811,
+      "name": "UnitLambdaEvent.inc",
+      "sha256": "38e34983e627aa6fb99a2d289e870a7f85034b7f1aa83b7677e44dfed58cd27b",
+      "source": "src/game/Entities/Unit.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 30543,
+      "first_line": 782,
+      "last_byte_exclusive": 30621,
+      "last_line": 782,
+      "name": "SetNoCallAssistance.inc",
+      "sha256": "8c75ec0ce96c7099599a9b59addd14a0a12fecd24a102509f014f5576453a34f",
+      "source": "src/game/Entities/Creature.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 30762,
+      "first_line": 785,
+      "last_byte_exclusive": 30848,
+      "last_line": 785,
+      "name": "CanCallForAssistance.inc",
+      "sha256": "b73df5eb0f9fc6acc479d37f3eb3acd4076c95dd484758edbb6598195b1eb055",
+      "source": "src/game/Entities/Creature.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 30848,
+      "first_line": 786,
+      "last_byte_exclusive": 30933,
+      "last_line": 786,
+      "name": "SetCanCallForAssistance.inc",
+      "sha256": "59da8ca62a84c7f2148be1074738d66958299ffd09f1b4452a8c0c1f7e9e7fe2",
+      "source": "src/game/Entities/Creature.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 36118,
+      "first_line": 881,
+      "last_byte_exclusive": 36191,
+      "last_line": 881,
+      "name": "CanCheckForHelp.inc",
+      "sha256": "4e3ff3c5b80fd5353b4332d50b78c210807493d0fd919d459759e54f858753ba",
+      "source": "src/game/Entities/Creature.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 36191,
+      "first_line": 882,
+      "last_byte_exclusive": 36263,
+      "last_line": 882,
+      "name": "SetCanCheckForHelp.inc",
+      "sha256": "b2d0bf168336fb506f9f5b2d8226377f45e866d3b4542487d18eb520c161b6dd",
+      "source": "src/game/Entities/Creature.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 2572,
+      "first_line": 60,
+      "last_byte_exclusive": 2695,
+      "last_line": 60,
+      "name": "NoCallAssistFlag.inc",
+      "sha256": "2a5c85f932a89ddea84347a12c35e4d346c48a6747e7b450f2866a40e7c10f3d",
+      "source": "src/game/Entities/Creature.h"
+    },
+    {
+      "compiled": true,
+      "first_byte": 16199,
+      "first_line": 464,
+      "last_byte_exclusive": 16291,
+      "last_line": 464,
+      "name": "InitCanCallAssistance.inc",
+      "sha256": "9b3b62a2a07d84b559c8e0574d455b9c1ae9417b8bb0ad3927536cd7b8619afb",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 4554,
+      "first_line": 141,
+      "last_byte_exclusive": 4574,
+      "last_line": 141,
+      "name": "InitialCheckForHelp.inc",
+      "sha256": "509cb9afa16d8863b6cd037ec850095d101e80729be0793fa0164ce8e89c16d3",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 4711,
+      "first_line": 142,
+      "last_byte_exclusive": 4741,
+      "last_line": 142,
+      "name": "InitialAlreadyCalled.inc",
+      "sha256": "0b61a5044172bc65a3d7f367bb80d6c4047d01407619130f0b4bf26c3690567c",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 4743,
+      "first_line": 142,
+      "last_byte_exclusive": 4771,
+      "last_line": 142,
+      "name": "InitialCanCallAssistance.inc",
+      "sha256": "88dee88eef063d041110eef14b2590b5ded45f3b5614c501011573950dc84bba",
+      "source": "src/game/Entities/Creature.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 15442,
+      "first_line": 490,
+      "last_byte_exclusive": 15469,
+      "last_line": 490,
+      "name": "UnitUpdateEventQueue.inc",
+      "sha256": "d10cb5808d7d96d3043375fef9dfc33f5613fc708bbf1f247254b1a1cf0e326d",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 14568,
+      "first_line": 465,
+      "last_byte_exclusive": 14606,
+      "last_line": 466,
+      "name": "UnitUpdateWorldGuard.inc",
+      "sha256": "7472d69be6c8ed7cc53bdd2fdaf902f73120c76a1efdac76dd59b199567e5ef2",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": false,
+      "first_byte": 303799,
+      "first_line": 8007,
+      "last_byte_exclusive": 304161,
+      "last_line": 8013,
+      "name": "CombatHelpSuffix.inc",
+      "sha256": "1be459d9b8c08858bd0d88fa0651eb6471dfe893032193bdd5a5ef76c020bcc8",
+      "source": "src/game/Entities/Unit.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 0,
+      "first_line": 1,
+      "last_byte_exclusive": 3320,
+      "last_line": 127,
+      "name": "EventProcessor.cpp",
+      "sha256": "164cda6f21f72d60e6c426ad04d39036565eda6e60e5e10fce390c43eb396e2f",
+      "source": "src/framework/Utilities/EventProcessor.cpp"
+    },
+    {
+      "compiled": true,
+      "first_byte": 0,
+      "first_line": 1,
+      "last_byte_exclusive": 2788,
+      "last_line": 82,
+      "name": "EventProcessor.h",
+      "sha256": "8e85449a46540a7f999f1ac3a3132c2d2b3256b9c29b41a7e2c29ae78cf812c9",
+      "source": "src/framework/Utilities/EventProcessor.h"
+    }
+  ],
+  "schema_version": 1,
+  "source_files": {
+    "src/framework/Utilities/EventProcessor.cpp": "164cda6f21f72d60e6c426ad04d39036565eda6e60e5e10fce390c43eb396e2f",
+    "src/framework/Utilities/EventProcessor.h": "8e85449a46540a7f999f1ac3a3132c2d2b3256b9c29b41a7e2c29ae78cf812c9",
+    "src/game/AI/BaseAI/UnitAI.cpp": "7d8f1ad603a419489759713a5bc0e2bf03ab677f51b64bcb2333807e17048934",
+    "src/game/AI/BaseAI/UnitAI.h": "2ae4ffeb2203221637ad3723af933ca512c201b988d49078f5e2de62498c7fa6",
+    "src/game/Entities/Creature.cpp": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
+    "src/game/Entities/Creature.h": "a92b0e95e5bf7827389fcca0acc0edaba48a1a083efbf5a01a752a4d171664fc",
+    "src/game/Entities/Relations.cpp": "06e453c80b33cddf1606004055a5d1407a46007b20fef73c5dc917156256f77b",
+    "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+    "src/game/Entities/Unit.h": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
+    "src/game/Globals/SharedDefines.h": "4832b8e0da45211143acae7c42173fea42732e2acdbf190692725e51b020bfe8",
+    "src/game/Grids/GridNotifiers.cpp": "92235b183e2b2b09e45978b8d978bb7d00b4293fa15aa870b6bf001c8d980e48",
+    "src/game/Grids/GridNotifiers.h": "a6295900d39ecd6f723bbb50c0de6ac47a9cc570c49605b7c6c2223a9121328a",
+    "src/game/Grids/GridNotifiersImpl.h": "e0d6fb2724572dd35d27b71b35d8464d5d19e3b26bc3a1b197918b659847b254",
+    "src/game/World/World.cpp": "405e2a0def584dc2e4a9a9bc2861aac4aacefcecc8ec2fa08856324e32d866dd"
+  },
+  "source_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f"
+}

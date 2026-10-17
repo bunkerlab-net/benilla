@@ -169,7 +169,7 @@ fn two_owner_authored_order_and_bilateral_grid_then_world_are_exact() {
                         && r.observer == creature(2)
                         && *d
                             == SightDisposition::Peer(
-                                PeerSightDisposition::ExistingOutdoorVictim
+                                PeerSightDisposition::ExistingOutdoorVictim.into()
                             )));
                 assert!(scene_queries[1]
                     .1
@@ -577,8 +577,8 @@ fn two_owner_reached_core_help_rejects_frame_then_visibility_retry_matches_clean
     a.visibility_overrides.pop();
     assert_eq!(
         step(&mut w, &mut a),
-        Err(NativeError::UnsupportedMechanic(
-            "peer sight reached CheckForHelp"
+        Err(NativeError::AuthorityUnavailable(
+            "peer help selected assistance owners"
         ))
     );
     assert_eq!(w.checkpoint().unwrap(), before);
@@ -648,9 +648,9 @@ fn two_owner_reached_peer_attack_never_installs_peer_targets_or_commits() {
 
 fn rehash_checkpoint(value: serde_json::Value) -> Checkpoint {
     let mut checkpoint: Checkpoint = serde_json::from_value(value).unwrap();
-    checkpoint.digest = crate::digest(b"benilla-native-state-v43\0", &checkpoint.state);
+    checkpoint.digest = crate::digest(b"benilla-native-state-v46\0", &checkpoint.state);
     checkpoint.checksum = crate::digest(
-        b"benilla-native-checkpoint-v43\0",
+        b"benilla-native-checkpoint-v46\0",
         &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
     );
     checkpoint
@@ -813,7 +813,8 @@ fn two_owner_actual_lethal_player_damage_detaches_before_later_peer_callback_and
         .any(|(request, disposition)| {
             request.notification_owner == creature(3)
                 && request.observer == creature(2)
-                && *disposition == SightDisposition::Peer(PeerSightDisposition::CannotAttackOnSight)
+                && *disposition
+                    == SightDisposition::Peer(PeerSightDisposition::CannotAttackOnSight.into())
         }));
     a.fail_derived_owner = Some(3);
     assert!(step(&mut w, &mut a).is_err());

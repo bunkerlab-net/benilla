@@ -26,14 +26,14 @@ impl Authority for ExpiredInitialization<'_, '_> {
     }
 }
 
-fn cold_draws(world: &NativeWorld) -> Vec<Draw> {
+pub(super) fn cold_draws(world: &NativeWorld) -> Vec<Draw> {
     let value = serde_json::to_value(world.checkpoint().unwrap()).unwrap();
     serde_json::from_value(
         value["state"]["npcs"]["2"]["source_generation"]["generations"][0]["draws"].clone(),
     )
     .unwrap()
 }
-fn assert_query_order(request: &AuthorityRequest, draws: &[Draw]) -> u32 {
+pub(super) fn assert_query_order(request: &AuthorityRequest, draws: &[Draw]) -> u32 {
     let Query::CreatureInitialization(query) = &request.query else {
         unreachable!()
     };
@@ -50,7 +50,7 @@ fn assert_query_order(request: &AuthorityRequest, draws: &[Draw]) -> u32 {
     assert_ne!(query.collision_height, query.classification_height);
     query.collision_height.bits()
 }
-fn assert_dry_owner(world: &NativeWorld) {
+pub(super) fn assert_dry_owner(world: &NativeWorld) {
     let npc = &world.state().npcs[&2];
     let witness = npc.creature_capabilities().unwrap().witness();
     assert_eq!(witness.inhabit_type(), 3);
@@ -390,11 +390,11 @@ fn canonical_state_bytes(checkpoint: &Checkpoint) -> Vec<u8> {
     }
     panic!("typed checkpoint state boundary")
 }
-fn rehash(mut value: serde_json::Value) -> Checkpoint {
+pub(super) fn rehash(mut value: serde_json::Value) -> Checkpoint {
     let typed: Checkpoint = serde_json::from_value(value.clone()).unwrap();
     let state = canonical_state_bytes(&typed);
     let mut hash = Sha256::new();
-    hash.update(b"benilla-native-state-v43\0");
+    hash.update(b"benilla-native-state-v46\0");
     hash.update(&state);
     let digest: [u8; 32] = hash.finalize().into();
     value["digest"] = serde_json::json!(digest);
@@ -406,7 +406,7 @@ fn rehash(mut value: serde_json::Value) -> Checkpoint {
     tuple.extend(serde_json::to_vec(&value["history_tip"]).unwrap());
     tuple.push(b']');
     let mut hash = Sha256::new();
-    hash.update(b"benilla-native-checkpoint-v43\0");
+    hash.update(b"benilla-native-checkpoint-v46\0");
     hash.update(tuple);
     let checksum: [u8; 32] = hash.finalize().into();
     value["checksum"] = serde_json::json!(checksum);

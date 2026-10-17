@@ -2,6 +2,7 @@
 //! Authored ground-only composition through real runtime owners and callbacks.
 //! These fixtures are not imported creatures or evidence of native admission.
 use super::*;
+mod assistance;
 use benilla_sim::creature_motion as motion;
 
 fn addon(sheath_state: u32) -> init::Addon {

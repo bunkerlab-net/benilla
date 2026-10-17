@@ -17,7 +17,7 @@ pub struct TickRecord {
 }
 impl TickRecord {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-record-v43\0", self)
+        crate::digest(b"benilla-native-record-v46\0", self)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +188,11 @@ impl StateCheckpoint {
                 .ok_or(NativeError::TooLarge)?;
         }
         for npc in self.npcs.values() {
+            if let Some(assistance) = &npc.events.assistance {
+                total = total
+                    .checked_add(assistance.replay_work()?)
+                    .ok_or(NativeError::TooLarge)?;
+            }
             if let Some(owner) = &npc.source_generation {
                 total = total
                     .checked_add(owner.replay_work()?)
@@ -264,10 +269,10 @@ impl Checkpoint {
             || s.state.version != NATIVE_FORMAT_VERSION
             || s.state.policy != NATIVE_POLICY
             || s.state.rng_policy != RNG_POLICY
-            || s.digest != crate::digest(b"benilla-native-state-v43\0", &s.state)
+            || s.digest != crate::digest(b"benilla-native-state-v46\0", &s.state)
             || s.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v43\0",
+                    b"benilla-native-checkpoint-v46\0",
                     &(&s.state, s.digest, s.history_tip),
                 )
             || s.encode()? != bytes
@@ -425,8 +430,9 @@ impl NativeWorld {
             state,
         )?;
         EventAiState::validate_optional(&self.profile, state)?;
+        combat_assistance::validate_current(&self.profile, state)?;
         let state = snapshot;
-        let digest = crate::digest(b"benilla-native-state-v43\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v46\0", &state);
         let s = Checkpoint {
             version: NATIVE_FORMAT_VERSION,
             state,
@@ -436,7 +442,7 @@ impl NativeWorld {
         };
         let mut s = s;
         s.checksum = crate::digest(
-            b"benilla-native-checkpoint-v43\0",
+            b"benilla-native-checkpoint-v46\0",
             &(&s.state, s.digest, s.history_tip),
         );
         s.encode()?;
@@ -466,10 +472,10 @@ impl NativeWorld {
         checkpoint.validate_encoded_budget()?;
         let profile_digest = profile.digest();
         if checkpoint.version != NATIVE_FORMAT_VERSION
-            || checkpoint.digest != crate::digest(b"benilla-native-state-v43\0", &checkpoint.state)
+            || checkpoint.digest != crate::digest(b"benilla-native-state-v46\0", &checkpoint.state)
             || checkpoint.checksum
                 != crate::digest(
-                    b"benilla-native-checkpoint-v43\0",
+                    b"benilla-native-checkpoint-v46\0",
                     &(&checkpoint.state, checkpoint.digest, checkpoint.history_tip),
                 )
         {
@@ -987,6 +993,7 @@ impl NativeWorld {
             .map_err(|_| NativeError::InvalidCheckpoint)?;
         melee_reset::validate_restored(&profile, &state)?;
         EventAiState::validate_optional(&profile, &state)?;
+        combat_assistance::validate_current(&profile, &state)?;
         state.admin.validate(&profile, &state)?;
         state.player_events.validate(&state, &profile)?;
         if let Some(slow) = &state.player_slow {
@@ -1107,9 +1114,9 @@ mod history_budget_tests {
         }
         let cast: CastState = serde_json::from_value(cast).unwrap();
         cp.state.casts = (1..=9).map(|id| (id, cast.clone())).collect();
-        cp.digest = crate::digest(b"benilla-native-state-v43\0", &cp.state);
+        cp.digest = crate::digest(b"benilla-native-state-v46\0", &cp.state);
         cp.checksum = crate::digest(
-            b"benilla-native-checkpoint-v43\0",
+            b"benilla-native-checkpoint-v46\0",
             &(&cp.state, cp.digest, cp.history_tip),
         );
         assert_eq!(cp.encode().unwrap_err(), NativeError::TooLarge);

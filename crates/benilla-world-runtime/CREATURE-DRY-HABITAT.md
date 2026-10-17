@@ -1,6 +1,6 @@
 # Source-owned dry execution for habitat 3
 
-Native format 43 (`benilla-native-dry-habitat-v43`) supports a bounded dry
+Native format 46 (`benilla-native-peer-help-v46`) supports a bounded dry
 execution domain for retained `InhabitType=3` (`GROUND|WATER`). Its predicates
 remain `CanWalk=true`, `CanSwim=true`, `CanFly=false`; a dry observation never
 rewrites the habitat or selects the ground-only query branch. Wet initialization,
@@ -144,6 +144,19 @@ Filter 13 alone does not authorize water/magma/slime polygons, wet missing/far-p
 branches, arbitrary normalization or unavailable Home routes. Existing loaded-cache
 reopen and production session guards remain.
 
+## Bounded idle EventAI composition
+
+A byte-backed initialization test joins a single authored idle habitat-3 owner,
+its generation-bound sheath, ExtraFlags=2 Defensive reaction, ordinary visitors,
+and selected AGGRO/TEXT EventAI. Sight notifications leave it idle; an actual
+hostile projectile callback starts combat. The test keeps the player in melee
+reach and rejects reached route/near-point requests rather than borrowing the
+ground-only fixture provider. Its 10% chance branch, successive lives, model and
+initialization receipts, RNG history, rollback, replay and compaction share the
+same runtime transaction. Camera membership, LOS, models, spells and text remain
+authored. The separate combat-entry assistance lifecycle described below is not
+established by this component test. No native format or admission change is made.
+
 ## Evidence and remaining real-content dependencies
 
 The [IsSwimmable source observer](../benilla-sim/tools/creature_swimming_source/README.md)
@@ -174,7 +187,26 @@ complete EventAI, broadcast text, locale and audience ownership. Real random
 movement, final source capture, model data, geometry and production admission
 remain separate dependencies.
 
-Native42 and earlier profile/state/record/checkpoint/melee/callback identities
+The same base entry has ExtraFlags=2, selecting Defensive reaction, and
+CallForHelp=5. A faithful idle subset therefore must not acquire an aggressive
+sight attack merely to exercise EventAI. Hostile-spell entry can reach its AGGRO
+callback, but complete combat-entry parity requires another source owner:
+`Unit::SetInCombatState` disables help checks, queues their re-enable, then calls
+`TriggerAggroLinkingEvent`. That path sets the assistance latch, snapshots nearby
+receivers with the selected help radius, and queues the linking/assistance
+callback. Ordinary AI-notify visitor membership occurs at a different time and
+is not evidence for that receiver query or those Unit events. Even a one-creature
+authored scene with no helper effects cannot establish their flag/queue lifecycle.
+The separately selected [assistance owner](COMBAT-ASSISTANCE.md) composes that
+flag/queue lifecycle with explicitly authored complete ordered candidate traversal
+and runtime-derived semantic denials before range/LOS.
+The base dry component alone does not supply it; nonempty dispatch and unknown
+traversal remain unsupported.
+The ordinary visitor catalog now admits multiple independent spawns of a shared
+entry under existing resource limits. This removes a catalog limitation; real
+map membership, client assets and positive peer help remain separate dependencies.
+
+Native45 and earlier profile/state/record/checkpoint/melee/callback identities
 reject without migration. RNG v2, original World v2, character files and the
 native store envelope remain unchanged. Rehashed receipts do not recreate live
 loaded authority or erase any of these remaining dependencies.

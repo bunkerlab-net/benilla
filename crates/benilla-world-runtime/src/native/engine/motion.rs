@@ -578,10 +578,16 @@ impl<A: Authority> Frame<'_, A> {
         let g = self.profile.npc_motion(npc.id.spawn)?;
         match effect {
             ai::Effect::CombatStarted { target } => {
+                if self.profile.combat_assistance().is_some() && npc.events.callback.is_some() {
+                    return Err(NativeError::UnsupportedMechanic(
+                        "assistance entry inside owning NPC callback",
+                    ));
+                }
                 let source = npc.source_motion.as_mut().unwrap();
                 source.combat_start = Some(source.motion.pose());
                 npc.events.entered_combat()?;
                 self.event_ai_enter_combat(npc, *target, callback)?;
+                self.combat_entry_assistance(npc, *target, callback)?;
                 self.enter_player_combat();
             }
             ai::Effect::Motion(command) => {
@@ -635,7 +641,15 @@ impl<A: Authority> Frame<'_, A> {
                 npc.source_motion = Some(source);
                 self.source_motion_events(npc, events)?;
             }
+            ai::Effect::EvadeStarted(_) => {
+                // UnitAI::EnterEvadeMode calls CombatStop before returning Home.
+                npc.events
+                    .assistance_combat_stop(self.state.tick, AssistanceStopReason::Evade)?;
+            }
             ai::Effect::Died => {
+                // Unit::SetDeathState(JUST_DIED) calls CombatStop, Unit.cpp:8562.
+                npc.events
+                    .assistance_combat_stop(self.state.tick, AssistanceStopReason::Death)?;
                 for ability in npc.auras.keys() {
                     self.events.push(Event::Spell {
                         cast_id: 0,
@@ -702,6 +716,25 @@ impl<A: Authority> Frame<'_, A> {
         let mut queue = std::mem::take(&mut npc.events.queue);
         let mut transaction = queue.begin_update(self.profile.tick_ms)?;
         while let Some(due) = transaction.pop_due()? {
+            if matches!(
+                due.kind,
+                EventKind::ReenableHelp { .. } | EventKind::AggroLinking { .. }
+            ) {
+                let in_combat = npc.ai.phase() == ai::Phase::Combat;
+                // The bounded direct enemy is the same retained player Unit, even dead.
+                npc.events.dispatch_assistance(
+                    self.state.tick,
+                    due,
+                    Some(self.state.player),
+                    in_combat,
+                )?;
+                if due.callback == CallbackKind::Execute {
+                    transaction.finish_execute(true)?;
+                } else {
+                    transaction.finish_abort(true)?;
+                }
+                continue;
+            }
             if let EventKind::SpellUpdate { cast_id } = due.kind {
                 let lifetime = npc
                     .events

@@ -16,7 +16,7 @@ pub use audience::*;
 mod runtime;
 pub use runtime::*;
 
-pub const EVENT_AI_POLICY: &str = "cmangos-8ec338a1-aggro-text-v1";
+pub const EVENT_AI_POLICY: &str = "cmangos-8ec338a1-aggro-text-v2";
 const MAX_EVENTS: usize = 32;
 const MAX_TEXT_BYTES: usize = 16 * 1024;
 
@@ -203,7 +203,7 @@ fn text_bound(text: &str, limit: usize) -> Result<(), NativeError> {
 fn nullable_text_bound(text: &Option<String>) -> Result<(), NativeError> {
     text_bound(text.as_deref().unwrap_or(""), MAX_TEXT_BYTES)
 }
-fn encoded_budget(value: &impl Serialize) -> Result<(), NativeError> {
+pub(super) fn encoded_budget(value: &impl Serialize) -> Result<(), NativeError> {
     struct Counter(usize);
     impl std::io::Write for Counter {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -226,10 +226,10 @@ impl EventAiCatalog {
         encoded_budget(&input)?;
         let mut owners = BTreeMap::new();
         let mut referenced = BTreeSet::new();
-        let mut events = BTreeSet::new();
-        let mut entries = BTreeSet::new();
+        let mut events: BTreeMap<u32, &EventAiEventSource> = BTreeMap::new();
+        let mut entries: BTreeMap<u32, &EventAiOwnerSource> = BTreeMap::new();
         let mut database_guids = BTreeSet::new();
-        let owner_rows = input.owners.require(2)?;
+        let owner_rows = input.owners.require(crate::MAX_NPCS)?;
         if owner_rows.is_empty() {
             return Err(NativeError::InvalidProfile);
         }
@@ -241,10 +241,17 @@ impl EventAiCatalog {
                 || owner.database_guid > i32::MAX as u32
                 || owner.gender > 2
                 || owner.name.is_empty()
-                || !entries.insert(owner.entry)
                 || !database_guids.insert(owner.database_guid)
             {
                 return Err(NativeError::InvalidProfile);
+            }
+            if let Some(shared) = entries.insert(owner.entry, owner) {
+                if shared.name != owner.name
+                    || shared.name_locales != owner.name_locales
+                    || shared.entry_events != owner.entry_events
+                {
+                    return Err(NativeError::AuthorityBinding);
+                }
             }
             text_bound(&owner.name, 256)?;
             let mut name_locales = BTreeSet::new();
@@ -267,8 +274,15 @@ impl EventAiCatalog {
                     return Err(NativeError::InvalidProfile);
                 }
                 for event in rows {
-                    if event.creature_id != selector || !events.insert(event.id) {
+                    if event.creature_id != selector {
                         return Err(NativeError::InvalidProfile);
+                    }
+                    // InitAI copies the shared entry vector into each creature's
+                    // holders, then appends that creature's separate GUID vector.
+                    if let Some(shared) = events.insert(event.id, event) {
+                        if selector <= 0 || shared != event {
+                            return Err(NativeError::InvalidProfile);
+                        }
                     }
                     event.shape()?;
                     referenced.extend(event.actions[0].parameters.into_iter().filter(|id| *id > 0));

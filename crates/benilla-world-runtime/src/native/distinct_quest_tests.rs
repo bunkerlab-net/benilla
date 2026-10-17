@@ -825,8 +825,8 @@ fn distinct_quest_reached_peer_help_rejects_whole_tick_and_exact_visibility_retr
             authority.base.visibility_overrides.pop();
             assert_eq!(
                 step(&mut world, None, &mut authority),
-                Err(NativeError::UnsupportedMechanic(
-                    "peer sight reached CheckForHelp"
+                Err(NativeError::AuthorityUnavailable(
+                    "peer help selected assistance owners"
                 ))
             );
             assert_eq!(world.checkpoint().unwrap(), before);

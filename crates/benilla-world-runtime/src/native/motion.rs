@@ -673,7 +673,7 @@ pub struct VisitorSightRequest {
 pub enum SightDisposition {
     Evading,
     NotVisible,
-    Peer(PeerSightDisposition),
+    Peer(PeerSightReceipt),
     PlayerSightApplied,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -4,6 +4,8 @@
 mod admin;
 pub use admin::*;
 mod combat;
+mod combat_assistance;
+pub use combat_assistance::*;
 mod creature_capabilities;
 mod creature_initialization;
 pub use creature_initialization::*;
@@ -91,12 +93,12 @@ pub use interactions::{
     InteractionCatalog, InteractionControlSeed, InteractionEvidence, InteractionFactionSource,
     InteractionInput, InteractionMoment, InteractionWitness, MeleeCombatFacts, MeleeEntryFacts,
     NativeInitialCastSourceInput, NpcCombatAuthoritySource, NpcInteractionSource, NpcSemanticFacts,
-    NpcSpellSource, PeerSightDisposition, PlayerInteractionSource, SourceSpellFacts,
-    SourceSpellPhase, SourceSpellQuery, SourceSpellRequest, SpellAreaSourceRow,
-    SpellAreaSourceRows, SpellAuthorityCatalog, SpellAuthorityInput, SpellAuthoritySource,
-    SpellCastTimeSource, SpellDurationSource, SpellGroupSource, SpellHookSources, SpellRangeResult,
-    SpellRangeSource, SpellRankSource, SpellSessionSource, SpellSourceRows, INTERACTION_POLICY,
-    SPELL_AUTHORITY_POLICY,
+    NpcSpellSource, PeerHelpDenial, PeerHelpDenialReceipt, PeerSightDisposition, PeerSightReceipt,
+    PlayerInteractionSource, SourceSpellFacts, SourceSpellPhase, SourceSpellQuery,
+    SourceSpellRequest, SpellAreaSourceRow, SpellAreaSourceRows, SpellAuthorityCatalog,
+    SpellAuthorityInput, SpellAuthoritySource, SpellCastTimeSource, SpellDurationSource,
+    SpellGroupSource, SpellHookSources, SpellRangeResult, SpellRangeSource, SpellRankSource,
+    SpellSessionSource, SpellSourceRows, INTERACTION_POLICY, SPELL_AUTHORITY_POLICY,
 };
 pub use motion::*;
 #[cfg(test)]
@@ -126,8 +128,8 @@ pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIden
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;
 
-pub const NATIVE_FORMAT_VERSION: u32 = 43;
-pub const NATIVE_POLICY: &str = "benilla-native-dry-habitat-v43";
+pub const NATIVE_FORMAT_VERSION: u32 = 46;
+pub const NATIVE_POLICY: &str = "benilla-native-peer-help-v46";
 // Keeps direct/periodic combat receipts under the AI component's 64-event bound.
 pub const MAX_CASTS: usize = 16;
 /// Flat, source-ordered local inputs admitted before one simulation update.
@@ -473,7 +475,7 @@ impl NativeWorld {
         &self.state
     }
     pub fn state_digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-state-v43\0", &self.checkpoint_state())
+        crate::digest(b"benilla-native-state-v46\0", &self.checkpoint_state())
     }
     pub fn profile_digest(&self) -> crate::Digest {
         self.profile_digest

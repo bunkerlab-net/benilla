@@ -17,7 +17,16 @@ pub fn profile_with_entry_and_guid() -> Profile {
     profile_rows(100, true)
 }
 fn profile_rows(chance: u32, with_guid: bool) -> Profile {
-    let mut profile = visitors::profile();
+    install_rows(visitors::profile(), chance, with_guid)
+}
+/// Compose authored AGGRO rows with an already owned bounded creature profile.
+/// Exact generation addon/ExtraFlags ownership is preserved; no source importer.
+pub fn install(profile: Profile, chance: u32) -> Profile {
+    install_rows(profile, chance, false)
+}
+fn install_rows(mut profile: Profile, chance: u32, with_guid: bool) -> Profile {
+    let speaker = profile.npcs[0].ai.creature_id;
+    let speaker_entry = profile.npcs[0].entry;
     let event = EventAiEventSource {
         id: EVENT,
         creature_id: profile.npcs[0].entry as i32,
@@ -57,19 +66,21 @@ fn profile_rows(chance: u32, with_guid: bool) -> Profile {
                         locale: EventAiLocale::FrFr,
                         name: "Locuteur rédigé".into(),
                     }]),
-                    entry_events: EventAiRows::Complete(if n.ai.creature_id == 2 {
+                    entry_events: EventAiRows::Complete(if n.entry == speaker_entry {
                         vec![event.clone()]
                     } else {
                         vec![]
                     }),
-                    guid_events: EventAiRows::Complete(if with_guid && n.ai.creature_id == 2 {
-                        let mut guid = event.clone();
-                        guid.id += 1;
-                        guid.creature_id = -(99000 + n.ai.creature_id as i32);
-                        vec![guid]
-                    } else {
-                        vec![]
-                    }),
+                    guid_events: EventAiRows::Complete(
+                        if with_guid && n.ai.creature_id == speaker {
+                            let mut guid = event.clone();
+                            guid.id += 1;
+                            guid.creature_id = -(99000 + n.ai.creature_id as i32);
+                            vec![guid]
+                        } else {
+                            vec![]
+                        },
+                    ),
                 })
                 .collect(),
         ),
@@ -115,7 +126,11 @@ fn profile_rows(chance: u32, with_guid: bool) -> Profile {
                         spawn_id: n.ai.creature_id,
                         entry: n.entry,
                         civilian: 0,
-                        extra_flags: 0,
+                        extra_flags: profile
+                            .creature_generations
+                            .as_ref()
+                            .and_then(|catalog| catalog.source(n.ai.creature_id))
+                            .map_or(0, |source| source.input.template.extra_flags),
                         spell_list_id: 0,
                         resolved_spell_list_id: n.entry * 100,
                         resolved_spells: EventAiRows::Complete(vec![]),
@@ -125,12 +140,32 @@ fn profile_rows(chance: u32, with_guid: bool) -> Profile {
         },
     )
     .unwrap();
-    let mut input = visitors::visitor_input(&profile, vec![2, 3]);
+    let owner_order = profile.source_visitors.as_ref().map_or_else(
+        || profile.npcs.iter().map(|npc| npc.ai.creature_id).collect(),
+        |catalog| catalog.owner_order().to_vec(),
+    );
+    let mut input = visitors::visitor_input(&profile, owner_order);
     let SourceVisitorRows::Complete(owners) = &mut input.owners else {
         unreachable!()
     };
-    owners[0].ai_name = "EventAI".into();
-    owners[0].entry_events = SourceVisitorRows::Complete(vec![EVENT]);
+    for owner in owners.iter_mut() {
+        if let Some(source) = profile
+            .creature_generations
+            .as_ref()
+            .and_then(|catalog| catalog.source(owner.spawn_id))
+        {
+            owner.addon_closure = SourceVisitorAddonClosure::GenerationSource {
+                source_identity: source.identity(),
+            };
+        }
+    }
+    for owner in owners
+        .iter_mut()
+        .filter(|owner| owner.entry == speaker_entry)
+    {
+        owner.ai_name = "EventAI".into();
+        owner.entry_events = SourceVisitorRows::Complete(vec![EVENT]);
+    }
     if with_guid {
         owners[0].guid_events = SourceVisitorRows::Complete(vec![EVENT + 1]);
     }
@@ -177,5 +212,38 @@ impl super::Authority for Authority {
     }
     fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
         self.base.observe_derived(reply)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn composed_event_ai_preserves_existing_visitor_execution_order() {
+        for order in [[2, 3], [3, 2]] {
+            let profile = install(visitors::profile_with_order(order), 10);
+            assert_eq!(
+                profile.source_visitors.as_ref().unwrap().owner_order(),
+                order
+            );
+            assert_eq!(
+                profile
+                    .event_ai()
+                    .unwrap()
+                    .catalog()
+                    .events(2)
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert!(profile
+                .event_ai()
+                .unwrap()
+                .catalog()
+                .events(3)
+                .unwrap()
+                .is_empty());
+        }
     }
 }

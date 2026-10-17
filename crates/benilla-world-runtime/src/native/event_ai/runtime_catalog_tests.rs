@@ -391,3 +391,180 @@ fn bounded_nonempty_event_selection_requires_explicit_ai_name() {
     visitor_owner(&mut input).ai_name.clear();
     assert!(SourceVisitorCatalog::validate_sources_with_event_ai(input, runtime).is_err());
 }
+
+fn expand_same_entry(profile: &mut Profile) {
+    let template = profile.npcs[0].clone();
+    let motion = profile.source_motion.as_ref().unwrap().npcs[&template.ai.creature_id].clone();
+    profile.npcs = (2..9)
+        .map(|spawn| {
+            let mut npc = template.clone();
+            npc.ai.creature_id = spawn;
+            npc
+        })
+        .collect();
+    profile.source_motion.as_mut().unwrap().npcs =
+        (2..9).map(|spawn| (spawn, motion.clone())).collect();
+    profile.creature_capabilities = Some(
+        CreatureCapabilityCatalog::validate_sources(
+            synthetic_motion_fixture::creature_capability_sources(profile),
+        )
+        .unwrap(),
+    );
+    profile.source_visitors = Some(
+        SourceVisitorCatalog::validate_sources(synthetic_two_owner_fixture::visitor_input(
+            profile,
+            vec![8, 3, 5, 2, 7, 4, 6],
+        ))
+        .unwrap(),
+    );
+}
+fn shared_selection(profile: &Profile, guid_events: bool) -> SourceVisitorCatalog {
+    let mut input = sources(profile);
+    let EventAiRows::Complete(owners) = &mut input.owners else {
+        unreachable!()
+    };
+    let shared = owners[0].entry_events.clone();
+    for owner in owners {
+        owner.entry_events = shared.clone();
+        if !guid_events {
+            owner.guid_events = EventAiRows::Complete(vec![]);
+        }
+    }
+    let runtime = EventAiRuntimeCatalog::validate_sources(
+        EventAiCatalog::validate_sources(input).unwrap(),
+        configuration(profile),
+    )
+    .unwrap();
+    let mut input = visitors(profile);
+    input.owner_order = vec![8, 3, 5, 2, 7, 4, 6];
+    let SourceVisitorRows::Complete(owners) = &mut input.owners else {
+        unreachable!()
+    };
+    for owner in owners {
+        owner.entry_events = SourceVisitorRows::Complete(vec![91001]);
+        if !guid_events {
+            owner.guid_events = SourceVisitorRows::Complete(vec![]);
+        }
+    }
+    SourceVisitorCatalog::validate_sources_with_event_ai(input, runtime).unwrap()
+}
+#[test]
+fn seven_same_entry_runtime_owners_have_independent_generation_state() {
+    let mut profile = synthetic_combat_fixture::profile();
+    expand_same_entry(&mut profile);
+    profile.source_visitors = Some(shared_selection(&profile, true));
+    profile.validate().unwrap();
+    let runtime = profile.event_ai().unwrap();
+    for case in 0..4 {
+        let mut config = configuration(&profile);
+        let EventAiRows::Complete(owners) = &mut config.owners else {
+            unreachable!()
+        };
+        match case {
+            0 => owners[6].extra_flags = 0x0008_0000,
+            1 => owners[6].spawn_id = 9,
+            2 => owners[6].spawn_id = 2,
+            _ => {
+                owners.pop();
+            }
+        }
+        assert!(
+            EventAiRuntimeCatalog::validate_sources(runtime.catalog().clone(), config).is_err(),
+            "case {case}"
+        );
+    }
+    let mut state = EventAiState::new(&profile).unwrap().unwrap();
+    let companion = state.owners[&3].clone();
+    assert_eq!(state.owners[&2].holders[0], companion.holders[0]);
+    assert_ne!(
+        state.owners[&2].holders[1].event_id,
+        companion.holders[1].event_id
+    );
+    state.owners.get_mut(&2).unwrap().next_occurrence = 5;
+    assert_eq!(state.owners[&3], companion);
+    state
+        .respawn(
+            &profile,
+            crate::NpcId {
+                spawn: 2,
+                generation: 1,
+            },
+            1,
+        )
+        .unwrap();
+    assert_eq!(state.owners[&2].id.generation, 1);
+    assert_eq!(state.owners[&2].next_occurrence, 0);
+    assert_eq!(state.owners[&3], companion);
+    for spawn in 3..9 {
+        assert_eq!(state.owners[&spawn].id.generation, 0);
+        assert_eq!(state.owners[&spawn].next_occurrence, 0);
+    }
+}
+#[test]
+fn combat_and_spell_catalogs_cover_distinct_entries_and_each_spawn_closure() {
+    let (mut profile, initial, mut source) = synthetic_spell_fixture::inputs();
+    expand_same_entry(&mut profile);
+    profile.source_visitors = Some(shared_selection(&profile, false));
+    source.npcs[0].ai_name = "EventAI".into();
+    source.npcs[0].event_scripts = SpellSourceRows::Complete(vec![91001]);
+    profile
+        .initialize_spell_authority(&initial, source.clone())
+        .unwrap();
+    profile.validate().unwrap();
+    let row = NpcCombatAuthoritySource {
+        entry: profile.npcs[0].entry,
+        extra_flags: 0,
+        static_flags1: 0,
+        static_flags2: 0,
+        static_flags3: 0,
+        static_flags4: 0,
+    };
+    profile
+        .initialize_combat_authority(vec![row.clone()])
+        .unwrap();
+    for case in 0..3 {
+        let mut combat_rows = vec![row.clone()];
+        let mut spell_rows = source.clone();
+        match case {
+            0 => {
+                combat_rows.clear();
+                spell_rows.npcs.clear();
+            }
+            1 => {
+                combat_rows[0].entry += 1;
+                spell_rows.npcs[0].entry += 1;
+            }
+            _ => {
+                let mut foreign = row.clone();
+                foreign.entry += 1;
+                combat_rows.push(foreign);
+                let mut foreign = spell_rows.npcs[0].clone();
+                foreign.entry += 1;
+                spell_rows.npcs.push(foreign);
+            }
+        }
+        let before = profile.digest();
+        assert!(
+            profile.initialize_combat_authority(combat_rows).is_err(),
+            "case {case}"
+        );
+        assert!(
+            profile
+                .initialize_spell_authority(&initial, spell_rows)
+                .is_err(),
+            "case {case}"
+        );
+        assert_eq!(profile.digest(), before);
+    }
+    let mut contradictory = profile.clone();
+    contradictory.npcs[6].ai.level += 1;
+    assert!(contradictory.validate().is_err());
+
+    // The entry-keyed spell source cannot represent different GUID closures.
+    // Matching the first owner must never silently select it for all owners.
+    profile.source_visitors = Some(shared_selection(&profile, true));
+    source.npcs[0].event_scripts = SpellSourceRows::Complete(vec![91001, 90001]);
+    assert!(profile
+        .initialize_spell_authority(&initial, source)
+        .is_err());
+}

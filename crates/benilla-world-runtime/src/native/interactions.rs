@@ -4,12 +4,16 @@
 //! Private exact-draft semantic host. Source rows are inputs, never an admission token.
 use super::*;
 use crate::NpcId;
+mod assistance;
+pub(in crate::native) use assistance::source_assistance_traversal;
 mod combat_authority;
 mod facing;
 mod peer_sight;
 pub use facing::FacingNumericPolicy;
 pub(in crate::native) use peer_sight::source_peer_sight;
-pub use peer_sight::PeerSightDisposition;
+pub use peer_sight::{
+    PeerHelpDenial, PeerHelpDenialReceipt, PeerSightDisposition, PeerSightReceipt,
+};
 pub(in crate::native) mod spell_authority;
 use benilla_formats::FactionTemplate;
 use benilla_sim::classic_targets as relations;
@@ -183,7 +187,7 @@ pub struct InteractionInput {
 pub struct InteractionCatalog {
     policy: &'static str,
     facing_authority: Option<FacingNumericPolicy>,
-    combat_authority: Option<CombatAuthorityCatalog>,
+    pub(in crate::native) combat_authority: Option<CombatAuthorityCatalog>,
     spell_authority: Option<SpellAuthorityCatalog>,
     player: PlayerInteractionSource,
     npcs: BTreeMap<u32, NpcInteractionSource>,

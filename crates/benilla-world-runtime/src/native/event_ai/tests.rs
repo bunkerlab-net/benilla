@@ -256,7 +256,7 @@ fn newer_raw_locales_survive_but_pinned_loader_ignores_them() {
 }
 
 #[test]
-fn distinct_owner_domain_rejects_contradictory_entry_or_database_guid() {
+fn shared_entry_domain_rejects_contradictory_entry_events_or_database_guid() {
     for same_entry in [false, true] {
         let mut i = input();
         let mut other = owner(&mut i).clone();
@@ -319,4 +319,145 @@ fn another_owners_broadcast_cannot_be_projected_for_this_owner() {
         Err(NativeError::AuthorityBinding)
     );
     assert!(c.localized(3, 71003, EventAiLocale::EnUs).is_ok());
+}
+
+/// Shared SQL entry rows, with an independently selected GUID vector per owner.
+pub(super) fn same_entry_input(count: usize) -> EventAiInput {
+    let mut input = input();
+    let template = owner(&mut input).clone();
+    input.owners = EventAiRows::Complete(
+        (0..count)
+            .map(|index| {
+                let mut owner = template.clone();
+                owner.spawn_id = index as u64 + 2;
+                owner.database_guid += index as u32;
+                owner.gender = (index % 3) as u8;
+                owner.guid_events = EventAiRows::Complete(vec![event(
+                    92001 + index as u32,
+                    -(owner.database_guid as i32),
+                )]);
+                owner
+            })
+            .collect(),
+    );
+    input
+}
+#[test]
+fn seven_same_entry_owners_copy_shared_entry_then_independent_guid_vectors() {
+    let catalog = EventAiCatalog::validate_sources(same_entry_input(7)).unwrap();
+    for spawn in 2..9 {
+        assert_eq!(
+            catalog
+                .events(spawn)
+                .unwrap()
+                .iter()
+                .map(AggroText::event_id)
+                .collect::<Vec<_>>(),
+            vec![91001, 92001 + (spawn - 2) as u32]
+        );
+        assert_eq!(
+            catalog.owner(spawn).unwrap().database_guid,
+            99001 + (spawn - 2) as u32
+        );
+    }
+}
+#[test]
+fn shared_entry_fields_and_global_event_id_collisions_fail_closed() {
+    for case in 0..10 {
+        let mut input = same_entry_input(7);
+        let EventAiRows::Complete(owners) = &mut input.owners else {
+            unreachable!()
+        };
+        let first = owners[0].clone();
+        let other = &mut owners[6];
+        match case {
+            0 => other.name.push('!'),
+            1 => other.name_locales = EventAiRows::Complete(vec![]),
+            2 => other.entry_events = EventAiRows::Complete(vec![]),
+            3 => {
+                let EventAiRows::Complete(events) = &mut other.entry_events else {
+                    unreachable!()
+                };
+                events[0].comment.push('!');
+            }
+            4 => {
+                let EventAiRows::Complete(events) = &mut other.entry_events else {
+                    unreachable!()
+                };
+                events[0].chance += 1;
+            }
+            5 => other.guid_events = first.guid_events,
+            6 => {
+                other.entry += 1;
+                other.entry_events = EventAiRows::Complete(vec![event(91001, other.entry as i32)]);
+            }
+            7 => {
+                other.guid_events =
+                    EventAiRows::Complete(vec![event(91001, -(other.database_guid as i32))])
+            }
+            8 => other.database_guid = first.database_guid,
+            _ => other.spawn_id = first.spawn_id,
+        }
+        assert!(
+            EventAiCatalog::validate_sources(input).is_err(),
+            "case {case}"
+        );
+    }
+}
+#[test]
+fn shared_entry_vectors_keep_per_owner_event_and_aggregate_source_bounds() {
+    let mut input = same_entry_input(7);
+    let EventAiRows::Complete(owners) = &mut input.owners else {
+        unreachable!()
+    };
+    for owner in owners {
+        owner.entry_events = EventAiRows::Complete(
+            (0..31)
+                .map(|index| event(91001 + index, owner.entry as i32))
+                .collect(),
+        );
+    }
+    EventAiCatalog::validate_sources(input.clone()).unwrap();
+    let EventAiRows::Complete(owners) = &mut input.owners else {
+        unreachable!()
+    };
+    for owner in owners {
+        let EventAiRows::Complete(events) = &mut owner.entry_events else {
+            unreachable!()
+        };
+        events.push(event(91032, owner.entry as i32));
+    }
+    assert_eq!(
+        EventAiCatalog::validate_sources(input),
+        Err(NativeError::TooLarge)
+    );
+
+    let mut input = same_entry_input(256);
+    let EventAiRows::Complete(owners) = &mut input.owners else {
+        unreachable!()
+    };
+    for owner in owners {
+        owner.entry_events = EventAiRows::Complete(
+            (0..31)
+                .map(|index| {
+                    let mut row = event(91001 + index, owner.entry as i32);
+                    row.comment = "𐀀".repeat(255);
+                    row
+                })
+                .collect(),
+        );
+    }
+    assert_eq!(
+        EventAiCatalog::validate_sources(input),
+        Err(NativeError::TooLarge)
+    );
+}
+#[test]
+fn event_ai_owner_bound_uses_the_world_limit() {
+    let input = same_entry_input(crate::MAX_NPCS);
+    EventAiCatalog::validate_sources(input).unwrap();
+    assert_eq!(
+        EventAiCatalog::validate_sources(same_entry_input(crate::MAX_NPCS + 1)),
+        Err(NativeError::TooLarge)
+    );
 }

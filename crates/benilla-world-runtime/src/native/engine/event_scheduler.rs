@@ -38,6 +38,9 @@ impl<A: Authority> Frame<'_, A> {
         let mut transaction = queue.begin_update(self.profile.tick_ms)?;
         while let Some(due) = transaction.pop_due()? {
             match due.kind {
+                EventKind::ReenableHelp { .. } | EventKind::AggroLinking { .. } => {
+                    return Err(NativeError::InvalidState)
+                }
                 EventKind::AiNotify => {
                     if self.state.player_events.notify != Some(due.event_id) {
                         return Err(NativeError::InvalidState);

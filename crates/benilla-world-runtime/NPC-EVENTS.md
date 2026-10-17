@@ -61,7 +61,7 @@ alone does not clear `CanAggro` or abort the queue. A dead creature's due visito
 can set `CanAggro=false`; ordinary corpse removal preserves whichever value the
 source had until respawn resets it.
 
-Checkpoint format 43 (`benilla-native-dry-habitat-v43`) binds source policy,
+Checkpoint format 46 (`benilla-native-peer-help-v46`) binds source policy,
 owner, queue, pending notify, aggro state and count of DEAD updates skipped by
 the processor. The exact queue clock equals `(tick - skipped_updates) * diff`;
 the AI's actual corpse-removal timestamp independently bounds the current DEAD
@@ -88,3 +88,14 @@ The player projectile adapter is not reused. Actual spell1604/rear-trigger
 admission remains closed pending its raw source dependencies and all reachable
 lifecycle behavior. Authored tests are not raw-content, client-asset, live-realm,
 complete Classic combat or multiplayer gameplay evidence.
+
+## Selected assistance events
+
+The optional [combat-entry assistance owner](COMBAT-ASSISTANCE.md) adds its
+help-check re-enable and delayed linking/assistance lambda payloads to this same
+processor. Equal deadlines preserve insertion order. CombatStop resets only the
+assistance latch, and pending payloads survive corpse/dead/respawn with the
+physical Unit. Required selected state and retained history are validated with
+queue ownership during restore; no second clock or generation-based cancel is
+introduced. The initial domain requires authored complete-empty receiver
+traversal and excludes entry inside this NPC's active event callback.

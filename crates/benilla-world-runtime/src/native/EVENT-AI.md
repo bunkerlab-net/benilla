@@ -64,6 +64,12 @@ Spell target admission accepts only matching retained event IDs/AIName and
 preserves unrelated min=max level, script, addon, immunity and subtype guards.
 The NPC slow-caster source domain remains separate and empty-event only.
 
+Complete-empty creation `ScriptOrAiSubstitution` coverage excludes unowned
+initializer-changing ScriptDevAI/custom substitutions; it does not assert that
+all AI/event rows are empty. Ordinary EventAI is selected afterward by the core
+AI registry and must be independently retained and executed by these visitor and
+EventAI owners. Unknown substitutions or unsupported event shapes still reject.
+
 The actual callback runs after source combat-position capture and initial notify
 cancellation, before player combat and Motion. Both selected source sight and
 hostile-spell receipt paths reach it. Late legacy/update-finish CombatStarted is
@@ -102,8 +108,8 @@ Graphical assets, font/language tables and client talk gestures remain unverifie
 
 ## Transaction, continuation and incompatible format
 
-Native format 43 (`benilla-native-dry-habitat-v43`) binds profile, state,
-record, checkpoint, melee and callback domains together. Native42 and earlier are rejected,
+Native format 46 (`benilla-native-peer-help-v46`) binds profile, state,
+record, checkpoint, melee and callback domains together. Native45 and earlier are rejected,
 even after outer checksums are recomputed. The periodic-roll reorder also changes
 callback witnesses and is an independent reason old journals cannot be replayed.
 Required option fields never silently default missing EventAI continuation or
@@ -137,3 +143,36 @@ ownership, runtime producer, client/terrain dependencies, Fireball/loot closure
 and graphical evidence remain separate gates. NativeCapability/startup and loaded
 native-cache saved-session reopening remain closed; no compatibility exception
 is added here.
+
+
+The bounded EnterCombat callback is not the whole source combat-entry lifecycle.
+Pinned `Unit.cpp:8007-8013` schedules help-check re-enable before
+`TriggerAggroLinkingEvent`; `Unit.cpp:559-582` and
+`Creature.cpp:2178-2200` separately capture assistance receivers and schedule the
+later callback. AI-notify visitor evidence does not replace this capture. Actual
+entry 6 retains CallForHelp=5 and ExtraFlags=2 (Defensive); a dry, idle,
+hostile-spell/EventAI composition must retain that reaction. The separately
+selected [assistance owner](../../COMBAT-ASSISTANCE.md) composes the flags and
+ordered Unit events with explicit authored complete ordered traversal evidence.
+Unselected EventAI alone does not own that suffix. Nonempty assistance dispatch and positive
+ordinary peer CheckForHelp continuation remain unsupported.
+
+## Shared entry sources, independent spawn holders
+
+The selected catalog admits multiple physical spawns of one entry under the
+existing MAX_NPCS and serialized-input budgets. Pinned `CreatureEventAI.cpp`
+102–163 copies the entry event vector into each creature's own holders, then
+appends that creature's GUID vector. Repeated entry event IDs across owner
+copies must have byte-equivalent source fields and the same positive selector;
+conflicting rows and entry/GUID selector collisions reject. Each entry's name,
+localized names and complete entry vector must agree. Spawn identities and
+source database GUIDs remain unique, while gender and GUID events remain
+per-owner inputs. Existing per-owner event and aggregate source/text bounds
+remain in force.
+
+Runtime holders, occurrence counters, generation resets and Unit queues remain
+spawn-owned. One owner's respawn cannot reset another owner's holder. The
+current executable spell-source host still requires each spawn to validate its
+complete effective event/addon closure against its entry row; differing GUID
+closures reject until separately represented. Catalog acceptance alone does
+not establish loaded membership or successful peer help.

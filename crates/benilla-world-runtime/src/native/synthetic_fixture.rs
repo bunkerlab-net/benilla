@@ -189,6 +189,11 @@ impl Authority for SyntheticAuthority {
                     "legacy fixture has no source-owned location",
                 ));
             }
+            Query::CombatAssistance(_) => {
+                return Err(NativeError::AuthorityUnavailable(
+                    "legacy fixture has no assistance traversal",
+                ));
+            }
             Query::EventAiAudience(_) => {
                 return Err(NativeError::AuthorityUnavailable(
                     "legacy fixture has no complete camera membership",

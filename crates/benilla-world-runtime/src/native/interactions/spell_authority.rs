@@ -336,7 +336,7 @@ impl Profile {
         if reconstructed.combat != self.combat || reconstructed.player != self.player {
             return Err(NativeError::InvalidProfile);
         }
-        if input.spells.len() > 1024 || input.npcs.len() > 4096 {
+        if input.spells.len() > 1024 || input.npcs.len() > crate::MAX_NPCS {
             return Err(NativeError::TooLarge);
         }
         let mut spells = BTreeMap::new();
@@ -634,9 +634,13 @@ impl SpellAuthorityCatalog {
                 "mutable spell stats require progression history",
             ));
         }
-        if self.npcs.len() != profile.npcs.len() {
+        let entries: std::collections::BTreeSet<_> =
+            profile.npcs.iter().map(|npc| npc.entry).collect();
+        if !self.npcs.keys().copied().eq(entries) {
             return Err(NativeError::InvalidProfile);
         }
+        // This catalog is entry-keyed, but creation/addon and GUID EventAI
+        // closures must still agree independently for every selected spawn.
         for n in &profile.npcs {
             let raw = self.npcs.get(&n.entry).ok_or(NativeError::InvalidProfile)?;
             // Creature.cpp:585 and 1983; subtype and world-boss level override

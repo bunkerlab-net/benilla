@@ -344,11 +344,11 @@ fn altered_receipt_byte_cache_fails_restore_even_with_resealed_checkpoint() {
         forged["state"]["admin"]["receipt_bytes"] = cache.into();
         let state: super::persistence::StateCheckpoint =
             serde_json::from_value(forged["state"].clone()).unwrap();
-        let digest = crate::digest(b"benilla-native-state-v43\0", &state);
+        let digest = crate::digest(b"benilla-native-state-v46\0", &state);
         forged["digest"] = serde_json::to_value(digest).unwrap();
         let tip: crate::Digest = serde_json::from_value(forged["history_tip"].clone()).unwrap();
         forged["checksum"] = serde_json::to_value(crate::digest(
-            b"benilla-native-checkpoint-v43\0",
+            b"benilla-native-checkpoint-v46\0",
             &(state, digest, tip),
         ))
         .unwrap();
@@ -377,7 +377,7 @@ fn previous_admin_and_progression_formats_cannot_decode_as_item_grants() {
         .into();
         assert!(Checkpoint::decode(&serde_json::to_vec(&old).unwrap()).is_err());
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 43);
+    assert_eq!(NATIVE_FORMAT_VERSION, 46);
 }
 
 #[test]

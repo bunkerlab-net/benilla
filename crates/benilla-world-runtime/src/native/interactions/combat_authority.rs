@@ -18,7 +18,7 @@ const NO_AGGRO_ON_SIGHT: u32 = 0x0000_0002;
 const IGNORE_FEIGN_DEATH: u32 = 0x0000_0100;
 const NO_CRUSHING_BLOWS: u32 = 0x0000_0010;
 const NO_WOUNDED_SLOWDOWN: u32 = 0x0000_0040;
-const POLICY: &str = "cmangos-8ec338a1-native-combat-authority-v2";
+const POLICY: &str = "cmangos-8ec338a1-native-combat-authority-v3";
 
 /// Captured complete raw fields. Unrepresented bits reject rather than becoming
 /// an assertion of absent script/control behavior. No deserializer is provided.
@@ -34,7 +34,8 @@ pub struct NpcCombatAuthoritySource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CombatAuthorityCatalog {
     policy: &'static str,
-    npcs: BTreeMap<u32, NpcCombatAuthoritySource>,
+    pub(in crate::native) npcs: BTreeMap<u32, NpcCombatAuthoritySource>,
+    pub(in crate::native) assistance: Option<CombatAssistanceCatalog>,
 }
 impl CombatAuthorityCatalog {
     pub(super) fn validate(&self, profile: &Profile) -> Result<(), NativeError> {
@@ -46,7 +47,9 @@ impl CombatAuthorityCatalog {
                 "combat authority requires source motion and player initialization",
             ));
         }
-        if self.npcs.len() != profile.npcs.len() {
+        let entries: std::collections::BTreeSet<_> =
+            profile.npcs.iter().map(|npc| npc.entry).collect();
+        if !self.npcs.keys().copied().eq(entries) {
             return Err(NativeError::UnsupportedMechanic(
                 "missing combat authority source rows",
             ));
@@ -131,6 +134,9 @@ impl CombatAuthorityCatalog {
                 return Err(NativeError::InvalidProfile);
             }
         }
+        if let Some(assistance) = &self.assistance {
+            assistance.validate(profile)?;
+        }
         Ok(())
     }
 }
@@ -141,7 +147,7 @@ impl Profile {
         &mut self,
         rows: Vec<NpcCombatAuthoritySource>,
     ) -> Result<(), NativeError> {
-        if rows.len() > 4096 {
+        if rows.len() > crate::MAX_NPCS {
             return Err(NativeError::TooLarge);
         }
         let mut npcs = BTreeMap::new();
@@ -159,6 +165,7 @@ impl Profile {
             .combat_authority = Some(CombatAuthorityCatalog {
             policy: POLICY,
             npcs,
+            assistance: None,
         });
         next.validate()?;
         *self = next;
@@ -354,6 +361,28 @@ impl<'a> WorkingNpc<'a> {
                 phase: self.ai.phase(),
             },
             source,
+        })
+    }
+    /// Only the reached CanAttackOnSight(victim) predicate from CheckForHelp.
+    pub(in crate::native) fn can_attack_player_on_sight(
+        &self,
+        profile: &Profile,
+        state: &State,
+    ) -> Result<bool, NativeError> {
+        let view = self.view(profile, state)?;
+        let row = &view.catalog.combat_authority.as_ref().unwrap().npcs[&view.source.entry];
+        view.with_relation_input(|input| {
+            decision(relations::check_can_attack_on_sight(
+                input,
+                relations::Side::Npc,
+                relations::OnSightState {
+                    target_evading_home: false,
+                    source_ignores_feign_death: row.static_flags2 & IGNORE_FEIGN_DEATH != 0,
+                    target_feigning_death_successfully: view.catalog.player.control.unit_state
+                        & 0x4
+                        != 0,
+                },
+            ))
         })
     }
     pub(in crate::native) fn npc_semantics(

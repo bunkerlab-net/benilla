@@ -2,13 +2,13 @@
 // CMaNGOS Classic 8ec338a1, CreatureAISelector.cpp:38-90, CreatureEventAI.cpp:
 // 51-62/149-162/1634-1664, CreatureAI.cpp:33-46 and UnitAI.cpp:51/68-101.
 // Upstream GPL-2.0-or-later, Copyright CMaNGOS contributors.
-//! Immutable authored selection of a complete one/two-owner outdoor visitor scene.
+//! Immutable authored selection of a complete bounded outdoor visitor scene.
 //! It proves no real map traversal or production source completeness.
 use super::*;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-v3";
+pub const SOURCE_VISITOR_POLICY: &str = "cmangos-8ec338a1-complete-source-visitors-v4";
 
 /// A producer must explicitly classify every applicable row. Unknown or missing
 /// coverage cannot supply an empty EventAI or override lookup.
@@ -219,18 +219,34 @@ impl SourceVisitorCatalog {
         input: SourceVisitorInput,
         event_ai: Option<EventAiRuntimeCatalog>,
     ) -> Result<Self, NativeError> {
+        super::event_ai::encoded_budget(&(&input, &event_ai))?;
         let rows = input.owners.require("complete visitor owner sources")?;
-        if !matches!(rows.len(), 1 | 2) || input.owner_order.len() != rows.len() {
+        if rows.len() > crate::MAX_NPCS {
+            return Err(NativeError::TooLarge);
+        }
+        if rows.is_empty() || input.owner_order.len() != rows.len() {
             return Err(NativeError::InvalidProfile);
         }
         if input.map_instance_type != 0 {
             return Err(NativeError::UnsupportedMechanic("outdoor visitor map"));
         }
         let mut owners = BTreeMap::new();
-        let mut entries = BTreeSet::new();
+        let mut entries: BTreeMap<u32, &SourceVisitorOwner> = BTreeMap::new();
         for row in rows {
             row.validate(event_ai.as_ref())?;
-            if !entries.insert(row.entry) || owners.insert(row.spawn_id, row.clone()).is_some() {
+            if let Some(shared) = entries.insert(row.entry, row) {
+                // CreatureInfo fields and entry EventAI belong to the template;
+                // GUID events, addon sources and overrides remain spawn-owned.
+                if shared.ai_name != row.ai_name
+                    || shared.script_name != row.script_name
+                    || shared.script_id != row.script_id
+                    || shared.spell_list_id != row.spell_list_id
+                    || shared.entry_events != row.entry_events
+                {
+                    return Err(NativeError::AuthorityBinding);
+                }
+            }
+            if owners.insert(row.spawn_id, row.clone()).is_some() {
                 return Err(NativeError::InvalidProfile);
             }
         }
@@ -244,14 +260,16 @@ impl SourceVisitorCatalog {
         {
             return Err(NativeError::AuthorityBinding);
         }
-        Ok(Self {
+        let catalog = Self {
             policy: SOURCE_VISITOR_POLICY,
             owner_order: input.owner_order,
             map_id: input.map_id,
             map_instance_type: input.map_instance_type,
             owners,
             event_ai,
-        })
+        };
+        super::event_ai::encoded_budget(&catalog)?;
+        Ok(catalog)
     }
     pub fn event_ai(&self) -> Option<&EventAiRuntimeCatalog> {
         self.event_ai.as_ref()
@@ -270,7 +288,8 @@ impl SourceVisitorCatalog {
         if self.policy != SOURCE_VISITOR_POLICY
             || !self.outdoor()
             || self.map_id != profile.map_id
-            || !matches!(profile.npcs.len(), 1 | 2)
+            || profile.npcs.is_empty()
+            || profile.npcs.len() > crate::MAX_NPCS
             || self.owners.len() != profile.npcs.len()
             || self.owner_order.len() != self.owners.len()
         {
@@ -292,13 +311,12 @@ impl SourceVisitorCatalog {
         if let Some(generations) = &profile.creature_generations {
             generations.validate(profile)?;
         }
-        let mut entries = BTreeSet::new();
         for npc in &profile.npcs {
             let row = self
                 .owner(npc.ai.creature_id)
                 .ok_or(NativeError::InvalidProfile)?;
             row.validate(self.event_ai.as_ref())?;
-            if row.entry != npc.entry || !entries.insert(npc.entry) {
+            if row.entry != npc.entry {
                 return Err(NativeError::InvalidProfile);
             }
             row.validate_addon_closure(profile.creature_generations.as_ref())?;
@@ -394,8 +412,8 @@ mod tests {
         assert!(unselected.validate().is_err());
     }
     #[test]
-    fn raw_owner_schedule_and_complete_coverage_reject_missing_extra_duplicate_and_third_owner() {
-        for case in 0..12 {
+    fn raw_owner_schedule_and_complete_coverage_reject_missing_extra_and_duplicate_owners() {
+        for case in 0..10 {
             let mut input = input();
             match case {
                 0 => input.owner_order.clear(),
@@ -412,17 +430,6 @@ mod tests {
                     let duplicate = rows(&mut input)[0].clone();
                     rows(&mut input)[1] = duplicate;
                 }
-                9 => {
-                    let entry = rows(&mut input)[0].entry;
-                    rows(&mut input)[1].entry = entry;
-                }
-                10 => {
-                    let mut third = rows(&mut input)[1].clone();
-                    third.spawn_id = 4;
-                    third.entry += 1;
-                    rows(&mut input).push(third);
-                    input.owner_order.push(4);
-                }
                 _ => rows(&mut input)[1].spawn_id = SOLO_UNIT,
             }
             assert!(
@@ -430,6 +437,66 @@ mod tests {
                 "case {case}"
             );
         }
+    }
+    #[test]
+    fn shared_entry_owners_preserve_exact_spawns_and_authored_order() {
+        let mut input = input();
+        let template = rows(&mut input)[0].clone();
+        *rows(&mut input) = (2..9)
+            .map(|spawn_id| SourceVisitorOwner {
+                spawn_id,
+                addon_closure: SourceVisitorAddonClosure::GenerationSource {
+                    source_identity: [spawn_id as u8; 32],
+                },
+                ..template.clone()
+            })
+            .collect();
+        input.owner_order = vec![8, 3, 5, 2, 7, 4, 6];
+        let catalog = SourceVisitorCatalog::validate_sources(input.clone()).unwrap();
+        assert_eq!(catalog.owner_order(), &[8, 3, 5, 2, 7, 4, 6]);
+        for spawn in 2..9 {
+            assert_eq!(catalog.owner(spawn).unwrap().spawn_id, spawn);
+            assert_eq!(catalog.owner(spawn).unwrap().entry, template.entry);
+        }
+        // Both AI names are individually supported for complete-empty events,
+        // but the same template cannot supply different AIName fields.
+        rows(&mut input)[6].ai_name = "EventAI".into();
+        assert_eq!(
+            SourceVisitorCatalog::validate_sources(input),
+            Err(NativeError::AuthorityBinding)
+        );
+    }
+    #[test]
+    fn visitor_owner_bound_uses_the_world_limit() {
+        let mut input = input();
+        let template = rows(&mut input)[0].clone();
+        *rows(&mut input) = (0..crate::MAX_NPCS)
+            .map(|index| SourceVisitorOwner {
+                spawn_id: index as u64 + 2,
+                ..template.clone()
+            })
+            .collect();
+        input.owner_order = (2..crate::MAX_NPCS as u64 + 2).collect();
+        SourceVisitorCatalog::validate_sources(input.clone()).unwrap();
+        rows(&mut input).push(SourceVisitorOwner {
+            spawn_id: crate::MAX_NPCS as u64 + 2,
+            ..template
+        });
+        input.owner_order.push(crate::MAX_NPCS as u64 + 2);
+        assert_eq!(
+            SourceVisitorCatalog::validate_sources(input),
+            Err(NativeError::TooLarge)
+        );
+    }
+    #[test]
+    fn visitor_source_budget_precedes_nested_row_cloning() {
+        let mut input = input();
+        rows(&mut input)[0].entry_events =
+            SourceVisitorRows::Complete(vec![u32::MAX; MAX_BYTES / 4]);
+        assert_eq!(
+            SourceVisitorCatalog::validate_sources(input),
+            Err(NativeError::TooLarge)
+        );
     }
     #[test]
     fn ordinary_ai_requires_both_empty_event_sets_and_all_creation_overrides() {
@@ -700,8 +767,8 @@ mod tests {
                 .unwrap();
         assert!(restored.replay(&records).is_err());
         assert_eq!(restored.checkpoint().unwrap(), initial);
-        assert_eq!(NATIVE_FORMAT_VERSION, 43);
-        assert_eq!(NATIVE_POLICY, "benilla-native-dry-habitat-v43");
+        assert_eq!(NATIVE_FORMAT_VERSION, 46);
+        assert_eq!(NATIVE_POLICY, "benilla-native-peer-help-v46");
         assert_eq!(crate::FORMAT_VERSION, 2);
     }
     #[test]

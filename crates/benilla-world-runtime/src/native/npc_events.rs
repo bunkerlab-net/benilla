@@ -8,7 +8,7 @@ use benilla_sim::event_processor::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const NPC_EVENT_POLICY: &str = "cmangos-8ec338a1-native-npc-events-v2";
+pub const NPC_EVENT_POLICY: &str = "cmangos-8ec338a1-native-npc-events-v4";
 
 /// The generation guards external handles even though source respawn retains
 /// the underlying Unit, its clock, and its monotonic event allocator.
@@ -21,8 +21,10 @@ pub struct NpcEventHandle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NpcEvents {
     pub(super) event_ai_anchor: Option<EventAiCallbackAnchor>,
-    world: crate::WorldId,
-    npc: crate::NpcId,
+    pub(super) world: crate::WorldId,
+    pub(super) npc: crate::NpcId,
+    pub(super) assistance: Option<CombatAssistanceState>,
+    pub(super) assistance_anchor: Option<CombatAssistanceAnchor>,
     pub(super) queue: EventProcessor,
     pub(super) spells: BTreeMap<u64, NpcSpellLifetime>,
     pub(super) next_cast_id: u64,
@@ -38,6 +40,10 @@ pub struct NpcEvents {
 pub(super) struct NpcEventsSnapshot {
     #[serde(deserialize_with = "creature_collision_width::required_option")]
     event_ai_anchor: Option<EventAiCallbackAnchor>,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    pub(super) assistance: Option<CombatAssistanceState>,
+    #[serde(deserialize_with = "creature_collision_width::required_option")]
+    assistance_anchor: Option<CombatAssistanceAnchor>,
     policy: String,
     world: crate::WorldId,
     npc: crate::NpcId,
@@ -57,6 +63,12 @@ impl NpcEvents {
     ) -> Result<Self, NativeError> {
         let mut result = Self {
             event_ai_anchor: profile.event_ai().map(|_| EventAiCallbackAnchor::default()),
+            assistance: profile
+                .combat_assistance()
+                .map(|c| CombatAssistanceState::new(c.digest())),
+            assistance_anchor: profile
+                .combat_assistance()
+                .map(|_| CombatAssistanceAnchor::default()),
             world,
             npc,
             queue: EventProcessor::new(),
@@ -171,6 +183,8 @@ impl NpcEvents {
     pub(super) fn snapshot(&self) -> NpcEventsSnapshot {
         NpcEventsSnapshot {
             event_ai_anchor: self.event_ai_anchor.clone(),
+            assistance: self.assistance.clone(),
+            assistance_anchor: self.assistance_anchor.clone(),
             policy: NPC_EVENT_POLICY.into(),
             world: self.world,
             npc: self.npc,
@@ -198,7 +212,9 @@ impl NpcEvents {
             .ok_or_else(invalid)?
             .checked_mul(u64::from(profile.tick_ms))
             .ok_or_else(invalid)?;
-        if snapshot.event_ai_anchor.is_some() != profile.event_ai().is_some()
+        if snapshot.assistance_anchor.is_some() != profile.combat_assistance().is_some()
+            || snapshot.assistance.is_some() != profile.combat_assistance().is_some()
+            || snapshot.event_ai_anchor.is_some() != profile.event_ai().is_some()
             || snapshot.policy != NPC_EVENT_POLICY
             || snapshot.world != world
             || snapshot.npc != npc
@@ -209,10 +225,10 @@ impl NpcEvents {
                 && snapshot.skipped_updates != 0)
             || snapshot.queue.aborting
             || !snapshot.queue.detached.is_empty()
-            || snapshot.queue.queued.len() != usize::from(snapshot.notify.is_some()) + snapshot.spells.len()
+            || snapshot.queue.queued.len() != usize::from(snapshot.notify.is_some()) + snapshot.spells.len() + snapshot.assistance.as_ref().map_or(0, CombatAssistanceState::pending_events)
             // Notify and bounded finished instant spells are added once, never re-added.
             || snapshot.queue.next_event_id != snapshot.queue.next_insertion_id
-            || snapshot.queue.next_event_id > 2 + tick.saturating_mul(MAX_INPUTS_PER_TICK as u64 + 4)
+            || snapshot.queue.next_event_id > 2 + tick.saturating_mul(MAX_INPUTS_PER_TICK as u64 * 3 + 4)
         {
             return Err(invalid());
         }
@@ -242,6 +258,8 @@ impl NpcEvents {
         }
         let result = Self {
             event_ai_anchor: snapshot.event_ai_anchor,
+            assistance: snapshot.assistance,
+            assistance_anchor: snapshot.assistance_anchor,
             world,
             npc,
             queue: EventProcessor::restore(snapshot.queue)?,
@@ -292,6 +310,7 @@ impl NpcEvents {
         } else if result.notify.is_some() || result.can_aggro || result.queue.next_event_id() != 1 {
             return Err(invalid());
         }
+        result.validate_assistance_queue()?;
         result.validate_spells(player, profile, tick)?;
         if tick == 0 && result != Self::new(world, npc, profile)? {
             return Err(invalid());
@@ -303,7 +322,8 @@ impl NpcEvents {
         if self.callback.is_some() {
             return Err(NativeError::InvalidState);
         }
-        let mut transaction = self.queue.begin_kill_all_events(true);
+        let mut queue = std::mem::take(&mut self.queue);
+        let mut transaction = queue.begin_kill_all_events(true);
         while let Some(due) = transaction.pop_due()? {
             match due.kind {
                 EventKind::AiNotify if self.notify == Some(due.event_id) => {
@@ -318,11 +338,15 @@ impl NpcEvents {
                         return Err(NativeError::InvalidState);
                     }
                 }
+                EventKind::ReenableHelp { .. } | EventKind::AggroLinking { .. } => {
+                    self.dispatch_assistance(0, due, None, false)?;
+                }
                 _ => return Err(NativeError::InvalidState),
             }
             transaction.finish_abort(true)?;
         }
         transaction.commit()?;
+        self.queue = queue;
         Ok(())
     }
 }

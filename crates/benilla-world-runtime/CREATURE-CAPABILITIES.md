@@ -188,9 +188,9 @@ dependencies; this receipt supplies none of them.
 
 ## Persistence and checks
 
-Native format 43 (`benilla-native-dry-habitat-v43`) binds the typed route owner
+Native format 46 (`benilla-native-peer-help-v46`) binds the typed route owner
 transcript, generation-bound dry initialization and explicit addon closures
-through v43 profile, state, record, checkpoint and source-action digest domains. Native42 and earlier saves/records
+through v46 profile, state, record, checkpoint and source-action digest domains. Native45 and earlier saves/records
 are rejected rather than rewriting `Spatial(Route)` receipts or inventing an
 owner witness. The original fixture
 format 2, equipment format and character/profile file schemas are unchanged. Source

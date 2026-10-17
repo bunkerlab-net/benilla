@@ -108,7 +108,7 @@ pub struct Profile {
 impl Profile {
     pub fn digest(&self) -> Digest {
         crate::digest(
-            b"benilla-native-profile-v43\0",
+            b"benilla-native-profile-v46\0",
             &(
                 NATIVE_POLICY,
                 NPC_SPELL_POLICY,
@@ -626,6 +626,7 @@ pub enum Query {
     CreatureInitialization(Box<CreatureInitializationRequest>),
     SourceLocation(Box<SourceLocationQuery>),
     EventAiAudience(Box<EventAiAudienceRequest>),
+    CombatAssistance(Box<CombatAssistanceRequest>),
     PlayerEnvironment(Box<PlayerEnvironmentQuery>),
     NpcSpell(NpcSpellQuery),
     SourceSpell(SourceSpellQuery),
@@ -744,6 +745,7 @@ pub enum Facts {
     CreatureInitialization(Box<CreatureInitializationFacts>),
     SourceLocation(SourceLocationFacts),
     EventAiAudience(EventAiAudienceFacts),
+    CombatAssistance(CombatAssistanceFacts),
     PlayerEnvironment(PlayerEnvironmentFacts),
     NpcSpell(NpcSpellFacts),
     SourceSpell(SourceSpellFacts),

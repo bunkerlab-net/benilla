@@ -53,11 +53,11 @@ ownership, and retained spline height is checked against that life. Without the
 new owner, respawn still clears both dimensions. Height-independent routes retain
 explicit `None`.
 
-Native format **43**, policy `benilla-native-dry-habitat-v43`, retains
+Native format **46**, policy `benilla-native-peer-help-v46`, retains
 optional profile height catalog, checkpoint `source_collision_height`, and typed
 Route `collision_height`. Every serialized optional field must exist, using
 explicit null for absence. Profile/state/record/checkpoint/melee digest domains
-are v43; native42 and every earlier experimental format are rejected without
+are v46; native45 and every earlier experimental format are rejected without
 migration defaults. OriginalFixture v2 and character/profile transports are
 unchanged. Native admission remains uninhabited.
 

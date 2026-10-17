@@ -5,7 +5,7 @@
 //! Explicit runtime selection of the bounded text catalog and source exclusions.
 use super::*;
 
-pub const EVENT_AI_RUNTIME_CATALOG_POLICY: &str = "cmangos-8ec338a1-native-aggro-text-catalog-v1";
+pub const EVENT_AI_RUNTIME_CATALOG_POLICY: &str = "cmangos-8ec338a1-native-aggro-text-catalog-v2";
 const GUARD: u32 = 0x0000_0400;
 
 /// The only supported session has one player with its own body as its camera.
@@ -80,22 +80,29 @@ impl EventAiRuntimeSource {
                 "bounded EventAI SAY configuration",
             ));
         }
-        let owners = self.owners.require(2)?;
-        if !matches!(owners.len(), 1 | 2) || owners.len() != catalog.owners.len() {
+        let owners = self.owners.require(crate::MAX_NPCS)?;
+        if owners.is_empty() || owners.len() != catalog.owners.len() {
             return Err(NativeError::InvalidProfile);
         }
         let mut spawns = BTreeSet::new();
-        let mut entries = BTreeSet::new();
+        let mut entries: BTreeMap<u32, &EventAiRuntimeOwnerSource> = BTreeMap::new();
         for row in owners {
             row.validate()?;
             let owner = catalog
                 .owner(row.spawn_id)
                 .ok_or(NativeError::AuthorityBinding)?;
-            if row.entry != owner.entry
-                || !spawns.insert(row.spawn_id)
-                || !entries.insert(row.entry)
-            {
+            if row.entry != owner.entry || !spawns.insert(row.spawn_id) {
                 return Err(NativeError::AuthorityBinding);
+            }
+            if let Some(shared) = entries.insert(row.entry, row) {
+                if shared.civilian != row.civilian
+                    || shared.extra_flags != row.extra_flags
+                    || shared.spell_list_id != row.spell_list_id
+                    || shared.resolved_spell_list_id != row.resolved_spell_list_id
+                    || shared.resolved_spells != row.resolved_spells
+                {
+                    return Err(NativeError::AuthorityBinding);
+                }
             }
         }
         if !spawns.iter().eq(catalog.owners.keys()) {
@@ -133,6 +140,7 @@ impl EventAiRuntimeCatalog {
         catalog: EventAiCatalog,
         config: EventAiRuntimeSource,
     ) -> Result<Self, NativeError> {
+        encoded_budget(&(&catalog, &config))?;
         config.validate(&catalog)?;
         let result = Self {
             policy: EVENT_AI_RUNTIME_CATALOG_POLICY,

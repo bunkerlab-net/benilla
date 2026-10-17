@@ -47,7 +47,11 @@ fn source(spawn: u64, minimum: u8, maximum: u8) -> CreatureGenerationSource {
     }
 }
 
-fn install(mut p: Profile, sources: Vec<CreatureGenerationSource>, order: Vec<u64>) -> Profile {
+pub(in crate::native) fn install(
+    mut p: Profile,
+    sources: Vec<CreatureGenerationSource>,
+    order: Vec<u64>,
+) -> Profile {
     // Static fixture metadata is deliberately compatible with the raw rows. The
     // low-level exemplar is not the world's live selection or an RNG receipt.
     for source in &sources {
@@ -197,9 +201,9 @@ fn assert_selection(w: &NativeWorld, spawn: u64) {
 }
 fn resign(value: serde_json::Value) -> Checkpoint {
     let mut cp: Checkpoint = serde_json::from_value(value).unwrap();
-    cp.digest = crate::digest(b"benilla-native-state-v43\0", &cp.state);
+    cp.digest = crate::digest(b"benilla-native-state-v46\0", &cp.state);
     cp.checksum = crate::digest(
-        b"benilla-native-checkpoint-v43\0",
+        b"benilla-native-checkpoint-v46\0",
         &(&cp.state, cp.digest, cp.history_tip),
     );
     cp
@@ -1009,7 +1013,7 @@ fn historical_target_projection_is_exact_life_and_rejects_dead_or_unborn_interva
     assert_eq!(restore(&w).state_digest(), w.state_digest());
 }
 
-fn complete_scene_sources(p: &Profile) -> Vec<CreatureGenerationSource> {
+pub(in crate::native) fn complete_scene_sources(p: &Profile) -> Vec<CreatureGenerationSource> {
     p.npcs
         .iter()
         .map(|npc| {

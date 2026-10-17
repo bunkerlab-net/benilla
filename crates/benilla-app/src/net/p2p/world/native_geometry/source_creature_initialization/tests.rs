@@ -24,7 +24,7 @@ pub(in super::super) fn profile(
 }
 
 fn profile_at(binding: CreatureInitializationSnapshot, geometry: [u8; 32], mid: f32) -> Profile {
-    profile_at_with_faction(binding, geometry, mid, 1, None)
+    profile_at_with_faction(binding, geometry, mid, 1, None, false)
 }
 
 pub(in super::super) fn profile_with_faction(
@@ -38,6 +38,7 @@ pub(in super::super) fn profile_with_faction(
         0.5f32 * (64.0 * 533.333_3),
         faction,
         None,
+        false,
     )
 }
 
@@ -55,6 +56,7 @@ pub(in super::super) fn profile_with_alternate_model(
         0.5f32 * (64.0 * 533.333_3),
         faction,
         Some((radius, reach, raw_height)),
+        false,
     )
 }
 
@@ -64,6 +66,7 @@ fn profile_at_with_faction(
     mid: f32,
     faction: u32,
     alternate_bounds: Option<(f32, f32, f32)>,
+    defensive_full_health: bool,
 ) -> Profile {
     let mut p = motion::profile();
     p.npcs[0].faction_template = faction;
@@ -83,6 +86,10 @@ fn profile_at_with_faction(
             benilla_sim::classic_spell::SpellFloat::from_bits(reach.to_bits()).unwrap();
     }
     input.template.entry = 6;
+    if defensive_full_health {
+        input.template.extra_flags = 2;
+        p.npcs[0].ai.reaction = ai::Reaction::Defensive;
+    }
     input.template.maximum_level = 2;
     input.template.regenerate_stats = 2;
     input.template.corpse_delay_seconds = 1;
@@ -108,7 +115,7 @@ fn profile_at_with_faction(
     let init::Rows::Complete(spawns) = &mut input.spawn_template else {
         unreachable!()
     };
-    spawns[0].current_health = 1;
+    spawns[0].current_health = u32::from(!defensive_full_health);
     let raw = CreatureGenerationSource {
         spawn_id: 2,
         spawn_entry: 6,
@@ -329,3 +336,6 @@ fn declared_dry_inventory_cannot_answer_a_spawn_in_an_unloaded_tile() {
 
 #[path = "lifecycle_tests.rs"]
 mod lifecycle_tests;
+
+#[path = "idle_event_ai_tests.rs"]
+mod idle_event_ai_tests;
