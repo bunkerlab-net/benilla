@@ -175,7 +175,7 @@ class PackagingTests(unittest.TestCase):
                             payload = output.extractfile(f"{prefix}/{source_name}").read()
                     if separate:
                         notice = payload.decode()
-                        self.assertTrue(notice.startswith("Corresponding Source for benilla-native-terrain\n"))
+                        self.assertEqual(notice.splitlines()[0], "Corresponding Source for benilla-native-terrain")
                         for required in (url, SHA, source_archive.name, hashlib.sha256(before).hexdigest()):
                             self.assertIn(required, notice)
                         self.assertEqual(source_archive.read_bytes(), before)
@@ -186,6 +186,45 @@ class PackagingTests(unittest.TestCase):
                             self.assertEqual(set(output.getnames()), wanted)
                     self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
                                      f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+
+    def test_helper_notice_generated_with_lf_or_crlf(self):
+        url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
+        original_write_text = Path.write_text
+        for newline in ("\n", "\r\n"):
+            with self.subTest(newline=repr(newline)), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                player, _, _ = self.fixture(root, "windows-amd64")
+                player.unlink()
+                source_archive = packager.package_source(root, "windows-amd64", SHA)
+                source_before = source_archive.read_bytes()
+                notice_writes = []
+
+                def write_notice(path, data, *args, **kwargs):
+                    if path.name.endswith("-SOURCE-DOWNLOAD.txt"):
+                        kwargs["newline"] = newline
+                        notice_writes.append(path)
+                    return original_write_text(path, data, *args, **kwargs)
+
+                # Exercise the real notice writer and ZIP path with either host's
+                # text newline convention, without executing a packaged binary.
+                with patch.object(Path, "write_text", write_notice), \
+                     patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
+                    archive = packager.package(root, "windows-amd64", SHA, url, helper_only=True)
+                self.assertEqual(len(notice_writes), 1)
+                prefix = f"benilla-native-terrain-windows-amd64-{SHA}"
+                with zipfile.ZipFile(archive) as output:
+                    payload = output.read(f"{prefix}/SOURCE-DOWNLOAD.txt")
+                self.assertIn(newline.encode(), payload)
+                self.assertNotIn(b"\n", payload.replace(newline.encode(), b""))
+                self.assertNotIn(b"\r", payload.replace(newline.encode(), b""))
+                lines = payload.decode().splitlines()
+                self.assertEqual(lines[0], "Corresponding Source for benilla-native-terrain")
+                for line in (f"Source commit: {SHA}", "Platform: windows-amd64", f"Download: {url}",
+                             f"Archive: {source_archive.name}", f"SHA-256: {hashlib.sha256(source_before).hexdigest()}"):
+                    self.assertIn(line, lines)
+                self.assertEqual(source_archive.read_bytes(), source_before)
+                self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
+                                 f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
 
     def test_helper_only_keeps_source_and_binary_checks_fail_closed(self):
         url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
