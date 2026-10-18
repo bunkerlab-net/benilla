@@ -80,3 +80,11 @@ crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/*.patch.te
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/inputs/* -text
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/raw/* -text
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/products/* -text
+
+# Authored one-candidate WMO doodad records are exact binary source fixtures.
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.modf -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.modd -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.modn -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.dir -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/source-fragments.cpp.test-fixture text eol=lf -whitespace

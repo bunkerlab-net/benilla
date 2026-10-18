@@ -73,3 +73,7 @@ GameObjectDisplayInfo phase remain separate prerequisites.
 Tests use authored MPQ/model/WMO bytes. Real-install WMO acquisition and an independent
 original-source doodad oracle have not been established. The separate blocked
 listfile-oracle work is neither retried nor used by this implementation.
+
+Captured candidates also retain the original pre-extension basename length for
+[source-shaped, explicitly profiled projection](DOODAD-PROJECTION.md). This does
+not change their stable diagnostic presentation into source emission ordering.

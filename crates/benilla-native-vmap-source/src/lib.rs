@@ -10,6 +10,8 @@
 //! map, BIH, collision-absence, or gameplay authority.
 
 mod discovery;
+mod doodad_projection;
+mod doodad_transform_math;
 mod doodads;
 mod source;
 
@@ -27,6 +29,7 @@ use std::{
 };
 
 pub use discovery::{DiscoveryError, M2Placement, ModelKind, PlacementInput, WmoPlacement};
+pub use doodad_projection::{DoodadProjection, DoodadProjectionError, DoodadProjectionProfile};
 pub use doodads::{DoodadError, DoodadSet, DoodadSpawn};
 pub use source::SourceError;
 
@@ -95,6 +98,8 @@ pub struct DoodadCandidate {
     pub spawn_index: u16,
     pub product_index: usize,
     pub spawn: DoodadSpawn,
+    /// Original basename length before .mdx/.mdl shortening; no asset text.
+    pub serialized_name_len: u32,
 }
 
 struct CapturedDoodads {
@@ -805,6 +810,11 @@ impl Builder {
                 spawn_index,
                 product_index,
                 spawn: spawn.clone(),
+                serialized_name_len: path
+                    .rsplit(|&b| b == b'\\')
+                    .next()
+                    .unwrap_or_default()
+                    .len() as u32,
             });
         }
         self.summary.doodad_candidates = self.doodad_candidates.len();

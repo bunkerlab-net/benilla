@@ -55,3 +55,8 @@ establish those remaining collision prerequisites.
 WMO liquid production uses the witnessed root member for the source
 case-sensitive type override and identifies `wmo-liquid-header-zero-padding-v1`
 in its summary. See [the raw liquid contract](../benilla-native-vmap/WMO-LIQUID.md).
+
+[Per-candidate doodad projection](DOODAD-PROJECTION.md) is available only through
+explicit selection of its pinned portable numerical compatibility profile. Its
+record spans deliberately omit the generated-ID word and do not establish map
+assembly or portable equality with every native C++ libm.

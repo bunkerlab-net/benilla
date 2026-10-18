@@ -594,5 +594,8 @@ fn doodad_metadata_and_candidate_bounds_are_checked_before_growth() {
 #[path = "doodad_capture_tests.rs"]
 mod doodad_capture_tests;
 
+#[path = "doodad_projection_capture_tests.rs"]
+mod doodad_projection_capture_tests;
+
 #[path = "liquid_capture_tests.rs"]
 mod liquid_capture_tests;

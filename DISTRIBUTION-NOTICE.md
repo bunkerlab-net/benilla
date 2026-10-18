@@ -77,7 +77,7 @@ The terrain-only local producer is a bounded Rust adaptation of the pinned CMaNG
 `crates/benilla-native-terrain/README.md` and `CMANGOS-NOTICE.txt`. It distributes
 original authored fixtures, not client assets or generated real terrain.
 
-The separate raw M2 and dry WMO collision writers are bounded Rust adaptations of the pinned
+The separate raw M2 and bounded WMO collision writers are bounded Rust adaptations of the pinned
 CMaNGOS VMap extractor. Their scope and upstream notice are retained in
 `crates/benilla-native-vmap/PROVENANCE.md` and `CMANGOS-NOTICE.txt`.
 Their extractor/assembler regression inputs are authored numeric fixtures.
@@ -87,3 +87,10 @@ CMaNGOS extractor's ordering and name handling. Its source scope, explicitly
 versioned listfile termination compatibility rule, and upstream notice are in
 `crates/benilla-native-vmap-source/PROVENANCE.md` and `CMANGOS-NOTICE.txt`.
 Its test archives are authored fixtures, not client-install data.
+
+The source-acquisition library also contains bounded G3D doodad projection under
+the explicit portable `libm 0.2.16` numerical compatibility policy documented in
+`crates/benilla-native-vmap-source/DOODAD-PROJECTION.md`. The unchanged G3D Modified
+BSD grant is retained in `G3D-NOTICE.cpp.txt`; shared sine/cosine source and its
+LGPL notices remain in `benilla-sim::source_trig`. No native-libm universal
+bit-parity claim is made.

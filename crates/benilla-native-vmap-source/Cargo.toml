@@ -13,6 +13,8 @@ workspace = true
 anyhow.workspace = true
 benilla-mpq = { path = "../benilla-mpq" }
 benilla-native-vmap = { path = "../benilla-native-vmap" }
+benilla-sim = { path = "../benilla-sim" }
+libm = { version = "=0.2.16", default-features = false }
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 

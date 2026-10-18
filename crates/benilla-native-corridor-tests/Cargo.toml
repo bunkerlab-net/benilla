@@ -16,6 +16,7 @@ benilla-assets = { path = "../benilla-assets", default-features = false }
 benilla-formats = { path = "../benilla-formats", default-features = false }
 benilla-native-nav = { path = "../benilla-native-nav" }
 benilla-native-terrain = { path = "../benilla-native-terrain" }
+benilla-native-vmap = { path = "../benilla-native-vmap" }
 benilla-sim = { path = "../benilla-sim" }
 benilla-world = { path = "../benilla-world", default-features = false, features = ["authored-native-fixtures"] }
 benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }

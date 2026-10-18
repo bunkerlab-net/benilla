@@ -24,4 +24,5 @@ serde_json = "1"
 sha2 = "0.10"
 benilla-native-nav = { path = "../benilla-native-nav" }
 benilla-native-terrain = { path = "../benilla-native-terrain" }
+benilla-native-vmap = { path = "../benilla-native-vmap" }
 benilla-formats = { path = "../benilla-formats" }
