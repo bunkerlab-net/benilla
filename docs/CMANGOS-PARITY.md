@@ -171,9 +171,16 @@ is meaningful without a bounded content/mechanics inventory.
   The separately named [zero-initialization compatibility rule](CMANGOS-WANDER-ENDPOINT-COMPATIBILITY.md)
   changes only the endpoint's undefined distance scalar. Concrete tests cover
   interruption, death/respawn, rollback and receipt replay from cache-free genesis.
-  Initialize-time native constructor observations, loaded-cache restore, concrete
-  Selected dry same-polygon Home return composes with default Wander;
-  wet/cross-polygon routes and actual Northshire startup remain open.
+  Selected dry same-polygon Home return composes with default Wander. The narrow
+  typed component restore supports one current NORMAL/MinimumDistance Wander
+  owner; wet/cross-polygon routes and actual Northshire startup remain open.
+- **Fixed-cache Chase reconstruction:** the separate
+  [native equivalence proof](CMANGOS-CHASE-FIXED-CACHE-RECONSTRUCTION.md) retains
+  cold and final calculation inputs only when every accepted intervening NORMAL
+  calculation leaves the complete backing and active polygon unchanged. Fresh
+  native allocation, exact predecessor identity and next continuation are required.
+  Active-polygon switches and Chase NoPath are excluded; this proof opens no
+  runtime/app restore path.
 - **Bounded native components:** source-owned model and cached player-environment
   witnesses feed exact Chase distance/vertical predicates, actual static LOS and
   owner dry-liquid observations. One immutable inventory can project proved-dry

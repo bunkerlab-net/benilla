@@ -19,6 +19,8 @@ class RetainedSamePolygonGuards(unittest.TestCase):
         oracle.guard_inputs()
         cls.data = (oracle.FIXTURES / 'cases.test-fixture').read_bytes()
         cls.rows = oracle.parse_cases(cls.data)
+        cls.comparison_data = (oracle.FIXTURES / 'comparisons.test-fixture').read_bytes()
+        cls.comparisons = oracle.parse_comparisons(cls.comparison_data)
 
     def named(self, label):
         return next(row for row in self.rows if row['label'] == label)
@@ -174,6 +176,9 @@ class RetainedSamePolygonGuards(unittest.TestCase):
                 oracle.compile_oracle(self.sources, work, receipts=work / 'receipts')
             profile = json.loads((work / 'receipts/profile.json').read_text())
             self.assertIs(profile['straight_line'], True)
+            self.assertEqual(profile['fixed_cache_comparison']['original_count'], 4097)
+            self.assertEqual(profile['fixed_cache_comparison']['replayed_count'], 2)
+            self.assertEqual(profile['fixed_cache_comparison']['filters'], [1, 13])
             for name, content in self.sources.items():
                 if name.startswith(('dep/recastnavigation/', 'dep/g3dlite/')):
                     self.assertEqual((work / name).read_bytes(), content.encode('latin1'), name)
@@ -182,6 +187,60 @@ class RetainedSamePolygonGuards(unittest.TestCase):
             self.assertEqual({Path(word).name for word in command if word.endswith('.cpp')},
                              {'oracle.cpp'} | {name + '.cpp' for name in oracle.point.DETOUR_FILES})
         self.assertIn(b'raw-storage lifetime caveat remains', self.data)
+
+    def test_fixed_comparison_executes_original_source_on_distinct_live_allocations(self):
+        harness, _ = oracle.build_harness(self.sources)
+        comparison = oracle.point.exact_block(harness, 'static void fixed_cache_comparison(')
+        self.assertIn('Loaded full_mesh(', comparison)
+        self.assertIn('Loaded replay_mesh(', comparison)
+        for name in ('full', 'replay'):
+            self.assertIn(f'PathFinder {name}({name}_mesh,initial.m_pathPolyRefs,initial.m_polyLength,', comparison)
+        self.assertIn('for(unsigned step=1;step<4096;++step)', comparison)
+        self.assertIn('every omitted entry starts at fixed cache', comparison)
+        self.assertIn('every omitted entry leaves the full lookup dependency state unchanged', comparison)
+        self.assertIn('same_lookup(a,b);same_terminal(full,replay);', comparison)
+        terminal = oracle.point.exact_block(harness, 'static void same_terminal(')
+        self.assertIn('a.m_navMeshQuery!=b.m_navMeshQuery', terminal)
+        self.assertNotIn('full.m_pathPolyRefs=', comparison.replace('full.m_pathPolyRefs==', ''))
+        for filter in (1, 13):
+            rows = {row['label'].removeprefix(f'fixed_full_{filter}_'): row for row in self.comparisons
+                    if row['sequence'] == f'fixed_full_{filter}'}
+            self.assertEqual(rows['head']['step'], '4096')
+            for name, distance in (('tail', '40000000'), ('nearest5', '40400000'), ('nearest10', '40c00000')):
+                self.assertEqual(rows[name]['start_distance'], distance)
+                self.assertEqual(rows[name]['before_storage'], rows[name]['after_storage'])
+            self.assertEqual(rows['head']['to'], '40a00000,40e00000,3f400000')
+            self.assertEqual(rows['append']['step'], '4097')
+            self.assertEqual(rows['return']['before_storage'], rows['return']['lookup_storage'])
+            self.assertNotEqual(rows['return']['before_storage'], rows['return']['after_storage'])
+            self.assertEqual(rows['edge']['from'], '40a00000,41200000,00000000')
+            self.assertEqual(rows['edge']['to'], '40c00000,41200000,00000000')
+
+    def test_noappend_active_return_cannot_be_elided(self):
+        for filter in (1, 13):
+            full = next(row for row in self.comparisons if row['label'] == f'active_full_{filter}_edge')
+            dropped = next(row for row in self.comparisons if row['label'] == f'active_dropped_{filter}_edge')
+            self.assertNotEqual(full['start_ref'], dropped['start_ref'])
+            self.assertEqual(oracle.point.ref_list(full['after_storage'])[1:],
+                             oracle.point.ref_list(dropped['after_storage'])[1:])
+            self.assertEqual(full['points'], dropped['points'])
+            self.assertEqual(full['start_distance'], '00000000')
+            self.assertEqual(dropped['start_distance'], '00000000')
+
+    def test_comparison_schema_rejects_missing_sequence_configuration_and_semantic_drift(self):
+        lines = self.comparison_data.decode('ascii').splitlines()
+        row_index = next(i for i, line in enumerate(lines) if line.startswith('fixed_replay_1_head\t'))
+        values = lines[row_index].split('\t')
+        for field, invalid in (('sequence', 'unrelated'), ('step', '4096'), ('include_filter', '2'),
+                               ('exclude_filter', '1'), ('point_limit', '73'), ('start_distance', '3f800000')):
+            changed = values.copy(); changed[oracle.COMPARISON_FIELDS.index(field)] = invalid
+            attempt = lines.copy(); attempt[row_index] = '\t'.join(changed)
+            with self.subTest(field=field), self.assertRaises(SystemExit):
+                oracle.parse_comparisons(('\n'.join(attempt) + '\n').encode('ascii'))
+        for prefix in ('fixed_full_1_edge\t', 'active_dropped_13_'):
+            changed = [line for line in lines if not line.startswith(prefix)]
+            with self.subTest(missing=prefix), self.assertRaises(SystemExit):
+                oracle.parse_comparisons(('\n'.join(changed) + '\n').encode('ascii'))
 
 
 if __name__ == '__main__': unittest.main()

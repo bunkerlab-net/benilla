@@ -16,10 +16,11 @@ cold = cold_same.cold
 HERE = Path(__file__).resolve().parent
 PACKAGE = HERE / 'retained_same_poly_source_fragments.test-fixture'
 FIXTURES = HERE / 'fixtures/retained-same-poly'
-FILES = ('cases.test-fixture',)
+FILES = ('cases.test-fixture', 'comparisons.test-fixture')
 FIELDS = ('label sequence step oracle geometry from to normalize_z ignore_normalization query_nodes '
           'before_active before_storage start_ref start_distance after_start_storage end_ref end_distance '
           'lookup_storage after_active after_storage path_type actual_end points').split()
+COMPARISON_FIELDS = FIELDS[:10] + ['include_filter', 'exclude_filter', 'point_limit'] + FIELDS[10:]
 
 
 def guard_inputs():
@@ -105,6 +106,65 @@ def parse_cases(data):
     return rows
 
 
+def parse_comparisons(data):
+    rows = point.parse_table(data, COMPARISON_FIELDS)
+    schedules = {
+        'fixed_full': [('cold', 0), ('active', 1), ('tail', 2), ('nearest5', 3), ('nearest10', 4),
+                       ('head', 4096), ('append', 4097), ('return', 4098), ('edge', 4099)],
+        'fixed_replay': [('cold', 0), ('head', 1), ('append', 2), ('return', 3), ('edge', 4)],
+        'active_full': [('cold', 0), ('append', 1), ('return', 2), ('edge', 3)],
+        'active_dropped': [('cold', 0), ('append', 1), ('edge', 2)],
+    }
+    expected = {f'{name}_{filter}': (filter, schedule)
+                for filter in (1, 13) for name, schedule in schedules.items()}
+    groups = {name: [] for name in expected}
+    for row in rows:
+        if row['sequence'] not in groups:
+            raise SystemExit('Invalid retained comparison sequence')
+        groups[row['sequence']].append(row)
+    for sequence, (filter, schedule) in expected.items():
+        group = groups[sequence]
+        if [(row['label'], row['step']) for row in group] != [
+                (sequence + '_' + label, str(step)) for label, step in schedule]:
+            raise SystemExit('Incomplete retained comparison sequence: ' + sequence)
+        normalized = []
+        for step, row in enumerate(group):
+            if (row['include_filter'], row['exclude_filter'], row['point_limit']) != (str(filter), '0', '74'):
+                raise SystemExit('Invalid retained comparison configuration')
+            normalized.append('\t'.join('retained_main' if key == 'sequence' else
+                                         str(step) if key == 'step' else row[key] for key in FIELDS))
+        # Sparse full-history rows only omit identity transitions, so cache adjacency
+        # is still exact. Reuse every unchanged original terminal/schema guard.
+        parse_cases(('# ' + '\t'.join(FIELDS) + '\n' + '\n'.join(normalized) + '\n').encode('ascii'))
+    semantic_fields = [key for key in COMPARISON_FIELDS if key not in ('label', 'sequence', 'step')]
+    for filter in (1, 13):
+        full, replay = groups[f'fixed_full_{filter}'], groups[f'fixed_replay_{filter}']
+        for first, second in zip([full[0]] + full[5:], replay, strict=True):
+            if any(first[key] != second[key] for key in semantic_fields):
+                raise SystemExit('Fixed-cache reconstruction or continuation differs')
+        fixed = full[0]['after_storage']
+        if any(row['before_storage'] != fixed or row['after_storage'] != fixed for row in full[1:6]):
+            raise SystemExit('Fixed-cache row changes complete dependency storage')
+        full, dropped = groups[f'active_full_{filter}'], groups[f'active_dropped_{filter}']
+        if any(first[key] != second[key] for first, second in zip(full[:2], dropped[:2], strict=True)
+               for key in semantic_fields):
+            raise SystemExit('Active counterexample does not share its original prefix')
+        a, b = int(full[0]['start_ref']), int(full[1]['start_ref'])
+        if a == b or full[2]['before_storage'] != full[2]['lookup_storage']:
+            raise SystemExit('Invalid no-append active replacement')
+        edge, missing = full[-1], dropped[-1]
+        full_storage = point.ref_list(edge['after_storage'])
+        dropped_storage = point.ref_list(missing['after_storage'])
+        if (int(edge['start_ref']) != a or int(missing['start_ref']) != b or
+                full_storage != [a] + [0] * 73 + [a, b] or
+                dropped_storage != [b] + [0] * 73 + [a, b] or
+                any(row[key] != '00000000' for row in (edge, missing)
+                    for key in ('start_distance', 'end_distance')) or
+                edge['from'] != missing['from'] or edge['to'] != missing['to']):
+            raise SystemExit('Missing active-dependent source counterexample')
+    return rows
+
+
 def compile_oracle(sources, work, sanitize=False, receipts=None):
     harness, _ = build_harness(sources)
     binary, symbols, profile = cold_same.compile_harness(sources, work, harness, sanitize,
@@ -123,6 +183,10 @@ def compile_oracle(sources, work, sanitize=False, receipts=None):
             'original_cold_label': 'undefined-not-invoked-no-parity-claim',
             'query_nodes': 1024, 'straight_line': True, 'normalize_z': False, 'ignore_normalization': False,
             'live_object_sequence': True, 'retained_precondition': 'nonempty valid active reference scan',
+            'fixed_cache_comparison': {'original_count': 4097, 'replayed_count': 2, 'filters': [1, 13],
+                'next_operations': ['append B', 'return A without append', 'shared edge'],
+                'allocations': 'separate simultaneously live meshes and source1024 queries',
+                'negative': 'A B A edge differs from A B edge with the same ordered tail'},
             'tile_lifetime_profile': 'unchanged-original-empirical', 'tile_lifetime_amendment': None,
             'observed_tile_header_sha256': hashlib.sha256((work / point.TILE_HEADER).read_bytes()).hexdigest(),
             'scope': 'cache constructor projection; one repaired cold same-polygon terminal then original defined retained same-polygon terminals on the same live PathFinder/query',
@@ -145,6 +209,7 @@ def observe(binary, work):
         raise SystemExit('Unexpected retained same-polygon oracle output')
     result = {name: (output / name).read_bytes() for name in FILES}
     parse_cases(result['cases.test-fixture'])
+    parse_comparisons(result['comparisons.test-fixture'])
     return result
 
 

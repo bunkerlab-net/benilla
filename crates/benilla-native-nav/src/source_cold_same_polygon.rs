@@ -5,7 +5,11 @@ use crate::{
     Error, LoadedSourceColdDistanceCompatibility, SelectedSourceQuery, SourceMapQuery,
     SourceMapQuerySlot, SourceOwnerFilter, SourceWarmCacheError,
 };
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
+
+#[path = "source_chase_fixed_cache.rs"]
+mod chase_fixed_cache;
+pub use chase_fixed_cache::*;
 
 /// Explicit NormalizePath state. There is deliberately no server-default constructor.
 /// Only false/false is supported, without a terrain callback or ignore-state bypass.
@@ -105,6 +109,8 @@ impl From<SourceWarmCacheError> for SourceSamePolygonError {
 #[derive(Debug)]
 pub struct LoadedSourceSamePolygon {
     query: SourceMapQuery,
+    identity: Rc<()>,
+    predecessor: Option<Rc<()>>,
     compatibility: LoadedSourceColdDistanceCompatibility,
     config: SourceSamePolygonConfig,
     terminal: crate::warm_point_path::SamePolygonTerminal,
@@ -204,6 +210,8 @@ impl SelectedSourceQuery<'_> {
             crate::deadline(until)?;
             Ok(LoadedSourceSamePolygon {
                 query: self.retain_allocation(),
+                identity: Rc::new(()),
+                predecessor: Some(Rc::clone(&prior.identity)),
                 compatibility,
                 config,
                 terminal,
@@ -287,6 +295,8 @@ impl SelectedSourceQuery<'_> {
             crate::deadline(until)?;
             Ok(LoadedSourceSamePolygon {
                 query: self.retain_allocation(),
+                identity: Rc::new(()),
+                predecessor: None,
                 compatibility,
                 config,
                 terminal,
@@ -306,3 +316,7 @@ mod tests;
 #[cfg(all(test, benilla_native_detour))]
 #[path = "source_retained_same_polygon_tests.rs"]
 mod retained_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+#[path = "source_chase_fixed_cache_tests.rs"]
+mod chase_fixed_cache_tests;

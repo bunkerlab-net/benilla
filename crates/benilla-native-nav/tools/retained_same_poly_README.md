@@ -24,8 +24,8 @@ threshold. No warm distance initialization or other semantic repair is added.
 The only instrumentation inside the prefix copies the retained vector after
 the first endpoint lookup; it does not change source lookup inputs or answers.
 
-The observer creates exactly one live PathFinder object and one loaded original
-Detour query for the whole sequence. It neither reconstructs the object nor
+Each observed sequence uses one live PathFinder object and one loaded original
+Detour query throughout. It neither reconstructs the object within a sequence nor
 seeds later caches from expected answers. Each row's complete before-storage
 must equal the previous row's complete terminal storage. The query's measured
 node-pool capacity remains 1024, matching the guarded MoveMap allocation.
@@ -49,7 +49,7 @@ default-query-pointer, or unrelated BuildPolyPath-local repair is applied.
 
 ## Cases
 
-The single eleven-step chain observes:
+The original eleven-step chain observes:
 
 1. Repaired cold A lookup appends A, followed by the original same-polygon terminal
 2. Original retained active lookup, preserving a nonzero destination height
@@ -71,6 +71,51 @@ terminal preserves unprojected endpoint heights and retains prior tail slots.
 The schema distinguishes the initial `compatibility-zero-v1` row from later
 `original-retained-defined` rows.
 
+## Fixed-cache differential and active-state counterexample
+
+[The comparison fixture](fixtures/retained-same-poly/comparisons.test-fixture)
+records separate simultaneously live source1024 queries for each complete and
+reduced sequence, for dry include/exclude filters 1/0 and 13/0. Both queries
+start with the original constructor cache projection, independently perform the
+selected repaired cold entry, and use only original defined retained entries
+afterward. No cache is copied from one query to the other or seeded from an
+expected result. The unchanged source packages and cold compatibility policy
+are shared with the original eleven-step observer.
+
+The fixed-cache sequence executes 4,097 calculations: cold A, 4,095 repetitions
+of active, tail, near-nearest-no-append and far-nearest-no-append inputs, and a
+final active input preserving the requested nonzero height. Every intermediate
+calculation is checked before and after against the complete initial accepted
+backing vector and active length; fixed point limit and filter are checked too.
+Its final result equals a fresh query executing only the original cold and final
+inputs. Comparison includes exact binary32 endpoints, actual end, path points,
+path type, flags, complete backing, active length, limit, filter and unchanged
+path scratch state. First-lookup and second-lookup observations also match.
+The fixture records the cold entry, four representative intermediate entries,
+and the final entry; the other calculations execute without emitting rows.
+
+Both live queries then execute identical B append, A no-append return and shared
+edge inputs. Their complete terminal states and exact lookup observations match
+after each operation. The append leaves the saveable fixed-cache domain; this is
+continuation evidence, not a claim that the longer mutated lineage remains
+fixed-cache saveable.
+
+The negative pair executes world XYZ A `(5,5,0) -> (5,6,0)`, then B
+`(5,15,0) -> (5,16,0)`, then A again without appending, then the shared edge
+`(5,10,0) -> (6,10,0)`. Its partner drops only the third operation. Original
+active-first lookup selects A for the complete sequence and B for the reduced
+one, at exactly zero endpoint distance. Both have the same ordered `[A,B]` tail
+and identical inactive slots; only active slot zero differs. Equal path points
+and equal tails therefore cannot justify retaining only appenders and the final
+operation. This observer does not execute certificate capture or rejection.
+
+`COMPARISON_FIELDS` adds `include_filter`, `exclude_filter` and `point_limit`
+after `query_nodes` in the original schema. `step` is the actual local execution
+ordinal: complete fixed-history head 4,096 versus reduced head 1. The parser
+requires every comparison lane, complete/reduced exact final and continuation
+equality, and the negative pair's differing active reference with equal tails.
+It does not treat the sparse output rows as the original execution count.
+
 ## Scope and reproducibility
 
 [The source fragment package](retained_same_poly_source_fragments.test-fixture)
@@ -87,7 +132,7 @@ presence checks, world callbacks, admitted Route production and gameplay are
 outside this observer. There are no install assets, databases, downloaders or
 network calls.
 
-[The fixture](fixtures/retained-same-poly/cases.test-fixture) is tab-separated.
+[The original fixture](fixtures/retained-same-poly/cases.test-fixture) is tab-separated.
 `FIELDS` in the generator is its exact 23-column schema. `sequence` and `step`
 identify the single contiguous live-object chain. Points are world XYZ
 hexadecimal binary32 words, with semicolon-separated point sequences. Counts
