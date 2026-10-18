@@ -6,7 +6,14 @@ pushes to `master`, temporarily on pushes to `feat/psk-p2p-foundation`, and thro
 branch pushes, tags, and schedules do not start it. Remove the explicit feature-branch
 entry after this development cycle. It does not publish releases.
 
-Each native Build job also runs the local profile-storage and terrain-helper
+A separate **windows-amd64 terrain helper** job builds only the small headless
+helper, so its download can become available while the full player jobs continue.
+It uses the same commit, Rust pin, lockfile, source preparation, licenses, and
+source-retention checks. It runs focused MPQ and terrain tests, including the
+`--inspect` tests, from the prepared source. These checks do not establish
+full-workspace, player, or real-install acceptance.
+
+Each full player job also runs the local profile-storage and terrain-helper
 regression suites before packaging. This exercises save/reopen, corruption handling,
 file replacement, and authored terrain inputs on the actual target OS. Packaging
 copies the helper without executing it or reading a player installation. Windows
@@ -20,7 +27,8 @@ steps. Creating the pull request does not produce downloadable binaries.
 
 1. Open the repository's **Actions** tab and select **Build player**.
 2. Select **Run workflow** and choose the branch to build.
-3. Confirm **Run workflow**. This starts all four jobs and uses GitHub Actions
+3. Confirm **Run workflow**. This starts four player jobs and the independent
+   Windows helper job and uses GitHub Actions
    runner time and artifact storage under the repository's billing settings.
 4. Open the run and check each job's result. One failed job does not cancel the
    others. Download the artifact for your operating system and CPU from the run's
@@ -45,6 +53,16 @@ To verify the archive on Linux, run `sha256sum -c <archive>.sha256`. On macOS, r
 `Get-FileHash .\<archive> -Algorithm SHA256` in PowerShell and compare the
 result with the adjacent `.sha256` file. Replace `<archive>` with the downloaded
 archive's name. These checks detect corruption, not publisher identity.
+
+For just the Windows helper, download
+`benilla-native-terrain-windows-amd64-<commit>` once its job succeeds; you do not
+need to wait for the player builds. Its ZIP contains `benilla-native-terrain.exe`,
+the license/provenance documents, and `SOURCE-DOWNLOAD.txt`. The matching source
+artifact is `benilla-native-terrain-source-windows-amd64-<commit>`, with the full
+workspace and locked dependencies, not a reduced source subset. The source uses
+the same `benilla-windows-amd64-<commit>-source.tar.gz` filename inside its
+distinct artifact. Source uploads and verified retention precede the helper
+upload, with the same 90-day source and 14-day binary retention requests.
 
 ## Run the player
 
@@ -132,7 +150,7 @@ an artifact as a release.
 ## Build details
 
 Each job uses a native runner, the Rust version in `rust-toolchain.toml`, and the
-checked-in `Cargo.lock`. Mr Boxington wraps Cargo for both build commands:
+checked-in `Cargo.lock`. Mr Boxington wraps Cargo. Full player jobs use both build commands:
 
 ```sh
 mbx build --locked --release -p benilla --bin benilla --no-default-features --target <target>
@@ -142,8 +160,11 @@ mbx build --locked --release -p benilla-native-terrain --bin benilla-native-terr
 The targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
 `aarch64-apple-darwin`, and `x86_64-pc-windows-msvc`. Disabling default features
 selects the player build without developer tools. The workflow uses `release`
-rather than the more expensive fat-LTO `ship` profile. It limits Cargo to two
-or three parallel build jobs per platform and each runner to 180 minutes.
+rather than the more expensive fat-LTO `ship` profile. Full player jobs limit Cargo
+to two or three parallel build jobs per platform and each runner to 180 minutes.
+The independent Windows helper job uses only the second build command, a separate
+helper-only cache generation, three parallel Cargo jobs, and a 60-minute timeout.
+It neither waits for nor replaces the full player jobs or the separate CI workflow.
 
 Linux installs a C compiler, pkg-config, ALSA headers, and udev headers. macOS
 uses the runner's Xcode tools and libclang; Windows uses its MSVC tools. The
@@ -162,7 +183,7 @@ notices remain intact.
 Each job first snapshots the selected full Git commit, runs `cargo vendor --locked
 --versioned-dirs`, and checks the locked graph resolves offline using the generated
 `.cargo/vendor-config.toml`. It then builds from that snapshot, with those vendored
-sources, using `--offline --locked`, for both executables. `SOURCE-MANIFEST.json`
+sources, using `--offline --locked`, for its selected executable(s). `SOURCE-MANIFEST.json`
 records the source commit and SHA-256 of every source/dependency file. `BUILD-INFO.txt` records the
 Rust, Cargo, and mbx versions. Packaging checks that the snapshot has not changed
 and archives its entire contents in the matching separate source download. CI
@@ -208,6 +229,13 @@ Local packaging without `--source-url` still embeds `corresponding-source.tar.gz
 for a self-contained distribution. CI uses `--source-only` to create and checksum
 the source first, uploads it, then supplies the upload's exact artifact URL through
 `--source-url`. Do not supply an unverified URL or one pointing at different source.
+
+For a helper-only local distribution, use the same clean-source preparation, run
+only the `benilla-native-terrain` build command, then add `--helper-only` to the
+final packaging command. No player executable is required. The helper-only
+archive keeps the same license/provenance documents and full source envelope;
+its name starts with `benilla-native-terrain-`. To rebuild that download, use only
+the helper's offline Cargo command above with `x86_64-pc-windows-msvc` on Windows.
 
 Preparation requires Git, Cargo, Rust and mbx and downloads the locked dependencies.
 It refuses to reuse an existing staging directory. After a failed preparation,

@@ -136,3 +136,84 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  terrain-helper-windows:
+    name: windows-amd64 terrain helper
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 3
+      WOW_DATA: ""
+      BUILD_TARGET: x86_64-pc-windows-msvc
+      BUILD_PLATFORM: windows-amd64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the repository toolchain
+        run: |
+          rustup toolchain install
+          rustup target add "$BUILD_TARGET"
+          rustc -Vv
+          test "$(rustc -Vv | sed -n 's/^host: //p' | tr -d '\r')" = "$BUILD_TARGET"
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: terrain-helper-windows-v1
+          save-on-workflow-dispatch: true
+      - name: Test packaging
+        run: python3 scripts/test-package-player.py
+      - name: Prepare matching source and locked dependencies
+        run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
+      - name: Test MPQ and terrain helper including inspect from distributed source
+        run: |
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          cd .player-source/current
+          mbx test --config .cargo/vendor-config.toml --offline --locked --no-default-features --no-fail-fast -p benilla-mpq -p benilla-native-terrain --target "$BUILD_TARGET"
+      - name: Build only the terrain helper from distributed source
+        run: |
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          cd .player-source/current
+          mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target "$BUILD_TARGET"
+      - name: Package the matching source
+        run: python3 scripts/package-player.py --source-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"
+      # Independent source upload: never collide with the full Windows player job.
+      - name: Upload helper corresponding source and checksum
+        id: source
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-native-terrain-source-windows-amd64-${{ github.sha }}
+          path: |
+            dist/benilla-windows-amd64-${{ github.sha }}-source.tar.gz
+            dist/benilla-windows-amd64-${{ github.sha }}-source.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Verify source outlives the helper download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ID: ${{ steps.source.outputs.artifact-id }}
+        run: python3 scripts/verify-source-retention.py
+      - name: Package only the terrain helper with exact source link
+        env:
+          SOURCE_URL: ${{ steps.source.outputs.artifact-url }}
+        run: python3 scripts/package-player.py --helper-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"
+      - name: Upload helper archive and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-native-terrain-windows-amd64-${{ github.sha }}
+          path: |
+            dist/benilla-native-terrain-windows-amd64-${{ github.sha }}.zip
+            dist/benilla-native-terrain-windows-amd64-${{ github.sha }}.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

@@ -57,6 +57,7 @@ const SAFE_DIAGNOSTIC_IDS: &[&str] = &[
     "source.ad_directory_entry_limit",
     "source.ad_dummy_member",
     "source.ad_hash_count",
+    "source.ad_header_extension",
     "source.ad_header_open",
     "source.ad_header_read",
     "source.ad_header_scan_limit",
@@ -191,8 +192,9 @@ fn operation_diagnostic(error: &anyhow::Error) -> String {
             "The Data directory is missing or unavailable"
         }
         "source.ad_header_signature" => "No MPQ header was found on a 512-byte boundary",
-        "source.ad_header_truncated" => "The selected MPQ header is shorter than 32 bytes",
-        "source.ad_header_version" => "The first MPQ header is not supported legacy version zero",
+        "source.ad_header_truncated" => "The selected MPQ header is incomplete for its version",
+        "source.ad_header_version" => "The first MPQ header has an unsupported raw version",
+        "source.ad_header_extension" => "The MPQ version-one extended offsets must all be zero",
         "source.ad_header_scan_limit" => "MPQ header discovery exceeds the one MiB scan budget",
         "source.ad_header_selection" => {
             "The reader and pinned extractor select different MPQ headers"

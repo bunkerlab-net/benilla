@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Run the actual helper over authored MPQs; successful inspection must never publish.
 mod support;
+use benilla_native_terrain::{prepare, Tile};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -9,7 +10,7 @@ use std::{
     process::{Command, Output},
     sync::atomic::{AtomicU64, Ordering},
 };
-use support::{archive, raw_entry};
+use support::{archive, raw_entry, version_one_archive, Entry};
 struct Fixture {
     root: PathBuf,
     data: PathBuf,
@@ -30,25 +31,7 @@ impl Fixture {
         self.install_adt(source_fixture(&format!("{case}.adt.test-fixture")))
     }
     fn install_adt(&self, adt: Vec<u8>) -> Vec<u8> {
-        let bytes = archive(&[
-            raw_entry(
-                "DBFilesClient\\Map.dbc",
-                include_bytes!("../tools/fixtures/Map.dbc.test-fixture").to_vec(),
-            ),
-            raw_entry(
-                "DBFilesClient\\AreaTable.dbc",
-                include_bytes!("../tools/fixtures/AreaTable.dbc.test-fixture").to_vec(),
-            ),
-            raw_entry(
-                "DBFilesClient\\LiquidType.dbc",
-                include_bytes!("../tools/fixtures/LiquidType.dbc.test-fixture").to_vec(),
-            ),
-            raw_entry(
-                "World\\Maps\\AuthoredOracle\\AuthoredOracle.wdt",
-                include_bytes!("../tools/fixtures/source.wdt.test-fixture").to_vec(),
-            ),
-            raw_entry("World\\Maps\\AuthoredOracle\\AuthoredOracle_32_31.adt", adt),
-        ]);
+        let bytes = archive(&terrain_entries(adt));
         fs::write(self.data.join("terrain.MPQ"), &bytes).unwrap();
         bytes
     }
@@ -67,6 +50,27 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+fn terrain_entries(adt: Vec<u8>) -> [Entry; 5] {
+    [
+        raw_entry(
+            "DBFilesClient\\Map.dbc",
+            include_bytes!("../tools/fixtures/Map.dbc.test-fixture").to_vec(),
+        ),
+        raw_entry(
+            "DBFilesClient\\AreaTable.dbc",
+            include_bytes!("../tools/fixtures/AreaTable.dbc.test-fixture").to_vec(),
+        ),
+        raw_entry(
+            "DBFilesClient\\LiquidType.dbc",
+            include_bytes!("../tools/fixtures/LiquidType.dbc.test-fixture").to_vec(),
+        ),
+        raw_entry(
+            "World\\Maps\\AuthoredOracle\\AuthoredOracle.wdt",
+            include_bytes!("../tools/fixtures/source.wdt.test-fixture").to_vec(),
+        ),
+        raw_entry("World\\Maps\\AuthoredOracle\\AuthoredOracle_32_31.adt", adt),
+    ]
 }
 fn snapshot(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
     fn visit(root: &Path, at: &Path, out: &mut BTreeMap<PathBuf, Option<Vec<u8>>>) {
@@ -115,16 +119,47 @@ fn assert_rejected_without_writes(fixture: &Fixture, expected: &str) {
     let before = snapshot(&fixture.root);
     for args in [&["--inspect"][..], &["--output", "rejected-export"][..]] {
         let output = fixture.run(args);
-        assert!(!output.status.success(), "{}", output_text(&output));
+        assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
         let text = output_text(&output);
-        assert!(text.contains(&format!("error[{expected}]")), "{text}");
+        assert!(text.starts_with(&format!("error[{expected}]:")), "{text}");
         assert!(text.contains("no gameplay admission established"));
         assert!(output.stdout.is_empty());
+        assert_eq!(text.lines().count(), 1);
         assert!(text.len() < 256);
+        assert!(!text.contains('/'));
+        assert!(!text.contains('\\'));
         assert!(!text.contains(&fixture.root.to_string_lossy().to_string()));
         assert!(!text.contains("AuthoredOracle"));
+        assert!(!text.contains("private"));
         assert_eq!(snapshot(&fixture.root), before);
     }
+}
+
+fn assert_exact_inspection_without_writes(fixture: &Fixture, expected: &[u8]) -> String {
+    let before = snapshot(&fixture.root);
+    let tile = Tile { x: 31, y: 32 };
+    let prepared = prepare(&fixture.data, 1, &[tile]).unwrap();
+    assert_eq!(prepared.map_id(), 1);
+    assert_eq!(prepared.tiles().collect::<Vec<_>>(), [(tile, expected)]);
+    prepared.verify_unchanged().unwrap();
+    let epoch = prepared.source_epoch();
+    let expected_report = format!(
+        "Inspected 1 terrain tiles in memory; no artifacts published\n\
+         map=1 source_epoch={epoch}\n\
+         tile=31,32 bytes={} sha256={:x}\n\
+         live_install_lease=false gameplay_admitted=false\n\
+         No live installation lease or gameplay admission established\n",
+        expected.len(),
+        Sha256::digest(expected)
+    );
+    for _ in 0..2 {
+        let output = fixture.run(&["--inspect"]);
+        assert!(output.status.success(), "{}", output_text(&output));
+        assert_eq!(output.stdout, expected_report.as_bytes());
+        assert!(output.stderr.is_empty());
+        assert_eq!(snapshot(&fixture.root), before);
+    }
+    epoch.to_owned()
 }
 #[test]
 fn inspect_actual_preparation_is_repeatable_path_free_and_writes_nothing() {
@@ -365,7 +400,7 @@ fn inspect_header_failures_are_precise_path_free_and_write_nothing() {
     let fixture = Fixture::new();
     let original = fixture.install("flat");
     let mut unsupported = prefixed_header(&original, 512, 32);
-    unsupported[524..526].copy_from_slice(&1u16.to_le_bytes());
+    unsupported[524..526].copy_from_slice(&2u16.to_le_bytes());
     // A valid later header must never rescue the first unsupported one.
     unsupported.resize(unsupported.len().next_multiple_of(512), 0);
     unsupported.extend(&original);
@@ -419,5 +454,214 @@ fn inspect_header_failures_are_precise_path_free_and_write_nothing() {
         assert!(!text.contains("AuthoredOracle"));
         assert!(!text.contains("private"));
         assert_eq!(snapshot(&fixture.root), before);
+    }
+}
+
+#[test]
+fn inspect_version_one_normalizes_header_sizes_without_changing_products_or_epoch() {
+    for case in ["flat", "liquid_nonsymmetric"] {
+        let fixture = Fixture::new();
+        let original = fixture.install(case);
+        let product = source_fixture(&format!("{case}.map"));
+        let epoch = assert_exact_inspection_without_writes(&fixture, &product);
+        let bytes = version_one_archive(&terrain_entries(source_fixture(&format!(
+            "{case}.adt.test-fixture"
+        ))));
+        assert_eq!(word(&bytes, 4), 44);
+        assert_eq!(&bytes[12..16], &[1, 0, 3, 0]);
+        assert_eq!(&bytes[32..44], &[0; 12]);
+        assert_eq!(word(&bytes, 16), word(&original, 16) + 12);
+        assert_eq!(word(&bytes, 20), word(&original, 20) + 12);
+        assert_eq!(bytes.len(), original.len() + 12);
+        for (prefix, header_size) in [
+            (0, 44),
+            (0, 0),
+            (0, 32),
+            (0, u32::MAX),
+            (512, 44),
+            (1024, 1),
+        ] {
+            fs::write(
+                fixture.data.join("terrain.MPQ"),
+                prefixed_header(&bytes, prefix, header_size),
+            )
+            .unwrap();
+            assert_eq!(
+                assert_exact_inspection_without_writes(&fixture, &product),
+                epoch,
+                "{case}: prefix={prefix} header_size={header_size}"
+            );
+        }
+        let mut user_data = prefixed_header(&bytes, 512, 44);
+        user_data[..4].copy_from_slice(b"MPQ\x1b");
+        replace(&mut user_data, 8, 512);
+        fs::write(fixture.data.join("terrain.MPQ"), user_data).unwrap();
+        assert_eq!(
+            assert_exact_inspection_without_writes(&fixture, &product),
+            epoch
+        );
+    }
+}
+
+#[test]
+fn inspect_mixed_legacy_and_version_one_archives_preserves_exact_member_epoch() {
+    let fixture = Fixture::new();
+    let entries = terrain_entries(source_fixture("liquid_nonsymmetric.adt.test-fixture"));
+    let product = source_fixture("liquid_nonsymmetric.map");
+    fs::write(fixture.data.join("dbc.MPQ"), archive(&entries[..3])).unwrap();
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries[3..])).unwrap();
+    let epoch = assert_exact_inspection_without_writes(&fixture, &product);
+    for (dbc_version_one, terrain_version_one) in [(true, false), (false, true), (true, true)] {
+        for (name, members, version_one) in [
+            ("dbc.MPQ", &entries[..3], dbc_version_one),
+            ("terrain.MPQ", &entries[3..], terrain_version_one),
+        ] {
+            let bytes = if version_one {
+                version_one_archive(members)
+            } else {
+                archive(members)
+            };
+            fs::write(fixture.data.join(name), bytes).unwrap();
+        }
+        assert_eq!(
+            assert_exact_inspection_without_writes(&fixture, &product),
+            epoch
+        );
+    }
+}
+
+#[test]
+fn inspect_version_one_epoch_binds_unused_member_bytes_and_equal_byte_winners() {
+    let fixture = Fixture::new();
+    let mut entries = terrain_entries(source_fixture("flat.adt.test-fixture"));
+    let path = fixture.data.join("terrain.MPQ");
+    fs::write(&path, version_one_archive(&entries)).unwrap();
+    let product = source_fixture("flat.map");
+    let original_epoch = assert_exact_inspection_without_writes(&fixture, &product);
+    let captured = prepare(&fixture.data, 1, &[Tile { x: 31, y: 32 }]).unwrap();
+
+    let mut map = source_fixture("Map.dbc.test-fixture");
+    // The writer uses Map.dbc fields zero and one, but captures every member byte.
+    map[28] ^= 1;
+    entries[0] = raw_entry("DBFilesClient\\Map.dbc", map);
+    fs::write(&path, version_one_archive(&entries)).unwrap();
+    let before = snapshot(&fixture.root);
+    assert!(
+        format!("{:#}", captured.verify_unchanged().unwrap_err()).contains("source.bytes_changed")
+    );
+    assert_eq!(snapshot(&fixture.root), before);
+    let changed_epoch = assert_exact_inspection_without_writes(&fixture, &product);
+    assert_ne!(changed_epoch, original_epoch);
+
+    let captured = prepare(&fixture.data, 1, &[Tile { x: 31, y: 32 }]).unwrap();
+    fs::write(
+        fixture.data.join("patch.MPQ"),
+        version_one_archive(&entries[..1]),
+    )
+    .unwrap();
+    let before = snapshot(&fixture.root);
+    assert!(
+        format!("{:#}", captured.verify_unchanged().unwrap_err()).contains("source.winner_changed")
+    );
+    assert_eq!(snapshot(&fixture.root), before);
+    assert_ne!(
+        assert_exact_inspection_without_writes(&fixture, &product),
+        changed_epoch
+    );
+}
+
+#[test]
+fn inspect_version_one_rejects_every_truncated_extension_without_writes() {
+    let fixture = Fixture::new();
+    let original = version_one_archive(&terrain_entries(source_fixture("flat.adt.test-fixture")));
+    for prefix in [0, 512] {
+        for extension_bytes in 0..12 {
+            let mut bytes = prefixed_header(&original[..32 + extension_bytes], prefix, 44);
+            replace(&mut bytes, prefix + 8, (32 + extension_bytes) as u32);
+            fs::write(fixture.data.join("terrain.MPQ"), bytes).unwrap();
+            assert_rejected_without_writes(&fixture, "source.ad_header_truncated");
+        }
+    }
+}
+
+#[test]
+fn inspect_version_one_rejects_every_nonzero_extension_byte_without_writes() {
+    let fixture = Fixture::new();
+    let original = version_one_archive(&terrain_entries(source_fixture("flat.adt.test-fixture")));
+    // Covers both halves of the u64 at 32 and both bytes of each u16 at 40 and 42.
+    for offset in 32..44 {
+        for value in [1, 0x80] {
+            let mut bytes = prefixed_header(&original, 512, 44);
+            bytes[512 + offset] = value;
+            fs::write(fixture.data.join("terrain.MPQ"), bytes).unwrap();
+            assert_rejected_without_writes(&fixture, "source.ad_header_extension");
+        }
+    }
+}
+
+#[test]
+fn inspect_version_one_rejects_indices_inside_its_extension_without_writes() {
+    let fixture = Fixture::new();
+    let original = version_one_archive(&terrain_entries(source_fixture("flat.adt.test-fixture")));
+    for field in [16, 20] {
+        for position in 32..44 {
+            let mut bytes = original.clone();
+            replace(&mut bytes, field, position);
+            fs::write(fixture.data.join("terrain.MPQ"), bytes).unwrap();
+            assert_rejected_without_writes(&fixture, "source.ad_index_spans");
+        }
+    }
+}
+
+#[test]
+fn inspect_rejects_versions_above_one_without_writes() {
+    let fixture = Fixture::new();
+    let original = version_one_archive(&terrain_entries(source_fixture("flat.adt.test-fixture")));
+    for version in [2u16, 3, 4, 0x100, u16::MAX] {
+        let mut bytes = original.clone();
+        bytes[12..14].copy_from_slice(&version.to_le_bytes());
+        fs::write(fixture.data.join("terrain.MPQ"), bytes).unwrap();
+        assert_rejected_without_writes(&fixture, "source.ad_header_version");
+    }
+}
+
+#[test]
+fn inspect_never_rescues_a_bad_first_header_with_a_later_version_one_archive() {
+    let fixture = Fixture::new();
+    let original = version_one_archive(&terrain_entries(source_fixture("flat.adt.test-fixture")));
+    for (field, value, expected) in [
+        (12, 2, "source.ad_header_version"),
+        (36, 1, "source.ad_header_extension"),
+        (40, 1, "source.ad_header_extension"),
+        (42, 1, "source.ad_header_extension"),
+        (16, 32, "source.ad_index_spans"),
+    ] {
+        let mut bytes = prefixed_header(&original, 512, 44);
+        bytes[512 + field] = value;
+        bytes.resize(bytes.len().next_multiple_of(512), 0);
+        bytes.extend(&original);
+        let archive_bytes = (bytes.len() - 512) as u32;
+        replace(&mut bytes, 520, archive_bytes);
+        fs::write(fixture.data.join("terrain.MPQ"), bytes).unwrap();
+        assert_rejected_without_writes(&fixture, expected);
+    }
+}
+
+#[test]
+fn inspect_version_one_rejects_user_data_pointer_header_mismatch_without_writes() {
+    let fixture = Fixture::new();
+    let entries = terrain_entries(source_fixture("flat.adt.test-fixture"));
+    let original = version_one_archive(&entries);
+    for second in [archive(&entries), original.clone()] {
+        let mut bytes = prefixed_header(&original, 512, 44);
+        bytes.resize(bytes.len().next_multiple_of(512), 0);
+        let second_offset = bytes.len() as u32;
+        bytes.extend(second);
+        bytes[..4].copy_from_slice(b"MPQ\x1b");
+        replace(&mut bytes, 8, second_offset);
+        let archive_bytes = (bytes.len() - 512) as u32;
+        replace(&mut bytes, 520, archive_bytes);
+        fs::write(fixture.data.join("terrain.MPQ"), bytes).unwrap();
+        assert_rejected_without_writes(&fixture, "source.ad_header_selection");
     }
 }

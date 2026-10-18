@@ -19,9 +19,23 @@ pub fn raw_entry(name: &str, bytes: Vec<u8>) -> Entry {
 }
 
 pub fn archive(entries: &[Entry]) -> Vec<u8> {
+    archive_with_header(entries, 0, 32, 0)
+}
+
+pub fn version_one_archive(entries: &[Entry]) -> Vec<u8> {
+    archive_with_header(entries, 1, 44, 3)
+}
+
+fn archive_with_header(
+    entries: &[Entry],
+    version: u16,
+    header_bytes: u32,
+    sector_shift: u16,
+) -> Vec<u8> {
     use crypto::{encrypt_block, hash_string, hash_type};
     let slots = 64u32;
-    let hash_pos = 32u32;
+    // Index and encrypted block-table member positions follow the physical header.
+    let hash_pos = header_bytes;
     let block_pos = hash_pos + slots * 16;
     let mut data_pos = block_pos + entries.len() as u32 * 16;
     let mut hashes = vec![u32::MAX; slots as usize * 4];
@@ -53,10 +67,10 @@ pub fn archive(entries: &[Entry]) -> Vec<u8> {
         &mut blocks,
         hash_string("(block table)", hash_type::FILE_KEY),
     );
-    let mut bytes = vec![0u8; 32];
+    let mut bytes = vec![0u8; header_bytes as usize];
     for (offset, value) in [
         (0, 0x1a51_504d_u32),
-        (4, 32),
+        (4, header_bytes),
         (8, data_pos),
         (16, hash_pos),
         (20, block_pos),
@@ -65,6 +79,8 @@ pub fn archive(entries: &[Entry]) -> Vec<u8> {
     ] {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
+    bytes[12..14].copy_from_slice(&version.to_le_bytes());
+    bytes[14..16].copy_from_slice(&sector_shift.to_le_bytes());
     for word in hashes.into_iter().chain(blocks) {
         bytes.extend(word.to_le_bytes());
     }

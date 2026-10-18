@@ -63,6 +63,8 @@ struct Index {
     archive_offset: u64,
     /// Exact bytes used to decode this index; inspection must not reread a different header.
     header: [u8; 32],
+    /// Raw-version-one extension from the same bounded index decode handle, if present.
+    header_extension: Option<[u8; 12]>,
     /// The uncompressed sector size, `512 << block_size`.
     sector_size: usize,
     hash_table: Vec<HashEntry>,
@@ -188,8 +190,8 @@ impl Archive {
             return Err(Error::Corrupt("bounded header scan limit".into()));
         }
 
-        // The 32-byte V1 header: later versions only extend it, and every 1.12 table offset fits
-        // a `u32`, so the V2 hi-block table is never needed.
+        // Keep the base header and bounded raw-version-one extension on this index handle.
+        // Stricter callers validate extension fields; ordinary opens retain their behavior.
         file.seek(SeekFrom::Start(archive_offset))?;
         let mut hdr = [0u8; 32];
         file.read_exact(&mut hdr)?;
@@ -197,6 +199,16 @@ impl Archive {
         if signature != SIGNATURE {
             return Err(Error::NotMpq);
         }
+        let header_extension = if limits.is_some() && hdr.u16_at(12) == Some(1) {
+            if limits.is_some_and(|l| archive_offset.saturating_add(44) > l.header_scan_bytes) {
+                return Err(Error::Corrupt("bounded header scan limit".into()));
+            }
+            let mut extension = [0u8; 12];
+            file.read_exact(&mut extension)?;
+            Some(extension)
+        } else {
+            None
+        };
         let block_size_shift = hdr.u16_at(14).ok_or(Error::NotMpq)?;
         // A raw header `u16`, capped before `512 << shift` can overflow; 1.12 data uses 3 (4 KiB
         // sectors), and 23 is already 4 GiB.
@@ -236,6 +248,7 @@ impl Archive {
                 path,
                 archive_offset,
                 header: hdr,
+                header_extension,
                 sector_size,
                 hash_table,
                 block_table,
@@ -249,6 +262,12 @@ impl Archive {
     /// Read-only provenance for callers checking a stricter archive profile.
     pub fn header_snapshot(&self) -> (u64, [u8; 32]) {
         (self.index.archive_offset, self.index.header)
+    }
+
+    /// Exact raw-version-one extension read with the base header before decoding the index.
+    /// Only bounded opens retain this provenance; ordinary opens do not inspect extensions.
+    pub fn header_extension_snapshot(&self) -> Option<[u8; 12]> {
+        self.index.header_extension
     }
 
     /// Encoded hash/block table footprint, for cumulative chain budgeting.
@@ -880,9 +899,23 @@ mod tests {
 
     /// [`archive_with_one_entry`] with `file_size` set apart from the data: a lying block table.
     fn archive_with_one_block(name: &str, flags: u32, data: &[u8], file_size: u32) -> Vec<u8> {
+        archive_with_one_block_version(name, flags, data, file_size, 0)
+    }
+
+    fn archive_with_one_block_version(
+        name: &str,
+        flags: u32,
+        data: &[u8],
+        file_size: u32,
+        version: u16,
+    ) -> Vec<u8> {
         use crypto::{encrypt_block, hash_type};
         const HASH_SLOTS: u32 = 4; // a power of two: the reader masks with len - 1
-        let hash_pos = 32u32;
+        let hash_pos = match version {
+            0 => 32u32,
+            1 => 44,
+            _ => panic!("fixture version"),
+        };
         let block_pos = hash_pos + HASH_SLOTS * 16;
         let data_pos = block_pos + 16; // one 16-byte block entry
 
@@ -903,6 +936,10 @@ mod tests {
         );
 
         let mut bytes = header(0, hash_pos, block_pos, HASH_SLOTS, 1).to_vec();
+        bytes[4..8].copy_from_slice(&hash_pos.to_le_bytes());
+        bytes[8..12].copy_from_slice(&(data_pos + data.len() as u32).to_le_bytes());
+        bytes[12..14].copy_from_slice(&version.to_le_bytes());
+        bytes.resize(hash_pos as usize, 0);
         for w in hash.into_iter().chain(block) {
             bytes.extend_from_slice(&w.to_le_bytes());
         }
@@ -1217,6 +1254,68 @@ mod tests {
                 .unwrap()
                 .header_snapshot(),
             expected
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_version_one_snapshot_retains_extension_from_index_decode_handle() {
+        let path = temp_path("extension_snapshot");
+        let payload = archive_with_one_block_version("a.bin", FLAG_EXISTS, b"safe", 4, 1);
+        let mut bytes = vec![0; 512];
+        bytes.extend(&payload);
+        std::fs::write(&path, &bytes).unwrap();
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        let expected = (512, payload[..32].try_into().unwrap());
+        assert_eq!(archive.header_snapshot(), expected);
+        assert_eq!(archive.header_extension_snapshot(), Some([0; 12]));
+        assert_eq!(archive.read_file("a.bin").unwrap(), b"safe");
+        let extension = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        bytes[544..556].copy_from_slice(&extension);
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(archive.clone().header_snapshot(), expected);
+        assert_eq!(archive.clone().header_extension_snapshot(), Some([0; 12]));
+        let fresh = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert_eq!(fresh.header_snapshot(), expected);
+        assert_eq!(fresh.header_extension_snapshot(), Some(extension));
+        // Retaining provenance does not make the ordinary reader validate extended offsets.
+        assert_eq!(
+            Archive::open(&path).unwrap().header_extension_snapshot(),
+            None
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_version_one_requires_complete_extension_within_scan_budget() {
+        let path = temp_path("extension_bounds");
+        let payload = archive_with_one_block_version("a.bin", FLAG_EXISTS, b"safe", 4, 1);
+        for present in 0..12 {
+            std::fs::write(&path, &payload[..32 + present]).unwrap();
+            assert!(matches!(
+                Archive::open_bounded(&path, offline_limits()),
+                Err(Error::Io(_))
+            ));
+        }
+        std::fs::write(&path, &payload).unwrap();
+        for header_scan_bytes in 32..44 {
+            let limits = ReadLimits {
+                header_scan_bytes,
+                ..offline_limits()
+            };
+            assert!(matches!(Archive::open_bounded(&path, limits),
+                Err(Error::Corrupt(reason)) if reason == "bounded header scan limit"));
+        }
+        let limits = ReadLimits {
+            header_scan_bytes: 44,
+            ..offline_limits()
+        };
+        assert_eq!(
+            Archive::open_bounded(&path, limits)
+                .unwrap()
+                .read_file("a.bin")
+                .unwrap(),
+            b"safe"
         );
         let _ = std::fs::remove_file(path);
     }

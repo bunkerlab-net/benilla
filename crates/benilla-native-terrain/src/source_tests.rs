@@ -60,9 +60,18 @@ fn raw_entry(name: &str, bytes: Vec<u8>) -> Entry {
 }
 
 fn archive(entries: &[Entry]) -> Vec<u8> {
+    archive_version(entries, 0)
+}
+
+fn archive_version(entries: &[Entry], version: u16) -> Vec<u8> {
     use crypto::{encrypt_block, hash_string, hash_type};
     let slots = 64u32;
-    let hash_pos = 32u32;
+    let header_bytes = match version {
+        0 => 32u32,
+        1 => 44,
+        _ => panic!("fixture version"),
+    };
+    let hash_pos = header_bytes;
     let block_pos = hash_pos + slots * 16;
     let mut data_pos = block_pos + entries.len() as u32 * 16;
     let mut hashes = vec![u32::MAX; slots as usize * 4];
@@ -94,10 +103,10 @@ fn archive(entries: &[Entry]) -> Vec<u8> {
         &mut blocks,
         hash_string("(block table)", hash_type::FILE_KEY),
     );
-    let mut bytes = vec![0u8; 32];
+    let mut bytes = vec![0u8; header_bytes as usize];
     for (offset, value) in [
         (0, 0x1a51_504d_u32),
-        (4, 32),
+        (4, header_bytes),
         (8, data_pos),
         (16, hash_pos),
         (20, block_pos),
@@ -106,6 +115,8 @@ fn archive(entries: &[Entry]) -> Vec<u8> {
     ] {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
+    bytes[12..14].copy_from_slice(&version.to_le_bytes());
+    bytes[14..16].copy_from_slice(&3u16.to_le_bytes());
     for word in hashes.into_iter().chain(blocks) {
         bytes.extend(word.to_le_bytes());
     }
@@ -170,12 +181,12 @@ fn header_policy_versions_the_consumed_buffer_epoch() {
     };
     assert_eq!(
         SOURCE_POLICY,
-        "benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v2"
+        "benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v3"
     );
     assert_eq!(captured.binding_digest(), digest(SOURCE_POLICY));
     assert_ne!(
         captured.binding_digest(),
-        digest("benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v1")
+        digest("benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v2")
     );
 }
 
@@ -407,7 +418,13 @@ fn source_profile_accepts_bounded_512_scan_and_normalized_legacy_header_size() {
             let prefixed = prefixed_archive(prefix, &original);
             fs::write(&path, &prefixed).unwrap();
             let expected = (prefix as u64, original[..32].try_into().unwrap());
-            assert_eq!(verify_ad_archive_header(&path).unwrap(), expected);
+            assert_eq!(
+                verify_ad_archive_header(&path).unwrap(),
+                AdHeaderSnapshot {
+                    base: expected,
+                    extension: None
+                }
+            );
             let chain = open_chain(&data).unwrap();
             assert_eq!(chain.archive_for(MAP).unwrap().header_snapshot(), expected);
             let capture = CapturedSource::capture(&data, &[MAP]).unwrap();
@@ -419,31 +436,187 @@ fn source_profile_accepts_bounded_512_scan_and_normalized_legacy_header_size() {
 }
 
 #[test]
+fn version_one_accepts_normalized_sizes_and_retains_complete_decoder_snapshot() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let path = data.join("patch.MPQ");
+    for prefix in [0, 512, MAX_HEADER_SCAN_BYTES as usize - 512] {
+        for size in [0u32, 1, 32, 43, 44, 45, u32::MAX] {
+            let mut original = archive_version(&[entry(MAP, 1)], 1);
+            original[4..8].copy_from_slice(&size.to_le_bytes());
+            let prefixed = prefixed_archive(prefix, &original);
+            fs::write(&path, &prefixed).unwrap();
+            let expected = verify_ad_archive_header(&path).unwrap();
+            assert_eq!(
+                expected.base,
+                (prefix as u64, original[..32].try_into().unwrap())
+            );
+            assert_eq!(expected.extension, Some([0; 12]));
+            let chain = open_chain(&data).unwrap();
+            let decoded = chain.archive_for(MAP).unwrap();
+            assert_eq!(decoded.header_snapshot(), expected.base);
+            assert_eq!(decoded.header_extension_snapshot(), expected.extension);
+            let capture = CapturedSource::capture(&data, &[MAP]).unwrap();
+            assert_eq!(capture.bytes(MAP).unwrap(), entry(MAP, 1).bytes);
+            capture.verify_unchanged().unwrap();
+            assert_eq!(fs::read(&path).unwrap(), prefixed);
+        }
+    }
+}
+
+#[test]
+fn mixed_raw_versions_accept_the_reported_patch_header_shapes_and_lengths() {
+    let temp = Temp::new();
+    let data = temp.data();
+    for (name, marker) in [("model.MPQ", 1), ("dbc.MPQ", 2), ("terrain.MPQ", 3)] {
+        fs::write(data.join(name), archive(&[entry(MAP, marker)])).unwrap();
+    }
+    // Sparse authored files exercise the exact reported lengths without client content.
+    for (name, marker, len) in [
+        ("patch.MPQ", 4, 1_909_274_747u32),
+        ("patch-2.MPQ", 5, 9_095_701),
+    ] {
+        let path = data.join(name);
+        let mut bytes = archive_version(&[entry(MAP, marker)], 1);
+        bytes[8..12].copy_from_slice(&len.to_le_bytes());
+        fs::write(&path, bytes).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(u64::from(len))
+            .unwrap();
+        let snapshot = verify_ad_archive_header(&path).unwrap();
+        assert_eq!(snapshot.base.0, 0);
+        assert_eq!(
+            u32::from_le_bytes(snapshot.base.1[4..8].try_into().unwrap()),
+            44
+        );
+        assert_eq!(
+            u16::from_le_bytes(snapshot.base.1[12..14].try_into().unwrap()),
+            1
+        );
+        assert_eq!(
+            u16::from_le_bytes(snapshot.base.1[14..16].try_into().unwrap()),
+            3
+        );
+        assert_eq!(snapshot.extension, Some([0; 12]));
+    }
+    let capture = CapturedSource::capture(&data, &[MAP]).unwrap();
+    assert_eq!(capture.bytes(MAP).unwrap(), entry(MAP, 5).bytes);
+    assert_eq!(capture.members()[0].winning_archive, "patch-2.MPQ");
+    capture.verify_unchanged().unwrap();
+    assert_eq!(
+        fs::metadata(data.join("patch.MPQ")).unwrap().len(),
+        1_909_274_747
+    );
+    assert_eq!(
+        fs::metadata(data.join("patch-2.MPQ")).unwrap().len(),
+        9_095_701
+    );
+    assert_eq!(fs::read_dir(&data).unwrap().count(), 5);
+}
+
+#[test]
+fn version_one_refuses_each_truncated_or_nonzero_extension_and_table_start() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let path = data.join("patch.MPQ");
+    let original = archive_version(&[entry(MAP, 1)], 1);
+    for prefix in [0, 512] {
+        for present in 0..12 {
+            fs::write(&path, prefixed_archive(prefix, &original[..32 + present])).unwrap();
+            assert_error(
+                verify_ad_archive_header(&path),
+                "source.ad_header_truncated",
+            );
+            assert_error(
+                CapturedSource::capture(&data, &[MAP]),
+                "source.ad_header_truncated",
+            );
+        }
+        // Every extension byte, including all eight bytes of the extended-table position.
+        for at in 32..44 {
+            let mut changed = original.clone();
+            changed[at] = 1;
+            fs::write(&path, prefixed_archive(prefix, &changed)).unwrap();
+            assert_error(
+                verify_ad_archive_header(&path),
+                "source.ad_header_extension",
+            );
+            assert_error(
+                CapturedSource::capture(&data, &[MAP]),
+                "source.ad_header_extension",
+            );
+        }
+        for start in 32u32..44 {
+            for field in [16, 20] {
+                let mut changed = original.clone();
+                changed[field..field + 4].copy_from_slice(&start.to_le_bytes());
+                fs::write(&path, prefixed_archive(prefix, &changed)).unwrap();
+                assert_error(verify_ad_archive_header(&path), "source.ad_index_spans");
+                assert_error(
+                    CapturedSource::capture(&data, &[MAP]),
+                    "source.ad_index_spans",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn version_one_capture_and_fresh_reopen_refuse_extension_only_source_change() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let path = data.join("patch.MPQ");
+    let original = archive_version(&[entry(MAP, 1)], 1);
+    fs::write(&path, &original).unwrap();
+    let capture = CapturedSource::capture(&data, &[MAP]).unwrap();
+    let chain = open_chain(&data).unwrap();
+    let decoded = chain.archive_for(MAP).unwrap();
+    let expected = verify_ad_archive_header(&path).unwrap();
+    for at in 32..44 {
+        let mut changed = original.clone();
+        changed[at] = 1;
+        fs::write(&path, changed).unwrap();
+        assert_eq!(decoded.header_snapshot(), expected.base);
+        assert_eq!(decoded.header_extension_snapshot(), expected.extension);
+        assert_eq!(capture.bytes(MAP).unwrap(), entry(MAP, 1).bytes);
+        assert_error(capture.verify_unchanged(), "source.ad_header_extension");
+        assert_error(
+            CapturedSource::capture(&data, &[MAP]),
+            "source.ad_header_extension",
+        );
+    }
+}
+
+#[test]
 fn source_profile_preserves_version_size_sector_and_index_bounds_after_prefix() {
     let temp = Temp::new();
     let data = temp.data();
     let path = data.join("dbc.MPQ");
-    let original = archive(&[entry(MAP, 1)]);
-    for prefix in [0, 512] {
-        for (offset, value, error) in [
-            (8, 0u32, "source.ad_archive_size"),
-            (8, original.len() as u32 + 512, "source.ad_archive_size"),
-            (12, 1, "source.ad_header_version"),
-            (12, 2, "source.ad_header_version"),
-            (12, u16::MAX as u32, "source.ad_header_version"),
-            (12, 8 << 16, "source.ad_sector_size"),
-            (24, 63, "source.ad_hash_count"),
-            (24, 0, "source.ad_hash_count"),
-            (24, 1 << 23, "source.ad_index_budget"),
-            (20, 32, "source.ad_index_spans"),
-            (16, 31, "source.ad_index_spans"),
-            (20, original.len() as u32, "source.ad_index_spans"),
-        ] {
-            let mut changed = original.clone();
-            changed[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-            fs::write(&path, prefixed_archive(prefix, &changed)).unwrap();
-            assert_error(verify_ad_archive_header(&path), error);
-            assert_error(CapturedSource::capture(&data, &[MAP]), error);
+    for version in [0, 1] {
+        let original = archive_version(&[entry(MAP, 1)], version);
+        for prefix in [0, 512] {
+            for (offset, value, error) in [
+                (8, 0u32, "source.ad_archive_size"),
+                (8, original.len() as u32 + 512, "source.ad_archive_size"),
+                (12, 2, "source.ad_header_version"),
+                (12, u16::MAX as u32, "source.ad_header_version"),
+                (12, (8 << 16) | u32::from(version), "source.ad_sector_size"),
+                (24, 63, "source.ad_hash_count"),
+                (24, 0, "source.ad_hash_count"),
+                (24, 1 << 23, "source.ad_index_budget"),
+                (20, 32, "source.ad_index_spans"),
+                (16, 31, "source.ad_index_spans"),
+                (20, original.len() as u32, "source.ad_index_spans"),
+            ] {
+                let mut changed = original.clone();
+                changed[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+                fs::write(&path, prefixed_archive(prefix, &changed)).unwrap();
+                assert_error(verify_ad_archive_header(&path), error);
+                assert_error(CapturedSource::capture(&data, &[MAP]), error);
+            }
         }
     }
 }
@@ -476,7 +649,7 @@ fn source_profile_does_not_skip_first_unsupported_header_for_later_valid_one() {
     let data = temp.data();
     let path = data.join("dbc.MPQ");
     let mut first = archive(&[entry(MAP, 1)]);
-    first[12..14].copy_from_slice(&1u16.to_le_bytes());
+    first[12..14].copy_from_slice(&2u16.to_le_bytes());
     let mut bytes = prefixed_archive(512, &first);
     bytes.resize(2048, 0);
     bytes.extend(archive(&[entry(MAP, 1)]));
@@ -524,7 +697,7 @@ fn source_profile_requires_reader_and_extractor_to_select_the_same_header() {
     let source_size = (aligned.len() - 512) as u32;
     aligned[520..524].copy_from_slice(&source_size.to_le_bytes());
     fs::write(&path, aligned).unwrap();
-    assert_eq!(verify_ad_archive_header(&path).unwrap().0, 512);
+    assert_eq!(verify_ad_archive_header(&path).unwrap().base.0, 512);
     assert_eq!(
         Chain::open(&data)
             .unwrap()
@@ -557,7 +730,7 @@ fn prefixed_capture_still_detects_changed_bytes_and_equal_bytes_from_new_winner(
     assert_error(capture.verify_unchanged(), "source.winner_changed");
     fs::remove_file(data.join("patch.MPQ")).unwrap();
     let mut changed = original;
-    changed[524..526].copy_from_slice(&1u16.to_le_bytes());
+    changed[524..526].copy_from_slice(&2u16.to_le_bytes());
     fs::write(&path, changed).unwrap();
     assert_error(capture.verify_unchanged(), "source.ad_header_version");
 }
@@ -726,6 +899,27 @@ fn real_mpq_prepare_and_private_publish_match_oracle_without_source_writes() {
                 0o600
             );
         }
+    }
+}
+
+#[test]
+fn prepared_version_one_extension_change_refuses_before_creating_output() {
+    let install = Temp::new();
+    let data = install.data();
+    let path = data.join("terrain.MPQ");
+    let original = archive_version(&oracle_entries(), 1);
+    for at in [32, 36, 40, 42] {
+        fs::write(&path, &original).unwrap();
+        let prepared = crate::prepare(&data, 1, &[ORACLE_TILE]).unwrap();
+        let destination = Temp::new();
+        let output = destination.0.join("selected");
+        let mut changed = original.clone();
+        changed[at] = 1;
+        fs::write(&path, &changed).unwrap();
+        assert_error(prepared.publish(&output), "source.ad_header_extension");
+        assert!(!output.exists());
+        assert_eq!(fs::read(&path).unwrap(), changed);
+        assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
     }
 }
 

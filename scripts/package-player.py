@@ -249,18 +249,20 @@ def package_source(root, platform, commit):
     return archive
 
 
-def package(root, platform, commit, source_url=None):
+def package(root, platform, commit, source_url=None, *, helper_only=False):
     check_commit(commit)
     source = source_dir(root, commit)
     validate_source(source, commit, root)
     suffix = ".exe" if platform == "windows-amd64" else ""
-    executables = tuple(name + suffix for name in EXECUTABLES)
+    selected = ("benilla-native-terrain",) if helper_only else EXECUTABLES
+    executables = tuple(name + suffix for name in selected)
     files = [(root / "target" / TARGETS[platform] / "release" / name, name)
              for name in executables]
     files.extend((source / path, path) for path in DOCUMENTS)
     for path, _ in files:
         regular(path, root)
-    name = f"benilla-{platform}-{commit}"
+    product = "benilla-native-terrain" if helper_only else "benilla"
+    name = f"{product}-{platform}-{commit}"
     dist = root / "dist"
     dist.mkdir(exist_ok=True)
     if source_url is None:
@@ -282,11 +284,12 @@ def package(root, platform, commit, source_url=None):
         if source_checksum.read_text(encoding="utf-8") != expected:
             raise ValueError("prepared source archive checksum mismatch")
         notice = dist / f"{name}-SOURCE-DOWNLOAD.txt"
+        subject = "benilla-native-terrain" if helper_only else "Benilla and benilla-native-terrain"
         notice.write_text(
-            f"Corresponding Source for Benilla and benilla-native-terrain\nSource commit: {commit}\n"
+            f"Corresponding Source for {subject}\nSource commit: {commit}\n"
             f"Platform: {platform}\n\nDownload: {source_url}\n"
             f"Archive: {source_archive.name}\nSHA-256: {digest(source_archive)}\n\n"
-            "Download access is through the same GitHub Actions run as the player; "
+            "Download access is through the same GitHub Actions run as the binary; "
             "GitHub sign-in is required for both. Extract the downloaded ZIP, then "
             "the source tar.gz. See docs/BUILDS.md for offline build instructions.\n"
             "The complete source includes locked dependencies and license notices. "
@@ -313,12 +316,16 @@ if __name__ == "__main__":
     parser.add_argument("--commit", required=True)
     parser.add_argument("--prepare-source", action="store_true")
     parser.add_argument("--source-only", action="store_true")
+    parser.add_argument("--helper-only", action="store_true",
+                        help="package only benilla-native-terrain with the full matching source and notices")
     parser.add_argument("--source-url", help="already uploaded exact source artifact URL; omit to embed source")
     args = parser.parse_args()
-    if args.prepare_source and (args.source_only or args.source_url):
+    if args.prepare_source and (args.source_only or args.source_url or args.helper_only):
         parser.error("source preparation cannot be combined with packaging options")
     if args.source_only and args.source_url:
         parser.error("--source-only cannot be combined with --source-url")
+    if args.source_only and args.helper_only:
+        parser.error("--source-only cannot be combined with --helper-only")
     root = Path(__file__).resolve().parent.parent
     if args.prepare_source:
         print(prepare_source(root, args.commit))
@@ -326,6 +333,7 @@ if __name__ == "__main__":
         if args.source_only:
             print(package_source(root, args.platform, args.commit))
         else:
-            print(package(root, args.platform, args.commit, args.source_url))
+            print(package(root, args.platform, args.commit, args.source_url,
+                          helper_only=args.helper_only))
     else:
         parser.error("--platform is required unless --prepare-source is used")

@@ -5,7 +5,9 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
+import sys
 from pathlib import Path
 import tarfile
 import tempfile
@@ -64,6 +66,25 @@ class PlayerFeatureGraphTests(unittest.TestCase):
     def test_explicit_dev_launcher_forwards_the_dev_seam(self):
         self.assert_dev_features(["benilla"], True)
 
+    def test_standalone_helper_graph_has_no_player_or_bevy(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run([
+            "cargo", "tree", "--locked", "--no-default-features", "-p", "benilla-native-terrain",
+            "--prefix", "none", "--format", "{p}|{f}", "--edges", "normal,build",
+        ], cwd=root, check=True, capture_output=True, text=True)
+        packages = {}
+        for line in result.stdout.splitlines():
+            package, separator, features = line.partition("|")
+            if separator:
+                packages.setdefault(package.split()[0], set()).update(
+                    filter(None, features.removesuffix(" (*)").strip().split(",")))
+        self.assertIn("benilla-native-terrain", packages)
+        self.assertIn("benilla-mpq", packages)
+        self.assertIn("benilla-formats", packages)
+        self.assertNotIn("dev", packages["benilla-formats"])
+        self.assertFalse({"benilla", "benilla-app", "bevy"} & packages.keys())
+        self.assertFalse(any(name.startswith("bevy_") for name in packages))
+
 
 class PackagingTests(unittest.TestCase):
     def fixture(self, root, platform="linux-amd64"):
@@ -120,6 +141,84 @@ class PackagingTests(unittest.TestCase):
                     self.assertEqual(set(output.getnames()), wanted)
                 self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
                                  f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+
+    def test_helper_only_needs_no_player_and_preserves_source_and_notices(self):
+        url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
+        for platform in packager.TARGETS:
+            for separate in (False, True):
+                with self.subTest(platform=platform, separate=separate), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    player, _, source = self.fixture(root, platform)
+                    player.unlink()
+                    helper = executables(platform)[1]
+                    (player.parent / helper).chmod(0o644)
+                    source_archive = packager.package_source(root, platform, SHA) if separate else None
+                    before = source_archive.read_bytes() if separate else None
+                    with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
+                        archive = packager.package(root, platform, SHA, url if separate else None,
+                                                   helper_only=True)
+                    prefix = f"benilla-native-terrain-{platform}-{SHA}"
+                    extension = ".zip" if platform == "windows-amd64" else ".tar.gz"
+                    self.assertEqual(archive.name, prefix + extension)
+                    source_name = "SOURCE-DOWNLOAD.txt" if separate else "corresponding-source.tar.gz"
+                    expected = {f"{prefix}/{p}" for p in [helper, *packager.DOCUMENTS, source_name]}
+                    if platform == "windows-amd64":
+                        with zipfile.ZipFile(archive) as output:
+                            self.assertEqual(set(output.namelist()), expected)
+                            self.assertEqual(output.read(f"{prefix}/{helper}"), f"fixture:{helper}".encode())
+                            payload = output.read(f"{prefix}/{source_name}")
+                    else:
+                        with tarfile.open(archive) as output:
+                            self.assertEqual(set(output.getnames()), expected)
+                            self.assertEqual(output.getmember(f"{prefix}/{helper}").mode, 0o755)
+                            self.assertEqual(output.extractfile(f"{prefix}/{helper}").read(), f"fixture:{helper}".encode())
+                            payload = output.extractfile(f"{prefix}/{source_name}").read()
+                    if separate:
+                        notice = payload.decode()
+                        self.assertTrue(notice.startswith("Corresponding Source for benilla-native-terrain\n"))
+                        for required in (url, SHA, source_archive.name, hashlib.sha256(before).hexdigest()):
+                            self.assertIn(required, notice)
+                        self.assertEqual(source_archive.read_bytes(), before)
+                    else:
+                        with tarfile.open(fileobj=io.BytesIO(payload)) as output:
+                            wanted = {f"benilla-source-{SHA}/{p.relative_to(source).as_posix()}"
+                                      for p in source.rglob("*") if p.is_file()}
+                            self.assertEqual(set(output.getnames()), wanted)
+                    self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
+                                     f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+
+    def test_helper_only_keeps_source_and_binary_checks_fail_closed(self):
+        url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
+        for failure in ("helper", "license", "notice", "source", "checksum", "commit", "url"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                player, _, source = self.fixture(root, "windows-amd64")
+                archive = packager.package_source(root, "windows-amd64", SHA)
+                if failure == "helper":
+                    (player.parent / "benilla-native-terrain.exe").unlink()
+                elif failure == "license":
+                    (source / "LICENSE-GPL-3.0").unlink()
+                elif failure == "notice":
+                    (source / "crates/benilla-native-terrain/CMANGOS-NOTICE.txt").unlink()
+                elif failure == "source":
+                    (source / "Cargo.lock").write_text("changed")
+                elif failure == "checksum":
+                    archive.write_bytes(b"changed")
+                with self.assertRaises(ValueError):
+                    packager.package(root, "windows-amd64", "b" * 40 if failure == "commit" else SHA,
+                                     "https://example.com/source" if failure == "url" else url,
+                                     helper_only=True)
+                self.assertFalse((root / "dist" / f"benilla-native-terrain-windows-amd64-{SHA}.zip").exists())
+
+    def test_helper_only_rejects_source_operation_flags(self):
+        for option in ("--prepare-source", "--source-only"):
+            with self.subTest(option=option):
+                result = subprocess.run([
+                    sys.executable, str(Path(packager.__file__)), "--helper-only", option,
+                    "--commit", SHA, "--platform", "windows-amd64",
+                ], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("cannot be combined", result.stderr)
 
     def test_authored_terrain_fixtures_survive_source_packaging(self):
         repository = Path(__file__).resolve().parents[1]
@@ -480,6 +579,48 @@ class PackagingTests(unittest.TestCase):
             resolved = json.loads(result.stdout)
             vendor = next(p for p in resolved["packages"] if p["name"] == "packaging-vendor-probe")
             self.assertEqual(Path(vendor["manifest_path"]), dep / "Cargo.toml")
+
+
+class HelperWorkflowTests(unittest.TestCase):
+    """Guard the fast lane without treating it as full-workspace acceptance."""
+
+    def test_independent_helper_uses_prepared_source_and_publishes_source_first(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/build.yml").read_text()
+        player, helper = workflow.split("\n  terrain-helper-windows:\n")
+        self.assertNotIn("needs:", helper)
+        self.assertNotIn("continue-on-error:", helper)
+        self.assertNotIn("if:", helper)
+        self.assertIn("runs-on: windows-2025", helper)
+        self.assertIn("BUILD_TARGET: x86_64-pc-windows-msvc", helper)
+        self.assertIn("BUILD_PLATFORM: windows-amd64", helper)
+        for action in ("actions/checkout", "jdx/mr-boxington-action", "actions/upload-artifact"):
+            pins = set(re.findall(re.escape(action) + r"@[0-9a-f]{40}", player))
+            self.assertTrue(pins)
+            self.assertEqual(set(re.findall(re.escape(action) + r"@[0-9a-f]{40}", helper)), pins)
+        commands = [line.strip() for line in helper.splitlines() if line.strip().startswith("mbx ")]
+        self.assertEqual(len(commands), 2)
+        self.assertEqual(commands[0], 'mbx test --config .cargo/vendor-config.toml --offline --locked --no-default-features --no-fail-fast -p benilla-mpq -p benilla-native-terrain --target "$BUILD_TARGET"')
+        self.assertEqual(commands[1], 'mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target "$BUILD_TARGET"')
+        self.assertEqual(helper.count("cd .player-source/current"), 2)
+        ordered = (
+            '--prepare-source --commit "$GITHUB_SHA"', commands[0], commands[1],
+            '--source-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"',
+            "name: benilla-native-terrain-source-windows-amd64-${{ github.sha }}",
+            "python3 scripts/verify-source-retention.py",
+            '--helper-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"',
+            "name: benilla-native-terrain-windows-amd64-${{ github.sha }}",
+        )
+        positions = [helper.index(text) for text in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("SOURCE_ID: ${{ steps.source.outputs.artifact-id }}", helper)
+        self.assertIn("SOURCE_URL: ${{ steps.source.outputs.artifact-url }}", helper)
+        self.assertEqual(helper.count("if-no-files-found: error"), 2)
+        self.assertEqual(re.findall(r"retention-days: (\d+)", helper), ["90", "14"])
+        for name in ("benilla-native-terrain-source-windows-amd64", "benilla-native-terrain-windows-amd64"):
+            self.assertNotIn("name: " + name, player)
+        self.assertIn("dist/benilla-windows-amd64-${{ github.sha }}-source.tar.gz.sha256", helper)
+        self.assertIn("dist/benilla-native-terrain-windows-amd64-${{ github.sha }}.zip.sha256", helper)
 
 
 class OracleCheckoutTests(unittest.TestCase):

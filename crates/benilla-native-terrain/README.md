@@ -81,21 +81,27 @@ must have the same exact winning archive basename and complete bytes under
 Benilla's bounded chain and the pinned `ad` fixed order
 `model.MPQ`, `dbc.MPQ`, `terrain.MPQ`, `patch.MPQ`, `patch-2.MPQ`.
 For each fixed archive, the accepted header is the first `MPQ\x1a` signature
-on a 512-byte boundary within the existing one MiB scan budget. Only legacy
-version zero is supported; its declared header size is interpreted as 32 bytes,
-including protected non-32 values, without changing any source bytes. This follows
-`contrib/extractor/mpq_libmpq.cpp:27` and `dep/libmpq/libmpq/mpq.c:59–148`
-at the pinned source. A first unsupported header cannot fall through to a later one.
-The bounded Benilla reader must have decoded the exact same header bytes at the
-same offset. User-data pointers alone do not establish compatibility: a pointer
-at offset zero to an unaligned header at 16 is rejected; a pointer selecting a
-different aligned header is rejected even when selected members have equal bytes.
+on a 512-byte boundary within the existing one MiB scan budget. Raw versions zero
+and one are supported; their declared header sizes are interpreted as 32 and 44
+bytes respectively, including protected nonstandard values, without changing any
+source bytes. Version one must contain the complete 12-byte extension, with its
+64-bit extended block-table position and both 16-bit high table offsets all zero.
+This follows `contrib/extractor/mpq_libmpq.cpp:27` and
+`dep/libmpq/libmpq/mpq.c:59–164` at the pinned source. A first unsupported header
+cannot fall through to a later one. The bounded Benilla reader must retain the
+exact same base and extension bytes from the same handle used to decode its
+index, at the same selected offset; a later path reread cannot supply provenance.
+The ordinary unbounded app reader is unchanged and does not validate or retain
+these extension fields. User-data pointers alone do not establish compatibility:
+a pointer at offset zero to an unaligned header at 16 is rejected; a pointer
+selecting a different aligned header is rejected even when selected members have equal bytes.
 The declared archive size must still equal all bytes from the selected header to
 EOF. Index offsets are relative to that header and checked against that exact
-length, with the same normalized 32-byte minimum, disjoint spans, nonzero
-power-of-two hash count, 64 MiB index budget and 64 KiB sector limit. Nonzero format
-versions, trailing bytes beyond the declared archive, and arbitrary archive-size
-normalization remain unsupported. Selected-member framing is unchanged.
+length, with the normalized 32-byte or 44-byte minimum, disjoint spans, nonzero
+power-of-two hash count, 64 MiB index budget and 64 KiB sector limit. Raw versions
+two and above, nonzero extended fields, trailing bytes beyond the declared
+archive, and arbitrary archive-size normalization remain unsupported.
+Selected-member framing is unchanged.
 Absent fixed archives are allowed as upstream does; ambiguous casing, tombstones,
 missing/dummy members and different winners fail. An extra winning patch is not
 silently ignored even if its bytes match. The policy is versioned in the manifest
@@ -117,9 +123,12 @@ summary on success. Neither outcome writes files.
 Header checks precede index decoding, and fixed identifiers distinguish:
 
 - `source.ad_header_signature`: no signature on a scanned 512-byte boundary
-- `source.ad_header_truncated`: a selected signature has fewer than 32 header bytes
+- `source.ad_header_truncated`: a selected header has fewer than its required 32 or
+  44 bytes
 - `source.ad_header_scan_limit`: discovery would exceed the one MiB budget
-- `source.ad_header_version`: the first selected header is not legacy version zero
+- `source.ad_header_version`: the first selected header has raw version two or above
+- `source.ad_header_extension`: a version-one extended block-table position or high
+  table offset is nonzero
 - `source.ad_header_selection`: Benilla and the pinned extractor select different
   offsets or header bytes
 - `source.ad_archive_size`: the declared length differs from bytes after the header
@@ -132,7 +141,7 @@ Header checks precede index decoding, and fixed identifiers distinguish:
 These replace the former combined `source.ad_header_profile` diagnostic. Share
 the identifier and build ID when reporting a failure; no installation path or
 archive content is needed. A supported header does not by itself prove terrain
-coverage or permit gameplay. The source-resolution policy is version two; the
+coverage or permit gameplay. The source-resolution policy is version three; the
 complete consumed-member bytes and exact winner comparisons are unchanged.
 
 ## Writer fidelity and restrictions

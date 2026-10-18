@@ -23,7 +23,7 @@ pub(crate) const MAX_CAPTURE_MEMBERS: usize = 3 + 1 + MAX_ADT_MEMBERS;
 const MAX_MEMBER_NAME_BYTES: usize = 192;
 const MAX_HEADER_SCAN_BYTES: u64 = 1024 * 1024;
 /// Conservative intersection of app and pinned extractor source resolution.
-pub(crate) const SOURCE_POLICY: &str = "benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v2";
+pub(crate) const SOURCE_POLICY: &str = "benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v3";
 const AD_ARCHIVES: &[&str] = &[
     "model.MPQ",
     "dbc.MPQ",
@@ -275,9 +275,15 @@ impl CapturedSource {
 }
 
 /// Pinned libmpq archive_open(-1) selects the first signature on a 512-byte
-/// boundary and normalizes version-zero header_size to 32 (mpq.c:59-148).
-/// Indices and payloads still use the existing bounded reader.
-fn verify_ad_archive_header(path: &Path) -> Result<(u64, [u8; 32])> {
+/// boundary and normalizes raw-version-zero/one header sizes to 32/44 (mpq.c:59-164).
+/// Version one's extended offsets must be zero for the bounded 32-bit index reader.
+#[derive(Debug, PartialEq, Eq)]
+struct AdHeaderSnapshot {
+    base: (u64, [u8; 32]),
+    extension: Option<[u8; 12]>,
+}
+
+fn verify_ad_archive_header(path: &Path) -> Result<AdHeaderSnapshot> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -311,7 +317,26 @@ fn verify_ad_archive_header(path: &Path) -> Result<(u64, [u8; 32])> {
     }
     let word = |at| u32::from_le_bytes(header[at..at + 4].try_into().expect("fixed header"));
     let half = |at| u16::from_le_bytes(header[at..at + 2].try_into().expect("fixed header"));
-    ensure!(half(12) == 0, "source.ad_header_version");
+    let header_bytes = match half(12) {
+        0 => 32,
+        1 => 44,
+        _ => anyhow::bail!("source.ad_header_version"),
+    };
+    let extension = if header_bytes == 44 {
+        ensure!(offset + 44 <= metadata.len(), "source.ad_header_truncated");
+        ensure!(
+            offset + 44 <= MAX_HEADER_SCAN_BYTES,
+            "source.ad_header_scan_limit"
+        );
+        let mut extension = [0u8; 12];
+        file.read_exact(&mut extension)
+            .context("source.ad_header_read")?;
+        // mpq_header_ex_s: u64 extended block table, u16 hash high, u16 block high.
+        ensure!(extension == [0; 12], "source.ad_header_extension");
+        Some(extension)
+    } else {
+        None
+    };
     let archive_bytes = metadata.len() - offset;
     ensure!(
         u64::from(word(8)) == archive_bytes,
@@ -331,14 +356,17 @@ fn verify_ad_archive_header(path: &Path) -> Result<(u64, [u8; 32])> {
     let hash_end = hash_start + hash_bytes;
     let block_end = block_start + block_bytes;
     ensure!(
-        hash_start >= 32
-            && block_start >= 32
+        hash_start >= header_bytes
+            && block_start >= header_bytes
             && hash_end <= archive_bytes
             && block_end <= archive_bytes
             && (hash_end <= block_start || block_end <= hash_start),
         "source.ad_index_spans"
     );
-    Ok((offset, header))
+    Ok(AdHeaderSnapshot {
+        base: (offset, header),
+        extension,
+    })
 }
 
 fn hash_field(hash: &mut Sha256, value: &[u8]) {
@@ -382,7 +410,8 @@ fn open_chain(data: &Path) -> Result<Chain> {
     for archive in chain.archives() {
         if let Some((_, expected)) = headers.iter().find(|(path, _)| path == archive.path()) {
             ensure!(
-                archive.header_snapshot() == *expected,
+                archive.header_snapshot() == expected.base
+                    && archive.header_extension_snapshot() == expected.extension,
                 "source.ad_header_selection"
             );
         }
