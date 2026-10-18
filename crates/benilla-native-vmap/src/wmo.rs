@@ -41,6 +41,9 @@ pub struct WmoCollision {
     pub raw_vmap: Vec<u8>,
     pub declared_group_count: u32,
     pub retained_group_count: u32,
+    /// Source filename indices surviving the same validated ShouldSkip pass.
+    /// Dependency capture uses these instead of duplicating group skip rules.
+    pub retained_group_indices: Vec<u32>,
     /// The source's group return values, stored at raw offset 8. Despite the
     /// upstream local variable's name, this is a triangle count, not vertices.
     pub collision_triangle_count: u32,
@@ -114,6 +117,10 @@ pub fn extract_wmo_collision(
     let mut total_output = 20;
     let mut triangles = 0u32;
     let mut retained = 0u32;
+    let mut retained_group_indices = Vec::new();
+    retained_group_indices
+        .try_reserve_exact(inputs.len())
+        .map_err(|_| WmoError::AllocationFailed)?;
     for input in inputs {
         let group = parse_group(input.bytes, input.group_index)?;
         if should_skip(&group, root.names)? {
@@ -124,6 +131,7 @@ pub fn extract_wmo_collision(
         // Caps bound the total to 1024 * 65536, below the source's signed int.
         triangles += counts.triangles as u32;
         retained += 1;
+        retained_group_indices.push(input.group_index);
         groups.push(group);
     }
 
@@ -144,6 +152,7 @@ pub fn extract_wmo_collision(
         raw_vmap: output,
         declared_group_count: root.group_count,
         retained_group_count: retained,
+        retained_group_indices,
         collision_triangle_count: triangles,
     })
 }

@@ -610,6 +610,52 @@ fn parse_names(
     Ok(())
 }
 
+/// WMORoot copies the original MODN path before mutating its MPQ buffer.
+/// ExtractSingleModel rewrites only four exact extension spellings here.
+pub(crate) fn doodad_model_dependency(
+    raw: &[u8],
+) -> Result<Option<ModelDependency>, DiscoveryError> {
+    if raw.len() < 4 {
+        return Ok(None);
+    }
+    safe_member(raw).map_err(DiscoveryError::from_internal)?;
+    let mut member = raw.to_vec();
+    if [b".mdx", b".MDX", b".mdl", b".MDL"]
+        .iter()
+        .any(|extension| member.ends_with(*extension))
+    {
+        member.truncate(member.len() - 2);
+        member.push(b'2');
+    }
+    if !member.ends_with(b".m2") && !member.ends_with(b".M2") {
+        return Err(DiscoveryError::new("vmap.unsupported_model_extension"));
+    }
+    let plain = member
+        .iter()
+        .rposition(|&b| b == b'\\')
+        .map_or(0, |n| n + 1);
+    Ok(Some(ModelDependency {
+        kind: ModelKind::M2,
+        source_member: String::from_utf8(raw.to_vec()).expect("ASCII member"),
+        extracted_name: String::from_utf8(member[plain..].to_vec()).expect("ASCII basename"),
+        member: String::from_utf8(member).expect("ASCII member"),
+    }))
+}
+
+/// Later ExtractSet normalizes its retained original basename independently.
+pub(crate) fn doodad_lookup_name(raw: &[u8]) -> Result<String, DiscoveryError> {
+    safe_member(raw).map_err(DiscoveryError::from_internal)?;
+    let plain = raw.iter().rposition(|&b| b == b'\\').map_or(0, |n| n + 1);
+    let mut name = raw[plain..].to_vec();
+    fix_name(&mut name);
+    fix_spaces(&mut name);
+    if name.ends_with(b".mdx") || name.ends_with(b".mdl") {
+        name.truncate(name.len() - 2);
+        name.push(b'2');
+    }
+    Ok(String::from_utf8(name).expect("ASCII basename"))
+}
+
 fn safe_member(bytes: &[u8]) -> InternalResult<()> {
     ensure!(
         !bytes.is_empty() && bytes.len() <= MAX_MEMBER_BYTES,

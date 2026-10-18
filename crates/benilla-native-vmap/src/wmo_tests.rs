@@ -261,6 +261,7 @@ fn retained_group_order_and_empty_groups_are_preserved() {
     set_word(&mut empty, 20 + 56, 2);
     let result = convert(&root(3, b"\0"), &[first.clone(), skipped, empty]).unwrap();
     assert_eq!(result.retained_group_count, 2);
+    assert_eq!(result.retained_group_indices, [0, 2]);
     assert_eq!(result.collision_triangle_count, 3);
     assert_eq!(word(&result.raw_vmap, 24), 900);
     let first_length = convert(&root(1, b"\0"), &[first]).unwrap().raw_vmap.len();
@@ -626,6 +627,7 @@ fn complete_dry_wmo_bytes_match_the_independent_pinned_cpp_extractor() {
     let output = extract_wmo_collision(ROOT, &inputs).unwrap();
     assert_eq!(output.declared_group_count, 6);
     assert_eq!(output.retained_group_count, 3);
+    assert_eq!(output.retained_group_indices, [0, 1, 2]);
     assert_eq!(output.collision_triangle_count, 192);
     assert_eq!(output.raw_vmap, RAW);
     assert_eq!(extract_wmo_collision(ROOT, &inputs).unwrap(), output);

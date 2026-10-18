@@ -2,6 +2,10 @@ use super::*;
 use crate::source::tests::{archive, raw_entry, Entry, Temp};
 use std::{cell::Cell, fs};
 
+fn word(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
 const LIQUID: &str = "DBFilesClient\\LiquidType.dbc";
 const MAP: &str = "DBFilesClient\\Map.dbc";
 const WDT: &str = "World\\Maps\\Selected\\Selected.wdt";
@@ -412,12 +416,12 @@ fn global_unsupported_closure_and_liquid_are_precise_and_never_leak_names() {
         save(&data, "wmo.MPQ", &entries);
         let error = prepare(&data, 0, || false).unwrap_err();
         if liquid {
-            assert!(matches!(error.category(), Error::UnsupportedWmoLiquid));
-        } else {
             assert!(matches!(
                 error.category(),
-                Error::UnsupportedWmoDoodadClosure
+                Error::Wmo(benilla_native_vmap::WmoError::UnsupportedLiquid { .. })
             ));
+        } else {
+            assert!(matches!(error.category(), Error::Discovery(_)));
         }
         let diagnostic = format!("{error:?} {error}");
         assert!(!diagnostic.contains("PRIVATE_ASSET_NAME"));
@@ -427,17 +431,13 @@ fn global_unsupported_closure_and_liquid_are_precise_and_never_leak_names() {
 }
 
 #[test]
-fn empty_default_doodad_sets_are_supported_but_nonempty_sets_are_not() {
+fn nonempty_set_ranges_are_metadata_not_a_false_dependency_rejection() {
     let mut root = wmo_root(0);
-    set_word(&mut root, 20 + 24, 1);
     root.extend(chunk(b"MODS", &[0; 32]));
-    assert_eq!(inspect_wmo(&root, true).unwrap(), 0);
     let length = root.len();
     set_word(&mut root, length - 8, 1);
-    assert!(matches!(
-        inspect_wmo(&root, true),
-        Err(Error::UnsupportedWmoDoodadClosure)
-    ));
+    let metadata = doodads::parse_root_doodads(&root).unwrap();
+    assert_eq!(metadata.sets[0].count, 1);
 }
 
 #[test]
@@ -558,7 +558,7 @@ fn wmo_reference_with_conflicting_directory_is_narrower_fail_closed_identity() {
 }
 
 #[test]
-fn skipped_wmo_group_cannot_hide_nonempty_doodad_references() {
+fn skipped_wmo_group_references_do_not_create_candidates() {
     let temp = Temp::new();
     let data = temp.data();
     let mut entries = wmo_entries(2);
@@ -568,8 +568,25 @@ fn skipped_wmo_group_cannot_hide_nonempty_doodad_references() {
     set_word(&mut skipped.bytes, 16, group_bytes);
     skipped.declared = skipped.bytes.len() as u32;
     save(&data, "wmo.MPQ", &entries);
-    assert!(matches!(
-        prepare(&data, 0, || false).unwrap_err().category(),
-        Error::UnsupportedWmoDoodadClosure
-    ));
+    let prepared = prepare(&data, 0, || false).unwrap();
+    assert!(prepared.doodad_candidates().is_empty());
 }
+
+#[test]
+fn doodad_metadata_and_candidate_bounds_are_checked_before_growth() {
+    assert_eq!(retained_doodad_total(0, 1, 1, 1, 7).unwrap(), 81);
+    assert_eq!(
+        retained_doodad_total(MAX_RETAINED_DOODAD_BYTES, 0, 0, 0, 0).unwrap(),
+        MAX_RETAINED_DOODAD_BYTES
+    );
+    assert!(retained_doodad_total(MAX_RETAINED_DOODAD_BYTES, 0, 0, 0, 1).is_err());
+    assert!(retained_doodad_total(0, usize::MAX, 0, 0, 0).is_err());
+    assert!(retained_doodad_total(0, 0, usize::MAX, 0, 0).is_err());
+    assert!(retained_doodad_total(0, 0, 0, usize::MAX, 0).is_err());
+    assert!(check_doodad_candidate_count(MAX_DOODAD_CANDIDATES - 1).is_ok());
+    assert!(check_doodad_candidate_count(MAX_DOODAD_CANDIDATES).is_err());
+    assert!(check_doodad_candidate_count(usize::MAX).is_err());
+}
+
+#[path = "doodad_capture_tests.rs"]
+mod doodad_capture_tests;

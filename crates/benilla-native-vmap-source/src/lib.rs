@@ -10,18 +10,24 @@
 //! map, BIH, collision-absence, or gameplay authority.
 
 mod discovery;
+mod doodads;
 mod source;
 
 use benilla_native_vmap::{
     extract_m2_collision, extract_wmo_collision, M2Collision, WmoCollision, WmoGroupInput,
-    MAX_WMO_CHUNKS, MAX_WMO_GROUPS, MAX_WMO_TOTAL_BYTES,
+    MAX_WMO_GROUPS, MAX_WMO_TOTAL_BYTES,
 };
 use discovery::{DiscoveryEvent, ModelDependency, PlacementInputs};
 use serde::Serialize;
 use source::{CapturedMember, CapturedSource, Lookup};
-use std::{collections::HashMap, fmt, path::Path};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt,
+    path::Path,
+};
 
 pub use discovery::{DiscoveryError, M2Placement, ModelKind, PlacementInput, WmoPlacement};
+pub use doodads::{DoodadError, DoodadSet, DoodadSpawn};
 pub use source::SourceError;
 
 pub const SOURCE_PIN: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
@@ -31,6 +37,8 @@ pub const MAX_PLACEMENTS: usize = 1_048_576;
 pub const MAX_PRODUCTS: usize = 32_768;
 pub const MAX_DEPENDENCY_EVENTS: usize = 262_144;
 pub const MAX_GLOBAL_ROOT_EVENTS: usize = 32_768;
+pub const MAX_RETAINED_DOODAD_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_DOODAD_CANDIDATES: usize = 1_048_576;
 
 /// Numeric source discovery scope, never a collision-clearance conclusion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -79,6 +87,21 @@ impl Placement {
     }
 }
 
+/// Raw selected-set member. Iteration is a stable diagnostic presentation only;
+/// it is not the upstream unordered-set order or a generated doodad ID.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DoodadCandidate {
+    pub wmo_placement_index: usize,
+    pub spawn_index: u16,
+    pub product_index: usize,
+    pub spawn: DoodadSpawn,
+}
+
+struct CapturedDoodads {
+    root: doodads::RootDoodads,
+    references: Vec<u16>,
+}
+
 enum Collision {
     M2EmptyHull,
     M2(Vec<u8>),
@@ -93,6 +116,7 @@ pub struct RawProduct {
     member: String,
     extracted_name: String,
     collision: Collision,
+    doodads: Option<CapturedDoodads>,
 }
 impl RawProduct {
     pub fn kind(&self) -> ModelKind {
@@ -169,6 +193,9 @@ pub struct DiscoverySummary {
     pub no_collision_placements: usize,
     pub destructible_placements: usize,
     pub retained_raw_bytes: usize,
+    pub retained_doodad_bytes: usize,
+    pub doodad_extraction_events: usize,
+    pub doodad_candidates: usize,
 }
 
 /// Owns privately captured source provenance and complete discovery products.
@@ -178,6 +205,7 @@ pub struct PreparedDiscovery {
     summary: DiscoverySummary,
     placements: Vec<Placement>,
     products: Vec<RawProduct>,
+    doodad_candidates: Vec<DoodadCandidate>,
 }
 impl PreparedDiscovery {
     pub fn map_id(&self) -> u32 {
@@ -188,6 +216,9 @@ impl PreparedDiscovery {
     }
     pub fn placements(&self) -> &[Placement] {
         &self.placements
+    }
+    pub fn doodad_candidates(&self) -> &[DoodadCandidate] {
+        &self.doodad_candidates
     }
     pub fn products(&self) -> &[RawProduct] {
         &self.products
@@ -241,6 +272,7 @@ pub enum Error {
     },
     Source(SourceError),
     Discovery(DiscoveryError),
+    Doodad(DoodadError),
     M2(benilla_native_vmap::Error),
     Wmo(benilla_native_vmap::WmoError),
     Cancelled,
@@ -260,6 +292,9 @@ pub enum Error {
     WmoInputLimit,
     InvalidWmoEnvelope,
     UnsupportedWmoDoodadClosure,
+    InvalidDoodadEnvelope,
+    DoodadNameIdentity,
+    DoodadBudget,
     UnsupportedWmoLiquid,
     SourceChangedDuringPreparation,
     AllocationFailed,
@@ -294,6 +329,7 @@ impl Error {
         let category = match self.category() {
             Self::Source(error) => error.to_string(),
             Self::Discovery(error) => error.code().to_owned(),
+            Self::Doodad(error) => error.code().to_owned(),
             Self::M2(error) => m2_category(error).to_owned(),
             Self::Wmo(error) => wmo_category(error).to_owned(),
             other => match other {
@@ -314,6 +350,9 @@ impl Error {
                 Self::WmoInputLimit => "vmap.wmo_input_limit",
                 Self::InvalidWmoEnvelope => "vmap.invalid_wmo_envelope",
                 Self::UnsupportedWmoDoodadClosure => "vmap.unsupported_wmo_doodad_closure",
+                Self::InvalidDoodadEnvelope => "vmap.invalid_doodad_envelope",
+                Self::DoodadNameIdentity => "vmap.doodad_name_identity",
+                Self::DoodadBudget => "vmap.doodad_budget",
                 Self::UnsupportedWmoLiquid => "vmap.unsupported_wmo_liquid",
                 Self::SourceChangedDuringPreparation => "vmap.source_changed_during_preparation",
                 Self::AllocationFailed => "vmap.allocation_failed",
@@ -556,6 +595,7 @@ struct Builder {
     placements: Vec<Placement>,
     products: Vec<RawProduct>,
     names: HashMap<String, usize>,
+    doodad_candidates: Vec<DoodadCandidate>,
     stage: PreparationStage,
     global_root_ordinal: Option<usize>,
 }
@@ -567,7 +607,7 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "cmangos-vmaps05-small-dry-no-doodad-closure-v1",
+                writer_policy: "cmangos-vmaps05-small-dry-doodad-dependencies-v2",
                 source_epoch: String::new(),
                 map_id,
                 map_record_ordinal,
@@ -592,10 +632,14 @@ impl Builder {
                 no_collision_placements: 0,
                 destructible_placements: 0,
                 retained_raw_bytes: 0,
+                retained_doodad_bytes: 0,
+                doodad_extraction_events: 0,
+                doodad_candidates: 0,
             },
             placements: Vec::new(),
             products: Vec::new(),
             names: HashMap::new(),
+            doodad_candidates: Vec::new(),
             stage: PreparationStage::OpenSource,
             global_root_ordinal: None,
         }
@@ -681,6 +725,14 @@ impl Builder {
                         input: input.clone(),
                         disposition,
                     });
+                    if let PlacementInput::Wmo(wmo) = input {
+                        self.select_doodads(
+                            self.placements.len() - 1,
+                            product,
+                            wmo.doodad_set,
+                            cancelled,
+                        )?;
+                    }
                     match disposition {
                         PlacementDisposition::Emits => self.summary.emitting_placements += 1,
                         PlacementDisposition::NoCollision => {
@@ -693,6 +745,61 @@ impl Builder {
                 }
             }
         }
+        Ok(())
+    }
+    fn select_doodads(
+        &mut self,
+        placement: usize,
+        product: usize,
+        set_index: u16,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<(), Error> {
+        let Some(metadata) = &self.products[product].doodads else {
+            return Ok(());
+        };
+        let Some(set) = metadata.root.sets.get(set_index as usize) else {
+            return Ok(());
+        };
+        let end = set
+            .start_index
+            .checked_add(set.count)
+            .ok_or(Error::InvalidDoodadEnvelope)?;
+        // This is set membership only. Sorted storage never stands for C++ unordered iteration.
+        for &spawn_index in &metadata.references {
+            check_cancel(cancelled)?;
+            if (spawn_index as u32) < set.start_index || (spawn_index as u32) >= end {
+                continue;
+            }
+            let spawn = &metadata.root.spawns[spawn_index as usize];
+            let path = metadata
+                .root
+                .path_at(spawn.name_index)
+                .map_err(Error::Doodad)?;
+            let name = discovery::doodad_lookup_name(path)?;
+            // ExtractSet opens the flat file now, after later global roots may seed it.
+            let Some(&product_index) = self.names.get(&name.to_ascii_lowercase()) else {
+                continue;
+            };
+            if self.products[product_index].extracted_name != name
+                || self.products[product_index].kind != ModelKind::M2
+            {
+                return Err(Error::DoodadNameIdentity);
+            }
+            if !self.products[product_index].source_has_collision() {
+                continue;
+            }
+            check_doodad_candidate_count(self.doodad_candidates.len())?;
+            self.doodad_candidates
+                .try_reserve(1)
+                .map_err(|_| Error::AllocationFailed)?;
+            self.doodad_candidates.push(DoodadCandidate {
+                wmo_placement_index: placement,
+                spawn_index,
+                product_index,
+                spawn: spawn.clone(),
+            });
+        }
+        self.summary.doodad_candidates = self.doodad_candidates.len();
         Ok(())
     }
     fn capture(
@@ -716,12 +823,18 @@ impl Builder {
         }
         let captured = required(self.source.read(&dependency.member, cancelled)?)?;
         check_cancel(cancelled)?;
-        let collision = match dependency.kind {
-            ModelKind::M2 => match extract_m2_collision(captured.bytes()).map_err(Error::M2)? {
-                M2Collision::NoCollision => Collision::M2EmptyHull,
-                M2Collision::RawVmap(bytes) => Collision::M2(bytes),
-            },
-            ModelKind::Wmo => self.capture_wmo(dependency, &captured, cancelled)?,
+        let (collision, doodads) = match dependency.kind {
+            ModelKind::M2 => (
+                match extract_m2_collision(captured.bytes()).map_err(Error::M2)? {
+                    M2Collision::NoCollision => Collision::M2EmptyHull,
+                    M2Collision::RawVmap(bytes) => Collision::M2(bytes),
+                },
+                None,
+            ),
+            ModelKind::Wmo => {
+                let (raw, metadata) = self.capture_wmo(dependency, &captured, cancelled)?;
+                (Collision::Wmo(raw), Some(metadata))
+            }
         };
         drop(captured);
         check_cancel(cancelled)?;
@@ -739,6 +852,7 @@ impl Builder {
             member: dependency.member.clone(),
             extracted_name: dependency.extracted_name.clone(),
             collision,
+            doodads,
         };
         let total = retained_total(
             self.summary.retained_raw_bytes,
@@ -766,8 +880,36 @@ impl Builder {
         dependency: &ModelDependency,
         root: &CapturedMember,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<Collision, Error> {
-        let count = inspect_wmo(root.bytes(), true)?;
+    ) -> Result<(WmoCollision, CapturedDoodads), Error> {
+        let mut metadata = doodads::parse_root_doodads(root.bytes()).map_err(Error::Doodad)?;
+        let count = metadata.group_count;
+        let mut valid_names = BTreeSet::new();
+        // WMORoot::open extracts every MODN name before opening any group.
+        for event in &metadata.events {
+            check_cancel(cancelled)?;
+            if self.summary.dependency_events == MAX_DEPENDENCY_EVENTS {
+                return Err(Error::DependencyLimit);
+            }
+            self.summary.dependency_events += 1;
+            self.summary.doodad_extraction_events += 1;
+            let Some(model) = discovery::doodad_model_dependency(&event.path)? else {
+                continue;
+            };
+            if let Some(&index) = self.names.get(&model.extracted_name.to_ascii_lowercase()) {
+                if self.products[index].source_has_collision()
+                    && self.products[index].extracted_name != model.extracted_name
+                {
+                    return Err(Error::DoodadNameIdentity);
+                }
+            }
+            let index = self.capture(&model, cancelled)?;
+            if self.products[index].source_has_collision() {
+                if model.extracted_name != discovery::doodad_lookup_name(&event.path)? {
+                    return Err(Error::DoodadNameIdentity);
+                }
+                valid_names.insert(event.name_index);
+            }
+        }
         if count > MAX_WMO_GROUPS {
             return Err(Error::Wmo(benilla_native_vmap::WmoError::GroupCountLimit {
                 count,
@@ -799,7 +941,6 @@ impl Builder {
                 .checked_add(captured.bytes().len())
                 .filter(|&bytes| bytes <= MAX_WMO_TOTAL_BYTES)
                 .ok_or(Error::WmoInputLimit)?;
-            inspect_wmo(captured.bytes(), false)?;
             groups.push(captured);
         }
         let mut inputs = Vec::new();
@@ -814,7 +955,46 @@ impl Builder {
         }
         // Only complete captured root/group closure reaches the existing writer.
         let collision = extract_wmo_collision(root.bytes(), &inputs).map_err(Error::Wmo)?;
-        Ok(Collision::Wmo(collision))
+        let mut references = BTreeSet::new();
+        for (index, group) in groups.iter().enumerate() {
+            check_cancel(cancelled)?;
+            let group_references =
+                doodads::parse_group_doodad_references(group.bytes()).map_err(Error::Doodad)?;
+            if !collision.retained_group_indices.contains(&(index as u32)) {
+                continue;
+            }
+            for reference in group_references {
+                check_cancel(cancelled)?;
+                let Some(spawn) = metadata.spawns.get(reference as usize) else {
+                    continue;
+                };
+                if valid_names.contains(&spawn.name_index) {
+                    references.insert(reference);
+                }
+            }
+        }
+        let mut resolved = Vec::new();
+        resolved
+            .try_reserve_exact(references.len())
+            .map_err(|_| Error::AllocationFailed)?;
+        resolved.extend(references);
+        let retained = retained_doodad_total(
+            self.summary.retained_doodad_bytes,
+            metadata.sets.len(),
+            metadata.spawns.len(),
+            resolved.len(),
+            metadata.paths.len(),
+        )?;
+        self.summary.retained_doodad_bytes = retained;
+        metadata.events = Vec::new();
+        metadata.names = Vec::new();
+        Ok((
+            collision,
+            CapturedDoodads {
+                root: metadata,
+                references: resolved,
+            },
+        ))
     }
     fn failure(&self, cause: Error) -> Error {
         Error::Preparation {
@@ -841,8 +1021,32 @@ impl Builder {
             summary: self.summary,
             placements: self.placements,
             products: self.products,
+            doodad_candidates: self.doodad_candidates,
         })
     }
+}
+
+fn check_doodad_candidate_count(count: usize) -> Result<(), Error> {
+    if count >= MAX_DOODAD_CANDIDATES {
+        Err(Error::DoodadBudget)
+    } else {
+        Ok(())
+    }
+}
+fn retained_doodad_total(
+    current: usize,
+    sets: usize,
+    spawns: usize,
+    references: usize,
+    paths: usize,
+) -> Result<usize, Error> {
+    sets.checked_mul(32)
+        .and_then(|n| spawns.checked_mul(40).and_then(|m| n.checked_add(m)))
+        .and_then(|n| references.checked_mul(2).and_then(|m| n.checked_add(m)))
+        .and_then(|n| n.checked_add(paths))
+        .and_then(|n| current.checked_add(n))
+        .filter(|&n| n <= MAX_RETAINED_DOODAD_BYTES)
+        .ok_or(Error::DoodadBudget)
 }
 
 fn retained_total(current: usize, additional: usize) -> Result<usize, Error> {
@@ -865,93 +1069,6 @@ fn required(lookup: Lookup) -> Result<CapturedMember, Error> {
         Lookup::Absent => Err(Error::RequiredMemberAbsent),
         Lookup::Dummy { .. } => Err(Error::RequiredMemberDummy),
     }
-}
-
-/// Read only dependency metadata before handing all bytes to the raw writer.
-/// Empty MODS default sets are harmless; nonempty names/spawns/references and
-/// any set containing doodads require the unimplemented doodad closure.
-fn inspect_wmo(bytes: &[u8], root: bool) -> Result<u32, Error> {
-    let mut count = 0;
-    let mut header = None;
-    let mut sets = None;
-    inspect_chunks(bytes, root, false, &mut count, &mut header, &mut sets)?;
-    if root {
-        let (groups, declared_sets) = header.ok_or(Error::InvalidWmoEnvelope)?;
-        if declared_sets as usize != sets.unwrap_or(0) {
-            return Err(Error::InvalidWmoEnvelope);
-        }
-        Ok(groups)
-    } else {
-        Ok(0)
-    }
-}
-fn inspect_chunks(
-    bytes: &[u8],
-    root: bool,
-    nested: bool,
-    count: &mut usize,
-    header: &mut Option<(u32, u32)>,
-    sets: &mut Option<usize>,
-) -> Result<(), Error> {
-    let mut cursor = 0;
-    while cursor < bytes.len() {
-        *count += 1;
-        if *count > MAX_WMO_CHUNKS {
-            return Err(Error::InvalidWmoEnvelope);
-        }
-        let prefix = bytes
-            .get(cursor..cursor + 8)
-            .ok_or(Error::InvalidWmoEnvelope)?;
-        let mut tag: [u8; 4] = prefix[..4].try_into().unwrap();
-        tag.reverse();
-        let length = word(prefix, 4) as usize;
-        let end = cursor
-            .checked_add(8)
-            .and_then(|n| n.checked_add(length))
-            .ok_or(Error::InvalidWmoEnvelope)?;
-        let payload = bytes
-            .get(cursor + 8..end)
-            .ok_or(Error::InvalidWmoEnvelope)?;
-        match &tag {
-            b"MOHD" if root => {
-                if header.is_some() || payload.len() != 64 {
-                    return Err(Error::InvalidWmoEnvelope);
-                }
-                if word(payload, 16) != 0 || word(payload, 20) != 0 {
-                    return Err(Error::UnsupportedWmoDoodadClosure);
-                }
-                *header = Some((word(payload, 4), word(payload, 24)));
-            }
-            b"MODS" => {
-                if sets.is_some() || !payload.len().is_multiple_of(32) {
-                    return Err(Error::InvalidWmoEnvelope);
-                }
-                if payload
-                    .as_chunks::<32>()
-                    .0
-                    .iter()
-                    .any(|set| word(set, 24) != 0)
-                {
-                    return Err(Error::UnsupportedWmoDoodadClosure);
-                }
-                *sets = Some(payload.len() / 32);
-            }
-            b"MODN" | b"MODD" | b"MODR" if !payload.is_empty() => {
-                return Err(Error::UnsupportedWmoDoodadClosure)
-            }
-            b"MLIQ" => return Err(Error::UnsupportedWmoLiquid),
-            b"MOGP" if !root && !nested => {
-                let children = payload.get(68..).ok_or(Error::InvalidWmoEnvelope)?;
-                inspect_chunks(children, false, true, count, header, sets)?;
-            }
-            _ => (),
-        }
-        cursor = end;
-    }
-    Ok(())
-}
-fn word(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
 }
 
 #[cfg(test)]

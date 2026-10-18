@@ -43,7 +43,9 @@ fixtures. No original-source oracle verification is claimed for listfile parsing
 
 Other unsafe or ambiguous profiles are rejected rather than guessed: malformed
 chunks/strings, unsupported headers, invalid indices/nonfinite geometry, unsafe
-member names, empty name-table entries, and unsupported WMO dependency closure.
+member names, empty ADT/WDT name-table entries, and unsupported WMO liquid/instance
+profiles. Doodad extraction and selected-set
+membership follow [their separate bounded contract](DOODADS.md).
 Missing required models/groups are errors even where upstream would skip output.
 Distinct canonical members with the same normalized flat output name are rejected
 instead of treating equal names as a proof of identical content.
@@ -52,7 +54,7 @@ instead of treating equal names as a proof of identical content.
 
 The acquisition policy is
 `cmangos-vmap-numeric-1-through-99-reverse-first-hit-v1`; the raw writer profile is
-`cmangos-vmaps05-small-dry-no-doodad-closure-v1`. Both and the listfile policy are
+`cmangos-vmaps05-small-dry-doodad-dependencies-v2`. Both and the listfile policy are
 reported separately from the input digest. No summary or serialized digest can
 mint a prepared object.
 
@@ -61,7 +63,8 @@ indices, 1 MiB header scan, 512-byte member names, 64 MiB per member, 32768 look
 and 32 GiB decoded read-work. Strict validation and payload reads each charge that
 work budget; recheck has the same bound. Raw retained products are limited to
 256 MiB, 32768 products/global root events, 262144 dependency events and 1048576
-placements. Existing raw-writer group/chunk/output limits also apply. Failure or
+placements. Doodad logical metadata is bounded to 64 MiB and selected candidates
+to 1048576 records. Existing raw-writer group/chunk/output limits also apply. Failure or
 cancellation returns no partial preparation object.
 
 The additive MPQ probing/bounded-open implementation is independently authored

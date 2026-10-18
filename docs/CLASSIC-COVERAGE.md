@@ -60,8 +60,11 @@ The separate [bounded acquisition library](../crates/benilla-native-vmap-source/
 captures the global dry-WMO pass and physical map prefix through a selected map,
 with ordered archive winners, dummy/absence receipts and changed-input rejection.
 It retains complete raw candidates and source-order placements without publishing
-a partial map. Unsupported liquids/doodads or resource bounds can stop the global
-pass before map discovery; real-data acceptance for this library remains open.
+a partial map. The [doodad dependency layer](../crates/benilla-native-vmap-source/DOODADS.md)
+extracts MODN models in source order and retains selected-set membership with raw
+transforms, including skipped-group and no-hull filtering. Final G3D transforms
+and unordered-source emission/ID order remain unproved. Unsupported liquids,
+name profiles or resource bounds can stop the global pass before map discovery; real-data acceptance for this library remains open.
 Static map production still needs all map placements in its BIH,
 WMO liquid/doodad closure and exact archive/encounter ordering; selected tile
 geometry alone cannot establish the absence of off-tile collision.

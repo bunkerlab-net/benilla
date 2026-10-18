@@ -131,7 +131,7 @@
 - **benilla-native-geometry-tests** (lib.rs): core planar production_item_order products route_commit source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap static_mesh
 - **benilla-native-nav** (lib.rs): cold_distance cold_distance_tests direct_corridor_tests smoothing smoothing_tests source_cold_same_polygon source_home_same_polygon source_query source_wander_and_chase_reconstruction_tests source_wander_same_polygon tests tile_presence validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests
 - **benilla-native-terrain** (lib.rs): diagnostic_id diagnostics source writer
-- **benilla-native-vmap-source** (lib.rs): discovery source tests
+- **benilla-native-vmap-source** (lib.rs): discovery doodads source tests
 - **benilla-native-vmap** (lib.rs): error tests wmo wmo_error
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery starting_location storage tests world_setup
