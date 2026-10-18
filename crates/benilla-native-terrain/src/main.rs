@@ -158,10 +158,12 @@ const SAFE_DIAGNOSTIC_IDS: &[&str] = &[
     "terrain.nonfinite_height",
     "terrain.normal_padding",
     "terrain.offset_overflow",
+    "terrain.selected_map_metadata",
     "terrain.subchunk_reference",
     "terrain.tile_coordinate",
     "terrain.truncated_half",
     "terrain.truncated_word",
+    "terrain.unselected_map_metadata",
     "terrain.wdt_global_or_header",
     "terrain.wdt_global_wmo",
     "terrain.wdt_main",
@@ -217,6 +219,17 @@ fn operation_diagnostic(error: &anyhow::Error) -> String {
         "selection.bounds" => "Select map 0 through 999 and one through nine tiles",
         "selection.tile_bounds" => "Tile coordinates must each be 0 through 63",
         "selection.duplicate_tile" => "Select each tile at most once",
+        "terrain.map_directory" => {
+            "The selected map directory is empty or contains unsupported path characters"
+        }
+        "terrain.selected_map_metadata" => {
+            "The selected map name has invalid string metadata or exceeds 63 bytes"
+        }
+        "terrain.unselected_map_metadata" => {
+            "An unselected map name has invalid string metadata or exceeds 63 bytes"
+        }
+        "terrain.map_missing" => "The selected map ID is absent from Map.dbc",
+        "terrain.duplicate_map_id" => "Map.dbc contains duplicate map IDs",
         _ => "Terrain validation or export failed",
     };
     format!("error[{id}]: {explanation}; no gameplay admission established\n")
@@ -383,6 +396,38 @@ mod tests {
             assert!(!diagnostic.contains("private"));
             assert!(!diagnostic.contains("secret"));
             assert!(diagnostic.len() < 256);
+        }
+    }
+
+    #[test]
+    fn map_diagnostics_explain_selected_and_unselected_failures_without_names() {
+        for (id, explanation) in [
+            (
+                "terrain.map_directory",
+                "The selected map directory is empty",
+            ),
+            (
+                "terrain.selected_map_metadata",
+                "The selected map name has invalid",
+            ),
+            (
+                "terrain.unselected_map_metadata",
+                "An unselected map name has invalid",
+            ),
+            ("terrain.map_missing", "The selected map ID is absent"),
+            (
+                "terrain.duplicate_map_id",
+                "Map.dbc contains duplicate map IDs",
+            ),
+        ] {
+            let error = anyhow::anyhow!(format!("{id}:/private/Prototype Name"));
+            let diagnostic = operation_diagnostic(&error);
+            assert!(diagnostic.starts_with(&format!("error[{id}]: {explanation}")));
+            assert!(diagnostic.contains("no gameplay admission established"));
+            assert!(!diagnostic.contains("private"));
+            assert!(!diagnostic.contains("Prototype"));
+            assert!(diagnostic.len() < 256);
+            assert_eq!(diagnostic.lines().count(), 1);
         }
     }
 

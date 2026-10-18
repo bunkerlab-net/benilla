@@ -96,7 +96,7 @@ impl<'a> Dbc<'a> {
 }
 
 /// Directory from the unique selected raw Map.dbc row (fields 0 and 1).
-/// A safe single path component, bounded by upstream's 64-byte map-name storage.
+/// Only the selected name becomes a path; every row fits upstream's 64-byte storage.
 pub fn map_directory(map_dbc: &[u8], map: u32) -> Result<String> {
     let dbc = Dbc::read(map_dbc, 42).context("terrain.Map")?;
     let mut ids = BTreeSet::new();
@@ -104,16 +104,22 @@ pub fn map_directory(map_dbc: &[u8], map: u32) -> Result<String> {
     for row in dbc.rows() {
         let id = word(row, 0)?;
         ensure!(ids.insert(id), "terrain.duplicate_map_id");
-        let directory = dbc.string(word(row, 4)?)?;
-        ensure!(
-            !directory.is_empty()
-                && directory.len() < 64
-                && directory
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
-            "terrain.map_directory"
-        );
+        let metadata_stage = if id == map {
+            "terrain.selected_map_metadata"
+        } else {
+            "terrain.unselected_map_metadata"
+        };
+        let directory = dbc.string(word(row, 4)?).context(metadata_stage)?;
+        // ReadMapDBC copies all names into char[64]; path use is a later step.
+        ensure!(directory.len() < 64, "{metadata_stage}");
         if id == map {
+            ensure!(
+                !directory.is_empty()
+                    && directory
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
+                "terrain.map_directory"
+            );
             selected = Some(directory.to_owned());
         }
     }

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Authored synthetic raw members only. No install data or caller-supplied products.
 use super::*;
+#[path = "../../tests/support/map_dbc.rs"]
+mod map_fixture;
+use map_fixture::map_dbc;
 
 fn set_word(bytes: &mut [u8], at: usize, value: u32) {
     bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -385,6 +388,98 @@ fn map_directory_cannot_inject_paths_or_alias_another_row() {
     }
     assert!(map_directory(&dbc(42, &[row.clone(), row], b"\0Authored\0"), 77).is_err());
     assert!(map_directory(&Inputs::new().map, 78).is_err());
+}
+
+#[test]
+fn selected_directory_does_not_path_validate_unselected_names() {
+    let mut input = Inputs::new();
+    let expected = input.produce().unwrap();
+    input.map = map_dbc(&[
+        (1, b"Kalimdor"),
+        (900, b""),
+        (77, b"Azeroth"),
+        (901, b"Prototype Zone"),
+        (902, b"../Unused"),
+        (903, b"D\\Unused"),
+        (904, "Unused \u{00e9}".as_bytes()),
+    ]);
+    assert_eq!(map_directory(&input.map, 77).unwrap(), "Azeroth");
+    assert_eq!(input.produce().unwrap(), expected);
+    for id in 900..=904 {
+        assert_eq!(
+            map_directory(&input.map, id).unwrap_err().to_string(),
+            "terrain.map_directory"
+        );
+    }
+}
+
+#[test]
+fn every_map_name_keeps_source_storage_and_string_bounds() {
+    for (row, expected) in [
+        (0, "terrain.selected_map_metadata"),
+        (1, "terrain.unselected_map_metadata"),
+    ] {
+        for length in [63, 64] {
+            let name = vec![b'A'; length];
+            let mut rows: [(u32, &[u8]); 2] = [(0, b"Azeroth"), (1, b"Kalimdor")];
+            rows[row].1 = &name;
+            let result = map_directory(&map_dbc(&rows), 0);
+            if length == 63 {
+                assert!(result.is_ok());
+            } else {
+                assert_eq!(result.unwrap_err().to_string(), expected);
+            }
+        }
+        let mut rows: [(u32, &[u8]); 2] = [(0, b"Azeroth"), (1, b"Kalimdor")];
+        rows[row].1 = &[0xff];
+        let error = map_directory(&map_dbc(&rows), 0).unwrap_err();
+        assert_eq!(error.to_string(), expected);
+        assert!(format!("{error:#}").contains("terrain.dbc_string_utf8"));
+        let original = map_dbc(&[(0, b"Azeroth"), (1, b"Kalimdor")]);
+        let strings = word(&original, 16).unwrap();
+        for (offset, cause) in [
+            (strings, "terrain.dbc_string_nul"),
+            (strings + 1, "terrain.dbc_string_offset"),
+        ] {
+            let mut bytes = original.clone();
+            set_word(&mut bytes, 24 + row * 168, offset);
+            let error = map_directory(&bytes, 0).unwrap_err();
+            assert_eq!(error.to_string(), expected);
+            assert!(format!("{error:#}").contains(cause));
+        }
+    }
+}
+
+#[test]
+fn selected_map_lookup_still_validates_the_complete_table() {
+    for rows in [
+        vec![(0, &b"Azeroth"[..]), (0, &b"Other"[..])],
+        vec![(0, &b"Azeroth"[..]), (1, &b""[..]), (1, &b""[..])],
+    ] {
+        assert_eq!(
+            map_directory(&map_dbc(&rows), 0).unwrap_err().to_string(),
+            "terrain.duplicate_map_id"
+        );
+    }
+    let original = map_dbc(&[(0, b"Azeroth"), (1, b"")]);
+    assert_eq!(
+        map_directory(&original, 2).unwrap_err().to_string(),
+        "terrain.map_missing"
+    );
+    let mut truncated = original.clone();
+    truncated.pop();
+    let mut trailing = original.clone();
+    trailing.push(0);
+    let mut bad_nul = original.clone();
+    *bad_nul.last_mut().unwrap() = 1;
+    let mut bad_layout = original;
+    set_word(&mut bad_layout, 8, 41);
+    for bytes in [truncated, trailing, bad_nul, bad_layout] {
+        assert_eq!(
+            map_directory(&bytes, 0).unwrap_err().to_string(),
+            "terrain.Map"
+        );
+    }
 }
 
 #[test]

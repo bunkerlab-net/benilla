@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Run the actual helper over authored MPQs; successful inspection must never publish.
+#[path = "support/map_dbc.rs"]
+mod map_fixture;
 mod support;
 use benilla_native_terrain::{prepare, Tile};
+use map_fixture::map_dbc;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -36,11 +39,17 @@ impl Fixture {
         bytes
     }
     fn run(&self, args: &[&str]) -> Output {
+        self.run_selection(1, Tile { x: 31, y: 32 }, args)
+    }
+    fn run_selection(&self, map: u32, tile: Tile, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_benilla-native-terrain"))
             .current_dir(&self.root)
             .arg("--data")
             .arg(&self.data)
-            .args(["--map", "1", "--tile", "31,32"])
+            .arg("--map")
+            .arg(map.to_string())
+            .arg("--tile")
+            .arg(format!("{},{}", tile.x, tile.y))
             .args(args)
             .output()
             .unwrap()
@@ -116,9 +125,17 @@ fn replace(bytes: &mut [u8], at: usize, value: u32) {
     bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 fn assert_rejected_without_writes(fixture: &Fixture, expected: &str) {
+    assert_selection_rejected_without_writes(fixture, 1, Tile { x: 31, y: 32 }, expected);
+}
+fn assert_selection_rejected_without_writes(
+    fixture: &Fixture,
+    map: u32,
+    tile: Tile,
+    expected: &str,
+) {
     let before = snapshot(&fixture.root);
     for args in [&["--inspect"][..], &["--output", "rejected-export"][..]] {
-        let output = fixture.run(args);
+        let output = fixture.run_selection(map, tile, args);
         assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
         let text = output_text(&output);
         assert!(text.starts_with(&format!("error[{expected}]:")), "{text}");
@@ -130,36 +147,157 @@ fn assert_rejected_without_writes(fixture: &Fixture, expected: &str) {
         assert!(!text.contains('\\'));
         assert!(!text.contains(&fixture.root.to_string_lossy().to_string()));
         assert!(!text.contains("AuthoredOracle"));
+        assert!(!text.contains("Azeroth"));
+        assert!(!text.contains("Prototype"));
         assert!(!text.contains("private"));
         assert_eq!(snapshot(&fixture.root), before);
     }
 }
 
 fn assert_exact_inspection_without_writes(fixture: &Fixture, expected: &[u8]) -> String {
+    assert_exact_selection_without_writes(fixture, 1, Tile { x: 31, y: 32 }, expected)
+}
+fn assert_exact_selection_without_writes(
+    fixture: &Fixture,
+    map: u32,
+    tile: Tile,
+    expected: &[u8],
+) -> String {
     let before = snapshot(&fixture.root);
-    let tile = Tile { x: 31, y: 32 };
-    let prepared = prepare(&fixture.data, 1, &[tile]).unwrap();
-    assert_eq!(prepared.map_id(), 1);
+    let prepared = prepare(&fixture.data, map, &[tile]).unwrap();
+    assert_eq!(prepared.map_id(), map);
     assert_eq!(prepared.tiles().collect::<Vec<_>>(), [(tile, expected)]);
     prepared.verify_unchanged().unwrap();
     let epoch = prepared.source_epoch();
     let expected_report = format!(
         "Inspected 1 terrain tiles in memory; no artifacts published\n\
-         map=1 source_epoch={epoch}\n\
-         tile=31,32 bytes={} sha256={:x}\n\
+         map={map} source_epoch={epoch}\n\
+         tile={},{} bytes={} sha256={:x}\n\
          live_install_lease=false gameplay_admitted=false\n\
          No live installation lease or gameplay admission established\n",
+        tile.x,
+        tile.y,
         expected.len(),
         Sha256::digest(expected)
     );
     for _ in 0..2 {
-        let output = fixture.run(&["--inspect"]);
+        let output = fixture.run_selection(map, tile, &["--inspect"]);
         assert!(output.status.success(), "{}", output_text(&output));
         assert_eq!(output.stdout, expected_report.as_bytes());
         assert!(output.stderr.is_empty());
         assert_eq!(snapshot(&fixture.root), before);
     }
     epoch.to_owned()
+}
+
+// Only the selected map has WDT/ADT members. Other names are authored metadata,
+// never archive paths or a claim about rows in a player's installation.
+fn selected_azeroth_entries(map: Vec<u8>) -> [Entry; 5] {
+    let mut entries = terrain_entries(source_fixture("flat.adt.test-fixture"));
+    entries[0] = raw_entry("DBFilesClient\\Map.dbc", map);
+    let mut wdt = source_fixture("source.wdt.test-fixture");
+    assert_eq!(&wdt[52..56], b"NIAM");
+    replace(&mut wdt, 60 + (31 * 64 + 32) * 8, 0);
+    replace(&mut wdt, 60 + (48 * 64 + 32) * 8, 1);
+    entries[3] = raw_entry("World\\Maps\\Azeroth\\Azeroth.wdt", wdt);
+    entries[4] = raw_entry(
+        "World\\Maps\\Azeroth\\Azeroth_32_48.adt",
+        source_fixture("flat.adt.test-fixture"),
+    );
+    entries
+}
+
+#[test]
+fn inspect_map_zero_ignores_unselected_path_syntax_but_binds_every_dbc_byte() {
+    let fixture = Fixture::new();
+    let mut map = map_dbc(&[
+        (1, b"Kalimdor"),
+        (900, b""),
+        (0, b"Azeroth"),
+        (901, b"Prototype Zone"),
+        (902, b"../Unused"),
+        (903, b"D\\Unused"),
+    ]);
+    let path = fixture.data.join("terrain.MPQ");
+    fs::write(
+        &path,
+        version_one_archive(&selected_azeroth_entries(map.clone())),
+    )
+    .unwrap();
+    let tile = Tile { x: 48, y: 32 };
+    let product = source_fixture("flat.map");
+    let mut epoch = assert_exact_selection_without_writes(&fixture, 0, tile, &product);
+    // An unselected row's unused word and then its directory bytes remain bound.
+    for offset in [28, 20 + 6 * 168 + 1] {
+        let captured = prepare(&fixture.data, 0, &[tile]).unwrap();
+        map[offset] ^= 1;
+        fs::write(
+            &path,
+            version_one_archive(&selected_azeroth_entries(map.clone())),
+        )
+        .unwrap();
+        let before = snapshot(&fixture.root);
+        assert!(format!("{:#}", captured.verify_unchanged().unwrap_err())
+            .contains("source.bytes_changed"));
+        assert_eq!(snapshot(&fixture.root), before);
+        let changed = assert_exact_selection_without_writes(&fixture, 0, tile, &product);
+        assert_ne!(changed, epoch);
+        epoch = changed;
+    }
+}
+
+#[test]
+fn inspect_selected_map_rejections_are_specific_path_free_and_write_nothing() {
+    let fixture = Fixture::new();
+    let tile = Tile { x: 48, y: 32 };
+    let mut cases = Vec::new();
+    for name in [
+        "",
+        " ",
+        "Prototype Zone",
+        "../Unused",
+        "D/Unused",
+        "D\\Unused",
+        ".",
+    ] {
+        cases.push((
+            map_dbc(&[(0, name.as_bytes()), (1, b"")]),
+            "terrain.map_directory",
+        ));
+    }
+    cases.push((map_dbc(&[(1, b"Kalimdor")]), "terrain.map_missing"));
+    cases.push((
+        map_dbc(&[(0, b"Azeroth"), (0, b"Azeroth")]),
+        "terrain.duplicate_map_id",
+    ));
+    cases.push((
+        map_dbc(&[(0, b"Azeroth"), (1, b""), (1, b"")]),
+        "terrain.duplicate_map_id",
+    ));
+    for (row, expected) in [
+        (0, "terrain.selected_map_metadata"),
+        (1, "terrain.unselected_map_metadata"),
+    ] {
+        for invalid in [&[0xff][..], &[b'A'; 64][..]] {
+            let mut rows: [(u32, &[u8]); 2] = [(0, b"Azeroth"), (1, b"Kalimdor")];
+            rows[row].1 = invalid;
+            cases.push((map_dbc(&rows), expected));
+        }
+        for extra in [0, 1] {
+            let mut bytes = map_dbc(&[(0, b"Azeroth"), (1, b"Kalimdor")]);
+            let offset = word(&bytes, 16) + extra;
+            replace(&mut bytes, 24 + row * 168, offset);
+            cases.push((bytes, expected));
+        }
+    }
+    for (map, diagnostic) in cases {
+        fs::write(
+            fixture.data.join("terrain.MPQ"),
+            version_one_archive(&selected_azeroth_entries(map)),
+        )
+        .unwrap();
+        assert_selection_rejected_without_writes(&fixture, 0, tile, diagnostic);
+    }
 }
 #[test]
 fn inspect_actual_preparation_is_repeatable_path_free_and_writes_nothing() {

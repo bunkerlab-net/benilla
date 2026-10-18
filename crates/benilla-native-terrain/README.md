@@ -74,6 +74,26 @@ The fixed DBC inputs are complete `Map.dbc` (42 fields), `AreaTable.dbc` (25),
 and `LiquidType.dbc` (4), followed by the selected map's WDT and ADT members.
 Map selection and WDT MAIN selection derive filenames; no arbitrary MPQ path
 or imported audit declaration determines output identities.
+Map ID and directory come from fields zero and one. Complete table framing,
+unique map IDs, every directory's string offset, terminator and UTF-8 decoding,
+and the pinned extractor's 64-byte name storage remain checked for every row.
+Only the selected directory becomes a path and must be nonempty ASCII letters,
+digits, underscores or hyphens. Bounded empty or special names on unselected rows
+do not trigger path validation, lookup or extraction for those maps. Their bytes
+still participate in the complete consumed-member epoch and fresh-input checks.
+
+Map-selection diagnostics do not print directory strings or paths:
+- `terrain.map_directory`: the selected directory is empty or has unsupported
+  path characters
+- `terrain.selected_map_metadata` or `terrain.unselected_map_metadata`: the
+  indicated row category has an invalid string reference or UTF-8, or a name
+  longer than 63 bytes (the terminating NUL must also fit the source's storage)
+- `terrain.map_missing`: the selected ID is absent
+- `terrain.duplicate_map_id`: any map ID appears more than once
+
+The field selection and all-row storage bound follow `ReadMapDBC` at
+`contrib/extractor/System.cpp:189–208`; upstream constructs paths later in
+`ExtractMapsFromMpq:858–879`. This helper constructs only the selected map's paths.
 
 Benilla's normal patch chain and pinned `ad` are **not identical resolvers**.
 This adapter accepts only the conservative intersection: every consumed member
