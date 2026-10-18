@@ -4,7 +4,7 @@
 //! source-order probes and the final carried Z. No ground reply supplies LOS
 //! selection, a complete movement fact or admission.
 use super::{
-    core::{Failure, Session},
+    core::{Failure, NearPointJob, Session},
     products::ground_height::{
         allowed_ground_z, MapHeightReply, MapHeightRequest, MapHeightSnapshot, SnapshotBinding,
         SwimmingAllowedZReply, SwimmingAllowedZRequest,
@@ -156,6 +156,32 @@ impl<'products> SourceGroundHeightProvider<'products> {
         session: &Session,
         context: &AuthorityRequest,
     ) -> Result<BoundGroundHeightQuery<'_, 'products>, Failure> {
+        self.begin_with_searcher_validation(session, context, || {
+            let Query::SourceMotion(MotionQuery::NearPoint(near)) = &context.query else {
+                return Err(Failure::UnsupportedQuery);
+            };
+            near.searcher
+                .validate_context(&self.profile, &context.binding)
+                .map_err(|_| Failure::Binding)
+        })
+    }
+
+    /// Consume completed searcher validation at the same point in the check order.
+    pub(super) fn begin_validated(
+        &self,
+        job: &NearPointJob<'_>,
+    ) -> Result<BoundGroundHeightQuery<'_, 'products>, Failure> {
+        self.begin_with_searcher_validation(job.session(), job.request(), || {
+            job.require_profile(&self.profile)
+        })
+    }
+
+    fn begin_with_searcher_validation(
+        &self,
+        session: &Session,
+        context: &AuthorityRequest,
+        validate_searcher: impl FnOnce() -> Result<(), Failure>,
+    ) -> Result<BoundGroundHeightQuery<'_, 'products>, Failure> {
         if session.world != self.session.world
             || session.profile != self.session.profile
             || session.policy != self.session.policy
@@ -193,9 +219,7 @@ impl<'products> SourceGroundHeightProvider<'products> {
             return Err(Failure::UnsupportedQuery);
         };
         let npc = b.npc.ok_or(Failure::Binding)?;
-        near.searcher
-            .validate_context(&self.profile, b)
-            .map_err(|_| Failure::Binding)?;
+        validate_searcher()?;
         let branch = near
             .searcher
             .allowed_position_z_branch()

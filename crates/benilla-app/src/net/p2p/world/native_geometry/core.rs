@@ -1000,6 +1000,97 @@ impl JobLease {
         self.0.deadline
     }
 }
+/// One completed immutable NearPoint body check, owned only by its original Work.
+/// Ground/LOS results are never retained here or reusable across attempts.
+struct OwnedNearPointValidation {
+    session: Session,
+    request: AuthorityRequest,
+    body: Body,
+    lease: JobLease,
+    selected_provider: OnceLock<Arc<()>>,
+}
+impl OwnedNearPointValidation {
+    fn check(&self, session: &Session, work: &Work) -> Result<(), Failure> {
+        if self.session != *session
+            || self.request != work.request
+            || !self.lease.same_job(&work.lease())
+            || !matches!(
+                self.request.query,
+                Query::SourceMotion(MotionQuery::NearPoint(_))
+            )
+        {
+            return Err(Failure::Binding);
+        }
+        if !self.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        Ok(())
+    }
+}
+/// An invocation-local view of this Work's complete primary NearPoint validation.
+/// It grants no geometry fact and cannot be constructed from transcript equality.
+pub(super) struct NearPointJob<'call> {
+    validation: &'call OwnedNearPointValidation,
+}
+impl<'call> NearPointJob<'call> {
+    pub(super) fn session(&self) -> &'call Session {
+        &self.validation.session
+    }
+    pub(super) fn request(&self) -> &'call AuthorityRequest {
+        &self.validation.request
+    }
+    pub(super) fn body(&self) -> Body {
+        self.validation.body
+    }
+    pub(super) fn lease(&self) -> JobLease {
+        self.validation.lease.clone()
+    }
+    pub(super) fn require_profile(&self, profile: &Profile) -> Result<(), Failure> {
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        let policy = self
+            .session()
+            .primary_near_point
+            .as_ref()
+            .ok_or(Failure::Binding)?;
+        if *policy.profile != *profile {
+            return Err(Failure::Binding);
+        }
+        Ok(())
+    }
+    pub(super) fn bind_provider(&self, identity: &Arc<()>) -> Result<(), Failure> {
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        let selected = self
+            .validation
+            .selected_provider
+            .get_or_init(|| Arc::clone(identity));
+        if Arc::ptr_eq(selected, identity) {
+            Ok(())
+        } else {
+            Err(Failure::Binding)
+        }
+    }
+    pub(super) fn validate_facts(&self, facts: &Facts) -> Result<(), Failure> {
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        let (
+            Query::SourceMotion(MotionQuery::NearPoint(near)),
+            Facts::SourceMotion(MotionFacts::Spatial(reply)),
+        ) = (&self.validation.request.query, facts)
+        else {
+            return Err(Failure::Binding);
+        };
+        validate_near_point_facts(&near.request, reply)?;
+        if !self.validation.lease.is_active() {
+            return Err(Failure::Deadline);
+        }
+        Ok(())
+    }
+}
 struct OwnedRouteValidation {
     initialized: Option<super::source_route_filter::InitializedOwnerValidation>,
     model: super::source_route_same_polygon::SamePolygonModel,
@@ -1222,6 +1313,7 @@ impl<'call> RouteJob<'call> {
 pub(super) enum ServiceQuery<'call> {
     Immediate(ValidatedRequest<'call>),
     Route(RouteJob<'call>),
+    NearPoint(NearPointJob<'call>),
 }
 pub(super) enum ServiceStep {
     Pending,
@@ -1231,6 +1323,7 @@ struct Work {
     owner: JobOwner,
     route_body: Option<OwnedRouteBodyProgress>,
     route_validation: Option<OwnedRouteValidation>,
+    near_point_validation: Option<OwnedNearPointValidation>,
     reply: Sender<Reply>,
 }
 impl Work {
@@ -1251,6 +1344,7 @@ impl Work {
             })),
             route_body: None,
             route_validation: None,
+            near_point_validation: None,
             reply,
         }
     }
@@ -1704,7 +1798,7 @@ impl Mailbox {
         let deadline = Instant::now() + Duration::from_millis(2);
         self.serve_validated_query_slice(limit, deadline, geometry)
     }
-    /// Selected Route jobs retain only completed owned validation between calls.
+    /// Selected Route and primary NearPoint jobs retain completed owned validation.
     /// Every yield spends one frame attempt and returns to the same bounded FIFO.
     pub(super) fn serve_service_queries_until(
         &self,
@@ -1773,26 +1867,69 @@ impl Mailbox {
             };
             count += 1;
             if !work.active_for(&self.active) {
+                #[cfg(test)]
+                {
+                    let retired = Instant::now();
+                    let summary = (
+                        work.request.binding.tick,
+                        work.ticket,
+                        query_kind(&work.request.query),
+                        retired >= work.deadline,
+                    );
+                    drop(work);
+                    eprintln!(
+                        "native geometry service retired before attempt: tick={} ticket={} kind={} request_expired={}",
+                        summary.0, summary.1, summary.2, summary.3,
+                    );
+                }
                 continue;
             }
-            let staged = stage_routes
+            let staged_route = stage_routes
                 && matches!(
                     &work.request.query,
                     Query::SourceMotion(MotionQuery::Route(_))
                 );
+            // A retained receipt must still pass its original identity checks even
+            // if the current session or request was replaced before this attempt.
+            let staged_near_point = work.near_point_validation.is_some()
+                || (self.session.primary_near_point.is_some()
+                    && self.session.empty_selector_near_point.is_none()
+                    && matches!(
+                        &work.request.query,
+                        Query::SourceMotion(MotionQuery::NearPoint(_))
+                    ));
+            let staged = staged_route || staged_near_point;
             #[cfg(test)]
             let timing = (
                 Instant::now(),
                 work.ticket,
                 work.request.binding.tick,
-                if !staged {
+                if staged_near_point {
+                    if work.near_point_validation.is_none() {
+                        "near_point_body"
+                    } else {
+                        "near_point_provider"
+                    }
+                } else if !staged {
                     "immediate"
                 } else if work.route_validation.is_none() {
                     "body"
                 } else {
                     "provider"
                 },
+                query_kind(&work.request.query),
+                work.deadline,
             );
+            #[cfg(test)]
+            let mut immediate_times = (None, None, None);
+            #[cfg(test)]
+            let mut result_stage = if staged_near_point {
+                timing.3
+            } else if staged_route {
+                "route"
+            } else {
+                "session.body"
+            };
             #[cfg(test)]
             if let Some(validation) = &work.route_validation {
                 let previous = validation.phase.replace("resume_guard");
@@ -1800,44 +1937,95 @@ impl Mailbox {
                     validation.previous_phase.set(previous);
                 }
             }
-            let result = if staged {
+            let result = if staged_near_point {
+                self.advance_near_point_query(&mut work, deadline, &mut geometry)
+            } else if staged_route {
                 self.advance_route_query(&mut work, deadline, &mut geometry)
             } else {
-                self.session
-                    .validated_request(&work.request)
-                    .and_then(|validated| {
-                        match geometry(
-                            ServiceQuery::Immediate(validated),
-                            work.deadline.min(deadline),
-                        )? {
-                            ServiceStep::Pending => Err(Failure::UnsupportedQuery),
-                            ServiceStep::Complete(facts) => {
-                                validate_facts(&self.session, &work.request, &facts)?;
-                                Ok(ServiceStep::Complete(facts))
+                let validated = self.session.validated_request(&work.request);
+                #[cfg(test)]
+                {
+                    immediate_times.0 = Some(Instant::now());
+                }
+                validated.and_then(|validated| {
+                    #[cfg(test)]
+                    {
+                        result_stage = "provider";
+                    }
+                    let step = geometry(
+                        ServiceQuery::Immediate(validated),
+                        work.deadline.min(deadline),
+                    );
+                    #[cfg(test)]
+                    {
+                        immediate_times.1 = Some(Instant::now());
+                    }
+                    match step? {
+                        ServiceStep::Pending => Err(Failure::UnsupportedQuery),
+                        ServiceStep::Complete(facts) => {
+                            #[cfg(test)]
+                            {
+                                result_stage = "validate_facts";
                             }
+                            let checked = validate_facts(&self.session, &work.request, &facts);
+                            #[cfg(test)]
+                            {
+                                immediate_times.2 = Some(Instant::now());
+                            }
+                            checked?;
+                            Ok(ServiceStep::Complete(facts))
                         }
-                    })
+                    }
+                })
             };
             #[cfg(test)]
-            let phase = work.route_validation.as_ref().map_or_else(
-                || {
-                    work.route_body
-                        .as_ref()
-                        .map_or(timing.3, |body| body.next.name())
-                },
-                |validation| validation.phase.get(),
-            );
+            let phase = if staged_near_point {
+                if timing.3 == "near_point_body" && work.near_point_validation.is_some() {
+                    "near_point_body_complete"
+                } else {
+                    timing.3
+                }
+            } else {
+                work.route_validation.as_ref().map_or_else(
+                    || {
+                        work.route_body
+                            .as_ref()
+                            .map_or(timing.3, |body| body.next.name())
+                    },
+                    |validation| validation.phase.get(),
+                )
+            };
+            #[cfg(test)]
+            let result_error = result.as_ref().err().copied();
+            #[cfg(test)]
+            let mut publication = QueryFinishTiming::default();
+            #[cfg(test)]
+            let finish_started = Instant::now();
             let pending = matches!(&result, Ok(ServiceStep::Pending));
             let disposition = match result {
                 Ok(ServiceStep::Pending) => self.defer_route_query(work),
-                Ok(ServiceStep::Complete(facts)) => {
-                    self.finish_query_result(work, Ok(*facts), deadline, staged)
-                }
-                Err(error) => self.finish_query_result(work, Err(error), deadline, staged),
+                Ok(ServiceStep::Complete(facts)) => self.finish_query_result_traced(
+                    work,
+                    Ok(*facts),
+                    deadline,
+                    staged,
+                    #[cfg(test)]
+                    Some(&mut publication),
+                ),
+                Err(error) => self.finish_query_result_traced(
+                    work,
+                    Err(error),
+                    deadline,
+                    staged,
+                    #[cfg(test)]
+                    Some(&mut publication),
+                ),
             };
+            #[cfg(test)]
+            let finish_returned = Instant::now();
             // Keep observation I/O outside all deadline-sensitive checks and publication.
             #[cfg(test)]
-            if staged {
+            if staged_route {
                 eprintln!(
                     "native geometry Route job timing: tick={} ticket={} phase={} disposition={:?} elapsed={:?}",
                     timing.2,
@@ -1847,12 +2035,113 @@ impl Mailbox {
                     timing.0.elapsed(),
                 );
             }
+            #[cfg(test)]
+            {
+                // Tuple fields are (since attempt start, slice expired, request expired).
+                // Send is bracketed: its internal channel linearization is not observed.
+                let stamp = |at: Option<Instant>| {
+                    at.map(|at| (at.duration_since(timing.0), at >= deadline, at >= timing.5))
+                };
+                eprintln!(
+                    "native geometry service attempt: tick={} ticket={} kind={} phase={} stage={} result_error={:?} finish_error={:?} disposition={:?} body={:?} provider={:?} reply_validation={:?} finish={:?} slice_guard={:?} active_guard_before={:?} active_guard_after={:?} send_before={:?} send_after={:?} finish_returned={:?} post_send_return={:?}",
+                    timing.2,
+                    timing.1,
+                    timing.4,
+                    phase,
+                    result_stage,
+                    result_error,
+                    publication.error,
+                    disposition,
+                    immediate_times.0.map(|at| at.duration_since(timing.0)),
+                    immediate_times.1.zip(immediate_times.0).map(|(end, start)| end.duration_since(start)),
+                    immediate_times.2.zip(immediate_times.1).map(|(end, start)| end.duration_since(start)),
+                    finish_returned.duration_since(finish_started),
+                    stamp(publication.slice_guard),
+                    stamp(publication.active_guard_before),
+                    stamp(publication.active_guard_after),
+                    stamp(publication.send_before),
+                    stamp(publication.send_after),
+                    stamp(Some(finish_returned)),
+                    publication.send_after.map(|at| finish_returned.duration_since(at)),
+                );
+            }
             // Pending always ends this invocation, including a full tail.
             if pending || disposition == QueryDisposition::Deferred {
                 break;
             }
         }
         count
+    }
+    fn advance_near_point_query(
+        &self,
+        work: &mut Work,
+        slice: Instant,
+        geometry: &mut impl for<'call> FnMut(
+            ServiceQuery<'call>,
+            Instant,
+        ) -> Result<ServiceStep, Failure>,
+    ) -> Result<ServiceStep, Failure> {
+        if !work.active_for(&self.active) || Instant::now() >= slice {
+            return Err(Failure::Deadline);
+        }
+        if work.near_point_validation.is_none() {
+            self.advance_near_point_body(work, slice, Instant::now)?;
+            return Ok(ServiceStep::Pending);
+        }
+        let validation = work
+            .near_point_validation
+            .as_ref()
+            .ok_or(Failure::Binding)?;
+        validation.check(&self.session, work)?;
+        let step = geometry(
+            ServiceQuery::NearPoint(NearPointJob { validation }),
+            work.deadline.min(slice),
+        )?;
+        // A genuine provider/reply failure precedes the late-success retry guard.
+        validation.check(&self.session, work)?;
+        if let ServiceStep::Complete(facts) = &step {
+            NearPointJob { validation }.validate_facts(facts)?;
+        }
+        if !work.active_for(&self.active) || Instant::now() >= slice {
+            // Only body validation survives. The next callback must query fresh
+            // ground and LOS, not republish the discarded late geometry result.
+            return Err(Failure::Deadline);
+        }
+        Ok(step)
+    }
+    fn advance_near_point_body(
+        &self,
+        work: &mut Work,
+        slice: Instant,
+        mut now: impl FnMut() -> Instant,
+    ) -> Result<(), Failure> {
+        if !work.active_for(&self.active) || now() >= slice {
+            return Err(Failure::Deadline);
+        }
+        if self.session.primary_near_point.is_none()
+            || self.session.empty_selector_near_point.is_some()
+            || !matches!(
+                work.request.query,
+                Query::SourceMotion(MotionQuery::NearPoint(_))
+            )
+            || work.near_point_validation.is_some()
+        {
+            return Err(Failure::Binding);
+        }
+        let body = self.session.body(&work.request)?;
+        let validation = OwnedNearPointValidation {
+            session: self.session.clone(),
+            request: work.request.clone(),
+            body,
+            lease: work.lease(),
+            selected_provider: OnceLock::new(),
+        };
+        validation.check(&self.session, work)?;
+        if !work.active_for(&self.active) || now() >= slice {
+            return Err(Failure::Deadline);
+        }
+        work.near_point_validation = Some(validation);
+        Ok(())
     }
     fn advance_route_query(
         &self,
@@ -2198,10 +2487,27 @@ impl Mailbox {
     }
     fn finish_query_result(
         &self,
+        work: Work,
+        result: Result<Facts, Failure>,
+        slice: Instant,
+        staged: bool,
+    ) -> QueryDisposition {
+        self.finish_query_result_traced(
+            work,
+            result,
+            slice,
+            staged,
+            #[cfg(test)]
+            None,
+        )
+    }
+    fn finish_query_result_traced(
+        &self,
         mut work: Work,
         mut result: Result<Facts, Failure>,
         slice: Instant,
         staged: bool,
+        #[cfg(test)] mut trace: Option<&mut QueryFinishTiming>,
     ) -> QueryDisposition {
         // Clone the transport echo before the last time guards, not after them.
         let request = work.request.clone();
@@ -2211,6 +2517,11 @@ impl Mailbox {
         let now = Instant::now();
         if staged && result.is_ok() && now >= slice {
             result = Err(Failure::Deadline);
+        }
+        #[cfg(test)]
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.slice_guard = Some(now);
+            trace.error = result.as_ref().err().copied();
         }
         if matches!(result, Err(Failure::Deadline)) && now >= slice && slice < work.deadline {
             match self.retry.try_send(work) {
@@ -2225,23 +2536,53 @@ impl Mailbox {
                 }
             }
         }
+        #[cfg(test)]
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.active_guard_before = Some(Instant::now());
+        }
         if !work.active_for(&self.active) {
             return QueryDisposition::Retired;
+        }
+        #[cfg(test)]
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.active_guard_after = Some(Instant::now());
+            trace.error = result.as_ref().err().copied();
         }
         let disposition = if result.is_ok() {
             QueryDisposition::Delivered
         } else {
             QueryDisposition::Failed
         };
-        match work.reply.try_send(Reply {
+        let reply = Reply {
             ticket: work.ticket,
             request,
             result,
-        }) {
+        };
+        #[cfg(test)]
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.send_before = Some(Instant::now());
+        }
+        let sent = work.reply.try_send(reply);
+        #[cfg(test)]
+        if let Some(trace) = trace {
+            trace.send_after = Some(Instant::now());
+        }
+        match sent {
             Ok(()) => disposition,
             Err(_) => QueryDisposition::Retired,
         }
     }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct QueryFinishTiming {
+    slice_guard: Option<Instant>,
+    active_guard_before: Option<Instant>,
+    active_guard_after: Option<Instant>,
+    send_before: Option<Instant>,
+    send_after: Option<Instant>,
+    error: Option<Failure>,
 }
 
 #[cfg(test)]
@@ -2314,19 +2655,27 @@ pub(super) fn validate_facts(
             Facts::SourceMotion(MotionFacts::Spatial(reply)),
         ) => {
             session.body(request)?;
-            if reply.request != motion::Query::NearPoint(near.request.clone()) {
-                return Err(Failure::Binding);
-            }
-            let motion::Fact::NearPoint(point) = reply.fact else {
-                return Err(Failure::Binding);
-            };
-            point
-                .distance_squared(point)
-                .map(|_| ())
-                .map_err(|_| Failure::Binding)
+            validate_near_point_facts(&near.request, reply)
         }
         _ => Err(Failure::Binding),
     }
+}
+
+/// Shared exact NearPoint result checks; raw consumers still run Session::body.
+fn validate_near_point_facts(
+    request: &motion::NearPointRequest,
+    reply: &motion::Reply,
+) -> Result<(), Failure> {
+    if reply.request != motion::Query::NearPoint(request.clone()) {
+        return Err(Failure::Binding);
+    }
+    let motion::Fact::NearPoint(point) = reply.fact else {
+        return Err(Failure::Binding);
+    };
+    point
+        .distance_squared(point)
+        .map(|_| ())
+        .map_err(|_| Failure::Binding)
 }
 
 /// Shared exact Route result checks. Only the owned staged receipt may skip
@@ -2655,6 +3004,10 @@ mod tests;
 #[cfg(test)]
 #[path = "near_point_mailbox_tests.rs"]
 mod near_point_mailbox_tests;
+
+#[cfg(test)]
+#[path = "near_point_job_tests.rs"]
+mod near_point_job_tests;
 
 #[cfg(test)]
 #[path = "empty_selector_policy_tests.rs"]

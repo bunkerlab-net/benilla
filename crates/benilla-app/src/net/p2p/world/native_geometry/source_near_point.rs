@@ -2,12 +2,12 @@
 //! Exact original-candidate acceptance only. A required fallback is unavailable,
 //! never a blocked fact, guessed destination or complete OwnerPathFinder claim.
 use super::{
-    core::{Failure, Session},
+    core::{Failure, NearPointJob, Session},
     products::{
         ground_height::{MapHeightSnapshot, SourceHeightConfiguration},
         vmap::{QueryBudget, RayRequest, StaticRay},
     },
-    source_ground_height::{self, SourceGroundHeightProvider},
+    source_ground_height::{self, BoundGroundHeightQuery, SourceGroundHeightProvider},
 };
 use benilla_sim::{creature_ai::Point, creature_motion as motion, near_point::primary};
 use benilla_world_runtime::native::{
@@ -27,6 +27,7 @@ pub(crate) struct SourceNearPointConfiguration {
 
 pub(crate) struct SourceNearPointProvider {
     ground: SourceGroundHeightProvider<'static>,
+    identity: Arc<()>,
 }
 
 pub(crate) fn geometry_revision(
@@ -78,7 +79,10 @@ impl SourceNearPointProvider {
         let ground = SourceGroundHeightProvider::bind_with_same_polygon(
             session, profile, snapshot, config, binding,
         )?;
-        Ok(Self { ground })
+        Ok(Self {
+            ground,
+            identity: Arc::new(()),
+        })
     }
     pub(crate) fn bind(
         session: &Session,
@@ -93,7 +97,10 @@ impl SourceNearPointProvider {
         // accepting an arbitrary replacement geometry-revision digest.
         let ground =
             SourceGroundHeightProvider::bind_with_primary(session, profile, snapshot, config)?;
-        Ok(Self { ground })
+        Ok(Self {
+            ground,
+            identity: Arc::new(()),
+        })
     }
 
     pub(crate) fn resolve(
@@ -103,6 +110,26 @@ impl SourceNearPointProvider {
         deadline: Instant,
     ) -> Result<Facts, Failure> {
         let bound = self.ground.begin(session, request)?;
+        self.resolve_bound(bound, request, deadline)
+    }
+
+    /// Only immutable validation is reusable; every call repeats ground and LOS.
+    pub(super) fn resolve_job(
+        &self,
+        job: NearPointJob<'_>,
+        deadline: Instant,
+    ) -> Result<Facts, Failure> {
+        job.bind_provider(&self.identity)?;
+        let bound = self.ground.begin_validated(&job)?;
+        self.resolve_bound(bound, job.request(), deadline)
+    }
+
+    fn resolve_bound(
+        &self,
+        bound: BoundGroundHeightQuery<'_, '_>,
+        request: &AuthorityRequest,
+        deadline: Instant,
+    ) -> Result<Facts, Failure> {
         let Query::SourceMotion(MotionQuery::NearPoint(near)) = &request.query else {
             return Err(Failure::UnsupportedQuery);
         };

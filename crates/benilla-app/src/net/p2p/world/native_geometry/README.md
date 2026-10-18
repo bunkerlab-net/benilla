@@ -113,9 +113,9 @@ exhaust that slot; this returns deadline-unavailable rather than exceeding capac
 Actual missing/unsupported/binding errors are terminal even if time also elapsed.
 Repeatedly oversized work may still exhaust the original 500ms lifetime; retries
 are bounded availability attempts, not guaranteed progress. Generic retry alone
-does not make native work resumable; the selected Route continuation retains only
-the explicitly completed stages described below.
-No provider witness or partial Route is reused as completed authority. Generic
+does not make native work resumable; the selected Route and primary NearPoint
+continuations retain only the explicitly completed immutable stages described below.
+No provider witness or partial Route is reused as completed authority. Other generic
 callbacks keep their prior successful-result semantics: the slice limits scheduling,
 while the original job expiry and cancellation fence still govern delivery. Only an
 explicit provider deadline failure is retried; elapsed time never reclassifies a result.
@@ -409,7 +409,19 @@ and checks each searcher's source catalog and exact generation. Stable spawn IDs
 or equal dimensions alone cannot replace the source capability witness. The
 separate empty-selector fallback and StaticLos policies remain singleton-only.
 Only matching NearPoint requests and exactly echoed NearPoint replies are admitted;
-other motion queries remain unsupported. Queue cancellation, replacement, absolute
+other motion queries remain unsupported. The primary mailbox path first completes
+its immutable `Session::body` validation in a separate service attempt. A private,
+Work-owned proof binds the exact session, request, body and original job lease.
+Later attempts borrow that proof and pin the actual provider allocation; equal
+serialized request fields cannot substitute another Work or provider. The ground
+provider still performs every ordinary binding, participant, pose, branch, dimension
+and initialized swimming-snapshot check, replacing only duplicate searcher
+validation with consumption of that exact retained-profile proof. Ground and LOS
+are recomputed for every final attempt. Exact reply checks run under the retained
+proof, and a completed result past the slice is discarded and retried under the
+same 500ms lease. No geometry result survives that retry. Raw callers, the
+receiving LocalAuthority, and the separate empty-selector path retain full
+validation. This is mailbox scheduling work, with no source-operation change. Queue cancellation, replacement, absolute
 deadlines and per-frame budgets still apply. The installer receives already-loaded
 products and proof; it is not called by character entry or exploration. This does
 not complete fallback/selector search, supply OwnerPathFinder routes, or activate a

@@ -12,6 +12,9 @@ use benilla_world_runtime::native::{
 };
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
+#[path = "staged_tests.rs"]
+mod staged_tests;
+
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }

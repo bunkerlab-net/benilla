@@ -12,7 +12,7 @@ fn profile() -> Profile {
         .unwrap();
     profile
 }
-fn setup() -> (Session, AuthorityRequest) {
+pub(super) fn setup() -> (Session, AuthorityRequest) {
     let profile = profile();
     let source = profile.source_motion.as_ref().unwrap();
     let session = Session {
@@ -78,7 +78,7 @@ fn inner_mut(request: &mut AuthorityRequest) -> &mut motion::NearPointRequest {
     };
     &mut near.request
 }
-fn facts(request: &AuthorityRequest) -> Facts {
+pub(super) fn facts(request: &AuthorityRequest) -> Facts {
     Facts::SourceMotion(MotionFacts::Spatial(Box::new(motion::Reply {
         request: motion::Query::NearPoint(inner(request).clone()),
         fact: motion::Fact::NearPoint(ai::Point::new(1., 2., 3.).unwrap()),

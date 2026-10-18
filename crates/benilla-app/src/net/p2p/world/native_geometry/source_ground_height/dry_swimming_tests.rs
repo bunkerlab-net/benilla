@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Genuine habitat-3 witnesses initialized from the same actual authored dry bytes.
 use super::super::super::{
-    core::{EmptySelectorNearPointPolicy, PrimaryNearPointPolicy},
+    core::{self, EmptySelectorNearPointPolicy, PrimaryNearPointPolicy, ServiceQuery, ServiceStep},
     products::{ground_height::SourceHeightConfiguration, vmap::QueryBudget},
     source_creature_initialization::{self as initialization, tests as initial},
     source_near_point::{self, SourceNearPointConfiguration, SourceNearPointProvider},
@@ -258,6 +258,90 @@ fn actual_initialized_habitat_three_uses_swimming_branch_in_primary_and_empty_pr
         ));
         assert_eq!(world.checkpoint().unwrap(), before);
     }
+}
+
+#[test]
+fn typed_initialized_primary_preserves_swimming_height_and_exact_provider_profile() {
+    let (products, height) = products::authored_ground_height();
+    let products = Arc::new(products);
+    let proof = NonRenderParticipants::authored_fixture(height.content, height.map);
+    let snapshot = Arc::clone(&products)
+        .load_map_height_owned(height, Some(&proof))
+        .unwrap();
+    let config = SourceNearPointConfiguration {
+        height,
+        detect_position_collision: true,
+        vmap_line_of_sight_enabled: true,
+    };
+    let revision = source_near_point::geometry_revision(&snapshot, config).unwrap();
+    let (world, mut session, context) =
+        setup_swimming_location(&products, height, revision, 7, true);
+    session.primary_near_point =
+        Some(PrimaryNearPointPolicy::from_profile(world.profile()).unwrap());
+    let inspect_snapshot = Arc::clone(&products)
+        .load_map_height_owned(height, Some(&proof))
+        .unwrap();
+    let mut inspect = SourceGroundHeightProvider::bind_with_primary(
+        &session,
+        world.profile(),
+        inspect_snapshot,
+        config,
+    )
+    .unwrap();
+    let expected_ground = inspect
+        .begin(&session, &context)
+        .unwrap()
+        .derive_initial_candidate(1, deadline())
+        .unwrap();
+    let provider =
+        SourceNearPointProvider::bind(&session, world.profile(), snapshot, config).unwrap();
+    let expected_facts = provider.resolve(&session, &context, deadline()).unwrap();
+    let before = world.checkpoint().unwrap();
+    let (_authority, mailbox) = core::mailbox(session).unwrap();
+    let (lease, reply) = mailbox
+        .enqueue_service_test_request(1, context.clone())
+        .unwrap();
+    assert_eq!(
+        mailbox.serve_service_test_slice(1, true, deadline(), |_, _| {
+            panic!("completed body validation must yield before geometry")
+        }),
+        1
+    );
+    assert_eq!(
+        mailbox.serve_service_test_slice(1, true, deadline(), |query, until| {
+            let ServiceQuery::NearPoint(job) = query else {
+                panic!("NearPoint job")
+            };
+            assert!(job.lease().same_job(&lease));
+            assert_eq!(job.request(), &context);
+            let actual = inspect
+                .begin_validated(&job)?
+                .derive_initial_candidate(1, until)?;
+            assert_eq!(actual, expected_ground);
+            assert_swimming(&actual.ground, &context);
+
+            inspect.profile.clock_origin_ms += 1;
+            assert!(matches!(
+                inspect.begin_validated(&job),
+                Err(Failure::Binding)
+            ));
+            inspect.profile.clock_origin_ms -= 1;
+            inspect.session.world[0] ^= 1;
+            assert!(matches!(
+                inspect.begin_validated(&job),
+                Err(Failure::Binding)
+            ));
+            inspect.session.world[0] ^= 1;
+
+            let facts = provider.resolve_job(job, until)?;
+            assert_eq!(facts, expected_facts);
+            Ok(ServiceStep::Complete(Box::new(facts)))
+        }),
+        1
+    );
+    assert_eq!(reply.try_result().unwrap().unwrap(), expected_facts);
+    assert!(!lease.is_active());
+    assert_eq!(world.checkpoint().unwrap(), before);
 }
 
 #[test]

@@ -318,6 +318,12 @@ fn process(
     let queries = mailbox.serve_service_queries_until(allowance - controls, stage_routes, |query, deadline| {
         let validated = match query {
             ServiceQuery::Immediate(validated) => validated,
+            ServiceQuery::NearPoint(job) => {
+                if !live.0 { return Err(Failure::MissingGeometry); }
+                return primary_near_point.as_ref().ok_or(Failure::MissingGeometry)?
+                    .resolve_job(job, deadline)
+                    .map(|facts| core::ServiceStep::Complete(Box::new(facts)));
+            }
             ServiceQuery::Route(job) => {
                 if !live.0 { return Err(Failure::MissingGeometry); }
                 let provider = same_polygon_route.as_mut().ok_or(Failure::MissingGeometry)?;

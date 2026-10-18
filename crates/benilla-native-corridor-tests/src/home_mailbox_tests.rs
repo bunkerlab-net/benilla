@@ -44,7 +44,15 @@ impl Authority for Driver {
         match &request.query {
             Query::PlayerEnvironment(_)
             | Query::SourceMotion(MotionQuery::Route(_) | MotionQuery::NearPoint(_)) => {
-                let reply = self.local.resolve(request)?;
+                let started = Instant::now();
+                let reply = self.local.resolve(request).inspect_err(|error| {
+                    eprintln!(
+                        "Home prerequisite failed: tick={} query={:?} elapsed={:?} error={error:?}",
+                        request.binding.tick,
+                        request.query,
+                        started.elapsed()
+                    );
+                })?;
                 if is_home(request) {
                     self.home = Some(reply.clone());
                     if self.fail_after_home {
@@ -172,6 +180,9 @@ struct Observed {
     preparations: BTreeMap<u64, PreparationObserved>,
     jobs: BTreeMap<u64, (JobLease, usize)>,
     home_tickets: Vec<u64>,
+    near_point_tickets: Vec<u64>,
+    near_point_late_ticket: Option<u64>,
+    near_point_recertified: bool,
     home_candidates: Vec<usize>,
     late_ticket: Option<u64>,
     recertified: bool,
@@ -234,7 +245,12 @@ fn run(stop: Stop) {
         }
         // Physics runs outside each mailbox slice, just as the installed app's
         // systems establish the current geometry view before service dispatch.
+        let physics_started = Instant::now();
         geometry.advance_physics();
+        let physics_elapsed = physics_started.elapsed();
+        if physics_elapsed >= Duration::from_millis(2) {
+            eprintln!("Home geometry preparation: elapsed={physics_elapsed:?}");
+        }
         providers.route.reap_jobs();
         let service = mailbox.as_ref().unwrap();
         let controls =
@@ -381,6 +397,28 @@ fn run(stop: Stop) {
                             }
                             result
                         }
+                        ServiceQuery::NearPoint(job) => {
+                            let lease = job.lease();
+                            observed.job(lease.clone(), deadline);
+                            if !observed.near_point_tickets.contains(&lease.ticket()) {
+                                observed.near_point_tickets.push(lease.ticket());
+                            }
+                            let facts = providers.near_point.resolve_job(job, deadline)?;
+                            if stop == Stop::Commit {
+                                if observed.near_point_late_ticket == Some(lease.ticket()) {
+                                    observed.near_point_recertified = true;
+                                } else if observed.near_point_late_ticket.is_none() {
+                                    observed.near_point_late_ticket = Some(lease.ticket());
+                                    // A completed but late NearPoint result must be discarded.
+                                    // Retry runs real ground/LOS again under this exact Work.
+                                    std::thread::sleep(
+                                        deadline.saturating_duration_since(Instant::now())
+                                            + Duration::from_micros(50),
+                                    );
+                                }
+                            }
+                            Ok(ServiceStep::Complete(Box::new(facts)))
+                        }
                         ServiceQuery::Immediate(validated) => {
                             let facts = match &validated.request().query {
                                 Query::PlayerEnvironment(_) => providers.environment.resolve(
@@ -424,6 +462,10 @@ fn run(stop: Stop) {
     assert_eq!(providers.route.pending_job_count(), 0);
     assert!(observed.jobs.values().all(|(lease, _)| !lease.is_active()));
     assert!(!observed.preparations.is_empty());
+    assert!(
+        !observed.near_point_tickets.is_empty(),
+        "the actual initialized NearPoint uses a retained Work proof"
+    );
     for preparation in observed.preparations.values() {
         assert!(preparation.pending && preparation.completed);
         let ordered = ["adopt_validated_context", "prepare_constructor", "gate"].map(|phase| {
@@ -436,6 +478,8 @@ fn run(stop: Stop) {
         assert!(ordered.windows(2).all(|pair| pair[0] < pair[1]));
     }
     if stop == Stop::Commit {
+        assert!(observed.near_point_recertified);
+        assert!(observed.jobs[&observed.near_point_late_ticket.unwrap()].1 > 1);
         assert!(observed.home_acked);
         assert!(observed.recertified);
         assert_eq!(
