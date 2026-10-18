@@ -196,8 +196,28 @@ fn loaded_combat_home_returns_to_combat_origin_then_resets_and_resumes_wander() 
         consumer.providers.route.committed_candidate().is_none(),
         "Home local cache cannot become retained authority"
     );
-    assert_eq!(consumer.providers.route.registered_generator_count(), 0);
-    assert_eq!(consumer.providers.route.registered_constructor_count(), 0);
+    // Clear(false) retires Chase, but keeps the actual default RANDOM owner
+    // under Home. The old zero-owner assertion incorrectly treated Home's
+    // stack-local PathFinder as the only source of constructor ownership.
+    let head = &consumer.boundary.heads()[0];
+    let suspended = head
+        .suspended_wander()
+        .expect("Home retains default Wander");
+    assert_eq!(
+        suspended.construction(),
+        Some(retained.pathfinder_construction)
+    );
+    assert_eq!(suspended.cache(), Some(prior_cache.as_ref()));
+    assert_eq!(
+        consumer
+            .providers
+            .route
+            .committed_candidate_for_constructor(npc, retained.pathfinder_construction)
+            .map(|(identity, cache)| (identity, cache.clone())),
+        committed,
+    );
+    assert_eq!(consumer.providers.route.registered_generator_count(), 1);
+    assert_eq!(consumer.providers.route.registered_constructor_count(), 1);
     assert_dry_owner(&world);
     let returning = world.checkpoint().unwrap();
     let route_floor = consumer.route_replies.len();

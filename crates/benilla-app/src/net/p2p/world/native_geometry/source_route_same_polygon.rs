@@ -663,7 +663,23 @@ impl SourceSamePolygonRouteProvider {
         for head in boundary.heads() {
             if !session.bodies.contains_key(&head.npc().spawn)
                 || previous_spawn.is_some_and(|spawn| spawn >= head.npc().spawn)
-                || head.cache().is_some() && head.construction().is_none()
+                || head.owner_heads().any(|owner| {
+                    owner.cache().is_some() && owner.construction().is_none()
+                        || owner.construction().is_some() && owner.constructor_kind().is_none()
+                        || owner.constructor_kind()
+                            == Some(motion::PathfinderConstructorKind::HomeLocal)
+                        || owner.constructor_kind()
+                            == Some(motion::PathfinderConstructorKind::WanderInitialized)
+                            && owner.construction().is_none()
+                })
+                || head.suspended_wander().is_some_and(|suspended| {
+                    suspended.constructor_kind()
+                        != Some(motion::PathfinderConstructorKind::WanderInitialized)
+                        || head.constructor_kind()
+                            == Some(motion::PathfinderConstructorKind::WanderInitialized)
+                        || suspended.construction().is_none()
+                        || suspended.construction() == head.construction()
+                })
             {
                 return Err(Failure::Binding);
             }
@@ -703,7 +719,9 @@ impl SourceSamePolygonRouteProvider {
                 Err(Failure::Binding)
             };
         }
-        if boundary.heads().iter().any(|head| head.cache().is_some())
+        if boundary
+            .owner_heads()
+            .any(|(_, head)| head.cache().is_some())
             || self
                 .candidates
                 .iter()
@@ -714,8 +732,8 @@ impl SourceSamePolygonRouteProvider {
         self.committed_boundary = Some(boundary.clone());
         Ok(())
     }
-    /// Validate the whole certified chain and final current Chase cache before
-    /// changing any retained owner. Spline prior-cache history is not a head.
+    /// Validate the whole certified chain and exact current/suspended caches
+    /// before changing any retained owner. Spline prior-cache history is not a head.
     pub(super) fn acknowledge(
         &mut self,
         session: &Session,
@@ -800,13 +818,15 @@ impl SourceSamePolygonRouteProvider {
         }
         // Every live head must be the final exact candidate of its accepted chain.
         // Explicit generator absence drops ownership rather than promoting history.
-        for head in boundary.heads() {
+        for (npc, head) in boundary.owner_heads() {
             if let Some(cache) = head.cache() {
                 let index = self
                     .candidates
                     .iter()
                     .position(|entry| {
-                        entry.npc == head.npc() && Some(entry.construction) == head.construction()
+                        entry.npc == npc
+                            && Some(entry.construction) == head.construction()
+                            && Some(entry.kind) == head.constructor_kind()
                     })
                     .ok_or(Failure::Binding)?;
                 if heads[index]
@@ -818,11 +838,13 @@ impl SourceSamePolygonRouteProvider {
             }
         }
         for (index, entry) in self.candidates.iter_mut().enumerate() {
-            let current = boundary.heads().iter().find(|head| {
-                head.npc() == entry.npc && head.construction() == Some(entry.construction)
+            let owner = boundary.owner_heads().find(|(npc, head)| {
+                *npc == entry.npc
+                    && head.construction() == Some(entry.construction)
+                    && head.constructor_kind() == Some(entry.kind)
             });
-            let selected = current
-                .and_then(|head| head.cache())
+            let selected = owner
+                .and_then(|(_, head)| head.cache())
                 .and_then(|_| heads[index].take());
             entry.proposals.retain(|candidate| {
                 selected
@@ -843,12 +865,14 @@ impl SourceSamePolygonRouteProvider {
             }
         }
         // Retire replaced generators only after the whole outer ACK validates.
-        // Cache-free current heads retain their constructor for a later dispatch;
-        // Home's local owner and the pre-Reset default can never become live heads.
+        // Cache-free owners retain their constructor for a later dispatch. The
+        // suspended default survives overlays, but Reset replaces its constructor.
         self.candidates.retain(|entry| {
             entry.kind != motion::PathfinderConstructorKind::HomeLocal
-                && boundary.heads().iter().any(|head| {
-                    head.npc() == entry.npc && head.construction() == Some(entry.construction)
+                && boundary.owner_heads().any(|(npc, head)| {
+                    npc == entry.npc
+                        && head.construction() == Some(entry.construction)
+                        && head.constructor_kind() == Some(entry.kind)
                 })
         });
         self.queries.retain_committed_generators(boundary);
@@ -883,21 +907,47 @@ impl SourceSamePolygonRouteProvider {
     }
     #[cfg(test)]
     pub(super) fn committed_candidate(&self) -> Option<(usize, &motion::PathFinderCache)> {
-        self.candidates
+        self.committed_boundary
+            .as_ref()?
+            .heads()
             .iter()
-            .find_map(|entry| entry.committed.as_ref())
-            .map(|candidate| (Rc::as_ptr(candidate) as usize, &candidate.after_cache))
+            .find_map(|head| self.committed_candidate_for(head.npc()))
     }
+    /// Current owner only; suspended ownership requires the explicit constructor.
     #[cfg(test)]
     pub(super) fn committed_candidate_for(
         &self,
         npc: NpcId,
     ) -> Option<(usize, &motion::PathFinderCache)> {
+        let construction = self
+            .committed_boundary
+            .as_ref()?
+            .heads()
+            .iter()
+            .find(|head| head.npc() == npc)?
+            .construction()?;
+        self.committed_candidate_for_constructor(npc, construction)
+    }
+    #[cfg(test)]
+    pub(super) fn committed_candidate_for_constructor(
+        &self,
+        npc: NpcId,
+        construction: motion::QueryBinding,
+    ) -> Option<(usize, &motion::PathFinderCache)> {
         self.candidates
             .iter()
-            .filter(|entry| entry.npc == npc)
-            .find_map(|entry| entry.committed.as_ref())
+            .find(|entry| entry.npc == npc && entry.construction == construction)?
+            .committed
+            .as_ref()
             .map(|candidate| (Rc::as_ptr(candidate) as usize, &candidate.after_cache))
+    }
+    #[cfg(test)]
+    pub(super) fn registered_constructor_for(
+        &self,
+        npc: NpcId,
+        construction: motion::QueryBinding,
+    ) -> Option<(usize, PathfinderDispatchReceipt, bool)> {
+        self.queries.registered_constructor_for(npc, construction)
     }
     #[cfg(test)]
     pub(super) fn candidate_identity(&self, reply: &AuthorityReply) -> Option<usize> {

@@ -228,3 +228,32 @@ existing 2,201-alive-tick baseline. The predicted retained-failure seed 841 was
 confirmed by actual loaded geometry. Runtime verification passed 839 unit tests
 and 40 integration tests; the three Home mailbox regressions also passed. These
 are component receipts, not authentic populated-world startup acceptance.
+
+## Live suspended-owner retirement
+
+The app commit boundary represents the active generator and its suspended default
+separately. The selected model permits active Chase plus one suspended Wander;
+this is not a general limit on the CMaNGOS movement stack. Each live constructor
+retains its own query binding, committed candidate and optional reconstruction
+evidence through an accepted outer ACK. Home retires Chase, but the suspended
+Wander remains alive until arrival resets the default. Home's PathFinder is local
+to its route calculation and is never promoted to a retained owner. Reset replaces
+the old Wander finder, preserves count and clears its timer; death clears both.
+
+An earlier Home component assertion expected zero retained constructors during
+Home. That was an ownership-scope error: the suspended default remained alive in
+the source and simulation. Continuation passed because later Reset replaced its
+finder, but the premature app retirement could not support faithful persistence.
+The corrected acceptance must retain that default through Home.
+
+This live-ownership correction does not open Chase/suspended current-checkpoint
+restore. NORMAL suspended Wander still lacks a checkpoint-owned successful head
+after Chase replaces the global spline, and Chase has no separate challenged
+native reconstruction certificate. Live ACK evidence is not a substitute for
+either prerequisite. The separate existing cache-free-anchor recipe may reconstruct
+the pair by executing every accepted input through fresh providers and comparing
+complete records. Its 2,048-record bound remains; it is not compact current-checkpoint
+restoration. Three concrete tests passed: sustained Chase with retained replan
+through Home/Reset/relaunch, lethal clear, and fresh full-history reconstruction
+with failure atomicity and exact next-tick equality. Direct cached restore remains
+rejected in both original and reconstructed dual-owner worlds.

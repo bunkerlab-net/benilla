@@ -144,6 +144,42 @@ impl SavedRecipe {
     }
 }
 impl SourceSamePolygonRouteProvider {
+    /// Test-only capture inspection does not authorize checkpoint encoding or reopen.
+    pub(in super::super) fn reconstruction_capture_for(
+        &self,
+        npc: NpcId,
+        construction: motion::QueryBinding,
+    ) -> Option<Vec<u8>> {
+        let capture = self
+            .candidates
+            .iter()
+            .find(|entry| entry.npc == npc && entry.construction == construction)?
+            .reconstruction
+            .as_ref()?;
+        let native = capture.native.recipe().ok()?;
+        let operations: Vec<_> = native
+            .operations
+            .iter()
+            .map(|operation| (operation.ordinal, operation.from, operation.raw_end))
+            .collect();
+        serde_json::to_vec(&(
+            native.version,
+            native.compatibility_version,
+            [native.slot.map_id, native.slot.instance_id],
+            native.query_capacity,
+            [
+                native.config.normalize_z,
+                native.config.ignore_normalization,
+            ],
+            [native.filter.include_flags, native.filter.exclude_flags],
+            native.operation_count,
+            operations,
+            &capture.constructor,
+            &capture.operations,
+        ))
+        .ok()
+    }
+
     pub(in super::super) fn encode_wander_reconstruction(
         &self,
         session: &Session,
@@ -324,7 +360,7 @@ impl SourceSamePolygonRouteProvider {
             || self
                 .committed_boundary
                 .as_ref()
-                .is_some_and(|b| b.tick() != 0 || b.heads().iter().any(|h| h.cache().is_some()))
+                .is_some_and(|b| b.tick() != 0 || b.owner_heads().any(|(_, h)| h.cache().is_some()))
         {
             return Err(NativeError::AuthorityBinding);
         }

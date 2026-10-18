@@ -57,6 +57,7 @@ mod wander_component_tests;
 
 mod home_component_tests;
 mod home_mailbox_tests;
+mod suspended_owner_component_tests;
 
 mod reconstruction_component_tests;
 mod staged_wander_tests;

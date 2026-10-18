@@ -618,6 +618,11 @@ fn registered_handle_reborrows_exact_query_and_rejects_foreign_or_replaced_seal(
     let request = first_unconsumed(&profile);
     let handle = provider.prepare_constructor(&request).unwrap();
     assert_eq!(provider.constructor_count(), 1);
+    let before = provider
+        .registered_constructor_for(handle.npc, handle.construction)
+        .unwrap();
+    assert!(before.1.same_live_dispatch(&handle.first_event));
+    assert!(!before.2);
     assert!(!provider.reborrow(&handle).unwrap().current_selected());
     provider
         .reborrow(&handle)
@@ -625,6 +630,12 @@ fn registered_handle_reborrows_exact_query_and_rejects_foreign_or_replaced_seal(
         .select_and_check_tiles(until())
         .unwrap();
     assert!(provider.reborrow(&handle).unwrap().current_selected());
+    let selected = provider
+        .registered_constructor_for(handle.npc, handle.construction)
+        .unwrap();
+    assert_eq!(before.0, selected.0);
+    assert!(before.1.same_live_dispatch(&selected.1));
+    assert!(selected.2);
     let mut foreign = replacement(&profile, &session);
     assert_eq!(
         foreign.reborrow(&handle).err(),
@@ -645,6 +656,18 @@ fn registered_handle_reborrows_exact_query_and_rejects_foreign_or_replaced_seal(
         Some(ConstructorQueryError::Binding)
     );
     assert!(provider.reborrow(&fresh).unwrap().current_selected());
+    let replaced = provider
+        .registered_constructor_for(fresh.npc, fresh.construction)
+        .unwrap();
+    assert_eq!(selected.0, replaced.0);
+    assert!(!selected.1.same_live_dispatch(&replaced.1));
+    assert!(replaced.1.same_live_dispatch(&fresh.first_event));
+    assert!(replaced.2);
+    let mut missing = fresh.construction;
+    missing.query_id += 1;
+    assert!(provider
+        .registered_constructor_for(fresh.npc, missing)
+        .is_none());
 }
 
 #[test]

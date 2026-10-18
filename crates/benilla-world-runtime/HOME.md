@@ -49,7 +49,11 @@ Combat-start position is not substituted for Wander's respawn center.
 The temporary Home terminal is retained through proposal and rollback so an
 uncommitted retry can use its exact native allocation. Only a validated outer
 commit acknowledgement retires temporary and obsolete constructor ownership.
-Current cache-free constructed owners remain live. Stable NPC/construction keys
+Current cache-free constructed owners and the suspended default remain live.
+Chase retires at Home entry; suspended Wander retains its original loaded owner
+until arrival Reset replaces it. Earlier component assertions expected zero
+retained owners during Home; that prematurely discarded a still-live default
+and has been corrected as an app ownership error. Stable NPC/construction keys
 prevent registry compaction from changing pending handles.
 
 A historical Home cache in the spline snapshot is validation evidence, not a

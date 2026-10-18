@@ -800,15 +800,18 @@ transferring ownership.
 
 Immediately after successful `step_batch` and input retirement, the controller
 captures an app-local nonserializable notice from that exact record and final
-current Chase caches. It does so before projection/checkpoint can clear the
+current and suspended generator caches. It does so before projection/checkpoint can clear the
 journal. The notice binds each consecutive tick, previous record, before/after
-state, ordered Route replies and current owner/construction/cache, including
-explicit absence. Successful calculation, concrete certification and reply
+state, ordered Route replies and each NPC's distinct current and suspended-default
+owner/construction/cache, including explicit absence. Successful calculation, concrete certification and reply
 transmission remain speculative. Only this notice can acknowledge their use.
 
 On its NonSend owner thread the provider validates the complete exact certified
-chain and final current cache before atomically retaining the actual final native
-candidate and pruning obsolete speculation. Historical spline prior-cache DTOs
+chain and each final owned cache before atomically retaining its actual native
+candidate and pruning obsolete speculation. Chase and suspended Wander have
+different constructor keys even for the same NPC generation. Suspended Wander
+survives Chase and Home; Chase retires at Home entry, and the old default retires
+when Home completion resets it. Home-local calculation ownership is never retained. Historical spline prior-cache DTOs
 remain unchanged and cannot select the current head. Exact duplicate notices are
 idempotent; stale, skipped, wrong-attachment or mismatched notices cannot prune.
 The committed watermark rejects delayed calculations before candidate staging.

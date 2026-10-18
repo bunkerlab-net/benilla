@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! App-only evidence of an actual committed controller transition. These values are
 //! deliberately not serializable: a record or cache DTO cannot reopen a loaded owner.
-use benilla_sim::creature_motion::{Generator, PathFinderCache, QueryBinding};
+use benilla_sim::creature_motion::{
+    Generator, PathFinderCache, PathfinderConstructorKind, QueryBinding,
+};
 use benilla_world_runtime::{native as n, Digest, NpcId, PlayerId, WorldId};
 use std::sync::Arc;
 
@@ -15,23 +17,52 @@ impl PartialEq for RouteCommitSession {
 }
 impl Eq for RouteCommitSession {}
 
-/// Every current NPC is represented. Missing construction/cache explicitly means
-/// the current generator owns no corresponding head; historical splines are ignored.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RouteCommitHead {
-    npc: NpcId,
+/// The retained PathFinder state of one actual MotionMaster owner. Home's local
+/// constructor is never retained, and historical splines supply no owner head.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RouteCommitOwnerHead {
+    kind: Option<PathfinderConstructorKind>,
     construction: Option<QueryBinding>,
     cache: Option<Box<PathFinderCache>>,
 }
-impl RouteCommitHead {
-    pub(crate) fn npc(&self) -> NpcId {
-        self.npc
+impl RouteCommitOwnerHead {
+    pub(crate) fn constructor_kind(&self) -> Option<PathfinderConstructorKind> {
+        self.kind
     }
     pub(crate) fn construction(&self) -> Option<QueryBinding> {
         self.construction
     }
     pub(crate) fn cache(&self) -> Option<&PathFinderCache> {
         self.cache.as_deref()
+    }
+}
+
+/// Exactly one ordered record per NPC. The selected motion model retains at most
+/// one suspended Wander below its current Chase or Home generator.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RouteCommitHead {
+    npc: NpcId,
+    current: RouteCommitOwnerHead,
+    suspended_wander: Option<RouteCommitOwnerHead>,
+}
+impl RouteCommitHead {
+    pub(crate) fn npc(&self) -> NpcId {
+        self.npc
+    }
+    pub(crate) fn constructor_kind(&self) -> Option<PathfinderConstructorKind> {
+        self.current.constructor_kind()
+    }
+    pub(crate) fn construction(&self) -> Option<QueryBinding> {
+        self.current.construction()
+    }
+    pub(crate) fn cache(&self) -> Option<&PathFinderCache> {
+        self.current.cache()
+    }
+    pub(crate) fn suspended_wander(&self) -> Option<&RouteCommitOwnerHead> {
+        self.suspended_wander.as_ref()
+    }
+    pub(crate) fn owner_heads(&self) -> impl Iterator<Item = &RouteCommitOwnerHead> {
+        std::iter::once(&self.current).chain(self.suspended_wander())
     }
 }
 
@@ -74,7 +105,10 @@ impl RouteCommitBoundary {
             checkpoint.history_tip,
             checkpoint.state_digest,
         );
-        if boundary.heads.iter().any(|head| head.cache.is_some()) {
+        if boundary
+            .owner_heads()
+            .any(|(_, head)| head.cache().is_some())
+        {
             return Err(n::NativeError::UnsupportedMechanic(
                 "route commit attachment requires a cache-free world",
             ));
@@ -106,23 +140,38 @@ impl RouteCommitBoundary {
             .npcs
             .values()
             .map(|npc| {
-                let (construction, cache) =
-                    npc.source_motion.as_ref().map_or((None, None), |source| {
-                        match source.motion.snapshot().generator {
-                            Generator::Chase(chase) => {
-                                (chase.pathfinder_construction, chase.pathfinder_cache)
-                            }
-                            Generator::Wander(wander) => (
-                                Some(wander.pathfinder_construction),
-                                wander.pathfinder_cache,
-                            ),
-                            _ => (None, None),
-                        }
-                    });
+                let (current, suspended_wander) = npc.source_motion.as_ref().map_or_else(
+                    || (RouteCommitOwnerHead::default(), None),
+                    |source| {
+                        let snapshot = source.motion.snapshot();
+                        let current = match snapshot.generator {
+                            Generator::Chase(chase) => RouteCommitOwnerHead {
+                                kind: Some(PathfinderConstructorKind::ChaseLazy),
+                                construction: chase.pathfinder_construction,
+                                cache: chase.pathfinder_cache,
+                            },
+                            Generator::Wander(wander) => RouteCommitOwnerHead {
+                                kind: Some(PathfinderConstructorKind::WanderInitialized),
+                                construction: Some(wander.pathfinder_construction),
+                                cache: wander.pathfinder_cache,
+                            },
+                            _ => RouteCommitOwnerHead::default(),
+                        };
+                        let suspended_wander =
+                            snapshot
+                                .suspended_wander
+                                .map(|wander| RouteCommitOwnerHead {
+                                    kind: Some(PathfinderConstructorKind::WanderInitialized),
+                                    construction: Some(wander.pathfinder_construction),
+                                    cache: wander.pathfinder_cache,
+                                });
+                        (current, suspended_wander)
+                    },
+                );
                 RouteCommitHead {
                     npc: npc.id,
-                    construction,
-                    cache,
+                    current,
+                    suspended_wander,
                 }
             })
             .collect();
@@ -168,6 +217,11 @@ impl RouteCommitBoundary {
     }
     pub(crate) fn heads(&self) -> &[RouteCommitHead] {
         &self.heads
+    }
+    pub(crate) fn owner_heads(&self) -> impl Iterator<Item = (NpcId, &RouteCommitOwnerHead)> {
+        self.heads
+            .iter()
+            .flat_map(|head| head.owner_heads().map(move |owner| (head.npc(), owner)))
     }
 }
 
@@ -267,9 +321,8 @@ pub(crate) mod authored_conflicts {
         let [a, b] = wrong.boundary.heads.as_mut_slice() else {
             panic!("authored conflict requires exactly two genuine owners");
         };
-        assert!(a.cache.is_some() && b.cache.is_some());
-        std::mem::swap(&mut a.construction, &mut b.construction);
-        std::mem::swap(&mut a.cache, &mut b.cache);
+        assert!(a.current.cache.is_some() && b.current.cache.is_some());
+        std::mem::swap(&mut a.current, &mut b.current);
         wrong
     }
     pub(crate) fn wrong_record(notice: &RouteCommitNotice) -> RouteCommitNotice {
@@ -283,12 +336,51 @@ pub(crate) mod authored_conflicts {
             .boundary
             .heads
             .iter_mut()
-            .find_map(|head| head.cache.as_mut())
+            .find_map(|head| head.current.cache.as_mut())
             .expect("authored conflict requires a genuine current cache");
         cache.revision = cache
             .revision
             .checked_add(1)
             .expect("bounded fixture cache revision");
+        wrong
+    }
+    pub(crate) fn crossed_owner_roles(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        let head = wrong
+            .boundary
+            .heads
+            .iter_mut()
+            .find(|head| head.current.cache.is_some() && head.suspended_wander.is_some())
+            .expect("authored conflict requires current and suspended owners");
+        std::mem::swap(&mut head.current, head.suspended_wander.as_mut().unwrap());
+        wrong
+    }
+    pub(crate) fn wrong_suspended_cache(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        let cache = wrong
+            .boundary
+            .heads
+            .iter_mut()
+            .find_map(|head| head.suspended_wander.as_mut()?.cache.as_mut())
+            .expect("authored conflict requires a genuine suspended cache");
+        cache.revision = cache
+            .revision
+            .checked_add(1)
+            .expect("bounded fixture cache revision");
+        wrong
+    }
+    pub(crate) fn wrong_suspended_construction(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        let construction = wrong
+            .boundary
+            .heads
+            .iter_mut()
+            .find_map(|head| head.suspended_wander.as_mut()?.construction.as_mut())
+            .expect("authored conflict requires a genuine suspended constructor");
+        construction.query_id = construction
+            .query_id
+            .checked_add(1)
+            .expect("bounded fixture constructor query id");
         wrong
     }
     pub(crate) fn without_routes(notice: &RouteCommitNotice) -> RouteCommitNotice {

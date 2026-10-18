@@ -198,6 +198,26 @@ impl SourcePathfinderQueryProvider {
         self.constructors.len()
     }
 
+    /// Inspect a live registered constructor only after checking its retained
+    /// query is still the provider's original native allocation.
+    #[cfg(test)]
+    pub(super) fn registered_constructor_for(
+        &self,
+        npc: NpcId,
+        construction: QueryBinding,
+    ) -> Option<(usize, PathfinderDispatchReceipt, bool)> {
+        let entry = self
+            .constructors
+            .iter()
+            .find(|entry| entry.npc == npc && entry.construction == construction)?;
+        entry.query.check_query(self.navigation.query()).ok()?;
+        Some((
+            Rc::as_ptr(&self.identity) as usize,
+            entry.first_event.clone(),
+            entry.query.current_selected(),
+        ))
+    }
+
     #[cfg(all(test, not(benilla_headless_geometry)))]
     pub(super) fn nav_query(&self) -> &benilla_native_nav::SourceMapQuery {
         self.navigation.query()
@@ -369,8 +389,8 @@ impl SourcePathfinderQueryProvider {
         Ok((terminal, witness))
     }
 
-    /// Called only after the complete outer ACK validates. A cache-free current
-    /// generator still owns its constructor; replaced and local Home owners do not.
+    /// Called only after the complete outer ACK validates. Current and suspended
+    /// generators keep their constructors; replaced and local Home owners do not.
     pub(super) fn retain_committed_generators(
         &mut self,
         boundary: &super::route_commit::RouteCommitBoundary,
@@ -378,8 +398,10 @@ impl SourcePathfinderQueryProvider {
         self.constructors.retain(|entry| {
             entry.first_event.constructor_kind()
                 != benilla_sim::creature_motion::PathfinderConstructorKind::HomeLocal
-                && boundary.heads().iter().any(|head| {
-                    head.npc() == entry.npc && head.construction() == Some(entry.construction)
+                && boundary.owner_heads().any(|(npc, head)| {
+                    npc == entry.npc
+                        && head.construction() == Some(entry.construction)
+                        && head.constructor_kind() == Some(entry.first_event.constructor_kind())
                 })
         });
     }
