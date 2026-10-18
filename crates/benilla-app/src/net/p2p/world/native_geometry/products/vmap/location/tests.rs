@@ -11,9 +11,24 @@ const TILE: &[u8] = include_bytes!(
     "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation/000_32_32.vmtile"
 );
 const MODELS: [(&str, &[u8]); 3] = [
-    ("volume.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation/volume.wmo.vmo")),
-    ("raised.wmo.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation/raised.wmo.vmo")),
-    ("volume.m2.vmo", include_bytes!("../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation/volume.m2.vmo")),
+    (
+        "volume.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation/volume.wmo.vmo"
+        ),
+    ),
+    (
+        "raised.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation/raised.wmo.vmo"
+        ),
+    ),
+    (
+        "volume.m2.vmo",
+        include_bytes!(
+            "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/scopedlocation/volume.m2.vmo"
+        ),
+    ),
 ];
 
 pub(crate) fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
@@ -362,4 +377,46 @@ fn nonempty_liquid_bytes_never_publish_a_location_snapshot() {
     assert!(product_tests::load(spec, &files)
         .and_then(|products| products.load_static_vmap())
         .is_err());
+}
+
+#[test]
+fn exact_source_m2_point_queries_retain_zero_bounds_and_instance_exclusion() {
+    let snapshot = super::super::m2_tests::snapshot();
+    let number = |value: &str| f32::from_bits(u32::from_str_radix(value, 16).unwrap());
+    let mut count = 0;
+    for line in include_str!(
+        "../../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/points.tsv"
+    ).lines().filter(|line| !line.starts_with('#')) {
+        let row: Vec<_> = line.split('\t').collect();
+        let (index, spawn_id) = match row[0] { "authored" => (0, 101), "signed-zero" => (1, 102), "rotated" => (0, 103), _ => panic!("unknown scope") };
+        let model = &snapshot.models[index];
+        let position = [number(row[2]), number(row[3]), number(row[4])];
+        let down = [0., 0., -1.];
+        let group = model.groups[0].inside_distance(position, down, &mut QueryBudget::new(deadline())).unwrap();
+        assert_eq!(group.is_some(), row[13] == "1", "{} group {position:?}", row[0]);
+        if let Some(distance) = group {
+            assert_eq!(distance.to_bits(), number(row[14]).to_bits());
+        }
+        let location = model.location(position, down, &mut QueryBudget::new(deadline())).unwrap();
+        assert_eq!(location.is_some(), row[10] == "1", "{} model {position:?}", row[0]);
+        // A single group makes the original area and location selectors equivalent.
+        assert_eq!(row[5], row[10]);
+        if let Some((group, distance)) = location {
+            assert_eq!(distance.to_bits(), number(row[6]).to_bits());
+            assert_eq!(distance.to_bits(), number(row[11]).to_bits());
+            assert_eq!(model.root_id, row[7].parse::<u32>().unwrap());
+            assert_eq!(model.root_id, row[12].parse::<u32>().unwrap());
+            assert_eq!(model.groups[group].id, row[8].parse::<u32>().unwrap());
+            assert_eq!(model.groups[group].flags, row[9].parse::<u32>().unwrap());
+        }
+        let world = [number(row[15]), number(row[16]), number(row[17])];
+        let spawn = snapshot.spawns.iter().flatten().find(|spawn| spawn.id == spawn_id).unwrap();
+        assert_eq!(row[18], "0");
+        assert_eq!(row[19], "0");
+        assert!(spawn.location_candidate(model, world, &mut QueryBudget::new(deadline())).unwrap().is_none());
+        assert_eq!(snapshot.query_location(request(&snapshot, world), deadline()).unwrap().result,
+            StaticLocation::None);
+        count += 1;
+    }
+    assert_eq!(count, 18);
 }

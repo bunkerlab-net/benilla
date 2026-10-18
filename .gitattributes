@@ -57,3 +57,10 @@ crates/benilla-native-nav/tools/fixtures/retained-same-poly/*.test-fixture text 
 # SHA-pinned native combat numeric fixtures must retain exact source-oracle bytes.
 crates/benilla-world-runtime/src/native/combat/melee_timers/source_oracle.tsv text eol=lf
 crates/benilla-world-runtime/src/native/interactions/spell_projectile_delay_oracle.tsv text eol=lf
+
+# Original M2 extractor fragments retain source whitespace; authored products are binary.
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/source-fragments.cpp.test-fixture text eol=lf -whitespace
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.m2.test-fixture -text
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.raw.vmap -text
+crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/products/* -text

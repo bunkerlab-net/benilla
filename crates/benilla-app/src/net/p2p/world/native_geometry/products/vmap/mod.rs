@@ -7,6 +7,8 @@ mod bih;
 mod height;
 pub(crate) mod liquid;
 mod location;
+#[cfg(test)]
+mod m2_tests;
 mod math;
 mod trig;
 use self::{bih::Bih, math::*};
@@ -23,7 +25,7 @@ const MAX_ELEMENTS: usize = 262_144;
 const MAX_GROUPS: usize = 4096;
 const MAX_SPAWNS: usize = 16_384;
 pub(crate) const MAX_QUERY_WORK: usize = 32_768;
-const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v2-glibc-2.41-bounded-trig";
+const POLICY: &[u8] = b"benilla-dry-static-vmap-ray-v3-source-m2-zero-group-bounds";
 
 pub(super) fn dry_policy(inventory: Hash) -> Hash {
     let mut hash = Sha256::new();
@@ -145,21 +147,10 @@ impl VmapSnapshot {
         let tree = Bih::decode(&mut c)?;
         c.magic(b"GOBJ")?;
         c.finish()?;
-        let mut models = Vec::new();
         let mut model_ids = BTreeMap::new();
-        let mut groups = 0usize;
-        for (id, p) in &products.products {
+        for id in products.products.keys() {
             if let ProductId::VmapModel(name) = id {
-                let model = Model::decode_profile(&p.bytes, allow_liquid)?;
-                groups = groups
-                    .checked_add(model.groups.len())
-                    .ok_or(Error::Budget)?;
-                if groups > MAX_GROUPS {
-                    return Err(Error::Budget);
-                }
-                model_ids.insert(name.as_str(), models.len());
-                models.try_reserve(1).map_err(|_| Error::Budget)?;
-                models.push(model);
+                model_ids.insert(name.as_str(), model_ids.len());
             }
         }
         let mut spawns: Vec<Option<Spawn>> = allocate(tree.primitive_count())?;
@@ -167,7 +158,6 @@ impl VmapSnapshot {
         let mut spawn_ids = BTreeMap::new();
         let mut classifications = BTreeMap::new();
         let mut total_spawns = 0usize;
-        let mut placement_work = 0usize;
         for (id, p) in &products.products {
             if !matches!(id, ProductId::VmapTile(_)) {
                 continue;
@@ -193,18 +183,41 @@ impl VmapSnapshot {
                     // Upstream shares modelFlags across all instances of the same model.
                     // Mixed classification would make ignoreM2 load-order dependent.
                     if classifications
-                        .insert(spawn.model, spawn.flags & 1)
-                        .is_some_and(|flags| flags != spawn.flags & 1)
+                        .insert(spawn.model, spawn.classification())
+                        .is_some_and(|class| class != spawn.classification())
                     {
                         return Err(Error::Unsupported);
                     }
-                    let model = &models[spawn.model];
-                    charge_placement(&mut placement_work, model)?;
-                    spawn.validate_model_bounds(model)?;
                     *slot = Some(spawn);
                 }
             }
             c.finish()?;
+        }
+        // VMO bytes carry no modelFlags. Only fully reconciled spawn records can
+        // authorize the extractor's M2 zero-group-bound representation.
+        let mut models = allocate(model_ids.len())?;
+        let mut groups = 0usize;
+        for (id, p) in &products.products {
+            if let ProductId::VmapModel(_) = id {
+                let model = Model::decode_classified(
+                    &p.bytes,
+                    allow_liquid,
+                    classifications.get(&models.len()).copied(),
+                )?;
+                groups = groups
+                    .checked_add(model.groups.len())
+                    .ok_or(Error::Budget)?;
+                if groups > MAX_GROUPS {
+                    return Err(Error::Budget);
+                }
+                models.push(model);
+            }
+        }
+        let mut placement_work = 0usize;
+        for spawn in spawns.iter().flatten() {
+            let model = &models[spawn.model];
+            charge_placement(&mut placement_work, model)?;
+            spawn.validate_model_bounds(model)?;
         }
         let bounds: Vec<_> = spawns
             .iter()
@@ -214,7 +227,7 @@ impl VmapSnapshot {
         let inventory = products.revision();
         let policy = if allow_liquid {
             let mut h = Sha256::new();
-            h.update(b"benilla-static-vmap-liquid-geometry-v1-glibc-2.41-bounded-trig");
+            h.update(b"benilla-static-vmap-liquid-geometry-v2-source-m2-zero-group-bounds");
             h.update(inventory);
             h.finalize().into()
         } else {
@@ -424,10 +437,21 @@ struct Group {
     liquid: Option<liquid::WmoLiquid>,
 }
 impl Group {
-    fn decode(c: &mut Cursor<'_>, allow_liquid: bool) -> Result<Self, Error> {
+    fn decode(
+        c: &mut Cursor<'_>,
+        allow_liquid: bool,
+        single_m2_group: bool,
+    ) -> Result<Self, Error> {
         let bounds = c.bounds()?;
         let flags = c.word()?;
         let id = c.word()?;
+        // model.cpp::ConvertToVMAPModel writes +0 bounds/flags/id for its sole M2
+        // group; TileAssembler preserves them while building the real mesh BIH.
+        let source_m2_bounds = single_m2_group
+            && flags == 0
+            && id == 0
+            && bounds.low.map(f32::to_bits) == [0; 3]
+            && bounds.high.map(f32::to_bits) == [0; 3];
         c.magic(b"VERT")?;
         let length = c.word()? as usize;
         let count = c.count()?;
@@ -438,7 +462,7 @@ impl Group {
         let mut vertices = allocate(count)?;
         for _ in 0..count {
             let p = c.vector()?;
-            if !bounds.contains(p) {
+            if !source_m2_bounds && !bounds.contains(p) {
                 return Err(Error::Format);
             }
             vertices.push(p);
@@ -479,7 +503,7 @@ impl Group {
         let liquid = if length == 0 {
             None
         } else {
-            if !allow_liquid {
+            if !allow_liquid || source_m2_bounds {
                 return Err(Error::Unsupported);
             }
             Some(liquid::WmoLiquid::decode(c, length)?)
@@ -532,6 +556,14 @@ impl Model {
     }
 
     fn decode_profile(data: &[u8], allow_liquid: bool) -> Result<Self, Error> {
+        Self::decode_classified(data, allow_liquid, None)
+    }
+
+    fn decode_classified(
+        data: &[u8],
+        allow_liquid: bool,
+        classification: Option<ModelClassification>,
+    ) -> Result<Self, Error> {
         let mut c = Cursor::new(data);
         c.magic(b"VMAP_7.0WMOD")?;
         if c.word()? != 8 {
@@ -551,9 +583,11 @@ impl Model {
         if count == 0 || count > MAX_GROUPS {
             return Err(Error::Budget);
         }
+        let single_m2_group =
+            classification == Some(ModelClassification::M2) && root_id == 0 && count == 1;
         let mut groups = allocate(count)?;
         for _ in 0..count {
-            groups.push(Group::decode(&mut c, allow_liquid)?);
+            groups.push(Group::decode(&mut c, allow_liquid, single_m2_group)?);
         }
         c.magic(b"GBIH")?;
         let tree = Bih::decode(&mut c)?;
@@ -590,6 +624,12 @@ impl Model {
         )
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModelClassification {
+    Wmo,
+    M2,
+}
 fn charge_placement(work: &mut usize, model: &Model) -> Result<(), Error> {
     *work = work
         .checked_add(model.validation_work)
@@ -614,6 +654,14 @@ struct Spawn {
     model: usize,
 }
 impl Spawn {
+    fn classification(&self) -> ModelClassification {
+        if self.flags & 1 != 0 {
+            ModelClassification::M2
+        } else {
+            ModelClassification::Wmo
+        }
+    }
+
     fn decode(c: &mut Cursor<'_>, models: &BTreeMap<&str, usize>) -> Result<(usize, Self), Error> {
         let flags = c.word()?;
         if flags & !5 != 0 || flags & 4 == 0 {

@@ -47,6 +47,15 @@ memory-safety tests. They are additional constraints on the existing conservativ
 geometry proof. See the [VMap provenance](../crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/PROVENANCE.md)
 and [Detour provenance](../crates/benilla-native-nav/PROVENANCE.md).
 
+The [raw M2 collision producer](../crates/benilla-native-vmap/PROVENANCE.md)
+converts bounded MD20 collision arrays to the pinned extractor's `VMAPs05`
+bytes. Authored inputs pass through the original extractor and assembler to
+exercise the actual VMap reader, including source M2 zero group bounds.
+This byte-level producer does not capture an MPQ dependency closure or assemble
+a map. Static map production still needs all map placements in its BIH,
+source-compatible WMO conversion and exact archive/encounter ordering; selected
+tile geometry alone cannot establish the absence of off-tile collision.
+
 `TargetedMovementGenerator.cpp`, `HomeMovementGenerator.cpp` and `PathFinder.cpp`
 have been inspected. A bounded one-player/one-creature chase, spline, Home and
 notification adapter now updates transactional runtime state and projects ordered

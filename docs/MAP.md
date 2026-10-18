@@ -23,6 +23,7 @@
 - **benilla-native-geometry-tests** (no Bevy) — Exact app geometry mailbox and terrain proof tests without Bevy
 - **benilla-native-nav** (no Bevy) — Private validated pinned Detour MMap query boundary; no gameplay admission
 - **benilla-native-terrain** (no Bevy) — Private bounded terrain and Classic liquid production from immutable local MPQ inputs
+- **benilla-native-vmap** (no Bevy) — Bounded source-compatible raw M2 collision extraction; no assembly or gameplay admission
 - **benilla-p2p** (no Bevy) — Authenticated, bounded peer-to-peer transport for the Benilla fork
 - **benilla-profile** (no Bevy) — Local owner identities and durable exploration characters for the P2P fork
 - **benilla-protocol** (no Bevy) — WoW 1.12.1 auth (SRP6) + world wire protocol and the benilla-auth CLI
@@ -129,6 +130,7 @@
 - **benilla-native-geometry-tests** (lib.rs): core planar production_item_order products route_commit source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap static_mesh
 - **benilla-native-nav** (lib.rs): cold_distance cold_distance_tests direct_corridor_tests smoothing smoothing_tests source_cold_same_polygon source_home_same_polygon source_query source_wander_and_chase_reconstruction_tests source_wander_same_polygon tests tile_presence validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests
 - **benilla-native-terrain** (lib.rs): diagnostic_id diagnostics source writer
+- **benilla-native-vmap** (lib.rs): error tests
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery starting_location storage tests world_setup
 - **benilla-protocol** (lib.rs): auth events guid messages wire world

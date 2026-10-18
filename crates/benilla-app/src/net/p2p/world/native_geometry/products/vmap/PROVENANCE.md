@@ -48,6 +48,47 @@ shared by mixed M2/WMO classifications reject instead of preserving upstream sha
 flag mutation's load-order dependence. MOGP/root/group IDs are retained for selected
 location identity but grant no area or liquid semantics. Empty model/group collision is explicit, never missing geometry.
 
+### Extracted M2 group bounds
+
+Pinned `contrib/vmap_extractor/vmapextract/model.cpp:91-93` writes root ID, group
+flags, group ID and all six group-bound floats as positive zero for its sole M2
+group. Those bounds do not describe the nonzero collision vertices.
+`TileAssembler.cpp:319-325` preserves the raw group bound when creating the
+`GroupModel`; its mesh BIH is built from the triangles, and its group BIH retains
+the zero bound. `WorldModel.cpp:428-440` bypasses that group BIH for a single-group
+ray, and `GroupModel::IntersectRay` uses the actual mesh BIH. The separate
+`ModelInstance::intersectRay` instance-bound gate remains in effect.
+
+The loader indexes model names, then validates and reconciles every supplied tile
+spawn before decoding models. VMO bytes carry no `modelFlags`, so neither a file
+name nor zero bounds identify M2. Only a model consistently referenced by validated
+`MOD_M2` spawns may use the source representation: root ID zero, exactly one group,
+group flags/ID zero, all six bound words exactly positive zero, and no liquid.
+Only the otherwise-invalid group-to-vertex containment check is omitted for that
+shape. Generic/unclassified and WMO model decoding remains strict. Negative-zero
+group-bound words do not match this extractor signature; signed-zero collision
+vertices retain their exact bits and remain valid. Model/triangle indices, finite
+coordinates, mesh-BIH bounds/clips, group-BIH structure/containment, transformed
+instance bounds, map-BIH bounds and validation budgets remain checked. Neither
+group nor group-BIH bounds are rewritten to collision-hull bounds.
+
+Point/area/location behavior is unchanged: `ModelInstance.cpp:75-79,109-113`
+excludes M2, while direct model/group point queries still use the serialized group
+bound. The opt-in liquid geometry loader accepts the same dry M2 representation
+but rejects liquid attached to that exception. Ray policy v3 and liquid geometry
+policy v2 bind this source-compatible loading profile.
+
+The [authored M2 source fixtures](../../../../../../../../benilla-native-geometry-tests/tools/m2_vmap_README.md)
+exercise exact pinned extractor-to-assembler serialization from original off-origin
+and signed-zero M2 collision inputs, including a rotated/scaled source placement,
+separately from the older manually bounded
+`ramp.m2.vmo` fixture. Regression tests retain both source-written zero bounds and
+the nonzero hull, compare 1,530 ray, 366 height and 18 point-query cases, and reject
+changed identity/signature, unreferenced models, WMO/mixed classification in both
+encounter orders, malformed geometry/hierarchies, hidden instance bounds, liquid
+and truncation. This is a bounded reader compatibility correction, not
+real-asset validation or production content admission.
+
 Additional limits are 16 MiB total VMap input within the inventory's existing 64 MiB
 limit; 262,144 elements per encoded array; 4,096 total decoded groups; 16,384 serialized
 spawn records including cross-tile repeats; and 1,048,576 placement/group/vertex validation
@@ -116,7 +157,8 @@ limited to 4,096. Each query has at most 32,768 work steps and an absolute deadl
 Exhaustion, malformed queries and unresolved candidates are errors, never clear rays.
 
 A reply echoes exact endpoint bits, M2 mask, ticket and snapshot binding. The binding
-contains map, content, source epoch, full inventory revision and static-ray policy-v2 with the bounded glibc-2.41 trig profile.
+contains map, content, source epoch, full inventory revision and static-ray policy-v3
+with the bounded glibc-2.41 trig and source M2 loading profiles.
 Those are consistency declarations, not authenticated provenance or a live source lease.
 
 The app's optional `install_with_static_vmap` connects this snapshot through

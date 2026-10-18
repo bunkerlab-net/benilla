@@ -939,6 +939,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "benilla-native-vmap"
+version = "0.2.0"
+
+[[package]]
 name = "benilla-p2p"
 version = "0.2.0"
 dependencies = [
