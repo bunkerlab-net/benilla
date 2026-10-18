@@ -105,10 +105,22 @@ origin/raw endpoint. Structural restore validates the prior-to-current cache
 transition and retry timer. An older successful spline cannot supply this head.
 The serialized request and cache remain evidence, never loaded query authority.
 
+The required `WanderSnapshot.normal_route` field is either explicit null or a
+`WanderNormalRouteHead` containing the exact latest cache-backed successful
+`RouteRequest` and its complete `CompleteRoute`. Cache-free legacy routes leave
+it null. The checkpoint owns this evidence independently of the spline, including
+after movement has finalized and while Wander is suspended below Chase/Home.
+A failed attempt clears the NORMAL head; owner reset clears both heads and the
+cache before assigning a fresh construction identity. A missing field is not
+implicitly null, and a matching spline or reconstruction recipe cannot supply a
+missing head. The head and current cache must describe the same accepted
+calculation; the failed and NORMAL heads cannot both be present.
+
 The synthetic-only `PendingWanderReopen` path stages one current owner with a
 NORMAL successful route or a MinimumDistance NoPath head. Other owners must be
 cache-free Idle. Chase, Home, suspended Wander and other NoPath reasons remain
-closed. NORMAL accepts the current moving or finalized successful spline.
+closed. NORMAL accepts the current moving or finalized successful spline only
+with its exact checkpoint-owned successful head.
 MinimumDistance accepts no spline or an older finalized success and binds its
 failed request to the current motion query and position. Its terminal semantics
 are path type 8, active length zero and no points; from/raw endpoint come from
@@ -134,8 +146,9 @@ documented in [HOME.md](HOME.md). Other Home routing branches remain unsupported
 The pinned base entry-6 rows include 24 random-moving and seven idle map-0
 spawns. Successful bounded movement does not establish their final loader-order
 capture, actual model 10913 dimensions, complete behavioral content or normal
-solo startup. Native format 50 (`benilla-native-home-wander-v50`) separates the
-required failed-head owner/receipt shape. The motion policy is
-`cmangos-8ec338a1-ground-linear-home-wander-v6` and the Wander policy is
-`cmangos-8ec338a1-default-wander-ground-walk-v2`; native49 and all prior
+solo startup. Native format 51 (`benilla-native-home-wander-v51`) separates the
+required failed and NORMAL owner/receipt shapes. The app reconstruction recipe
+is version 3 and rejects the earlier owner schemas. The motion policy is
+`cmangos-8ec338a1-ground-linear-home-wander-v7` and the Wander policy is
+`cmangos-8ec338a1-default-wander-ground-walk-v3`; native50 and all prior
 experimental formats reject without migration. Character/profile saves remain separate.

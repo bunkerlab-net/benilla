@@ -448,6 +448,7 @@ fn failed_snapshot(retained_success: bool) -> motion::MotionSnapshot {
         next_move_count: 1,
         pathfinder_cache: Some(Box::new(cache)),
         pathfinder_construction: construction,
+        normal_route: None,
         failed_route: Some(Box::new(motion::WanderFailedRouteHead {
             request: request(origin, query_id, 100, prior),
             reason: motion::WanderNoPathReason::MinimumDistance,
@@ -581,12 +582,14 @@ fn pending_reopen_failed_head_cannot_be_relabelled_by_same_output_metadata() {
 fn pending_reopen_failed_head_field_is_required_in_current_snapshot_format() {
     for retained in [false, true] {
         let snapshot = failed_snapshot(retained);
-        let mut encoded = serde_json::to_value(&snapshot).unwrap();
-        encoded["generator"]["Wander"]
-            .as_object_mut()
-            .unwrap()
-            .remove("failed_route");
-        assert!(serde_json::from_value::<motion::MotionSnapshot>(encoded).is_err());
+        for field in ["failed_route", "normal_route"] {
+            let mut encoded = serde_json::to_value(&snapshot).unwrap();
+            encoded["generator"]["Wander"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            assert!(serde_json::from_value::<motion::MotionSnapshot>(encoded).is_err());
+        }
         let mut encoded = serde_json::to_value(&snapshot).unwrap();
         encoded["generator"]["Wander"]["failed_route"] = serde_json::Value::Null;
         let decoded = serde_json::from_value::<motion::MotionSnapshot>(encoded).unwrap();
@@ -635,5 +638,67 @@ fn pending_reopen_minimum_distance_certificate_keeps_exact_failed_native_semanti
             Err(NativeError::AuthorityBinding),
             "failed semantic mutation {mutation}",
         );
+    }
+}
+
+#[test]
+fn pending_reopen_normal_head_requires_exact_current_spline() {
+    // Selector-only comparison fixture. Full semantic validation and real fresh
+    // reconstruction are exercised by the concrete loaded component harness.
+    let mut snapshot = failed_snapshot(true);
+    let spline = snapshot.spline.as_ref().unwrap().clone();
+    let motion::Generator::Wander(wander) = &mut snapshot.generator else {
+        unreachable!();
+    };
+    wander.pathfinder_cache = wander
+        .failed_route
+        .as_ref()
+        .unwrap()
+        .request
+        .prior_cache
+        .clone();
+    wander.failed_route = None;
+    wander.normal_route = Some(Box::new(motion::WanderNormalRouteHead {
+        request: spline.route_request.clone(),
+        route: spline.route.clone(),
+    }));
+    let (request, points, reason) = selected_head(&snapshot).unwrap();
+    assert_eq!(request, &spline.route_request);
+    assert_eq!(
+        points,
+        spline
+            .route
+            .points
+            .iter()
+            .copied()
+            .map(bits)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(reason, None);
+    for mutation in 0..6 {
+        let mut wrong = snapshot.clone();
+        let motion::Generator::Wander(wander) = &mut wrong.generator else {
+            unreachable!();
+        };
+        match mutation {
+            0 => wander.normal_route = None,
+            1 => {
+                wander
+                    .normal_route
+                    .as_mut()
+                    .unwrap()
+                    .request
+                    .binding
+                    .query_id += 1
+            }
+            2 => wander.normal_route.as_mut().unwrap().route.path_identity[0] ^= 1,
+            3 => wrong.spline = None,
+            4 => {
+                wrong.spline.as_mut().unwrap().route_request.kind = motion::RouteKind::ChaseInitial
+            }
+            5 => wander.pathfinder_cache.as_mut().unwrap().revision += 1,
+            _ => unreachable!(),
+        }
+        assert!(selected_head(&wrong).is_err(), "mutation {mutation}");
     }
 }

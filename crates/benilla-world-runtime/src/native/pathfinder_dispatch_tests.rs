@@ -289,8 +289,8 @@ fn old_native29_through_native31_are_not_migrated() {
         assert!(decode_records(&encode_records(&records).unwrap()).is_err());
         assert!(world(w.profile().clone()).replay(&records).is_err());
     }
-    assert_eq!(NATIVE_FORMAT_VERSION, 50);
-    assert_eq!(NATIVE_POLICY, "benilla-native-home-wander-v50");
+    assert_eq!(NATIVE_FORMAT_VERSION, 51);
+    assert_eq!(NATIVE_POLICY, "benilla-native-home-wander-v51");
     assert_eq!(crate::FORMAT_VERSION, 2);
 }
 
@@ -1017,6 +1017,7 @@ fn home_local_one_use_receipt_rolls_back_replays_and_reopens_only_dead_local_evi
         next_move_count: 1,
         pathfinder_cache: Some(cache.clone()),
         failed_route: None,
+        normal_route: None,
         pathfinder_construction: retried.construction_binding(),
     });
     // Guard-only adversarial payload: historical Home evidence is not an excuse

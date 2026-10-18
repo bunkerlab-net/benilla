@@ -107,7 +107,7 @@ impl EventAiCallbackKind {
                     || !matches!(request.witness.frame.moment, InteractionMoment::Frame { action_ordinal } if action_ordinal < 20_000)
                     || request.witness.callback
                         != crate::digest(
-                            b"benilla-native-visitor-callback-v50\0",
+                            b"benilla-native-visitor-callback-v51\0",
                             &request.callback,
                         )
                     || match request.direction {
@@ -212,7 +212,7 @@ pub struct EventAiCallback {
 }
 impl EventAiCallback {
     pub fn digest(&self) -> crate::Digest {
-        crate::digest(b"benilla-native-event-ai-callback-v50\0", self)
+        crate::digest(b"benilla-native-event-ai-callback-v51\0", self)
     }
     fn validate(&self, profile: &Profile, state: &State) -> Result<(), NativeError> {
         let selected = profile.event_ai().ok_or(NativeError::InvalidCheckpoint)?;
@@ -317,7 +317,7 @@ impl EventAiCallbackAnchor {
     ) -> Result<(), NativeError> {
         self.count = self.count.checked_add(1).ok_or(NativeError::Limit)?;
         self.tip = crate::digest(
-            b"benilla-native-event-ai-callback-chain-v50\0",
+            b"benilla-native-event-ai-callback-chain-v51\0",
             &(self.tip, self.count, evaluation),
         );
         Ok(())

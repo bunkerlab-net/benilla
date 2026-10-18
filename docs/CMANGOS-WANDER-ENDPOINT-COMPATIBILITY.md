@@ -167,10 +167,11 @@ and configuration, and source-ordered revalidation of constructor/createFilter,
 clear/updateFilter, query selection, retained draw values, reached endpoint lookup
 and height, the applicable dry suffix, and actual loaded corridor/body/ground/LOS
 coverage where required by the branch. Historical request checks share the ordinary
-initialized-body policy; the final retained request must equal the saved spline
-request in full for NORMAL, or the checkpoint-owned failed-route head for current
-MinimumDistance. Native format 50 requires this optional head explicitly, and
-recipe version 2 distinguishes the new owner contract. A retained older spline
+initialized-body policy; the final retained request must equal the generator-owned
+successful head and current saved spline in full for NORMAL, or the generator-owned
+failed-route head for current MinimumDistance. Native format 51 requires both
+nullable head fields explicitly, and recipe version 3 distinguishes this owner
+contract. A retained older spline
 cannot stand in for the failed calculation. The narrow failed restore requires
 the head to remain the current motion query at the same position. Draw validation uses the saved counter-addressable stream without
 advancing gameplay RNG. Serialized references never seed the native query.
@@ -247,13 +248,23 @@ finder, but the premature app retirement could not support faithful persistence.
 The corrected acceptance must retain that default through Home.
 
 This live-ownership correction does not open Chase/suspended current-checkpoint
-restore. NORMAL suspended Wander still lacks a checkpoint-owned successful head
-after Chase replaces the global spline, and Chase has no separate challenged
-native reconstruction certificate. Live ACK evidence is not a substitute for
-either prerequisite. The separate existing cache-free-anchor recipe may reconstruct
+restore. NORMAL Wander retains its validated successful request and complete route
+alongside its current cache, independently of the global spline. A later failed
+calculation clears that successful head and retains its own failed head; Reset
+clears both when replacing the finder. The checkpoint-owned head binds owner,
+constructor, query/time, cache revision and complete calculation, but is serialized
+evidence rather than loaded authority. Chase still has no separate challenged
+native reconstruction certificate, and retaining this head does not open a dual-owner
+restore path. Live ACK evidence is not a substitute for fresh reconstruction. The separate existing cache-free-anchor recipe may reconstruct
 the pair by executing every accepted input through fresh providers and comparing
 complete records. Its 2,048-record bound remains; it is not compact current-checkpoint
 restoration. Three concrete tests passed: sustained Chase with retained replan
 through Home/Reset/relaunch, lethal clear, and fresh full-history reconstruction
 with failure atomicity and exact next-tick equality. Direct cached restore remains
 rejected in both original and reconstructed dual-owner worlds.
+
+When a finalized Wander spline survives entry into a Chase that needs no route,
+snapshot validation resolves the spline's retained cache through its Wander
+owner, rather than requiring an unrelated Chase cache. The spline must be
+finalized and its exact route evidence must match that suspended owner. This
+corrects ordinary saved-motion validation without opening loaded cached restore.

@@ -69,7 +69,7 @@ fn enter(events: &mut NpcEvents, delay: u32, flags: u32) -> AssistancePayload {
     let request = request(events);
     let receivers = (flags & NO_CALL_ASSIST == 0).then(|| facts(&request));
     let traversal = receivers.as_ref().map(|_| AssistanceTraversalReceipt {
-        request: crate::digest(b"benilla-native-assistance-traversal-v50\0", &request),
+        request: crate::digest(b"benilla-native-assistance-traversal-v51\0", &request),
         candidates: vec![AssistanceCandidateReceipt {
             container: AssistanceSelfContainer::Grid,
             npc: events.npc,
@@ -519,7 +519,7 @@ fn callback_entry_uses_live_transaction_and_matches_source_zero_delay_order() {
     };
     let receivers = Some(facts(&request));
     let traversal = Some(AssistanceTraversalReceipt {
-        request: crate::digest(b"benilla-native-assistance-traversal-v50\0", &request),
+        request: crate::digest(b"benilla-native-assistance-traversal-v51\0", &request),
         candidates: vec![AssistanceCandidateReceipt {
             container: AssistanceSelfContainer::Grid,
             npc: events.npc,

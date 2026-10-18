@@ -408,8 +408,10 @@ type SelectedWanderHead<'a> = (
     Option<benilla_native_nav::SourceWanderNoPathReason>,
 );
 
-/// Select the current operation by its cache state, never by a convenient old
-/// spline or reconstruction recipe. The complete snapshot is validated again by
+/// Select the current operation from its generator-owned head, never from a
+/// reconstruction recipe. NORMAL still requires the existing current Wander
+/// spline shape; retaining a suspended head does not admit dual-owner restore.
+/// The complete snapshot is validated again by
 /// MotionState::restore before this pending owner can be returned.
 fn current_wander_head<'a>(
     snapshot: &'a motion::MotionSnapshot,
@@ -419,12 +421,15 @@ fn current_wander_head<'a>(
     match cache.path_type {
         1 => {
             let spline = snapshot.spline.as_ref().ok_or_else(unsupported)?;
-            let prior_revision = spline
-                .route_request
+            let normal = wander.normal_route.as_deref().ok_or_else(unsupported)?;
+            let prior_revision = normal
+                .request
                 .prior_cache
                 .as_deref()
                 .map_or(0, |prior| prior.revision);
             if wander.failed_route.is_some()
+                || normal.request != spline.route_request
+                || normal.route != spline.route
                 || cache.active_len != 1
                 || prior_revision.checked_add(1) != Some(cache.revision)
                 || spline.route_source != motion::RouteSource::OwnerPathFinder
@@ -436,8 +441,8 @@ fn current_wander_head<'a>(
                 return Err(unsupported());
             }
             Ok((
-                &spline.route_request,
-                spline.route.points.iter().copied().map(bits).collect(),
+                &normal.request,
+                normal.route.points.iter().copied().map(bits).collect(),
                 None,
             ))
         }

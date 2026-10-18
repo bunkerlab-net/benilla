@@ -78,8 +78,8 @@ explicit `None`, as do typed requests whose profiles have no player source.
 Height-independent consumers may continue; height-dependent consumers receive
 explicit unavailability. Legacy synthetic spatial queries are not source proof.
 
-Native format **50**, policy `benilla-native-home-wander-v50`,
-binds source, state and required-option request fields with v50 profile/state/
+Native format **51**, policy `benilla-native-home-wander-v51`,
+binds source, state and required-option request fields with v51 profile/state/
 record/checkpoint/melee digest domains. Omitted optional schema fields fail;
 explicit `None` remains distinct from ownership. Checkpoints rederive the owner
 witness and reject rehashed source/scalar/identity changes. Retained spline Route

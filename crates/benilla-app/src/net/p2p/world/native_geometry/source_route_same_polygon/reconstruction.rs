@@ -10,7 +10,7 @@ use benilla_world_runtime::native::{Draw, DrawPurpose, NativeError, NativeWorld}
 use serde::{Deserialize, Serialize};
 
 const MAX_RECIPE_BYTES: usize = 8 * 1024 * 1024;
-const RECIPE_VERSION: u32 = 2;
+const RECIPE_VERSION: u32 = 3;
 
 #[derive(Clone, Default)]
 pub(super) struct WanderCapture {

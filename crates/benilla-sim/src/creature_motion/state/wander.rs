@@ -2,7 +2,7 @@
 // CMaNGOS 8ec338a1 RandomMovementGenerator.cpp:27-148,177-203; upstream GPL-2.0-or-later.
 use super::*;
 
-pub const WANDER_POLICY_ID: &str = "cmangos-8ec338a1-default-wander-ground-walk-v2";
+pub const WANDER_POLICY_ID: &str = "cmangos-8ec338a1-default-wander-ground-walk-v3";
 /// Semantic RNG requests, in source call order. Angle/radius return full u32
 /// words; count/pause return their inclusive bounded integer results.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +46,14 @@ pub struct WanderFailedRouteHead {
     pub request: RouteRequest,
     pub reason: WanderNoPathReason,
 }
+/// Exact latest successful calculation, independent of the Unit's current spline.
+/// Evidence only: restoring this head never creates loaded PathFinder authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WanderNormalRouteHead {
+    pub request: RouteRequest,
+    pub route: CompleteRoute,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WanderSnapshot {
@@ -57,6 +65,8 @@ pub struct WanderSnapshot {
     pub pathfinder_construction: QueryBinding,
     #[serde(deserialize_with = "super::super::pathfinder_dispatch::required_option")]
     pub failed_route: Option<Box<WanderFailedRouteHead>>,
+    #[serde(deserialize_with = "super::super::pathfinder_dispatch::required_option")]
+    pub normal_route: Option<Box<WanderNormalRouteHead>>,
 }
 impl WanderSnapshot {
     pub(super) fn validate(&self, state: &MotionSnapshot) -> Result<(), MotionError> {
@@ -77,7 +87,9 @@ impl WanderSnapshot {
         }
         if let Some(cache) = &self.pathfinder_cache {
             cache.validate_for(state.identity)?;
-            if cache.revision > state.query_id - construction.query_id {
+            if !matches!(cache.path_type, 1 | 8)
+                || cache.revision > state.query_id - construction.query_id
+            {
                 return Err(MotionError::Invalid("Wander cache construction sequence"));
             }
         }
@@ -95,27 +107,8 @@ impl WanderSnapshot {
                 .pathfinder_cache
                 .as_ref()
                 .ok_or(MotionError::Invalid("Wander failed route without cache"))?;
-            request.validate_pathfinder_dispatch()?;
-            request.origin.validate()?;
-            request
-                .owner_collision_height
-                .nonnegative("Wander failed owner height")?;
-            if request.kind != RouteKind::Wander
-                || request.binding.identity != state.identity
-                || request.binding.query_id > state.query_id
-                || request.binding.now_ms > state.now_ms
-                || request.pathfinder_dispatch.as_ref().is_none_or(|dispatch| {
-                    dispatch.construction_binding() != construction || dispatch.first_construction()
-                })
-                || request.wander.as_deref().is_none_or(|sample| {
-                    sample.center != self.center
-                        || sample.radius != self.radius
-                        || sample.prepared.query_id <= construction.query_id
-                })
-                || cache.revision > request.binding.query_id - construction.query_id
-                || self.next_move_timer_ms == 0
-                || self.next_move_timer_ms > 500
-            {
+            self.validate_head_request(request, state)?;
+            if self.next_move_timer_ms == 0 || self.next_move_timer_ms > 500 {
                 return Err(MotionError::Invalid("Wander failed route owner binding"));
             }
             RouteCalculation {
@@ -126,6 +119,142 @@ impl WanderSnapshot {
                 after_cache: (**cache).clone(),
             }
             .validate_for(request)?;
+        }
+        if self
+            .pathfinder_cache
+            .as_ref()
+            .is_some_and(|cache| cache.path_type == 1)
+            != self.normal_route.is_some()
+        {
+            return Err(MotionError::Invalid("Wander NORMAL route presence"));
+        }
+        if let Some(normal) = &self.normal_route {
+            self.validate_head_request(&normal.request, state)?;
+            if normal.request.binding.now_ms > state.processed_map_clock_ms {
+                return Err(MotionError::Invalid("Wander NORMAL route processed clock"));
+            }
+            RouteCalculation {
+                wander_no_path: None,
+                source: normal.route.source,
+                outcome: RouteOutcome::Complete(normal.route.clone()),
+                prior_cache: normal.request.prior_cache.clone(),
+                after_cache: (**self.pathfinder_cache.as_ref().unwrap()).clone(),
+            }
+            .validate_for(&normal.request)?;
+        }
+        Ok(())
+    }
+    pub(super) fn validate_spline(
+        &self,
+        spline: &ActiveSplineSnapshot,
+        state: &MotionSnapshot,
+    ) -> Result<(), MotionError> {
+        if spline.route_request.kind != RouteKind::Wander
+            || spline.facing != Facing::Tangent
+            || !spline.walking
+            || spline
+                .route_request
+                .wander
+                .as_deref()
+                .is_none_or(|request| {
+                    request.center != self.center || request.radius != self.radius
+                })
+            || spline
+                .route_request
+                .pathfinder_dispatch
+                .as_ref()
+                .is_none_or(|d| d.construction_binding() != self.pathfinder_construction)
+        {
+            return Err(MotionError::Invalid("saved Wander spline owner"));
+        }
+        if let Some(normal) = &self.normal_route {
+            if normal.request != spline.route_request || normal.route != spline.route {
+                return Err(MotionError::Invalid("saved Wander NORMAL spline head"));
+            }
+            let duration = *spline.spline.timestamps_ms.last().unwrap();
+            if u64::from(spline.spline.elapsed_ms)
+                != (state.processed_map_clock_ms - normal.request.binding.now_ms)
+                    .min(u64::from(duration))
+            {
+                return Err(MotionError::Invalid("saved Wander NORMAL route chronology"));
+            }
+        }
+        if let Some(cache) = &self.pathfinder_cache {
+            let prior_revision = spline
+                .route_request
+                .prior_cache
+                .as_ref()
+                .map_or(0, |c| c.revision);
+            if cache.revision <= prior_revision
+                || cache.source != spline.route.source
+                || spline
+                    .route_request
+                    .prior_cache
+                    .as_ref()
+                    .is_some_and(|prior| {
+                        prior.binding != cache.binding
+                            || prior.poly_refs.len() > cache.poly_refs.len()
+                            || prior.include_flags != cache.include_flags
+                            || prior.exclude_flags != cache.exclude_flags
+                    })
+            {
+                return Err(MotionError::Invalid("saved Wander cache lineage"));
+            }
+            if cache.revision == prior_revision + 1 {
+                RouteCalculation {
+                    wander_no_path: None,
+                    source: spline.route.source,
+                    outcome: RouteOutcome::Complete(spline.route.clone()),
+                    prior_cache: spline.route_request.prior_cache.clone(),
+                    after_cache: (**cache).clone(),
+                }
+                .validate_for(&spline.route_request)?;
+            }
+        } else if spline.route_request.prior_cache.is_some() {
+            return Err(MotionError::Invalid("saved Wander lost cache"));
+        }
+        if self.failed_route.as_ref().is_some_and(|failed| {
+            !spline.spline.finalized
+                || spline.route_request.binding.query_id >= failed.request.binding.query_id
+        }) {
+            return Err(MotionError::Invalid(
+                "saved Wander failed spline chronology",
+            ));
+        }
+        Ok(())
+    }
+    fn validate_head_request(
+        &self,
+        request: &RouteRequest,
+        state: &MotionSnapshot,
+    ) -> Result<(), MotionError> {
+        request.validate_pathfinder_dispatch()?;
+        request.origin.validate()?;
+        request
+            .owner_collision_height
+            .nonnegative("Wander owner height")?;
+        if request.kind != RouteKind::Wander
+            || request.binding.identity != state.identity
+            || request.binding.query_id > state.query_id
+            || request.binding.now_ms > state.now_ms
+            || request.pathfinder_dispatch.as_ref().is_none_or(|dispatch| {
+                dispatch.construction_binding() != self.pathfinder_construction
+                    || dispatch.first_construction()
+            })
+            || request.wander.as_deref().is_none_or(|sample| {
+                sample.center != self.center
+                    || sample.radius != self.radius
+                    || sample.prepared.query_id <= self.pathfinder_construction.query_id
+            })
+            || self.pathfinder_cache.as_ref().is_none_or(|cache| {
+                request
+                    .binding
+                    .query_id
+                    .checked_sub(self.pathfinder_construction.query_id)
+                    .is_none_or(|sequence| cache.revision > sequence)
+            })
+        {
+            return Err(MotionError::Invalid("Wander route head owner binding"));
         }
         Ok(())
     }
@@ -164,6 +293,7 @@ impl MotionState {
                 pathfinder_cache: None,
                 pathfinder_construction: self.binding()?,
                 failed_route: None,
+                normal_route: None,
             });
         }
         Ok(())
@@ -196,6 +326,7 @@ impl MotionState {
             wander.next_move_timer_ms = 0;
             wander.pathfinder_cache = None;
             wander.failed_route = None;
+            wander.normal_route = None;
             wander.pathfinder_construction = self.binding()?;
             self.state.spline = None;
             self.state.generator = Generator::Wander(wander);
@@ -268,9 +399,11 @@ impl MotionState {
         )?;
         if let Dispatch::NoPath(failed_route) = result {
             wander.failed_route = failed_route;
+            wander.normal_route = None;
             wander.next_move_timer_ms = 500;
-        } else if result == Dispatch::Launched {
+        } else if let Dispatch::Launched(normal_route) = result {
             wander.failed_route = None;
+            wander.normal_route = normal_route;
             if wander.next_move_count > 1 {
                 wander.next_move_count -= 1;
             } else {
@@ -624,6 +757,7 @@ mod tests {
         assert_eq!(wander(&s).next_move_count, old.next_move_count);
         assert_eq!(wander(&s).next_move_timer_ms, 0);
         assert!(wander(&s).pathfinder_cache.is_none());
+        assert!(wander(&s).normal_route.is_none());
         assert_ne!(
             wander(&s).pathfinder_construction,
             old.pathfinder_construction
@@ -819,7 +953,13 @@ mod tests {
         assert!(!s.is_moving());
         let previous_spline = s.snapshot().spline;
         let previous_cache = wander(&s).pathfinder_cache.clone();
+        let previous_normal = wander(&s).normal_route.clone();
+        assert!(previous_normal.is_some());
         s.advance(2199, None, input(), &mut h).unwrap();
+        assert!(wander(&s).normal_route.is_none());
+        let mut forged = s.snapshot();
+        saved_wander_mut(&mut forged).normal_route = previous_normal;
+        assert!(MotionState::restore(forged).is_err());
         assert_eq!(s.snapshot().spline, previous_spline);
         let failed = wander(&s).failed_route.as_ref().unwrap();
         assert_eq!(failed.request.prior_cache, previous_cache);
@@ -1105,6 +1245,448 @@ mod tests {
         assert!(wander(&s).pathfinder_cache.is_none());
         assert!(wander(&s).failed_route.is_none());
         assert_eq!(wander(&s).next_move_timer_ms, 500);
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+    }
+    fn normal_source_state() -> (MotionState, Host) {
+        let mut s = state();
+        let mut h = Host::new();
+        h.source = RouteSource::OwnerPathFinder;
+        s.advance(100, None, input(), &mut h).unwrap();
+        (s, h)
+    }
+    fn target_at(pose: Pose) -> Target {
+        Target {
+            movement_flags: GroundMovementFlags::STOPPED,
+            id: 1,
+            pose,
+            combat_reach: Real::new(1.5).unwrap(),
+            bounding_radius: Real::new(0.5).unwrap(),
+            collision_height: Real::integer(2),
+        }
+    }
+    #[test]
+    fn normal_head_binds_accepted_calculation_and_survives_arrival_pause_and_later_queries() {
+        let (mut s, mut h) = normal_source_state();
+        let first = wander(&s).normal_route.clone().unwrap();
+        assert_eq!(first.request, h.routes[0]);
+        assert_eq!(first.route, s.snapshot().spline.unwrap().route);
+        assert_eq!(first.route.source, RouteSource::OwnerPathFinder);
+        assert!(wander(&s).failed_route.is_none());
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        s.advance(500, None, input(), &mut h).unwrap();
+        assert_eq!(wander(&s).normal_route.as_ref(), Some(&first));
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        s.advance(301, None, input(), &mut h).unwrap();
+        assert!(!s.is_moving());
+        s.face_target(point(10.), &mut h).unwrap();
+        assert!(s.snapshot().query_id > first.request.binding.query_id);
+        s.advance(2698, None, input(), &mut h).unwrap();
+        assert_eq!(wander(&s).normal_route.as_ref(), Some(&first));
+        let encoded = serde_json::to_vec(&s.snapshot()).unwrap();
+        s = MotionState::restore(serde_json::from_slice(&encoded).unwrap()).unwrap();
+        s.advance(1, None, input(), &mut h).unwrap();
+        let second = wander(&s).normal_route.as_ref().unwrap();
+        assert_eq!(second.request, h.routes[1]);
+        assert_ne!(second.request, first.request);
+        assert_eq!(second.request.prior_cache.as_ref().unwrap().revision, 1);
+        assert_eq!(wander(&s).pathfinder_cache.as_ref().unwrap().revision, 2);
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        let mut stale = s.snapshot();
+        saved_wander_mut(&mut stale).normal_route = Some(first);
+        assert!(MotionState::restore(stale).is_err());
+    }
+    #[test]
+    fn normal_head_survives_interruption_chase_and_home_then_reset_and_death_remove_it() {
+        let (mut s, mut h) = normal_source_state();
+        s.advance(500, None, input(), &mut h).unwrap();
+        let original = wander(&s).clone();
+        assert!(original.normal_route.is_some());
+        let target = target_at(s.pose());
+        s.start_chase(target, false, input(), &mut h).unwrap();
+        assert!(s.snapshot().spline.is_none());
+        assert_eq!(s.snapshot().suspended_wander.as_ref(), Some(&original));
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        let encoded = serde_json::to_vec(&s.snapshot()).unwrap();
+        s = MotionState::restore(serde_json::from_slice(&encoded).unwrap()).unwrap();
+        // Replace the global spline with Chase, then the separate Home owner.
+        h.source = RouteSource::SyntheticFixture;
+        s.advance(100, Some(target_at(pose(20.))), input(), &mut h)
+            .unwrap();
+        assert!(s.is_moving());
+        assert_eq!(s.snapshot().suspended_wander.as_ref(), Some(&original));
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        s.start_home(pose(0.), false, false, input(), &mut h)
+            .unwrap();
+        assert_eq!(s.snapshot().suspended_wander.as_ref(), Some(&original));
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        let mut dead = s.clone();
+        dead.stop_for_death().unwrap();
+        assert!(dead.snapshot().suspended_wander.is_none());
+        assert!(dead.snapshot().spline.is_none());
+        assert!(matches!(dead.generator(), Generator::Idle));
+        assert_eq!(MotionState::restore(dead.snapshot()).unwrap(), dead);
+        s.advance(1000, None, input(), &mut h).unwrap();
+        assert!(wander(&s).normal_route.is_none());
+        assert!(wander(&s).failed_route.is_none());
+        assert!(wander(&s).pathfinder_cache.is_none());
+        assert_ne!(
+            wander(&s).pathfinder_construction,
+            original.pathfinder_construction
+        );
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+    }
+    #[test]
+    fn normal_head_and_cache_roll_back_before_and_after_valid_successful_dispatch() {
+        let (mut s, mut h) = normal_source_state();
+        s.advance(801, None, input(), &mut h).unwrap();
+        // First count=1 ensures the next accepted path reaches the late draw boundary.
+        if let Generator::Wander(w) = &mut s.state.generator {
+            w.next_move_count = 1;
+        }
+        let before = s.clone();
+        for failure in 0..4 {
+            let mut h = Host::new();
+            h.source = RouteSource::OwnerPathFinder;
+            h.words = VecDeque::from([0x8000_0000, 0x8000_0000, 0, 3000]);
+            h.fail_prefix = failure == 0;
+            h.fail_route = failure == 1;
+            h.forge_cache = failure == 2;
+            // Case 3 accepts the complete calculation and launches, then rejects count=0.
+            assert!(s.advance(2199, None, input(), &mut h).is_err());
+            assert_eq!(s, before, "normal rollback case {failure}");
+        }
+        h.words = VecDeque::from([0x8000_0000, 0x8000_0000, 3, 3000]);
+        s.advance(2199, None, input(), &mut h).unwrap();
+        assert_ne!(wander(&s).normal_route, wander(&before).normal_route);
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+    }
+    #[test]
+    fn normal_head_rejects_request_route_cache_constructor_and_chronology_mutations() {
+        let (s, _) = normal_source_state();
+        for case in 0..37 {
+            let mut snapshot = s.snapshot();
+            let w = saved_wander_mut(&mut snapshot);
+            match case {
+                0 => w.normal_route = None,
+                1 => w.pathfinder_cache = None,
+                2 => w.normal_route.as_mut().unwrap().request.kind = RouteKind::ChaseInitial,
+                3 => w.normal_route.as_mut().unwrap().request.wander = None,
+                4 => {
+                    w.normal_route
+                        .as_mut()
+                        .unwrap()
+                        .request
+                        .binding
+                        .identity
+                        .creature += 1
+                }
+                5 => w.normal_route.as_mut().unwrap().request.binding.query_id += 1,
+                6 => w.normal_route.as_mut().unwrap().request.binding.now_ms += 1,
+                7 => w.normal_route.as_mut().unwrap().request.origin = point(1.),
+                8 => w.normal_route.as_mut().unwrap().request.launch_origin = point(1.),
+                9 => w.normal_route.as_mut().unwrap().request.goal = point(1.),
+                10 => {
+                    w.normal_route
+                        .as_mut()
+                        .unwrap()
+                        .request
+                        .owner_collision_height = Real::new(-1.).unwrap()
+                }
+                11 => w.normal_route.as_mut().unwrap().request.point_limit -= 1,
+                12 => w.normal_route.as_mut().unwrap().request.pathfinder_dispatch = None,
+                13 => {
+                    w.normal_route
+                        .as_mut()
+                        .unwrap()
+                        .request
+                        .wander
+                        .as_mut()
+                        .unwrap()
+                        .center = point(1.)
+                }
+                14 => {
+                    w.normal_route
+                        .as_mut()
+                        .unwrap()
+                        .request
+                        .wander
+                        .as_mut()
+                        .unwrap()
+                        .radius = Real::integer(5)
+                }
+                15 => {
+                    w.normal_route
+                        .as_mut()
+                        .unwrap()
+                        .request
+                        .wander
+                        .as_mut()
+                        .unwrap()
+                        .angle_draw = Real::ONE
+                }
+                16 => {
+                    w.normal_route
+                        .as_mut()
+                        .unwrap()
+                        .request
+                        .wander
+                        .as_mut()
+                        .unwrap()
+                        .prepared
+                        .query_id -= 1
+                }
+                17 => w.pathfinder_construction.query_id += 1,
+                18 => w.pathfinder_cache.as_mut().unwrap().revision += 1,
+                19 => w.pathfinder_cache.as_mut().unwrap().active_len = 0,
+                20 => w.pathfinder_cache.as_mut().unwrap().requested_end = point(1.),
+                21 => w.pathfinder_cache.as_mut().unwrap().path_type = 9,
+                22 => w.pathfinder_cache.as_mut().unwrap().source = RouteSource::SyntheticFixture,
+                23 => w.normal_route.as_mut().unwrap().route.path_identity = [0; 32],
+                24 => w.normal_route.as_mut().unwrap().route.points[0] = point(1.),
+                25 => w.normal_route.as_mut().unwrap().route.points[1].z = Real::ONE,
+                26 => {
+                    w.normal_route.as_mut().unwrap().route.segments[0].line_of_sight =
+                        Check::Unknown
+                }
+                27 => w.normal_route.as_mut().unwrap().route.segments.clear(),
+                28 => {
+                    w.normal_route.as_mut().unwrap().request.prior_cache =
+                        w.pathfinder_cache.clone()
+                }
+                29 => {
+                    let q = &mut w.normal_route.as_mut().unwrap().request;
+                    q.pathfinder_dispatch = Some(PathfinderDispatch::home(q.binding).unwrap());
+                }
+                30 => {
+                    let q = &mut w.normal_route.as_mut().unwrap().request;
+                    q.pathfinder_dispatch = Some(
+                        PathfinderDispatch::wander(w.pathfinder_construction, q.binding, true)
+                            .unwrap(),
+                    );
+                }
+                31 => {
+                    w.pathfinder_construction.query_id += 1;
+                    let q = &mut w.normal_route.as_mut().unwrap().request;
+                    q.pathfinder_dispatch = Some(
+                        PathfinderDispatch::wander(w.pathfinder_construction, q.binding, false)
+                            .unwrap(),
+                    );
+                }
+                32 => w.normal_route.as_mut().unwrap().route.path_identity = [9; 32],
+                33 => {
+                    let q = &mut w.normal_route.as_mut().unwrap().request;
+                    q.binding.now_ms -= 1;
+                    q.wander.as_mut().unwrap().prepared.now_ms -= 1;
+                    q.pathfinder_dispatch = Some(
+                        PathfinderDispatch::wander(w.pathfinder_construction, q.binding, false)
+                            .unwrap(),
+                    );
+                    snapshot.spline.as_mut().unwrap().route_request = q.clone();
+                }
+                34 => snapshot.processed_map_clock_ms -= 1,
+                35 => snapshot.spline = None,
+                _ => w.normal_route.as_mut().unwrap().request.binding.query_id = 0,
+            }
+            assert!(
+                MotionState::restore(snapshot).is_err(),
+                "normal forgery case {case}"
+            );
+        }
+    }
+    #[test]
+    fn normal_head_is_required_nullable_json_and_does_not_admit_unsupported_cache_shapes() {
+        let (normal, _) = normal_source_state();
+        let (failed, _) = failed_source_state();
+        for s in [state(), normal.clone(), failed] {
+            let value = serde_json::to_value(s.snapshot()).unwrap();
+            let decoded = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(MotionState::restore(decoded).unwrap(), s);
+            let mut omitted = value.clone();
+            omitted["generator"]["Wander"]
+                .as_object_mut()
+                .unwrap()
+                .remove("normal_route");
+            assert!(serde_json::from_value::<MotionSnapshot>(omitted).is_err());
+            let mut old = s.snapshot();
+            old.policy = "cmangos-8ec338a1-ground-linear-home-wander-v6".into();
+            assert!(MotionState::restore(old).is_err());
+            if wander(&s).normal_route.is_some() {
+                let mut unknown = value.clone();
+                unknown["generator"]["Wander"]["normal_route"]["authority"] =
+                    serde_json::json!(true);
+                assert!(serde_json::from_value::<MotionSnapshot>(unknown).is_err());
+                let mut null = value;
+                null["generator"]["Wander"]["normal_route"] = serde_json::Value::Null;
+                let decoded = serde_json::from_value(null).unwrap();
+                assert!(MotionState::restore(decoded).is_err());
+            }
+        }
+        let mut head_only = state().snapshot();
+        head_only.query_id = normal.snapshot().query_id;
+        head_only.now_ms = normal.now_ms();
+        head_only.processed_map_clock_ms = normal.now_ms();
+        saved_wander_mut(&mut head_only).normal_route = wander(&normal).normal_route.clone();
+        assert!(MotionState::restore(head_only).is_err());
+        for kind in [0, 2, 3, 4, 9, 16, 32] {
+            let mut unsupported = normal.snapshot();
+            unsupported.spline = None;
+            let w = saved_wander_mut(&mut unsupported);
+            w.normal_route = None;
+            w.pathfinder_cache.as_mut().unwrap().path_type = kind;
+            assert!(
+                MotionState::restore(unsupported).is_err(),
+                "unsupported type {kind}"
+            );
+        }
+    }
+    #[test]
+    fn finalized_wander_spline_under_no_route_chase_uses_its_suspended_owner() {
+        for phase in 0..3 {
+            let (mut s, mut h) = normal_source_state();
+            s.advance(801, None, input(), &mut h).unwrap();
+            if phase == 1 {
+                // Warm NORMAL has a prior cache in its retained spline request.
+                if let Generator::Wander(w) = &mut s.state.generator {
+                    w.next_move_count = 1;
+                }
+                h.words = VecDeque::from([0x8000_0000, 0x8000_0000, 3, 3000]);
+                s.advance(2199, None, input(), &mut h).unwrap();
+                s.advance(1601, None, input(), &mut h).unwrap();
+            } else if phase == 2 {
+                // NoPath retains the previous finalized spline with its older request.
+                h.words = VecDeque::from([0, 0x8000_0000]);
+                s.advance(2199, None, input(), &mut h).unwrap();
+                assert!(wander(&s).failed_route.is_some());
+            }
+            assert!(!s.is_moving());
+            let old_spline = s.snapshot().spline.unwrap();
+            let old_wander = wander(&s).clone();
+            let route_count = h.routes.len();
+            s.start_chase(target_at(s.pose()), false, input(), &mut h)
+                .unwrap();
+            assert_eq!(h.routes.len(), route_count);
+            assert_eq!(s.snapshot().spline.as_ref(), Some(&old_spline));
+            assert_eq!(s.snapshot().suspended_wander.as_ref(), Some(&old_wander));
+            let Generator::Chase(chase) = s.generator() else {
+                panic!("Chase required")
+            };
+            assert!(chase.pathfinder_cache.is_none());
+            assert!(chase.pathfinder_construction.is_none());
+            assert_eq!(
+                MotionState::restore(s.snapshot()).unwrap(),
+                s,
+                "phase {phase}"
+            );
+            let decoded =
+                serde_json::from_slice(&serde_json::to_vec(&s.snapshot()).unwrap()).unwrap();
+            assert_eq!(MotionState::restore(decoded).unwrap(), s);
+            for case in 0..4 {
+                let mut forged = s.snapshot();
+                match case {
+                    0 => forged.suspended_wander = None,
+                    1 => {
+                        let w = forged.suspended_wander.as_mut().unwrap();
+                        w.pathfinder_cache = None;
+                        w.normal_route = None;
+                        w.failed_route = None;
+                    }
+                    2 => {
+                        forged
+                            .suspended_wander
+                            .as_mut()
+                            .unwrap()
+                            .pathfinder_cache
+                            .as_mut()
+                            .unwrap()
+                            .source = RouteSource::SyntheticFixture
+                    }
+                    _ => {
+                        forged
+                            .suspended_wander
+                            .as_mut()
+                            .unwrap()
+                            .pathfinder_construction
+                            .query_id += 1
+                    }
+                }
+                assert!(
+                    MotionState::restore(forged).is_err(),
+                    "phase {phase}, wrong owner {case}"
+                );
+            }
+            s.begin_map_frame(s.now_ms() + 100).unwrap();
+            assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        }
+    }
+    #[test]
+    fn suspended_finalized_normal_head_cannot_claim_completion_before_launch_duration() {
+        let (mut s, mut h) = normal_source_state();
+        s.advance(801, None, input(), &mut h).unwrap();
+        s.start_chase(target_at(s.pose()), false, input(), &mut h)
+            .unwrap();
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        let mut forged = s.snapshot();
+        let too_recent = forged.processed_map_clock_ms - 1;
+        let wander = forged.suspended_wander.as_mut().unwrap();
+        let normal = wander.normal_route.as_mut().unwrap();
+        normal.request.binding.now_ms = too_recent;
+        normal.request.wander.as_mut().unwrap().prepared.now_ms = too_recent;
+        normal.request.pathfinder_dispatch = Some(
+            PathfinderDispatch::wander(
+                wander.pathfinder_construction,
+                normal.request.binding,
+                false,
+            )
+            .unwrap(),
+        );
+        let spline = forged.spline.as_mut().unwrap();
+        spline.route_request = normal.request.clone();
+        // Exact request/route equality and spline-local timing alone remain valid.
+        assert_eq!(normal.route, spline.route);
+        assert!(LinearSpline::restore(spline.spline.clone()).is_ok());
+        assert!(MotionState::restore(forged).is_err());
+    }
+    #[test]
+    fn normal_head_uses_processed_unit_clock_and_frozen_head_survives_open_map_frame() {
+        let (mut s, mut h) = normal_source_state();
+        s.begin_map_frame(200).unwrap();
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+        let mut forged = s.snapshot();
+        let w = saved_wander_mut(&mut forged);
+        let q = &mut w.normal_route.as_mut().unwrap().request;
+        q.binding.now_ms = 200;
+        q.wander.as_mut().unwrap().prepared.now_ms = 200;
+        q.pathfinder_dispatch =
+            Some(PathfinderDispatch::wander(w.pathfinder_construction, q.binding, false).unwrap());
+        forged.spline.as_mut().unwrap().route_request = q.clone();
+        assert!(MotionState::restore(forged).is_err());
+        s.start_chase(target_at(s.pose()), false, input(), &mut h)
+            .unwrap();
+        assert!(s.snapshot().spline.is_none());
+        assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
+    }
+    #[test]
+    fn legacy_cache_free_success_does_not_manufacture_normal_head() {
+        struct LegacyHost(Host);
+        impl Authority for LegacyHost {
+            fn wander_draw(&mut self, purpose: WanderDraw) -> Result<u32, MotionError> {
+                self.0.wander_draw(purpose)
+            }
+            fn resolve(&mut self, query: &Query) -> Result<Reply, MotionError> {
+                let mut reply = self.0.resolve(query)?;
+                if let Fact::RouteCalculation(calculation) = reply.fact {
+                    reply.fact = Fact::Route(calculation.outcome);
+                }
+                Ok(reply)
+            }
+        }
+        let mut s = state();
+        let mut h = LegacyHost(Host::new());
+        s.advance(100, None, input(), &mut h).unwrap();
+        assert!(s.is_moving());
+        assert!(wander(&s).pathfinder_cache.is_none());
+        assert!(wander(&s).normal_route.is_none());
+        assert!(wander(&s).failed_route.is_none());
         assert_eq!(MotionState::restore(s.snapshot()).unwrap(), s);
     }
     #[test]

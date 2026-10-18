@@ -268,6 +268,51 @@ fn route(reply: &AuthorityReply) -> &motion::RouteRequest {
     &route.request
 }
 
+fn assert_normal_head_matches_reply(owner: &motion::WanderSnapshot, reply: &AuthorityReply) {
+    let head = owner
+        .normal_route
+        .as_ref()
+        .expect("accepted NORMAL calculation has its own durable head");
+    let calculation = wander::calculation(reply);
+    let motion::RouteOutcome::Complete(path) = &calculation.outcome else {
+        panic!("the retained head came from a successful loaded calculation")
+    };
+    assert_eq!(head.request, *route(reply));
+    assert_eq!(head.route, *path);
+    assert_eq!(head.request.kind, motion::RouteKind::Wander);
+    assert_eq!(
+        head.request
+            .pathfinder_dispatch
+            .unwrap()
+            .construction_binding(),
+        owner.pathfinder_construction
+    );
+    assert_eq!(
+        owner.pathfinder_cache.as_deref(),
+        Some(&calculation.after_cache)
+    );
+    assert_eq!(calculation.after_cache.path_type, 1);
+    assert!(owner.failed_route.is_none());
+}
+
+fn assert_suspended_normal_head(
+    world: &NativeWorld,
+    default: &motion::WanderSnapshot,
+    current_kind: motion::RouteKind,
+) {
+    let state = wander::snapshot(world);
+    let suspended = state.suspended_wander.as_ref().unwrap();
+    assert_eq!(suspended, default);
+    let head = suspended.normal_route.as_ref().unwrap();
+    let spline = state.spline.as_ref().unwrap();
+    assert_eq!(spline.route_request.kind, current_kind);
+    assert_ne!(spline.route_request, head.request);
+    assert_ne!(spline.route, head.route);
+    assert!(spline.route_request.binding.query_id > head.request.binding.query_id);
+    assert_eq!(head.request.kind, motion::RouteKind::Wander);
+    motion::MotionState::restore(state).unwrap();
+}
+
 fn delayed_home_profile(profile: &mut Profile) {
     profile.player.start = ai::Point::new(5., 12., 0.).unwrap();
     profile.npcs[0].ai.pursuit_ms = 2500;
@@ -291,6 +336,18 @@ fn enter_chase(
         step_input(world, consumer, None);
     }
     let default = wander::wander(&wander::snapshot(world)).clone();
+    let normal_reply = consumer
+        .route_replies
+        .iter()
+        .rev()
+        .find(|reply| route(reply).kind == motion::RouteKind::Wander)
+        .unwrap();
+    assert_normal_head_matches_reply(&default, normal_reply);
+    let initial = wander::snapshot(world);
+    let spline = initial.spline.as_ref().unwrap();
+    let head = default.normal_route.as_ref().unwrap();
+    assert_eq!(head.request, spline.route_request);
+    assert_eq!(head.route, spline.route);
     let npc = world.state().npcs[&2].id;
     let suspended = LiveOwner::read(consumer, npc, default.pathfinder_construction);
     assert!(
@@ -319,6 +376,7 @@ fn enter_chase(
     )));
     suspended.assert_unchanged(consumer);
     assert_shape(consumer, Some(&chase), Some(&suspended));
+    assert_suspended_normal_head(world, &default, motion::RouteKind::ChaseInitial);
     (default, suspended, chase)
 }
 
@@ -407,7 +465,7 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
         .unwrap()
         .clone();
     let mut chase = initial_chase.clone();
-    let mut replans = 0;
+    let mut replan_ticks = Vec::new();
     // These sequenced player moves make the real 250ms Chase check request a
     // retained replan. Every owner endpoint stays on the authored first polygon.
     for index in 1..=14 {
@@ -435,16 +493,14 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
             let next = LiveOwner::read(&consumer, npc, chase.construction);
             assert_ne!(next.candidate, chase.candidate);
             chase = next;
-            replans += 1;
+            replan_ticks.push(world.state().tick);
+            assert_suspended_normal_head(&world, &default, motion::RouteKind::ChaseReplan);
         }
         suspended.assert_unchanged(&consumer);
         assert_shape(&consumer, Some(&chase), Some(&suspended));
         wander::assert_dry_owner(&world);
     }
-    assert!(
-        replans > 0,
-        "actual movement must reach a retained Chase replan"
-    );
+    assert_eq!(replan_ticks, [20], "actual retained Chase replan tick");
     assert!(
         consumer
             .providers
@@ -468,6 +524,7 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
         assert_shape(&consumer, Some(&chase), Some(&suspended));
     }
     let home_reply = home_reply.expect("actual CombatManager pursuit expiry starts Home");
+    assert_eq!(world.state().tick, 43, "actual Home transition tick");
     let home = route(&home_reply);
     assert_eq!(world.state().npcs[&2].ai.phase(), ai::Phase::ReturningHome);
     assert_eq!(home.goal, combat_start.position);
@@ -492,6 +549,7 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
     chase.assert_retired(&consumer);
     suspended.assert_unchanged(&consumer);
     assert_shape(&consumer, None, Some(&suspended));
+    assert_suspended_normal_head(&world, &default, motion::RouteKind::HomeForceDestination);
     assert_cached_reopen_closed(&world, &consumer);
     consumer.other.visibility = Some(Check::Failed);
     let mut reset = false;
@@ -514,6 +572,13 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
         assert_shape(&consumer, None, Some(&suspended));
     }
     assert!(reset, "Home arrival resets the default generator");
+    // The Home update resets the default owner on arrival; the mutually
+    // exclusive generator update cannot run Wander until the next map tick.
+    assert_eq!(
+        world.state().tick,
+        49,
+        "HomeReached and fresh default Reset tick"
+    );
     let state = wander::snapshot(&world);
     let resumed = wander::wander(&state);
     assert_eq!(state.map_pose.position, combat_start.position);
@@ -523,7 +588,9 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
         resumed.pathfinder_construction,
         default.pathfinder_construction
     );
+    assert_eq!(resumed.pathfinder_construction.now_ms, state.now_ms);
     assert!(resumed.pathfinder_cache.is_none());
+    assert!(resumed.normal_route.is_none() && resumed.failed_route.is_none());
     assert!(state.suspended_wander.is_none() && state.spline.is_none());
     suspended.assert_retired(&consumer);
     chase.assert_retired(&consumer);
@@ -540,6 +607,27 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
     let new_construction = resumed.pathfinder_construction;
     let record = reject_and_retry(&mut world, &mut consumer, None);
     assert!(wander::launched(&record));
+    assert_eq!(
+        world.state().tick,
+        50,
+        "first Wander launch after default Reset"
+    );
+    let relaunched = wander::snapshot(&world);
+    let next_normal = record
+        .replies
+        .iter()
+        .find(|reply| {
+            matches!(
+                &reply.request.query, Query::SourceMotion(MotionQuery::Route(route))
+                    if route.request.kind == motion::RouteKind::Wander
+            )
+        })
+        .unwrap();
+    assert_normal_head_matches_reply(wander::wander(&relaunched), next_normal);
+    assert_ne!(
+        wander::wander(&relaunched).normal_route,
+        default.normal_route
+    );
     let new_owner = LiveOwner::read(&consumer, npc, new_construction);
     assert_eq!(new_owner.cache.revision, 1);
     assert!(new_owner.capture.is_some());
@@ -557,7 +645,8 @@ fn actual_lethal_spell_clears_both_live_constructors_without_promoting_history()
         delayed_home_profile(profile);
         profile.npcs[0].ai.pursuit_ms = 15000;
     });
-    let (_, suspended, chase) = enter_chase(&mut world, &mut consumer);
+    let (default, suspended, chase) = enter_chase(&mut world, &mut consumer);
+    assert_suspended_normal_head(&world, &default, motion::RouteKind::ChaseInitial);
     let npc = world.state().npcs[&2].id;
     let cast = f::cast(&world, 60001);
     let record = step_input(&mut world, &mut consumer, Some(cast));
@@ -591,6 +680,125 @@ fn actual_lethal_spell_clears_both_live_constructors_without_promoting_history()
         .is_none()));
     step_input(&mut world, &mut consumer, None);
     assert_eq!(counts(&consumer), (0, 0, 0, 0));
+}
+
+fn assert_mutated_suspended_normal_heads_rejected(world: &NativeWorld, consumer: &Consumer) {
+    let snapshot = wander::snapshot(world);
+    let checkpoint = world.checkpoint().unwrap();
+    let boundary = consumer.boundary.clone();
+    let owners = committed_owners(consumer);
+    let counts_before = counts(consumer);
+    let current_spline = snapshot.spline.as_ref().unwrap();
+    let decoded: motion::MotionSnapshot =
+        serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
+    assert_eq!(decoded, snapshot);
+    assert_eq!(
+        motion::MotionState::restore(decoded).unwrap().snapshot(),
+        snapshot
+    );
+
+    let mut missing = snapshot.clone();
+    missing.suspended_wander.as_mut().unwrap().normal_route = None;
+    let mut crossed_request = snapshot.clone();
+    crossed_request
+        .suspended_wander
+        .as_mut()
+        .unwrap()
+        .normal_route
+        .as_mut()
+        .unwrap()
+        .request = current_spline.route_request.clone();
+    let mut crossed_path = snapshot.clone();
+    crossed_path
+        .suspended_wander
+        .as_mut()
+        .unwrap()
+        .normal_route
+        .as_mut()
+        .unwrap()
+        .route = current_spline.route.clone();
+    let mut future_request = snapshot.clone();
+    future_request
+        .suspended_wander
+        .as_mut()
+        .unwrap()
+        .normal_route
+        .as_mut()
+        .unwrap()
+        .request
+        .binding
+        .query_id = snapshot.query_id + 1;
+    let mut wrong_constructor = snapshot.clone();
+    wrong_constructor
+        .suspended_wander
+        .as_mut()
+        .unwrap()
+        .normal_route
+        .as_mut()
+        .unwrap()
+        .request
+        .pathfinder_dispatch = current_spline.route_request.pathfinder_dispatch;
+    let mut stale_cache = snapshot.clone();
+    stale_cache
+        .suspended_wander
+        .as_mut()
+        .unwrap()
+        .pathfinder_cache
+        .as_mut()
+        .unwrap()
+        .revision += 1;
+    for (name, forged) in [
+        ("missing head", missing),
+        ("current overlay request", crossed_request),
+        ("current overlay path", crossed_path),
+        ("future request", future_request),
+        ("current overlay constructor", wrong_constructor),
+        ("stale head for cache", stale_cache),
+    ] {
+        assert!(
+            motion::MotionState::restore(forged).is_err(),
+            "suspended NORMAL head must reject {name}"
+        );
+        assert_eq!(world.checkpoint().unwrap(), checkpoint);
+        assert_eq!(consumer.boundary, boundary);
+        assert_eq!(counts(consumer), counts_before);
+        for owner in &owners {
+            owner.assert_unchanged(consumer);
+        }
+    }
+    let mut missing_field = serde_json::to_value(&snapshot).unwrap();
+    missing_field["suspended_wander"]
+        .as_object_mut()
+        .unwrap()
+        .remove("normal_route")
+        .unwrap();
+    assert!(serde_json::from_value::<motion::MotionSnapshot>(missing_field).is_err());
+    let mut unknown_field = serde_json::to_value(&snapshot).unwrap();
+    unknown_field["suspended_wander"]["normal_route"]["unknown"] = true.into();
+    assert!(serde_json::from_value::<motion::MotionSnapshot>(unknown_field).is_err());
+    // A valid durable head is retained evidence, not permission to publish a
+    // compact two-owner restore or trust saved native refs as a fresh query.
+    assert_cached_reopen_closed(world, consumer);
+}
+
+#[test]
+fn suspended_normal_head_rejects_overlay_history_and_keeps_compact_reopen_closed() {
+    let (mut world, mut consumer) =
+        wander::setup_with_profile(Some(0), Some(800), delayed_home_profile);
+    let (default, suspended, _) = enter_chase(&mut world, &mut consumer);
+    for index in 1..=14 {
+        let input = move_target(&world, index);
+        step_input(&mut world, &mut consumer, Some(input));
+    }
+    assert_suspended_normal_head(&world, &default, motion::RouteKind::ChaseReplan);
+    assert_mutated_suspended_normal_heads_rejected(&world, &consumer);
+    while world.state().tick < 43 {
+        step_input(&mut world, &mut consumer, None);
+    }
+    assert_eq!(world.state().npcs[&2].ai.phase(), ai::Phase::ReturningHome);
+    assert_suspended_normal_head(&world, &default, motion::RouteKind::HomeForceDestination);
+    assert_mutated_suspended_normal_heads_rejected(&world, &consumer);
+    suspended.assert_unchanged(&consumer);
 }
 
 /// Reconstruction reexecutes the fixture's time-dependent visibility policy;
@@ -667,7 +875,7 @@ fn complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers(
     let identity = Identity::of(&world.checkpoint().unwrap());
     let (mut store, receipt) = RecipeStore::create(&directory.0, &world).unwrap();
     receipt.acknowledge(&mut world).unwrap();
-    let (_, suspended, initial_chase) = enter_chase(&mut world, &mut consumer);
+    let (default, suspended, initial_chase) = enter_chase(&mut world, &mut consumer);
     for index in 1..=14 {
         let input = move_target(&world, index);
         step_input(&mut world, &mut consumer, Some(input));
@@ -675,6 +883,7 @@ fn complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers(
     let npc = world.state().npcs[&2].id;
     let chase = LiveOwner::read(&consumer, npc, initial_chase.construction);
     assert!(chase.cache.revision > initial_chase.cache.revision);
+    assert_suspended_normal_head(&world, &default, motion::RouteKind::ChaseReplan);
     suspended.assert_unchanged(&consumer);
     assert_shape(&consumer, Some(&chase), Some(&suspended));
     assert_cached_reopen_closed(&world, &consumer);
@@ -723,6 +932,20 @@ fn complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers(
         let (_store, mut reopened, mut authority) = result.unwrap();
         assert_eq!(reopened.checkpoint().unwrap(), checkpoint);
         assert_eq!(wander::snapshot(&reopened), wander::snapshot(&world));
+        assert_suspended_normal_head(&reopened, &default, motion::RouteKind::ChaseReplan);
+        let reconstructed_normal = authority
+            .consumer
+            .route_replies
+            .iter()
+            .find(|reply| route(reply).kind == motion::RouteKind::Wander)
+            .unwrap();
+        assert_normal_head_matches_reply(
+            wander::snapshot(&reopened)
+                .suspended_wander
+                .as_ref()
+                .unwrap(),
+            reconstructed_normal,
+        );
         let fresh_suspended = LiveOwner::read(&authority.consumer, npc, suspended.construction);
         let fresh_chase = LiveOwner::read(&authority.consumer, npc, chase.construction);
         for (old, fresh) in [(&suspended, &fresh_suspended), (&chase, &fresh_chase)] {

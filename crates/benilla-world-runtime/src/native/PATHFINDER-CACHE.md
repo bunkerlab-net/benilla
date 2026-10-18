@@ -4,7 +4,7 @@ Pinned reference: CMaNGOS `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`,
 `PathFinder.cpp:306–383,410–789`, `PathFinder.h::clear`, and the Chase/Home
 movement-generator call sites. Existing source/license notices remain applicable.
 
-Native format **50**, policy `benilla-native-home-wander-v50`, retains the
+Native format **51**, policy `benilla-native-home-wander-v51`, retains the
 optional retained cache to Chase snapshots, requests and completed calculation
 receipts. Older native checkpoints/records are incompatible; character/profile
 save formats are unchanged. An incompatible open preserves the existing files.

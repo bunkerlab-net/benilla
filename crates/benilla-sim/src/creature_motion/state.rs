@@ -7,8 +7,8 @@ use super::{
 use serde::{Deserialize, Serialize};
 mod wander;
 pub use wander::{
-    wander_normalized_word, DefaultMovement, WanderDraw, WanderFailedRouteHead, WanderSnapshot,
-    WANDER_POLICY_ID,
+    wander_normalized_word, DefaultMovement, WanderDraw, WanderFailedRouteHead,
+    WanderNormalRouteHead, WanderSnapshot, WANDER_POLICY_ID,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -204,7 +204,7 @@ pub struct MotionSnapshot {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Dispatch {
-    Launched,
+    Launched(Option<Box<WanderNormalRouteHead>>),
     NoPath(Option<Box<WanderFailedRouteHead>>),
     Unreachable,
 }
@@ -321,14 +321,20 @@ impl MotionState {
             }
             if s.route.source == RouteSource::OwnerPathFinder {
                 s.route_request.validate_source_cache_dispatch()?;
-                let source_cache = if s.route_request.kind == RouteKind::HomeForceDestination {
-                    s.local_home_cache.as_ref()
-                } else {
-                    match &state.generator {
-                        Generator::Chase(c) => c.pathfinder_cache.as_ref(),
+                let source_cache = match s.route_request.kind {
+                    RouteKind::HomeForceDestination => s.local_home_cache.as_ref(),
+                    RouteKind::Wander => match &state.generator {
                         Generator::Wander(w) => w.pathfinder_cache.as_ref(),
+                        Generator::Chase(_) => state
+                            .suspended_wander
+                            .as_ref()
+                            .and_then(|w| w.pathfinder_cache.as_ref()),
                         _ => None,
-                    }
+                    },
+                    _ => match &state.generator {
+                        Generator::Chase(c) => c.pathfinder_cache.as_ref(),
+                        _ => None,
+                    },
                 };
                 if source_cache.is_none_or(|cache| cache.source != RouteSource::OwnerPathFinder) {
                     return Err(MotionError::Invalid(
@@ -372,6 +378,30 @@ impl MotionState {
         }
         if let Some(wander) = &state.suspended_wander {
             wander.validate(&state)?;
+            if let Some(spline) = state
+                .spline
+                .as_ref()
+                .filter(|s| s.route_request.kind == RouteKind::Wander)
+            {
+                // Interrupt leaves an already-finalized Unit spline in place when
+                // Chase requires no route; its evidence still belongs to Wander.
+                if !matches!(state.generator, Generator::Chase(_)) || !spline.spline.finalized {
+                    return Err(MotionError::Invalid("suspended Wander live spline"));
+                }
+                wander.validate_spline(spline, &state)?;
+            }
+            if let Some(normal) = &wander.normal_route {
+                if state.spline.as_ref().is_some_and(|spline| {
+                    spline.route_request.kind != RouteKind::Wander
+                        && (spline.route_request.binding.query_id
+                            <= normal.request.binding.query_id
+                            || spline.route_request.binding.now_ms < normal.request.binding.now_ms)
+                }) {
+                    return Err(MotionError::Invalid(
+                        "suspended Wander NORMAL route chronology",
+                    ));
+                }
+            }
             if !matches!(
                 state.generator,
                 Generator::Chase(_) | Generator::Home { .. }
@@ -385,6 +415,9 @@ impl MotionState {
             Generator::Idle => {}
             Generator::Wander(wander) => {
                 wander.validate(&state)?;
+                if wander.normal_route.is_some() && state.spline.is_none() {
+                    return Err(MotionError::Invalid("active Wander NORMAL without spline"));
+                }
                 if let Some(failed) = &wander.failed_route {
                     if failed.request.origin != state.map_pose.position
                         || failed
@@ -403,63 +436,16 @@ impl MotionState {
                     }
                 }
                 if let Some(spline) = &state.spline {
-                    if spline.route_request.kind != RouteKind::Wander
-                        || spline.facing != Facing::Tangent
-                        || !spline.walking
-                        || spline
-                            .route_request
-                            .wander
-                            .as_deref()
-                            .is_none_or(|request| {
-                                request.center != wander.center || request.radius != wander.radius
-                            })
-                        || spline
-                            .route_request
-                            .pathfinder_dispatch
-                            .as_ref()
-                            .is_none_or(|d| {
-                                d.construction_binding() != wander.pathfinder_construction
-                            })
-                    {
-                        return Err(MotionError::Invalid("saved Wander spline owner"));
-                    }
-                    if let Some(cache) = &wander.pathfinder_cache {
-                        let prior_revision = spline
-                            .route_request
-                            .prior_cache
-                            .as_ref()
-                            .map_or(0, |c| c.revision);
-                        if cache.revision <= prior_revision
-                            || cache.source != spline.route.source
-                            || spline
-                                .route_request
-                                .prior_cache
-                                .as_ref()
-                                .is_some_and(|prior| {
-                                    prior.binding != cache.binding
-                                        || prior.poly_refs.len() > cache.poly_refs.len()
-                                        || prior.include_flags != cache.include_flags
-                                        || prior.exclude_flags != cache.exclude_flags
-                                })
-                        {
-                            return Err(MotionError::Invalid("saved Wander cache lineage"));
-                        }
-                        if cache.revision == prior_revision + 1 {
-                            RouteCalculation {
-                                wander_no_path: None,
-                                source: spline.route.source,
-                                outcome: RouteOutcome::Complete(spline.route.clone()),
-                                prior_cache: spline.route_request.prior_cache.clone(),
-                                after_cache: (**cache).clone(),
-                            }
-                            .validate_for(&spline.route_request)?;
-                        }
-                    } else if spline.route_request.prior_cache.is_some() {
-                        return Err(MotionError::Invalid("saved Wander lost cache"));
-                    }
+                    wander.validate_spline(spline, &state)?;
                 }
             }
             Generator::Chase(c) => {
+                let chase_spline = state.spline.as_ref().filter(|s| {
+                    matches!(
+                        s.route_request.kind,
+                        RouteKind::ChaseInitial | RouteKind::ChaseReplan | RouteKind::Backpedal
+                    )
+                });
                 c.last_target.validate()?;
                 if c.target == 0 || c.recheck_ms > 1000 || c.closeness_ms > 2000 {
                     return Err(MotionError::Invalid("chase snapshot"));
@@ -486,16 +472,8 @@ impl MotionState {
                 if c.pathfinder_cache.is_some() && c.pathfinder_construction.is_none() {
                     return Err(MotionError::Invalid("saved cache without construction"));
                 }
-                if let Some(dispatch) = state
-                    .spline
-                    .as_ref()
-                    .filter(|s| {
-                        matches!(
-                            s.route_request.kind,
-                            RouteKind::ChaseInitial | RouteKind::ChaseReplan | RouteKind::Backpedal
-                        )
-                    })
-                    .and_then(|s| s.route_request.pathfinder_dispatch.as_ref())
+                if let Some(dispatch) =
+                    chase_spline.and_then(|s| s.route_request.pathfinder_dispatch.as_ref())
                 {
                     if c.pathfinder_construction != Some(dispatch.construction_binding()) {
                         return Err(MotionError::Invalid(
@@ -504,10 +482,7 @@ impl MotionState {
                     }
                 }
                 if c.pathfinder_cache.is_none()
-                    && state
-                        .spline
-                        .as_ref()
-                        .is_some_and(|s| s.route_request.prior_cache.is_some())
+                    && chase_spline.is_some_and(|s| s.route_request.prior_cache.is_some())
                 {
                     return Err(MotionError::Invalid("saved chase lost retained cache"));
                 }
@@ -521,25 +496,21 @@ impl MotionState {
                         // Every accepted calculation consumes its own dispatch
                         // query; unrelated queries cannot reset this sequence.
                         if cache.revision - 1 > state.query_id - construction.query_id
-                            || state
-                                .spline
-                                .as_ref()
+                            || chase_spline
                                 .is_some_and(|s| s.route.source != RouteSource::OwnerPathFinder)
                         {
                             return Err(MotionError::Invalid("saved source cache sequence/source"));
                         }
                     }
-                    if let Some(prior) = state
-                        .spline
-                        .as_ref()
-                        .and_then(|s| s.route_request.prior_cache.as_ref())
+                    if let Some(prior) =
+                        chase_spline.and_then(|s| s.route_request.prior_cache.as_ref())
                     {
                         if prior.binding != cache.binding
                             || (prior.revision.checked_add(1) == Some(cache.revision)
                                 && (cache.path_type != 1
                                     || cache.active_len == 0
                                     || cache.requested_end
-                                        != state.spline.as_ref().unwrap().route_request.goal))
+                                        != chase_spline.unwrap().route_request.goal))
                             || prior.source != cache.source
                             || prior.include_flags != cache.include_flags
                             || prior.exclude_flags != cache.exclude_flags
@@ -549,7 +520,7 @@ impl MotionState {
                             return Err(MotionError::Invalid("saved pathfinder cache lineage"));
                         }
                     }
-                    if let Some(spline) = state.spline.as_ref().filter(|s| {
+                    if let Some(spline) = chase_spline.filter(|s| {
                         s.route.source == RouteSource::OwnerPathFinder
                             && s.route_request.prior_cache.is_none()
                     }) {
@@ -961,6 +932,14 @@ impl MotionState {
             facing,
             walking,
         });
+        // RandomMovementGenerator::_setLocation launches the accepted path;
+        // retain its exact calculation head independently of Unit spline replacement.
+        let normal_route = (kind == RouteKind::Wander && cache.is_some()).then(|| {
+            Box::new(WanderNormalRouteHead {
+                request: request.clone(),
+                route: path.clone(),
+            })
+        });
         self.state.spline = Some(ActiveSplineSnapshot {
             route_request: request,
             route: path.clone(),
@@ -976,7 +955,7 @@ impl MotionState {
             facing,
             walking,
         });
-        Ok(Dispatch::Launched)
+        Ok(Dispatch::Launched(normal_route))
     }
     fn near_point(
         &mut self,
@@ -1365,7 +1344,7 @@ impl MotionState {
                     )?;
                     chase.requested_goal = Some(goal);
                     match result {
-                        Dispatch::Launched => {
+                        Dispatch::Launched(_) => {
                             chase.reached = false;
                             chase.speed_changed = false;
                             chase.last_target = target.pose.position;
@@ -1507,7 +1486,7 @@ impl MotionState {
                 events,
             )?;
             chase.requested_goal = Some(goal);
-            if matches!(result, Dispatch::Launched) {
+            if matches!(result, Dispatch::Launched(_)) {
                 chase.reached = false;
                 chase.mode = ChaseMode::Backpedal;
                 chase.speed_changed = false;

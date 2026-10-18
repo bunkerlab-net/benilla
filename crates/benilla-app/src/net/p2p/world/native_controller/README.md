@@ -145,7 +145,7 @@ a later independent scalar change invalidates the selected profile.
 Generation-zero NPC state owns both source-bound width and height witnesses. The
 real controller Chase and moving-target replan freeze both in the typed Route
 request; height validation checks the shared model source, profile, generation
-and exact `owner_collision_height`. Native format 50 retains the witness through
+and exact `owner_collision_height`. Native format 51 retains the witness through
 checkpoint, journal replay and reopen. A missing schema field fails to decode;
 explicit null denotes an unavailable dependency. Initial receipts survive corpse
 reopen but are cleared at respawn, and relabeling one cannot authorize a later
@@ -172,7 +172,7 @@ edited scalars, changed source catalogs and a different starter identity fail cl
 
 The actual controller freezes the selected player's world/character identity,
 source binding and exact sampled target pose, flags and dimensions into typed
-NearPoint and Route requests. Native format 50 retains ownership through journal
+NearPoint and Route requests. Native format 51 retains ownership through journal
 replay, checkpoint and reopen. Tests exercise chase and moving-target replan,
 source/identity/pose/height/width echo forgery, atomic controller/store/projection
 failure, exact authority retry, single publication after a store retry, and both
@@ -364,7 +364,7 @@ The warm straight-calculation tests initialize collision width through Plan's
 opaque initial-model receipt and authored MPQ/DBC loading, then consume the exact
 runtime Route witness on the loaded navigation owner thread. Width is the source
 object-scale times raw field14, with no radius, display-scale or render-scale
-substitution. Native format 50 retains that witness in the explicitly synthetic
+substitution. Native format 51 retains that witness in the explicitly synthetic
 initial route's replay and reopen; the real loaded dependencies never enter the
 accepted authority journal.
 
@@ -404,7 +404,7 @@ in command order, including unchanged-position and rotation-only calls. The
 100 ms gate counts down after those commands; stationary expiry never queries
 terrain. The last accepted pose and the earlier cached-query pose remain distinct.
 
-Native format 50 stores the cache and monotone phase sequence in the native
+Native format 51 stores the cache and monotone phase sequence in the native
 checkpoint, without a nested standalone environment journal. The controller saves
 every enabled environment tick before publishing, including countdown-only ticks.
 A failed save retains the committed tick and withholds projection until retry;

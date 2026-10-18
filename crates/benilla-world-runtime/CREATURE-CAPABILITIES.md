@@ -188,9 +188,9 @@ dependencies; this receipt supplies none of them.
 
 ## Persistence and checks
 
-Native format 50 (`benilla-native-home-wander-v50`) binds the typed route owner
+Native format 51 (`benilla-native-home-wander-v51`) binds the typed route owner
 transcript, generation-bound dry initialization and explicit addon closures
-through v50 profile, state, record, checkpoint and source-action digest domains. Native49 and earlier saves/records
+through v51 profile, state, record, checkpoint and source-action digest domains. Native50 and earlier saves/records
 are rejected rather than rewriting `Spatial(Route)` receipts or inventing an
 owner witness. The original fixture
 format 2, equipment format and character/profile file schemas are unchanged. Source

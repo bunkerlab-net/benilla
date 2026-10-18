@@ -1,6 +1,6 @@
 # Source-owned dry execution for habitat 3
 
-Native format 50 (`benilla-native-home-wander-v50`) supports a bounded dry
+Native format 51 (`benilla-native-home-wander-v51`) supports a bounded dry
 execution domain for retained `InhabitType=3` (`GROUND|WATER`). Its predicates
 remain `CanWalk=true`, `CanSwim=true`, `CanFly=false`; a dry observation never
 rewrites the habitat or selects the ground-only query branch. Wet initialization,
@@ -208,7 +208,7 @@ map membership and client assets remain separate dependencies. Selected positive
 peer help additionally requires the explicit assistance and predicate owners;
 dry initialization alone does not supply them.
 
-Native49 and earlier profile/state/record/checkpoint/melee/callback identities
+Native50 and earlier profile/state/record/checkpoint/melee/callback identities
 reject without migration. RNG v2, original World v2, character files and the
 native store envelope remain unchanged. Rehashed receipts do not recreate live
 loaded authority or erase any of these remaining dependencies.

@@ -11,7 +11,7 @@ mod spline;
 pub use numeric::chase_speed;
 pub use spline::{LinearSpline, SplineEvent, SplineSnapshot, MAX_PATH_POINTS};
 
-pub const CREATURE_MOTION_POLICY_ID: &str = "cmangos-8ec338a1-ground-linear-home-wander-v6";
+pub const CREATURE_MOTION_POLICY_ID: &str = "cmangos-8ec338a1-ground-linear-home-wander-v7";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MotionError {
     Invalid(&'static str),
@@ -47,8 +47,8 @@ mod state;
 pub use state::{
     wander_normalized_word, ActiveSplineSnapshot, ChaseMode, ChaseSnapshot, DefaultMovement, Event,
     Evidence, FrameStart, Generator, GroundSettings, MotionAudit, MotionSnapshot, MotionState,
-    SourceAdvance, SourceRelocation, UnitInputs, WanderDraw, WanderFailedRouteHead, WanderSnapshot,
-    WANDER_POLICY_ID,
+    SourceAdvance, SourceRelocation, UnitInputs, WanderDraw, WanderFailedRouteHead,
+    WanderNormalRouteHead, WanderSnapshot, WANDER_POLICY_ID,
 };
 mod notify;
 pub use notify::{visitor_radius, AggroNotify, AggroNotifySnapshot};

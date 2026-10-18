@@ -130,10 +130,10 @@ runs the same Route fact and candidate checks as raw certification.
 
 ## Persistence contract
 
-Native format **50**, `benilla-native-home-wander-v50`, and
-motion policy `cmangos-8ec338a1-ground-linear-home-wander-v6` bind
+Native format **51**, `benilla-native-home-wander-v51`, and
+motion policy `cmangos-8ec338a1-ground-linear-home-wander-v7` bind
 the first source-cache contract and constructor lifecycle. Profile/state/record/
-checkpoint/melee digest domains are v50. Native49 and earlier are rejected;
+checkpoint/melee digest domains are v51. Native50 and earlier are rejected;
 no migration or serde default invents evidence.
 MotionSnapshot also requires its exact policy, including Idle snapshots.
 The new simulation snapshot/request options and native Route option are required
