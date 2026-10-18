@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Synthetic-domain pending restore for one current NORMAL dry Wander owner.
+//! Synthetic-domain pending restore for one current NORMAL or MinimumDistance
+//! NoPath dry Wander owner.
 //! Native replay proves retained semantic state, not composite app geometry or
 //! historical observations. The app must bind its actual products and publish
 //! the fresh provider and returned world together. Native admission stays closed.
@@ -25,6 +26,7 @@ pub struct PendingWanderReopen {
     owner: crate::NpcId,
     construction: motion::QueryBinding,
     cache: motion::PathFinderCache,
+    head: motion::RouteRequest,
     semantic: SourceWanderSemanticState,
     challenge: SourceWanderReconstructionChallenge,
 }
@@ -66,18 +68,7 @@ impl PendingWanderReopen {
             .npcs
             .get(&self.owner.spawn)
             .ok_or(NativeError::AuthorityBinding)?;
-        let saved = npc
-            .source_motion
-            .as_ref()
-            .ok_or(NativeError::AuthorityBinding)?
-            .motion
-            .snapshot();
-        let latest = saved
-            .spline
-            .as_ref()
-            .ok_or(NativeError::AuthorityBinding)?
-            .route_request
-            .binding;
+        let latest = self.head.binding;
         let now = context
             .binding
             .tick
@@ -120,7 +111,7 @@ impl PendingWanderReopen {
         Ok(())
     }
 
-    /// Bind the final retained calculation to the exact saved spline request,
+    /// Bind the final retained calculation to the exact checkpoint-owned request,
     /// including its query/tick, prior cache and random sample. Successful native
     /// geometry alone cannot relabel the restored provider's current head.
     pub fn validate_wander_head(&self, context: &AuthorityRequest) -> Result<(), NativeError> {
@@ -128,21 +119,7 @@ impl PendingWanderReopen {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(NativeError::AuthorityBinding);
         };
-        let saved = self
-            .world
-            .state
-            .npcs
-            .get(&self.owner.spawn)
-            .and_then(|npc| npc.source_motion.as_ref())
-            .ok_or(NativeError::AuthorityBinding)?
-            .motion
-            .snapshot();
-        let expected = &saved
-            .spline
-            .as_ref()
-            .ok_or(NativeError::AuthorityBinding)?
-            .route_request;
-        validate_wander_head_request(&route.request, expected)
+        validate_wander_head_request(&route.request, &self.head)
     }
 
     /// Check retained angle/radius samples against the saved counter-addressable
@@ -277,9 +254,10 @@ fn validate_certificate(
 }
 
 impl NativeWorld {
-    /// Stage exactly one native NORMAL Wander head and its current successful
-    /// spline, either moving or finalized. Other owners must be cache-free Idle.
-    /// Chase, Home, suspended Wander and NOPATH heads remain unsupported here.
+    /// Stage exactly one native NORMAL or MinimumDistance NoPath Wander head.
+    /// A successful spline may be moving or finalized; a failed current head
+    /// may have no spline or retain a finalized older success. Other owners must
+    /// be cache-free Idle. Chase, Home and suspended Wander remain unsupported.
     /// The older spline prior-cache is structurally checked inert history, never
     /// installed as a loaded head. Ordinary saved-session restore stays closed.
     pub fn prepare_synthetic_wander_reopen(
@@ -292,7 +270,8 @@ impl NativeWorld {
         if checkpoint.state.domain != Domain::SyntheticComponentTest {
             return Err(NativeError::Incompatible);
         }
-        let (pending, construction, cache, semantic) = pending_wander_shape(&profile, &checkpoint)?;
+        let (pending, construction, cache, head, semantic) =
+            pending_wander_shape(&profile, &checkpoint)?;
         let world =
             Self::restore_synthetic_checkpoint(profile, checkpoint.clone(), Some(&pending))?;
         if world.checkpoint()? != checkpoint {
@@ -304,6 +283,7 @@ impl NativeWorld {
             owner: pending.npc,
             construction,
             cache,
+            head,
             semantic,
             challenge: SourceWanderReconstructionChallenge::new(),
         })
@@ -314,11 +294,14 @@ type PendingShape = (
     PendingWanderRestore,
     motion::QueryBinding,
     motion::PathFinderCache,
+    motion::RouteRequest,
     SourceWanderSemanticState,
 );
 
 fn unsupported() -> NativeError {
-    NativeError::UnsupportedMechanic("one current NORMAL Wander cached owner")
+    NativeError::UnsupportedMechanic(
+        "one current NORMAL or MinimumDistance NoPath Wander cached owner",
+    )
 }
 
 fn bits(point: ai::Point) -> [u32; 3] {
@@ -351,28 +334,37 @@ fn pending_wander_shape(
             return Err(unsupported());
         }
         let cache = wander.pathfinder_cache.as_deref().ok_or_else(unsupported)?;
-        let spline = snapshot.spline.as_ref().ok_or_else(unsupported)?;
-        let prior_revision = spline
-            .route_request
-            .prior_cache
-            .as_deref()
-            .map_or(0, |prior| prior.revision);
         if cache.source != motion::RouteSource::OwnerPathFinder
-            || cache.path_type != 1
-            || cache.active_len != 1
             || cache.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
             || cache.binding.navigation_policy != profile.geometry_revision
-            || prior_revision.checked_add(1) != Some(cache.revision)
-            || spline.route_source != motion::RouteSource::OwnerPathFinder
-            || spline.route.source != motion::RouteSource::OwnerPathFinder
-            || spline.route_request.kind != motion::RouteKind::Wander
-            || spline.local_home_cache.is_some()
-            || spline.route.points.len() != 2
         {
             return Err(unsupported());
         }
-        // Every native semantic field has an exact expected value from the saved
-        // current successful operation. No reconstructed before-trace is imported.
+        let (head, points, no_path_reason) = current_wander_head(snapshot, wander, cache)?;
+        let binding = head.binding;
+        let sample = head.wander.as_deref().ok_or_else(unsupported)?;
+        let construction = wander.pathfinder_construction;
+        if profile.tick_ms == 0
+            || binding.identity != snapshot.identity
+            || binding.query_id > snapshot.query_id
+            || binding.now_ms <= profile.clock_origin_ms
+            || binding.now_ms > checkpoint.state.now_ms
+            || !(binding.now_ms - profile.clock_origin_ms)
+                .is_multiple_of(u64::from(profile.tick_ms))
+            || sample.center != wander.center
+            || sample.radius != wander.radius
+            || sample.prepared.query_id < construction.query_id
+            || sample.prepared.now_ms < construction.now_ms
+            || head.pathfinder_dispatch.as_ref().is_none_or(|dispatch| {
+                dispatch.constructor_kind() != motion::PathfinderConstructorKind::WanderInitialized
+                    || dispatch.construction_binding() != construction
+            })
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        head.validate_pathfinder_dispatch()?;
+        // Every native semantic field comes from the exact current checkpoint
+        // operation. A retained successful spline is inert history after NoPath.
         let semantic = SourceWanderSemanticState {
             slot: SourceMapQuerySlot {
                 map_id: profile.map_id,
@@ -387,14 +379,14 @@ fn pending_wander_shape(
                 include_flags: cache.include_flags,
                 exclude_flags: cache.exclude_flags,
             },
-            from: bits(spline.route_request.origin),
-            raw_end: bits(spline.route_request.goal),
+            from: bits(head.origin),
+            raw_end: bits(head.goal),
             actual_end: bits(cache.requested_end),
             storage: cache.poly_refs.clone(),
             active_len: usize::from(cache.active_len),
             path_type: cache.path_type,
-            points: spline.route.points.iter().copied().map(bits).collect(),
-            no_path_reason: None,
+            points,
+            no_path_reason,
         };
         selected = Some((
             PendingWanderRestore {
@@ -403,10 +395,87 @@ fn pending_wander_shape(
             },
             wander.pathfinder_construction,
             cache.clone(),
+            head.clone(),
             semantic,
         ));
     }
     selected.ok_or_else(unsupported)
+}
+
+type SelectedWanderHead<'a> = (
+    &'a motion::RouteRequest,
+    Vec<[u32; 3]>,
+    Option<benilla_native_nav::SourceWanderNoPathReason>,
+);
+
+/// Select the current operation by its cache state, never by a convenient old
+/// spline or reconstruction recipe. The complete snapshot is validated again by
+/// MotionState::restore before this pending owner can be returned.
+fn current_wander_head<'a>(
+    snapshot: &'a motion::MotionSnapshot,
+    wander: &'a motion::WanderSnapshot,
+    cache: &motion::PathFinderCache,
+) -> Result<SelectedWanderHead<'a>, NativeError> {
+    match cache.path_type {
+        1 => {
+            let spline = snapshot.spline.as_ref().ok_or_else(unsupported)?;
+            let prior_revision = spline
+                .route_request
+                .prior_cache
+                .as_deref()
+                .map_or(0, |prior| prior.revision);
+            if wander.failed_route.is_some()
+                || cache.active_len != 1
+                || prior_revision.checked_add(1) != Some(cache.revision)
+                || spline.route_source != motion::RouteSource::OwnerPathFinder
+                || spline.route.source != motion::RouteSource::OwnerPathFinder
+                || spline.route_request.kind != motion::RouteKind::Wander
+                || spline.local_home_cache.is_some()
+                || spline.route.points.len() != 2
+            {
+                return Err(unsupported());
+            }
+            Ok((
+                &spline.route_request,
+                spline.route.points.iter().copied().map(bits).collect(),
+                None,
+            ))
+        }
+        8 => {
+            let failed = wander.failed_route.as_deref().ok_or_else(unsupported)?;
+            if failed.reason != motion::WanderNoPathReason::MinimumDistance
+                || cache.active_len != 0
+                || failed.request.kind != motion::RouteKind::Wander
+                || failed.request.origin != snapshot.map_pose.position
+                || failed.request.binding.query_id != snapshot.query_id
+                || snapshot.spline.as_ref().is_some_and(|spline| {
+                    !spline.spline.finalized
+                        || spline.route_source != motion::RouteSource::OwnerPathFinder
+                        || spline.route.source != motion::RouteSource::OwnerPathFinder
+                        || spline.route_request.kind != motion::RouteKind::Wander
+                        || spline.local_home_cache.is_some()
+                        || spline.route_request.binding.query_id >= failed.request.binding.query_id
+                        || spline.route_request.binding.now_ms > failed.request.binding.now_ms
+                })
+            {
+                return Err(unsupported());
+            }
+            motion::RouteCalculation {
+                wander_no_path: Some(failed.reason),
+                source: cache.source,
+                outcome: motion::RouteOutcome::NoPath,
+                prior_cache: failed.request.prior_cache.clone(),
+                after_cache: cache.clone(),
+            }
+            .validate_for(&failed.request)?;
+            Ok((
+                &failed.request,
+                Vec::new(),
+                Some(benilla_native_nav::SourceWanderNoPathReason::MinimumDistance),
+            ))
+        }
+        _ => Err(unsupported()),
+    }
 }
 
 #[cfg(test)]

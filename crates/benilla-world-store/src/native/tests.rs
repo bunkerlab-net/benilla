@@ -447,7 +447,7 @@ fn rewritten_native36_body_requires_non_null_genesis_inside_valid_version_one_en
         }
         assert!(serde_json::from_value::<Checkpoint>(checkpoint.clone()).is_err());
         // A native36 body has no genesis receipt. Rewriting its headers and all
-        // integrity hashes cannot supply the required native49 initialization.
+        // integrity hashes cannot supply the required native50 initialization.
         let hash = |kind: &str, value: &serde_json::Value| -> Digest {
             let mut h = Sha256::new();
             h.update(format!("benilla-native-{kind}-v47\0").as_bytes());

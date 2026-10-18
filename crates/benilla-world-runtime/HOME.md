@@ -53,11 +53,14 @@ Current cache-free constructed owners remain live. Stable NPC/construction keys
 prevent registry compaction from changing pending handles.
 
 A historical Home cache in the spline snapshot is validation evidence, not a
-retained native allocation or permission to reconstruct one. Loaded retained
-Chase/Wander checkpoint reopening remains closed. Replay starts from cache-free
-genesis and compares the complete transcript; a saved historical result cannot
-mint a fresh query lease. Native format 49 and the standalone Home/Wander motion
-policy reject older snapshots rather than inventing the new evidence.
+retained native allocation or permission to reconstruct one. Generic loaded
+Chase/Wander checkpoint reopening remains closed; the synthetic-only one-current-
+Wander exception and its exact native replay proof are described in
+[WANDER.md](WANDER.md). Home and suspended Wander are outside that exception.
+Replay starts from cache-free genesis and compares the complete transcript; a
+saved historical result cannot mint a fresh query lease. Native format 50 and
+motion policy `cmangos-8ec338a1-ground-linear-home-wander-v6` reject older
+snapshots rather than inventing the required evidence.
 
 The concrete mailbox retains the existing 2 ms invocation slice, original
 500 ms absolute lease, cancellation, rollback and commit-ACK rules. No Home-only

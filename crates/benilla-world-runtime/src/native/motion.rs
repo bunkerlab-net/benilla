@@ -285,6 +285,18 @@ pub struct NpcMotionSnapshot {
     pub combat_start: Option<motion::Pose>,
 }
 impl NpcMotionSnapshot {
+    fn failed_wander_heads(&self) -> impl Iterator<Item = &motion::WanderFailedRouteHead> {
+        let current = match &self.motion.generator {
+            motion::Generator::Wander(wander) => wander.failed_route.as_deref(),
+            _ => None,
+        };
+        current.into_iter().chain(
+            self.motion
+                .suspended_wander
+                .as_ref()
+                .and_then(|wander| wander.failed_route.as_deref()),
+        )
+    }
     pub(super) fn validate_saved_session_reopen(&self) -> Result<(), NativeError> {
         let prior_cache = self
             .motion
@@ -304,6 +316,10 @@ impl NpcMotionSnapshot {
                     .suspended_wander
                     .as_ref()
                     .and_then(|w| w.pathfinder_cache.as_ref()),
+            )
+            .chain(
+                self.failed_wander_heads()
+                    .filter_map(|head| head.request.prior_cache.as_ref()),
             )
             .any(|cache| cache.source != motion::RouteSource::SyntheticFixture)
         {
@@ -462,6 +478,11 @@ impl NpcMotion {
         }) {
             return Err(NativeError::InvalidCheckpoint);
         }
+        if s.failed_wander_heads().any(|head| {
+            head.request.owner_collision_height != collision_height || head.request.target.is_some()
+        }) {
+            return Err(NativeError::InvalidCheckpoint);
+        }
         // Runtime alone knows owner generation. These consistency checks do not
         // authenticate source refs or supply a production rehydration path.
         match pending {
@@ -489,6 +510,10 @@ impl NpcMotion {
                     .suspended_wander
                     .as_ref()
                     .and_then(|w| w.pathfinder_cache.as_ref()),
+            )
+            .chain(
+                s.failed_wander_heads()
+                    .filter_map(|head| head.request.prior_cache.as_ref()),
             )
             // Home's local cache is transcript evidence only; it has no live head,
             // but still binds this exact generation and capability filter on restore.

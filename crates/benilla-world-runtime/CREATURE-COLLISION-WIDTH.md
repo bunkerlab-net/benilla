@@ -54,11 +54,11 @@ restore additionally compare the actual current owner. A stale or independently
 valid different selection cannot replace it. Without a generation owner, respawn
 still clears initial width and later-generation width queries remain unavailable.
 
-Native format **49**, policy `benilla-native-home-wander-v49`, retains
+Native format **50**, policy `benilla-native-home-wander-v50`, retains
 `Profile.creature_collision_widths`, the NPC checkpoint `source_collision_width`,
-and typed Route `collision_width`, with v49 profile/state/record/checkpoint/melee
+and typed Route `collision_width`, with v50 profile/state/record/checkpoint/melee
 digest domains. New optional serialized fields require explicit null when absent;
-omission does not manufacture a default. Native48 and earlier experimental saves
+omission does not manufacture a default. Native49 and earlier experimental saves
 and records are rejected rather than migrated. OriginalFixture v2 and exploration
 character/profile transports are unchanged. Native admission remains uninhabited.
 

@@ -153,11 +153,11 @@ RNG, or recreate historical dispatch seals and ACKs.
 The app's typed bridge is `cfg(test)` only. Its runtime pending-world boundary is
 available only to the explicit `synthetic-native-tests` feature/test domain;
 neither admits authentic content or enables native startup. The selected scope
-is one current NORMAL, dry same-polygon Wander owner with immutable constructor,
-query configuration and filter. Earlier retained MinimumDistance, EndpointMissing
-and EndpointHeight calculations are allowed; a current NOPATH, Chase, Home or
-suspended owner is outside this restore boundary. Generic cached-world restore
-remains closed.
+is one current NORMAL or MinimumDistance NOPATH, dry same-polygon Wander owner
+with immutable constructor, query configuration and filter. Earlier retained
+MinimumDistance, EndpointMissing and EndpointHeight calculations are allowed;
+current EndpointMissing/EndpointHeight, Chase, Home and suspended owners remain
+outside this restore boundary. Generic cached-world restore remains closed.
 
 The app capture retains accepted native input ordinals together with the original
 constructor and pre-draw preparation/request metadata and exact angle/radius draws.
@@ -168,11 +168,15 @@ clear/updateFilter, query selection, retained draw values, reached endpoint look
 and height, the applicable dry suffix, and actual loaded corridor/body/ground/LOS
 coverage where required by the branch. Historical request checks share the ordinary
 initialized-body policy; the final retained request must equal the saved spline
-request in full. Draw validation uses the saved counter-addressable stream without
+request in full for NORMAL, or the checkpoint-owned failed-route head for current
+MinimumDistance. Native format 50 requires this optional head explicitly, and
+recipe version 2 distinguishes the new owner contract. A retained older spline
+cannot stand in for the failed calculation. The narrow failed restore requires
+the head to remain the current motion query at the same position. Draw validation uses the saved counter-addressable stream without
 advancing gameplay RNG. Serialized references never seed the native query.
 
 The pending runtime boundary requires the replayed terminal to match the saved
-current NORMAL Wander semantic state completely: full backing storage including
+current Wander semantic state completely: full backing storage including
 inactive references, active length, filter, path type, endpoints, points and query
 configuration. It also binds the original operation count/revision and exact
 checkpoint. Runtime tick, timers, RNG counter, spline and path identities remain
@@ -195,9 +199,32 @@ The executed integration test reached 2,201 alive ticks with four fresh mid-leg
 reopens at native revisions 2, 15, 32 and 48, followed by matching arrival and
 next-leg continuation against an uninterrupted baseline. It retained at most two
 operations in this authored entry-6-shaped dry filter-13 scene. All five reopen
-component tests passed, including wrong geometry, current NOPATH, failed
+component tests passed at the preceding NORMAL-only checkpoint, including wrong
+geometry, then-unsupported current NOPATH, failed
 reconstruction/rollback retry and mismatched durable checkpoint rejection. The
 complete concrete corridor suite passed 534 tests. Store publication faults are
 verified separately at the opaque-pair store layer, rather than injected into the
 concrete loaded reopen test. Native equivalence tests separately cover fixed dry
 filters 1 and 13. These receipts do not establish authentic gameplay/startup support.
+
+### Current failed-route head and pause acceptance
+
+The checkpoint owns the exact validated failed request and typed source reason,
+including prior-cache input and constructor identity. This is persistence evidence,
+not a new source field or authority. Success and generator reset clear it; an
+ordinary failed calculation preserves it through the source 500 ms retry pause.
+Simulation also preserves it under suspended Wander and later facing queries;
+those broader shapes are not admitted by this selected reopen bridge.
+
+MinimumDistance returns before source start/end writes, endpoint lookup and spline
+launch. Reconstruction therefore checks the empty point list, zero active length,
+full retained backing, filter and retained actual endpoint without substituting
+the older successful spline. Fresh replay must reproduce the terminal natively.
+Natural finalized NORMAL pauses use the existing same-owner path and retain their
+exact countdown. New acceptance tests cover cold and retained MinimumDistance,
+fresh reopen through retry, finalized pause, forged head and recipe rejection.
+All nine concrete reopen tests passed, including these four new cases and the
+existing 2,201-alive-tick baseline. The predicted retained-failure seed 841 was
+confirmed by actual loaded geometry. Runtime verification passed 839 unit tests
+and 40 integration tests; the three Home mailbox regressions also passed. These
+are component receipts, not authentic populated-world startup acceptance.

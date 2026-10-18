@@ -43,10 +43,13 @@ transaction failure a regenerated first event has a fresh seal: the provider mus
 claim it too while retaining or discarding its original dependency consistently.
 `same_live_dispatch` distinguishes repeated use of the same seal from a regenerated
 proposal with identical transcript bytes. Neither event nor configuration hashes
-can replace this loaded ownership. The narrow initial OwnerPathFinder cache
-contract accepts a typed Complete NORMAL claim only with the first dispatch and
-revision one; actual source/query/geometry proof remains the app provider's duty.
-Production native session admission stays closed.
+can replace this loaded ownership. The narrow initial Chase OwnerPathFinder
+cache contract accepts a typed Complete NORMAL claim only with the first dispatch
+and revision one. Wander instead retains its Initialize identity, materializes
+construction during Prepare and uses a subsequent Route dispatch; its validated
+NoPath calculation may retain a constructor-empty cache and exact failed request.
+Actual source/query/geometry proof remains the app provider's duty. Production
+native session admission stays closed.
 
 The mutable simulation identity is staged with motion/world state. An authority
 error or later failure inside `step_batch` discards that staged identity. Once
@@ -127,22 +130,28 @@ runs the same Route fact and candidate checks as raw certification.
 
 ## Persistence contract
 
-Native format **49**, `benilla-native-home-wander-v49`, and
-motion policy `cmangos-8ec338a1-ground-linear-home-wander-v5` bind
+Native format **50**, `benilla-native-home-wander-v50`, and
+motion policy `cmangos-8ec338a1-ground-linear-home-wander-v6` bind
 the first source-cache contract and constructor lifecycle. Profile/state/record/
-checkpoint/melee digest domains are v49. Native48 and earlier are rejected;
+checkpoint/melee digest domains are v50. Native49 and earlier are rejected;
 no migration or serde default invents evidence.
 MotionSnapshot also requires its exact policy, including Idle snapshots.
 The new simulation snapshot/request options and native Route option are required
-fields, even when null. A Chase snapshot with cache or a spline from another
-constructor is rejected.
+fields, even when null, including `WanderSnapshot.failed_route`. A Chase snapshot
+with cache or a spline from another constructor is rejected. A failed Wander head
+retains its exact request and typed reason; the current cache and prior-cache
+transition must agree, without substituting an older successful spline.
 
 Serialized receipts preserve all evidence for exact replay, but their manual
 deserializer restores no live seal. Replay re-executes the source dispatch and
 compares every metadata field; it cannot rehydrate native queries from saved
 receipts or hashes. First source-cache typed claims may replay from recorded facts;
-loaded source-cache checkpoint reopen remains rejected. Saved-session open also
-checks the final state after journal replay, so a cache-free base cannot bypass
+generic loaded source-cache checkpoint reopen remains rejected. The separate
+synthetic-only pending Wander restore requires an exact current NORMAL or
+MinimumDistance NoPath head and challenged native replay; serialized dispatch
+metadata alone cannot release it. Chase, Home, suspended Wander and other NoPath
+reasons remain excluded. See [WANDER.md](../../WANDER.md).
+Saved-session open also checks the final state after journal replay, so a cache-free base cannot bypass
 the reopen guard. Historical Route facts alone do not reject a world whose owner
 cache was discarded by the modeled lifecycle. Fixture checkpoint restore remains
 explicitly synthetic.

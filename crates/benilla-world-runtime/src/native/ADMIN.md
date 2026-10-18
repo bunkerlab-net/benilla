@@ -3,7 +3,7 @@
 This fork-only interface implements data-bounded one-level grants, an XP-gain
 toggle that preserves current XP, and positive carried-item grants.
 It is not a CMaNGOS chat command, a realm-admin login, a PSK permission, or a new
-simulation authority. Native format 49 binds the policy, receipts, XP flag and
+simulation authority. Native format 50 binds the policy, receipts, XP flag and
 carried-item metadata, including real empty container instances.
 `NativeCapability` remains uninhabited. The exact app/UI/store route is exercised
 only with authored component fixtures; no production host is installed.

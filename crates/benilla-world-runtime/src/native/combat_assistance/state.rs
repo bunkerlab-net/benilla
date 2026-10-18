@@ -64,7 +64,7 @@ impl CombatAssistanceAnchor {
     fn append(&mut self, history: &AssistanceHistory) -> Result<(), NativeError> {
         self.count = self.count.checked_add(1).ok_or(NativeError::Limit)?;
         self.tip = crate::digest(
-            b"benilla-native-assistance-chain-v49\0",
+            b"benilla-native-assistance-chain-v50\0",
             &(self.tip, self.count, history),
         );
         Ok(())
@@ -653,7 +653,7 @@ pub(in crate::native) fn validate_current(
                                 last_receipt = receipt.id;
                             }
                             let callback_key = crate::digest(
-                                b"benilla-native-assistance-cause-v49\0",
+                                b"benilla-native-assistance-cause-v50\0",
                                 &(id, &r.callback),
                             );
                             if combat_active

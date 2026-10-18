@@ -7,7 +7,8 @@ use super::{
 use serde::{Deserialize, Serialize};
 mod wander;
 pub use wander::{
-    wander_normalized_word, DefaultMovement, WanderDraw, WanderSnapshot, WANDER_POLICY_ID,
+    wander_normalized_word, DefaultMovement, WanderDraw, WanderFailedRouteHead, WanderSnapshot,
+    WANDER_POLICY_ID,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -204,7 +205,7 @@ pub struct MotionSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Dispatch {
     Launched,
-    NoPath,
+    NoPath(Option<Box<WanderFailedRouteHead>>),
     Unreachable,
 }
 
@@ -384,6 +385,23 @@ impl MotionState {
             Generator::Idle => {}
             Generator::Wander(wander) => {
                 wander.validate(&state)?;
+                if let Some(failed) = &wander.failed_route {
+                    if failed.request.origin != state.map_pose.position
+                        || failed
+                            .request
+                            .binding
+                            .now_ms
+                            .checked_add(u64::from(500 - wander.next_move_timer_ms))
+                            != Some(state.processed_map_clock_ms)
+                        || state.spline.as_ref().is_some_and(|spline| {
+                            !spline.spline.finalized
+                                || spline.route_request.binding.query_id
+                                    >= failed.request.binding.query_id
+                        })
+                    {
+                        return Err(MotionError::Invalid("saved Wander failed route chronology"));
+                    }
+                }
                 if let Some(spline) = &state.spline {
                     if spline.route_request.kind != RouteKind::Wander
                         || spline.facing != Facing::Tangent
@@ -855,29 +873,40 @@ impl MotionState {
         if let Some(prior) = cache.as_ref() {
             prior.validate_for(request.binding.identity)?;
         }
-        let (result, after_cache) = match ask(authority, Query::Route(request.clone()))? {
-            Fact::RouteCalculation(calculation) => {
-                calculation.validate_for(&request)?;
-                (calculation.outcome, Some(Box::new(calculation.after_cache)))
-            }
-            // Legacy authored fixtures remain cache-free. They cannot erase a cache.
-            Fact::Route(result) if cache.is_none() => {
-                if matches!(&result, RouteOutcome::Complete(path)
-                    if path.source == RouteSource::OwnerPathFinder)
-                {
-                    return Err(MotionError::Missing("source pathfinder calculation state"));
+        let (result, after_cache, failed_route) =
+            match ask(authority, Query::Route(request.clone()))? {
+                Fact::RouteCalculation(calculation) => {
+                    calculation.validate_for(&request)?;
+                    let failed_route = calculation.wander_no_path.map(|reason| {
+                        Box::new(WanderFailedRouteHead {
+                            request: request.clone(),
+                            reason,
+                        })
+                    });
+                    (
+                        calculation.outcome,
+                        Some(Box::new(calculation.after_cache)),
+                        failed_route,
+                    )
                 }
-                (result, None)
-            }
-            _ => return Err(MotionError::Invalid("route fact kind/cache")),
-        };
+                // Legacy authored fixtures remain cache-free. They cannot erase a cache.
+                Fact::Route(result) if cache.is_none() => {
+                    if matches!(&result, RouteOutcome::Complete(path)
+                    if path.source == RouteSource::OwnerPathFinder)
+                    {
+                        return Err(MotionError::Missing("source pathfinder calculation state"));
+                    }
+                    (result, None, None)
+                }
+                _ => return Err(MotionError::Invalid("route fact kind/cache")),
+            };
         // The surrounding MotionState/native frame transaction owns rollback,
         // including failures after a valid calculation but before frame completion.
         *cache = after_cache;
         let path = match result {
             RouteOutcome::Complete(path) => path,
             RouteOutcome::NoPath if kind != RouteKind::HomeForceDestination => {
-                return Ok(Dispatch::NoPath);
+                return Ok(Dispatch::NoPath(failed_route));
             }
             RouteOutcome::Missing => return Err(MotionError::Missing("owner pathfinder/route")),
             RouteOutcome::NoPath | RouteOutcome::Shortcut => {
@@ -1348,7 +1377,7 @@ impl MotionState {
                             events.push(Event::ChaseUnreachable);
                             return self.finalize_chase(chase, target, authority, events);
                         }
-                        Dispatch::NoPath => {}
+                        Dispatch::NoPath(_) => {}
                     }
                 }
                 let reach = crate::creature_ai::combat_reach(

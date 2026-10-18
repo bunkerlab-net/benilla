@@ -1308,8 +1308,8 @@ mod tests {
     }
 
     #[test]
-    fn native49_projection_rejects_previous_native_digests_without_advancing() {
-        for version in [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48] {
+    fn native50_projection_rejects_previous_native_digests_without_advancing() {
+        for version in [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49] {
             use sha2::{Digest as _, Sha256};
             let mut world = world();
             let mut projection =
