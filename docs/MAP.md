@@ -573,7 +573,7 @@
 - `gen-reference-verb-events.py` — Regenerate `reference/1.12-verb-events.tsv`: the events 1.12 Lua verbs fire, keyed by verb.
 - `mixsum.py` — Read a `$WOW_MIX_TAP` capture and say, in numbers, what the mix was doing when.
 - `native-starter.py` — Prepare exact native starter bindings from a private v2 capture and local DBCs.
-- `package-player.py` — Prepare exact vendored build source and package it with the GPL-covered player.""" import argparse import hashlib import io import json import os from…
+- `package-player.py` — Package the player and terrain helper with their exact vendored build source.""" import argparse import hashlib import io import json import os from p…
 - `pass-span-lint.py` — Refuse a second open `pass_span` on the same render pass (a wgpu validation error on Vulkan).
 - `soundprobe.py` — Read back a `$WOW_SOUND_PROBE` capture and name the mechanism behind a speaker-breaking sound.
 - `test-classic-export.py` — No database/network or game content: original fake-source exporter tests.

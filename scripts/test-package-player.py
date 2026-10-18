@@ -21,6 +21,11 @@ spec.loader.exec_module(packager)
 SHA = "a" * 40
 
 
+def executables(platform):
+    suffix = ".exe" if platform == "windows-amd64" else ""
+    return ("benilla" + suffix, "benilla-native-terrain" + suffix)
+
+
 class PlayerFeatureGraphTests(unittest.TestCase):
     """Resolve the actual player/dev graphs without compiling or linking the app."""
 
@@ -49,6 +54,9 @@ class PlayerFeatureGraphTests(unittest.TestCase):
     def test_player_launcher_does_not_enable_dev_through_dependencies(self):
         self.assert_dev_features(["benilla"], False)
 
+    def test_packaged_player_and_helper_do_not_enable_dev_through_dependencies(self):
+        self.assert_dev_features(["benilla", "benilla-native-terrain"], False)
+
     def test_player_test_roots_do_not_enable_dev_through_dependencies(self):
         self.assert_dev_features(["benilla-formats", "benilla-app"], False,
                                  test_dependencies=True)
@@ -59,15 +67,19 @@ class PlayerFeatureGraphTests(unittest.TestCase):
 
 class PackagingTests(unittest.TestCase):
     def fixture(self, root, platform="linux-amd64"):
-        executable = "benilla.exe" if platform == "windows-amd64" else "benilla"
-        binary = root / "target" / packager.TARGETS[platform] / "release" / executable
+        executable = executables(platform)[0]
+        binaries = [root / "target" / packager.TARGETS[platform] / "release" / name
+                    for name in executables(platform)]
+        binary = binaries[0]
         source = packager.source_dir(root, SHA)
-        for path in [binary, *(source / p for p in packager.REQUIRED_SOURCE),
+        for path in [*binaries, *(source / p for p in packager.REQUIRED_SOURCE),
                      source / "vendor/fake-1.0/src/lib.rs", source / "vendor/fake-1.0/LICENSE",
                      source / "vendor/fake-1.0/.cargo-checksum.json"]:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture", encoding="utf-8")
-        binary.chmod(0o755)
+        for path in binaries:
+            path.write_text(f"fixture:{path.name}", encoding="utf-8")
+            path.chmod(0o755)
         self.seal(source)
         for name in ["WoW/Data/game.MPQ", "benilla-config/config.toml", "config.toml", ".probe-identity"]:
             path = root / name
@@ -82,19 +94,26 @@ class PackagingTests(unittest.TestCase):
         for platform in packager.TARGETS:
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                binary, executable, source = self.fixture(root, platform)
-                binary.chmod(0o644)  # Windows cannot set POSIX executable bits.
-                archive = packager.package(root, platform, SHA)
+                binary, _, source = self.fixture(root, platform)
+                for name in executables(platform):
+                    (binary.parent / name).chmod(0o644)  # Windows cannot set POSIX executable bits.
+                # Packaging copies binary bytes; it must never execute either helper or player.
+                with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
+                    archive = packager.package(root, platform, SHA)
                 prefix = f"benilla-{platform}-{SHA}"
-                expected = {f"{prefix}/{p}" for p in [executable, *packager.DOCUMENTS, "corresponding-source.tar.gz"]}
+                expected = {f"{prefix}/{p}" for p in [*executables(platform), *packager.DOCUMENTS, "corresponding-source.tar.gz"]}
                 if platform == "windows-amd64":
                     with zipfile.ZipFile(archive) as output:
                         self.assertEqual(set(output.namelist()), expected)
+                        for name in executables(platform):
+                            self.assertEqual(output.read(f"{prefix}/{name}"), f"fixture:{name}".encode())
                         data = output.read(f"{prefix}/corresponding-source.tar.gz")
                 else:
                     with tarfile.open(archive) as output:
                         self.assertEqual(set(output.getnames()), expected)
-                        self.assertEqual(output.getmember(f"{prefix}/{executable}").mode, 0o755)
+                        for name in executables(platform):
+                            self.assertEqual(output.getmember(f"{prefix}/{name}").mode, 0o755)
+                            self.assertEqual(output.extractfile(f"{prefix}/{name}").read(), f"fixture:{name}".encode())
                         data = output.extractfile(f"{prefix}/corresponding-source.tar.gz").read()
                 with tarfile.open(fileobj=io.BytesIO(data)) as output:
                     wanted = {f"benilla-source-{SHA}/{p.relative_to(source).as_posix()}" for p in source.rglob("*") if p.is_file()}
@@ -123,9 +142,51 @@ class PackagingTests(unittest.TestCase):
                     name = f"benilla-source-{SHA}/{relative.as_posix()}/{product.name}"
                     self.assertEqual(output.extractfile(name).read(), product.read_bytes())
 
+    def test_native_terrain_source_and_notices_are_required(self):
+        required = {
+            "crates/benilla-native-terrain/Cargo.toml",
+            "crates/benilla-native-terrain/src/main.rs",
+            "crates/benilla-native-terrain/src/lib.rs",
+            "crates/benilla-native-terrain/src/source.rs",
+            "crates/benilla-native-terrain/src/writer.rs",
+            "crates/benilla-native-terrain/README.md",
+            "crates/benilla-native-terrain/CMANGOS-NOTICE.txt",
+            "crates/benilla-sim/licenses/LICENSE",
+            "crates/benilla-sim/licenses/GPL-3.0.txt",
+            "crates/benilla-sim/licenses/COPYRIGHT.md",
+            "crates/benilla-sim/licenses/AUTHORS.md",
+            "LICENSE-GPL-3.0",
+        }
+        self.assertLessEqual(required, set(packager.REQUIRED_SOURCE))
+        self.assertIn("crates/benilla-native-terrain/CMANGOS-NOTICE.txt", packager.DOCUMENTS)
+        self.assertIn("crates/benilla-native-terrain/README.md", packager.DOCUMENTS)
+
+    def test_native_terrain_corresponding_source_is_preserved_byte_for_byte(self):
+        repository = Path(__file__).resolve().parents[1]
+        relative = Path("crates/benilla-native-terrain")
+        products = sorted(path for path in (repository / relative).rglob("*")
+                          if path.is_file() and "__pycache__" not in path.parts)
+        self.assertTrue(products)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, source = self.fixture(root)
+            for product in products:
+                name = product.relative_to(repository)
+                packager.safe_path(name.as_posix())
+                destination = source / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(product.read_bytes())
+            self.seal(source)
+            archive = packager.package_source(root, "linux-amd64", SHA)
+            with tarfile.open(archive) as output:
+                for product in products:
+                    name = f"benilla-source-{SHA}/{product.relative_to(repository).as_posix()}"
+                    self.assertEqual(output.extractfile(name).read(), product.read_bytes())
+
     def test_game_asset_extensions_still_fail_even_in_fixture_directory(self):
         fixture = "crates/benilla-native-geometry-tests/tools/fixtures/terrain-liquid"
-        for directory in ["data", fixture, "vendor/example-1.0"]:
+        for directory in ["data", fixture, "crates/benilla-native-terrain/tools/fixtures",
+                          "vendor/example-1.0"]:
             for extension in ["mpq", "blp", "m2", "adt", "wdt", "wmo", "dbc"]:
                 for suffix in [extension, extension.upper()]:
                     name = f"{directory}/game.{suffix}"
@@ -137,21 +198,28 @@ class PackagingTests(unittest.TestCase):
         for platform in packager.TARGETS:
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                _, executable, _ = self.fixture(root, platform)
+                self.fixture(root, platform)
                 source_archive = packager.package_source(root, platform, SHA)
                 before = source_archive.read_bytes()
-                archive = packager.package(root, platform, SHA, url)
+                with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
+                    archive = packager.package(root, platform, SHA, url)
                 prefix = f"benilla-{platform}-{SHA}"
-                expected = {f"{prefix}/{p}" for p in [executable, *packager.DOCUMENTS, "SOURCE-DOWNLOAD.txt"]}
+                expected = {f"{prefix}/{p}" for p in [*executables(platform), *packager.DOCUMENTS, "SOURCE-DOWNLOAD.txt"]}
                 if platform == "windows-amd64":
                     with zipfile.ZipFile(archive) as output:
                         self.assertEqual(set(output.namelist()), expected)
+                        for name in executables(platform):
+                            self.assertEqual(output.read(f"{prefix}/{name}"), f"fixture:{name}".encode())
                         notice = output.read(f"{prefix}/SOURCE-DOWNLOAD.txt").decode()
                 else:
                     with tarfile.open(archive) as output:
                         self.assertEqual(set(output.getnames()), expected)
+                        for name in executables(platform):
+                            self.assertEqual(output.getmember(f"{prefix}/{name}").mode, 0o755)
+                            self.assertEqual(output.extractfile(f"{prefix}/{name}").read(), f"fixture:{name}".encode())
                         notice = output.extractfile(f"{prefix}/SOURCE-DOWNLOAD.txt").read().decode()
                 self.assertIn(url, notice)
+                self.assertIn("benilla-native-terrain", notice)
                 self.assertIn(SHA, notice)
                 self.assertIn(hashlib.sha256(before).hexdigest(), notice)
                 self.assertEqual(source_archive.read_bytes(), before)
@@ -235,12 +303,12 @@ class PackagingTests(unittest.TestCase):
                     packager.regular(path, root)
 
     def test_required_inputs_fail_closed(self):
-        for missing in ["binary", packager.MANIFEST, *packager.REQUIRED_SOURCE,
+        for missing in [*executables("linux-amd64"), packager.MANIFEST, *packager.REQUIRED_SOURCE,
                         "vendor/fake-1.0/src/lib.rs", "vendor/fake-1.0/.cargo-checksum.json"]:
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 binary, _, source = self.fixture(root)
-                (binary if missing == "binary" else source / missing).unlink()
+                (binary.parent / missing if missing in executables("linux-amd64") else source / missing).unlink()
                 with self.assertRaises(ValueError):
                     packager.package(root, "linux-amd64", SHA)
                 self.assertFalse((root / "dist").exists())
@@ -288,17 +356,20 @@ class PackagingTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 packager.package(root, "linux-amd64", SHA)
 
-    def test_binary_symlink_fails(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            binary, _, _ = self.fixture(root)
-            binary.unlink()
-            try:
-                binary.symlink_to(root / "config.toml")
-            except OSError as error:
-                self.skipTest(str(error))
-            with self.assertRaises(ValueError):
-                packager.package(root, "linux-amd64", SHA)
+    def test_binary_symlinks_fail(self):
+        for name in executables("linux-amd64"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                player, _, _ = self.fixture(root)
+                binary = player.parent / name
+                binary.unlink()
+                try:
+                    binary.symlink_to(root / "config.toml")
+                except OSError as error:
+                    self.skipTest(str(error))
+                with self.assertRaises(ValueError):
+                    packager.package(root, "linux-amd64", SHA)
+                self.assertFalse((root / "dist").exists())
 
     def test_no_vendored_dependency_fails_even_if_resealed(self):
         with tempfile.TemporaryDirectory() as directory:

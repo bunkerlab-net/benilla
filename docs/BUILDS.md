@@ -1,14 +1,16 @@
 # Build and run a player artifact
 
-This fork's `Build player` workflow builds Linux amd64, Linux arm64, macOS arm64,
-and Windows amd64 binaries. It runs on pushes to `master`, temporarily on pushes to
-`feat/psk-p2p-foundation`, and through `workflow_dispatch`. Pull requests, other
+This fork's `Build player` workflow builds the player and `benilla-native-terrain`
+helper for Linux amd64, Linux arm64, macOS arm64, and Windows amd64. It runs on
+pushes to `master`, temporarily on pushes to `feat/psk-p2p-foundation`, and through `workflow_dispatch`. Pull requests, other
 branch pushes, tags, and schedules do not start it. Remove the explicit feature-branch
 entry after this development cycle. It does not publish releases.
 
-Each native Build job also runs the local profile-storage regression suite before packaging.
-This exercises save/reopen, corruption handling and file replacement on the actual target OS.
-Windows does not claim Unix permissions or portable directory-fsync guarantees.
+Each native Build job also runs the local profile-storage and terrain-helper
+regression suites before packaging. This exercises save/reopen, corruption handling,
+file replacement, and authored terrain inputs on the actual target OS. Packaging
+copies the helper without executing it or reading a player installation. Windows
+does not claim Unix permissions or portable directory-fsync guarantees.
 
 ## Start a build
 
@@ -35,7 +37,8 @@ source expiration is more than 15 days away before packaging the player; stricte
 repository limits fail closed. Never manually remove a source artifact while its
 binary is available.
 Names include the platform and full source commit. Extract the GitHub artifact ZIP first, then the archive
-inside it. Unix archives preserve the executable permission.
+inside it. Both executables are at the archive root, with `.exe` suffixes on
+Windows. Unix archives give both executables executable permission.
 
 To verify the archive on Linux, run `sha256sum -c <archive>.sha256`. On macOS, run
 `shasum -a 256 -c <archive>.sha256`. On Windows, run
@@ -77,6 +80,36 @@ The player writes settings, screenshots, logs, and addons to `benilla-config/`
 beside the binary. Put compatible addons in `benilla-config/AddOns/`. It reads the
 WoW installation without changing it.
 
+## Inspect selected terrain without publishing
+
+The packaged `benilla-native-terrain` command is a separate, headless helper. From
+the extracted archive folder, inspect a selected tile on Linux or macOS with:
+
+```sh
+./benilla-native-terrain --data "/path/to/WoW/Data" --map 0 --tile 48,32 --inspect
+```
+
+On Windows, run in PowerShell:
+
+```powershell
+.\benilla-native-terrain.exe --data 'C:\Games\World of Warcraft\Data' --map 0 --tile 48,32 --inspect
+```
+
+Replace the example Data path with your own installation. `--inspect` runs the same
+bounded preparation and dry-terrain validation as generation, then reports the
+result without publishing products, a manifest, or an output directory. It does
+not require `--output`. The tile coordinates and map are explicit; repeat `--tile`
+for at most nine selected tiles. The example is a request to inspect, not a claim
+that this real tile is supported or has passed acceptance.
+
+The helper reads the installation without modifying it. Unsupported inputs fail
+closed, including liquid-bearing terrain and incompatible patch-chain winners;
+there is no fallback conversion or automatic neighbor selection. Successful
+inspection does not provide VMaps/MMaps, gameplay admission, movement authority,
+or a live installation lease. Keep any generated terrain and source manifests
+private. See the included [terrain helper guide](../crates/benilla-native-terrain/README.md)
+for the separate explicit-output generation command and its publication limits.
+
 ## Platform requirements
 
 - Linux artifacts use glibc and system audio/windowing libraries. They build on
@@ -99,17 +132,18 @@ an artifact as a release.
 ## Build details
 
 Each job uses a native runner, the Rust version in `rust-toolchain.toml`, and the
-checked-in `Cargo.lock`. Mr Boxington wraps Cargo for the build command:
+checked-in `Cargo.lock`. Mr Boxington wraps Cargo for both build commands:
 
 ```sh
 mbx build --locked --release -p benilla --bin benilla --no-default-features --target <target>
+mbx build --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target <target>
 ```
 
 The targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
 `aarch64-apple-darwin`, and `x86_64-pc-windows-msvc`. Disabling default features
 selects the player build without developer tools. The workflow uses `release`
 rather than the more expensive fat-LTO `ship` profile. It limits Cargo to two
-parallel build jobs and each runner to 180 minutes.
+or three parallel build jobs per platform and each runner to 180 minutes.
 
 Linux installs a C compiler, pkg-config, ALSA headers, and udev headers. macOS
 uses the runner's Xcode tools and libclang; Windows uses its MSVC tools. The
@@ -119,14 +153,17 @@ workflow does not enable Bevy dynamic linking or require a game installation.
 
 The player links GPL-3.0-or-later `benilla-session` / `benilla-sim`. The combined
 player is GPL-covered; original client files retain MIT OR Apache-2.0 grants.
-Read `DISTRIBUTION-NOTICE.md`, `LICENSE-GPL-3.0`, and the simulation provenance.
-All existing upstream copyright/license notices remain intact.
+The terrain helper is also GPL-3.0-or-later. Read `DISTRIBUTION-NOTICE.md`,
+`LICENSE-GPL-3.0`, the simulation provenance, and the included
+`crates/benilla-native-terrain/CMANGOS-NOTICE.txt`. Both executables use the same
+exact corresponding-source archive. All existing upstream copyright/license
+notices remain intact.
 
 Each job first snapshots the selected full Git commit, runs `cargo vendor --locked
 --versioned-dirs`, and checks the locked graph resolves offline using the generated
 `.cargo/vendor-config.toml`. It then builds from that snapshot, with those vendored
-sources, using `--offline --locked`. `SOURCE-MANIFEST.json` records the source
-commit and SHA-256 of every source/dependency file. `BUILD-INFO.txt` records the
+sources, using `--offline --locked`, for both executables. `SOURCE-MANIFEST.json`
+records the source commit and SHA-256 of every source/dependency file. `BUILD-INFO.txt` records the
 Rust, Cargo, and mbx versions. Packaging checks that the snapshot has not changed
 and archives its entire contents in the matching separate source download. CI
 uploads source first and packages the player only after upload succeeds, using
@@ -145,6 +182,7 @@ platform prerequisites above, then run:
 
 ```sh
 cargo build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>
+cargo build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target <target>
 ```
 
 Cargo is the underlying builder; mbx is an optional cache wrapper. The archive
@@ -162,6 +200,7 @@ commit=$(git rev-parse HEAD)
 python3 scripts/package-player.py --prepare-source --commit "$commit"
 export CARGO_TARGET_DIR="$PWD/target"
 (cd .player-source/current && mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>)
+(cd .player-source/current && mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target <target>)
 python3 scripts/package-player.py --platform <platform> --commit "$commit"
 ```
 

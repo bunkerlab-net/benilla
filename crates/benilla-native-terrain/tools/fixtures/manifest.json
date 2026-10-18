@@ -87,19 +87,19 @@
     "VMap/MMap/world admission"
   ],
   "common_files": {
-    "Map.dbc": {
+    "Map.dbc.test-fixture": {
       "bytes": 204,
       "sha256": "102aa67e7a2d8c777e66c0cb31ccc22ca80b581fa20d6c0eb2de7d2a95fa5f17"
     },
-    "AreaTable.dbc": {
+    "AreaTable.dbc.test-fixture": {
       "bytes": 821,
       "sha256": "561f6f8cef7f00cf3c749d7ed1ce1f747e0cb0c2226ded5e039648d902edf1db"
     },
-    "LiquidType.dbc": {
+    "LiquidType.dbc.test-fixture": {
       "bytes": 37,
       "sha256": "8ceb17748afb1ec3575fe2a26caed2cc51ff62b8fe2c7adcadf423c889a049b5"
     },
-    "source.wdt": {
+    "source.wdt.test-fixture": {
       "bytes": 32836,
       "sha256": "d3b62d70a6f30707a4be87a0e216f216d3f74ee69ed176c46261050f951274c3"
     }

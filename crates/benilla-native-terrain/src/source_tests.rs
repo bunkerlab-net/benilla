@@ -472,22 +472,25 @@ const ORACLE_PRODUCT: &str = "maps/0013132.map";
 
 fn oracle_entries() -> Vec<Entry> {
     vec![
-        raw_entry(MAP, include_bytes!("../tools/fixtures/Map.dbc").to_vec()),
+        raw_entry(
+            MAP,
+            include_bytes!("../tools/fixtures/Map.dbc.test-fixture").to_vec(),
+        ),
         raw_entry(
             AREA,
-            include_bytes!("../tools/fixtures/AreaTable.dbc").to_vec(),
+            include_bytes!("../tools/fixtures/AreaTable.dbc.test-fixture").to_vec(),
         ),
         raw_entry(
             LIQUID,
-            include_bytes!("../tools/fixtures/LiquidType.dbc").to_vec(),
+            include_bytes!("../tools/fixtures/LiquidType.dbc.test-fixture").to_vec(),
         ),
         raw_entry(
             ORACLE_WDT,
-            include_bytes!("../tools/fixtures/source.wdt").to_vec(),
+            include_bytes!("../tools/fixtures/source.wdt.test-fixture").to_vec(),
         ),
         raw_entry(
             ORACLE_ADT,
-            include_bytes!("../tools/fixtures/flat.adt").to_vec(),
+            include_bytes!("../tools/fixtures/flat.adt.test-fixture").to_vec(),
         ),
     ]
 }

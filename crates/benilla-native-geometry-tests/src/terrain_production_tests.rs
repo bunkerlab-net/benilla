@@ -24,6 +24,14 @@ const WDT_MEMBER: &str = "World\\Maps\\AuthoredOracle\\AuthoredOracle.wdt";
 const ADT_MEMBER: &str = "World\\Maps\\AuthoredOracle\\AuthoredOracle_32_31.adt";
 
 fn fixture(name: &str) -> Vec<u8> {
+    let name = if [".dbc", ".adt", ".wdt"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+    {
+        format!("{name}.test-fixture")
+    } else {
+        name.to_owned()
+    };
     fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../benilla-native-terrain/tools/fixtures")

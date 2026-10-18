@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare exact vendored build source and package it with the GPL-covered player."""
+"""Package the player and terrain helper with their exact vendored build source."""
 import argparse
 import hashlib
 import io
@@ -18,6 +18,7 @@ TARGETS = {
     "macos-arm64": "aarch64-apple-darwin",
     "windows-amd64": "x86_64-pc-windows-msvc",
 }
+EXECUTABLES = ("benilla", "benilla-native-terrain")
 DOCUMENTS = (
     "LICENSE-MIT", "LICENSE-APACHE", "LICENSE-GPL-3.0", "DISTRIBUTION-NOTICE.md",
     "docs/BUILDS.md", "docs/P2P-CONFIG.md", "docs/P2P-ENCOUNTER.md", "docs/P2P-SETTINGS.md",
@@ -35,6 +36,7 @@ DOCUMENTS = (
     "crates/benilla-world-runtime/src/native/DEATH.md",
     "crates/benilla-app/src/net/p2p/world/native_geometry/README.md",
     "crates/benilla-native-dbc/README.md",
+    "crates/benilla-native-terrain/README.md", "crates/benilla-native-terrain/CMANGOS-NOTICE.txt",
     "scripts/native_starter/README.md", "scripts/native_starter/PROVENANCE.md",
     "scripts/native_starter/CONSUMER-CONTRACT.md",
     "scripts/classic_export/NATIVE-SPAWN-CONTRACT.md",
@@ -63,6 +65,9 @@ REQUIRED_SOURCE = (*DOCUMENTS, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"
                    "scripts/check-native-outfit-oracle.py", "scripts/test-initial-hooks.py",
                    "scripts/native_starter/outfit_cases.json",
                    "crates/benilla-native-dbc/src/main.rs", "crates/benilla-app/src/net/p2p/world.rs",
+                   "crates/benilla-native-terrain/Cargo.toml",
+                   "crates/benilla-native-terrain/src/main.rs", "crates/benilla-native-terrain/src/lib.rs",
+                   "crates/benilla-native-terrain/src/source.rs", "crates/benilla-native-terrain/src/writer.rs",
                    "crates/benilla-world-data/tests/fixtures/original-camp.json",
                    "crates/benilla-world-store/tests/fixtures/runtime-v1.checkpoint",
                    ".cargo/vendor-config.toml", "BUILD-INFO.txt")
@@ -212,11 +217,11 @@ def validate_source(source, commit, root=None):
     return files
 
 
-def write_tar(archive, files, prefix, executable=None):
+def write_tar(archive, files, prefix, executables=()):
     with tarfile.open(archive, "w:gz") as output:
         for source, destination in files:
             info = output.gettarinfo(str(source), f"{prefix}/{destination}")
-            info.mode = 0o755 if destination == executable or source.stat().st_mode & 0o111 else 0o644
+            info.mode = 0o755 if destination in executables or source.stat().st_mode & 0o111 else 0o644
             info.uid = info.gid = 0
             info.uname = info.gname = ""
             with source.open("rb") as content:
@@ -248,8 +253,10 @@ def package(root, platform, commit, source_url=None):
     check_commit(commit)
     source = source_dir(root, commit)
     validate_source(source, commit, root)
-    executable = "benilla.exe" if platform == "windows-amd64" else "benilla"
-    files = [(root / "target" / TARGETS[platform] / "release" / executable, executable)]
+    suffix = ".exe" if platform == "windows-amd64" else ""
+    executables = tuple(name + suffix for name in EXECUTABLES)
+    files = [(root / "target" / TARGETS[platform] / "release" / name, name)
+             for name in executables]
     files.extend((source / path, path) for path in DOCUMENTS)
     for path, _ in files:
         regular(path, root)
@@ -276,7 +283,7 @@ def package(root, platform, commit, source_url=None):
             raise ValueError("prepared source archive checksum mismatch")
         notice = dist / f"{name}-SOURCE-DOWNLOAD.txt"
         notice.write_text(
-            f"Corresponding Source for Benilla\nSource commit: {commit}\n"
+            f"Corresponding Source for Benilla and benilla-native-terrain\nSource commit: {commit}\n"
             f"Platform: {platform}\n\nDownload: {source_url}\n"
             f"Archive: {source_archive.name}\nSHA-256: {digest(source_archive)}\n\n"
             "Download access is through the same GitHub Actions run as the player; "
@@ -295,7 +302,7 @@ def package(root, platform, commit, source_url=None):
                 output.write(path, f"{name}/{destination}")
     else:
         archive = dist / f"{name}.tar.gz"
-        write_tar(archive, files, name, executable=executable)
+        write_tar(archive, files, name, executables=executables)
     checksum(archive)
     return archive
 

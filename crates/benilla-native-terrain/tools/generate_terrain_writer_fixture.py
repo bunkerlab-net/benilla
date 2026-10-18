@@ -51,6 +51,12 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def fixture_name(name):
+    if name.endswith((".adt", ".dbc", ".wdt")):
+        return name + ".test-fixture"
+    return name
+
+
 def chunk(tag, payload):
     return tag[::-1].encode("ascii") + struct.pack("<I", len(payload)) + payload
 
@@ -213,6 +219,10 @@ def generate(core, destination):
                                 check=True, capture_output=True)
         if result.stderr:
             raise RuntimeError("source oracle stderr: " + result.stderr.decode())
+    # The unchanged source driver reads original member names; only persisted
+    # authored inputs use the suffix that keeps them in corresponding source.
+    for name in [*authored_common(), *(case + ".adt" for case in CASES)]:
+        (destination / name).rename(destination / fixture_name(name))
     products = []
     for case, description in CASES.items():
         raw = (destination / (case + ".map")).read_bytes()
@@ -235,7 +245,7 @@ def generate(core, destination):
         "sanitizer_limit": "Alignment excluded: source casts string literals to uint32 for FourCC",
         "excluded": ["MPQ parsing/patch winner proof", "external extractor execution", "game assets",
                      "wet terrain", "production malformed-input behavior", "VMap/MMap/world admission"],
-        "common_files": {name: {"bytes": len(data), "sha256": sha(data)}
+        "common_files": {fixture_name(name): {"bytes": len(data), "sha256": sha(data)}
                          for name, data in authored_common().items()},
         "cases": products,
     }

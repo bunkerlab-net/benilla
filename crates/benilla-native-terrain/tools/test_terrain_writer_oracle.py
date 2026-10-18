@@ -26,6 +26,7 @@ class TerrainWriterOracle(unittest.TestCase):
         self.assertEqual(manifest["source_hashes"], oracle.HASHES)
         names = {"manifest.json"}
         for name, raw in oracle.authored_common().items():
+            name = oracle.fixture_name(name)
             self.assertEqual((FIXTURES / name).read_bytes(), raw)
             self.assertEqual(manifest["common_files"][name],
                              {"bytes": len(raw), "sha256": oracle.sha(raw)})
@@ -33,7 +34,7 @@ class TerrainWriterOracle(unittest.TestCase):
         self.assertEqual([case["name"] for case in manifest["cases"]], list(oracle.CASES))
         for case in manifest["cases"]:
             for suffix in ("adt", "map"):
-                name = case["name"] + "." + suffix
+                name = oracle.fixture_name(case["name"] + "." + suffix)
                 raw = (FIXTURES / name).read_bytes()
                 self.assertEqual(case[suffix + "_bytes"], len(raw))
                 self.assertEqual(case[suffix + "_sha256"], oracle.sha(raw))
@@ -41,6 +42,7 @@ class TerrainWriterOracle(unittest.TestCase):
                     self.assertEqual(raw, oracle.authored_adt(case["name"]))
                 names.add(name)
         self.assertEqual(names, {p.name for p in FIXTURES.iterdir() if p.is_file()})
+        self.assertFalse(any(name.endswith((".adt", ".dbc", ".wdt")) for name in names))
 
     def test_dry_layout_and_flat_compression(self):
         for name in oracle.CASES:
