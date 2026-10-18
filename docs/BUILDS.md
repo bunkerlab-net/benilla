@@ -303,3 +303,29 @@ For workflow linting, run `actionlint -config-file .github/actionlint.yaml`.
 The configuration lists the new hosted labels that actionlint 1.7.12 does not yet
 recognize. GitHub's runner list, rather than this linter exception, establishes
 runner availability.
+
+## Windows terrain diagnostic report
+
+The player and standalone terrain-helper archives include
+`scripts/Collect-BenillaTerrainDiagnostics.ps1`. From the extracted archive, run
+in Windows PowerShell 5.1 or PowerShell 7 on Windows:
+
+```powershell
+.\scripts\Collect-BenillaTerrainDiagnostics.ps1 -Data '.\Data' -Helper '.\benilla-native-terrain.exe' -Output '.\Benilla-Terrain-Diagnostics.json'
+```
+
+Use the actual local Data path if it is elsewhere. The output must be a new JSON
+file outside Data, with an existing parent directory. Review that JSON before
+sharing it. The collector reads bounded archive headers and invokes only helper
+help/diagnosis (or inspection on older helpers); it does not upload data, extract
+assets, or modify Data. It excludes local paths and arbitrary helper strings.
+Default selection is map 0, tile 48,32, with a 120-second helper timeout. A report
+can contain failed or unavailable stages; it does not establish gameplay readiness.
+If script execution is blocked, use your normal approved script-running process;
+the collector does not change execution policy.
+
+The fast Windows helper job runs authored collector smoke tests under both
+Windows PowerShell and PowerShell 7 from the exact distributed source before
+building and delivering the helper. The tests use an authored fake helper compiled
+by the runner's installed .NET compiler, including timeout, output bounds, redaction,
+relative paths, and unchanged-input checks. They require no installation assets.

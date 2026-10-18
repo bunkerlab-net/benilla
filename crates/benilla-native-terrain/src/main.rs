@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use anyhow::Result;
-use benilla_native_terrain::{prepare, Tile};
+use benilla_native_terrain::{diagnose, diagnostic_id, prepare, Tile};
 use clap::{error::ErrorKind, ArgGroup, CommandFactory, Parser};
 use sha2::{Digest, Sha256};
 use std::{fmt::Write as _, io::Write as _, path::PathBuf, process::ExitCode};
@@ -9,8 +9,8 @@ use std::{fmt::Write as _, io::Write as _, path::PathBuf, process::ExitCode};
 #[command(
     name = "benilla-native-terrain",
     bin_name = "benilla-native-terrain",
-    about = "Inspect or privately export selected terrain from your own Classic Data; no gameplay activation",
-    group(ArgGroup::new("mode").required(true).args(["inspect", "output"]))
+    about = "Inspect, diagnose or privately export selected terrain from your own Classic Data; no gameplay activation",
+    group(ArgGroup::new("mode").required(true).args(["inspect", "diagnose", "output"]))
 )]
 struct Args {
     #[arg(long)]
@@ -18,6 +18,9 @@ struct Args {
     /// Validate and generate in memory, without publishing or writing artifacts.
     #[arg(long)]
     inspect: bool,
+    /// Emit bounded path-free JSON diagnostics without writing artifacts.
+    #[arg(long)]
+    diagnose: bool,
     /// Publish to a fresh private directory outside the client installation.
     #[arg(long)]
     output: Option<PathBuf>,
@@ -34,157 +37,6 @@ fn parse_tile(s: &str) -> Result<Tile, String> {
         x: x.parse().map_err(|_| "invalid X")?,
         y: y.parse().map_err(|_| "invalid Y")?,
     })
-}
-
-// Only these literal, reviewed contexts can become public diagnostic IDs. Never
-// echo paths, source-member suffixes, arbitrary dotted words, or anyhow chains.
-const SAFE_DIAGNOSTIC_IDS: &[&str] = &[
-    "output.already_exists",
-    "output.changed_product",
-    "output.create_new_directory",
-    "output.directory_name",
-    "output.inside_source_installation",
-    "output.parent_must_exist",
-    "output.published_but_durability_unconfirmed",
-    "selection.bounds",
-    "selection.duplicate_tile",
-    "selection.tile_bounds",
-    "source.ad_archive_case_ambiguity",
-    "source.ad_archive_metadata",
-    "source.ad_archive_size",
-    "source.ad_bytes_changed",
-    "source.ad_deleted",
-    "source.ad_directory_entry_limit",
-    "source.ad_dummy_member",
-    "source.ad_hash_count",
-    "source.ad_header_extension",
-    "source.ad_header_open",
-    "source.ad_header_read",
-    "source.ad_header_scan_limit",
-    "source.ad_header_selection",
-    "source.ad_header_signature",
-    "source.ad_header_truncated",
-    "source.ad_header_version",
-    "source.ad_index_budget",
-    "source.ad_index_spans",
-    "source.ad_member_profile",
-    "source.ad_missing_member",
-    "source.ad_missing_size",
-    "source.ad_open_archive",
-    "source.ad_read",
-    "source.ad_regular_archive_required",
-    "source.ad_sector_size",
-    "source.ad_winner_mismatch",
-    "source.adt_count_limit",
-    "source.aggregate_byte_limit",
-    "source.archive_basename",
-    "source.bytes_changed",
-    "source.data_directory",
-    "source.data_directory_required",
-    "source.discovery_changed",
-    "source.discovery_directory_changed",
-    "source.discovery_missing",
-    "source.duplicate_member",
-    "source.installation_parent",
-    "source.map_directory",
-    "source.member_byte_limit",
-    "source.member_count_limit",
-    "source.member_length_changed",
-    "source.member_name_limit",
-    "source.missing_or_deleted",
-    "source.missing_size",
-    "source.multiple_maps",
-    "source.not_captured",
-    "source.open_patch_chain",
-    "source.read",
-    "source.recheck_ad_profile",
-    "source.recheck_members",
-    "source.recheck_open",
-    "source.recheck_read",
-    "source.tile_coordinate",
-    "source.unselected_member_kind",
-    "source.wdt_count_limit",
-    "source.winner_changed",
-    "terrain.AreaTable",
-    "terrain.LiquidType",
-    "terrain.Map",
-    "terrain.adt_mhdr",
-    "terrain.adt_required_records",
-    "terrain.adt_unsupported_or_liquid",
-    "terrain.adt_version",
-    "terrain.canonical_mcin_required",
-    "terrain.cell_count",
-    "terrain.chunk_count",
-    "terrain.chunk_framing",
-    "terrain.chunk_header",
-    "terrain.chunk_overflow",
-    "terrain.chunk_payload",
-    "terrain.dangling_root_chunk",
-    "terrain.dangling_subchunk",
-    "terrain.dbc_framing",
-    "terrain.dbc_id_budget",
-    "terrain.dbc_layout",
-    "terrain.dbc_magic",
-    "terrain.dbc_nul",
-    "terrain.dbc_rows",
-    "terrain.dbc_size",
-    "terrain.dbc_string_nul",
-    "terrain.dbc_string_offset",
-    "terrain.dbc_string_utf8",
-    "terrain.dbc_strings",
-    "terrain.duplicate_chunk",
-    "terrain.duplicate_map_id",
-    "terrain.duplicate_mcin_reference",
-    "terrain.duplicate_subchunk",
-    "terrain.height_overflow",
-    "terrain.liquid_empty_bounds",
-    "terrain.liquid_excluded",
-    "terrain.liquid_history",
-    "terrain.liquid_nonfinite",
-    "terrain.map_directory",
-    "terrain.map_missing",
-    "terrain.mccv_excluded",
-    "terrain.mcin_not_mcnk",
-    "terrain.mcin_size",
-    "terrain.mclq_length",
-    "terrain.mclq_size",
-    "terrain.mcnk_header",
-    "terrain.mcnk_unsupported_or_liquid",
-    "terrain.mcvt_length",
-    "terrain.member_budget",
-    "terrain.mfbo_excluded",
-    "terrain.mh2o_excluded",
-    "terrain.mhdr_reference",
-    "terrain.nonfinite_height",
-    "terrain.normal_padding",
-    "terrain.offset_overflow",
-    "terrain.selected_map_metadata",
-    "terrain.subchunk_reference",
-    "terrain.tile_coordinate",
-    "terrain.truncated_half",
-    "terrain.truncated_word",
-    "terrain.unselected_map_metadata",
-    "terrain.wdt_global_or_header",
-    "terrain.wdt_global_wmo",
-    "terrain.wdt_main",
-    "terrain.wdt_required_records",
-    "terrain.wdt_tile_absent",
-    "terrain.wdt_unsupported_record",
-    "terrain.wdt_version",
-    "terrain.writer_framing",
-];
-
-fn diagnostic_id(error: &anyhow::Error) -> &'static str {
-    for cause in error.chain().take(16) {
-        let message = cause.to_string();
-        let candidate = message
-            .split_once(':')
-            .map_or(message.as_str(), |(id, _)| id);
-        if let Some(id) = SAFE_DIAGNOSTIC_IDS.iter().find(|id| **id == candidate) {
-            return id;
-        }
-    }
-    "terrain.operation_failed"
 }
 
 fn operation_diagnostic(error: &anyhow::Error) -> String {
@@ -238,10 +90,10 @@ fn operation_diagnostic(error: &anyhow::Error) -> String {
 fn argument_diagnostic(kind: ErrorKind) -> &'static str {
     match kind {
         ErrorKind::ArgumentConflict => {
-            "error[cli.mode_conflict]: Choose exactly one of --inspect or --output\n"
+            "error[cli.mode_conflict]: Choose exactly one of --inspect, --diagnose or --output\n"
         }
         ErrorKind::MissingRequiredArgument => {
-            "error[cli.missing_argument]: Supply --data, --map, at least one --tile, and exactly one of --inspect or --output\n"
+            "error[cli.missing_argument]: Supply --data, --map, at least one --tile, and exactly one of --inspect, --diagnose or --output\n"
         }
         ErrorKind::InvalidValue | ErrorKind::ValueValidation | ErrorKind::InvalidUtf8 => {
             "error[cli.invalid_value]: Check option values; --map is an integer and --tile is X,Y\n"
@@ -254,7 +106,10 @@ fn argument_diagnostic(kind: ErrorKind) -> &'static str {
 }
 
 fn run(args: Args) -> Result<String> {
-    // Both modes consume the same bounded capture, validation, and pinned writer.
+    if args.diagnose {
+        return Ok(serde_json::to_string(&diagnose(&args.data, args.map, &args.tiles))? + "\n");
+    }
+    // Both production modes consume the same bounded capture, validation, and pinned writer.
     // Inspection never calls publication or creates an output directory.
     let prepared = prepare(&args.data, args.map, &args.tiles)?;
     let mut report = String::new();
@@ -352,6 +207,21 @@ mod tests {
         let inspect = Args::try_parse_from(base.into_iter().chain(["--inspect"])).unwrap();
         assert!(inspect.inspect);
         assert!(inspect.output.is_none());
+        let diagnose = Args::try_parse_from(base.into_iter().chain(["--diagnose"])).unwrap();
+        assert!(diagnose.diagnose);
+        assert!(!diagnose.inspect);
+        assert!(diagnose.output.is_none());
+        for mode in ["--inspect", "--output"] {
+            let mut args = base.to_vec();
+            args.extend(["--diagnose", mode]);
+            if mode == "--output" {
+                args.push("/private/output");
+            }
+            assert_eq!(
+                Args::try_parse_from(args).err().unwrap().kind(),
+                ErrorKind::ArgumentConflict
+            );
+        }
         let export =
             Args::try_parse_from(base.into_iter().chain(["--output", "/private/output"])).unwrap();
         assert!(!export.inspect);

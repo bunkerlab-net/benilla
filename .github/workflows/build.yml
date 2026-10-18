@@ -174,6 +174,15 @@ jobs:
         run: python3 scripts/test-package-player.py
       - name: Prepare matching source and locked dependencies
         run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
+      - name: Test Windows diagnostic collector on authored fixtures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location .player-source/current
+          & powershell.exe -NoProfile -File scripts/Test-BenillaTerrainDiagnostics.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell diagnostic collector tests failed' }
+          & pwsh.exe -NoProfile -File scripts/Test-BenillaTerrainDiagnostics.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PowerShell 7 diagnostic collector tests failed' }
       - name: Test MPQ and terrain helper including inspect from distributed source
         run: |
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"

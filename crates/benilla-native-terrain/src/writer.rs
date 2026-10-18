@@ -19,6 +19,7 @@ const MAX_STRINGS: usize = 1024 * 1024;
 const CELLS: usize = 256;
 
 mod liquid;
+pub(crate) use liquid::{LiquidRectangle, MissingLiquidHeights};
 
 fn word(bytes: &[u8], at: usize) -> Result<u32> {
     let end = at.checked_add(4).context("terrain.offset_overflow")?;
@@ -98,10 +99,20 @@ impl<'a> Dbc<'a> {
 /// Directory from the unique selected raw Map.dbc row (fields 0 and 1).
 /// Only the selected name becomes a path; every row fits upstream's 64-byte storage.
 pub fn map_directory(map_dbc: &[u8], map: u32) -> Result<String> {
+    Ok(map_selection(map_dbc, map)?.directory)
+}
+
+pub(crate) struct MapSelection {
+    pub(crate) directory: String,
+    pub(crate) selected_row_ordinal: usize,
+    pub(crate) total_rows: usize,
+}
+
+pub(crate) fn map_selection(map_dbc: &[u8], map: u32) -> Result<MapSelection> {
     let dbc = Dbc::read(map_dbc, 42).context("terrain.Map")?;
     let mut ids = BTreeSet::new();
     let mut selected = None;
-    for row in dbc.rows() {
+    for (ordinal, row) in dbc.rows().enumerate() {
         let id = word(row, 0)?;
         ensure!(ids.insert(id), "terrain.duplicate_map_id");
         let metadata_stage = if id == map {
@@ -120,7 +131,11 @@ pub fn map_directory(map_dbc: &[u8], map: u32) -> Result<String> {
                         .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
                 "terrain.map_directory"
             );
-            selected = Some(directory.to_owned());
+            selected = Some(MapSelection {
+                directory: directory.to_owned(),
+                selected_row_ordinal: ordinal,
+                total_rows: dbc.records.len() / dbc.stride,
+            });
         }
     }
     selected.context("terrain.map_missing")
@@ -238,7 +253,7 @@ pub fn validate_selection_wdt(wdt: &[u8], tile_x: u8, tile_y: u8) -> Result<()> 
     Ok(())
 }
 
-fn area_flags(area_dbc: &[u8]) -> Result<BTreeMap<u32, u16>> {
+pub(crate) fn area_flags(area_dbc: &[u8]) -> Result<BTreeMap<u32, u16>> {
     let dbc = Dbc::read(area_dbc, 25).context("terrain.AreaTable")?;
     let mut flags = BTreeMap::new();
     for row in dbc.rows() {
@@ -254,7 +269,7 @@ fn area_flags(area_dbc: &[u8]) -> Result<BTreeMap<u32, u16>> {
     Ok(flags)
 }
 
-fn validate_liquid_table(liquid_dbc: &[u8]) -> Result<()> {
+pub(crate) fn validate_liquid_table(liquid_dbc: &[u8]) -> Result<()> {
     let dbc = Dbc::read(liquid_dbc, 4).context("terrain.LiquidType")?;
     for row in dbc.rows() {
         ensure!(word(row, 0)? <= MAX_DBC_ID, "terrain.dbc_id_budget");
@@ -545,6 +560,29 @@ pub fn produce(
     }
     ensure!(out.len() == hole_offset + 512, "terrain.writer_framing");
     Ok(out)
+}
+
+/// Informational observations only; no deserialization or gameplay authority.
+pub(crate) struct TileDiagnostic {
+    pub(crate) active_mclq_cells: usize,
+    pub(crate) liquid_rectangle: Option<LiquidRectangle>,
+    pub(crate) missing_liquid_heights: Option<MissingLiquidHeights>,
+    pub(crate) liquid_result: Result<()>,
+}
+
+pub(crate) fn diagnose_tile(adt: &[u8]) -> Result<TileDiagnostic> {
+    let cells = read_cells(adt)?;
+    let mut observation = None;
+    let liquid_result = liquid::produce_observed(&cells, &mut observation).map(|_| ());
+    let (liquid_rectangle, missing_liquid_heights) = observation
+        .map(|(rectangle, missing)| (Some(rectangle), Some(missing)))
+        .unwrap_or((None, None));
+    Ok(TileDiagnostic {
+        active_mclq_cells: cells.iter().filter(|cell| cell.liquid.is_some()).count(),
+        liquid_rectangle,
+        missing_liquid_heights,
+        liquid_result,
+    })
 }
 
 #[cfg(test)]

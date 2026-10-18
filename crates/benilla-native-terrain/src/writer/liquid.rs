@@ -4,8 +4,31 @@
 //! no initial zero or caller-supplied prior product substitutes for that source history.
 use super::{word, Cell, CELLS};
 use anyhow::{ensure, Context, Result};
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub(crate) struct LiquidRectangle {
+    x: u8,
+    y: u8,
+    width: u8,
+    height: u8,
+}
+
+#[derive(Serialize)]
+pub(crate) struct MissingLiquidHeights {
+    count: usize,
+    first_x: Option<u8>,
+    first_y: Option<u8>,
+}
 
 pub(super) fn produce(cells: &[Cell<'_>]) -> Result<Vec<u8>> {
+    produce_observed(cells, &mut None)
+}
+
+pub(super) fn produce_observed(
+    cells: &[Cell<'_>],
+    observation: &mut Option<(LiquidRectangle, MissingLiquidHeights)>,
+) -> Result<Vec<u8>> {
     let mut entries = [0_u16; CELLS];
     let mut flags = [0_u8; CELLS];
     let mut shown = vec![false; 128 * 128];
@@ -79,7 +102,37 @@ pub(super) fn produce(cells: &[Cell<'_>]) -> Result<Vec<u8>> {
         "terrain.liquid_empty_bounds"
     );
     let (width, height) = (max_x - min_x + 2, max_y - min_y + 2);
-    let flat = max_height == min_height; // exact -f 0; hidden cells never raise maxHeight
+    // Exact -f 0; hidden cells never raise maxHeight.
+    let flat = max_height == min_height;
+    // Observe exactly the serialized rectangle after hidden interior cells have
+    // been assigned -500. Flat output never consumes this height payload.
+    let mut missing = MissingLiquidHeights {
+        count: 0,
+        first_x: None,
+        first_y: None,
+    };
+    if !flat {
+        for y in min_y..min_y + height {
+            for x in min_x..min_x + width {
+                if heights[y * 129 + x].is_none() {
+                    missing.count += 1;
+                    if missing.first_x.is_none() {
+                        missing.first_x = Some(x as u8);
+                        missing.first_y = Some(y as u8);
+                    }
+                }
+            }
+        }
+    }
+    *observation = Some((
+        LiquidRectangle {
+            x: min_x as u8,
+            y: min_y as u8,
+            width: width as u8,
+            height: height as u8,
+        },
+        missing,
+    ));
     let mut out = Vec::with_capacity(16 + 768 + width * height * 4);
     out.extend_from_slice(b"MLIQ");
     out.push(u8::from(!full_type) | (u8::from(flat) << 1));

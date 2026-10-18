@@ -642,6 +642,14 @@ class HelperWorkflowTests(unittest.TestCase):
         self.assertEqual(commands[0], 'mbx test --config .cargo/vendor-config.toml --offline --locked --no-default-features --no-fail-fast -p benilla-mpq -p benilla-native-terrain --target "$BUILD_TARGET"')
         self.assertEqual(commands[1], 'mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target "$BUILD_TARGET"')
         self.assertEqual(helper.count("cd .player-source/current"), 2)
+        self.assertIn("Set-Location .player-source/current", helper)
+        for executable in ("powershell.exe", "pwsh.exe"):
+            command = f"& {executable} -NoProfile -File scripts/Test-BenillaTerrainDiagnostics.ps1"
+            self.assertIn(command, helper)
+            self.assertLess(helper.index(command), helper.index(commands[0]))
+        self.assertEqual(helper.count("if ($LASTEXITCODE -ne 0)"), 2)
+        self.assertIn("scripts/Collect-BenillaTerrainDiagnostics.ps1", packager.DOCUMENTS)
+        self.assertIn("scripts/Test-BenillaTerrainDiagnostics.ps1", packager.REQUIRED_SOURCE)
         ordered = (
             '--prepare-source --commit "$GITHUB_SHA"', commands[0], commands[1],
             '--source-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"',

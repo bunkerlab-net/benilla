@@ -158,9 +158,91 @@ fn help_uses_fixed_program_name_instead_of_private_argv_zero() {
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("benilla-native-terrain"));
     assert!(help.contains("--inspect"));
+    assert!(help.contains("--diagnose"));
     assert!(help.contains("--output"));
     assert!(!help.contains("private-player"));
     assert!(!help.contains("SECRET"));
     assert!(help.len() < 4096);
     assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 0);
+}
+
+#[test]
+fn diagnose_conflicting_and_malformed_arguments_stay_safe_and_write_nothing() {
+    let temp = Temp::new();
+    let data = temp.0.join("SECRET-Data");
+    fs::create_dir(&data).unwrap();
+    let archive = data.join("terrain.MPQ");
+    let original = b"SECRET invalid source must not be opened for malformed arguments";
+    fs::write(&archive, original).unwrap();
+    for args in [
+        vec!["--diagnose", "--inspect"],
+        vec!["--inspect", "--diagnose"],
+        vec!["--diagnose", "--output", "SECRET-private-export"],
+        vec!["--output", "SECRET-private-export", "--diagnose"],
+        vec![
+            "--diagnose",
+            "--inspect",
+            "--output",
+            "SECRET-private-export",
+        ],
+    ] {
+        let output = command(&temp.0, &data)
+            .args(["--map", "1", "--tile", "31,32"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert_safe_failure(output, 2, "cli.mode_conflict");
+    }
+    for (args, id) in [
+        (vec!["--diagnose", "--map", "1"], "cli.missing_argument"),
+        (
+            vec!["--diagnose", "--tile", "31,32"],
+            "cli.missing_argument",
+        ),
+        (
+            vec![
+                "--diagnose",
+                "--map",
+                "/private-player/SECRET/path",
+                "--tile",
+                "31,32",
+            ],
+            "cli.invalid_value",
+        ),
+        (
+            vec!["--diagnose", "--map", "4294967296", "--tile", "31,32"],
+            "cli.invalid_value",
+        ),
+        (
+            vec![
+                "--diagnose",
+                "--map",
+                "1",
+                "--tile",
+                "C:\\private-player\\SECRET",
+            ],
+            "cli.invalid_value",
+        ),
+        (
+            vec!["--diagnose", "--map", "1", "--tile", "256,32"],
+            "cli.invalid_value",
+        ),
+        (
+            vec![
+                "--diagnose",
+                "--map",
+                "1",
+                "--tile",
+                "31,32",
+                "--SECRET-private-player",
+            ],
+            "cli.unknown_argument",
+        ),
+    ] {
+        let output = command(&temp.0, &data).args(args).output().unwrap();
+        assert_safe_failure(output, 2, id);
+    }
+    assert_eq!(fs::read(&archive).unwrap(), original);
+    assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);
 }

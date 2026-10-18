@@ -2,7 +2,11 @@
 //! Selected terrain production, never world-content compilation or admission.
 //! All source reads use immutable captured buffers. A final fresh-chain comparison
 //! detects changed selected inputs; it is not a filesystem lock or a live source lease.
+mod diagnostic_id;
+mod diagnostics;
 mod source;
+pub use diagnostic_id::diagnostic_id;
+pub use diagnostics::{diagnose, DiagnosticReport};
 pub mod writer;
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
@@ -208,46 +212,20 @@ fn sync_dir(path: &Path) -> Result<()> {
 /// Capture at most nine explicitly selected tiles. No truncation or implicit neighbor
 /// completion: callers must choose their closure, and this does not certify a corridor.
 pub fn prepare(data: &Path, map: u32, tiles: &[Tile]) -> Result<PreparedTerrain> {
-    ensure!(
-        map <= 999 && (1..=9).contains(&tiles.len()),
-        "selection.bounds"
-    );
-    ensure!(
-        tiles.iter().all(|t| t.x < 64 && t.y < 64),
-        "selection.tile_bounds"
-    );
-    let mut ordered = tiles.to_vec();
-    ordered.sort();
-    ensure!(
-        ordered.windows(2).all(|pair| pair[0] != pair[1]),
-        "selection.duplicate_tile"
-    );
+    let ordered = validate_selection(map, tiles)?;
     let initial = CapturedSource::capture(data, &DBCS)?;
     let directory = writer::map_directory(initial.bytes(DBCS[0])?, map)?;
-    let wdt = format!("World\\Maps\\{directory}\\{directory}.wdt");
-    let mut names: Vec<String> = DBCS.iter().map(|s| (*s).to_owned()).collect();
-    names.push(wdt.clone());
-    let selection = CapturedSource::capture(data, &names)?;
-    selection.verify_contains(&initial)?;
-    initial.verify_unchanged()?;
+    let wdt = wdt_name(&directory);
+    let selection = capture_wdt(data, &initial, &directory)?;
     drop(initial);
     for tile in &ordered {
         writer::validate_selection_wdt(selection.bytes(&wdt)?, tile.x, tile.y)?;
-        names.push(format!(
-            "World\\Maps\\{directory}\\{directory}_{}_{}.adt",
-            tile.y, tile.x
-        ));
     }
-    let source = CapturedSource::capture(data, &names)?;
-    source.verify_contains(&selection)?;
-    selection.verify_unchanged()?;
+    let source = capture_tiles(data, &selection, &directory, &ordered)?;
     drop(selection);
     let mut products = Vec::with_capacity(ordered.len());
     for tile in ordered {
-        let adt = format!(
-            "World\\Maps\\{directory}\\{directory}_{}_{}.adt",
-            tile.y, tile.x
-        );
+        let adt = adt_name(&directory, tile);
         let bytes = writer::produce(
             source.bytes(DBCS[0])?,
             source.bytes(DBCS[1])?,
@@ -272,4 +250,57 @@ pub fn prepare(data: &Path, map: u32, tiles: &[Tile]) -> Result<PreparedTerrain>
         map,
         products,
     })
+}
+
+fn validate_selection(map: u32, tiles: &[Tile]) -> Result<Vec<Tile>> {
+    ensure!(
+        map <= 999 && (1..=9).contains(&tiles.len()),
+        "selection.bounds"
+    );
+    ensure!(
+        tiles.iter().all(|t| t.x < 64 && t.y < 64),
+        "selection.tile_bounds"
+    );
+    let mut ordered = tiles.to_vec();
+    ordered.sort();
+    ensure!(
+        ordered.windows(2).all(|pair| pair[0] != pair[1]),
+        "selection.duplicate_tile"
+    );
+    Ok(ordered)
+}
+
+fn wdt_name(directory: &str) -> String {
+    format!("World\\Maps\\{directory}\\{directory}.wdt")
+}
+
+fn adt_name(directory: &str, tile: Tile) -> String {
+    format!(
+        "World\\Maps\\{directory}\\{directory}_{}_{}.adt",
+        tile.y, tile.x
+    )
+}
+
+fn capture_wdt(data: &Path, initial: &CapturedSource, directory: &str) -> Result<CapturedSource> {
+    let mut names: Vec<String> = DBCS.iter().map(|s| (*s).to_owned()).collect();
+    names.push(wdt_name(directory));
+    let selection = CapturedSource::capture(data, &names)?;
+    selection.verify_contains(initial)?;
+    initial.verify_unchanged()?;
+    Ok(selection)
+}
+
+fn capture_tiles(
+    data: &Path,
+    selection: &CapturedSource,
+    directory: &str,
+    tiles: &[Tile],
+) -> Result<CapturedSource> {
+    let mut names: Vec<String> = DBCS.iter().map(|s| (*s).to_owned()).collect();
+    names.push(wdt_name(directory));
+    names.extend(tiles.iter().map(|&tile| adt_name(directory, tile)));
+    let source = CapturedSource::capture(data, &names)?;
+    source.verify_contains(selection)?;
+    selection.verify_unchanged()?;
+    Ok(source)
 }

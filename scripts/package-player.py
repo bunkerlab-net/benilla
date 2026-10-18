@@ -21,6 +21,7 @@ TARGETS = {
 EXECUTABLES = ("benilla", "benilla-native-terrain")
 DOCUMENTS = (
     "LICENSE-MIT", "LICENSE-APACHE", "LICENSE-GPL-3.0", "DISTRIBUTION-NOTICE.md",
+    "scripts/Collect-BenillaTerrainDiagnostics.ps1",
     "docs/BUILDS.md", "docs/P2P-CONFIG.md", "docs/P2P-ENCOUNTER.md", "docs/P2P-SETTINGS.md",
     "docs/LOGIN-OPTIONS.md", "docs/P2P-CHARACTERS.md", "crates/benilla-profile/README.md", "config.example.toml",
     "docs/CLASSIC-EXPLORATION-STARTS.md",
@@ -56,6 +57,7 @@ DOCUMENTS = (
 )
 REQUIRED_SOURCE = (*DOCUMENTS, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml",
                    "scripts/package-player.py", "scripts/test-package-player.py",
+                   "scripts/Test-BenillaTerrainDiagnostics.ps1",
                    ".github/workflows/build.yml", "crates/benilla/src/main.rs",
                    "crates/benilla-session/src/lib.rs", "crates/benilla-sim/src/lib.rs",
                    "crates/benilla-encounter/src/lib.rs", "crates/benilla-profile/src/lib.rs",

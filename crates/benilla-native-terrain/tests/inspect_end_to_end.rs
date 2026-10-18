@@ -5,6 +5,7 @@ mod map_fixture;
 mod support;
 use benilla_native_terrain::{prepare, Tile};
 use map_fixture::map_dbc;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -117,6 +118,179 @@ fn source_fixture(name: &str) -> Vec<u8> {
             .join(name),
     )
     .unwrap()
+}
+
+const DIAGNOSTIC_STAGES: [&str; 8] = [
+    "selection",
+    "initial_capture",
+    "map_table",
+    "selection_capture",
+    "full_capture",
+    "area_table",
+    "liquid_table",
+    "source_recheck",
+];
+const TILE_DIAGNOSTIC_STAGES: [&str; 4] =
+    ["wdt_selection", "adt_structure", "liquid", "production"];
+
+fn assert_keys(value: &Value, expected: &[&str]) {
+    let mut expected = expected.to_vec();
+    expected.sort_unstable();
+    let mut actual: Vec<_> = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    actual.sort_unstable();
+    assert_eq!(actual, expected, "{value}");
+}
+
+fn assert_stage(stages: &Value, name: &str, status: &str, diagnostic_id: Option<&str>) {
+    assert_eq!(
+        stages[name],
+        json!({"status": status, "diagnostic_id": diagnostic_id}),
+        "{name}: {stages}"
+    );
+}
+
+fn assert_sha256(value: &Value) {
+    let digest = value.as_str().unwrap();
+    assert_eq!(digest.len(), 64);
+    assert!(digest
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+}
+
+fn diagnostic_report(fixture: &Fixture, map: u32, tile: Tile, args: &[&str]) -> Value {
+    let before = snapshot(&fixture.root);
+    let output = fixture.run_selection(map, tile, args);
+    assert_eq!(output.status.code(), Some(0), "{}", output_text(&output));
+    assert!(output.stderr.is_empty(), "{}", output_text(&output));
+    let text = std::str::from_utf8(&output.stdout).unwrap();
+    // Parsing the complete stdout forbids banners, trailing reports and raw diagnostics.
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(text.len() < 16 * 1024);
+    for forbidden in [
+        "/",
+        "\\",
+        "private",
+        "SECRET",
+        "AuthoredOracle",
+        "Azeroth",
+        "Prototype",
+        "DBFilesClient",
+        ".MPQ",
+        "installation",
+    ] {
+        assert!(!text.contains(forbidden), "unexpected {forbidden}: {text}");
+    }
+    assert_keys(
+        &report,
+        &[
+            "format",
+            "version",
+            "map",
+            "map_table",
+            "source_epoch",
+            "live_install_lease",
+            "gameplay_admitted",
+            "stages",
+            "tiles",
+        ],
+    );
+    assert_eq!(report["format"], "benilla-terrain-diagnostic");
+    assert_eq!(report["version"], 1);
+    assert_eq!(report["map"], map);
+    assert_eq!(report["live_install_lease"], false);
+    assert_eq!(report["gameplay_admitted"], false);
+    if !report["source_epoch"].is_null() {
+        assert_sha256(&report["source_epoch"]);
+    }
+    if !report["map_table"].is_null() {
+        assert_keys(
+            &report["map_table"],
+            &["selected_row_ordinal", "total_rows"],
+        );
+    }
+    assert_keys(&report["stages"], &DIAGNOSTIC_STAGES);
+    let tiles = report["tiles"].as_array().unwrap();
+    assert!(tiles.len() <= 9);
+    for tile in tiles {
+        assert_keys(
+            tile,
+            &[
+                "x",
+                "y",
+                "raw_adt",
+                "active_mclq_cells",
+                "liquid_rectangle",
+                "missing_liquid_heights",
+                "stages",
+            ],
+        );
+        assert_keys(&tile["stages"], &TILE_DIAGNOSTIC_STAGES);
+        if !tile["raw_adt"].is_null() {
+            assert_keys(&tile["raw_adt"], &["bytes", "sha256"]);
+            assert!(tile["raw_adt"]["bytes"].is_u64());
+            assert_sha256(&tile["raw_adt"]["sha256"]);
+        }
+        if !tile["liquid_rectangle"].is_null() {
+            assert_keys(&tile["liquid_rectangle"], &["x", "y", "width", "height"]);
+        }
+        if !tile["missing_liquid_heights"].is_null() {
+            assert_keys(
+                &tile["missing_liquid_heights"],
+                &["count", "first_x", "first_y"],
+            );
+        }
+    }
+    for stages in std::iter::once(&report["stages"]).chain(tiles.iter().map(|t| &t["stages"])) {
+        for stage in stages.as_object().unwrap().values() {
+            assert_keys(stage, &["status", "diagnostic_id"]);
+            match stage["status"].as_str().unwrap() {
+                "passed" | "unavailable" => assert!(stage["diagnostic_id"].is_null()),
+                "failed" => assert!(
+                    [
+                        "selection.bounds",
+                        "selection.tile_bounds",
+                        "selection.duplicate_tile",
+                        "source.data_directory_required",
+                        "source.ad_header_signature",
+                        "terrain.AreaTable",
+                        "terrain.LiquidType",
+                        "terrain.adt_version",
+                        "terrain.liquid_history",
+                        "terrain.map_directory",
+                        "terrain.wdt_tile_absent",
+                    ]
+                    .contains(&stage["diagnostic_id"].as_str().unwrap()),
+                    "{stage}"
+                ),
+                status => panic!("unexpected stage status: {status}"),
+            }
+        }
+    }
+    assert_eq!(snapshot(&fixture.root), before);
+    report
+}
+
+fn assert_raw_adt(tile: &Value, raw: &[u8]) {
+    assert_eq!(
+        tile["raw_adt"],
+        json!({
+            "bytes": raw.len(), "sha256": format!("{:x}", Sha256::digest(raw)),
+        })
+    );
+}
+
+fn assert_no_missing_heights(tile: &Value) {
+    assert_eq!(
+        tile["missing_liquid_heights"],
+        json!({
+            "count": 0, "first_x": null, "first_y": null,
+        })
+    );
 }
 fn word(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
@@ -801,5 +975,378 @@ fn inspect_version_one_rejects_user_data_pointer_header_mismatch_without_writes(
         replace(&mut bytes, 520, archive_bytes);
         fs::write(fixture.data.join("terrain.MPQ"), bytes).unwrap();
         assert_rejected_without_writes(&fixture, "source.ad_header_selection");
+    }
+}
+
+#[test]
+fn diagnose_dry_reports_actual_raw_adt_and_selected_map_row_without_writes() {
+    let fixture = Fixture::new();
+    let map = map_dbc(&[
+        (1, b"Kalimdor"),
+        (900, b""),
+        (0, b"Azeroth"),
+        (901, b"Prototype Zone"),
+        (902, b"../Unused"),
+        (903, b"D\\Unused"),
+    ]);
+    fs::write(
+        fixture.data.join("terrain.MPQ"),
+        archive(&selected_azeroth_entries(map)),
+    )
+    .unwrap();
+    let selected = Tile { x: 48, y: 32 };
+    let report = diagnostic_report(&fixture, 0, selected, &["--diagnose"]);
+    assert_eq!(
+        report["map_table"],
+        json!({"selected_row_ordinal": 2, "total_rows": 6})
+    );
+    let prepared = prepare(&fixture.data, 0, &[selected]).unwrap();
+    assert_eq!(report["source_epoch"], prepared.source_epoch());
+    for stage in DIAGNOSTIC_STAGES {
+        assert_stage(&report["stages"], stage, "passed", None);
+    }
+    assert_eq!(report["tiles"].as_array().unwrap().len(), 1);
+    let tile = &report["tiles"][0];
+    assert_eq!(tile["x"], 48);
+    assert_eq!(tile["y"], 32);
+    assert_raw_adt(tile, &source_fixture("flat.adt.test-fixture"));
+    assert_eq!(tile["active_mclq_cells"], 0);
+    assert!(tile["liquid_rectangle"].is_null());
+    assert!(tile["missing_liquid_heights"].is_null());
+    for stage in TILE_DIAGNOSTIC_STAGES {
+        assert_stage(&tile["stages"], stage, "passed", None);
+    }
+    assert_eq!(
+        report,
+        diagnostic_report(&fixture, 0, selected, &["--diagnose"])
+    );
+}
+
+#[test]
+fn diagnose_liquid_history_preserves_summary_but_never_claims_production() {
+    let fixture = Fixture::new();
+    let mut previous = None;
+    for case in ["liquid_stale_edge_a", "liquid_stale_edge_b"] {
+        let adt = source_fixture(&format!("{case}.adt.test-fixture"));
+        fixture.install_adt(adt.clone());
+        let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+        assert_sha256(&report["source_epoch"]);
+        for stage in DIAGNOSTIC_STAGES {
+            assert_stage(&report["stages"], stage, "passed", None);
+        }
+        let tile = &report["tiles"][0];
+        assert_raw_adt(tile, &adt);
+        assert_eq!(tile["active_mclq_cells"], 2);
+        assert_eq!(
+            tile["liquid_rectangle"],
+            json!({"x": 29, "y": 19, "width": 100, "height": 110})
+        );
+        // The authored oracle has 199 predecessor-dependent samples; row-major first
+        // is the right edge immediately after the selected cell's owned y=24 seam.
+        assert_eq!(
+            tile["missing_liquid_heights"],
+            json!({"count": 199, "first_x": 128, "first_y": 25})
+        );
+        assert_stage(&tile["stages"], "wdt_selection", "passed", None);
+        assert_stage(&tile["stages"], "adt_structure", "passed", None);
+        assert_stage(
+            &tile["stages"],
+            "liquid",
+            "failed",
+            Some("terrain.liquid_history"),
+        );
+        assert_stage(&tile["stages"], "production", "unavailable", None);
+        if let Some(previous) = &previous {
+            assert_eq!(&report, previous);
+        }
+        previous = Some(report);
+        assert_rejected_without_writes(&fixture, "terrain.liquid_history");
+    }
+}
+
+#[test]
+fn diagnose_liquid_counts_only_heights_the_actual_payload_would_serialize() {
+    let fixture = Fixture::new();
+    for (case, cells, rectangle) in [
+        ("liquid_water_flat", 256, [0, 0, 129, 129]),
+        ("liquid_nonsymmetric", 1, [57, 26, 6, 4]),
+        ("liquid_outer_edges", 1, [121, 122, 8, 7]),
+        ("liquid_sparse_flat", 2, [29, 19, 100, 110]),
+    ] {
+        let adt = source_fixture(&format!("{case}.adt.test-fixture"));
+        fixture.install_adt(adt.clone());
+        let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+        let tile = &report["tiles"][0];
+        assert_raw_adt(tile, &adt);
+        assert_eq!(tile["active_mclq_cells"], cells, "{case}");
+        assert_eq!(
+            tile["liquid_rectangle"],
+            json!({
+                "x": rectangle[0], "y": rectangle[1], "width": rectangle[2], "height": rectangle[3],
+            }),
+            "{case}"
+        );
+        assert_no_missing_heights(tile);
+        for stage in TILE_DIAGNOSTIC_STAGES {
+            assert_stage(&tile["stages"], stage, "passed", None);
+        }
+    }
+    for (case, cells) in [
+        ("liquid_empty", 0),
+        ("liquid_absent_flags", 0),
+        ("liquid_untyped", 256),
+    ] {
+        fixture.install(case);
+        let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+        let tile = &report["tiles"][0];
+        assert_eq!(tile["active_mclq_cells"], cells, "{case}");
+        assert!(tile["liquid_rectangle"].is_null(), "{case}");
+        assert!(tile["missing_liquid_heights"].is_null(), "{case}");
+        assert_stage(&tile["stages"], "production", "passed", None);
+    }
+}
+
+#[test]
+fn diagnose_keeps_table_and_adt_checks_independent() {
+    let fixture = Fixture::new();
+    for (index, name, stage, id) in [
+        (
+            1,
+            "DBFilesClient\\AreaTable.dbc",
+            "area_table",
+            "terrain.AreaTable",
+        ),
+        (
+            2,
+            "DBFilesClient\\LiquidType.dbc",
+            "liquid_table",
+            "terrain.LiquidType",
+        ),
+    ] {
+        let adt = source_fixture("liquid_nonsymmetric.adt.test-fixture");
+        let mut entries = terrain_entries(adt.clone());
+        entries[index] = raw_entry(name, b"SECRET invalid /private/player table bytes".to_vec());
+        fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+        let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+        assert_sha256(&report["source_epoch"]);
+        for other in DIAGNOSTIC_STAGES {
+            assert_stage(
+                &report["stages"],
+                other,
+                if other == stage { "failed" } else { "passed" },
+                if other == stage { Some(id) } else { None },
+            );
+        }
+        let tile = &report["tiles"][0];
+        assert_raw_adt(tile, &adt);
+        for other in ["wdt_selection", "adt_structure", "liquid"] {
+            assert_stage(&tile["stages"], other, "passed", None);
+        }
+        assert_stage(&tile["stages"], "production", "unavailable", None);
+        assert_no_missing_heights(tile);
+    }
+    let mut adt = source_fixture("flat.adt.test-fixture");
+    replace(&mut adt, 8, 17);
+    fixture.install_adt(adt.clone());
+    let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+    assert_sha256(&report["source_epoch"]);
+    for stage in DIAGNOSTIC_STAGES {
+        assert_stage(&report["stages"], stage, "passed", None);
+    }
+    let tile = &report["tiles"][0];
+    assert_raw_adt(tile, &adt);
+    assert_stage(&tile["stages"], "wdt_selection", "passed", None);
+    assert_stage(
+        &tile["stages"],
+        "adt_structure",
+        "failed",
+        Some("terrain.adt_version"),
+    );
+    for stage in ["liquid", "production"] {
+        assert_stage(&tile["stages"], stage, "unavailable", None);
+    }
+    for field in [
+        "active_mclq_cells",
+        "liquid_rectangle",
+        "missing_liquid_heights",
+    ] {
+        assert!(tile[field].is_null());
+    }
+}
+
+#[test]
+fn diagnose_absent_or_invalid_source_has_no_epoch_or_invented_results() {
+    let fixture = Fixture::new();
+    fs::remove_dir(&fixture.data).unwrap();
+    for (present, id) in [
+        (false, "source.data_directory_required"),
+        (true, "source.ad_header_signature"),
+    ] {
+        if present {
+            fs::create_dir(&fixture.data).unwrap();
+            fs::write(
+                fixture.data.join("terrain.MPQ"),
+                b"SECRET /private/player invalid archive",
+            )
+            .unwrap();
+        }
+        let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+        assert!(report["source_epoch"].is_null());
+        assert!(report["map_table"].is_null());
+        assert_stage(&report["stages"], "selection", "passed", None);
+        assert_stage(&report["stages"], "initial_capture", "failed", Some(id));
+        for stage in &DIAGNOSTIC_STAGES[2..] {
+            assert_stage(&report["stages"], stage, "unavailable", None);
+        }
+        assert_eq!(report["tiles"].as_array().unwrap().len(), 1);
+        let tile = &report["tiles"][0];
+        for field in [
+            "raw_adt",
+            "active_mclq_cells",
+            "liquid_rectangle",
+            "missing_liquid_heights",
+        ] {
+            assert!(tile[field].is_null());
+        }
+        for stage in TILE_DIAGNOSTIC_STAGES {
+            assert_stage(&tile["stages"], stage, "unavailable", None);
+        }
+    }
+}
+
+#[test]
+fn diagnose_semantic_selection_failures_are_json_before_any_source_work() {
+    let fixture = Fixture::new();
+    fixture.install("flat");
+    for (map, tile, extra, id) in [
+        (1000, Tile { x: 31, y: 32 }, vec![], "selection.bounds"),
+        (u32::MAX, Tile { x: 31, y: 32 }, vec![], "selection.bounds"),
+        (1, Tile { x: 64, y: 32 }, vec![], "selection.tile_bounds"),
+        (1, Tile { x: 31, y: 255 }, vec![], "selection.tile_bounds"),
+        (
+            1,
+            Tile { x: 31, y: 32 },
+            vec!["--tile", "31,32"],
+            "selection.duplicate_tile",
+        ),
+        (
+            1,
+            Tile { x: 31, y: 32 },
+            vec![
+                "--tile", "0,0", "--tile", "0,1", "--tile", "0,2", "--tile", "0,3", "--tile",
+                "0,4", "--tile", "0,5", "--tile", "0,6", "--tile", "0,7", "--tile", "0,8",
+            ],
+            "selection.bounds",
+        ),
+    ] {
+        let mut args = vec!["--diagnose"];
+        args.extend(extra);
+        let report = diagnostic_report(&fixture, map, tile, &args);
+        assert_stage(&report["stages"], "selection", "failed", Some(id));
+        for stage in &DIAGNOSTIC_STAGES[1..] {
+            assert_stage(&report["stages"], stage, "unavailable", None);
+        }
+        assert!(report["source_epoch"].is_null());
+        assert!(report["map_table"].is_null());
+        assert!(report["tiles"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn diagnose_malformed_selected_tile_does_not_mask_another_tiles_production() {
+    let fixture = Fixture::new();
+    let good = source_fixture("flat.adt.test-fixture");
+    let mut bad = good.clone();
+    replace(&mut bad, 8, 17);
+    let mut entries = terrain_entries(good.clone())
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut wdt = source_fixture("source.wdt.test-fixture");
+    replace(&mut wdt, 60 + (31 * 64 + 33) * 8, 1);
+    entries[3] = raw_entry("World\\Maps\\AuthoredOracle\\AuthoredOracle.wdt", wdt);
+    entries.push(raw_entry(
+        "World\\Maps\\AuthoredOracle\\AuthoredOracle_33_31.adt",
+        bad.clone(),
+    ));
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    // Submit reverse order to check deterministic numeric tile ordering too.
+    let report = diagnostic_report(
+        &fixture,
+        1,
+        Tile { x: 31, y: 33 },
+        &["--diagnose", "--tile", "31,32"],
+    );
+    assert_sha256(&report["source_epoch"]);
+    for stage in DIAGNOSTIC_STAGES {
+        assert_stage(&report["stages"], stage, "passed", None);
+    }
+    let tiles = report["tiles"].as_array().unwrap();
+    assert_eq!(tiles.len(), 2);
+    assert_eq!(
+        (tiles[0]["x"].as_u64(), tiles[0]["y"].as_u64()),
+        (Some(31), Some(32))
+    );
+    assert_raw_adt(&tiles[0], &good);
+    for stage in TILE_DIAGNOSTIC_STAGES {
+        assert_stage(&tiles[0]["stages"], stage, "passed", None);
+    }
+    assert_eq!(
+        (tiles[1]["x"].as_u64(), tiles[1]["y"].as_u64()),
+        (Some(31), Some(33))
+    );
+    assert_raw_adt(&tiles[1], &bad);
+    assert_stage(&tiles[1]["stages"], "wdt_selection", "passed", None);
+    assert_stage(
+        &tiles[1]["stages"],
+        "adt_structure",
+        "failed",
+        Some("terrain.adt_version"),
+    );
+    for stage in ["liquid", "production"] {
+        assert_stage(&tiles[1]["stages"], stage, "unavailable", None);
+    }
+}
+
+#[test]
+fn diagnose_bad_map_metadata_or_wdt_selection_never_fabricates_a_full_epoch() {
+    let fixture = Fixture::new();
+    let mut entries = terrain_entries(source_fixture("flat.adt.test-fixture"));
+    entries[0] = raw_entry("DBFilesClient\\Map.dbc", map_dbc(&[(1, b"SECRET/private")]));
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+    assert!(report["source_epoch"].is_null());
+    assert!(report["map_table"].is_null());
+    assert_stage(
+        &report["stages"],
+        "map_table",
+        "failed",
+        Some("terrain.map_directory"),
+    );
+    for stage in ["selection", "initial_capture", "area_table", "liquid_table"] {
+        assert_stage(&report["stages"], stage, "passed", None);
+    }
+    for stage in ["selection_capture", "full_capture", "source_recheck"] {
+        assert_stage(&report["stages"], stage, "unavailable", None);
+    }
+    fixture.install("flat");
+    let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 33 }, &["--diagnose"]);
+    assert!(report["source_epoch"].is_null());
+    assert_eq!(
+        report["map_table"],
+        json!({"selected_row_ordinal": 0, "total_rows": 1})
+    );
+    assert_stage(&report["stages"], "selection_capture", "passed", None);
+    assert_stage(&report["stages"], "full_capture", "unavailable", None);
+    assert_stage(&report["stages"], "source_recheck", "unavailable", None);
+    let tile = &report["tiles"][0];
+    assert!(tile["raw_adt"].is_null());
+    assert_stage(
+        &tile["stages"],
+        "wdt_selection",
+        "failed",
+        Some("terrain.wdt_tile_absent"),
+    );
+    for stage in ["adt_structure", "liquid", "production"] {
+        assert_stage(&tile["stages"], stage, "unavailable", None);
     }
 }

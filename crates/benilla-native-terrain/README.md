@@ -45,9 +45,56 @@ terrain reader support nonflat float heights and the supported liquid output;
 the separate continuous gameplay corridor proof still requires flat dry ground
 and rejects liquid-bearing terrain products.
 
+## Read-only JSON diagnostics
+
+When inspection fails, the helper can retain the independent checks and bounded
+numeric observations in one JSON object on stdout:
+
+```powershell
+.\benilla-native-terrain.exe --data "C:\Games\World of Warcraft\Data" --map 0 --tile 48,32 --diagnose
+```
+
+`--diagnose` creates no files and cannot be combined with `--output` or `--inspect`.
+It uses the same selection limits, bounded archive reader, exact patch-winner
+checks, staged discovery comparisons and writer validation as inspection. Only the
+one through nine explicitly selected tiles are read; no predecessor or full-world
+scan is attempted. It does not recover missing history or admit gameplay.
+
+The envelope has `format: "benilla-terrain-diagnostic"`, `version: 1`, numeric
+`map`, `map_table`, `source_epoch`, `stages`, `tiles`, and the two always-false
+`live_install_lease` / `gameplay_admitted` fields. A valid invocation exits zero
+when the report was emitted, even if validation failed. Read each stage's
+`status` (`passed`, `failed`, or `unavailable`) and `diagnostic_id` (a fixed safe
+identifier on failure, otherwise null). Malformed arguments still exit two with
+a bounded path-free diagnostic on stderr.
+
+- `map_table`, when validated, contains zero-based `selected_row_ordinal` and
+  `total_rows`; it never includes a map name or directory
+- Top-level stages are `selection`, `initial_capture`, `map_table`,
+  `selection_capture`, `full_capture`, `area_table`, `liquid_table`, and
+  `source_recheck`. Independent table checks still run if another table fails
+- Each selected tile contains `x`, `y`, `raw_adt` (captured byte count `bytes` and
+  `sha256`), `active_mclq_cells`, `liquid_rectangle`, `missing_liquid_heights`,
+  and stages `wdt_selection`, `adt_structure`, `liquid`, `production`
+- Liquid observations come from the shared validated writer scan. The rectangle
+  has numeric `x`, `y`, `width`, `height`. Missing serialized heights have `count`
+  and the first row-major `first_x`, `first_y`, or null coordinates when count is
+  zero. Flat output consumes no height payload, so its missing count is zero
+- Unavailable or inapplicable observations are null. A dry tile has null liquid
+  observations. A failed dependency leaves its dependent stages unavailable;
+  failure in one tile does not suppress independent checks of another selected tile
+- `source_epoch` exists only after an actual complete selected-member capture and
+  staged discovery comparisons. It may accompany a writer or later recheck
+  failure; it does not establish a live source lease or successful production
+
+Only counts, coordinates, hashes, booleans and fixed schema/diagnostic identifiers
+are emitted. No local paths, member names, raw errors, liquid height values or
+asset strings are included. Raw ADT hashes describe captured bytes, including when
+ADT validation fails; they are not a certificate of valid terrain.
+
 ## Local command
 
-`--output` and `--inspect` are mutually exclusive. The output parent must exist. Choose a fresh directory outside the entire client
+`--output`, `--inspect` and `--diagnose` are mutually exclusive. The output parent must exist. Choose a fresh directory outside the entire client
 installation. Terrain grid coordinates are explicit: `32,31` reads ADT
 `<directory>_31_32.adt` and writes `maps/0003231.map` for map zero.
 The numbers below are a command example, not a claim of supported real terrain.
