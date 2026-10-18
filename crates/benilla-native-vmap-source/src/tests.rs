@@ -418,7 +418,10 @@ fn global_unsupported_closure_and_liquid_are_precise_and_never_leak_names() {
         if liquid {
             assert!(matches!(
                 error.category(),
-                Error::Wmo(benilla_native_vmap::WmoError::UnsupportedLiquid { .. })
+                Error::Wmo(benilla_native_vmap::WmoError::InvalidChunkSize {
+                    chunk: [b'M', b'L', b'I', b'Q'],
+                    ..
+                })
             ));
         } else {
             assert!(matches!(error.category(), Error::Discovery(_)));
@@ -590,3 +593,6 @@ fn doodad_metadata_and_candidate_bounds_are_checked_before_growth() {
 
 #[path = "doodad_capture_tests.rs"]
 mod doodad_capture_tests;
+
+#[path = "liquid_capture_tests.rs"]
+mod liquid_capture_tests;

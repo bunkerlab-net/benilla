@@ -1,7 +1,14 @@
-//! Bounded dry projection of the pinned WMO root/group raw geometry writer.
+//! Bounded projection of the pinned WMO root/group raw geometry writer.
 
 use crate::wmo_error::{WmoError, WmoFile};
 use crate::{put_word, vertex, word};
+
+#[path = "wmo_liquid.rs"]
+mod liquid;
+use liquid::Liquid;
+pub use liquid::{
+    MAX_WMO_LIQUID_TILES, MAX_WMO_LIQUID_VERTICES, WMO_LIQUID_HEADER_ZERO_PADDING_V1,
+};
 
 /// Maximum bytes in any one complete WMO root or group input (64 MiB).
 pub const MAX_WMO_FILE_BYTES: usize = 64 * 1024 * 1024;
@@ -34,13 +41,15 @@ pub struct WmoGroupInput<'a> {
     pub bytes: &'a [u8],
 }
 
-/// Complete dry raw-geometry projection, before any VMap assembly or placement.
+/// Complete raw-geometry projection, before any VMap assembly or placement.
 /// Even zero retained groups produce the source's complete 20-byte raw header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WmoCollision {
     pub raw_vmap: Vec<u8>,
     pub declared_group_count: u32,
     pub retained_group_count: u32,
+    /// Retained groups with an active final MLIQ, serialized as raw LIQU.
+    pub liquid_group_count: u32,
     /// Source filename indices surviving the same validated ShouldSkip pass.
     /// Dependency capture uses these instead of duplicating group skip rules.
     pub retained_group_indices: Vec<u32>,
@@ -77,6 +86,48 @@ pub struct WmoCollision {
 pub fn extract_wmo_collision(
     root_bytes: &[u8],
     inputs: &[WmoGroupInput<'_>],
+) -> Result<WmoCollision, WmoError> {
+    extract(root_bytes, inputs, LiquidProfile::Dry)
+}
+
+/// Convert complete WMO bytes with bounded MLIQ support and the source member
+/// spelling required by the case-sensitive `Stratholme_raid` liquid override.
+///
+/// The caller must supply the witnessed source lookup member after the pinned
+/// basename normalization, not the original listfile spelling, a basename alone,
+/// or a fabricated filename profile. Directory spelling remains unchanged. This function validates a bounded
+/// ASCII archive path ending in `.wmo`; it does not establish a source lease.
+/// Numeric group suffixes leave the source substring test unchanged.
+///
+/// All dry validation remains in force. Every MLIQ is validated, including in
+/// skipped groups or before a later chunk resets liquid state. Repeated MLIQ
+/// chunks are allowed, with only the last active source chunk emitted. Tiles must have
+/// positive dimensions, vertices must be tiles plus one on each axis, all
+/// positions/heights must be finite, and the 30-byte header plus 8-byte source
+/// vertices and tile flags must exactly consume the chunk. The final source
+/// chunk alone determines whether LIQU is emitted. Output normalizes only the
+/// proven-unused header tail bytes with [`WMO_LIQUID_HEADER_ZERO_PADDING_V1`];
+/// their source values are undefined, so this is not a full-byte parity claim.
+/// LIQU retains the source advertised-size quirk. No map assembly is performed.
+pub fn extract_wmo_collision_from_source(
+    root_member: &str,
+    root_bytes: &[u8],
+    inputs: &[WmoGroupInput<'_>],
+) -> Result<WmoCollision, WmoError> {
+    liquid::validate_root_member(root_member)?;
+    extract(root_bytes, inputs, LiquidProfile::Source(root_member))
+}
+
+#[derive(Clone, Copy)]
+enum LiquidProfile<'a> {
+    Dry,
+    Source(&'a str),
+}
+
+fn extract(
+    root_bytes: &[u8],
+    inputs: &[WmoGroupInput<'_>],
+    profile: LiquidProfile<'_>,
 ) -> Result<WmoCollision, WmoError> {
     file_limit(WmoFile::Root, root_bytes.len())?;
     let root = parse_root(root_bytes)?;
@@ -117,12 +168,13 @@ pub fn extract_wmo_collision(
     let mut total_output = 20;
     let mut triangles = 0u32;
     let mut retained = 0u32;
+    let mut liquid_groups = 0u32;
     let mut retained_group_indices = Vec::new();
     retained_group_indices
         .try_reserve_exact(inputs.len())
         .map_err(|_| WmoError::AllocationFailed)?;
     for input in inputs {
-        let group = parse_group(input.bytes, input.group_index)?;
+        let group = parse_group(input.bytes, input.group_index, profile)?;
         if should_skip(&group, root.names)? {
             continue;
         }
@@ -131,6 +183,7 @@ pub fn extract_wmo_collision(
         // Caps bound the total to 1024 * 65536, below the source's signed int.
         triangles += counts.triangles as u32;
         retained += 1;
+        liquid_groups += u32::from(group.liquid.is_some());
         retained_group_indices.push(input.group_index);
         groups.push(group);
     }
@@ -145,13 +198,14 @@ pub fn extract_wmo_collision(
     put_word(&mut output, root.id);
     for group in &groups {
         let counts = collision_remap(group, &mut remap)?;
-        write_group(&mut output, group, &remap, counts);
+        write_group(&mut output, group, &remap, counts, &root, profile);
     }
     debug_assert_eq!(output.len(), total_output);
     Ok(WmoCollision {
         raw_vmap: output,
         declared_group_count: root.group_count,
         retained_group_count: retained,
+        liquid_group_count: liquid_groups,
         retained_group_indices,
         collision_triangle_count: triangles,
     })
@@ -161,6 +215,7 @@ struct Root<'a> {
     group_count: u32,
     id: u32,
     names: &'a [u8],
+    flags: u32,
 }
 
 fn parse_root(bytes: &[u8]) -> Result<Root<'_>, WmoError> {
@@ -193,6 +248,7 @@ fn parse_root(bytes: &[u8]) -> Result<Root<'_>, WmoError> {
         group_count: word(header, 4),
         id: word(header, 32),
         names: names.unwrap_or_default(),
+        flags: word(header, 60),
     })
 }
 
@@ -203,6 +259,7 @@ struct Group<'a> {
     indices: &'a [u8],
     vertices: &'a [u8],
     batches: &'a [u8],
+    liquid: Option<Liquid<'a>>,
 }
 
 #[derive(Default)]
@@ -211,17 +268,31 @@ struct GroupChunks<'a> {
     indices: Option<&'a [u8]>,
     vertices: Option<&'a [u8]>,
     batches: Option<&'a [u8]>,
+    liquid: Option<Liquid<'a>>,
 }
 
 impl<'a> GroupChunks<'a> {
-    fn consume(&mut self, chunk: Chunk<'a>, index: u32) -> Result<(), WmoError> {
+    fn consume(
+        &mut self,
+        chunk: Chunk<'a>,
+        index: u32,
+        profile: LiquidProfile<'_>,
+    ) -> Result<(), WmoError> {
+        // WMOGroup::open resets LiquEx_size and liquflags for every chunk.
+        self.liquid = None;
         let file = WmoFile::Group(index);
         match &chunk.tag {
             b"MOPY" => singleton(&mut self.materials, chunk, file),
             b"MOVI" => singleton(&mut self.indices, chunk, file),
             b"MOVT" => singleton(&mut self.vertices, chunk, file),
             b"MOBA" => singleton(&mut self.batches, chunk, file),
-            b"MLIQ" => Err(WmoError::UnsupportedLiquid { group: index }),
+            b"MLIQ" => match profile {
+                LiquidProfile::Dry => Err(WmoError::UnsupportedLiquid { group: index }),
+                LiquidProfile::Source(_) => {
+                    self.liquid = Some(Liquid::parse(chunk.payload, index)?);
+                    Ok(())
+                }
+            },
             b"MVER" | b"MOGP" | b"MOHD" => Err(WmoError::UnexpectedChunk {
                 file,
                 chunk: chunk.tag,
@@ -231,7 +302,11 @@ impl<'a> GroupChunks<'a> {
     }
 }
 
-fn parse_group(bytes: &[u8], index: u32) -> Result<Group<'_>, WmoError> {
+fn parse_group<'a>(
+    bytes: &'a [u8],
+    index: u32,
+    profile: LiquidProfile<'_>,
+) -> Result<Group<'a>, WmoError> {
     let file = WmoFile::Group(index);
     let mut version = None;
     let mut header = None;
@@ -240,6 +315,7 @@ fn parse_group(bytes: &[u8], index: u32) -> Result<Group<'_>, WmoError> {
     let mut count = 0;
     while let Some(chunk) = chunks.next(&mut count)? {
         require_leading_version(&chunk, file)?;
+        fields.liquid = None;
         match &chunk.tag {
             b"MVER" => singleton(&mut version, chunk, file)?,
             b"MOGP" => {
@@ -263,10 +339,10 @@ fn parse_group(bytes: &[u8], index: u32) -> Result<Group<'_>, WmoError> {
                     chunk.offset + 8 + MOGP_HEADER_BYTES,
                 );
                 while let Some(child) = children.next(&mut count)? {
-                    fields.consume(child, index)?;
+                    fields.consume(child, index, profile)?;
                 }
             }
-            _ => fields.consume(chunk, index)?,
+            _ => fields.consume(chunk, index, profile)?,
         }
     }
     check_version(required(version, file, *b"MVER")?, file)?;
@@ -279,6 +355,7 @@ fn parse_group(bytes: &[u8], index: u32) -> Result<Group<'_>, WmoError> {
         indices: required(fields.indices, file, *b"MOVI")?,
         vertices: required(fields.vertices, file, *b"MOVT")?,
         batches: required(fields.batches, file, *b"MOBA")?,
+        liquid: fields.liquid,
     };
     let triangles = record_count(group.materials, file, *b"MOPY", 2, MAX_WMO_TRIANGLES)?;
     let indices = record_count(group.indices, file, *b"MOVI", 2, MAX_WMO_TRIANGLES * 3)?;
@@ -396,17 +473,25 @@ fn output_size(
         .and_then(|n| n.checked_add(group.batches.len() / 24 * 4))
         .and_then(|n| n.checked_add(counts.triangles * 6))
         .and_then(|n| n.checked_add(counts.vertices * 12))
+        .and_then(|n| n.checked_add(group.liquid.as_ref().map_or(0, Liquid::output_size)))
         .filter(|&n| n <= MAX_WMO_OUTPUT_BYTES)
         .ok_or(WmoError::OutputLimit {
             maximum: MAX_WMO_OUTPUT_BYTES,
         })
 }
 
-fn write_group(output: &mut Vec<u8>, group: &Group<'_>, remap: &[u32], counts: CollisionCounts) {
+fn write_group(
+    output: &mut Vec<u8>,
+    group: &Group<'_>,
+    remap: &[u32],
+    counts: CollisionCounts,
+    root: &Root<'_>,
+    profile: LiquidProfile<'_>,
+) {
     output.extend_from_slice(&group.header[8..12]); // mogpFlags
     output.extend_from_slice(&group.header[56..60]); // groupWMOID
     output.extend_from_slice(&group.header[12..36]); // authored bounds, unchanged
-    put_word(output, 0); // Every MLIQ was rejected; source dry liquflags is zero.
+    put_word(output, u32::from(group.liquid.is_some()));
     output.extend_from_slice(b"GRP ");
     let batches = (group.batches.len() / 24) as u32;
     put_word(output, batches * 4 + 4);
@@ -443,6 +528,15 @@ fn write_group(output: &mut Vec<u8>, group: &Group<'_>, remap: &[u32], counts: C
         if mapped != UNREFERENCED {
             output.extend_from_slice(vertex);
         }
+    }
+    if let (Some(liquid), LiquidProfile::Source(root_member)) = (&group.liquid, profile) {
+        liquid.write(
+            output,
+            root.flags,
+            word(group.header, 52),
+            word(group.header, 8),
+            root_member,
+        );
     }
 }
 

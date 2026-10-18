@@ -14,7 +14,7 @@ No client-install assets are distributed. Regression MPQs are authored fixtures.
   merged winner chain.
 - `ReadLiquidTypeTableDBC` precedes `ExtractWmo`, which precedes physical Map.dbc
   iteration. The listfile pass selects the case-sensitive `.wmo` substring before
-  normalization and root/group filtering. Global dry products remain private if
+  normalization and root/group filtering. Global raw products remain private if
   any later prerequisite fails.
 - `ParsMapFiles` gates on WDT availability, then attempts all 4096 ADTs with x outer
   and y inner. MAIN does not select the traversal. Earlier physical map records
@@ -72,3 +72,8 @@ from format and source behavior; no libmpq implementation text is copied into th
 permissively licensed MPQ crate. Its source references are recorded for audit.
 Rechecking proves observed equality of the ordered consumed inputs, not filesystem
 transactionality, immunity to ABA changes, or a live source lease.
+
+The source-bound WMO writer supports validated MLIQ and preserves its final-chunk
+reset behavior. `liquid_header_policy` records the explicit unused-padding rule;
+`wmo_liquid_groups` counts emitted active groups, excluding reset and skipped
+groups. Every consumed group remains bound to the changed-input receipts.

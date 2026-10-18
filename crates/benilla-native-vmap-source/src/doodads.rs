@@ -228,7 +228,9 @@ fn consume_group_chunk(
             *references = next;
             Ok(())
         }
-        b"MLIQ" => Err(DoodadError("vmap.doodad_unsupported_liquid")),
+        // Geometry/liquid validity belongs to the complete raw writer, which
+        // acquisition invokes before this metadata-only reference projection.
+        b"MLIQ" => Ok(()),
         b"MVER" | b"MOHD" | b"MOGP" => Err(DoodadError("vmap.doodad_unexpected_chunk")),
         _ => Ok(()),
     }

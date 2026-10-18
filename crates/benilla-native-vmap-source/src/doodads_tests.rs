@@ -333,11 +333,15 @@ fn nested_and_sibling_modr_follow_flat_source_traversal_and_final_replacement() 
 }
 
 #[test]
-fn liquid_remains_unsupported_regardless_of_chunk_order_or_payload_size() {
+fn group_liquid_framing_is_left_to_the_prior_raw_writer_but_root_liquid_is_rejected() {
     for liquid in [vec![], vec![0; 30]] {
         assert_eq!(
-            group_error(&group(&[(b"MLIQ", liquid.clone()), (b"MODR", refs(&[0]))])),
-            "vmap.doodad_unsupported_liquid"
+            parse_group_doodad_references(&group(&[
+                (b"MLIQ", liquid.clone()),
+                (b"MODR", refs(&[0]))
+            ]))
+            .unwrap(),
+            [0]
         );
         assert_eq!(
             root_error(&root(&[(b"MLIQ", liquid.clone())])),
@@ -345,7 +349,7 @@ fn liquid_remains_unsupported_regardless_of_chunk_order_or_payload_size() {
         );
         let mut flat = group(&[]);
         flat.extend(chunk(b"MLIQ", &liquid));
-        assert_eq!(group_error(&flat), "vmap.doodad_unsupported_liquid");
+        assert!(parse_group_doodad_references(&flat).unwrap().is_empty());
     }
 }
 

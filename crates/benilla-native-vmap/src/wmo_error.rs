@@ -20,6 +20,19 @@ impl fmt::Display for WmoFile {
 /// collision absence or authorizes use of a partial set of groups.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WmoError {
+    InvalidSourceRootMember,
+    InvalidLiquidDimensions {
+        group: u32,
+        vertices: [i32; 2],
+        tiles: [i32; 2],
+    },
+    LiquidSizeOverflow {
+        group: u32,
+    },
+    NonFiniteLiquidHeight {
+        group: u32,
+        ordinal: usize,
+    },
     InputLimit {
         file: WmoFile,
         bytes: usize,
@@ -122,6 +135,10 @@ pub enum WmoError {
 impl fmt::Display for WmoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidSourceRootMember => f.write_str("WMO source root member is outside the bounded ASCII archive-path profile"),
+            Self::InvalidLiquidDimensions { group, vertices, tiles } => write!(f, "WMO group {group} has incompatible liquid dimensions {vertices:?} vertices and {tiles:?} tiles"),
+            Self::LiquidSizeOverflow { group } => write!(f, "WMO group {group} liquid dimensions exceed source arithmetic bounds"),
+            Self::NonFiniteLiquidHeight { group, ordinal } => write!(f, "WMO group {group} liquid height {ordinal} is non-finite"),
             Self::InputLimit { file, bytes, maximum } => write!(f, "{file} input length {bytes} exceeds limit {maximum}"),
             Self::TotalInputLimit { maximum } => write!(f, "total WMO input length exceeds limit {maximum}"),
             Self::GroupCountLimit { count, maximum } => write!(f, "WMO group count {count} exceeds limit {maximum}"),

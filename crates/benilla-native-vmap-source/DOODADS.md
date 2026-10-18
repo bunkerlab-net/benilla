@@ -43,8 +43,8 @@ lookup basename. A mismatch fails explicitly, avoiding different Windows/Linux
 filesystem case rules. Existing distinct-member flat-name collision refusals remain.
 Missing required model/group inputs fail the complete preparation atomically.
 Malformed records, nonfinite values and overflowing set ranges are rejected rather
-than reproducing unsafe source accesses or unsigned wrapping. Liquids remain outside
-the raw writer and parser profile.
+than reproducing unsafe source accesses or unsigned wrapping. Group MLIQ framing is ignored by the doodad-only parser after the prior raw
+writer has validated every liquid chunk. MLIQ in a root remains invalid.
 
 Metadata has a cumulative 64 MiB logical retained-record budget; selected doodad
 candidates have a 1,048,576-record limit. Existing member, group, dependency-event,

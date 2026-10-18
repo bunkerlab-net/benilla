@@ -14,8 +14,8 @@ mod doodads;
 mod source;
 
 use benilla_native_vmap::{
-    extract_m2_collision, extract_wmo_collision, M2Collision, WmoCollision, WmoGroupInput,
-    MAX_WMO_GROUPS, MAX_WMO_TOTAL_BYTES,
+    extract_m2_collision, extract_wmo_collision_from_source, M2Collision, WmoCollision,
+    WmoGroupInput, MAX_WMO_GROUPS, MAX_WMO_TOTAL_BYTES, WMO_LIQUID_HEADER_ZERO_PADDING_V1,
 };
 use discovery::{DiscoveryEvent, ModelDependency, PlacementInputs};
 use serde::Serialize;
@@ -169,6 +169,7 @@ pub struct DiscoverySummary {
     pub acquisition_policy: &'static str,
     pub listfile_policy: &'static str,
     pub writer_policy: &'static str,
+    pub liquid_header_policy: &'static str,
     pub source_epoch: String,
     pub map_id: u32,
     pub map_record_ordinal: usize,
@@ -188,6 +189,7 @@ pub struct DiscoverySummary {
     pub m2_raw_products: usize,
     pub m2_no_collision_products: usize,
     pub wmo_raw_products: usize,
+    pub wmo_liquid_groups: usize,
     pub placements: usize,
     pub emitting_placements: usize,
     pub no_collision_placements: usize,
@@ -419,6 +421,10 @@ fn wmo_category(error: &benilla_native_vmap::WmoError) -> &'static str {
         NegativeGroupName { .. } => "vmap.wmo.negative_group_name",
         UnterminatedGroupName { .. } => "vmap.wmo.unterminated_group_name",
         UnsupportedLiquid { .. } => "vmap.wmo.unsupported_liquid",
+        InvalidSourceRootMember => "vmap.wmo.invalid_source_member",
+        InvalidLiquidDimensions { .. } => "vmap.wmo.invalid_liquid_dimensions",
+        LiquidSizeOverflow { .. } => "vmap.wmo.liquid_size_overflow",
+        NonFiniteLiquidHeight { .. } => "vmap.wmo.non_finite_liquid_height",
         OutputLimit { .. } => "vmap.wmo.output_limit",
         AllocationFailed => "vmap.wmo.allocation_failed",
     }
@@ -607,7 +613,8 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "cmangos-vmaps05-small-dry-doodad-dependencies-v2",
+                writer_policy: "cmangos-vmaps05-liquid-doodad-dependencies-v3",
+                liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
                 source_epoch: String::new(),
                 map_id,
                 map_record_ordinal,
@@ -627,6 +634,7 @@ impl Builder {
                 m2_raw_products: 0,
                 m2_no_collision_products: 0,
                 wmo_raw_products: 0,
+                wmo_liquid_groups: 0,
                 placements: 0,
                 emitting_placements: 0,
                 no_collision_placements: 0,
@@ -954,7 +962,10 @@ impl Builder {
             });
         }
         // Only complete captured root/group closure reaches the existing writer.
-        let collision = extract_wmo_collision(root.bytes(), &inputs).map_err(Error::Wmo)?;
+        let collision =
+            extract_wmo_collision_from_source(&dependency.member, root.bytes(), &inputs)
+                .map_err(Error::Wmo)?;
+        self.summary.wmo_liquid_groups += collision.liquid_group_count as usize;
         let mut references = BTreeSet::new();
         for (index, group) in groups.iter().enumerate() {
             check_cancel(cancelled)?;

@@ -36,7 +36,8 @@ The source treats the first 68 bytes of `MOGP` as its group header and walks
 its nested chunks afterward. It also resets liquid output state at every
 chunk. This dry adapter rejects any `MLIQ` chunk rather than guessing heights,
 relying on later chunk resets, or inferring a liquid from an unrelated header
-field. Liquid production needs separate source-order proof.
+field. The separate source-member API now supports [validated liquid production](WMO-LIQUID.md)
+with its own source-order, ABI-padding and consumer proof.
 
 ## Scope of the result
 

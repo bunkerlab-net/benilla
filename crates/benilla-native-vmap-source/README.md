@@ -9,7 +9,7 @@ Preparation performs the required LiquidType table check, the global per-archive
 listfile/WMO pass, and the physical Map.dbc prefix through the selected record.
 Each present WDT causes all 4096 ADT attempts in x-major order, regardless of MAIN.
 Earlier maps are processed because they can seed the source's flat model cache.
-Only selected-map placements are retained. Complete M2 and dry WMO dependencies,
+Only selected-map placements are retained. Complete M2 and bounded WMO dependencies,
 including ordered MODN extraction,
 feed the existing raw writers; unsupported roots stop preparation without exposing
 partial products. See [source scope](PROVENANCE.md).
@@ -32,13 +32,13 @@ the explicit product/placement interface, not these diagnostic serializers.
 - Numeric patches 1 through 99, reverse mount winner order and blocking members
   of at most one byte
 - Bounded legacy MPQ headers and version-one headers with zero extended offsets
-- Complete MD20 collision products and dry WMO roots with every declared group
+- Complete MD20 collision products and WMO roots with every declared group, including validated MLIQ
 - Source-order name events, direct placement-name ordinals and raw client IDs
 - Cooperative cancellation, checked bounds and changed-input rejection
 
 [Doodad dependency closure](DOODADS.md) retains raw transforms and selected-set
 membership without claiming final emission order or G3D placement arithmetic.
-WMO liquids, incompatible emitted/lookup model basenames, nonempty global-WMO
+Malformed or unsupported MLIQ dimensions, incompatible emitted/lookup model basenames, nonempty global-WMO
 placement, flat-name collisions between distinct canonical members, empty ADT/WDT
 name-table entries and other
 unsupported input profiles fail explicitly. These restrictions can stop an actual
@@ -46,8 +46,12 @@ install during its global WMO pass before the selected map is reached. Real asse
 acceptance has not been established for this acquisition library.
 
 Map assembly still requires exact global encounter IDs, all map placements,
-complete liquid dependencies, transformed doodad instances and validated map-wide
+transformed doodad instances and validated map-wide
 BIHs. The later
 GameObjectDisplayInfo extraction phase is outside this selected-prefix result.
 The independent terrain helper's successful real Northshire conversion does not
 establish those remaining collision prerequisites.
+
+WMO liquid production uses the witnessed root member for the source
+case-sensitive type override and identifies `wmo-liquid-header-zero-padding-v1`
+in its summary. See [the raw liquid contract](../benilla-native-vmap/WMO-LIQUID.md).

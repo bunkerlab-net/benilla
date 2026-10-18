@@ -1,7 +1,7 @@
-//! Pure, bounded M2 and dry WMO collision extraction matching pinned CMaNGOS raw writers.
+//! Pure, bounded M2 and WMO collision extraction matching pinned CMaNGOS raw writers.
 //!
 //! M2 accepts the MD20 256/257 profile; WMO accepts bounded dry version 17 roots
-//! with every declared group. Both emit little-endian `VMAPs05`
+//! with every declared group; the source-member API also accepts validated MLIQ. Both emit little-endian `VMAPs05`
 //! bytes. It does not open archives, write files, assemble VMaps, generate MMaps,
 //! establish a source lease, or admit geometry for gameplay. See `PROVENANCE.md`
 //! for the exact source and the stricter input-validation envelope.
@@ -12,9 +12,10 @@ mod wmo_error;
 
 pub use error::{CollisionArray, Error};
 pub use wmo::{
-    extract_wmo_collision, WmoCollision, WmoGroupInput, MAX_WMO_BATCHES, MAX_WMO_CHUNKS,
-    MAX_WMO_FILE_BYTES, MAX_WMO_GROUPS, MAX_WMO_OUTPUT_BYTES, MAX_WMO_TOTAL_BYTES,
-    MAX_WMO_TRIANGLES, MAX_WMO_VERTICES,
+    extract_wmo_collision, extract_wmo_collision_from_source, WmoCollision, WmoGroupInput,
+    MAX_WMO_BATCHES, MAX_WMO_CHUNKS, MAX_WMO_FILE_BYTES, MAX_WMO_GROUPS, MAX_WMO_LIQUID_TILES,
+    MAX_WMO_LIQUID_VERTICES, MAX_WMO_OUTPUT_BYTES, MAX_WMO_TOTAL_BYTES, MAX_WMO_TRIANGLES,
+    MAX_WMO_VERTICES, WMO_LIQUID_HEADER_ZERO_PADDING_V1,
 };
 pub use wmo_error::{WmoError, WmoFile};
 

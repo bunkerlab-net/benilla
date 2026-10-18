@@ -523,7 +523,7 @@ fn resource_caps_are_checked_before_large_allocations_or_consumption() {
         })
     );
     let original = ordinary_group();
-    let parsed = parse_group(&original, 0).unwrap();
+    let parsed = parse_group(&original, 0, LiquidProfile::Dry).unwrap();
     assert_eq!(
         output_size(
             usize::MAX,
@@ -626,6 +626,7 @@ fn complete_dry_wmo_bytes_match_the_independent_pinned_cpp_extractor() {
         .collect();
     let output = extract_wmo_collision(ROOT, &inputs).unwrap();
     assert_eq!(output.declared_group_count, 6);
+    assert_eq!(output.liquid_group_count, 0);
     assert_eq!(output.retained_group_count, 3);
     assert_eq!(output.retained_group_indices, [0, 1, 2]);
     assert_eq!(output.collision_triangle_count, 192);
@@ -714,3 +715,6 @@ fn version_chunk_must_lead_both_root_and_groups() {
     }
     assert!(convert(&root_bytes, &[group_bytes]).is_ok());
 }
+
+#[path = "wmo_liquid_tests.rs"]
+mod liquid_tests;
