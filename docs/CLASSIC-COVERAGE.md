@@ -51,10 +51,15 @@ The [raw M2 collision producer](../crates/benilla-native-vmap/PROVENANCE.md)
 converts bounded MD20 collision arrays to the pinned extractor's `VMAPs05`
 bytes. Authored inputs pass through the original extractor and assembler to
 exercise the actual VMap reader, including source M2 zero group bounds.
-This byte-level producer does not capture an MPQ dependency closure or assemble
+The [dry WMO raw producer](../crates/benilla-native-vmap/WMO-PROVENANCE.md)
+requires every root-declared group and preserves the original small-VMap
+material mask, skipped groups, ascending vertex remap and raw bounds. Its raw
+geometry projection does not extract or place WMO doodads, and rejects liquid
+chunks pending separate source-order proof.
+These byte-level producers do not capture an MPQ dependency closure or assemble
 a map. Static map production still needs all map placements in its BIH,
-source-compatible WMO conversion and exact archive/encounter ordering; selected
-tile geometry alone cannot establish the absence of off-tile collision.
+WMO liquid/doodad closure and exact archive/encounter ordering; selected tile
+geometry alone cannot establish the absence of off-tile collision.
 
 `TargetedMovementGenerator.cpp`, `HomeMovementGenerator.cpp` and `PathFinder.cpp`
 have been inspected. A bounded one-player/one-creature chase, spline, Home and

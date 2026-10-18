@@ -11,6 +11,8 @@ mod location;
 mod m2_tests;
 mod math;
 mod trig;
+#[cfg(test)]
+mod wmo_tests;
 use self::{bih::Bih, math::*};
 use super::{Error, Hash, InventoriedProducts, ProductId};
 #[cfg(test)]

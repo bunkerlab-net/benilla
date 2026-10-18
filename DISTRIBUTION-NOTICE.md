@@ -77,7 +77,7 @@ The terrain-only local producer is a bounded Rust adaptation of the pinned CMaNG
 `crates/benilla-native-terrain/README.md` and `CMANGOS-NOTICE.txt`. It distributes
 original authored fixtures, not client assets or generated real terrain.
 
-The separate raw M2 collision writer is a bounded Rust adaptation of the pinned
-CMaNGOS VMap extractor. Its scope and upstream notice are retained in
+The separate raw M2 and dry WMO collision writers are bounded Rust adaptations of the pinned
+CMaNGOS VMap extractor. Their scope and upstream notice are retained in
 `crates/benilla-native-vmap/PROVENANCE.md` and `CMANGOS-NOTICE.txt`.
-Its extractor/assembler regression inputs are authored numeric fixtures.
+Their extractor/assembler regression inputs are authored numeric fixtures.

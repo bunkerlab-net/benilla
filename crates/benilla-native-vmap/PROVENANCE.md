@@ -1,6 +1,9 @@
-# Bounded raw M2 collision extraction
+# Bounded raw collision extraction
 
-This crate ports only `Model::open`, `fixCoordSystem` and
+The dry WMO raw geometry adapter has its own [source contract and scope](WMO-PROVENANCE.md).
+The following sections describe the M2 adapter.
+
+The M2 adapter ports only `Model::open`, `fixCoordSystem` and
 `Model::ConvertToVMAPModel` from
 [CMaNGOS Classic 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f](https://github.com/cmangos/mangos-classic/tree/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f).
 The source files are `contrib/vmap_extractor/vmapextract/model.cpp`,

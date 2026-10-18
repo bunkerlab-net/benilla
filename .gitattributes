@@ -64,3 +64,11 @@ crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.tsv text eo
 crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.m2.test-fixture -text
 crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/*.raw.vmap -text
 crates/benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/products/* -text
+
+# Original WMO extractor fragments and authored products retain exact oracle bytes.
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/source-fragments.cpp.test-fixture text eol=lf -whitespace
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.root.test-fixture -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.group.test-fixture -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/*.raw.vmap -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_vmap_source/products/* -text
