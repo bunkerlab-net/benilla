@@ -7,9 +7,10 @@
 //! These functions consume complete owned-by-caller raw members. They do not resolve
 //! archives, authenticate an installation, or certify gameplay/static-world coverage.
 //! Framing/resource restrictions deliberately reject unsafe or unsupported source
-//! inputs rather than reproduce upstream's unchecked pointers and stale globals.
+//! inputs rather than reproduce upstream's unchecked pointers or unproved retained globals.
 
 use anyhow::{ensure, Context, Result};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_MEMBER: usize = 64 * 1024 * 1024;
@@ -141,6 +142,24 @@ pub(crate) fn map_selection(map_dbc: &[u8], map: u32) -> Result<MapSelection> {
     selected.context("terrain.map_missing")
 }
 
+/// Raw Map.dbc directories in physical source traversal order. Only directories
+/// actually consulted by the coordinator may be admitted as member paths.
+pub(crate) fn map_directories(map_dbc: &[u8]) -> Result<Vec<(u32, String)>> {
+    let dbc = Dbc::read(map_dbc, 42).context("terrain.Map")?;
+    let mut ids = BTreeSet::new();
+    dbc.rows()
+        .map(|row| {
+            let id = word(row, 0)?;
+            ensure!(ids.insert(id), "terrain.duplicate_map_id");
+            let directory = dbc
+                .string(word(row, 4)?)
+                .context("terrain.history_map_metadata")?;
+            ensure!(directory.len() < 64, "terrain.history_map_metadata");
+            Ok((id, directory.to_owned()))
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy)]
 struct Chunk<'a> {
     at: usize,
@@ -251,6 +270,55 @@ pub fn validate_selection_wdt(wdt: &[u8], tile_x: u8, tile_y: u8) -> Result<()> 
         "terrain.wdt_tile_absent"
     );
     Ok(())
+}
+
+/// Source WDT traversal expressed as output coordinates (row, column).
+/// Unlike selected-tile validation, a framed global-WMO-only WDT can establish
+/// that a preceding map has no ADT events: loadlib/wdt.cpp does not inspect its
+/// MWMO/MODF payloads, and System.cpp tests only MAIN's whole exist word.
+pub(crate) fn history_wdt_tiles(wdt: &[u8]) -> Result<Vec<(u8, u8)>> {
+    let records = chunks(wdt, 0, 5, false, None)?;
+    ensure!(records.len() >= 4, "terrain.wdt_required_records");
+    ensure!(
+        records[0].magic == *b"REVM"
+            && records[0].data.len() == 4
+            && word(records[0].data, 0)? == 18,
+        "terrain.wdt_version"
+    );
+    ensure!(
+        records[1].magic == *b"DHPM" && records[1].data.len() == 32,
+        "terrain.wdt_global_or_header"
+    );
+    ensure!(
+        records[2].magic == *b"NIAM" && records[2].data.len() == 64 * 64 * 8,
+        "terrain.wdt_main"
+    );
+    ensure!(records[3].magic == *b"OMWM", "terrain.wdt_global_wmo");
+    if records.len() == 5 {
+        ensure!(
+            records[4].magic == *b"FDOM",
+            "terrain.wdt_unsupported_record"
+        );
+    }
+    let mut tiles = Vec::new();
+    for slot in 0..64 * 64 {
+        if word(records[2].data, slot * 8)? != 0 {
+            tiles.push(((slot / 64) as u8, (slot % 64) as u8));
+        }
+    }
+    if !tiles.is_empty() {
+        // Global metadata with ADTs remains outside the supported conversion
+        // profile; it must not be mistaken for an absent or empty WDT.
+        ensure!(
+            word(records[1].data, 0)? == 0,
+            "terrain.wdt_global_or_header"
+        );
+        ensure!(records[3].data.is_empty(), "terrain.wdt_global_wmo");
+        if records.len() == 5 {
+            ensure!(records[4].data.is_empty(), "terrain.wdt_unsupported_record");
+        }
+    }
+    Ok(tiles)
 }
 
 pub(crate) fn area_flags(area_dbc: &[u8]) -> Result<BTreeMap<u32, u16>> {
@@ -436,6 +504,58 @@ fn read_cells(adt: &[u8]) -> Result<Vec<Cell<'_>>> {
     Ok(cells)
 }
 
+/// In-process projection of one selected ADT's missing serialized boundary.
+/// Heights can only enter through validated raw predecessors, visited newest
+/// first, or through the coordinator's proof that the source traversal began.
+/// This is not a serialized assertion, output cache, or caller-supplied seed.
+pub(crate) struct BoundaryHistory {
+    selected_adt_digest: [u8; 32],
+    heights: BTreeMap<usize, Option<f32>>,
+}
+
+impl BoundaryHistory {
+    pub(crate) fn unresolved(&self) -> impl Iterator<Item = (u8, u8)> + '_ {
+        self.heights.iter().filter_map(|(&at, value)| {
+            value
+                .is_none()
+                .then_some(((at % 129) as u8, (at / 129) as u8))
+        })
+    }
+
+    pub(crate) fn is_resolved(&self) -> bool {
+        self.heights.values().all(Option::is_some)
+    }
+
+    pub(crate) fn apply_predecessor(&mut self, adt: &[u8]) -> Result<()> {
+        let cells = read_cells(adt)?;
+        let writes = liquid::direct_boundary_writes(&cells)?;
+        // Complete validation precedes any mutation, so a refused predecessor
+        // cannot partially resolve the selected tile's dependency set.
+        for (&at, value) in &mut self.heights {
+            if value.is_none() {
+                *value = writes.get(&at).copied();
+            }
+        }
+        Ok(())
+    }
+
+    /// Call only after proving every earlier Map.dbc/WDT/ADT event was visited
+    /// or absent. The namespace-static source array starts with positive zero.
+    pub(crate) fn mark_proven_start_zero(&mut self) {
+        for value in self.heights.values_mut() {
+            value.get_or_insert(0.0);
+        }
+    }
+}
+
+pub(crate) fn boundary_history(adt: &[u8]) -> Result<BoundaryHistory> {
+    let cells = read_cells(adt)?;
+    Ok(BoundaryHistory {
+        selected_adt_digest: Sha256::digest(adt).into(),
+        heights: liquid::missing_boundary(&cells)?,
+    })
+}
+
 /// Produce precisely one selected-tile-owned `MAPS/z1.4` member, without reading paths or trusting
 /// caller-declared heights, areas, holes, liquid absence or precomputed products.
 /// All three DBCs are loaded by upstream even when the selected tile is dry.
@@ -451,6 +571,48 @@ pub fn produce(
     map: u32,
     tile_x: u8,
     tile_y: u8,
+) -> Result<Vec<u8>> {
+    produce_inner(
+        map_dbc, area_dbc, liquid_dbc, wdt, adt, map, tile_x, tile_y, None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn produce_with_history(
+    map_dbc: &[u8],
+    area_dbc: &[u8],
+    liquid_dbc: &[u8],
+    wdt: &[u8],
+    adt: &[u8],
+    map: u32,
+    tile_x: u8,
+    tile_y: u8,
+    history: &BoundaryHistory,
+) -> Result<Vec<u8>> {
+    produce_inner(
+        map_dbc,
+        area_dbc,
+        liquid_dbc,
+        wdt,
+        adt,
+        map,
+        tile_x,
+        tile_y,
+        Some(history),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn produce_inner(
+    map_dbc: &[u8],
+    area_dbc: &[u8],
+    liquid_dbc: &[u8],
+    wdt: &[u8],
+    adt: &[u8],
+    map: u32,
+    tile_x: u8,
+    tile_y: u8,
+    history: Option<&BoundaryHistory>,
 ) -> Result<Vec<u8>> {
     map_directory(map_dbc, map)?;
     validate_selection_wdt(wdt, tile_x, tile_y)?;
@@ -516,7 +678,13 @@ pub fn produce(
     let flat = max_height == min_height;
     let area_size = 8 + if full_area { 512 } else { 0 };
     let height_size = 16 + if flat { 0 } else { (129 * 129 + 128 * 128) * 4 };
-    let liquid = liquid::produce(&cells)?;
+    if let Some(history) = history {
+        ensure!(
+            <[u8; 32]>::from(Sha256::digest(adt)) == history.selected_adt_digest,
+            "terrain.liquid_history_selection_changed"
+        );
+    }
+    let liquid = liquid::produce_with_history(&cells, history)?;
     let liquid_offset = if liquid.is_empty() {
         0
     } else {

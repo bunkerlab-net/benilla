@@ -36,8 +36,8 @@ the explicitly chosen generated folder using your file manager's recoverable
 trash/recycle operation; leave the installation and player state untouched.
 
 Actual Northshire acceptance remains unverified. Classic MCLQ is supported when
-all serialized liquid heights are determined by the selected tile. A rectangle
-that needs an unwritten outer-edge height rejects with `terrain.liquid_history`;
+all serialized liquid heights are determined by the selected tile or the bounded
+source predecessor closure described below. Unresolved or unsupported histories reject;
 malformed framing or unsupported later-client liquid data also rejects. These are
 possible failures, not a claim about the first failure in a real installation.
 Do not remove patches or modify assets to force success. Both this writer and the
@@ -56,9 +56,9 @@ numeric observations in one JSON object on stdout:
 
 `--diagnose` creates no files and cannot be combined with `--output` or `--inspect`.
 It uses the same selection limits, bounded archive reader, exact patch-winner
-checks, staged discovery comparisons and writer validation as inspection. Only the
-one through nine explicitly selected tiles are read; no predecessor or full-world
-scan is attempted. It does not recover missing history or admit gameplay.
+checks, staged discovery comparisons and writer validation as inspection. One through nine output tiles are selected. When their liquid boundary heights
+require history, the helper also reads the bounded predecessor dependency closure;
+it does not generate prior tiles or establish gameplay admission.
 
 The envelope has `format: "benilla-terrain-diagnostic"`, `version: 1`, numeric
 `map`, `map_table`, `source_epoch`, `stages`, `tiles`, and the two always-false
@@ -75,11 +75,16 @@ a bounded path-free diagnostic on stderr.
   `source_recheck`. Independent table checks still run if another table fails
 - Each selected tile contains `x`, `y`, `raw_adt` (captured byte count `bytes` and
   `sha256`), `active_mclq_cells`, `liquid_rectangle`, `missing_liquid_heights`,
-  and stages `wdt_selection`, `adt_structure`, `liquid`, `production`
+  optional `history`, and stages `wdt_selection`, `adt_structure`, `liquid`,
+  `history_resolution`, `production`
 - Liquid observations come from the shared validated writer scan. The rectangle
   has numeric `x`, `y`, `width`, `height`. Missing serialized heights have `count`
   and the first row-major `first_x`, `first_y`, or null coordinates when count is
   zero. Flat output consumes no height payload, so its missing count is zero
+- `liquid` describes selected-input-only validation. A `terrain.liquid_history`
+  observation can be followed by passed `history_resolution` and `production`.
+  `history` reports `consulted_adts`, `consulted_wdts`, `absent_members` and
+  `initial_zero_samples`; it never contains imported or trusted height values
 - Unavailable or inapplicable observations are null. A dry tile has null liquid
   observations. A failed dependency leaves its dependent stages unavailable;
   failure in one tile does not suppress independent checks of another selected tile
@@ -140,7 +145,8 @@ Map-selection diagnostics do not print directory strings or paths:
 
 The field selection and all-row storage bound follow `ReadMapDBC` at
 `contrib/extractor/System.cpp:189–208`; upstream constructs paths later in
-`ExtractMapsFromMpq:858–879`. This helper constructs only the selected map's paths.
+`ExtractMapsFromMpq:858–879`. This helper constructs selected paths and only the predecessor paths required by
+the bounded liquid dependency search.
 
 Benilla's normal patch chain and pinned `ad` are **not identical resolvers**.
 This adapter accepts only the conservative intersection: every consumed member
@@ -239,17 +245,30 @@ full source hashes and extraction intervals under `tools/fixtures`.
 The upstream converter does not clear its global 129×129 liquid-height array
 between tiles or maps. Hidden packing writes cover only the interior 128×128;
 serialized row/column 128 can therefore depend on earlier conversions. This
-producer tracks current-tile writes explicitly and requires every emitted height
-sample to be known. It does not import a prior `.map`, assume a fresh-process zero,
-or treat tile request order as upstream extraction order. No height ownership is
-needed when no liquid section or `NO_HEIGHT` is emitted. The oracle runs identical
-selected inputs after different complete source conversions, checking both stable
-admitted bytes and different history-dependent outputs that Rust refuses.
+producer tracks current-tile writes explicitly. For each missing emitted outer
+sample, it searches earlier extraction events in reverse: physical Map.dbc row
+order, then WDT MAIN row-major order. The latest raw MCLQ write wins, including
+hidden or untyped cells and prior tiles with no emitted liquid. It does not
+produce a predecessor's map or recursively depend on its liquid output.
 
-The manifest uses writer policy `cmangos-ad-f0-selected-tile-owned-liquid-v2`.
-This is an expanded, explicitly bounded writer profile, not universal wet-tile
-coverage. Later support for rejected histories would need exact predecessor inputs
-and source traversal, including earlier cross-map writes and conversion failures.
+Every consulted complete member and exact winner is retained, together with
+explicit dual-resolver absence receipts. Intervening nonwriters are dependencies
+as well as contributing writers. Fresh checks reject bytes/winner changes or an
+absent member appearing. Once all needed samples are resolved, no older inputs
+are consulted. Only exhaustion of the complete earlier traversal permits the
+pinned process-start positive-zero state. Request order never substitutes for
+source order. MH2O, malformed predecessors, ambiguous absence or budget exhaustion
+reject; none supplies guessed heights. A valid earlier global-WMO WDT can be
+traversed without extracting WMO content, but selected global-WMO terrain remains
+unsupported. History evidence certifies the selected boundary projection, not that
+an uninspected entire world conversion would finish successfully.
+
+No history is needed when no liquid section or `NO_HEIGHT` is emitted. Public
+standalone writer calls without a captured history still reject unresolved samples.
+The original source oracle's history-dependent vectors remain unchanged; the
+closure tests reproduce their exact bytes from the corresponding raw histories.
+The manifest format is `benilla-terrain-production-v3`, writer policy
+`cmangos-ad-f0-boundary-history-closure-v3`, with separate `absent_members` receipts.
 
 The bounded parser requires canonical MCIN placement, all 256 distinct referenced
 MCNKs, source-relative MCVT when present, finite supported heights and strict framing.
@@ -267,8 +286,8 @@ The exact restrictions and diagnostics are executable tests, not fallback flags.
 
 ## Publication and limits
 
-At most nine selected tiles; 64 MiB per raw member, 192 MiB aggregate captured
-members, 64 bounded archives and bounded MPQ indexing/decompression. Output paths
+At most nine selected output tiles and 4096 distinct history-member consultations;
+64 MiB per raw member, 192 MiB aggregate selected and history capture, 64 bounded archives and bounded MPQ indexing/decompression. Output paths
 are derived only from checked numeric map/tile IDs. Files are private on Unix,
 created without overwrite and synced. Products are reread and compared before a
 complete, synced manifest is atomically exposed with a no-replace hard link.

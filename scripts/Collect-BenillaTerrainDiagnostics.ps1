@@ -45,6 +45,21 @@ $ErrorActionPreference = 'Stop'
 
 # Exact public IDs only: arbitrary dotted helper strings must not enter the report.
 $SafeDiagnosticIds = @(
+    'terrain.history_map_metadata',
+    'terrain.liquid_history_interior',
+    'terrain.liquid_history_selection_changed',
+    'source.history_lookup_limit',
+    'source.history_initial_recheck',
+    'source.history_open',
+    'source.history_member_profile',
+    'source.history_resolver_mismatch',
+    'source.history_member_kind',
+    'source.absence_member_profile',
+    'source.absence_changed',
+    'source.ad_absence_profile',
+    'source.ad_absence_changed',
+    'source.discovery_absence_changed',
+    'source.recheck_absence',
     'output.already_exists', 'output.changed_product', 'output.create_new_directory',
     'output.directory_name', 'output.inside_source_installation', 'output.parent_must_exist',
     'output.published_but_durability_unconfirmed', 'selection.bounds', 'selection.duplicate_tile',
@@ -433,8 +448,9 @@ function ConvertTo-SafeDiagnostic([string]$Text) {
             raw_adt = $safeRaw; active_mclq_cells = (Read-SafeInteger (Read-Field $t 'active_mclq_cells') 256);
             liquid_rectangle = (Read-NumericObject (Read-Field $t 'liquid_rectangle') @('x','y','width','height') 129);
             missing_liquid_heights = (Read-NumericObject (Read-Field $t 'missing_liquid_heights') @('count','first_x','first_y') 16641);
+            history = (Read-NumericObject (Read-Field $t 'history') @('consulted_adts','consulted_wdts','absent_members','initial_zero_samples') 4294967295);
             stages = [ordered]@{} }
-        foreach ($stage in @('wdt_selection','adt_structure','liquid','production')) { $s.stages[$stage] = Read-SafeStage (Read-Field (Read-Field $t 'stages') $stage) }
+        foreach ($stage in @('wdt_selection','adt_structure','liquid','history_resolution','production')) { $s.stages[$stage] = Read-SafeStage (Read-Field (Read-Field $t 'stages') $stage) }
         $r.tiles += $s
     }
     return [ordered]@{ status = 'recognized_schema_filtered'; report = $r }
@@ -478,7 +494,7 @@ try {
         detailed_diagnostics = [ordered]@{ status = 'unavailable'; report = $null };
         limitations = @('Only the selected map and tile are requested.', 'Archive envelopes do not prove member readability or content correctness.',
             'Older inspect helpers stop at the first refusal; deeper dependent stages remain unknown.',
-            'No predecessor or whole-world history scan is performed by this collector.',
+            'The helper may inspect a bounded predecessor dependency closure; this collector does not perform a separate world scan.',
             'A completed diagnostic process does not establish gameplay admission.',
             'Only allowlisted structured fields and sanitized text are retained; unknown helper output is omitted.')
     }

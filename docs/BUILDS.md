@@ -121,8 +121,9 @@ for at most nine selected tiles. The example is a request to inspect, not a clai
 that this real tile is supported or has passed acceptance.
 
 The helper reads the installation without modifying it. Unsupported inputs fail
-closed, including history-dependent liquid edges and incompatible patch-chain winners;
-there is no fallback conversion or automatic neighbor selection. Successful
+closed, including unsupported or over-budget liquid predecessor histories and
+incompatible patch-chain winners. Required historical inputs are read in exact
+source order; they are not emitted as extra output tiles or treated as a corridor. Successful
 inspection does not provide VMaps/MMaps, gameplay admission, movement authority,
 or a live installation lease. Keep any generated terrain and source manifests
 private. See the included [terrain helper guide](../crates/benilla-native-terrain/README.md)

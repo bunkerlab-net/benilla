@@ -64,7 +64,8 @@ are irrelevant when `MAP_LIQUID_NO_HEIGHT` suppresses serialization.
 
 `DRY_CASES` retains the original 13 dry vectors. `LIQUID_CASES` adds 15 admitted
 Classic MCLQ vectors. The generator verifies all 28 admitted outputs are
-byte-identical after each of two distinct, valid preceding tiles. Every emitted
+byte-identical after each of two distinct, valid preceding tiles, and applies
+the same check to both `HISTORY_SEED_CASES`. Every emitted
 header/type/height branch is covered. No negative parser input is executed
 through upstream's unsafe parser. Malformed-input rejection belongs to Rust
 tests, including wholly hidden typed liquid whose source bounds would be unsafe.
@@ -83,9 +84,57 @@ same-process source histories: water at 23.5 then case A; deep ocean at -17.25
 then case B. Their resulting maps differ at exactly 199 unwritten outer-edge
 height samples. The manifest records each predecessor and marks both cases
 `rust_supported: false`, with a rejection reason. Rust must reject these shapes
-rather than choose an initial height or reproduce whichever process history
-happened to run first. Conversely, a fully written outer edge is admitted, as
+rather than choose an initial height when no proven history context is supplied.
+These original input/output bytes and manifest case entries remain unchanged;
+their support field records the standalone, history-free writer contract.
+The history-aware path may resolve them from the explicit preceding writers.
+Conversely, a fully written outer edge is admitted without history, as
 is the sparse flat case whose edge samples are never emitted.
+
+### Exact 61-sample dependency shape
+
+Eight `HISTORY_CASES` share identical authored ADT bytes with rectangle
+`x=47, y=0, width=79, height=129`. Five active MCLQ cells give visible points
+`(47,0)`, `(124,0)` and `(47,127)`. The last-row cells at columns 5, 6 and 7
+write the emitted boundary from x=47 through x=64, including conflicting seams;
+columns 6 and 7 are entirely hidden and untyped. Exactly 61 serialized values
+are unwritten by the selected ADT: `(65,128)` through `(125,128)`.
+This recreates only the reported diagnostic shape, not an actual asset or its
+cell count. No input bytes come from a game install.
+
+Every selected case runs in its own fresh executable process with its complete
+listed source history, in forward order:
+
+- `liquid_history61_initial`: no predecessor, preserving the source's static +0
+- `liquid_history61_positive`: `liquid_water_flat`, preserving +23.5
+- `liquid_history61_negative`: water then `liquid_ocean_flat`, taking -17.25
+- `liquid_history61_dry`: ocean then `flat`, retaining -17.25 through no writes
+- `liquid_history61_untyped`: ocean then `liquid_untyped`, taking +23.5 from a
+  predecessor that emits no MLIQ
+- `liquid_history61_hidden`: water then `liquid_history_hidden_seed`, taking
+  -42.75 from fully hidden, untyped records that emit no MLIQ
+- `liquid_history61_seams`: `liquid_seams`, taking the last row-major writer at
+  each shared boundary seam
+- `liquid_history61_partial`: ocean then `liquid_history_partial_seed`, taking
+  exact negative-zero bits at x=72..80 and -71.125 at x=88..96, retaining -17.25
+  elsewhere
+
+Both new seed fixtures are safe complete `ConvertADT` inputs: their MCNK type
+bits are zero and every MCLQ visibility byte is `0x0f`, so the unsafe wholly
+hidden *typed* packing branch is never reached. They produce the same dry map as
+`flat` while still mutating the global raw heights. The sparse seed demonstrates
+that a later tile can resolve only some values; each remaining sample retains
+its own latest earlier writer. Predecessor output heights are not replayed.
+
+Tests inspect the generated ADT bytes independently of the authoring helper,
+check the rectangle and exact missing set, preserve signed-zero bits, and prove
+that every byte outside these 61 float samples is identical across histories.
+The manifest marks these eight cases `rust_supported: true` together with
+`requires_proven_history: true`; this is the context-bound writer contract,
+never permission to assume zero. Production may use +0 only after proving the
+entire preceding source traversal is exhausted. These executable histories
+establish direct-write behavior, not Map.dbc/WDT traversal order, absent-member
+proof, archive stability, or production history-budget behavior.
 
 These vectors establish byte parity only for the described bounded dry and
 Classic MCLQ profiles. They do not establish MPQ patch-winner parity, install

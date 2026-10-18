@@ -798,6 +798,369 @@ fn output_parent_cannot_be_anywhere_in_source_installation() {
         .unwrap();
 }
 
+const HISTORY_ADT: &str = "World\\Maps\\Earlier\\Earlier_63_63.adt";
+const HISTORY_WDT: &str = "World\\Maps\\Earlier\\Earlier.wdt";
+
+fn source_receipts(
+    source: &CapturedSource,
+) -> (Vec<SourceMember>, Vec<AbsentSourceMember>, String) {
+    (
+        source.members().to_vec(),
+        source.absent_members().to_vec(),
+        source.binding_digest().to_owned(),
+    )
+}
+
+#[test]
+fn history_captures_optional_members_across_maps_and_preserves_selected_envelope() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let entries = [
+        entry(MAP, 1),
+        entry(WDT, 2),
+        entry(HISTORY_WDT, 3),
+        entry(HISTORY_ADT, 4),
+    ];
+    fs::write(data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    let mut source = CapturedSource::capture(&data, &[MAP, WDT]).unwrap();
+    let selected_epoch = source.binding_digest().to_owned();
+    assert!(source.capture_history_member(HISTORY_ADT).unwrap());
+    assert!(source.capture_history_member(HISTORY_WDT).unwrap());
+    assert_eq!(
+        source.bytes(HISTORY_ADT).unwrap(),
+        entry(HISTORY_ADT, 4).bytes
+    );
+    assert_eq!(
+        source.bytes(HISTORY_WDT).unwrap(),
+        entry(HISTORY_WDT, 3).bytes
+    );
+    assert_eq!(source.members().len(), 4);
+    assert!(source.absent_members().is_empty());
+    assert_ne!(selected_epoch, source.binding_digest());
+    assert_error(
+        CapturedSource::capture(&data, &[WDT, HISTORY_WDT]),
+        "source.multiple_maps",
+    );
+    source.verify_unchanged().unwrap();
+}
+
+#[test]
+fn history_absence_receipts_are_explicit_canonical_and_epoch_bound() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(
+        data.join("terrain.MPQ"),
+        archive(&[entry(MAP, 1), entry(WDT, 2)]),
+    )
+    .unwrap();
+    let mut forward = CapturedSource::capture(&data, &[MAP]).unwrap();
+    let initial = forward.binding_digest().to_owned();
+    assert!(!forward.capture_history_member(HISTORY_ADT).unwrap());
+    let one_absence = forward.binding_digest().to_owned();
+    assert_ne!(initial, one_absence);
+    assert!(!forward.capture_history_member(HISTORY_WDT).unwrap());
+    assert_ne!(one_absence, forward.binding_digest());
+    assert!(forward.capture_history_member(WDT).unwrap());
+    assert_eq!(
+        forward.absent_members(),
+        &[
+            AbsentSourceMember {
+                name: HISTORY_WDT.to_owned()
+            },
+            AbsentSourceMember {
+                name: HISTORY_ADT.to_owned()
+            },
+        ]
+    );
+    assert_error(forward.bytes(HISTORY_ADT), "source.not_captured");
+    let receipts = source_receipts(&forward);
+    assert!(!forward.capture_history_member(HISTORY_ADT).unwrap());
+    assert!(forward.capture_history_member(WDT).unwrap());
+    assert_eq!(source_receipts(&forward), receipts);
+    assert_eq!(forward.history_names.len(), 3);
+    let mut reverse = CapturedSource::capture(&data, &[MAP, WDT]).unwrap();
+    assert!(!reverse.capture_history_member(HISTORY_WDT).unwrap());
+    assert!(!reverse.capture_history_member(HISTORY_ADT).unwrap());
+    assert_eq!(source_receipts(&reverse), receipts);
+    reverse.verify_contains(&forward).unwrap();
+    forward.verify_contains(&reverse).unwrap();
+    forward.verify_unchanged().unwrap();
+}
+
+#[test]
+fn history_existing_selected_member_reuses_bytes_without_changing_epoch() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(
+        data.join("terrain.MPQ"),
+        archive(&[entry(MAP, 1), entry(WDT, 2)]),
+    )
+    .unwrap();
+    let mut source = CapturedSource::capture(&data, &[MAP, WDT]).unwrap();
+    let receipts = source_receipts(&source);
+    assert!(source.capture_history_member(WDT).unwrap());
+    assert_eq!(source_receipts(&source), receipts);
+    assert_eq!(source.history_names.len(), 1);
+}
+
+#[test]
+fn first_history_extension_rechecks_original_exact_proofs_before_mutating() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+    let mut source = CapturedSource::capture(&data, &[MAP]).unwrap();
+    let receipts = source_receipts(&source);
+    fs::write(
+        data.join("dbc.MPQ"),
+        archive(&[entry(MAP, 2), entry(HISTORY_ADT, 3)]),
+    )
+    .unwrap();
+    assert_error(
+        source.capture_history_member(HISTORY_ADT),
+        "source.bytes_changed",
+    );
+    assert_eq!(source_receipts(&source), receipts);
+    assert!(source.history_names.is_empty());
+    fs::write(
+        data.join("dbc.MPQ"),
+        archive(&[entry(MAP, 1), entry(HISTORY_ADT, 3)]),
+    )
+    .unwrap();
+    assert!(source.capture_history_member(HISTORY_ADT).unwrap());
+}
+
+#[test]
+fn history_absence_becoming_present_in_either_resolution_fails_fresh_recheck() {
+    for name in [HISTORY_WDT, HISTORY_ADT] {
+        for winner in ["terrain.MPQ", "patch-3.MPQ"] {
+            let temp = Temp::new();
+            let data = temp.data();
+            fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+            let mut source = CapturedSource::capture(&data, &[MAP]).unwrap();
+            assert!(!source.capture_history_member(name).unwrap());
+            let receipts = source_receipts(&source);
+            fs::write(data.join(winner), archive(&[entry(name, 2)])).unwrap();
+            assert_error(source.verify_unchanged(), "source.absence_changed");
+            assert_eq!(source_receipts(&source), receipts);
+        }
+    }
+}
+
+#[test]
+fn history_positive_byte_and_winner_changes_fail_fresh_recheck() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+    let original = archive(&[entry(HISTORY_ADT, 2)]);
+    fs::write(data.join("terrain.MPQ"), &original).unwrap();
+    let mut source = CapturedSource::capture(&data, &[MAP]).unwrap();
+    assert!(source.capture_history_member(HISTORY_ADT).unwrap());
+    let mut changed = entry(HISTORY_ADT, 2);
+    *changed.bytes.last_mut().unwrap() ^= 1;
+    fs::write(data.join("terrain.MPQ"), archive(&[changed])).unwrap();
+    assert_error(source.verify_unchanged(), "source.bytes_changed");
+    fs::write(data.join("terrain.MPQ"), &original).unwrap();
+    fs::write(data.join("patch.MPQ"), original).unwrap();
+    assert_error(source.verify_unchanged(), "source.winner_changed");
+}
+
+#[test]
+fn history_dummy_deleted_corrupt_and_app_only_hits_are_errors_not_absence() {
+    for (winner, item, expected) in [
+        (
+            "terrain.MPQ",
+            raw_entry(HISTORY_ADT, vec![]),
+            "dummy member",
+        ),
+        (
+            "terrain.MPQ",
+            raw_entry(HISTORY_ADT, vec![0]),
+            "dummy member",
+        ),
+        (
+            "terrain.MPQ",
+            Entry {
+                flags: 0x8200_0000,
+                ..raw_entry(HISTORY_ADT, vec![])
+            },
+            "tombstoned",
+        ),
+        (
+            "terrain.MPQ",
+            Entry {
+                declared: 9,
+                ..entry(HISTORY_ADT, 2)
+            },
+            "source.history_member_profile",
+        ),
+        (
+            "patch-3.MPQ",
+            entry(HISTORY_ADT, 2),
+            "source.ad_missing_member",
+        ),
+    ] {
+        let temp = Temp::new();
+        let data = temp.data();
+        fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+        let mut source = CapturedSource::capture(&data, &[MAP]).unwrap();
+        // Establish history before introducing the candidate failure, to exercise
+        // the extension's own checks rather than only its first-call recheck.
+        assert!(!source.capture_history_member(HISTORY_WDT).unwrap());
+        let receipts = source_receipts(&source);
+        let lookups = source.history_names.clone();
+        fs::write(data.join(winner), archive(&[item])).unwrap();
+        assert_error(source.capture_history_member(HISTORY_ADT), expected);
+        assert_eq!(source_receipts(&source), receipts);
+        assert_eq!(source.history_names, lookups);
+    }
+}
+
+#[test]
+fn history_equal_bytes_do_not_excuse_resolver_winner_disagreement() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+    let mut source = CapturedSource::capture(&data, &[MAP]).unwrap();
+    assert!(!source.capture_history_member(HISTORY_WDT).unwrap());
+    for name in ["terrain.MPQ", "patch-3.MPQ"] {
+        fs::write(data.join(name), archive(&[entry(HISTORY_ADT, 2)])).unwrap();
+    }
+    assert_error(
+        source.capture_history_member(HISTORY_ADT),
+        "source.ad_winner_mismatch",
+    );
+    assert_error(source.bytes(HISTORY_ADT), "source.not_captured");
+}
+
+#[test]
+fn history_rejects_unsupported_headers_and_malformed_hash_matches_without_receipts() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+    let mut source = CapturedSource::capture(&data, &[MAP]).unwrap();
+    assert!(!source.capture_history_member(HISTORY_WDT).unwrap());
+    let receipts = source_receipts(&source);
+    let mut unsupported = archive(&[entry(HISTORY_ADT, 2)]);
+    unsupported[12..14].copy_from_slice(&2u16.to_le_bytes());
+    fs::write(data.join("terrain.MPQ"), unsupported).unwrap();
+    assert_error(
+        source.capture_history_member(HISTORY_ADT),
+        "source.ad_header_version",
+    );
+    assert_eq!(source_receipts(&source), receipts);
+    fs::remove_file(data.join("terrain.MPQ")).unwrap();
+    let mut malformed = archive(&[entry(HISTORY_ADT, 2)]);
+    let mut words: Vec<_> = malformed[32..32 + 64 * 16]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|word| u32::from_le_bytes(*word))
+        .collect();
+    let key = crypto::hash_string("(hash table)", crypto::hash_type::FILE_KEY);
+    crypto::decrypt_block(&mut words, key);
+    let slot = (crypto::hash_string(HISTORY_ADT, crypto::hash_type::TABLE_OFFSET) & 63) as usize;
+    words[slot * 4 + 3] = 0xffff_fffe;
+    crypto::encrypt_block(&mut words, key);
+    for (index, word) in words.into_iter().enumerate() {
+        malformed[32 + index * 4..36 + index * 4].copy_from_slice(&word.to_le_bytes());
+    }
+    // Even an app-only malformed match cannot be silently classified as absent.
+    fs::write(data.join("patch-3.MPQ"), malformed).unwrap();
+    assert_error(
+        source.capture_history_member(HISTORY_ADT),
+        "matching invalid hash index",
+    );
+    assert_eq!(source_receipts(&source), receipts);
+}
+
+#[test]
+fn history_member_names_retain_safe_canonical_terrain_only_envelope() {
+    for name in [
+        MAP,
+        AREA,
+        LIQUID,
+        "World\\Maps\\..\\...wdt",
+        "World\\Maps\\Earlier\\Earlier_00_1.adt",
+        "World\\Maps\\Earlier\\Earlier_64_0.adt",
+        "World/Maps/Earlier/Earlier.wdt",
+    ] {
+        assert!(history_name(name).is_err(), "{name}");
+    }
+    for name in [WDT, HISTORY_WDT, HISTORY_ADT] {
+        history_name(name).unwrap();
+    }
+}
+
+#[test]
+fn history_byte_budget_includes_original_and_all_predecessor_bytes() {
+    let member = |bytes| SourceMember {
+        name: WDT.to_owned(),
+        winning_archive: "terrain.MPQ".to_owned(),
+        sha256: String::new(),
+        bytes,
+    };
+    let members = vec![
+        member(MAX_MEMBER_BYTES),
+        member(MAX_MEMBER_BYTES),
+        member(MAX_MEMBER_BYTES - 8),
+    ];
+    check_history_byte_budget(&members, 8).unwrap();
+    assert_error(
+        check_history_byte_budget(&members, 9),
+        "source.aggregate_byte_limit",
+    );
+    assert_error(
+        check_history_byte_budget(&[member(usize::MAX), member(1)], 0),
+        "source.aggregate_byte_limit",
+    );
+}
+
+#[test]
+fn history_distinct_lookup_limit_includes_absences_and_never_truncates() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+    let mut source = CapturedSource::capture(&data, &[MAP]).unwrap();
+    for y in 0..64 {
+        for x in 0..64 {
+            assert!(!source
+                .capture_history_member(&format!("World\\Maps\\Earlier\\Earlier_{x}_{y}.adt"))
+                .unwrap());
+        }
+    }
+    assert_eq!(source.history_names.len(), MAX_HISTORY_LOOKUPS);
+    assert_eq!(source.absent_members().len(), MAX_HISTORY_LOOKUPS);
+    let receipts = source_receipts(&source);
+    assert!(!source.capture_history_member(HISTORY_ADT).unwrap());
+    assert_error(
+        source.capture_history_member(HISTORY_WDT),
+        "source.history_lookup_limit",
+    );
+    assert_eq!(source_receipts(&source), receipts);
+    source.verify_unchanged().unwrap();
+}
+
+#[test]
+fn history_discovery_requires_prior_absence_proofs_as_well_as_positive_bytes() {
+    let temp = Temp::new();
+    let data = temp.data();
+    fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+    let mut prior = CapturedSource::capture(&data, &[MAP]).unwrap();
+    assert!(!prior.capture_history_member(HISTORY_WDT).unwrap());
+    let missing = CapturedSource::capture(&data, &[MAP]).unwrap();
+    assert_error(
+        missing.verify_contains(&prior),
+        "source.discovery_absence_changed",
+    );
+    fs::write(data.join("terrain.MPQ"), archive(&[entry(HISTORY_WDT, 2)])).unwrap();
+    let mut now_present = CapturedSource::capture(&data, &[MAP]).unwrap();
+    assert!(now_present.capture_history_member(HISTORY_WDT).unwrap());
+    assert_error(
+        now_present.verify_contains(&prior),
+        "source.discovery_absence_changed",
+    );
+}
+
 const ORACLE_WDT: &str = "World\\Maps\\AuthoredOracle\\AuthoredOracle.wdt";
 const ORACLE_ADT: &str = "World\\Maps\\AuthoredOracle\\AuthoredOracle_32_31.adt";
 const ORACLE_TILE: crate::Tile = crate::Tile { x: 31, y: 32 };

@@ -621,3 +621,6 @@ fn source_ignored_liquid_fields_and_skipped_payload_do_not_change_output() {
         include_bytes!("../../tools/fixtures/flat.map")
     );
 }
+
+#[path = "history_tests.rs"]
+mod history_tests;

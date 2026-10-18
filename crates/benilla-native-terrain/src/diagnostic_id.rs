@@ -2,6 +2,21 @@
 // Only these literal, reviewed contexts can become public diagnostic IDs. Never
 // echo paths, source-member suffixes, arbitrary dotted words, or anyhow chains.
 const SAFE_DIAGNOSTIC_IDS: &[&str] = &[
+    "terrain.history_map_metadata",
+    "terrain.liquid_history_interior",
+    "terrain.liquid_history_selection_changed",
+    "source.history_lookup_limit",
+    "source.history_initial_recheck",
+    "source.history_open",
+    "source.history_member_profile",
+    "source.history_resolver_mismatch",
+    "source.history_member_kind",
+    "source.absence_member_profile",
+    "source.absence_changed",
+    "source.ad_absence_profile",
+    "source.ad_absence_changed",
+    "source.discovery_absence_changed",
+    "source.recheck_absence",
     "output.already_exists",
     "output.changed_product",
     "output.create_new_directory",

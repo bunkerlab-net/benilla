@@ -2,8 +2,8 @@
 //! Path-free observations of the same bounded immutable inputs as production.
 //! A report is informational, never a source capability or gameplay admission.
 use crate::{
-    adt_name, capture_tiles, capture_wdt, diagnostic_id, source::CapturedSource,
-    validate_selection, wdt_name, writer, Tile, DBCS,
+    adt_name, capture_tiles, capture_wdt, diagnostic_id, produce_tile_with_history,
+    source::CapturedSource, validate_selection, wdt_name, writer, HistorySummary, Tile, DBCS,
 };
 use anyhow::Result;
 use serde::Serialize;
@@ -62,6 +62,7 @@ struct TileStages {
     wdt_selection: Stage,
     adt_structure: Stage,
     liquid: Stage,
+    history_resolution: Stage,
     production: Stage,
 }
 
@@ -85,6 +86,7 @@ struct TileReport {
     active_mclq_cells: Option<usize>,
     liquid_rectangle: Option<writer::LiquidRectangle>,
     missing_liquid_heights: Option<writer::MissingLiquidHeights>,
+    history: Option<HistorySummary>,
     stages: TileStages,
 }
 impl TileReport {
@@ -96,6 +98,7 @@ impl TileReport {
             active_mclq_cells: None,
             liquid_rectangle: None,
             missing_liquid_heights: None,
+            history: None,
             stages: TileStages::default(),
         }
     }
@@ -196,7 +199,7 @@ impl DiagnosticReport {
         {
             return;
         }
-        let Some(source) = self.stages.full_capture.record(capture_tiles(
+        let Some(mut source) = self.stages.full_capture.record(capture_tiles(
             data,
             &selection,
             &map.directory,
@@ -227,26 +230,41 @@ impl DiagnosticReport {
                 tile.missing_liquid_heights = observation.missing_liquid_heights;
                 tile.stages.liquid.record(observation.liquid_result);
             }
-            if self.stages.area_table.passed()
-                && self.stages.liquid_table.passed()
-                && tile.stages.liquid.passed()
-            {
-                let result = (|| {
-                    writer::produce(
-                        source.bytes(DBCS[0])?,
-                        source.bytes(DBCS[1])?,
-                        source.bytes(DBCS[2])?,
-                        source.bytes(&wdt)?,
-                        source.bytes(&adt)?,
-                        self.map,
-                        tile.x,
-                        tile.y,
-                    )
-                    .map(|_| ())
-                })();
-                tile.stages.production.record(result);
+            if self.stages.area_table.passed() && self.stages.liquid_table.passed() {
+                if tile.stages.liquid.passed() {
+                    tile.stages.production.record(
+                        produce_tile_with_history(
+                            &mut source,
+                            self.map,
+                            &map.directory,
+                            Tile {
+                                x: tile.x,
+                                y: tile.y,
+                            },
+                        )
+                        .map(|_| ()),
+                    );
+                } else if tile.stages.liquid.diagnostic_id == Some("terrain.liquid_history") {
+                    if let Some((_, history)) =
+                        tile.stages
+                            .history_resolution
+                            .record(produce_tile_with_history(
+                                &mut source,
+                                self.map,
+                                &map.directory,
+                                Tile {
+                                    x: tile.x,
+                                    y: tile.y,
+                                },
+                            ))
+                    {
+                        tile.history = history;
+                        tile.stages.production.record(Ok(()));
+                    }
+                }
             }
         }
+        self.source_epoch = Some(source.binding_digest().to_owned());
         self.stages.source_recheck.record(source.verify_unchanged());
     }
 }

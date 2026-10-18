@@ -71,6 +71,21 @@ fn operation_diagnostic(error: &anyhow::Error) -> String {
         "selection.bounds" => "Select map 0 through 999 and one through nine tiles",
         "selection.tile_bounds" => "Tile coordinates must each be 0 through 63",
         "selection.duplicate_tile" => "Select each tile at most once",
+        "terrain.liquid_history" => {
+            "Required liquid boundary heights have not been established from source history"
+        }
+        "source.history_lookup_limit" => {
+            "The predecessor dependency search reached its bounded member limit"
+        }
+        "source.aggregate_byte_limit" => {
+            "The selected inputs and required history exceed the retained-byte budget"
+        }
+        "source.history_resolver_mismatch" => {
+            "The app and pinned extractor disagree on a history member"
+        }
+        "source.absence_changed" | "source.ad_absence_changed" => {
+            "A previously absent history member is now present"
+        }
         "terrain.map_directory" => {
             "The selected map directory is empty or contains unsupported path characters"
         }

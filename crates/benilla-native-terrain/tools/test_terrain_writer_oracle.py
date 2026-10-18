@@ -133,6 +133,35 @@ class TerrainWriterOracle(unittest.TestCase):
         return struct.unpack_from("<f", self.read_map(name),
                                   at + ((y - offset_y) * width + x - offset_x) * 4)[0]
 
+    def liquid_sample_offset(self, name, y, x):
+        _, flags, _, _, offset_x, offset_y, width, height, _ = self.liquid_header(name)
+        self.assertFalse(flags & 2)
+        self.assertTrue(offset_x <= x < offset_x + width)
+        self.assertTrue(offset_y <= y < offset_y + height)
+        return (self.header(name)[6] + 16 + (0 if flags & 1 else 768)
+                + ((y - offset_y) * width + x - offset_x) * 4)
+
+    def liquid_sample_bits(self, name, y, x):
+        return struct.unpack_from("<I", self.read_map(name),
+                                  self.liquid_sample_offset(name, y, x))[0]
+
+    def input_liquid_cells(self, name):
+        """Inspect complete authored fixture bytes, independently of fixture helpers."""
+        raw = (FIXTURES / (name + ".adt.test-fixture")).read_bytes()
+        cells = []
+        for slot in range(256):
+            at = struct.unpack_from("<I", raw, 92 + slot * 16)[0]
+            self.assertEqual(raw[at:at + 4], b"KNCM")
+            offset, size = struct.unpack_from("<II", raw, at + 8 + 96)
+            if not offset or size <= 8:
+                continue
+            mclq = raw[at + offset:at + offset + size]
+            self.assertEqual(mclq[:8], b"QLCM" + struct.pack("<I", 804))
+            self.assertEqual(len(mclq), 812)
+            flags = struct.unpack_from("<I", raw, at + 8)[0]
+            cells.append((slot // 16, slot % 16, flags, mclq))
+        return cells
+
     def test_liquid_section_sizes_and_holes_follow_exact_payload(self):
         for name in oracle.CASES:
             with self.subTest(name=name):
@@ -265,6 +294,93 @@ class TerrainWriterOracle(unittest.TestCase):
                          list(oracle.DRY_CASES | oracle.LIQUID_CASES))
         self.assertEqual(manifest["history_verification"]["independent_predecessors"],
                          ["liquid_water_flat", "liquid_ocean_flat"])
+
+    def test_exact61_authored_shape_and_missing_boundary_are_independent_of_history(self):
+        first = "liquid_history61_initial"
+        cells = self.input_liquid_cells(first)
+        self.assertEqual([(row, col) for row, col, _, _ in cells],
+                         [(0, 5), (0, 15), (15, 5), (15, 6), (15, 7)])
+        visible = {(col * 8 + x, row * 8 + y)
+                   for row, col, _, mclq in cells for y in range(8) for x in range(8)
+                   if mclq[664 + y * 8 + x] != 0x0f}
+        self.assertEqual(visible, {(47, 0), (124, 0), (47, 127)})
+        writes = {(col * 8 + x, row * 8 + y)
+                  for row, col, _, _ in cells for y in range(9) for x in range(9)}
+        missing = [(x, y) for y in range(129) for x in range(47, 126)
+                   if (x == 128 or y == 128) and (x, y) not in writes]
+        self.assertEqual(missing, [(x, 128) for x in range(65, 126)])
+        self.assertEqual(len(missing), 61)
+        for name in oracle.HISTORY_CASES:
+            self.assertEqual(oracle.authored_adt(first), oracle.authored_adt(name))
+            self.assertEqual(self.liquid_header(name),
+                             (b"MLIQ", 0, 0, 0, 47, 0, 79, 129, -500.0))
+            self.assertEqual(self.header(name)[7], 16 + 768 + 79 * 129 * 4)
+            for y, x, value in ((0, 47, 106.75), (0, 124, 116.0),
+                                (127, 47, 270.75), (127, 48, -500.0),
+                                (128, 47, 272.75), (128, 48, 272.0),
+                                (128, 55, 273.75), (128, 56, 273.0),
+                                (128, 64, 275.0)):
+                self.assertEqual(self.liquid_height(name, y, x), value)
+            canonical = bytearray(self.read_map(name))
+            for x, y in missing:
+                at = self.liquid_sample_offset(name, y, x)
+                canonical[at:at + 4] = bytes(4)
+            self.assertEqual(bytes(canonical), self.read_map(first))
+
+    def test_exact61_fresh_process_and_complete_direct_histories(self):
+        expected = {"initial": 0.0, "positive": 23.5, "negative": -17.25,
+                    "dry": -17.25, "untyped": 23.5, "hidden": -42.75}
+        for suffix, value in expected.items():
+            name = "liquid_history61_" + suffix
+            bits = struct.unpack("<I", struct.pack("<f", value))[0]
+            for x in range(65, 126):
+                self.assertEqual(self.liquid_sample_bits(name, 128, x), bits)
+        self.assertEqual(self.read_map("liquid_history61_positive"),
+                         self.read_map("liquid_history61_untyped"))
+        self.assertEqual(self.read_map("liquid_history61_negative"),
+                         self.read_map("liquid_history61_dry"))
+
+    def test_hidden_untyped_source_writes_exist_despite_dry_products(self):
+        for name in oracle.HISTORY_SEED_CASES:
+            self.assertEqual(self.read_map(name), self.read_map("flat"))
+            for _, _, flags, mclq in self.input_liquid_cells(name):
+                self.assertEqual(flags, 0)
+                self.assertEqual(mclq[664:728], bytes([0x0f]) * 64)
+        self.assertEqual(len(self.input_liquid_cells("liquid_history_hidden_seed")), 256)
+        cells = self.input_liquid_cells("liquid_history_partial_seed")
+        self.assertEqual([(row, col) for row, col, _, _ in cells], [(15, 9), (15, 11)])
+        for _, col, _, mclq in cells:
+            bits = 0x80000000 if col == 9 else struct.unpack("<I", struct.pack("<f", -71.125))[0]
+            self.assertEqual([struct.unpack_from("<I", mclq, 20 + sample * 8)[0]
+                              for sample in range(81)], [bits] * 81)
+
+    def test_exact61_predecessor_seams_and_partial_last_writers(self):
+        for x in range(65, 126):
+            expected = (240 + x // 8) * 10.0 + 16.0 + (x % 8) / 4.0
+            self.assertEqual(self.liquid_height("liquid_history61_seams", 128, x), expected)
+            if 72 <= x <= 80:
+                bits = 0x80000000
+            else:
+                value = -71.125 if 88 <= x <= 96 else -17.25
+                bits = struct.unpack("<I", struct.pack("<f", value))[0]
+            self.assertEqual(self.liquid_sample_bits("liquid_history61_partial", 128, x), bits)
+        self.assertEqual(self.liquid_height("liquid_history61_seams", 128, 72), 2506.0)
+
+    def test_exact61_manifest_records_explicit_proven_history_requirement(self):
+        manifest = json.loads((FIXTURES / "manifest.json").read_text())
+        closure = manifest["history_closure"]
+        self.assertEqual(closure["cases"], list(oracle.HISTORY_CASES))
+        self.assertEqual(closure["history_independent_seeds"], list(oracle.HISTORY_SEED_CASES))
+        self.assertEqual(closure["authored_shape"],
+                         {"offset_x": 47, "offset_y": 0, "width": 79, "height": 129,
+                          "missing_samples": 61, "first_missing": [65, 128],
+                          "last_missing": [125, 128]})
+        self.assertEqual(oracle.SOURCE_HISTORIES["liquid_history61_initial"], [])
+        for case in manifest["cases"]:
+            if case["name"] in oracle.HISTORY_CASES:
+                self.assertTrue(case["requires_proven_history"])
+                self.assertTrue(case["rust_supported"])
+                self.assertEqual(case["source_history"], oracle.SOURCE_HISTORIES[case["name"]])
 
     def test_source_hash_rejects_drift_before_compilation(self):
         with tempfile.TemporaryDirectory() as temporary:

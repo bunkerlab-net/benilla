@@ -130,8 +130,13 @@ const DIAGNOSTIC_STAGES: [&str; 8] = [
     "liquid_table",
     "source_recheck",
 ];
-const TILE_DIAGNOSTIC_STAGES: [&str; 4] =
-    ["wdt_selection", "adt_structure", "liquid", "production"];
+const TILE_DIAGNOSTIC_STAGES: [&str; 5] = [
+    "wdt_selection",
+    "adt_structure",
+    "liquid",
+    "history_resolution",
+    "production",
+];
 
 fn assert_keys(value: &Value, expected: &[&str]) {
     let mut expected = expected.to_vec();
@@ -226,6 +231,7 @@ fn diagnostic_report(fixture: &Fixture, map: u32, tile: Tile, args: &[&str]) -> 
                 "active_mclq_cells",
                 "liquid_rectangle",
                 "missing_liquid_heights",
+                "history",
                 "stages",
             ],
         );
@@ -237,6 +243,20 @@ fn diagnostic_report(fixture: &Fixture, map: u32, tile: Tile, args: &[&str]) -> 
         }
         if !tile["liquid_rectangle"].is_null() {
             assert_keys(&tile["liquid_rectangle"], &["x", "y", "width", "height"]);
+        }
+        if !tile["history"].is_null() {
+            assert_keys(
+                &tile["history"],
+                &[
+                    "consulted_adts",
+                    "consulted_wdts",
+                    "absent_members",
+                    "initial_zero_samples",
+                ],
+            );
+            for count in tile["history"].as_object().unwrap().values() {
+                assert!(count.is_u64());
+            }
         }
         if !tile["missing_liquid_heights"].is_null() {
             assert_keys(
@@ -561,11 +581,14 @@ fn inspect_source_skips_absent_or_empty_mclq_instead_of_inferring_water_from_fla
 }
 
 #[test]
-fn inspect_refuses_history_dependent_liquid_without_leaking_paths_or_writing() {
-    for case in ["liquid_stale_edge_a", "liquid_stale_edge_b"] {
+fn inspect_closes_history_dependent_liquid_against_actual_predecessor_members() {
+    for (case, seed) in [
+        ("liquid_stale_edge_a", "liquid_water_flat"),
+        ("liquid_stale_edge_b", "liquid_ocean_flat"),
+    ] {
         let fixture = Fixture::new();
-        fixture.install(case);
-        assert_rejected_without_writes(&fixture, "terrain.liquid_history");
+        install_history(&fixture, case, &[seed]);
+        assert_exact_inspection_without_writes(&fixture, &source_fixture(&format!("{case}.map")));
     }
 }
 
@@ -665,10 +688,10 @@ fn liquid_export_publishes_exact_inspected_bytes_without_admission() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(fixture.root.join("export/terrain.json")).unwrap())
             .unwrap();
-    assert_eq!(manifest["format"], "benilla-terrain-production-v2");
+    assert_eq!(manifest["format"], "benilla-terrain-production-v3");
     assert_eq!(
         manifest["writer_policy"],
-        "cmangos-ad-f0-selected-tile-owned-liquid-v2"
+        "cmangos-ad-f0-boundary-history-closure-v3"
     );
     assert_eq!(manifest["gameplay_admitted"], false);
     assert_eq!(manifest["live_install_lease"], false);
@@ -1014,8 +1037,18 @@ fn diagnose_dry_reports_actual_raw_adt_and_selected_map_row_without_writes() {
     assert!(tile["liquid_rectangle"].is_null());
     assert!(tile["missing_liquid_heights"].is_null());
     for stage in TILE_DIAGNOSTIC_STAGES {
-        assert_stage(&tile["stages"], stage, "passed", None);
+        assert_stage(
+            &tile["stages"],
+            stage,
+            if stage == "history_resolution" {
+                "unavailable"
+            } else {
+                "passed"
+            },
+            None,
+        );
     }
+    assert!(tile["history"].is_null());
     assert_eq!(
         report,
         diagnostic_report(&fixture, 0, selected, &["--diagnose"])
@@ -1023,7 +1056,7 @@ fn diagnose_dry_reports_actual_raw_adt_and_selected_map_row_without_writes() {
 }
 
 #[test]
-fn diagnose_liquid_history_preserves_summary_but_never_claims_production() {
+fn diagnose_liquid_history_preserves_raw_summary_and_reports_initial_zero_closure() {
     let fixture = Fixture::new();
     let mut previous = None;
     for case in ["liquid_stale_edge_a", "liquid_stale_edge_b"] {
@@ -1055,12 +1088,20 @@ fn diagnose_liquid_history_preserves_summary_but_never_claims_production() {
             "failed",
             Some("terrain.liquid_history"),
         );
-        assert_stage(&tile["stages"], "production", "unavailable", None);
+        assert_stage(&tile["stages"], "history_resolution", "passed", None);
+        assert_stage(&tile["stages"], "production", "passed", None);
+        assert_eq!(tile["history"]["initial_zero_samples"], 199);
+        assert_eq!(tile["history"]["consulted_adts"], 0);
         if let Some(previous) = &previous {
             assert_eq!(&report, previous);
         }
-        previous = Some(report);
-        assert_rejected_without_writes(&fixture, "terrain.liquid_history");
+        previous = Some(report.clone());
+        let before = snapshot(&fixture.root);
+        let prepared = prepare(&fixture.data, 1, &[Tile { x: 31, y: 32 }]).unwrap();
+        assert_eq!(report["source_epoch"], prepared.source_epoch());
+        let output = fixture.run(&["--inspect"]);
+        assert!(output.status.success(), "{}", output_text(&output));
+        assert_eq!(snapshot(&fixture.root), before);
     }
 }
 
@@ -1088,8 +1129,18 @@ fn diagnose_liquid_counts_only_heights_the_actual_payload_would_serialize() {
         );
         assert_no_missing_heights(tile);
         for stage in TILE_DIAGNOSTIC_STAGES {
-            assert_stage(&tile["stages"], stage, "passed", None);
+            assert_stage(
+                &tile["stages"],
+                stage,
+                if stage == "history_resolution" {
+                    "unavailable"
+                } else {
+                    "passed"
+                },
+                None,
+            );
         }
+        assert!(tile["history"].is_null());
     }
     for (case, cells) in [
         ("liquid_empty", 0),
@@ -1162,13 +1213,14 @@ fn diagnose_keeps_table_and_adt_checks_independent() {
         "failed",
         Some("terrain.adt_version"),
     );
-    for stage in ["liquid", "production"] {
+    for stage in ["liquid", "history_resolution", "production"] {
         assert_stage(&tile["stages"], stage, "unavailable", None);
     }
     for field in [
         "active_mclq_cells",
         "liquid_rectangle",
         "missing_liquid_heights",
+        "history",
     ] {
         assert!(tile[field].is_null());
     }
@@ -1205,6 +1257,7 @@ fn diagnose_absent_or_invalid_source_has_no_epoch_or_invented_results() {
             "active_mclq_cells",
             "liquid_rectangle",
             "missing_liquid_heights",
+            "history",
         ] {
             assert!(tile[field].is_null());
         }
@@ -1288,7 +1341,16 @@ fn diagnose_malformed_selected_tile_does_not_mask_another_tiles_production() {
     );
     assert_raw_adt(&tiles[0], &good);
     for stage in TILE_DIAGNOSTIC_STAGES {
-        assert_stage(&tiles[0]["stages"], stage, "passed", None);
+        assert_stage(
+            &tiles[0]["stages"],
+            stage,
+            if stage == "history_resolution" {
+                "unavailable"
+            } else {
+                "passed"
+            },
+            None,
+        );
     }
     assert_eq!(
         (tiles[1]["x"].as_u64(), tiles[1]["y"].as_u64()),
@@ -1302,7 +1364,7 @@ fn diagnose_malformed_selected_tile_does_not_mask_another_tiles_production() {
         "failed",
         Some("terrain.adt_version"),
     );
-    for stage in ["liquid", "production"] {
+    for stage in ["liquid", "history_resolution", "production"] {
         assert_stage(&tiles[1]["stages"], stage, "unavailable", None);
     }
 }
@@ -1346,7 +1408,535 @@ fn diagnose_bad_map_metadata_or_wdt_selection_never_fabricates_a_full_epoch() {
         "failed",
         Some("terrain.wdt_tile_absent"),
     );
-    for stage in ["adt_structure", "liquid", "production"] {
+    for stage in [
+        "adt_structure",
+        "liquid",
+        "history_resolution",
+        "production",
+    ] {
         assert_stage(&tile["stages"], stage, "unavailable", None);
     }
+}
+
+fn wdt_member(directory: &str, tiles: &[Tile]) -> Entry {
+    raw_entry(
+        &format!("World\\Maps\\{directory}\\{directory}.wdt"),
+        wdt_for_tiles(tiles),
+    )
+}
+
+fn wdt_for_tiles(tiles: &[Tile]) -> Vec<u8> {
+    let mut bytes = source_fixture("source.wdt.test-fixture");
+    assert_eq!(&bytes[52..56], b"NIAM");
+    bytes[60..60 + 64 * 64 * 8].fill(0);
+    for tile in tiles {
+        replace(
+            &mut bytes,
+            60 + (usize::from(tile.x) * 64 + usize::from(tile.y)) * 8,
+            1,
+        );
+    }
+    bytes
+}
+
+fn adt_member(directory: &str, tile: Tile, bytes: Vec<u8>) -> Entry {
+    raw_entry(
+        &format!(
+            "World\\Maps\\{directory}\\{directory}_{}_{}.adt",
+            tile.y, tile.x
+        ),
+        bytes,
+    )
+}
+
+fn history_entries(case: &str, predecessors: &[&str]) -> Vec<Entry> {
+    let selected = Tile { x: 31, y: 32 };
+    let mut entries = terrain_entries(source_fixture(&format!("{case}.adt.test-fixture")))
+        .into_iter()
+        .collect::<Vec<_>>();
+    assert!(predecessors.len() <= 32);
+    let mut tiles = vec![selected];
+    for (index, predecessor) in predecessors.iter().enumerate() {
+        let tile = Tile {
+            x: 31,
+            y: 32 - predecessors.len() as u8 + index as u8,
+        };
+        tiles.push(tile);
+        entries.push(adt_member(
+            "AuthoredOracle",
+            tile,
+            source_fixture(&format!("{predecessor}.adt.test-fixture")),
+        ));
+    }
+    entries[3] = wdt_member("AuthoredOracle", &tiles);
+    entries
+}
+
+fn install_history(fixture: &Fixture, case: &str, predecessors: &[&str]) {
+    fs::write(
+        fixture.data.join("terrain.MPQ"),
+        archive(&history_entries(case, predecessors)),
+    )
+    .unwrap();
+}
+
+#[test]
+fn inspect_exact61_matches_independent_source_history_vectors_without_writes() {
+    for (suffix, predecessors, consulted) in [
+        ("initial", vec![], 0),
+        ("positive", vec!["liquid_water_flat"], 1),
+        (
+            "negative",
+            vec!["liquid_water_flat", "liquid_ocean_flat"],
+            1,
+        ),
+        ("dry", vec!["liquid_ocean_flat", "flat"], 2),
+        ("untyped", vec!["liquid_ocean_flat", "liquid_untyped"], 1),
+        (
+            "hidden",
+            vec!["liquid_water_flat", "liquid_history_hidden_seed"],
+            1,
+        ),
+        ("seams", vec!["liquid_seams"], 1),
+        (
+            "partial",
+            vec!["liquid_ocean_flat", "liquid_history_partial_seed"],
+            2,
+        ),
+    ] {
+        let fixture = Fixture::new();
+        let case = format!("liquid_history61_{suffix}");
+        install_history(&fixture, &case, &predecessors);
+        let epoch = assert_exact_inspection_without_writes(
+            &fixture,
+            &source_fixture(&format!("{case}.map")),
+        );
+        let report = diagnostic_report(&fixture, 1, Tile { x: 31, y: 32 }, &["--diagnose"]);
+        assert_eq!(report["source_epoch"], epoch, "{suffix}");
+        let tile = &report["tiles"][0];
+        assert_eq!(
+            tile["liquid_rectangle"],
+            json!({"x": 47, "y": 0, "width": 79, "height": 129}),
+            "{suffix}"
+        );
+        assert_eq!(
+            tile["missing_liquid_heights"],
+            json!({"count": 61, "first_x": 65, "first_y": 128}),
+            "{suffix}"
+        );
+        assert_stage(
+            &tile["stages"],
+            "liquid",
+            "failed",
+            Some("terrain.liquid_history"),
+        );
+        assert_stage(&tile["stages"], "history_resolution", "passed", None);
+        assert_stage(&tile["stages"], "production", "passed", None);
+        assert_eq!(
+            tile["history"],
+            json!({
+                "consulted_adts": consulted, "consulted_wdts": 1,
+                "absent_members": 0, "initial_zero_samples": if suffix == "initial" { 61 } else { 0 },
+            }),
+            "{suffix}"
+        );
+    }
+}
+
+#[test]
+fn history_uses_raw_map_row_order_and_never_reads_future_or_exhausted_predecessors() {
+    let fixture = Fixture::new();
+    let selected = Tile { x: 31, y: 32 };
+    let future = Tile { x: 31, y: 33 };
+    let prior = Tile { x: 63, y: 63 };
+    let mut entries = terrain_entries(source_fixture("liquid_history61_negative.adt.test-fixture"))
+        .into_iter()
+        .collect::<Vec<_>>();
+    // Raw record order is deliberately neither numeric-ID nor directory-name order.
+    entries[0] = raw_entry(
+        "DBFilesClient\\Map.dbc",
+        map_dbc(&[
+            (900, b"OldHistory"),
+            (700, b"PriorHistory"),
+            (1, b"AuthoredOracle"),
+            (0, b"FutureHistory"),
+        ]),
+    );
+    entries[3] = wdt_member("AuthoredOracle", &[selected, future]);
+    entries.extend([
+        wdt_member("PriorHistory", &[prior]),
+        adt_member(
+            "PriorHistory",
+            prior,
+            source_fixture("liquid_ocean_flat.adt.test-fixture"),
+        ),
+        // Neither a future event nor an older-than-needed map may be parsed or bound.
+        adt_member(
+            "AuthoredOracle",
+            future,
+            b"SECRET malformed future ADT".to_vec(),
+        ),
+        raw_entry(
+            "World\\Maps\\OldHistory\\OldHistory.wdt",
+            b"SECRET malformed old WDT".to_vec(),
+        ),
+        raw_entry(
+            "World\\Maps\\FutureHistory\\FutureHistory.wdt",
+            b"SECRET malformed future WDT".to_vec(),
+        ),
+    ]);
+    let path = fixture.data.join("terrain.MPQ");
+    fs::write(&path, archive(&entries)).unwrap();
+    let expected = source_fixture("liquid_history61_negative.map");
+    let epoch = assert_exact_inspection_without_writes(&fixture, &expected);
+    let captured = prepare(&fixture.data, 1, &[selected]).unwrap();
+    entries[7] = adt_member(
+        "AuthoredOracle",
+        future,
+        source_fixture("liquid_water_flat.adt.test-fixture"),
+    );
+    entries[8] = wdt_member("OldHistory", &[Tile { x: 0, y: 0 }]);
+    entries[9] = wdt_member("FutureHistory", &[Tile { x: 0, y: 0 }]);
+    fs::write(&path, archive(&entries)).unwrap();
+    captured.verify_unchanged().unwrap();
+    assert_eq!(
+        assert_exact_inspection_without_writes(&fixture, &expected),
+        epoch
+    );
+    let report = diagnostic_report(&fixture, 1, selected, &["--diagnose"]);
+    assert_eq!(
+        report["map_table"],
+        json!({"selected_row_ordinal": 2, "total_rows": 4})
+    );
+    assert_eq!(
+        report["tiles"][0]["history"],
+        json!({
+            "consulted_adts": 1, "consulted_wdts": 2, "absent_members": 0, "initial_zero_samples": 0,
+        })
+    );
+}
+
+#[test]
+fn multiple_selected_tiles_resolve_independent_histories_in_source_order() {
+    let fixture = Fixture::new();
+    let first = Tile { x: 31, y: 32 };
+    let second = Tile { x: 31, y: 34 };
+    let mut entries = history_entries("liquid_stale_edge_a", &["liquid_water_flat"]);
+    entries[3] = wdt_member(
+        "AuthoredOracle",
+        &[Tile { x: 31, y: 31 }, first, Tile { x: 31, y: 33 }, second],
+    );
+    entries.push(adt_member(
+        "AuthoredOracle",
+        Tile { x: 31, y: 33 },
+        source_fixture("liquid_ocean_flat.adt.test-fixture"),
+    ));
+    entries.push(adt_member(
+        "AuthoredOracle",
+        second,
+        source_fixture("liquid_stale_edge_b.adt.test-fixture"),
+    ));
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    let before = snapshot(&fixture.root);
+    let first_expected = source_fixture("liquid_stale_edge_a.map");
+    let second_expected = source_fixture("liquid_stale_edge_b.map");
+    let prepared = prepare(&fixture.data, 1, &[second, first]).unwrap();
+    assert_eq!(
+        prepared.tiles().collect::<Vec<_>>(),
+        [
+            (first, first_expected.as_slice()),
+            (second, second_expected.as_slice()),
+        ]
+    );
+    prepared.verify_unchanged().unwrap();
+    let reverse = fixture.run_selection(1, second, &["--inspect", "--tile", "31,32"]);
+    let forward = fixture.run_selection(1, first, &["--inspect", "--tile", "31,34"]);
+    assert!(reverse.status.success(), "{}", output_text(&reverse));
+    assert!(forward.status.success(), "{}", output_text(&forward));
+    assert_eq!(reverse.stdout, forward.stdout);
+    assert!(reverse.stderr.is_empty());
+    let text = output_text(&reverse);
+    for expected in [&first_expected, &second_expected] {
+        assert!(text.contains(&format!("{:x}", Sha256::digest(expected))));
+    }
+    assert_eq!(snapshot(&fixture.root), before);
+    let report = diagnostic_report(&fixture, 1, second, &["--diagnose", "--tile", "31,32"]);
+    assert_eq!(report["source_epoch"], prepared.source_epoch());
+    for tile in report["tiles"].as_array().unwrap() {
+        assert_eq!(tile["history"]["consulted_adts"], 1);
+        assert_stage(&tile["stages"], "history_resolution", "passed", None);
+        assert_stage(&tile["stages"], "production", "passed", None);
+    }
+}
+
+fn cross_map_history_entries() -> Vec<Entry> {
+    let mut entries = terrain_entries(source_fixture("liquid_history61_positive.adt.test-fixture"))
+        .into_iter()
+        .collect::<Vec<_>>();
+    entries[0] = raw_entry(
+        "DBFilesClient\\Map.dbc",
+        map_dbc(&[(700, b"PriorHistory"), (1, b"AuthoredOracle")]),
+    );
+    entries.extend([
+        wdt_member("PriorHistory", &[Tile { x: 0, y: 0 }]),
+        adt_member(
+            "PriorHistory",
+            Tile { x: 0, y: 0 },
+            source_fixture("liquid_water_flat.adt.test-fixture"),
+        ),
+    ]);
+    entries
+}
+
+#[test]
+fn prepared_history_binds_selected_and_predecessor_bytes_and_equal_byte_winners() {
+    for (index, name, bytes) in [
+        (
+            3,
+            "World\\Maps\\AuthoredOracle\\AuthoredOracle.wdt",
+            source_fixture("source.wdt.test-fixture"),
+        ),
+        (
+            4,
+            "World\\Maps\\AuthoredOracle\\AuthoredOracle_32_31.adt",
+            source_fixture("liquid_history61_positive.adt.test-fixture"),
+        ),
+        (
+            5,
+            "World\\Maps\\PriorHistory\\PriorHistory.wdt",
+            wdt_for_tiles(&[Tile { x: 0, y: 0 }]),
+        ),
+        (
+            6,
+            "World\\Maps\\PriorHistory\\PriorHistory_0_0.adt",
+            source_fixture("liquid_water_flat.adt.test-fixture"),
+        ),
+    ] {
+        let fixture = Fixture::new();
+        let path = fixture.data.join("terrain.MPQ");
+        let mut entries = cross_map_history_entries();
+        fs::write(&path, archive(&entries)).unwrap();
+        let captured = prepare(&fixture.data, 1, &[Tile { x: 31, y: 32 }]).unwrap();
+        let original_epoch = captured.source_epoch().to_owned();
+        let mut altered = bytes.clone();
+        // Every consumed byte is evidence even if that field is unused by the product.
+        let last = altered.len() - 1;
+        altered[last] ^= 1;
+        entries[index] = raw_entry(name, altered);
+        fs::write(&path, archive(&entries)).unwrap();
+        let before = snapshot(&fixture.root);
+        assert!(
+            format!("{:#}", captured.verify_unchanged().unwrap_err())
+                .contains("source.bytes_changed"),
+            "{name}"
+        );
+        assert!(
+            format!(
+                "{:#}",
+                captured
+                    .publish(&fixture.root.join("stale-export"))
+                    .unwrap_err()
+            )
+            .contains("source.bytes_changed"),
+            "{name}"
+        );
+        assert_eq!(snapshot(&fixture.root), before);
+
+        entries[index] = raw_entry(name, bytes.clone());
+        fs::write(&path, archive(&entries)).unwrap();
+        let captured = prepare(&fixture.data, 1, &[Tile { x: 31, y: 32 }]).unwrap();
+        assert_eq!(captured.source_epoch(), original_epoch);
+        fs::write(
+            fixture.data.join("patch.MPQ"),
+            archive(&[raw_entry(name, bytes)]),
+        )
+        .unwrap();
+        let before = snapshot(&fixture.root);
+        assert!(
+            format!("{:#}", captured.verify_unchanged().unwrap_err())
+                .contains("source.winner_changed"),
+            "{name}"
+        );
+        assert!(
+            format!(
+                "{:#}",
+                captured
+                    .publish(&fixture.root.join("winner-export"))
+                    .unwrap_err()
+            )
+            .contains("source.winner_changed"),
+            "{name}"
+        );
+        assert_eq!(snapshot(&fixture.root), before);
+        assert_ne!(
+            assert_exact_inspection_without_writes(
+                &fixture,
+                &source_fixture("liquid_history61_positive.map")
+            ),
+            original_epoch
+        );
+    }
+}
+
+#[test]
+fn absent_predecessor_wdt_and_adt_receipts_reject_later_insertions() {
+    for absent_adt in [false, true] {
+        let fixture = Fixture::new();
+        let mut entries =
+            terrain_entries(source_fixture("liquid_history61_initial.adt.test-fixture"))
+                .into_iter()
+                .collect::<Vec<_>>();
+        entries[0] = raw_entry(
+            "DBFilesClient\\Map.dbc",
+            map_dbc(&[(700, b"PriorHistory"), (1, b"AuthoredOracle")]),
+        );
+        if absent_adt {
+            entries.push(wdt_member("PriorHistory", &[Tile { x: 0, y: 0 }]));
+        }
+        fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+        let expected = source_fixture("liquid_history61_initial.map");
+        let epoch = assert_exact_inspection_without_writes(&fixture, &expected);
+        let selected = Tile { x: 31, y: 32 };
+        prepare(&fixture.data, 1, &[selected])
+            .unwrap()
+            .publish(&fixture.root.join("receipt-export"))
+            .unwrap();
+        let manifest: Value = serde_json::from_slice(
+            &fs::read(fixture.root.join("receipt-export/terrain.json")).unwrap(),
+        )
+        .unwrap();
+        let absent_name = if absent_adt {
+            "World\\Maps\\PriorHistory\\PriorHistory_0_0.adt"
+        } else {
+            "World\\Maps\\PriorHistory\\PriorHistory.wdt"
+        };
+        assert_eq!(manifest["absent_members"], json!([{"name": absent_name}]));
+        let captured = prepare(&fixture.data, 1, &[selected]).unwrap();
+        entries.push(if absent_adt {
+            adt_member(
+                "PriorHistory",
+                Tile { x: 0, y: 0 },
+                source_fixture("flat.adt.test-fixture"),
+            )
+        } else {
+            wdt_member("PriorHistory", &[])
+        });
+        fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+        let before = snapshot(&fixture.root);
+        assert!(format!("{:#}", captured.verify_unchanged().unwrap_err())
+            .contains("source.absence_changed"));
+        assert!(format!(
+            "{:#}",
+            captured
+                .publish(&fixture.root.join("stale-export"))
+                .unwrap_err()
+        )
+        .contains("source.absence_changed"));
+        assert_eq!(snapshot(&fixture.root), before);
+        // These insertions produce no boundary writes, but alter the closure evidence.
+        assert_ne!(
+            assert_exact_inspection_without_writes(&fixture, &expected),
+            epoch
+        );
+    }
+}
+
+#[test]
+fn malformed_or_mh2o_predecessor_cannot_be_silently_treated_as_absent_or_zero() {
+    for (mutation, expected) in [
+        (0, "terrain.adt_version"),
+        (1, "terrain.mh2o_excluded"),
+        (2, "terrain.mclq_length"),
+        (3, "terrain.liquid_nonfinite"),
+    ] {
+        let fixture = Fixture::new();
+        let mut entries = history_entries("liquid_history61_positive", &["liquid_water_flat"]);
+        let mut predecessor = source_fixture("liquid_water_flat.adt.test-fixture");
+        let cell = word(&predecessor, 92) as usize;
+        let liquid = cell + word(&predecessor, cell + 8 + 0x60) as usize;
+        match mutation {
+            0 => replace(&mut predecessor, 8, 17),
+            1 => replace(&mut predecessor, 20 + 0x28, 1),
+            2 => replace(&mut predecessor, liquid + 4, 803),
+            3 => replace(&mut predecessor, liquid + 20, f32::NAN.to_bits()),
+            _ => unreachable!(),
+        }
+        entries[5] = adt_member("AuthoredOracle", Tile { x: 31, y: 31 }, predecessor);
+        fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+        assert_rejected_without_writes(&fixture, expected);
+    }
+}
+
+#[test]
+fn resolved_history_export_publishes_exact_bytes_and_receipts_without_replacing_output() {
+    let fixture = Fixture::new();
+    install_history(
+        &fixture,
+        "liquid_history61_partial",
+        &["liquid_ocean_flat", "liquid_history_partial_seed"],
+    );
+    let expected = source_fixture("liquid_history61_partial.map");
+    let epoch = assert_exact_inspection_without_writes(&fixture, &expected);
+    let output = fixture.run(&["--output", "export"]);
+    assert!(output.status.success(), "{}", output_text(&output));
+    assert_eq!(
+        fs::read(fixture.root.join("export/maps/0013132.map")).unwrap(),
+        expected
+    );
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(fixture.root.join("export/terrain.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["format"], "benilla-terrain-production-v3");
+    assert_eq!(
+        manifest["writer_policy"],
+        "cmangos-ad-f0-boundary-history-closure-v3"
+    );
+    assert_eq!(manifest["source_epoch"], epoch);
+    assert_eq!(manifest["absent_members"], json!([]));
+    assert_eq!(manifest["members"].as_array().unwrap().len(), 7);
+    assert_eq!(manifest["products"].as_array().unwrap().len(), 1);
+    assert_eq!(manifest["gameplay_admitted"], false);
+    assert_eq!(manifest["live_install_lease"], false);
+    for name in ["AuthoredOracle_30_31.adt", "AuthoredOracle_31_31.adt"] {
+        assert!(manifest["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|member| member["name"].as_str().unwrap().ends_with(name)));
+    }
+    let before = snapshot(&fixture.root);
+    let output = fixture.run(&["--output", "export"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output_text(&output).contains("output.already_exists"));
+    assert_eq!(snapshot(&fixture.root), before);
+    assert!(!fixture.root.join("export/terrain.pending").exists());
+}
+
+#[test]
+fn history_traverses_wdt_rows_before_columns_and_ignores_a_future_row() {
+    let fixture = Fixture::new();
+    let selected = Tile { x: 31, y: 32 };
+    let prior = Tile { x: 30, y: 63 };
+    let future = Tile { x: 32, y: 0 };
+    let mut entries = terrain_entries(source_fixture("liquid_history61_positive.adt.test-fixture"))
+        .into_iter()
+        .collect::<Vec<_>>();
+    entries[3] = wdt_member("AuthoredOracle", &[prior, selected, future]);
+    entries.extend([
+        adt_member(
+            "AuthoredOracle",
+            prior,
+            source_fixture("liquid_water_flat.adt.test-fixture"),
+        ),
+        adt_member(
+            "AuthoredOracle",
+            future,
+            source_fixture("liquid_ocean_flat.adt.test-fixture"),
+        ),
+    ]);
+    fs::write(fixture.data.join("terrain.MPQ"), archive(&entries)).unwrap();
+    assert_exact_inspection_without_writes(
+        &fixture,
+        &source_fixture("liquid_history61_positive.map"),
+    );
 }

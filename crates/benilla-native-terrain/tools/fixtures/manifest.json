@@ -129,6 +129,40 @@
       ]
     ]
   },
+  "history_closure": {
+    "cases": [
+      "liquid_history61_initial",
+      "liquid_history61_positive",
+      "liquid_history61_negative",
+      "liquid_history61_dry",
+      "liquid_history61_untyped",
+      "liquid_history61_hidden",
+      "liquid_history61_seams",
+      "liquid_history61_partial"
+    ],
+    "history_independent_seeds": [
+      "liquid_history_hidden_seed",
+      "liquid_history_partial_seed"
+    ],
+    "authored_shape": {
+      "offset_x": 47,
+      "offset_y": 0,
+      "width": 79,
+      "height": 129,
+      "missing_samples": 61,
+      "first_missing": [
+        65,
+        128
+      ],
+      "last_missing": [
+        125,
+        128
+      ]
+    },
+    "initial_state": "Fresh executable process; source static positive-zero initialization",
+    "history_order": "Listed predecessors run before selected case in the same process",
+    "scope": "Direct ConvertADT history only; no Map.dbc/WDT traversal or MPQ absence proof"
+  },
   "common_files": {
     "Map.dbc.test-fixture": {
       "bytes": 204,
@@ -481,6 +515,143 @@
       "adt_sha256": "eef0c38391c5ef2aede1a9fea6f8fb2863b262f2b2c16d39b05971164235b411",
       "map_bytes": 45360,
       "map_sha256": "b6011eb40ecb8be8341b2030c6a23b671f5457e866f62d7d1a53f218789246ff"
+    },
+    {
+      "name": "liquid_history_hidden_seed",
+      "description": "Hidden untyped MCLQ writes -42.75 despite producing no MLIQ",
+      "rust_supported": true,
+      "source_history": [],
+      "rejection_reason": null,
+      "adt_bytes": 397404,
+      "adt_sha256": "f60b8968022a75da1d349f00eaa14da4498eafa3dc6302537f01bf3f44e09e95",
+      "map_bytes": 576,
+      "map_sha256": "df0b345feeb18cec0fe7a29a6304c4b9ba1d370d32d40cfdd2623bdf22070c96"
+    },
+    {
+      "name": "liquid_history_partial_seed",
+      "description": "Hidden untyped bottom cells write signed zero and -71.125",
+      "rust_supported": true,
+      "source_history": [],
+      "rejection_reason": null,
+      "adt_bytes": 191156,
+      "adt_sha256": "62543f03d594361247539ae6db8b0f1b76225a7e77093261db93bb5b6888d980",
+      "map_bytes": 576,
+      "map_sha256": "df0b345feeb18cec0fe7a29a6304c4b9ba1d370d32d40cfdd2623bdf22070c96"
+    },
+    {
+      "name": "liquid_history61_initial",
+      "description": "Exact61 authored boundary starts at process-initial positive zero",
+      "rust_supported": true,
+      "source_history": [],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "5b762d816f934b62a61c2f91483d557622e1fb557a9a49a3c5bfd91b80c37fc6",
+      "requires_proven_history": true
+    },
+    {
+      "name": "liquid_history61_positive",
+      "description": "Exact61 boundary retains preceding positive water heights",
+      "rust_supported": true,
+      "source_history": [
+        "liquid_water_flat"
+      ],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "a447fe5393b6f016e9c94ed00e6ffd9bee38c92ee1debd469bb4c4bc62d13166",
+      "requires_proven_history": true
+    },
+    {
+      "name": "liquid_history61_negative",
+      "description": "Exact61 boundary takes latest negative ocean over earlier water",
+      "rust_supported": true,
+      "source_history": [
+        "liquid_water_flat",
+        "liquid_ocean_flat"
+      ],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "8d28f1097595d3faa9e6d28bf662d70f6301f8cfe9593109ee210e009eabc1e7",
+      "requires_proven_history": true
+    },
+    {
+      "name": "liquid_history61_dry",
+      "description": "Intervening dry tile leaves the preceding negative boundary intact",
+      "rust_supported": true,
+      "source_history": [
+        "liquid_ocean_flat",
+        "flat"
+      ],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "8d28f1097595d3faa9e6d28bf662d70f6301f8cfe9593109ee210e009eabc1e7",
+      "requires_proven_history": true
+    },
+    {
+      "name": "liquid_history61_untyped",
+      "description": "Untyped no-MLIQ predecessor overwrites earlier negative boundary",
+      "rust_supported": true,
+      "source_history": [
+        "liquid_ocean_flat",
+        "liquid_untyped"
+      ],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "a447fe5393b6f016e9c94ed00e6ffd9bee38c92ee1debd469bb4c4bc62d13166",
+      "requires_proven_history": true
+    },
+    {
+      "name": "liquid_history61_hidden",
+      "description": "Hidden no-MLIQ predecessor overwrites earlier positive boundary",
+      "rust_supported": true,
+      "source_history": [
+        "liquid_water_flat",
+        "liquid_history_hidden_seed"
+      ],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "5e28f23fadb4cecac9957c4adde25eb369f14e10294048ef77d1c7a844263662",
+      "requires_proven_history": true
+    },
+    {
+      "name": "liquid_history61_seams",
+      "description": "Predecessor MCIN row-major seam ownership determines retained values",
+      "rust_supported": true,
+      "source_history": [
+        "liquid_seams"
+      ],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "2dc56eb44b5e934a3d868db6c26b7632dcd84a38929154a572aebf18f0b74304",
+      "requires_proven_history": true
+    },
+    {
+      "name": "liquid_history61_partial",
+      "description": "Each missing sample takes its latest direct writer independently",
+      "rust_supported": true,
+      "source_history": [
+        "liquid_ocean_flat",
+        "liquid_history_partial_seed"
+      ],
+      "rejection_reason": null,
+      "adt_bytes": 193592,
+      "adt_sha256": "eb5c1f702e3ba5d4bf6222ce8de16048b6f3f17e9d8f64181adf4923e6cb2216",
+      "map_bytes": 42124,
+      "map_sha256": "bb783de2aa56cc81c346a7e0b0c2c25ff8b8c477ff36329b4ee7c0b12dd1c317",
+      "requires_proven_history": true
     }
   ]
 }

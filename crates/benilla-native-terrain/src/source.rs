@@ -20,6 +20,9 @@ pub(crate) const MAX_MEMBER_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const MAX_CAPTURE_BYTES: usize = 192 * 1024 * 1024;
 pub(crate) const MAX_ADT_MEMBERS: usize = 9;
 pub(crate) const MAX_CAPTURE_MEMBERS: usize = 3 + 1 + MAX_ADT_MEMBERS;
+/// A dependency search must fail closed at this distinct-name limit, never treat
+/// an unvisited prefix as process-initial state. Positive and absent lookups count.
+pub(crate) const MAX_HISTORY_LOOKUPS: usize = 4096;
 const MAX_MEMBER_NAME_BYTES: usize = 192;
 const MAX_HEADER_SCAN_BYTES: u64 = 1024 * 1024;
 /// Conservative intersection of app and pinned extractor source resolution.
@@ -47,12 +50,22 @@ pub(crate) struct SourceMember {
     pub(crate) bytes: usize,
 }
 
+/// A canonical terrain name absent from both the app chain and the pinned
+/// extractor's fixed archive order. Malformed, deleted, dummy, or unreadable hits
+/// cannot mint this receipt. Like positive receipts, this is informational only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct AbsentSourceMember {
+    pub(crate) name: String,
+}
+
 /// There is no constructor from metadata, digest, serialized output, or borrowed
 /// bytes. Only capture can mint this value; callers only borrow its payloads.
 pub(crate) struct CapturedSource {
     data: PathBuf,
     members: Vec<SourceMember>,
     payloads: Vec<Box<[u8]>>,
+    absent_members: Vec<AbsentSourceMember>,
+    history_names: BTreeSet<String>,
     binding_digest: String,
 }
 
@@ -60,6 +73,7 @@ impl fmt::Debug for CapturedSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CapturedSource")
             .field("members", &self.members)
+            .field("absent_members", &self.absent_members)
             .field("binding_digest", &self.binding_digest)
             .finish_non_exhaustive()
     }
@@ -80,16 +94,8 @@ impl CapturedSource {
         let plans = plan_members(&chain, &names)?;
         let mut members = Vec::with_capacity(plans.len());
         let mut payloads = Vec::with_capacity(plans.len());
-        let mut binding = Sha256::new();
-        binding.update(b"benilla-native-terrain-source-v1\0");
-        hash_field(&mut binding, SOURCE_POLICY.as_bytes());
-        hash_field(&mut binding, crate::SOURCE_PIN.as_bytes());
-        binding.update((plans.len() as u64).to_le_bytes());
         for plan in plans {
             let bytes = read_member(&chain, &plan)?;
-            hash_field(&mut binding, plan.name.as_bytes());
-            hash_field(&mut binding, plan.winning_archive.as_bytes());
-            hash_field(&mut binding, &bytes);
             members.push(SourceMember {
                 name: plan.name,
                 winning_archive: plan.winning_archive,
@@ -98,13 +104,16 @@ impl CapturedSource {
             });
             payloads.push(bytes.into_boxed_slice());
         }
-        let captured = Self {
+        let mut captured = Self {
             data,
             members,
             payloads,
-            binding_digest: format!("{:x}", binding.finalize()),
+            absent_members: Vec::new(),
+            history_names: BTreeSet::new(),
+            binding_digest: String::new(),
         };
         captured.verify_ad_compatible()?;
+        captured.refresh_binding_digest();
         Ok(captured)
     }
 
@@ -121,8 +130,123 @@ impl CapturedSource {
         &self.members
     }
 
+    /// Explicit dual-resolver absence provenance, separate from positive members.
+    pub(crate) fn absent_members(&self) -> &[AbsentSourceMember] {
+        &self.absent_members
+    }
+
     pub(crate) fn binding_digest(&self) -> &str {
         &self.binding_digest
+    }
+
+    /// Extend the immutable evidence set with one coordinator-derived history
+    /// WDT/ADT, possibly from an earlier map. `false` means proven dual-resolver
+    /// absence, never a failed load. Repeated names reuse their exact receipt.
+    /// Every failure leaves both evidence and epoch unchanged.
+    pub(crate) fn capture_history_member(&mut self, name: &str) -> Result<bool> {
+        history_name(name)?;
+        if self.history_names.contains(name) {
+            return Ok(self.bytes(name).is_ok());
+        }
+        ensure!(
+            self.history_names.len() < MAX_HISTORY_LOOKUPS,
+            "source.history_lookup_limit"
+        );
+        // The original selected inputs may have changed between selection and
+        // starting traversal. Do not extend stale proofs into a new epoch.
+        if self.history_names.is_empty() {
+            self.verify_unchanged()
+                .context("source.history_initial_recheck")?;
+        }
+        if self
+            .members
+            .binary_search_by(|member| member.name.as_str().cmp(name))
+            .is_ok()
+        {
+            self.history_names.insert(name.to_owned());
+            return Ok(true);
+        }
+        let chain = open_chain(&self.data).context("source.history_open")?;
+        let mut candidate = Self {
+            data: self.data.clone(),
+            members: Vec::new(),
+            payloads: Vec::new(),
+            absent_members: Vec::new(),
+            history_names: BTreeSet::new(),
+            binding_digest: String::new(),
+        };
+        // Plan and budget a readable app winner before any member decompression.
+        // find_file_archive includes tombstones, which plan_members rejects.
+        if chain.find_file_archive(name).is_some() {
+            let plan = plan_members(&chain, &[name.to_owned()])?
+                .pop()
+                .expect("one planned history member");
+            check_history_byte_budget(&self.members, plan.bytes)?;
+            ensure!(
+                chain
+                    .verify_classic_ad_member(name)
+                    .with_context(|| format!("source.history_member_profile:{name}"))?,
+                "source.history_resolver_mismatch:{name}"
+            );
+            let bytes = read_member(&chain, &plan)?;
+            candidate.members.push(SourceMember {
+                name: plan.name,
+                winning_archive: plan.winning_archive,
+                sha256: format!("{:x}", Sha256::digest(&bytes)),
+                bytes: bytes.len(),
+            });
+            candidate.payloads.push(bytes.into_boxed_slice());
+        } else {
+            verify_app_absence(&chain, name)?;
+            candidate.absent_members.push(AbsentSourceMember {
+                name: name.to_owned(),
+            });
+        }
+        candidate.verify_ad_compatible()?;
+        let present = !candidate.members.is_empty();
+        if let Some(member) = candidate.members.pop() {
+            let index = self
+                .members
+                .binary_search_by(|item| item.name.cmp(&member.name))
+                .expect_err("history member is new");
+            self.members.insert(index, member);
+            self.payloads
+                .insert(index, candidate.payloads.pop().expect("captured bytes"));
+        } else {
+            let absent = candidate.absent_members.pop().expect("captured absence");
+            let index = self
+                .absent_members
+                .binary_search_by(|item| item.name.cmp(&absent.name))
+                .expect_err("history absence is new");
+            self.absent_members.insert(index, absent);
+        }
+        self.history_names.insert(name.to_owned());
+        self.refresh_binding_digest();
+        Ok(present)
+    }
+
+    fn refresh_binding_digest(&mut self) {
+        // Keep the original positive-only epoch stable. Each extension rebinds
+        // every retained byte in canonical name order, independent of query order.
+        let mut binding = Sha256::new();
+        binding.update(b"benilla-native-terrain-source-v1\0");
+        hash_field(&mut binding, SOURCE_POLICY.as_bytes());
+        hash_field(&mut binding, crate::SOURCE_PIN.as_bytes());
+        binding.update((self.members.len() as u64).to_le_bytes());
+        for (member, bytes) in self.members.iter().zip(&self.payloads) {
+            hash_field(&mut binding, member.name.as_bytes());
+            hash_field(&mut binding, member.winning_archive.as_bytes());
+            hash_field(&mut binding, bytes);
+        }
+        if !self.absent_members.is_empty() {
+            hash_field(&mut binding, b"dual-resolver-absent-members-v1");
+            binding.update((self.absent_members.len() as u64).to_le_bytes());
+            for absent in &self.absent_members {
+                hash_field(&mut binding, b"absent");
+                hash_field(&mut binding, absent.name.as_bytes());
+            }
+        }
+        self.binding_digest = format!("{:x}", binding.finalize());
     }
 
     /// Keep staged Map/WDT discovery bound to the later, complete capture.
@@ -141,6 +265,15 @@ impl CapturedSource {
                 self.members[index] == *member && self.payloads[index].as_ref() == bytes.as_ref(),
                 "source.discovery_changed:{}",
                 member.name
+            );
+        }
+        for absent in &prior.absent_members {
+            ensure!(
+                self.absent_members
+                    .binary_search_by(|candidate| candidate.name.cmp(&absent.name))
+                    .is_ok(),
+                "source.discovery_absence_changed:{}",
+                absent.name
             );
         }
         Ok(())
@@ -182,6 +315,18 @@ impl CapturedSource {
                 "source.bytes_changed:{}",
                 member.name
             );
+            if self.history_names.contains(&member.name) {
+                ensure!(
+                    chain
+                        .verify_classic_ad_member(&member.name)
+                        .with_context(|| format!(
+                            "source.history_member_profile:{}",
+                            member.name
+                        ))?,
+                    "source.history_resolver_mismatch:{}",
+                    member.name
+                );
+            }
             // Only one fresh member is resident at a time in addition to capture.
             let fresh = read_member(&chain, &plan).context("source.recheck_read")?;
             ensure!(
@@ -189,6 +334,9 @@ impl CapturedSource {
                 "source.bytes_changed:{}",
                 member.name
             );
+        }
+        for absent in &self.absent_members {
+            verify_app_absence(&chain, &absent.name).context("source.recheck_absence")?;
         }
         self.verify_ad_compatible()
             .context("source.recheck_ad_profile")?;
@@ -227,6 +375,20 @@ impl CapturedSource {
             // One independently bounded source archive is held at a time, never
             // five separate full index budgets retained together.
             let chain = open_chain(&path).context("source.ad_open_archive")?;
+            for absent in &self.absent_members {
+                ensure!(
+                    !chain
+                        .verify_classic_ad_member(&absent.name)
+                        .with_context(|| format!("source.ad_absence_profile:{}", absent.name))?,
+                    "source.ad_absence_changed:{}",
+                    absent.name
+                );
+                ensure!(
+                    chain.find_file_archive(&absent.name).is_none(),
+                    "source.ad_absence_changed:{}",
+                    absent.name
+                );
+            }
             for (index, member) in self.members.iter().enumerate() {
                 if resolved[index] {
                     continue;
@@ -464,6 +626,43 @@ fn read_member(chain: &Chain, member: &PlannedMember) -> Result<Vec<u8>> {
         member.name
     );
     Ok(bytes)
+}
+
+fn check_history_byte_budget(members: &[SourceMember], bytes: usize) -> Result<()> {
+    let retained = members.iter().try_fold(0usize, |total, member| {
+        total
+            .checked_add(member.bytes)
+            .context("source.aggregate_byte_limit")
+    })?;
+    ensure!(
+        retained
+            .checked_add(bytes)
+            .is_some_and(|total| total <= MAX_CAPTURE_BYTES),
+        "source.aggregate_byte_limit"
+    );
+    Ok(())
+}
+
+fn verify_app_absence(chain: &Chain, name: &str) -> Result<()> {
+    // contains() alone collapses tombstones to false and ordinary lookup can skip
+    // malformed hash entries. Both checks are required before recording absence.
+    ensure!(
+        !chain
+            .verify_classic_ad_member(name)
+            .with_context(|| format!("source.absence_member_profile:{name}"))?,
+        "source.absence_changed:{name}"
+    );
+    ensure!(
+        chain.find_file_archive(name).is_none(),
+        "source.absence_changed:{name}"
+    );
+    Ok(())
+}
+
+fn history_name(name: &str) -> Result<()> {
+    ensure!(!DBC_MEMBERS.contains(&name), "source.history_member_kind");
+    selected_names(&[name])?;
+    Ok(())
 }
 
 fn selected_names(names: &[impl AsRef<str>]) -> Result<Vec<String>> {

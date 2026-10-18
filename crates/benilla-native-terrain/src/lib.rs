@@ -49,6 +49,7 @@ struct Manifest<'a> {
     gameplay_admitted: bool,
     map: u32,
     members: &'a [source::SourceMember],
+    absent_members: &'a [source::AbsentSourceMember],
     products: &'a [Product],
 }
 /// Owns the exact consumed raw bytes and their generated products. No serialized
@@ -125,15 +126,16 @@ impl PreparedTerrain {
             })
             .collect();
         let manifest = Manifest {
-            format: "benilla-terrain-production-v2",
+            format: "benilla-terrain-production-v3",
             source_pin: SOURCE_PIN,
             source_resolution_policy: source::SOURCE_POLICY,
-            writer_policy: "cmangos-ad-f0-selected-tile-owned-liquid-v2",
+            writer_policy: "cmangos-ad-f0-boundary-history-closure-v3",
             source_epoch: self.source_epoch(),
             live_install_lease: false,
             gameplay_admitted: false,
             map: self.map,
             members: self.source.members(),
+            absent_members: self.source.absent_members(),
             products: &products,
         };
         observe(PublishStage::BeforeManifest)?;
@@ -209,8 +211,9 @@ fn sync_dir(path: &Path) -> Result<()> {
     let _ = path;
     Ok(())
 }
-/// Capture at most nine explicitly selected tiles. No truncation or implicit neighbor
-/// completion: callers must choose their closure, and this does not certify a corridor.
+/// Capture at most nine selected output tiles. Missing emitted liquid boundary
+/// heights trigger a bounded, exact predecessor dependency closure. History inputs
+/// do not become output tiles or certify a gameplay corridor.
 pub fn prepare(data: &Path, map: u32, tiles: &[Tile]) -> Result<PreparedTerrain> {
     let ordered = validate_selection(map, tiles)?;
     let initial = CapturedSource::capture(data, &DBCS)?;
@@ -221,21 +224,11 @@ pub fn prepare(data: &Path, map: u32, tiles: &[Tile]) -> Result<PreparedTerrain>
     for tile in &ordered {
         writer::validate_selection_wdt(selection.bytes(&wdt)?, tile.x, tile.y)?;
     }
-    let source = capture_tiles(data, &selection, &directory, &ordered)?;
+    let mut source = capture_tiles(data, &selection, &directory, &ordered)?;
     drop(selection);
     let mut products = Vec::with_capacity(ordered.len());
     for tile in ordered {
-        let adt = adt_name(&directory, tile);
-        let bytes = writer::produce(
-            source.bytes(DBCS[0])?,
-            source.bytes(DBCS[1])?,
-            source.bytes(DBCS[2])?,
-            source.bytes(&wdt)?,
-            source.bytes(&adt)?,
-            map,
-            tile.x,
-            tile.y,
-        )?;
+        let (bytes, _) = produce_tile_with_history(&mut source, map, &directory, tile)?;
         let product = Product {
             file: format!("maps/{map:03}{:02}{:02}.map", tile.x, tile.y),
             bytes: bytes.len(),
@@ -303,4 +296,101 @@ fn capture_tiles(
     source.verify_contains(selection)?;
     selection.verify_unchanged()?;
     Ok(source)
+}
+
+/// Private observations of a completed dependency search, never restore inputs.
+#[derive(Default, Serialize)]
+struct HistorySummary {
+    consulted_adts: usize,
+    consulted_wdts: usize,
+    absent_members: usize,
+    initial_zero_samples: usize,
+}
+
+fn produce_tile_with_history(
+    source: &mut CapturedSource,
+    map: u32,
+    directory: &str,
+    tile: Tile,
+) -> Result<(Vec<u8>, Option<HistorySummary>)> {
+    let wdt = wdt_name(directory);
+    let adt = adt_name(directory, tile);
+    let ordinary = writer::produce(
+        source.bytes(DBCS[0])?,
+        source.bytes(DBCS[1])?,
+        source.bytes(DBCS[2])?,
+        source.bytes(&wdt)?,
+        source.bytes(&adt)?,
+        map,
+        tile.x,
+        tile.y,
+    );
+    match ordinary {
+        Ok(bytes) => Ok((bytes, None)),
+        Err(error) if diagnostic_id(&error) == "terrain.liquid_history" => {
+            let mut history = writer::boundary_history(source.bytes(&adt)?)?;
+            let summary = resolve_history(source, map, tile, &mut history)?;
+            let bytes = writer::produce_with_history(
+                source.bytes(DBCS[0])?,
+                source.bytes(DBCS[1])?,
+                source.bytes(DBCS[2])?,
+                source.bytes(&wdt)?,
+                source.bytes(&adt)?,
+                map,
+                tile.x,
+                tile.y,
+                &history,
+            )?;
+            Ok((bytes, Some(summary)))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn resolve_history(
+    source: &mut CapturedSource,
+    map: u32,
+    tile: Tile,
+    history: &mut writer::BoundaryHistory,
+) -> Result<HistorySummary> {
+    let maps = writer::map_directories(source.bytes(DBCS[0])?)?;
+    let selected = maps
+        .iter()
+        .position(|(id, _)| *id == map)
+        .context("terrain.map_missing")?;
+    let mut summary = HistorySummary::default();
+    for index in (0..=selected).rev() {
+        if history.is_resolved() {
+            return Ok(summary);
+        }
+        let (_, directory) = &maps[index];
+        let wdt = wdt_name(directory);
+        summary.consulted_wdts += 1;
+        if !source.capture_history_member(&wdt)? {
+            summary.absent_members += 1;
+            continue;
+        }
+        let prior_tiles = writer::history_wdt_tiles(source.bytes(&wdt)?)?;
+        for (x, y) in prior_tiles.into_iter().rev() {
+            let predecessor = Tile { x, y };
+            if index == selected && predecessor >= tile {
+                continue;
+            }
+            if history.is_resolved() {
+                return Ok(summary);
+            }
+            let adt = adt_name(directory, predecessor);
+            summary.consulted_adts += 1;
+            if !source.capture_history_member(&adt)? {
+                summary.absent_members += 1;
+                continue;
+            }
+            history.apply_predecessor(source.bytes(&adt)?)?;
+        }
+    }
+    // This is the only production zero-initialization seam: all earlier source
+    // events have been exhausted, with every relevant presence/absence retained.
+    summary.initial_zero_samples = history.unresolved().count();
+    history.mark_proven_start_zero();
+    Ok(summary)
 }

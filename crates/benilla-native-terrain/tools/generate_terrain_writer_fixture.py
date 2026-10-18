@@ -64,12 +64,34 @@ ORACLE_ONLY_CASES = {
     "liquid_stale_edge_a": "Missing serialized outer edges retain prior water-tile heights",
     "liquid_stale_edge_b": "Identical ADT after ocean tile retains different outer-edge bytes",
 }
+HISTORY_SEED_CASES = {
+    "liquid_history_hidden_seed": "Hidden untyped MCLQ writes -42.75 despite producing no MLIQ",
+    "liquid_history_partial_seed": "Hidden untyped bottom cells write signed zero and -71.125",
+}
+HISTORY_CASES = {
+    "liquid_history61_initial": "Exact61 authored boundary starts at process-initial positive zero",
+    "liquid_history61_positive": "Exact61 boundary retains preceding positive water heights",
+    "liquid_history61_negative": "Exact61 boundary takes latest negative ocean over earlier water",
+    "liquid_history61_dry": "Intervening dry tile leaves the preceding negative boundary intact",
+    "liquid_history61_untyped": "Untyped no-MLIQ predecessor overwrites earlier negative boundary",
+    "liquid_history61_hidden": "Hidden no-MLIQ predecessor overwrites earlier positive boundary",
+    "liquid_history61_seams": "Predecessor MCIN row-major seam ownership determines retained values",
+    "liquid_history61_partial": "Each missing sample takes its latest direct writer independently",
+}
 # These are complete same-process ConvertADT histories, never injected globals.
 SOURCE_HISTORIES = {
     "liquid_stale_edge_a": ["liquid_water_flat"],
     "liquid_stale_edge_b": ["liquid_ocean_flat"],
+    "liquid_history61_initial": [],
+    "liquid_history61_positive": ["liquid_water_flat"],
+    "liquid_history61_negative": ["liquid_water_flat", "liquid_ocean_flat"],
+    "liquid_history61_dry": ["liquid_ocean_flat", "flat"],
+    "liquid_history61_untyped": ["liquid_ocean_flat", "liquid_untyped"],
+    "liquid_history61_hidden": ["liquid_water_flat", "liquid_history_hidden_seed"],
+    "liquid_history61_seams": ["liquid_seams"],
+    "liquid_history61_partial": ["liquid_ocean_flat", "liquid_history_partial_seed"],
 }
-CASES = DRY_CASES | LIQUID_CASES | ORACLE_ONLY_CASES
+CASES = DRY_CASES | LIQUID_CASES | ORACLE_ONLY_CASES | HISTORY_SEED_CASES | HISTORY_CASES
 AREA_ROWS = [(0, 99), (1, 0x1234), (2, 17), (3, 0xffff), (4, 0),
              (5, 0x1fffe), (8, 0x1234), (2, 0x10002)]
 
@@ -151,7 +173,7 @@ def authored_liquid(case, row, col):
     if case in ("liquid_empty", "liquid_size8"):
         declared = 8 if case == "liquid_empty" else (row * 16 + col) % 9
         return 28, chunk("MCLQ", b""), declared
-    if case not in LIQUID_CASES and case not in ORACLE_ONLY_CASES:
+    if case not in LIQUID_CASES | ORACLE_ONLY_CASES | HISTORY_SEED_CASES | HISTORY_CASES:
         return 0, b"", 0
 
     flags = [0] * 64
@@ -192,6 +214,27 @@ def authored_liquid(case, row, col):
             for x in range(1, 8):
                 flags[y * 8 + x] = 0
         heights = [400.0 + y * 2.0 + x / 4.0 for y in range(9) for x in range(9)]
+    elif case in HISTORY_CASES:
+        # Only the diagnostic's rectangle and missing-sample count are modeled;
+        # these five authored cells are not copied from an actual ADT.
+        visible = {(0, 5): (0, 7), (0, 15): (0, 4), (15, 5): (7, 7)}
+        if (row, col) not in visible and (row, col) not in ((15, 6), (15, 7)):
+            return 0, b"", 0
+        flags = [0x0f] * 64
+        if (row, col) in visible:
+            y, x = visible[(row, col)]
+            flags[y * 8 + x] = 0
+        else:
+            mc_flags = 0
+        heights = [100.0 + row * 10.0 + col + y * 2.0 + x / 4.0
+                   for y in range(9) for x in range(9)]
+    elif case == "liquid_history_hidden_seed":
+        mc_flags, flags, heights = 0, [0x0f] * 64, [-42.75] * 81
+    elif case == "liquid_history_partial_seed":
+        if row != 15 or col not in (9, 11):
+            return 0, b"", 0
+        mc_flags, flags = 0, [0x0f] * 64
+        heights = [-0.0 if col == 9 else -71.125] * 81
     elif case in ORACLE_ONLY_CASES or case == "liquid_sparse_flat":
         visible = {(2, 15): (3, 7), (15, 3): (7, 5)}
         if (row, col) not in visible:
@@ -325,7 +368,7 @@ def generate(core, destination):
             if result.stderr:
                 raise RuntimeError("source oracle stderr: " + result.stderr.decode())
 
-        admitted = DRY_CASES | LIQUID_CASES
+        admitted = DRY_CASES | LIQUID_CASES | HISTORY_SEED_CASES
         for case in admitted:
             run([case])
         baseline = {case: (destination / (case + ".map")).read_bytes() for case in admitted}
@@ -351,14 +394,17 @@ def generate(core, destination):
             raise ValueError("unexpected source envelope")
         if case in DRY_CASES and words[6:8] != (0, 0):
             raise ValueError("unexpected dry source liquid")
-        products.append({"name": case, "description": description,
+        product = {"name": case, "description": description,
                          "rust_supported": case not in ORACLE_ONLY_CASES,
                          "source_history": SOURCE_HISTORIES.get(case, []),
                          "rejection_reason": ("history-dependent serialized outer liquid heights"
                                               if case in ORACLE_ONLY_CASES else None),
                          "adt_bytes": len(authored_adt(case)),
                          "adt_sha256": sha(authored_adt(case)),
-                         "map_bytes": len(raw), "map_sha256": sha(raw)})
+                         "map_bytes": len(raw), "map_sha256": sha(raw)}
+        if case in HISTORY_CASES:
+            product["requires_proven_history"] = True
+        products.append(product)
     manifest = {
         "schema": 2, "source_revision": PIN,
         "configuration": "ad -f 0; dry and Classic MCLQ authored cells",
@@ -376,6 +422,16 @@ def generate(core, destination):
             "independent_predecessors": ["liquid_water_flat", "liquid_ocean_flat"],
             "requirement": "Every admitted output is byte-identical after either source history",
             "oracle_only_pairs": [["liquid_stale_edge_a", "liquid_stale_edge_b"]],
+        },
+        "history_closure": {
+            "cases": list(HISTORY_CASES),
+            "history_independent_seeds": list(HISTORY_SEED_CASES),
+            "authored_shape": {"offset_x": 47, "offset_y": 0, "width": 79, "height": 129,
+                               "missing_samples": 61, "first_missing": [65, 128],
+                               "last_missing": [125, 128]},
+            "initial_state": "Fresh executable process; source static positive-zero initialization",
+            "history_order": "Listed predecessors run before selected case in the same process",
+            "scope": "Direct ConvertADT history only; no Map.dbc/WDT traversal or MPQ absence proof",
         },
         "common_files": {fixture_name(name): {"bytes": len(data), "sha256": sha(data)}
                          for name, data in authored_common().items()},
