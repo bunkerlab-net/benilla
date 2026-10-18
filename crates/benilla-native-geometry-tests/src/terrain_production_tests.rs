@@ -679,11 +679,14 @@ fn captured_liquid_source_uses_existing_consumer_and_preserves_private_export_bo
         );
         let manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(output.join("terrain.json")).unwrap()).unwrap();
-        assert_eq!(manifest["format"], "benilla-terrain-production-v2");
+        assert_eq!(manifest["format"], "benilla-terrain-production-v3");
         assert_eq!(
             manifest["writer_policy"],
-            "cmangos-ad-f0-selected-tile-owned-liquid-v2"
+            "cmangos-ad-f0-boundary-history-closure-v3"
         );
+        // These four selected tiles own every emitted height; v3 therefore
+        // records no additional absent-member dependencies for their history.
+        assert_eq!(manifest["absent_members"], serde_json::json!([]));
         assert_eq!(manifest["source_epoch"], epoch);
         assert_eq!(manifest["gameplay_admitted"], false);
         assert_eq!(manifest["live_install_lease"], false);
