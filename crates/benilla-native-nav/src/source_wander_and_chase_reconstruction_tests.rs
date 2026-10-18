@@ -388,16 +388,45 @@ fn dual_replay_shares_one_fresh_query_with_independent_constructors_and_exact_co
                     assert_eq!(retained.check_query(&original.query), Err(Error::Identity));
                     (0, None)
                 }
+                SourceChaseFixedCacheStage::PreSelection {
+                    operation,
+                    retained,
+                } => {
+                    assert_eq!(retained.current_selected(), operation.ordinal != 0);
+                    assert_eq!(retained.slot(), SLOT);
+                    assert_eq!(
+                        retained.check_query(observed_query.borrow().as_ref().unwrap()),
+                        Ok(())
+                    );
+                    assert_eq!(retained.check_query(&original.query), Err(Error::Identity));
+                    assert_eq!(
+                        chase_recipe
+                            .operations
+                            .iter()
+                            .find(|saved| saved.ordinal == operation.ordinal),
+                        Some(operation)
+                    );
+                    (1, Some(operation.ordinal))
+                }
                 SourceChaseFixedCacheStage::Selected { ordinal, selected } => {
                     assert_eq!(
                         selected.check_allocation(observed_query.borrow().as_ref().unwrap()),
                         Ok(())
                     );
-                    (1, Some(ordinal))
+                    let operation = chase_recipe
+                        .operations
+                        .iter()
+                        .find(|op| op.ordinal == ordinal)
+                        .unwrap();
+                    assert_eq!(
+                        (selected.from(), selected.to()),
+                        (operation.from, operation.to)
+                    );
+                    (2, Some(ordinal))
                 }
                 SourceChaseFixedCacheStage::Ready { ordinal, presence } => {
                     assert!(presence.both_present());
-                    (2, Some(ordinal))
+                    (3, Some(ordinal))
                 }
                 SourceChaseFixedCacheStage::Terminal { ordinal, terminal } => {
                     let state = terminal.compatibility();
@@ -408,7 +437,7 @@ fn dual_replay_shares_one_fresh_query_with_independent_constructors_and_exact_co
                         assert_eq!(state.before_active_len(), 0);
                     }
                     assert_eq!(terminal.path_type(), 1);
-                    (3, Some(ordinal))
+                    (4, Some(ordinal))
                 }
             };
             events.borrow_mut().push((1, kind, ordinal));
@@ -423,7 +452,7 @@ fn dual_replay_shares_one_fresh_query_with_independent_constructors_and_exact_co
             }))
             .chain(std::iter::once((1, 0, None)))
             .chain(chase_recipe.operations.iter().flat_map(|operation| {
-                (1..=3).map(move |stage| (1, stage, Some(operation.ordinal)))
+                (1..=4).map(move |stage| (1, stage, Some(operation.ordinal)))
             }))
             .collect();
     assert_eq!(*events.borrow(), expected);
@@ -584,7 +613,7 @@ fn every_observer_rejection_cancels_the_pair_without_partial_output_and_retry_is
     let chase_challenge = SourceChaseFixedCacheChallenge::new();
     let expected = reconstruct(&original, &wander_challenge, &chase_challenge);
     let wander_stages = 1 + 3 * wander_recipe.operations.len();
-    let total_stages = wander_stages + 1 + 3 * chase_recipe.operations.len();
+    let total_stages = wander_stages + 1 + 4 * chase_recipe.operations.len();
     for rejected in 0..total_stages {
         let calls = RefCell::new(0);
         let reached = || {
@@ -687,7 +716,7 @@ fn deadline_before_allocation_and_after_every_observed_stage_never_publishes_a_p
         SourceWanderAndChaseReconstructionError::Native(Error::Deadline)
     );
     assert_eq!(*calls.borrow(), 0);
-    let total_stages = 2 + 3 * (wander_recipe.operations.len() + chase_recipe.operations.len());
+    let total_stages = 2 + 3 * wander_recipe.operations.len() + 4 * chase_recipe.operations.len();
     for expired_stage in 0..total_stages {
         let deadline = Instant::now() + Duration::from_millis(250);
         let calls = RefCell::new(0);
@@ -788,7 +817,7 @@ fn missing_tiles_and_malformed_inputs_stop_at_the_reached_boundary_and_keep_orig
             if lineage == 0 {
                 [3, 0]
             } else {
-                [1 + 3 * wander.operations.len(), 2]
+                [1 + 3 * wander.operations.len(), 3]
             }
         );
         assert_pair(

@@ -579,6 +579,7 @@ impl SourceSamePolygonRouteProvider {
                 constructor: Some(saved.constructor),
                 operations: saved.operations,
             }),
+            chase_reconstruction: None,
         });
         self.check_commit_binding(session, &boundary)
             .map_err(|_| NativeError::AuthorityBinding)?;

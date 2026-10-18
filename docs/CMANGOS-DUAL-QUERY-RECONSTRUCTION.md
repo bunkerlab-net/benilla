@@ -54,8 +54,10 @@ inventory and configuration, each exact creature/construction identity, original
 cache revision and accepted calculation head. It must compare complete native
 terminal semantics and publish the provider, runtime and durable store together.
 The source Chase straight-selection gate precedes current-query selection on
-every calculation. Owner replay therefore needs a pre-selection validation point
-for each retained operation; observing an already-selected query is too late.
+every calculation. A read-only pre-selection observation point is available
+for every replayed operation, before current-query selection. Owner replay must
+validate its straight-selection gate there; observing an already-selected query
+is too late.
 
 The geometry loader must build its source-query snapshot around the allocation
 returned by this factory after checking exact inventoried bytes and metadata.
@@ -90,7 +92,7 @@ the other. These are native calculation counts, not elapsed gameplay ticks.
 
 The negative controls check foreign equal-byte allocations, old allocations,
 wrong endpoints, independent challenges, malformed recipes and actual unloaded
-tiles. All 19 Wander and 7 Chase observer stages reject independently and retry
+tiles. All 19 Wander and 9 Chase observer stages reject independently and retry
 cleanly; deadline injection covers each stage and never returns a partial pair.
 Compile-fail cases guard pair fabrication, typed role/challenge swaps and access
 to the private loaded-query Chase replay helper. Original source-oracle fixtures

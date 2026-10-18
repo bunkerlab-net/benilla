@@ -488,6 +488,9 @@ struct TerminalDependencies {
 }
 
 #[cfg(test)]
+#[path = "source_route_same_polygon/chase_capture.rs"]
+pub(super) mod chase_capture;
+#[cfg(test)]
 #[path = "source_route_same_polygon/reconstruction.rs"]
 mod reconstruction;
 #[path = "source_route_same_polygon/staged.rs"]
@@ -510,6 +513,8 @@ struct GeneratorCandidates {
     committed: Option<Rc<SamePolygonCandidate>>,
     #[cfg(test)]
     reconstruction: Option<reconstruction::WanderCapture>,
+    #[cfg(test)]
+    chase_reconstruction: Option<chase_capture::ChaseCapture>,
 }
 /// Bound before runtime is driven; consume requests inside its authority callback.
 /// A captured unclaimed event alone does not establish this installation ordering.
@@ -763,6 +768,9 @@ impl SourceSamePolygonRouteProvider {
         // only owners with an accepted calculation; publish after the whole ACK.
         let mut reconstruction: Vec<Option<Option<reconstruction::WanderCapture>>> =
             self.candidates.iter().map(|_| None).collect();
+        #[cfg(test)]
+        let mut chase_reconstruction: Vec<Option<Option<chase_capture::ChaseCapture>>> =
+            self.candidates.iter().map(|_| None).collect();
         for reply in notice.routes() {
             if reply.request.binding.tick != boundary.tick() {
                 return Err(Failure::Binding);
@@ -813,6 +821,9 @@ impl SourceSamePolygonRouteProvider {
                         *staged = None;
                     }
                 }
+                let staged = chase_reconstruction[index]
+                    .get_or_insert_with(|| entry.chase_reconstruction.clone());
+                chase_capture::ChaseCapture::accept(staged, candidate);
             }
             heads[index] = Some(Rc::clone(candidate));
         }
@@ -861,6 +872,9 @@ impl SourceSamePolygonRouteProvider {
             {
                 if let Some(staged) = reconstruction[index].take() {
                     entry.reconstruction = staged;
+                }
+                if let Some(staged) = chase_reconstruction[index].take() {
+                    entry.chase_reconstruction = staged;
                 }
             }
         }
@@ -1323,6 +1337,10 @@ impl SourceSamePolygonRouteProvider {
                 reconstruction: (event.constructor_kind()
                     == motion::PathfinderConstructorKind::WanderInitialized)
                     .then(reconstruction::WanderCapture::default),
+                #[cfg(test)]
+                chase_reconstruction: (event.constructor_kind()
+                    == motion::PathfinderConstructorKind::ChaseLazy)
+                    .then(chase_capture::ChaseCapture::default),
             });
             self.candidates.len() - 1
         };

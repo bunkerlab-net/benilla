@@ -4,6 +4,7 @@
 //! Cached checkpoint reopen remains closed for the Chase/suspended shape.
 use super::{
     route_commit::{authored_conflicts, RouteCommitBoundary, RouteCommitNotice},
+    source_route_same_polygon::chase_capture::ChaseCaptureView,
     wander_component_tests::{self as wander, Consumer},
 };
 use benilla_sim::{creature_ai as ai, creature_ai::movement::Check, creature_motion as motion};
@@ -22,6 +23,7 @@ struct LiveOwner {
     first_event: PathfinderDispatchReceipt,
     selected: bool,
     capture: Option<Vec<u8>>,
+    chase_capture: Option<ChaseCaptureView>,
 }
 impl LiveOwner {
     fn read(consumer: &Consumer, npc: NpcId, construction: motion::QueryBinding) -> Self {
@@ -49,6 +51,10 @@ impl LiveOwner {
                 .providers
                 .route
                 .reconstruction_capture_for(npc, construction),
+            chase_capture: consumer
+                .providers
+                .route
+                .chase_reconstruction_capture_for(npc, construction),
         }
     }
     fn assert_constructor(&self, consumer: &Consumer) {
@@ -78,6 +84,13 @@ impl LiveOwner {
                 .reconstruction_capture_for(self.npc, self.construction),
             self.capture,
         );
+        assert_eq!(
+            consumer
+                .providers
+                .route
+                .chase_reconstruction_capture_for(self.npc, self.construction),
+            self.chase_capture,
+        );
     }
     fn assert_retired(&self, consumer: &Consumer) {
         assert!(consumer
@@ -94,6 +107,11 @@ impl LiveOwner {
             .providers
             .route
             .reconstruction_capture_for(self.npc, self.construction)
+            .is_none());
+        assert!(consumer
+            .providers
+            .route
+            .chase_reconstruction_capture_for(self.npc, self.construction)
             .is_none());
     }
 }
@@ -127,6 +145,31 @@ fn acknowledge_exact(world: &NativeWorld, consumer: &mut Consumer) {
     let notice = RouteCommitNotice::capture(world, &consumer.boundary).unwrap();
     let before = committed_owners(consumer);
     let counts_before = counts(consumer);
+    // Include an uncommitted first constructor: a failed whole ACK must not
+    // publish its cold capture merely because its route prefix was valid.
+    let pending_chase: Vec<_> = notice
+        .routes()
+        .iter()
+        .filter_map(|reply| {
+            let request = route(reply);
+            if !matches!(
+                request.kind,
+                motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan
+            ) {
+                return None;
+            }
+            let npc = reply.request.binding.npc.unwrap();
+            let construction = request.pathfinder_dispatch.unwrap().construction_binding();
+            Some((
+                npc,
+                construction,
+                consumer
+                    .providers
+                    .route
+                    .chase_reconstruction_capture_for(npc, construction),
+            ))
+        })
+        .collect();
     if notice
         .boundary()
         .heads()
@@ -137,6 +180,12 @@ fn acknowledge_exact(world: &NativeWorld, consumer: &mut Consumer) {
             authored_conflicts::wrong_suspended_cache(&notice),
             authored_conflicts::wrong_suspended_construction(&notice),
         ];
+        if !notice.routes().is_empty() {
+            invalid.push(authored_conflicts::duplicate_route(&notice));
+        }
+        if !pending_chase.is_empty() {
+            invalid.push(authored_conflicts::without_routes(&notice));
+        }
         if notice
             .boundary()
             .heads()
@@ -154,6 +203,15 @@ fn acknowledge_exact(world: &NativeWorld, consumer: &mut Consumer) {
             assert_eq!(counts(consumer), counts_before);
             for owner in &before {
                 owner.assert_unchanged(consumer);
+            }
+            for (npc, construction, capture) in &pending_chase {
+                assert_eq!(
+                    consumer
+                        .providers
+                        .route
+                        .chase_reconstruction_capture_for(*npc, *construction),
+                    *capture
+                );
             }
         }
     }
@@ -222,6 +280,22 @@ fn reject_and_retry(
     assert_eq!(consumer.boundary, boundary);
     for owner in &owners {
         owner.assert_unchanged(consumer);
+    }
+    for reply in &consumer.route_replies[route_floor..] {
+        let request = route(reply);
+        if request.kind == motion::RouteKind::ChaseInitial {
+            assert!(
+                consumer
+                    .providers
+                    .route
+                    .chase_reconstruction_capture_for(
+                        reply.request.binding.npc.unwrap(),
+                        request.pathfinder_dispatch.unwrap().construction_binding()
+                    )
+                    .is_none(),
+                "failed initial Chase never publishes constructor/cold capture"
+            );
+        }
     }
     // Provisional constructors may stay alive for exact retry. Only the accepted
     // commit boundary owns heads; rollback never promotes the staged proposal.
@@ -354,6 +428,7 @@ fn enter_chase(
         suspended.capture.is_some(),
         "accepted live Wander reconstruction capture"
     );
+    assert!(suspended.chase_capture.is_none());
     consumer.allow_chase = true;
     consumer.other.visibility = Some(Check::Passed);
     let record = reject_and_retry(world, consumer, None);
@@ -370,6 +445,12 @@ fn enter_chase(
         chase.capture.is_none(),
         "Wander capture does not certify Chase"
     );
+    let initial = record
+        .replies
+        .iter()
+        .find(|reply| route_kind(reply) == Some(motion::RouteKind::ChaseInitial))
+        .unwrap();
+    assert_chase_capture(&chase, &[&initial.request]);
     assert!(record.replies.iter().any(|reply| matches!(
         &reply.request.query, Query::SourceMotion(MotionQuery::Route(route))
             if route.request.kind == motion::RouteKind::ChaseInitial
@@ -378,6 +459,78 @@ fn enter_chase(
     assert_shape(consumer, Some(&chase), Some(&suspended));
     assert_suspended_normal_head(world, &default, motion::RouteKind::ChaseInitial);
     (default, suspended, chase)
+}
+
+fn route_kind(reply: &AuthorityReply) -> Option<motion::RouteKind> {
+    match &reply.request.query {
+        Query::SourceMotion(MotionQuery::Route(route)) => Some(route.request.kind),
+        _ => None,
+    }
+}
+
+fn assert_chase_capture(owner: &LiveOwner, accepted: &[&AuthorityRequest]) {
+    let capture = owner
+        .chase_capture
+        .as_ref()
+        .expect("actual accepted Chase capture");
+    assert_eq!(capture.native.operation_count, owner.cache.revision);
+    assert_eq!(capture.native.operation_count, accepted.len() as u64);
+    assert_eq!(&capture.constructor, accepted[0]);
+    let expected: Vec<_> = if accepted.len() == 1 {
+        vec![(0, accepted[0])]
+    } else {
+        vec![
+            (0, accepted[0]),
+            (accepted.len() as u64 - 1, *accepted.last().unwrap()),
+        ]
+    };
+    assert_eq!(capture.operations.len(), expected.len());
+    assert_eq!(capture.native.operations.len(), expected.len());
+    for ((saved, native), (ordinal, request)) in capture
+        .operations
+        .iter()
+        .zip(&capture.native.operations)
+        .zip(expected)
+    {
+        assert_eq!(saved.ordinal, ordinal);
+        assert_eq!(native.ordinal, ordinal);
+        assert_eq!(&saved.calculation, request);
+        let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+            unreachable!()
+        };
+        assert_eq!(
+            route
+                .request
+                .prior_cache
+                .as_ref()
+                .map_or(0, |cache| cache.revision),
+            ordinal
+        );
+        assert_eq!(
+            native.from,
+            [
+                route.request.origin.x.bits(),
+                route.request.origin.y.bits(),
+                route.request.origin.z.bits()
+            ]
+        );
+        assert_eq!(
+            native.to,
+            [
+                route.request.goal.x.bits(),
+                route.request.goal.y.bits(),
+                route.request.goal.z.bits()
+            ]
+        );
+        assert_eq!(
+            route
+                .request
+                .pathfinder_dispatch
+                .unwrap()
+                .construction_binding(),
+            owner.construction
+        );
+    }
 }
 
 fn assert_shape(consumer: &Consumer, current: Option<&LiveOwner>, suspended: Option<&LiveOwner>) {
@@ -442,6 +595,135 @@ fn move_target(world: &NativeWorld, index: u32) -> OwnedInput {
 }
 
 #[test]
+fn chase_capture_changed_native_successor_disables_only_the_staged_capture() {
+    let (mut world, mut consumer) =
+        wander::setup_with_profile(Some(0), Some(800), delayed_home_profile);
+    let (_, suspended, first) = enter_chase(&mut world, &mut consumer);
+    for index in 1..=14 {
+        let input = move_target(&world, index);
+        step_input(&mut world, &mut consumer, Some(input));
+    }
+    let current = LiveOwner::read(&consumer, first.npc, first.construction);
+    assert!(current.cache.revision > 1);
+    let checkpoint = world.checkpoint().unwrap();
+    // This is a separately labeled capture-layer probe. Its genuine changed-K
+    // native successor is never submitted as a runtime dispatch or gameplay ACK.
+    super::source_route_same_polygon::chase_capture::tests::assert_changed_native_successor_disables_capture(
+        &consumer.providers.route,
+        first.npc,
+        first.construction,
+    );
+    assert_eq!(world.checkpoint().unwrap(), checkpoint);
+    current.assert_unchanged(&consumer);
+    suspended.assert_unchanged(&consumer);
+    assert_shape(&consumer, Some(&current), Some(&suspended));
+}
+
+#[test]
+fn chase_capture_keeps_actual_accepted_cold_and_final_requests_across_sibling_replans() {
+    let (mut world, mut consumer) = wander::setup_with_profile(Some(0), Some(800), |profile| {
+        delayed_home_profile(profile);
+        profile.npcs[0].ai.pursuit_ms = 120_000;
+    });
+    let (_, suspended, first) = enter_chase(&mut world, &mut consumer);
+    let initial = world
+        .last_tick()
+        .unwrap()
+        .replies
+        .iter()
+        .find(|reply| route_kind(reply) == Some(motion::RouteKind::ChaseInitial))
+        .unwrap()
+        .request
+        .clone();
+    let mut accepted = vec![initial];
+    for index in 1..=80 {
+        let phase = index % 28;
+        let position = if phase <= 14 { phase } else { 28 - phase };
+        let record = if index == 12 {
+            // Produce a genuine native sibling from a failed whole tick, then
+            // accept a different player input at that same runtime boundary.
+            let before = world.checkpoint().unwrap();
+            let committed = LiveOwner::read(&consumer, first.npc, first.construction);
+            let floor = consumer.route_replies.len();
+            consumer.fail_after_movement = true;
+            let input = move_target(&world, position);
+            assert!(world
+                .step(world.state().tick + 1, Some(input), &mut consumer)
+                .is_err());
+            assert_eq!(world.checkpoint().unwrap(), before);
+            committed.assert_unchanged(&consumer);
+            suspended.assert_unchanged(&consumer);
+            let sibling = consumer.route_replies[floor..]
+                .iter()
+                .find(|reply| route_kind(reply) == Some(motion::RouteKind::ChaseReplan))
+                .expect("actual unaccepted native Chase replan")
+                .clone();
+            assert!(consumer
+                .providers
+                .route
+                .candidate_identity(&sibling)
+                .is_some());
+            consumer.fail_after_movement = false;
+            let input = move_target(&world, 14);
+            let record = step_input(&mut world, &mut consumer, Some(input));
+            assert!(!record.replies.contains(&sibling));
+            assert!(consumer
+                .providers
+                .route
+                .candidate_identity(&sibling)
+                .is_none());
+            let capture = consumer
+                .providers
+                .route
+                .chase_reconstruction_capture_for(first.npc, first.construction)
+                .unwrap();
+            assert!(capture
+                .operations
+                .iter()
+                .all(|operation| operation.calculation != sibling.request));
+            record
+        } else {
+            let input = move_target(&world, position);
+            reject_and_retry(&mut world, &mut consumer, Some(input))
+        };
+        accepted.extend(
+            record
+                .replies
+                .iter()
+                .filter(|reply| route_kind(reply) == Some(motion::RouteKind::ChaseReplan))
+                .map(|reply| reply.request.clone()),
+        );
+        let current = LiveOwner::read(&consumer, first.npc, first.construction);
+        assert_chase_capture(&current, &accepted.iter().collect::<Vec<_>>());
+        first.assert_constructor(&consumer);
+        suspended.assert_unchanged(&consumer);
+        assert_shape(&consumer, Some(&current), Some(&suspended));
+    }
+    assert!(
+        accepted.len() >= 3,
+        "cold plus two accepted replans must omit at least one middle operation"
+    );
+    let capture = consumer
+        .providers
+        .route
+        .chase_reconstruction_capture_for(first.npc, first.construction)
+        .unwrap();
+    assert_eq!(capture.operations.len(), 2);
+    assert_eq!(capture.native.operations.len(), 2);
+    assert!(capture.native.operation_count >= 3);
+    assert_eq!(capture.native.operation_count, accepted.len() as u64);
+    assert_eq!(capture.operations[0].ordinal, 0);
+    assert_eq!(capture.operations[1].ordinal, accepted.len() as u64 - 1);
+    for omitted in &accepted[1..accepted.len() - 1] {
+        assert!(capture
+            .operations
+            .iter()
+            .all(|operation| operation.calculation != *omitted));
+    }
+    assert_cached_reopen_closed(&world, &consumer);
+}
+
+#[test]
 fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
     let (mut world, mut consumer) =
         wander::setup_with_profile(Some(0), Some(800), delayed_home_profile);
@@ -493,6 +775,7 @@ fn live_suspended_wander_survives_chase_replan_and_home_until_default_reset() {
             let next = LiveOwner::read(&consumer, npc, chase.construction);
             assert_ne!(next.candidate, chase.candidate);
             chase = next;
+            assert_chase_capture(&chase, &[&initial_reply.request, &reply.request]);
             replan_ticks.push(world.state().tick);
             assert_suspended_normal_head(&world, &default, motion::RouteKind::ChaseReplan);
         }
@@ -951,6 +1234,7 @@ fn complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers(
         for (old, fresh) in [(&suspended, &fresh_suspended), (&chase, &fresh_chase)] {
             assert_eq!(fresh.cache, old.cache);
             assert_eq!(fresh.capture, old.capture);
+            assert_eq!(fresh.chase_capture, old.chase_capture);
             assert_ne!(fresh.provider, old.provider);
             assert_ne!(fresh.candidate, old.candidate);
             assert!(!fresh.first_event.same_live_dispatch(&old.first_event));

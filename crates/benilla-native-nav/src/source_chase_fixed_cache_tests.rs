@@ -380,14 +380,39 @@ fn full_4097_operation_chase_replays_two_inputs_on_fresh_query_and_continues_exa
                         assert_eq!(retained.check_query(&source), Err(Error::Identity));
                         reached.push((0, None));
                     }
+                    SourceChaseFixedCacheStage::PreSelection {
+                        operation,
+                        retained,
+                    } => {
+                        assert_eq!(retained.current_selected(), operation.ordinal != 0);
+                        assert_eq!(retained.slot(), SLOT);
+                        assert_eq!(retained.check_query(&source), Err(Error::Identity));
+                        assert_eq!(
+                            recipe
+                                .operations
+                                .iter()
+                                .find(|saved| saved.ordinal == operation.ordinal),
+                            Some(operation)
+                        );
+                        reached.push((1, Some(operation.ordinal)));
+                    }
                     SourceChaseFixedCacheStage::Selected { ordinal, selected } => {
                         assert_eq!(selected.slot(), SLOT);
                         assert_eq!(final_head.check_query(selected), Err(Error::Identity));
-                        reached.push((1, Some(ordinal)));
+                        let operation = recipe
+                            .operations
+                            .iter()
+                            .find(|op| op.ordinal == ordinal)
+                            .unwrap();
+                        assert_eq!(
+                            (selected.from(), selected.to()),
+                            (operation.from, operation.to)
+                        );
+                        reached.push((2, Some(ordinal)));
                     }
                     SourceChaseFixedCacheStage::Ready { ordinal, presence } => {
                         assert!(presence.both_present());
-                        reached.push((2, Some(ordinal)));
+                        reached.push((3, Some(ordinal)));
                     }
                     SourceChaseFixedCacheStage::Terminal { ordinal, terminal } => {
                         assert_normal(terminal);
@@ -396,7 +421,7 @@ fn full_4097_operation_chase_replays_two_inputs_on_fresh_query_and_continues_exa
                             &format!("fixed_replay_{flags}_{suffix}"),
                             terminal,
                         );
-                        reached.push((3, Some(ordinal)));
+                        reached.push((4, Some(ordinal)));
                     }
                 }
                 Ok(())
@@ -410,9 +435,11 @@ fn full_4097_operation_chase_replays_two_inputs_on_fresh_query_and_continues_exa
                 (1, Some(0)),
                 (2, Some(0)),
                 (3, Some(0)),
+                (4, Some(0)),
                 (1, Some(LONG_COUNT - 1)),
                 (2, Some(LONG_COUNT - 1)),
                 (3, Some(LONG_COUNT - 1)),
+                (4, Some(LONG_COUNT - 1)),
             ]
         );
         assert!(reconstructed.matches_challenge(&challenge));
@@ -1059,7 +1086,7 @@ fn deadline_and_observer_refusal_publish_no_certificate_and_fresh_retry_still_ma
         SourceChaseFixedCacheError::Native(SourceSamePolygonError::Boundary(Error::Deadline))
     );
     assert_eq!(calls, 0);
-    for rejected_stage in 0..7 {
+    for rejected_stage in 0..1 + 4 * recipe.operations.len() {
         let mut calls = 0;
         assert_eq!(
             SourceMapQuery::reconstruct_chase_fixed_cache_observed(
@@ -1088,6 +1115,172 @@ fn deadline_and_observer_refusal_publish_no_certificate_and_fresh_retry_still_ma
         assert!(retry.matches_challenge(&challenge));
         assert_eq!(retry.witness().recipe().unwrap(), recipe);
     }
+}
+
+#[test]
+fn deadline_after_every_chase_observation_stops_before_the_next_stage() {
+    let recipe = two_operation_recipe();
+    let challenge = SourceChaseFixedCacheChallenge::new();
+    let expected = reconstruct(&recipe, &challenge).unwrap();
+    for expired_stage in 0..1 + 4 * recipe.operations.len() {
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let mut calls = 0;
+        let result = SourceMapQuery::reconstruct_chase_fixed_cache_observed(
+            SLOT,
+            PARAMS,
+            &tiles(),
+            &recipe,
+            &challenge,
+            deadline,
+            |_| {
+                let index = calls;
+                calls += 1;
+                if index == expired_stage {
+                    std::thread::sleep(
+                        deadline.saturating_duration_since(Instant::now())
+                            + Duration::from_millis(1),
+                    );
+                }
+                Ok(())
+            },
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            SourceChaseFixedCacheError::Native(SourceSamePolygonError::Boundary(Error::Deadline)),
+            "expired stage {expired_stage}"
+        );
+        assert_eq!(
+            calls,
+            expired_stage + 1,
+            "no observation after the expired stage"
+        );
+        let retry = reconstruct(&recipe, &challenge).unwrap();
+        assert_same_actual_operation(expected.terminal(), retry.terminal());
+        assert!(retry.matches_challenge(&challenge));
+        assert_eq!(retry.witness().recipe().unwrap(), recipe);
+    }
+}
+
+#[test]
+fn initial_and_retained_gate_refusal_precede_selection_and_leave_inert_inputs_unchanged() {
+    let recipe = two_operation_recipe();
+    let original = recipe.encode().unwrap();
+    let challenge = SourceChaseFixedCacheChallenge::new();
+    let expected = reconstruct(&recipe, &challenge).unwrap();
+    for (rejected_index, rejected) in recipe.operations.iter().enumerate() {
+        let mut constructors = 0;
+        let mut gates = Vec::new();
+        let mut selections = Vec::new();
+        let mut ready = Vec::new();
+        let mut terminals = Vec::new();
+        let result = SourceMapQuery::reconstruct_chase_fixed_cache_observed(
+            SLOT,
+            PARAMS,
+            &tiles(),
+            &recipe,
+            &challenge,
+            until(),
+            |stage| {
+                match stage {
+                    SourceChaseFixedCacheStage::Constructor { retained } => {
+                        constructors += 1;
+                        assert!(!retained.current_selected());
+                    }
+                    SourceChaseFixedCacheStage::PreSelection {
+                        operation,
+                        retained,
+                    } => {
+                        assert_eq!(constructors, 1);
+                        assert_eq!(operation, &recipe.operations[gates.len()]);
+                        assert_eq!(retained.current_selected(), !terminals.is_empty());
+                        assert_eq!(retained.slot(), recipe.slot);
+                        gates.push(operation.ordinal);
+                        if operation.ordinal == rejected.ordinal {
+                            return Err(SourceChaseFixedCacheError::UnsupportedLineage);
+                        }
+                    }
+                    SourceChaseFixedCacheStage::Selected { ordinal, selected } => {
+                        assert_eq!(gates.last(), Some(&ordinal));
+                        let operation = recipe.operations[selections.len()];
+                        assert_eq!(
+                            (selected.from(), selected.to()),
+                            (operation.from, operation.to)
+                        );
+                        selections.push(ordinal);
+                    }
+                    SourceChaseFixedCacheStage::Ready { ordinal, .. } => ready.push(ordinal),
+                    SourceChaseFixedCacheStage::Terminal { ordinal, .. } => terminals.push(ordinal),
+                }
+                Ok(())
+            },
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            SourceChaseFixedCacheError::UnsupportedLineage
+        );
+        let completed: Vec<_> = recipe.operations[..rejected_index]
+            .iter()
+            .map(|op| op.ordinal)
+            .collect();
+        assert_eq!(selections, completed);
+        assert_eq!(ready, completed);
+        assert_eq!(terminals, completed);
+        assert_eq!(gates.len(), rejected_index + 1);
+        assert_eq!(gates.last(), Some(&rejected.ordinal));
+        assert_eq!(recipe.encode().unwrap(), original);
+        let retry = reconstruct(&recipe, &challenge).unwrap();
+        assert_same_actual_operation(expected.terminal(), retry.terminal());
+        assert_eq!(retry.witness().recipe().unwrap(), recipe);
+    }
+}
+
+#[test]
+fn pinned_source_places_initial_constructor_then_each_straight_gate_before_calculate_selection() {
+    fn assert_order(source: &str, steps: &[&str]) {
+        let mut remaining = source;
+        for step in steps {
+            let position = remaining
+                .find(step)
+                .unwrap_or_else(|| panic!("missing source step {step}"));
+            remaining = &remaining[position + step.len()..];
+        }
+    }
+    // Existing guarded original-source fragments, independently of replay code.
+    let dispatch = String::from_utf8_lossy(include_bytes!(
+        "../tools/straight_path_source_fragments.test-fixture"
+    ));
+    assert_order(
+        &dispatch,
+        &[
+            "bool ChaseMovementGenerator::DispatchSplineToPosition(",
+            "owner.UpdateSplinePosition();",
+            "if (!this->i_path)\n        this->i_path = new PathFinder(&owner);\n\n    bool gen = false;",
+            "if (owner.IsWithinDist3d(x, y, z, 200.f)",
+            "std::abs(owner.GetPositionZ() - z) < 5.f",
+            "owner.IsWithinLOS(x, y, z + i_target->GetCollisionHeight())",
+            "!owner.IsInWater() && !i_target->IsInWater()",
+            "this->i_path->calculate(x, y, z, false, true);",
+        ],
+    );
+    let calculate = String::from_utf8_lossy(include_bytes!(
+        "../tools/tile_presence_source_fragments.test-fixture"
+    ));
+    assert_order(
+        &calculate,
+        &[
+            "bool PathFinder::calculate(Vector3 const& start, Vector3 const& dest,",
+            "IsValidMapCoord(dest.x, dest.y, dest.z)",
+            "IsValidMapCoord(start.x, start.y, start.z)",
+            "setStartPosition(start);",
+            "setEndPosition(dest);",
+            "m_straightLine = straightLine;",
+            "SetCurrentNavMesh();",
+            "hasUnitState(UNIT_STAT_IGNORE_PATHFINDING)",
+            "!HaveTile(start) || !HaveTile(dest)",
+            "updateFilter();",
+            "BuildPolyPath(start, dest);",
+        ],
+    );
 }
 
 #[test]

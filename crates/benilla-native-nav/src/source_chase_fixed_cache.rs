@@ -466,11 +466,36 @@ impl ReconstructedSourceChaseFixedCache {
 }
 
 /// Read-only source-ordered native observations; an observer can only reject.
-/// Constructor/Selected/Ready allow independent constructor, ignore-bit and filter
-/// checks respectively; callbacks cannot supply native state or certify dispatch.
+/// Constructor runs once. PreSelection exposes each retained input and the current
+/// constructor query state before calculate selects it, allowing an independent
+/// straight-gate recheck at TargetedMovementGenerator.cpp:498-504. Selected/Ready
+/// allow ignore-bit and filter checks. Callbacks cannot certify owner dispatch,
+/// supply native state, or alter the operation/constructor being replayed.
+///
+/// ```compile_fail
+/// use benilla_native_nav::SourceChaseFixedCacheStage;
+/// fn select_early(stage: SourceChaseFixedCacheStage<'_>) {
+///     if let SourceChaseFixedCacheStage::PreSelection { operation, retained } = stage {
+///         retained.select_for_calculate(retained.slot(), operation.from, operation.to);
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use benilla_native_nav::SourceChaseFixedCacheStage;
+/// fn replace_input(stage: SourceChaseFixedCacheStage<'_>) {
+///     if let SourceChaseFixedCacheStage::PreSelection { operation, .. } = stage {
+///         operation.to = operation.from;
+///     }
+/// }
+/// ```
 #[derive(Debug)]
 pub enum SourceChaseFixedCacheStage<'a> {
     Constructor {
+        retained: &'a RetainedSourceQuery,
+    },
+    PreSelection {
+        operation: &'a SourceChaseFixedCacheOperation,
         retained: &'a RetainedSourceQuery,
     },
     Selected {
@@ -548,6 +573,12 @@ impl SourceMapQuery {
         let mut witness = SourceChaseFixedCacheWitness::default();
         let mut terminal = None;
         for operation in &recipe.operations {
+            crate::deadline(until)?;
+            // The straight gate follows lazy construction, before each calculate selection.
+            observer(SourceChaseFixedCacheStage::PreSelection {
+                operation,
+                retained: &retained,
+            })?;
             crate::deadline(until)?;
             let selected =
                 retained.select_for_calculate(recipe.slot, operation.from, operation.to)?;

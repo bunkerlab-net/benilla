@@ -99,3 +99,20 @@ continuation and the non-elidable active-flip counterexample. The original
 eleven-row retained fixture and source fragment packages are unchanged; additional
 comparison rows are separate. Normal and UBSan executions produce identical
 comparison bytes. See the [observer contract](../crates/benilla-native-nav/tools/retained_same_poly_README.md).
+
+## Accepted capture and replay ordering
+
+The test-only component route provider stages a separate Chase witness with the actual
+accepted cold/final authority requests and original cache revision. It publishes
+that optional evidence only after the complete route ACK validates. Rejected
+proposals or ACKs cannot advance it; a successfully accepted transition outside
+the fixed-cache domain leaves this constructor unsaveable until replacement.
+Suspended Wander retains its independent capture. Inspection of this evidence
+does not encode a save or grant loaded restore authority.
+
+The native observer reports constructor creation once, then a read-only
+pre-selection stage for every retained operation before selection, tile presence
+and terminal calculation. The source straight gate belongs before selection on
+every calculate, including the retained final input. A rejected or expired gate
+callback cannot reach selection. This hook exposes original inputs and retained
+selection state, not a new permission to install an owner.
