@@ -8,9 +8,9 @@ const MAX_CAPTURE_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Default)]
 pub(super) struct ChaseCapture {
-    native: SourceChaseFixedCacheWitness,
-    constructor: Option<AuthorityRequest>,
-    operations: Vec<ChaseCaptureOperation>,
+    pub(super) native: SourceChaseFixedCacheWitness,
+    pub(super) constructor: Option<AuthorityRequest>,
+    pub(super) operations: Vec<ChaseCaptureOperation>,
 }
 
 /// Inert inspection of the actual accepted cold/final requests and original count.

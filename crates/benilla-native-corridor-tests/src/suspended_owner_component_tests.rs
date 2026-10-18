@@ -387,7 +387,7 @@ fn assert_suspended_normal_head(
     motion::MotionState::restore(state).unwrap();
 }
 
-fn delayed_home_profile(profile: &mut Profile) {
+pub(super) fn delayed_home_profile(profile: &mut Profile) {
     profile.player.start = ai::Point::new(5., 12., 0.).unwrap();
     profile.npcs[0].ai.pursuit_ms = 2500;
     profile.npcs[0].ai.leash_radius = f::real(0.01);

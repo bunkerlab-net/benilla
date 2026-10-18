@@ -62,3 +62,5 @@ mod suspended_owner_component_tests;
 mod reconstruction_component_tests;
 mod staged_wander_tests;
 mod wander_reopen_component_tests;
+
+mod dual_reopen_component_tests;

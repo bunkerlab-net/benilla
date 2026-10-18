@@ -52,63 +52,13 @@ impl PendingWanderReopen {
     /// saved owner and profile. Deserialized dispatches remain without live seals;
     /// successful comparison grants no query, constructor or Route authority.
     pub fn validate_wander_operation(&self, context: &AuthorityRequest) -> Result<(), NativeError> {
-        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
-            return Err(NativeError::AuthorityBinding);
-        };
-        if !matches!(
-            route.request.kind,
-            motion::RouteKind::WanderPrepare | motion::RouteKind::Wander
-        ) {
-            return Err(NativeError::AuthorityBinding);
-        }
-        let receipt = context.validate_saved_pathfinder_dispatch(&self.world.profile)?;
-        let npc = self
-            .world
-            .state
-            .npcs
-            .get(&self.owner.spawn)
-            .ok_or(NativeError::AuthorityBinding)?;
-        let latest = self.head.binding;
-        let now = context
-            .binding
-            .tick
-            .checked_mul(u64::from(self.world.profile.tick_ms))
-            .and_then(|elapsed| self.world.profile.clock_origin_ms.checked_add(elapsed))
-            .ok_or(NativeError::AuthorityBinding)?;
-        if context.binding.world != self.world.state.world
-            || context.binding.npc != Some(self.owner)
-            || context.binding.tick == 0
-            || context.binding.tick > self.world.state.tick
-            || receipt.npc() != self.owner
-            || receipt.constructor_kind() != motion::PathfinderConstructorKind::WanderInitialized
-            || receipt.construction_binding() != self.construction
-            || receipt.dispatch_binding() != route.request.binding
-            || route.request.binding.query_id > latest.query_id
-            || route.request.binding.now_ms != now
-            || route.request.binding.now_ms > latest.now_ms
-            || route.request.target.is_some()
-            || route.target_player_height.is_some()
-            || route.target_player_water.is_some()
-            || npc
-                .source_capabilities
-                .as_ref()
-                .map(CreatureCapabilityState::witness)
-                != Some(&route.owner)
-            || npc
-                .source_collision_width
-                .as_ref()
-                .map(CreatureCollisionWidthState::witness)
-                != route.collision_width.as_ref()
-            || npc
-                .source_collision_height
-                .as_ref()
-                .map(CreatureCollisionHeightState::witness)
-                != route.collision_height.as_ref()
-        {
-            return Err(NativeError::AuthorityBinding);
-        }
-        route.request.validate_wander()?;
-        Ok(())
+        validate_wander_operation(
+            &self.world,
+            self.owner,
+            self.construction,
+            &self.head,
+            context,
+        )
     }
 
     /// Bind the final retained calculation to the exact checkpoint-owned request,
@@ -130,37 +80,7 @@ impl PendingWanderReopen {
         draws: &[Draw; 2],
         request: &motion::WanderRequest,
     ) -> Result<(), NativeError> {
-        let motion::DefaultMovement::Wander { center, radius } = self
-            .world
-            .profile
-            .npc_motion(self.owner.spawn)?
-            .default_movement
-        else {
-            return Err(NativeError::AuthorityBinding);
-        };
-        let motion = self
-            .world
-            .state
-            .npcs
-            .get(&self.owner.spawn)
-            .and_then(|npc| npc.source_motion.as_ref())
-            .ok_or(NativeError::AuthorityBinding)?
-            .motion
-            .snapshot();
-        if request.center != center
-            || request.radius != radius
-            || request.prepared.identity != self.construction.identity
-            || request.prepared.query_id < self.construction.query_id
-            || request.prepared.query_id > motion.query_id
-            || request.prepared.now_ms < self.construction.now_ms
-            || request.prepared.now_ms < self.world.profile.clock_origin_ms
-            || request.prepared.now_ms > self.world.state.now_ms
-            || !(request.prepared.now_ms - self.world.profile.clock_origin_ms)
-                .is_multiple_of(u64::from(self.world.profile.tick_ms))
-        {
-            return Err(NativeError::AuthorityBinding);
-        }
-        validate_draw_pair(&self.world.state, self.owner, draws, request)
+        validate_wander_draws(&self.world, self.owner, self.construction, draws, request)
     }
 
     /// Consume one pending attempt and its genuinely executed native replay.
@@ -184,7 +104,108 @@ impl PendingWanderReopen {
     }
 }
 
-fn validate_wander_head_request(
+pub(super) fn validate_wander_operation(
+    world: &NativeWorld,
+    owner: crate::NpcId,
+    construction: motion::QueryBinding,
+    head: &motion::RouteRequest,
+    context: &AuthorityRequest,
+) -> Result<(), NativeError> {
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return Err(NativeError::AuthorityBinding);
+    };
+    if !matches!(
+        route.request.kind,
+        motion::RouteKind::WanderPrepare | motion::RouteKind::Wander
+    ) {
+        return Err(NativeError::AuthorityBinding);
+    }
+    let receipt = context.validate_saved_pathfinder_dispatch(&world.profile)?;
+    let npc = world
+        .state
+        .npcs
+        .get(&owner.spawn)
+        .ok_or(NativeError::AuthorityBinding)?;
+    let latest = head.binding;
+    let now = context
+        .binding
+        .tick
+        .checked_mul(u64::from(world.profile.tick_ms))
+        .and_then(|elapsed| world.profile.clock_origin_ms.checked_add(elapsed))
+        .ok_or(NativeError::AuthorityBinding)?;
+    if context.binding.world != world.state.world
+        || context.binding.npc != Some(owner)
+        || context.binding.tick == 0
+        || context.binding.tick > world.state.tick
+        || receipt.npc() != owner
+        || receipt.constructor_kind() != motion::PathfinderConstructorKind::WanderInitialized
+        || receipt.construction_binding() != construction
+        || receipt.dispatch_binding() != route.request.binding
+        || route.request.binding.query_id > latest.query_id
+        || route.request.binding.now_ms != now
+        || route.request.binding.now_ms > latest.now_ms
+        || route.request.target.is_some()
+        || route.target_player_height.is_some()
+        || route.target_player_water.is_some()
+        || npc
+            .source_capabilities
+            .as_ref()
+            .map(CreatureCapabilityState::witness)
+            != Some(&route.owner)
+        || npc
+            .source_collision_width
+            .as_ref()
+            .map(CreatureCollisionWidthState::witness)
+            != route.collision_width.as_ref()
+        || npc
+            .source_collision_height
+            .as_ref()
+            .map(CreatureCollisionHeightState::witness)
+            != route.collision_height.as_ref()
+    {
+        return Err(NativeError::AuthorityBinding);
+    }
+    route.request.validate_wander()?;
+    Ok(())
+}
+
+pub(super) fn validate_wander_draws(
+    world: &NativeWorld,
+    owner: crate::NpcId,
+    construction: motion::QueryBinding,
+    draws: &[Draw; 2],
+    request: &motion::WanderRequest,
+) -> Result<(), NativeError> {
+    let motion::DefaultMovement::Wander { center, radius } =
+        world.profile.npc_motion(owner.spawn)?.default_movement
+    else {
+        return Err(NativeError::AuthorityBinding);
+    };
+    let motion = world
+        .state
+        .npcs
+        .get(&owner.spawn)
+        .and_then(|npc| npc.source_motion.as_ref())
+        .ok_or(NativeError::AuthorityBinding)?
+        .motion
+        .snapshot();
+    if request.center != center
+        || request.radius != radius
+        || request.prepared.identity != construction.identity
+        || request.prepared.query_id < construction.query_id
+        || request.prepared.query_id > motion.query_id
+        || request.prepared.now_ms < construction.now_ms
+        || request.prepared.now_ms < world.profile.clock_origin_ms
+        || request.prepared.now_ms > world.state.now_ms
+        || !(request.prepared.now_ms - world.profile.clock_origin_ms)
+            .is_multiple_of(u64::from(world.profile.tick_ms))
+    {
+        return Err(NativeError::AuthorityBinding);
+    }
+    validate_draw_pair(&world.state, owner, draws, request)
+}
+
+pub(super) fn validate_wander_head_request(
     request: &motion::RouteRequest,
     expected: &motion::RouteRequest,
 ) -> Result<(), NativeError> {
@@ -238,7 +259,7 @@ fn validate_draw_pair(
     Ok(())
 }
 
-fn validate_certificate(
+pub(super) fn validate_certificate(
     certificate: &ReconstructedSourceWanderTerminal,
     challenge: &SourceWanderReconstructionChallenge,
     revision: u64,
@@ -291,7 +312,7 @@ impl NativeWorld {
 }
 
 type PendingShape = (
-    PendingWanderRestore,
+    PendingMotionRestore,
     motion::QueryBinding,
     motion::PathFinderCache,
     motion::RouteRequest,
@@ -389,7 +410,7 @@ fn pending_wander_shape(
             no_path_reason,
         };
         selected = Some((
-            PendingWanderRestore {
+            PendingMotionRestore {
                 npc: npc.id,
                 snapshot: source.clone(),
             },

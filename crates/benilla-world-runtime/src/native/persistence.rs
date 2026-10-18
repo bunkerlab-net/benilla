@@ -6,16 +6,21 @@ use serde::{Deserialize, Serialize};
 mod wander_reopen;
 #[cfg(any(test, feature = "synthetic-native-tests"))]
 pub use wander_reopen::PendingWanderReopen;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+#[path = "dual_owner_reopen.rs"]
+mod dual_owner_reopen;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub use dual_owner_reopen::PendingWanderAndChaseReopen;
 
 /// One exact snapshot may be structurally restored only inside an unpublished
 /// pending owner. This is not a native certificate or a public restore policy.
 #[cfg(any(test, feature = "synthetic-native-tests"))]
-pub(super) struct PendingWanderRestore {
+pub(super) struct PendingMotionRestore {
     npc: crate::NpcId,
     snapshot: NpcMotionSnapshot,
 }
 #[cfg(any(test, feature = "synthetic-native-tests"))]
-impl PendingWanderRestore {
+impl PendingMotionRestore {
     pub(super) fn matches(&self, npc: crate::NpcId, snapshot: &NpcMotionSnapshot) -> bool {
         self.npc == npc && self.snapshot == *snapshot
     }
@@ -488,7 +493,7 @@ impl NativeWorld {
     fn restore_synthetic_checkpoint(
         profile: Profile,
         checkpoint: Checkpoint,
-        pending_wander: Option<&PendingWanderRestore>,
+        pending_motion: Option<&PendingMotionRestore>,
     ) -> Result<Self, NativeError> {
         checkpoint.state.validate_source_history_budget(&profile)?;
         profile.validate()?;
@@ -748,8 +753,8 @@ impl NativeWorld {
             let source_motion = n
                 .source_motion
                 .map(|m| {
-                    if let Some(pending) = pending_wander.filter(|p| p.npc == n.id) {
-                        return NpcMotion::restore_pending_wander(
+                    if let Some(pending) = pending_motion.filter(|p| p.npc == n.id) {
+                        return NpcMotion::restore_pending_motion(
                             m,
                             &profile,
                             &ai,

@@ -396,14 +396,14 @@ impl NpcMotion {
         Self::restore_with_generation(s, profile, ai, now, npc, Some(generation), None)
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
-    pub(super) fn restore_pending_wander(
+    pub(super) fn restore_pending_motion(
         s: NpcMotionSnapshot,
         profile: &Profile,
         ai: &ai::SoloCreatureAi,
         now: u64,
         npc: crate::NpcId,
         generation: Option<&CreatureGenerationOwner>,
-        pending: &super::persistence::PendingWanderRestore,
+        pending: &super::persistence::PendingMotionRestore,
     ) -> Result<Self, NativeError> {
         Self::restore_with_generation(s, profile, ai, now, npc, generation, Some(pending))
     }
@@ -415,7 +415,7 @@ impl NpcMotion {
         now: u64,
         npc: crate::NpcId,
         generation: Option<&CreatureGenerationOwner>,
-        pending: Option<&super::persistence::PendingWanderRestore>,
+        pending: Option<&super::persistence::PendingMotionRestore>,
     ) -> Result<Self, NativeError> {
         let Some(g) = &profile.source_motion else {
             return Err(NativeError::InvalidCheckpoint);

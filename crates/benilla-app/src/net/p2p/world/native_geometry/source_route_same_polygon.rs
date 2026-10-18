@@ -490,6 +490,9 @@ struct TerminalDependencies {
 #[cfg(test)]
 #[path = "source_route_same_polygon/chase_capture.rs"]
 pub(super) mod chase_capture;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "source_route_same_polygon/dual_reconstruction.rs"]
+pub(super) mod dual_reconstruction;
 #[cfg(test)]
 #[path = "source_route_same_polygon/reconstruction.rs"]
 mod reconstruction;
@@ -970,6 +973,10 @@ impl SourceSamePolygonRouteProvider {
             .flat_map(|entry| &entry.proposals)
             .find(|candidate| candidate.context == reply.request)
             .map(|candidate| Rc::as_ptr(candidate) as usize)
+    }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn shares_native_query(&self, other: &Self) -> bool {
+        self.queries.shares_native_query(&other.queries)
     }
     pub(super) fn raw_geometry(&self) -> [u8; 32] {
         self.binding.raw_geometry

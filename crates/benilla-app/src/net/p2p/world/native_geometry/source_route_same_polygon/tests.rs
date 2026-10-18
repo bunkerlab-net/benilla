@@ -24,7 +24,7 @@ fn point(x: f32, y: f32, z: f32) -> Point {
 pub(super) fn until() -> Instant {
     Instant::now() + Duration::from_secs(10)
 }
-pub(super) fn config() -> SamePolygonConfiguration {
+pub(crate) fn config() -> SamePolygonConfiguration {
     SamePolygonConfiguration {
         normalization: SourceSamePolygonConfig {
             normalize_z: false,

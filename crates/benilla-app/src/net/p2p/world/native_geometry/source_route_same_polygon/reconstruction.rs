@@ -10,45 +10,45 @@ use benilla_world_runtime::native::{Draw, DrawPurpose, NativeError, NativeWorld}
 use serde::{Deserialize, Serialize};
 
 const MAX_RECIPE_BYTES: usize = 8 * 1024 * 1024;
-const RECIPE_VERSION: u32 = 3;
+pub(super) const RECIPE_VERSION: u32 = 3;
 
 #[derive(Clone, Default)]
 pub(super) struct WanderCapture {
-    native: SourceWanderWitness,
-    constructor: Option<AuthorityRequest>,
-    operations: Vec<SavedOperation>,
+    pub(super) native: SourceWanderWitness,
+    pub(super) constructor: Option<AuthorityRequest>,
+    pub(super) operations: Vec<SavedOperation>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SavedOperation {
-    ordinal: u64,
-    preparation: AuthorityRequest,
-    calculation: AuthorityRequest,
-    draws: [Draw; 2],
+pub(super) struct SavedOperation {
+    pub(super) ordinal: u64,
+    pub(super) preparation: AuthorityRequest,
+    pub(super) calculation: AuthorityRequest,
+    pub(super) draws: [Draw; 2],
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SavedRecipe {
-    version: u32,
-    world: [u8; 16],
-    profile: [u8; 32],
-    geometry: [u8; 32],
-    checkpoint: [u8; 32],
-    inventory: [u8; 32],
-    epoch: [u8; 32],
-    navigation: [u8; 32],
-    configuration: [u8; 32],
-    npc: NpcId,
-    construction: motion::QueryBinding,
-    native_version: u32,
-    compatibility_version: u32,
-    slot: [u32; 2],
-    capacity: u32,
-    normalization: [bool; 2],
-    filter: [u16; 2],
-    operation_count: u64,
-    constructor: AuthorityRequest,
-    operations: Vec<SavedOperation>,
+pub(super) struct SavedRecipe {
+    pub(super) version: u32,
+    pub(super) world: [u8; 16],
+    pub(super) profile: [u8; 32],
+    pub(super) geometry: [u8; 32],
+    pub(super) checkpoint: [u8; 32],
+    pub(super) inventory: [u8; 32],
+    pub(super) epoch: [u8; 32],
+    pub(super) navigation: [u8; 32],
+    pub(super) configuration: [u8; 32],
+    pub(super) npc: NpcId,
+    pub(super) construction: motion::QueryBinding,
+    pub(super) native_version: u32,
+    pub(super) compatibility_version: u32,
+    pub(super) slot: [u32; 2],
+    pub(super) capacity: u32,
+    pub(super) normalization: [bool; 2],
+    pub(super) filter: [u16; 2],
+    pub(super) operation_count: u64,
+    pub(super) constructor: AuthorityRequest,
+    pub(super) operations: Vec<SavedOperation>,
 }
 impl WanderCapture {
     pub(super) fn record(
@@ -98,7 +98,7 @@ impl WanderCapture {
     }
 }
 impl SavedRecipe {
-    fn native(&self) -> Result<SourceWanderReconstructionRecipe, Failure> {
+    pub(super) fn native(&self) -> Result<SourceWanderReconstructionRecipe, Failure> {
         let operations = self
             .operations
             .iter()
@@ -265,7 +265,7 @@ impl SourceSamePolygonRouteProvider {
 /// Created only after the pending runtime consumed matching actual native proof.
 /// A checkpoint, bool or ref vector cannot construct this app-only capability.
 pub(in super::super) struct ReopenBoundaryProof {
-    checkpoint: benilla_world_runtime::native::Checkpoint,
+    pub(super) checkpoint: benilla_world_runtime::native::Checkpoint,
 }
 impl ReopenBoundaryProof {
     pub(in super::super) fn validate(&self, world: &NativeWorld) -> Result<(), NativeError> {

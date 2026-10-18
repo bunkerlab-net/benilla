@@ -62,6 +62,38 @@ pub(super) struct ReconstructedConstructorOrigin {
     recipe: benilla_native_nav::SourceWanderReconstructionRecipe,
 }
 
+/// Prepared before the pending world consumes its intact native pair. The guard
+/// retains that exact allocation; there is no provider identity before adoption.
+/// Private fields and move-only ownership prevent a decoded or duplicated plan.
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(super) struct ReconstructedConstructorPairPlan {
+    query: RetainedSourceQuery,
+    world: [u8; 16],
+    profile: Profile,
+    npc: NpcId,
+    snapshot: SnapshotBinding,
+    configuration: [u8; 32],
+    wander_construction: QueryBinding,
+    chase_construction: QueryBinding,
+    wander_first: PathfinderDispatchReceipt,
+    chase_first: PathfinderDispatchReceipt,
+    wander_challenge: benilla_native_nav::SourceWanderReconstructionChallenge,
+    chase_challenge: benilla_native_nav::SourceChaseFixedCacheChallenge,
+    wander_semantic: benilla_native_nav::SourceWanderSemanticState,
+    chase_semantic: benilla_native_nav::SourceChaseSemanticState,
+    wander_recipe: benilla_native_nav::SourceWanderReconstructionRecipe,
+    chase_recipe: benilla_native_nav::SourceChaseFixedCacheRecipe,
+}
+
+/// Independent replayed owners returned only after both registry entries exist.
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(super) struct InstalledConstructorPair {
+    pub(super) wander_terminal: benilla_native_nav::LoadedSourceWanderTerminal,
+    pub(super) wander_witness: benilla_native_nav::SourceWanderWitness,
+    pub(super) chase_terminal: benilla_native_nav::LoadedSourceSamePolygon,
+    pub(super) chase_witness: benilla_native_nav::SourceChaseFixedCacheWitness,
+}
+
 /// This borrow is only the query fields of the actual modeled owner constructor.
 /// It is neither createFilter evidence nor proof that a whole calculate ran.
 pub(crate) struct SourceConstructorQuery<'a> {
@@ -222,6 +254,14 @@ impl SourcePathfinderQueryProvider {
     pub(super) fn nav_query(&self) -> &benilla_native_nav::SourceMapQuery {
         self.navigation.query()
     }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn shares_native_query(&self, other: &Self) -> bool {
+        self.navigation
+            .query()
+            .retain_default()
+            .check_query(other.navigation.query())
+            .is_ok()
+    }
     #[cfg(test)]
     pub(super) fn snapshot_binding(&self) -> SnapshotBinding {
         self.navigation.binding()
@@ -229,6 +269,273 @@ impl SourcePathfinderQueryProvider {
     #[cfg(test)]
     pub(super) fn configuration_binding(&self) -> [u8; 32] {
         self.navigation.configuration_binding()
+    }
+
+    /// Validate both historical constructors while the runtime pending and the
+    /// fresh native pair are still intact. The inventory stage cannot swap its
+    /// immutable metadata or supply a replacement query after this preparation.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn prepare_pair(
+        pending: &benilla_world_runtime::native::PendingWanderAndChaseReopen,
+        profile: &Profile,
+        geometry: &super::products::source_query::SourceQueryGeometry,
+        first_wander: &AuthorityRequest,
+        first_chase: &AuthorityRequest,
+        pair: &benilla_native_nav::ReconstructedSourceWanderAndChase,
+    ) -> Result<ReconstructedConstructorPairPlan, ConstructorQueryError> {
+        use benilla_sim::creature_motion as motion;
+        profile
+            .validate()
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        pending
+            .validate_pair(pair)
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        pending
+            .validate_wander_operation(first_wander)
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        pending
+            .validate_chase_operation(first_chase)
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        let Query::SourceMotion(MotionQuery::Route(wander)) = &first_wander.query else {
+            return Err(ConstructorQueryError::Binding);
+        };
+        let Query::SourceMotion(MotionQuery::Route(chase)) = &first_chase.query else {
+            return Err(ConstructorQueryError::Binding);
+        };
+        let wander_first = wander
+            .pathfinder_dispatch
+            .as_ref()
+            .ok_or(ConstructorQueryError::Binding)?;
+        let chase_first = chase
+            .pathfinder_dispatch
+            .as_ref()
+            .ok_or(ConstructorQueryError::Binding)?;
+        let checkpoint = pending.checkpoint().identity();
+        let snapshot = geometry.navigation_binding();
+        let configuration = profile
+            .pathfinder_configuration()
+            .ok_or(ConstructorQueryError::Binding)?;
+        let slot = SourceMapQuerySlot {
+            map_id: profile.map_id,
+            instance_id: configuration.selected().source_instance_id,
+        };
+        let wander_recipe = pair
+            .wander()
+            .witness()
+            .recipe()
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        let chase_recipe = pair
+            .chase()
+            .witness()
+            .recipe()
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        let cold_chase = chase_recipe
+            .operations
+            .first()
+            .ok_or(ConstructorQueryError::Binding)?;
+        fn bits(point: Point) -> [u32; 3] {
+            [point.x.bits(), point.y.bits(), point.z.bits()]
+        }
+        if checkpoint.domain != benilla_world_runtime::native::Domain::SyntheticComponentTest
+            || checkpoint.world == [0; 16]
+            || checkpoint.profile != profile.digest()
+            || snapshot.map != profile.map_id
+            || snapshot.content != profile.content_digest
+            || geometry.configuration_binding() != configuration.binding()
+            || pair.query().slot() != slot
+            || pair.query().query_profile() != QueryProfile::SourceMapInstance1024
+            || pair.query().query_capacity() != 1024
+            || pending.wander_construction().query_id >= pending.chase_construction().query_id
+            || pending.wander_construction().now_ms > pending.chase_construction().now_ms
+            || pending.wander_construction().identity != pending.chase_construction().identity
+            || wander.request.kind != motion::RouteKind::WanderPrepare
+            || !matches!(
+                chase.request.kind,
+                motion::RouteKind::ChaseInitial | motion::RouteKind::ChaseReplan
+            )
+            || wander.request.prior_cache.is_some()
+            || chase.request.prior_cache.is_some()
+            || chase.request.target.is_none()
+            || chase.request.wander.is_some()
+            || chase.request.launch_origin != chase.request.origin
+            || wander_recipe.operation_count != pending.wander_cache().revision
+            || chase_recipe.operation_count != pending.chase_cache().revision
+            || wander_recipe.slot != slot
+            || chase_recipe.slot != slot
+            || cold_chase.ordinal != 0
+            || cold_chase.from != bits(chase.request.origin)
+            || cold_chase.to != bits(chase.request.goal)
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        for (context, route, event, construction, kind, cache) in [
+            (
+                first_wander,
+                wander,
+                wander_first,
+                pending.wander_construction(),
+                motion::PathfinderConstructorKind::WanderInitialized,
+                pending.wander_cache(),
+            ),
+            (
+                first_chase,
+                chase,
+                chase_first,
+                pending.chase_construction(),
+                motion::PathfinderConstructorKind::ChaseLazy,
+                pending.chase_cache(),
+            ),
+        ] {
+            let request = &route.request;
+            let dispatch = request
+                .pathfinder_dispatch
+                .ok_or(ConstructorQueryError::Binding)?;
+            if context.binding.world != checkpoint.world
+                || context.binding.profile != checkpoint.profile
+                || context.binding.npc != Some(pending.owner())
+                || context.binding.tick == 0
+                || context.binding.tick > checkpoint.tick
+                || request.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
+                || event.world() != checkpoint.world
+                || event.npc() != pending.owner()
+                || event.profile_binding() != checkpoint.profile
+                || event.configuration_binding() != geometry.configuration_binding()
+                || event.constructor_kind() != kind
+                || dispatch.constructor_kind() != kind
+                || !event.first_construction()
+                || !dispatch.first_construction()
+                || event.construction_binding() != construction
+                || dispatch.construction_binding() != construction
+                || event.dispatch_binding() != request.binding
+                || cache.binding.identity != construction.identity
+                || cache.binding.owner_generation != pending.owner().generation
+                || cache.binding.inventory != snapshot.inventory
+                || cache.binding.source_epoch != snapshot.source_epoch
+                || cache.binding.navigation_policy != profile.geometry_revision
+            {
+                return Err(ConstructorQueryError::Binding);
+            }
+        }
+        pair.check_query(pair.query())
+            .map_err(ConstructorQueryError::Native)?;
+        Ok(ReconstructedConstructorPairPlan {
+            query: pair.query().retain_default(),
+            world: checkpoint.world,
+            profile: profile.clone(),
+            npc: pending.owner(),
+            snapshot,
+            configuration: geometry.configuration_binding(),
+            wander_construction: pending.wander_construction(),
+            chase_construction: pending.chase_construction(),
+            wander_first: wander_first.clone(),
+            chase_first: chase_first.clone(),
+            wander_challenge: pending.wander_challenge().clone(),
+            chase_challenge: pending.chase_challenge().clone(),
+            wander_semantic: pair.wander().terminal().semantic_state(),
+            chase_semantic: pair.chase().terminal().chase_semantic_state(),
+            wander_recipe,
+            chase_recipe,
+        })
+    }
+
+    /// Both typed certificates and the pre-adoption allocation guard must match
+    /// this pristine provider. All validation and reservation precede mutation.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn install_batch(
+        &mut self,
+        plan: ReconstructedConstructorPairPlan,
+        wander: benilla_native_nav::ReconstructedSourceWanderTerminal,
+        chase: benilla_native_nav::ReconstructedSourceChaseFixedCache,
+    ) -> Result<InstalledConstructorPair, ConstructorQueryError> {
+        self.validate_batch(&plan, &wander, &chase)?;
+        self.constructors
+            .try_reserve(2)
+            .map_err(|_| ConstructorQueryError::Budget)?;
+        let (wander_query, wander_terminal, wander_witness) = wander.into_parts();
+        let (chase_query, chase_terminal, chase_witness) = chase.into_parts();
+        let wander_entry = RegisteredConstructor {
+            npc: plan.npc,
+            construction: plan.wander_construction,
+            first_event: plan.wander_first,
+            reopened: Some(Rc::new(())),
+            query: wander_query,
+        };
+        let chase_entry = RegisteredConstructor {
+            npc: plan.npc,
+            construction: plan.chase_construction,
+            first_event: plan.chase_first,
+            reopened: Some(Rc::new(())),
+            query: chase_query,
+        };
+        self.constructors.push(wander_entry);
+        self.constructors.push(chase_entry);
+        Ok(InstalledConstructorPair {
+            wander_terminal,
+            wander_witness,
+            chase_terminal,
+            chase_witness,
+        })
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    fn validate_batch(
+        &self,
+        plan: &ReconstructedConstructorPairPlan,
+        wander: &benilla_native_nav::ReconstructedSourceWanderTerminal,
+        chase: &benilla_native_nav::ReconstructedSourceChaseFixedCache,
+    ) -> Result<(), ConstructorQueryError> {
+        use benilla_sim::creature_motion::PathfinderConstructorKind;
+        if !self.constructors.is_empty()
+            || self.world != plan.world
+            || self.profile != plan.profile
+            || self.navigation.binding() != plan.snapshot
+            || self.navigation.configuration_binding() != plan.configuration
+            || !wander.matches_challenge(&plan.wander_challenge)
+            || !chase.matches_challenge(&plan.chase_challenge)
+            || wander.terminal().semantic_state() != plan.wander_semantic
+            || chase.terminal().chase_semantic_state() != plan.chase_semantic
+            || wander
+                .witness()
+                .recipe()
+                .map_err(|_| ConstructorQueryError::Binding)?
+                != plan.wander_recipe
+            || chase
+                .witness()
+                .recipe()
+                .map_err(|_| ConstructorQueryError::Binding)?
+                != plan.chase_recipe
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        for (construction, event, kind) in [
+            (
+                plan.wander_construction,
+                &plan.wander_first,
+                PathfinderConstructorKind::WanderInitialized,
+            ),
+            (
+                plan.chase_construction,
+                &plan.chase_first,
+                PathfinderConstructorKind::ChaseLazy,
+            ),
+        ] {
+            if event.world() != plan.world
+                || event.npc() != plan.npc
+                || event.profile_binding() != self.profile.digest()
+                || event.configuration_binding() != plan.configuration
+                || event.constructor_kind() != kind
+                || event.construction_binding() != construction
+                || !event.first_construction()
+            {
+                return Err(ConstructorQueryError::Binding);
+            }
+        }
+        for query in [&plan.query, wander.retained_query(), chase.retained_query()] {
+            query
+                .check_query(self.navigation.query())
+                .map_err(ConstructorQueryError::Native)?;
+        }
+        Ok(())
     }
 
     /// Historical metadata checks do not claim or recreate its constructor seal.
@@ -763,3 +1070,7 @@ pub(crate) mod test_archive;
 #[cfg(test)]
 #[path = "source_pathfinder_query/tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "source_pathfinder_query/pair_tests.rs"]
+pub(super) mod pair_tests;

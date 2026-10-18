@@ -520,6 +520,16 @@ impl SamePolygonRoutePolicy {
             return Err(Failure::UnsupportedQuery);
         };
         let q = &route.request;
+        Self::validate_dispatch_shape(q)?;
+        let dispatch = match initialized {
+            Some(initialized) => initialized.dispatch_for(profile, route, &context.binding)?,
+            None => context
+                .require_pathfinder_dispatch(profile)
+                .map_err(|_| Failure::Binding)?,
+        };
+        self.validate_dispatch_cache(session, route, dispatch)
+    }
+    fn validate_dispatch_shape(q: &motion::RouteRequest) -> Result<(), Failure> {
         if !matches!(
             q.kind,
             motion::RouteKind::ChaseInitial
@@ -538,12 +548,15 @@ impl SamePolygonRoutePolicy {
         {
             return Err(Failure::UnsupportedQuery);
         }
-        let dispatch = match initialized {
-            Some(initialized) => initialized.dispatch_for(profile, route, &context.binding)?,
-            None => context
-                .require_pathfinder_dispatch(profile)
-                .map_err(|_| Failure::Binding)?,
-        };
+        Ok(())
+    }
+    fn validate_dispatch_cache(
+        &self,
+        session: &Session,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+        dispatch: &benilla_world_runtime::native::PathfinderDispatchReceipt,
+    ) -> Result<(), Failure> {
+        let q = &route.request;
         if q.kind == motion::RouteKind::HomeForceDestination
             && (!dispatch.first_construction()
                 || dispatch.constructor_kind() != motion::PathfinderConstructorKind::HomeLocal
@@ -702,15 +715,40 @@ impl Session {
         }
         Ok(())
     }
-    /// Revalidate only the saved Wander inputs for one pending component reopen.
-    /// This shares the live route's source, model and initialized-body checks, but
-    /// compares inert dispatch metadata through the pending runtime. It creates no
-    /// live dispatch seal, constructor claim, route fact or clearance capability.
+    /// Revalidate inert historical inputs without minting or claiming live seals.
     #[cfg(all(test, not(benilla_headless_geometry)))]
     pub(super) fn reconstructed_wander_body(
         &self,
         pending: &benilla_world_runtime::native::PendingWanderReopen,
         context: &AuthorityRequest,
+    ) -> Result<Body, Failure> {
+        self.reconstructed_route_body(context, |context| {
+            pending.validate_wander_operation(context)
+        })
+    }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn reconstructed_dual_wander_body(
+        &self,
+        pending: &benilla_world_runtime::native::PendingWanderAndChaseReopen,
+        context: &AuthorityRequest,
+    ) -> Result<Body, Failure> {
+        self.reconstructed_route_body(context, |context| {
+            pending.validate_wander_operation(context)
+        })
+    }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn reconstructed_dual_chase_body(
+        &self,
+        pending: &benilla_world_runtime::native::PendingWanderAndChaseReopen,
+        context: &AuthorityRequest,
+    ) -> Result<Body, Failure> {
+        self.reconstructed_route_body(context, |context| pending.validate_chase_operation(context))
+    }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    fn reconstructed_route_body(
+        &self,
+        context: &AuthorityRequest,
+        validate_saved: impl FnOnce(&AuthorityRequest) -> Result<(), NativeError>,
     ) -> Result<Body, Failure> {
         self.check_request_binding(context)?;
         let policy = self
@@ -721,39 +759,10 @@ impl Session {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery);
         };
-        let q = &route.request;
-        if !matches!(
-            q.kind,
-            motion::RouteKind::Wander | motion::RouteKind::WanderPrepare
-        ) || q.launch_origin != q.origin
-            || q.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
-            || q.target.is_some()
-        {
-            return Err(Failure::UnsupportedQuery);
-        }
-        pending
-            .validate_wander_operation(context)
-            .map_err(|_| Failure::Binding)?;
+        SamePolygonRoutePolicy::validate_dispatch_shape(&route.request)?;
+        validate_saved(context).map_err(|_| Failure::Binding)?;
         let dispatch = route.pathfinder_dispatch.as_ref().ok_or(Failure::Binding)?;
-        // Keep the ordinary prior-cache policy: these bytes are inert history,
-        // but may not cross owners, inventories, source epochs or geometry.
-        match q.prior_cache.as_deref() {
-            None if dispatch.first_construction() || q.kind == motion::RouteKind::Wander => (),
-            Some(prior) if !dispatch.first_construction() => {
-                prior
-                    .validate_for(q.binding.identity)
-                    .map_err(|_| Failure::Binding)?;
-                if prior.source != motion::RouteSource::OwnerPathFinder
-                    || prior.binding.owner_generation != route.owner.npc().generation
-                    || prior.binding.inventory != policy.binding.navigation.inventory
-                    || prior.binding.source_epoch != policy.binding.navigation.source_epoch
-                    || prior.binding.navigation_policy != self.geometry
-                {
-                    return Err(Failure::Binding);
-                }
-            }
-            _ => return Err(Failure::Binding),
-        }
+        policy.validate_dispatch_cache(self, route, dispatch)?;
         policy.validate_model(self, context)?;
         policy.resolve_owner_body(self, context)
     }

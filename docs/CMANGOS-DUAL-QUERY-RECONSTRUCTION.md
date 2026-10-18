@@ -97,3 +97,5 @@ cleanly; deadline injection covers each stage and never returns a partial pair.
 Compile-fail cases guard pair fabrication, typed role/challenge swaps and access
 to the private loaded-query Chase replay helper. Original source-oracle fixtures
 and operation implementations are unchanged.
+
+The bounded application bridge is described in [dual-owner reopen](CMANGOS-DUAL-OWNER-REOPEN.md).
