@@ -181,6 +181,9 @@ is meaningful without a bounded content/mechanics inventory.
   native allocation, exact predecessor identity and next continuation are required.
   Active-polygon switches and Chase NoPath are excluded; this proof opens no
   runtime/app restore path.
+  The [dual-query composition](CMANGOS-DUAL-QUERY-RECONSTRUCTION.md) reconstructs
+  independent Wander and Chase certificates on one fresh shared map allocation;
+  creature-owner binding and atomic dual-owner restore remain separate requirements.
 - **Bounded native components:** source-owned model and cached player-environment
   witnesses feed exact Chase distance/vertical predicates, actual static LOS and
   owner dry-liquid observations. One immutable inventory can project proved-dry

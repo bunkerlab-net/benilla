@@ -9,6 +9,10 @@
 use super::*;
 use crate::{LoadedSourceTilePresence, RetainedSourceQuery, SourceQuerySelectionError, TileInput};
 
+#[path = "source_wander_and_chase_reconstruction.rs"]
+mod wander_and_chase_reconstruction;
+pub use wander_and_chase_reconstruction::*;
+
 pub const SOURCE_CHASE_FIXED_CACHE_VERSION: u32 = 1;
 pub const SOURCE_CHASE_FIXED_CACHE_MAX_OPERATIONS: usize = 2;
 pub const SOURCE_CHASE_FIXED_CACHE_MAX_BYTES: usize = 111;
@@ -510,9 +514,7 @@ impl SourceMapQuery {
         recipe: &SourceChaseFixedCacheRecipe,
         challenge: &SourceChaseFixedCacheChallenge,
         until: Instant,
-        mut observer: impl FnMut(
-            SourceChaseFixedCacheStage<'_>,
-        ) -> Result<(), SourceChaseFixedCacheError>,
+        observer: impl FnMut(SourceChaseFixedCacheStage<'_>) -> Result<(), SourceChaseFixedCacheError>,
     ) -> Result<ReconstructedSourceChaseFixedCache, SourceChaseFixedCacheError> {
         recipe.validate()?;
         crate::deadline(until)?;
@@ -520,11 +522,26 @@ impl SourceMapQuery {
             return Err(Error::Identity.into());
         }
         let query = Self::load(slot, params, tiles)?;
+        query.replay_chase_fixed_cache_observed(recipe, challenge, until, observer)
+    }
+
+    // Only fresh-loading factories in this module can call the shared replay.
+    // In particular, no public API accepts an arbitrary already-loaded query.
+    fn replay_chase_fixed_cache_observed(
+        &self,
+        recipe: &SourceChaseFixedCacheRecipe,
+        challenge: &SourceChaseFixedCacheChallenge,
+        until: Instant,
+        mut observer: impl FnMut(
+            SourceChaseFixedCacheStage<'_>,
+        ) -> Result<(), SourceChaseFixedCacheError>,
+    ) -> Result<ReconstructedSourceChaseFixedCache, SourceChaseFixedCacheError> {
+        recipe.validate()?;
         crate::deadline(until)?;
-        if query.query_capacity() != recipe.query_capacity {
+        if self.slot() != recipe.slot || self.query_capacity() != recipe.query_capacity {
             return Err(Error::Identity.into());
         }
-        let mut retained = query.retain_default();
+        let mut retained = self.retain_default();
         observer(SourceChaseFixedCacheStage::Constructor {
             retained: &retained,
         })?;
@@ -532,7 +549,8 @@ impl SourceMapQuery {
         let mut terminal = None;
         for operation in &recipe.operations {
             crate::deadline(until)?;
-            let selected = retained.select_for_calculate(slot, operation.from, operation.to)?;
+            let selected =
+                retained.select_for_calculate(recipe.slot, operation.from, operation.to)?;
             observer(SourceChaseFixedCacheStage::Selected {
                 ordinal: operation.ordinal,
                 selected: &selected,
