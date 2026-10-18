@@ -13,7 +13,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fmt;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub(crate) const MAX_MEMBER_BYTES: usize = 64 * 1024 * 1024;
@@ -21,8 +21,9 @@ pub(crate) const MAX_CAPTURE_BYTES: usize = 192 * 1024 * 1024;
 pub(crate) const MAX_ADT_MEMBERS: usize = 9;
 pub(crate) const MAX_CAPTURE_MEMBERS: usize = 3 + 1 + MAX_ADT_MEMBERS;
 const MAX_MEMBER_NAME_BYTES: usize = 192;
+const MAX_HEADER_SCAN_BYTES: u64 = 1024 * 1024;
 /// Conservative intersection of app and pinned extractor source resolution.
-pub(crate) const SOURCE_POLICY: &str = "benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v1";
+pub(crate) const SOURCE_POLICY: &str = "benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v2";
 const AD_ARCHIVES: &[&str] = &[
     "model.MPQ",
     "dbc.MPQ",
@@ -223,7 +224,6 @@ impl CapturedSource {
                 metadata.file_type().is_file(),
                 "source.ad_regular_archive_required"
             );
-            verify_ad_archive_header(&path)?;
             // One independently bounded source archive is held at a time, never
             // five separate full index budgets retained together.
             let chain = open_chain(&path).context("source.ad_open_archive")?;
@@ -274,9 +274,10 @@ impl CapturedSource {
     }
 }
 
-/// Only the fixed header envelope is checked here; indices and payloads are
-/// decoded by the existing bounded MPQ reader, never a second MPQ implementation.
-fn verify_ad_archive_header(path: &Path) -> Result<()> {
+/// Pinned libmpq archive_open(-1) selects the first signature on a 512-byte
+/// boundary and normalizes version-zero header_size to 32 (mpq.c:59-148).
+/// Indices and payloads still use the existing bounded reader.
+fn verify_ad_archive_header(path: &Path) -> Result<(u64, [u8; 32])> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -288,16 +289,32 @@ fn verify_ad_archive_header(path: &Path) -> Result<()> {
     let metadata = file.metadata()?;
     ensure!(metadata.is_file(), "source.ad_regular_archive_required");
     let mut header = [0u8; 32];
-    file.read_exact(&mut header)
-        .context("source.ad_header_read")?;
+    let mut offset = 0u64;
+    loop {
+        ensure!(offset + 4 <= metadata.len(), "source.ad_header_signature");
+        ensure!(
+            offset + 32 <= MAX_HEADER_SCAN_BYTES,
+            "source.ad_header_scan_limit"
+        );
+        file.seek(SeekFrom::Start(offset))
+            .context("source.ad_header_read")?;
+        file.read_exact(&mut header[..4])
+            .context("source.ad_header_read")?;
+        if header[..4] == *b"MPQ\x1a" {
+            ensure!(offset + 32 <= metadata.len(), "source.ad_header_truncated");
+            file.read_exact(&mut header[4..])
+                .context("source.ad_header_read")?;
+            break;
+        }
+        // User-data pointers are not part of the pinned extractor's scan.
+        offset += 512;
+    }
     let word = |at| u32::from_le_bytes(header[at..at + 4].try_into().expect("fixed header"));
     let half = |at| u16::from_le_bytes(header[at..at + 2].try_into().expect("fixed header"));
+    ensure!(half(12) == 0, "source.ad_header_version");
+    let archive_bytes = metadata.len() - offset;
     ensure!(
-        word(0) == 0x1a51_504d && word(4) == 32 && half(12) == 0,
-        "source.ad_header_profile"
-    );
-    ensure!(
-        u64::from(word(8)) == metadata.len(),
+        u64::from(word(8)) == archive_bytes,
         "source.ad_archive_size"
     );
     ensure!(half(14) <= 7, "source.ad_sector_size");
@@ -316,12 +333,12 @@ fn verify_ad_archive_header(path: &Path) -> Result<()> {
     ensure!(
         hash_start >= 32
             && block_start >= 32
-            && hash_end <= metadata.len()
-            && block_end <= metadata.len()
+            && hash_end <= archive_bytes
+            && block_end <= archive_bytes
             && (hash_end <= block_start || block_end <= hash_start),
         "source.ad_index_spans"
     );
-    Ok(())
+    Ok((offset, header))
 }
 
 fn hash_field(hash: &mut Sha256, value: &[u8]) {
@@ -330,18 +347,47 @@ fn hash_field(hash: &mut Sha256, value: &[u8]) {
 }
 
 fn open_chain(data: &Path) -> Result<Chain> {
-    Chain::open_bounded(
+    // Validate fixed archives before the ordinary reader so header failures have
+    // precise path-free diagnostics even when index decoding cannot begin.
+    let paths = if data.is_dir() {
+        AD_ARCHIVES.iter().map(|name| data.join(name)).collect()
+    } else {
+        vec![data.to_path_buf()]
+    };
+    let mut headers = Vec::new();
+    for path in paths {
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => ensure!(
+                metadata.file_type().is_file(),
+                "source.ad_regular_archive_required"
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && data.is_dir() => continue,
+            Err(error) => return Err(error).context("source.ad_archive_metadata"),
+        }
+        let header = verify_ad_archive_header(&path)?;
+        headers.push((path, header));
+    }
+    let chain = Chain::open_bounded(
         data,
         ChainLimits {
             index_bytes: 64 * 1024 * 1024,
             sector_bytes: 64 * 1024,
             member_bytes: MAX_MEMBER_BYTES,
-            header_scan_bytes: 1024 * 1024,
+            header_scan_bytes: MAX_HEADER_SCAN_BYTES,
             archives: 64,
             directory_entries: 4096,
         },
     )
-    .context("source.open_patch_chain")
+    .context("source.open_patch_chain")?;
+    for archive in chain.archives() {
+        if let Some((_, expected)) = headers.iter().find(|(path, _)| path == archive.path()) {
+            ensure!(
+                archive.header_snapshot() == *expected,
+                "source.ad_header_selection"
+            );
+        }
+    }
+    Ok(chain)
 }
 
 struct PlannedMember {

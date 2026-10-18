@@ -136,7 +136,7 @@ fn malformed_source_diagnostic_hides_archive_and_install_paths() {
         .args(["--inspect", "--map", "1", "--tile", "31,32"])
         .output()
         .unwrap();
-    assert_safe_failure(output, 1, "source.open_patch_chain");
+    assert_safe_failure(output, 1, "source.ad_header_signature");
     assert_eq!(fs::read(&archive).unwrap(), original);
     assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
     assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);

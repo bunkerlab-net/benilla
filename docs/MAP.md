@@ -22,7 +22,7 @@
 - **benilla-native-dbc** (no Bevy) — Private bounded extraction of native starter DBC inputs through Benilla's patch chain
 - **benilla-native-geometry-tests** (no Bevy) — Exact app geometry mailbox and terrain proof tests without Bevy
 - **benilla-native-nav** (no Bevy) — Private validated pinned Detour MMap query boundary; no gameplay admission
-- **benilla-native-terrain** (no Bevy) — Private bounded dry terrain production from immutable local MPQ inputs
+- **benilla-native-terrain** (no Bevy) — Private bounded terrain and Classic liquid production from immutable local MPQ inputs
 - **benilla-p2p** (no Bevy) — Authenticated, bounded peer-to-peer transport for the Benilla fork
 - **benilla-profile** (no Bevy) — Local owner identities and durable exploration characters for the P2P fork
 - **benilla-protocol** (no Bevy) — WoW 1.12.1 auth (SRP6) + world wire protocol and the benilla-auth CLI

@@ -61,6 +61,8 @@ struct Index {
     path: PathBuf,
     /// Byte offset of the MPQ header in the file: 0 in 1.12 data, but found, not assumed.
     archive_offset: u64,
+    /// Exact bytes used to decode this index; inspection must not reread a different header.
+    header: [u8; 32],
     /// The uncompressed sector size, `512 << block_size`.
     sector_size: usize,
     hash_table: Vec<HashEntry>,
@@ -192,7 +194,9 @@ impl Archive {
         let mut hdr = [0u8; 32];
         file.read_exact(&mut hdr)?;
         let signature = hdr.u32_at(0).ok_or(Error::NotMpq)?;
-        debug_assert_eq!(signature, SIGNATURE);
+        if signature != SIGNATURE {
+            return Err(Error::NotMpq);
+        }
         let block_size_shift = hdr.u16_at(14).ok_or(Error::NotMpq)?;
         // A raw header `u16`, capped before `512 << shift` can overflow; 1.12 data uses 3 (4 KiB
         // sectors), and 23 is already 4 GiB.
@@ -231,6 +235,7 @@ impl Archive {
             index: Arc::new(Index {
                 path,
                 archive_offset,
+                header: hdr,
                 sector_size,
                 hash_table,
                 block_table,
@@ -238,6 +243,12 @@ impl Archive {
                 limits,
             }),
         })
+    }
+
+    /// Selected header offset and the exact first 32 bytes used to decode this index.
+    /// Read-only provenance for callers checking a stricter archive profile.
+    pub fn header_snapshot(&self) -> (u64, [u8; 32]) {
+        (self.index.archive_offset, self.index.header)
     }
 
     /// Encoded hash/block table footprint, for cumulative chain budgeting.
@@ -1183,6 +1194,47 @@ mod tests {
             member_bytes: 1024,
             header_scan_bytes: 1024,
         }
+    }
+
+    #[test]
+    fn header_snapshot_retains_the_exact_selected_offset_and_raw_bytes() {
+        let path = temp_path("header_snapshot");
+        let mut payload = archive_with_one_entry("a.bin", FLAG_EXISTS, b"safe");
+        payload[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut bytes = vec![0; 512];
+        bytes.extend(&payload);
+        std::fs::write(&path, &bytes).unwrap();
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        let expected = (512, payload[..32].try_into().unwrap());
+        assert_eq!(archive.header_snapshot(), expected);
+        assert_eq!(archive.read_file("a.bin").unwrap(), b"safe");
+        bytes[516..520].copy_from_slice(&32u32.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        // Snapshot metadata belongs to the decoded index, not a later path read.
+        assert_eq!(archive.clone().header_snapshot(), expected);
+        assert_ne!(
+            Archive::open_bounded(&path, offline_limits())
+                .unwrap()
+                .header_snapshot(),
+            expected
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn user_data_pointer_to_non_header_returns_an_error_without_panicking() {
+        let path = temp_path("invalid_user_data_pointer");
+        let mut bytes = vec![0; 512];
+        bytes[..4].copy_from_slice(&USERDATA_SIGNATURE.to_le_bytes());
+        bytes[8..12].copy_from_slice(&16u32.to_le_bytes());
+        bytes.extend(archive_with_one_entry("a.bin", FLAG_EXISTS, b"safe"));
+        std::fs::write(&path, bytes).unwrap();
+        assert!(matches!(Archive::open(&path), Err(Error::NotMpq)));
+        assert!(matches!(
+            Archive::open_bounded(&path, offline_limits()),
+            Err(Error::NotMpq)
+        ));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

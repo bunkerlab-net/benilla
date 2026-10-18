@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded dry subset of CMaNGOS ad `-f 0`, revision
+//! Bounded tile-owned terrain/liquid subset of CMaNGOS ad `-f 0`, revision
 //! 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f, contrib/extractor/System.cpp:
 //! ReadMapDBC, ReadAreaTableDBC, ConvertADT and ExtractMapsFromMpq.
 //! Copyright (C) Continued-MaNGOS Project; GPL-2.0-or-later upstream.
@@ -17,6 +17,8 @@ const MAX_DBC_ROWS: usize = 65_536;
 const MAX_DBC_ID: u32 = 1_000_000;
 const MAX_STRINGS: usize = 1024 * 1024;
 const CELLS: usize = 256;
+
+mod liquid;
 
 fn word(bytes: &[u8], at: usize) -> Result<u32> {
     let end = at.checked_add(4).context("terrain.offset_overflow")?;
@@ -140,13 +142,43 @@ fn chunk_at(bytes: &[u8], at: usize) -> Result<Chunk<'_>> {
     })
 }
 
-fn chunks(bytes: &[u8], start: usize, max: usize, normal_padding: bool) -> Result<Vec<Chunk<'_>>> {
+fn chunks(
+    bytes: &[u8],
+    start: usize,
+    max: usize,
+    normal_padding: bool,
+    liquid_size: Option<usize>,
+) -> Result<Vec<Chunk<'_>>> {
     ensure!(bytes.len() <= MAX_MEMBER, "terrain.member_budget");
     let mut out = Vec::new();
     let mut at = start;
     while at < bytes.len() {
         ensure!(out.len() < max, "terrain.chunk_count");
-        let chunk = chunk_at(bytes, at)?;
+        let chunk =
+            if let Some(size) = liquid_size.filter(|_| bytes.get(at..at + 4) == Some(b"QLCM")) {
+                let declared = word(bytes, at + 4)? as usize;
+                // Classic MCLQ commonly declares zero. MCNK supplies its bounded extent.
+                // This is a checked supported profile, not upstream pointer validation.
+                let extent = if declared == 0 {
+                    size.max(8)
+                } else {
+                    declared.checked_add(8).context("terrain.mclq_length")?
+                };
+                ensure!(matches!(extent, 8 | 812), "terrain.mclq_length");
+                ensure!(
+                    size <= 8 || (size == 812 && extent == 812),
+                    "terrain.mclq_size"
+                );
+                Chunk {
+                    at,
+                    magic: *b"QLCM",
+                    data: bytes
+                        .get(at + 8..at + extent)
+                        .context("terrain.mclq_length")?,
+                }
+            } else {
+                chunk_at(bytes, at)?
+            };
         at += 8 + chunk.data.len();
         // Vanilla MCNR's 435-byte payload has 13 trailing bytes outside its size.
         if normal_padding && chunk.magic == *b"RNCM" && chunk.data.len() == 435 {
@@ -164,7 +196,7 @@ fn chunks(bytes: &[u8], start: usize, max: usize, normal_padding: bool) -> Resul
 /// member is `World\\Maps\\D\\D_YY_XX.adt`. Upstream checks the whole exist word.
 pub fn validate_selection_wdt(wdt: &[u8], tile_x: u8, tile_y: u8) -> Result<()> {
     ensure!(tile_x < 64 && tile_y < 64, "terrain.tile_coordinate");
-    let records = chunks(wdt, 0, 5, false)?;
+    let records = chunks(wdt, 0, 5, false, None)?;
     ensure!(records.len() >= 4, "terrain.wdt_required_records");
     ensure!(
         records[0].magic == *b"REVM"
@@ -229,23 +261,22 @@ struct Cell<'a> {
     heights: Option<&'a [u8]>,
     area: u32,
     holes: u16,
+    flags: u32,
+    liquid: Option<&'a [u8]>,
 }
 
 fn read_cell<'a>(root: Chunk<'a>) -> Result<Cell<'a>> {
     ensure!(root.data.len() >= 128, "terrain.mcnk_header");
     let h = &root.data[..128];
-    ensure!(
-        word(h, 0)? & 0x3c == 0 && word(h, 0x60)? == 0 && word(h, 0x64)? == 0,
-        "terrain.liquid_excluded"
-    );
+    let liquid_size = word(h, 0x64)? as usize;
     // MCCV is a later-client representation outside this vanilla writer profile.
     ensure!(word(h, 0x74)? == 0, "terrain.mccv_excluded");
     let mut nested = BTreeMap::new();
-    for record in chunks(root.data, 128, 8, true)? {
+    for record in chunks(root.data, 128, 8, true, Some(liquid_size))? {
         ensure!(
             matches!(
                 &record.magic,
-                b"TVCM" | b"RNCM" | b"YLCM" | b"FRCM" | b"LACM" | b"HSCM" | b"ESCM"
+                b"TVCM" | b"RNCM" | b"YLCM" | b"FRCM" | b"LACM" | b"HSCM" | b"ESCM" | b"QLCM"
             ),
             "terrain.mcnk_unsupported_or_liquid"
         );
@@ -262,6 +293,7 @@ fn read_cell<'a>(root: Chunk<'a>) -> Result<Cell<'a>> {
         (0x24, *b"LACM"),
         (0x2c, *b"HSCM"),
         (0x58, *b"ESCM"),
+        (0x60, *b"QLCM"),
     ] {
         let relative = word(h, offset)? as usize;
         match nested.get(&magic) {
@@ -269,6 +301,14 @@ fn read_cell<'a>(root: Chunk<'a>) -> Result<Cell<'a>> {
             None => ensure!(relative == 0, "terrain.dangling_subchunk"),
         }
     }
+    ensure!(
+        nested.contains_key(b"QLCM") || liquid_size == 0,
+        "terrain.mclq_size"
+    );
+    let liquid = nested
+        .get(b"QLCM")
+        .filter(|_| liquid_size > 8)
+        .map(|record| record.data);
     let heights = nested.get(b"TVCM").map(|record| record.data);
     if let Some(heights) = heights {
         ensure!(heights.len() == 145 * 4, "terrain.mcvt_length");
@@ -285,11 +325,13 @@ fn read_cell<'a>(root: Chunk<'a>) -> Result<Cell<'a>> {
         heights,
         area: word(h, 0x34)?,
         holes: half(h, 0x3c)?,
+        flags: word(h, 0)?,
+        liquid,
     })
 }
 
 fn read_cells(adt: &[u8]) -> Result<Vec<Cell<'_>>> {
-    let records = chunks(adt, 0, 272, false)?;
+    let records = chunks(adt, 0, 272, false, None)?;
     ensure!(records.len() >= 3, "terrain.adt_required_records");
     ensure!(
         records[0].magic == *b"REVM"
@@ -373,7 +415,7 @@ fn read_cells(adt: &[u8]) -> Result<Vec<Cell<'_>>> {
     Ok(cells)
 }
 
-/// Produce precisely one dry `MAPS/z1.4` member, without reading paths or trusting
+/// Produce precisely one selected-tile-owned `MAPS/z1.4` member, without reading paths or trusting
 /// caller-declared heights, areas, holes, liquid absence or precomputed products.
 /// All three DBCs are loaded by upstream even when the selected tile is dry.
 /// Output naming is `maps/{map:03}{tile_x:02}{tile_y:02}.map`; input ADT naming
@@ -453,7 +495,13 @@ pub fn produce(
     let flat = max_height == min_height;
     let area_size = 8 + if full_area { 512 } else { 0 };
     let height_size = 16 + if flat { 0 } else { (129 * 129 + 128 * 128) * 4 };
-    let hole_offset = 40 + area_size + height_size;
+    let liquid = liquid::produce(&cells)?;
+    let liquid_offset = if liquid.is_empty() {
+        0
+    } else {
+        40 + area_size + height_size
+    };
+    let hole_offset = 40 + area_size + height_size + liquid.len();
     let mut out = Vec::with_capacity(hole_offset + 512);
     out.extend_from_slice(b"MAPSz1.4");
     for value in [
@@ -461,8 +509,8 @@ pub fn produce(
         area_size,
         40 + area_size,
         height_size,
-        0,
-        0,
+        liquid_offset,
+        liquid.len(),
         hole_offset,
         512,
     ] {
@@ -485,6 +533,7 @@ pub fn produce(
             out.extend_from_slice(&height.to_le_bytes());
         }
     }
+    out.extend_from_slice(&liquid);
     for cell in cells {
         out.extend_from_slice(&cell.holes.to_le_bytes());
     }

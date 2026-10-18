@@ -1,6 +1,6 @@
 # Selected private terrain production
 
-This original local adapter ports the **dry selected-tile** branch of CMaNGOS
+This original local adapter ports the **selected-tile terrain and Classic MCLQ liquid** branches of CMaNGOS
 Classic `ad -f 0` at `8ec338a1704e7dcb1c0213eb7ed58f9231ade40f`.
 It reads the player's own Data directory, owns exact raw input buffers, writes
 `MAPS` / `z1.4` terrain, and has a separate app adapter into the existing
@@ -35,12 +35,15 @@ or asset-containing logs. Inspection needs no cleanup. For export, remove only
 the explicitly chosen generated folder using your file manager's recoverable
 trash/recycle operation; leave the installation and player state untouched.
 
-Actual Northshire acceptance remains unverified. Any liquid metadata in any of
-the tile's 256 cells can reject the whole tile with `terrain.liquid_excluded`,
-even if the starting point is dry. Source/header/patch or structural checks may
-reject earlier. Do not remove patches or modify assets to force success. Both
-this writer and the terrain reader support nonflat float heights; the separate
-continuous gameplay corridor proof still requires supported flat dry ground.
+Actual Northshire acceptance remains unverified. Classic MCLQ is supported when
+all serialized liquid heights are determined by the selected tile. A rectangle
+that needs an unwritten outer-edge height rejects with `terrain.liquid_history`;
+malformed framing or unsupported later-client liquid data also rejects. These are
+possible failures, not a claim about the first failure in a real installation.
+Do not remove patches or modify assets to force success. Both this writer and the
+terrain reader support nonflat float heights and the supported liquid output;
+the separate continuous gameplay corridor proof still requires flat dry ground
+and rejects liquid-bearing terrain products.
 
 ## Local command
 
@@ -77,8 +80,22 @@ This adapter accepts only the conservative intersection: every consumed member
 must have the same exact winning archive basename and complete bytes under
 Benilla's bounded chain and the pinned `ad` fixed order
 `model.MPQ`, `dbc.MPQ`, `terrain.MPQ`, `patch.MPQ`, `patch-2.MPQ`.
-The accepted archives also require the canonical version-zero header at offset zero,
-nonzero power-of-two hash table, and source-compatible selected-member framing.
+For each fixed archive, the accepted header is the first `MPQ\x1a` signature
+on a 512-byte boundary within the existing one MiB scan budget. Only legacy
+version zero is supported; its declared header size is interpreted as 32 bytes,
+including protected non-32 values, without changing any source bytes. This follows
+`contrib/extractor/mpq_libmpq.cpp:27` and `dep/libmpq/libmpq/mpq.c:59–148`
+at the pinned source. A first unsupported header cannot fall through to a later one.
+The bounded Benilla reader must have decoded the exact same header bytes at the
+same offset. User-data pointers alone do not establish compatibility: a pointer
+at offset zero to an unaligned header at 16 is rejected; a pointer selecting a
+different aligned header is rejected even when selected members have equal bytes.
+The declared archive size must still equal all bytes from the selected header to
+EOF. Index offsets are relative to that header and checked against that exact
+length, with the same normalized 32-byte minimum, disjoint spans, nonzero
+power-of-two hash count, 64 MiB index budget and 64 KiB sector limit. Nonzero format
+versions, trailing bytes beyond the declared archive, and arbitrary archive-size
+normalization remain unsupported. Selected-member framing is unchanged.
 Absent fixed archives are allowed as upstream does; ambiguous casing, tombstones,
 missing/dummy members and different winners fail. An extra winning patch is not
 silently ignored even if its bytes match. The policy is versioned in the manifest
@@ -92,6 +109,31 @@ lock, hostile-ABA defense, proof of client build authenticity, or live installat
 lease. The manifest explicitly says `live_install_lease: false` and
 `gameplay_admitted: false`. A later native session still needs a genuine source
 lifecycle contract; hashes alone cannot hold an installation fixed.
+
+## Header inspection diagnostics
+
+`--inspect` reports a bounded path-free diagnostic line on failure and a path-free
+summary on success. Neither outcome writes files.
+Header checks precede index decoding, and fixed identifiers distinguish:
+
+- `source.ad_header_signature`: no signature on a scanned 512-byte boundary
+- `source.ad_header_truncated`: a selected signature has fewer than 32 header bytes
+- `source.ad_header_scan_limit`: discovery would exceed the one MiB budget
+- `source.ad_header_version`: the first selected header is not legacy version zero
+- `source.ad_header_selection`: Benilla and the pinned extractor select different
+  offsets or header bytes
+- `source.ad_archive_size`: the declared length differs from bytes after the header
+- `source.ad_sector_size`: sectors exceed 64 KiB
+- `source.ad_hash_count`: the hash count is zero or not a power of two
+- `source.ad_index_budget`: encoded hash and block tables exceed 64 MiB
+- `source.ad_index_spans`: table spans overlap, precede the normalized header, or
+  extend beyond the declared archive
+
+These replace the former combined `source.ad_header_profile` diagnostic. Share
+the identifier and build ID when reporting a failure; no installation path or
+archive content is needed. A supported header does not by itself prove terrain
+coverage or permit gameplay. The source-resolution policy is version two; the
+complete consumed-member bytes and exact winner comparisons are unchanged.
 
 ## Writer fidelity and restrictions
 
@@ -109,15 +151,42 @@ full source hashes and extraction intervals under `tools/fixtures`.
 - AreaTable physical row order, duplicate last-wins, uint16 narrowing, unknown
   area `0xffff`, uniform/full AREA layout, V9-before-V8 output, and the complete
   512-byte hole block are preserved
+- Classic MCLQ visibility compares the whole byte to `0x0f`; visible bit `0x80`
+  contributes deep water. MCNK water/ocean/magma conditions independently add
+  flags, with the last condition determining the entry. Every active cell writes
+  all 81 heights, including invisible and untyped cells, in MCIN order
+- MLIQ type layout, cropped visible bounds plus final vertices, source extrema
+  seeds, hidden interior `-500` writes, and exact `-f 0` flat omission are preserved
+
+### Liquid history boundary
+
+The upstream converter does not clear its global 129×129 liquid-height array
+between tiles or maps. Hidden packing writes cover only the interior 128×128;
+serialized row/column 128 can therefore depend on earlier conversions. This
+producer tracks current-tile writes explicitly and requires every emitted height
+sample to be known. It does not import a prior `.map`, assume a fresh-process zero,
+or treat tile request order as upstream extraction order. No height ownership is
+needed when no liquid section or `NO_HEIGHT` is emitted. The oracle runs identical
+selected inputs after different complete source conversions, checking both stable
+admitted bytes and different history-dependent outputs that Rust refuses.
+
+The manifest uses writer policy `cmangos-ad-f0-selected-tile-owned-liquid-v2`.
+This is an expanded, explicitly bounded writer profile, not universal wet-tile
+coverage. Later support for rejected histories would need exact predecessor inputs
+and source traversal, including earlier cross-map writes and conversion failures.
 
 The bounded parser requires canonical MCIN placement, all 256 distinct referenced
 MCNKs, source-relative MCVT when present, finite supported heights and strict framing.
 A genuine zero MCVT offset preserves the source base-only height branch; dangling
-references reject. It rejects all liquid-bearing
-or later-client terrain representations, global-WMO maps, incomplete tiles,
-unknown structural chunks and resource overflow. Normal render-model placement
+references reject. Classic MCLQ records use complete 812-byte framing or an
+8-byte empty record; an inner declared size of zero is resolved using the bounded
+MCNK extent. Missing MCLQ and sizes at most eight take the source skip branch,
+even with class flags. Active consumed heights must be finite. An all-hidden tile
+with nonzero liquid types rejects rather than executing upstream's invalid bounds
+branch. Later-client MH2O representations, global-WMO maps, incomplete tiles,
+unknown structural chunks and resource overflow remain unsupported. Normal render-model placement
 records may coexist: their presence does not prove their collision dependency
-closure. Dry terrain generation does not prove absence of dynamic participants.
+closure. Terrain generation does not prove absence of dynamic participants.
 The exact restrictions and diagnostics are executable tests, not fallback flags.
 
 ## Publication and limits

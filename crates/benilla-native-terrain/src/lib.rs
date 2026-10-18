@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Selected dry terrain production, never world-content compilation or admission.
+//! Selected terrain production, never world-content compilation or admission.
 //! All source reads use immutable captured buffers. A final fresh-chain comparison
 //! detects changed selected inputs; it is not a filesystem lock or a live source lease.
 mod source;
@@ -121,10 +121,10 @@ impl PreparedTerrain {
             })
             .collect();
         let manifest = Manifest {
-            format: "benilla-dry-terrain-production-v1",
+            format: "benilla-terrain-production-v2",
             source_pin: SOURCE_PIN,
             source_resolution_policy: source::SOURCE_POLICY,
-            writer_policy: "cmangos-ad-f0-dry-selected-v1",
+            writer_policy: "cmangos-ad-f0-selected-tile-owned-liquid-v2",
             source_epoch: self.source_epoch(),
             live_install_lease: false,
             gameplay_admitted: false,

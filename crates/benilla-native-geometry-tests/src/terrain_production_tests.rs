@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Real app reader integration using newly authored raw members and pinned-source vectors.
-use super::super::PointHeight;
+use super::super::{
+    terrain::{
+        AreaTable, GridLiquidData, GridLiquidResult, GridLiquidStatus, LiquidStores, LiquidTypes,
+    },
+    PointHeight,
+};
 use super::*;
 use benilla_native_terrain::{prepare, writer, Tile};
 use std::{
@@ -234,6 +239,236 @@ fn actual_reader_rejects_corrupted_generated_framing_flags_and_height_payloads()
     assert!(TerrainTile::decode(TileId { x: 64, y: 32 }, &raw).is_err());
 }
 
+// The writer's AreaTable fixture deliberately tests duplicate physical rows. Query
+// with a separate complete, empty authored area store, so no area override is implied.
+fn query_liquid(tile: &TerrainTile, x: f32, y: f32, z: f32, required_mask: u8) -> GridLiquidResult {
+    let types = LiquidTypes::decode(&fixture("LiquidType.dbc")).unwrap();
+    let mut area = b"WDBC".to_vec();
+    for value in [0_u32, 25, 100, 1] {
+        area.extend(value.to_le_bytes());
+    }
+    area.push(0);
+    let areas = AreaTable::decode(&area).unwrap();
+    let (x, y) = world(x, y);
+    tile.grid_liquid_status_with_stores(
+        x,
+        y,
+        z,
+        required_mask,
+        2.0,
+        LiquidStores {
+            types: &types,
+            areas: Some(&areas),
+        },
+    )
+    .unwrap()
+}
+
+fn no_water(tile: &TerrainTile, x: f32, y: f32) {
+    assert_eq!(
+        query_liquid(tile, x, y, 10.0, 0),
+        GridLiquidResult {
+            status: GridLiquidStatus::NoWater,
+            data: None
+        },
+        "({x}, {y})"
+    );
+}
+
+fn liquid_data(tile: &TerrainTile, x: f32, y: f32, entry: u32, flags: u32, level: f32) {
+    assert_eq!(
+        query_liquid(tile, x, y, 7.25, 0),
+        GridLiquidResult {
+            status: GridLiquidStatus::UnderWater,
+            data: Some(GridLiquidData {
+                entry,
+                type_flags: flags,
+                level: level.to_bits(),
+                depth_level: 7.25_f32.to_bits(),
+            }),
+        },
+        "({x}, {y})"
+    );
+}
+
+#[test]
+fn actual_reader_loads_generated_liquid_vectors_with_all_mliq_packing_branches() {
+    let mut seen_flags = [false; 4];
+    for case in [
+        "liquid_water_flat",
+        "liquid_ocean_flat",
+        "liquid_magma_flat",
+        "liquid_zero_size",
+        "liquid_full_types",
+        "liquid_flag_bytes",
+        "liquid_deep_only",
+        "liquid_nonsymmetric",
+        "liquid_seams",
+        "liquid_outer_edges",
+        "liquid_sparse_flat",
+    ] {
+        let raw = produce(case);
+        assert_eq!(raw, fixture(&format!("{case}.map")), "{case}");
+        let at = word(&raw, 24) as usize;
+        assert_ne!(at, 0, "{case}");
+        assert_eq!(&raw[at..at + 4], b"MLIQ", "{case}");
+        seen_flags[raw[at + 4] as usize] = true;
+        let tile = TerrainTile::decode(TILE, &raw).unwrap();
+        assert!(tile.has_liquid(), "{case}");
+        near_height(&tile, 63.5, 71.25, 7.25);
+    }
+    assert_eq!(seen_flags, [true; 4]);
+}
+
+#[test]
+fn source_skip_branches_and_untyped_mclq_do_not_create_liquid_evidence() {
+    for case in [
+        "liquid_absent_flags",
+        "liquid_empty",
+        "liquid_size8",
+        "liquid_untyped",
+    ] {
+        let raw = produce(case);
+        assert_eq!(raw, fixture("flat.map"), "{case}");
+        let tile = TerrainTile::decode(TILE, &raw).unwrap();
+        assert!(!tile.has_liquid(), "{case}");
+        no_water(&tile, 1.5, 1.5);
+    }
+}
+
+#[test]
+fn generated_scalar_liquid_queries_retain_catalog_mask_height_and_status_semantics() {
+    let tile = decoded("liquid_water_flat");
+    for (z, status) in [
+        (20.5, GridLiquidStatus::UnderWater),
+        (22.5, GridLiquidStatus::InWater),
+        (23.5, GridLiquidStatus::WaterWalk),
+        (24.0, GridLiquidStatus::WaterWalk),
+        (24.5, GridLiquidStatus::AboveWater),
+    ] {
+        assert_eq!(
+            query_liquid(&tile, 63.5, 71.25, z, 1),
+            GridLiquidResult {
+                status,
+                data: Some(GridLiquidData {
+                    entry: 1,
+                    type_flags: 1,
+                    level: 23.5_f32.to_bits(),
+                    depth_level: 7.25_f32.to_bits(),
+                }),
+            }
+        );
+    }
+    assert_eq!(query_liquid(&tile, 63.5, 71.25, 20.5, 2).data, None);
+    assert_eq!(query_liquid(&tile, 63.5, 71.25, 5.0, 0).data, None);
+    liquid_data(&decoded("liquid_magma_flat"), 127.5, 127.5, 3, 1, 31.75);
+    // Presence alone is not water: this source ocean surface is below the ground.
+    let ocean = decoded("liquid_ocean_flat");
+    assert!(ocean.has_liquid());
+    no_water(&ocean, 63.5, 71.25);
+}
+
+#[test]
+fn generated_full_types_and_deep_flags_follow_real_grid_liquid_queries() {
+    let tile = decoded("liquid_full_types");
+    for (slot, (entry, flags)) in [(1, 1), (2, 2), (3, 1), (2, 10), (3, 9), (3, 3), (3, 11)]
+        .into_iter()
+        .enumerate()
+    {
+        liquid_data(&tile, 0.5, slot as f32 * 8.0 + 0.5, entry, flags, 13.25);
+    }
+    for (case, entry, flags) in [
+        ("liquid_flag_bytes", 1, 0x11),
+        ("liquid_deep_only", 0, 0x10),
+    ] {
+        let tile = decoded(case);
+        // Only exact 0x0f hides source cells; 0x1f, 0x8f and 0xff remain visible.
+        // One deep byte contributes a chunk-wide flag to every visible sample.
+        for x in 1..=6 {
+            liquid_data(
+                &tile,
+                10.5,
+                16.5 + x as f32,
+                entry,
+                flags,
+                44.0 + x as f32 / 4.0,
+            );
+        }
+        no_water(&tile, 10.5, 16.5);
+        no_water(&tile, 10.5, 23.5);
+        no_water(&tile, 11.5, 17.5);
+    }
+}
+
+#[test]
+fn generated_crop_axes_seam_winners_and_owned_outer_edges_reach_actual_queries() {
+    let tile = decoded("liquid_nonsymmetric");
+    for (x, y, level) in [
+        (26.5, 57.5, 104.25),
+        (27.5, 60.5, 107.0),
+        (28.5, 61.5, 109.25),
+    ] {
+        liquid_data(&tile, x, y, 1, 1, level);
+    }
+    for (x, y) in [
+        (25.5, 57.5),
+        (26.5, 56.5),
+        (57.5, 26.5),
+        (29.5, 61.5),
+        (28.5, 62.5),
+    ] {
+        no_water(&tile, x, y);
+    }
+    let seams = decoded("liquid_seams");
+    for (x, y, level) in [(0.5, 8.5, 10.0), (8.5, 0.5, 160.0), (8.5, 8.5, 170.0)] {
+        liquid_data(&seams, x, y, 1, 1, level);
+    }
+    let edges = decoded("liquid_outer_edges");
+    liquid_data(&edges, 122.5, 121.5, 3, 1, 404.25);
+    liquid_data(&edges, 127.5, 127.5, 3, 1, 415.75);
+    no_water(&edges, 121.5, 121.5);
+    no_water(&edges, 122.5, 120.5);
+    let (x, y) = world(128.0, 127.5);
+    assert_eq!(edges.point_height(x, y), Err(Error::OutsideTile));
+    // The source omits heights for this exactly flat sparse crop. Unknown outer
+    // heights are not serialized and therefore do not invalidate its MLIQ data.
+    let sparse = decoded("liquid_sparse_flat");
+    assert!(sparse.has_liquid());
+    no_water(&sparse, 19.5, 127.5);
+    no_water(&sparse, 127.5, 29.5);
+}
+
+#[test]
+fn actual_reader_rejects_corrupted_generated_mliq_before_queries() {
+    let raw = produce("liquid_nonsymmetric");
+    let at = word(&raw, 24) as usize;
+    for (offset, value) in [
+        (4, 4),
+        (5, 0x80),
+        (8, 128),
+        (9, 128),
+        (10, 0),
+        (11, 0),
+        (10, 129),
+        (11, 129),
+    ] {
+        let mut changed = raw.clone();
+        changed[at + offset] = value;
+        assert!(
+            TerrainTile::decode(TILE, &changed).is_err(),
+            "{offset}: {value}"
+        );
+    }
+    for offset in [12, 16 + 768] {
+        let mut changed = raw.clone();
+        replace(&mut changed, at + offset, f32::NAN.to_bits());
+        assert!(TerrainTile::decode(TILE, &changed).is_err(), "{offset}");
+    }
+    let mut changed = raw.clone();
+    changed[at + 16 + 512] = 0x80;
+    assert!(TerrainTile::decode(TILE, &changed).is_err());
+}
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
@@ -406,4 +641,84 @@ fn actual_consumer_applies_existing_reader_bounds_to_finite_producer_output() {
         SourceTerrainProducts::from_prepared(input).map(|_| ()),
         Err(Error::Format)
     );
+}
+
+#[test]
+fn captured_liquid_source_uses_existing_consumer_and_preserves_private_export_boundary() {
+    for case in [
+        "liquid_water_flat",
+        "liquid_nonsymmetric",
+        "liquid_outer_edges",
+        "liquid_sparse_flat",
+    ] {
+        let temp = Temp::new();
+        let data = temp.data(case);
+        let source = fs::read(data.join("terrain.MPQ")).unwrap();
+        let input = prepared(&data);
+        let epoch = input.source_epoch().to_owned();
+        assert_eq!(
+            input.tiles().next().unwrap().1,
+            fixture(&format!("{case}.map"))
+        );
+        let products = SourceTerrainProducts::from_prepared(input).unwrap();
+        assert_eq!(products.source_epoch(), epoch);
+        let tile = products.terrain(MAP, TILE).unwrap();
+        assert!(tile.has_liquid());
+        match case {
+            "liquid_water_flat" => liquid_data(tile, 1.5, 1.5, 1, 1, 23.5),
+            "liquid_nonsymmetric" => liquid_data(tile, 26.5, 57.5, 1, 1, 104.25),
+            "liquid_outer_edges" => liquid_data(tile, 127.5, 127.5, 3, 1, 415.75),
+            "liquid_sparse_flat" => no_water(tile, 19.5, 127.5),
+            _ => unreachable!(),
+        }
+        let output = temp.0.join("export");
+        products.publish(&output).unwrap();
+        assert_eq!(
+            fs::read(output.join("maps/0013132.map")).unwrap(),
+            fixture(&format!("{case}.map"))
+        );
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.join("terrain.json")).unwrap()).unwrap();
+        assert_eq!(manifest["format"], "benilla-terrain-production-v2");
+        assert_eq!(
+            manifest["writer_policy"],
+            "cmangos-ad-f0-selected-tile-owned-liquid-v2"
+        );
+        assert_eq!(manifest["source_epoch"], epoch);
+        assert_eq!(manifest["gameplay_admitted"], false);
+        assert_eq!(manifest["live_install_lease"], false);
+        assert!(!output.join("vmaps").exists());
+        assert!(!output.join("mmaps").exists());
+        assert_eq!(fs::read(data.join("terrain.MPQ")).unwrap(), source);
+    }
+}
+
+#[test]
+fn captured_liquid_snapshot_remains_owned_and_source_drift_refuses_publication() {
+    let temp = Temp::new();
+    let data = temp.data("liquid_nonsymmetric");
+    let input = prepared(&data);
+    fs::write(
+        data.join("patch.MPQ"),
+        archive(&members("liquid_nonsymmetric")),
+    )
+    .unwrap();
+    assert_eq!(
+        SourceTerrainProducts::from_prepared(input).map(|_| ()),
+        Err(Error::Io)
+    );
+    fs::remove_file(data.join("patch.MPQ")).unwrap();
+    let products = SourceTerrainProducts::from_prepared(prepared(&data)).unwrap();
+    fs::write(data.join("terrain.MPQ"), archive(&members("flat"))).unwrap();
+    liquid_data(
+        products.terrain(MAP, TILE).unwrap(),
+        26.5,
+        57.5,
+        1,
+        1,
+        104.25,
+    );
+    let output = temp.0.join("rejected");
+    assert_eq!(products.publish(&output), Err(Error::Io));
+    assert!(!output.exists());
 }

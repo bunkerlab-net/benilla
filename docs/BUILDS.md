@@ -96,14 +96,14 @@ On Windows, run in PowerShell:
 ```
 
 Replace the example Data path with your own installation. `--inspect` runs the same
-bounded preparation and dry-terrain validation as generation, then reports the
+bounded preparation and terrain validation as generation, then reports the
 result without publishing products, a manifest, or an output directory. It does
 not require `--output`. The tile coordinates and map are explicit; repeat `--tile`
 for at most nine selected tiles. The example is a request to inspect, not a claim
 that this real tile is supported or has passed acceptance.
 
 The helper reads the installation without modifying it. Unsupported inputs fail
-closed, including liquid-bearing terrain and incompatible patch-chain winners;
+closed, including history-dependent liquid edges and incompatible patch-chain winners;
 there is no fallback conversion or automatic neighbor selection. Successful
 inspection does not provide VMaps/MMaps, gameplay admission, movement authority,
 or a live installation lease. Keep any generated terrain and source manifests

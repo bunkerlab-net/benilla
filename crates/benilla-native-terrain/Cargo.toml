@@ -3,7 +3,7 @@ name = "benilla-native-terrain"
 version.workspace = true
 edition.workspace = true
 license = "GPL-3.0-or-later"
-description = "Private bounded dry terrain production from immutable local MPQ inputs"
+description = "Private bounded terrain and Classic liquid production from immutable local MPQ inputs"
 [lints]
 workspace = true
 [dependencies]

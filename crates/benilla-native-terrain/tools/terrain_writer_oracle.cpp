@@ -18,6 +18,8 @@ static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
 static_assert(sizeof(GridMapFileHeader) == 40);
 static_assert(sizeof(GridMapAreaHeader) == 8);
 static_assert(sizeof(GridMapHeightHeader) == 16);
+static_assert(sizeof(GridMapLiquidHeader) == 16);
+static_assert(sizeof(adt_MCLQ) == 812);
 static_assert(sizeof(adt_MCNK) == 136);
 static_assert(sizeof(adt_MCVT) == 588);
 static_assert(sizeof(adt_MHDR) == 72);

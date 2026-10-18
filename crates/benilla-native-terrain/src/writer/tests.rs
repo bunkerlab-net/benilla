@@ -271,8 +271,18 @@ fn source_wdt_whole_word_selection_and_output_axis_order() {
 }
 
 #[test]
-fn rejects_all_liquid_header_offset_size_and_root_representations() {
-    for (field, value) in [(0, 4), (0, 8), (0, 16), (0, 32), (0x60, 1), (0x64, 1)] {
+fn missing_mclq_skips_all_class_flags_like_the_source() {
+    let expected = Inputs::new().produce().unwrap();
+    for flag in [4, 8, 16, 32, 0x3c] {
+        let mut input = Inputs::new();
+        input.header_word(0, 0, flag);
+        assert_eq!(input.produce().unwrap(), expected);
+    }
+}
+
+#[test]
+fn rejects_dangling_liquid_references_and_unsupported_root_representations() {
+    for (field, value) in [(0x60, 1), (0x64, 1)] {
         let mut input = Inputs::new();
         input.header_word(0, field, value);
         assert!(input.produce().is_err(), "field {field} value {value}");
@@ -407,4 +417,112 @@ fn complete_output_matches_independent_pinned_source_writer_bytes() {
     check!("upper_sentinel");
     check!("missing_mcvt");
     check!("missing_mcvt_signed_zero");
+    check!("liquid_absent_flags");
+    check!("liquid_empty");
+    check!("liquid_size8");
+    check!("liquid_water_flat");
+    check!("liquid_ocean_flat");
+    check!("liquid_magma_flat");
+    check!("liquid_zero_size");
+    check!("liquid_full_types");
+    check!("liquid_flag_bytes");
+    check!("liquid_deep_only");
+    check!("liquid_untyped");
+    check!("liquid_nonsymmetric");
+    check!("liquid_seams");
+    check!("liquid_outer_edges");
+    check!("liquid_sparse_flat");
+}
+
+fn liquid_fixture_produce(adt: &[u8]) -> Result<Vec<u8>> {
+    produce(
+        include_bytes!("../../tools/fixtures/Map.dbc.test-fixture"),
+        include_bytes!("../../tools/fixtures/AreaTable.dbc.test-fixture"),
+        include_bytes!("../../tools/fixtures/LiquidType.dbc.test-fixture"),
+        include_bytes!("../../tools/fixtures/source.wdt.test-fixture"),
+        adt,
+        1,
+        31,
+        32,
+    )
+}
+fn fixture_liquid_at(adt: &[u8], slot: usize) -> (usize, usize) {
+    let root = word(adt, 92 + slot * 16).unwrap() as usize;
+    let liquid = root + word(adt, root + 8 + 0x60).unwrap() as usize;
+    (root, liquid)
+}
+
+#[test]
+fn identical_selected_tile_with_different_source_histories_rejects_instead_of_zero_seeding() {
+    let a = include_bytes!("../../tools/fixtures/liquid_stale_edge_a.adt.test-fixture");
+    let b = include_bytes!("../../tools/fixtures/liquid_stale_edge_b.adt.test-fixture");
+    assert_eq!(a, b);
+    assert_ne!(
+        include_bytes!("../../tools/fixtures/liquid_stale_edge_a.map").as_slice(),
+        include_bytes!("../../tools/fixtures/liquid_stale_edge_b.map").as_slice()
+    );
+    for raw in [a.as_slice(), b.as_slice()] {
+        assert!(format!("{:#}", liquid_fixture_produce(raw).unwrap_err())
+            .contains("terrain.liquid_history"));
+    }
+}
+
+#[test]
+fn malformed_liquid_extents_offsets_and_nonfinite_consumed_heights_fail_closed() {
+    let original = include_bytes!("../../tools/fixtures/liquid_water_flat.adt.test-fixture");
+    for mutation in 0..8 {
+        let mut raw = original.to_vec();
+        let (root, liquid) = fixture_liquid_at(&raw, 255);
+        match mutation {
+            0 => set_word(&mut raw, liquid + 4, 803),
+            1 => set_word(&mut raw, liquid + 4, u32::MAX),
+            2 => set_word(&mut raw, root + 8 + 0x64, 811),
+            3 => set_word(&mut raw, root + 8 + 0x60, 1),
+            4 => set_word(&mut raw, liquid + 8 + 12 + 80 * 8, f32::NAN.to_bits()),
+            5 => set_word(&mut raw, liquid + 8 + 12, f32::INFINITY.to_bits()),
+            6 => set_word(&mut raw, liquid + 8 + 12, f32::NEG_INFINITY.to_bits()),
+            _ => {
+                raw.pop();
+            }
+        }
+        assert!(liquid_fixture_produce(&raw).is_err(), "mutation {mutation}");
+    }
+}
+
+#[test]
+fn typed_all_hidden_bounds_reject_without_running_the_unsafe_source_branch() {
+    let mut raw =
+        include_bytes!("../../tools/fixtures/liquid_water_flat.adt.test-fixture").to_vec();
+    for slot in 0..256 {
+        let (_, liquid) = fixture_liquid_at(&raw, slot);
+        raw[liquid + 8 + 656..liquid + 8 + 720].fill(0x0f);
+    }
+    assert!(format!("{:#}", liquid_fixture_produce(&raw).unwrap_err())
+        .contains("terrain.liquid_empty_bounds"));
+}
+
+#[test]
+fn source_ignored_liquid_fields_and_skipped_payload_do_not_change_output() {
+    let original = include_bytes!("../../tools/fixtures/liquid_water_flat.adt.test-fixture");
+    let expected = liquid_fixture_produce(original).unwrap();
+    let mut raw = original.to_vec();
+    for slot in 0..256 {
+        let (_, liquid) = fixture_liquid_at(&raw, slot);
+        set_word(&mut raw, liquid + 8, f32::NAN.to_bits());
+        set_word(&mut raw, liquid + 12, f32::INFINITY.to_bits());
+        raw[liquid + 8 + 720..liquid + 812].fill(0xff);
+        for vertex in 0..81 {
+            set_word(&mut raw, liquid + 8 + 8 + vertex * 8, u32::MAX);
+        }
+    }
+    assert_eq!(liquid_fixture_produce(&raw).unwrap(), expected);
+    for slot in 0..256 {
+        let (root, liquid) = fixture_liquid_at(&raw, slot);
+        set_word(&mut raw, root + 8 + 0x64, 8);
+        set_word(&mut raw, liquid + 8 + 12, f32::NAN.to_bits());
+    }
+    assert_eq!(
+        liquid_fixture_produce(&raw).unwrap(),
+        include_bytes!("../../tools/fixtures/flat.map")
+    );
 }

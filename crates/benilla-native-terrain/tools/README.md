@@ -1,4 +1,4 @@
-# Dry terrain source oracle
+# Classic terrain source oracle
 
 The fixtures are entirely authored test data, never extracted game assets. Each
 `.map` is the byte output of original CMaNGOS Classic revision
@@ -52,13 +52,45 @@ both flat and nonflat output. Missing MCVT uses direct base assignment, includin
 preservation of negative-zero bits. Reversed MCNK coordinate metadata
 demonstrates that placement follows the MCIN slot, not the coordinate fields.
 
-Every listed fixture is within the bounded Rust profile. No negative parser
-input is executed through upstream's unsafe parser. Malformed-input rejection
-belongs to the Rust tests.
+The Classic MCLQ cases cover absent records despite MCNK type bits; empty
+records and MCNK sizes 0 through 8; full records with either zero or 804 inner
+size; water, ocean and magma; independent type-bit accumulation and last-set
+entry precedence; whole-byte `0x0f` hiding versus visible/deep `0x8f`; deep-only
+and untyped-visible records; uniform versus full type arrays; flat versus float
+heights; non-square cropped bounds; hidden samples assigned -500; shared-seam
+last-wins ownership; and fully written outer row/column 128. A sparse flat -625
+case proves liquid heights are not terrain-clamped and that absent edge heights
+are irrelevant when `MAP_LIQUID_NO_HEIGHT` suppresses serialization.
 
-These vectors establish byte parity for dry terrain only. They do not establish
-MPQ patch-winner parity, install coverage, wet terrain, live source leases,
-VMap/MMap generation, world-content compilation, or gameplay admission. The WDT
+`DRY_CASES` retains the original 13 dry vectors. `LIQUID_CASES` adds 15 admitted
+Classic MCLQ vectors. The generator verifies all 28 admitted outputs are
+byte-identical after each of two distinct, valid preceding tiles. Every emitted
+header/type/height branch is covered. No negative parser input is executed
+through upstream's unsafe parser. Malformed-input rejection belongs to Rust
+tests, including wholly hidden typed liquid whose source bounds would be unsafe.
+
+### Source history is part of the oracle
+
+Original `ConvertADT` clears liquid visibility, entries and flags, but does not
+clear its global `liquid_height`. Its masking scan visits coordinates 0 through
+127, while the serialized height rectangle may include row or column 128.
+An unwritten outer-edge sample can therefore retain a previous tile's height.
+The fixture driver never replaces, clears or patches those source globals.
+
+The two `ORACLE_ONLY_CASES`, `liquid_stale_edge_a` and `liquid_stale_edge_b`,
+have identical ADT bytes. They run in separate fresh processes with explicit
+same-process source histories: water at 23.5 then case A; deep ocean at -17.25
+then case B. Their resulting maps differ at exactly 199 unwritten outer-edge
+height samples. The manifest records each predecessor and marks both cases
+`rust_supported: false`, with a rejection reason. Rust must reject these shapes
+rather than choose an initial height or reproduce whichever process history
+happened to run first. Conversely, a fully written outer edge is admitted, as
+is the sparse flat case whose edge samples are never emitted.
+
+These vectors establish byte parity only for the described bounded dry and
+Classic MCLQ profiles. They do not establish MPQ patch-winner parity, install
+coverage, MH2O terrain, live source leases, VMap/MMap generation, world-content
+compilation, or gameplay admission. The WDT
 is an authored selection fixture for Rust integration; `ConvertADT` does not
 read it. Selected map 1, output grid `(31, 32)`, uses ADT filename
 `AuthoredOracle_32_31.adt` and output `0013132.map`.

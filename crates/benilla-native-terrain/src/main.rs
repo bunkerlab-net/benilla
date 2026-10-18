@@ -9,7 +9,7 @@ use std::{fmt::Write as _, io::Write as _, path::PathBuf, process::ExitCode};
 #[command(
     name = "benilla-native-terrain",
     bin_name = "benilla-native-terrain",
-    about = "Inspect or privately export selected dry terrain from your own Classic Data; no gameplay activation",
+    about = "Inspect or privately export selected terrain from your own Classic Data; no gameplay activation",
     group(ArgGroup::new("mode").required(true).args(["inspect", "output"]))
 )]
 struct Args {
@@ -58,8 +58,12 @@ const SAFE_DIAGNOSTIC_IDS: &[&str] = &[
     "source.ad_dummy_member",
     "source.ad_hash_count",
     "source.ad_header_open",
-    "source.ad_header_profile",
     "source.ad_header_read",
+    "source.ad_header_scan_limit",
+    "source.ad_header_selection",
+    "source.ad_header_signature",
+    "source.ad_header_truncated",
+    "source.ad_header_version",
     "source.ad_index_budget",
     "source.ad_index_spans",
     "source.ad_member_profile",
@@ -132,12 +136,17 @@ const SAFE_DIAGNOSTIC_IDS: &[&str] = &[
     "terrain.duplicate_mcin_reference",
     "terrain.duplicate_subchunk",
     "terrain.height_overflow",
+    "terrain.liquid_empty_bounds",
     "terrain.liquid_excluded",
+    "terrain.liquid_history",
+    "terrain.liquid_nonfinite",
     "terrain.map_directory",
     "terrain.map_missing",
     "terrain.mccv_excluded",
     "terrain.mcin_not_mcnk",
     "terrain.mcin_size",
+    "terrain.mclq_length",
+    "terrain.mclq_size",
     "terrain.mcnk_header",
     "terrain.mcnk_unsupported_or_liquid",
     "terrain.mcvt_length",
@@ -181,6 +190,20 @@ fn operation_diagnostic(error: &anyhow::Error) -> String {
         "source.data_directory_required" | "source.data_directory" => {
             "The Data directory is missing or unavailable"
         }
+        "source.ad_header_signature" => "No MPQ header was found on a 512-byte boundary",
+        "source.ad_header_truncated" => "The selected MPQ header is shorter than 32 bytes",
+        "source.ad_header_version" => "The first MPQ header is not supported legacy version zero",
+        "source.ad_header_scan_limit" => "MPQ header discovery exceeds the one MiB scan budget",
+        "source.ad_header_selection" => {
+            "The reader and pinned extractor select different MPQ headers"
+        }
+        "source.ad_archive_size" => {
+            "The declared MPQ size does not match the bytes after its selected header"
+        }
+        "source.ad_sector_size" => "The MPQ sector size exceeds the supported 64 KiB limit",
+        "source.ad_hash_count" => "The MPQ hash count must be a nonzero power of two",
+        "source.ad_index_budget" => "The MPQ index exceeds the 64 MiB budget",
+        "source.ad_index_spans" => "The MPQ index spans overlap or fall outside the archive",
         "output.published_but_durability_unconfirmed" => {
             "The complete export marker may already be visible; durability is unconfirmed"
         }
@@ -224,12 +247,12 @@ fn run(args: Args) -> Result<String> {
     if args.inspect {
         writeln!(
             report,
-            "Inspected {count} dry terrain tiles in memory; no artifacts published"
+            "Inspected {count} terrain tiles in memory; no artifacts published"
         )?;
     } else {
         writeln!(
             report,
-            "Produced {count} dry terrain tiles in a fresh private export"
+            "Produced {count} terrain tiles in a fresh private export"
         )?;
     }
     writeln!(
@@ -340,6 +363,25 @@ mod tests {
             operation_diagnostic(&error),
             "error[source.read]: Terrain validation or export failed; no gameplay admission established\n"
         );
+    }
+
+    #[test]
+    fn liquid_diagnostics_retain_only_reviewed_ids() {
+        for id in [
+            "terrain.mclq_length",
+            "terrain.mclq_size",
+            "terrain.liquid_history",
+            "terrain.liquid_empty_bounds",
+            "terrain.liquid_nonfinite",
+        ] {
+            let error = anyhow::anyhow!(format!("{id}:/private/account/World/secret.adt"));
+            let diagnostic = operation_diagnostic(&error);
+            assert!(diagnostic.starts_with(&format!("error[{id}]:")));
+            assert!(diagnostic.contains("no gameplay admission established"));
+            assert!(!diagnostic.contains("private"));
+            assert!(!diagnostic.contains("secret"));
+            assert!(diagnostic.len() < 256);
+        }
     }
 
     #[test]

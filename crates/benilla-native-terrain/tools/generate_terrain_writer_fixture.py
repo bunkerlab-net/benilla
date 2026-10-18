@@ -28,7 +28,7 @@ HASHES = {
     "contrib/extractor/loadlib/loadlib.cpp": "4354ae954f6e376d42ddce312fa17573946e515646cc4be5044bbb4c040499b2",
     "src/game/Maps/GridMapDefines.h": "3a901f22b6d65edae74a93b5cd2be793ebc5c3884eb2c0aa06a37265ef53e54e",
 }
-CASES = {
+DRY_CASES = {
     "flat": "Exactly-flat float grid collapses to MHGT header only",
     "varied": "Interleaved 145-height V9/V8 deinterleave and per-cell base addition",
     "seams": "Conflicting shared V9 edges; later MCIN row-major cell wins",
@@ -43,6 +43,33 @@ CASES = {
     "missing_mcvt": "Absent MCVT uses the complete cell base height",
     "missing_mcvt_signed_zero": "Absent MCVT preserves negative-zero base bits",
 }
+LIQUID_CASES = {
+    "liquid_absent_flags": "Bare MCNK type bits without MCLQ do not create liquid",
+    "liquid_empty": "Empty zero-payload MCLQ with MCNK size8 is skipped",
+    "liquid_size8": "MCNK liquid sizes0..8 are skipped despite type flags",
+    "liquid_water_flat": "Uniform all-visible water collapses both type and height",
+    "liquid_ocean_flat": "Uniform deep ocean preserves negative liquid heights",
+    "liquid_magma_flat": "Uniform all-visible magma collapses both type and height",
+    "liquid_zero_size": "Classic full MCLQ with zero inner size uses MCNK size812",
+    "liquid_full_types": "Independent type-bit accumulation and last-set entry precedence",
+    "liquid_flag_bytes": "Only whole byte0x0f hides; 0x8f is visible and deep",
+    "liquid_deep_only": "Visible deep-water flag produces liquid without MCNK type bits",
+    "liquid_untyped": "Visible ordinary tiles without any type/deep flag produce no MLIQ",
+    "liquid_nonsymmetric": "Non-square cropped bounds include hidden -500 edge samples",
+    "liquid_seams": "All liquid heights overwrite shared seams in MCIN row-major order",
+    "liquid_outer_edges": "A fully written outer128 crop serializes current-tile edge heights",
+    "liquid_sparse_flat": "Below-minimum flat sparse liquid omits history-dependent edge bytes",
+}
+ORACLE_ONLY_CASES = {
+    "liquid_stale_edge_a": "Missing serialized outer edges retain prior water-tile heights",
+    "liquid_stale_edge_b": "Identical ADT after ocean tile retains different outer-edge bytes",
+}
+# These are complete same-process ConvertADT histories, never injected globals.
+SOURCE_HISTORIES = {
+    "liquid_stale_edge_a": ["liquid_water_flat"],
+    "liquid_stale_edge_b": ["liquid_ocean_flat"],
+}
+CASES = DRY_CASES | LIQUID_CASES | ORACLE_ONLY_CASES
 AREA_ROWS = [(0, 99), (1, 0x1234), (2, 17), (3, 0xffff), (4, 0),
              (5, 0x1fffe), (8, 0x1234), (2, 0x10002)]
 
@@ -116,6 +143,79 @@ def cell_values(case, row, col):
     return base, heights, area, holes
 
 
+
+def authored_liquid(case, row, col):
+    """Return MCNK flags, MCLQ bytes and MCNK size; no source algorithm port."""
+    if case == "liquid_absent_flags":
+        return 28, b"", 0
+    if case in ("liquid_empty", "liquid_size8"):
+        declared = 8 if case == "liquid_empty" else (row * 16 + col) % 9
+        return 28, chunk("MCLQ", b""), declared
+    if case not in LIQUID_CASES and case not in ORACLE_ONLY_CASES:
+        return 0, b"", 0
+
+    flags = [0] * 64
+    mc_flags = 4
+    heights = [23.5] * 81
+    if case == "liquid_ocean_flat":
+        mc_flags, flags, heights = 8, [0x80] * 64, [-17.25] * 81
+    elif case == "liquid_magma_flat":
+        mc_flags, heights = 16, [31.75] * 81
+    elif case == "liquid_full_types":
+        mc_flags = [4, 8, 16, 12, 20, 24, 28][(row * 16 + col) % 7]
+        heights = [13.25] * 81
+    elif case in ("liquid_flag_bytes", "liquid_deep_only"):
+        if (row, col) != (1, 2):
+            return 0, b"", 0
+        mc_flags = 0 if case == "liquid_deep_only" else 4
+        flags = [0x0f] * 64
+        flags[2 * 8 + 1:2 * 8 + 7] = [0x00, 0x1f, 0x8f, 0xff, 0x80, 0x40]
+        heights = [40.0 + y * 2.0 + x / 4.0 for y in range(9) for x in range(9)]
+    elif case == "liquid_untyped":
+        mc_flags = 0
+    elif case == "liquid_nonsymmetric":
+        if (row, col) != (3, 7):
+            return 0, b"", 0
+        flags = [0x0f] * 64
+        for y in range(2, 5):
+            for x in range(1, 6):
+                flags[y * 8 + x] = 0
+        heights = [100.0 + y * 2.0 + x / 4.0 for y in range(9) for x in range(9)]
+    elif case == "liquid_seams":
+        heights = [(row * 16 + col) * 10.0 + y * 2.0 + x / 4.0
+                   for y in range(9) for x in range(9)]
+    elif case == "liquid_outer_edges":
+        if (row, col) != (15, 15):
+            return 0, b"", 0
+        mc_flags, flags = 16, [0x0f] * 64
+        for y in range(2, 8):
+            for x in range(1, 8):
+                flags[y * 8 + x] = 0
+        heights = [400.0 + y * 2.0 + x / 4.0 for y in range(9) for x in range(9)]
+    elif case in ORACLE_ONLY_CASES or case == "liquid_sparse_flat":
+        visible = {(2, 15): (3, 7), (15, 3): (7, 5)}
+        if (row, col) not in visible:
+            return 0, b"", 0
+        y, x = visible[(row, col)]
+        flags = [0x0f] * 64
+        flags[y * 8 + x] = 0
+        heights = ([-625.0] * 81 if case == "liquid_sparse_flat" else
+                   [100.0 + row * 10.0 + col + y * 2.0 + x / 4.0
+                    for y in range(9) for x in range(9)])
+
+    # Height bounds, light words and the trailing bytes are deliberately authored
+    # and irrelevant to ConvertADT. The full original MCLQ structure is present.
+    payload = (struct.pack("<ff", -1234.0, 5678.0)
+               + b"".join(struct.pack("<If", 0xa5000000 + i, height)
+                          for i, height in enumerate(heights))
+               + bytes(flags) + bytes(range(84)))
+    result = chunk("MCLQ", payload)
+    if case == "liquid_zero_size":
+        result = result[:4] + bytes(4) + result[8:]
+    assert len(result) == 812
+    return mc_flags, result, len(result)
+
+
 def authored_adt(case):
     if case not in CASES:
         raise ValueError("unknown authored case")
@@ -132,7 +232,11 @@ def authored_adt(case):
             struct.pack_into("<H", header, 60, holes)
             struct.pack_into("<f", header, 112, base)
             mcvt = chunk("MCVT", struct.pack("<145f", *heights)) if has_mcvt else b""
-            cells.append(chunk("MCNK", header + mcvt))
+            liquid_flags, mclq, liquid_size = authored_liquid(case, row, col)
+            struct.pack_into("<I", header, 0, liquid_flags)
+            struct.pack_into("<II", header, 96,
+                             136 + len(mcvt) if mclq else 0, liquid_size)
+            cells.append(chunk("MCNK", header + mcvt + mclq))
     mhdr = bytearray(64)
     struct.pack_into("<I", mhdr, 4, 64)
     mcin = bytearray(4096)
@@ -215,10 +319,25 @@ def generate(core, destination):
         subprocess.run([compiler, *flags, str(temp / "oracle.cpp"),
                         str(temp / "loadlib/adt.cpp"), str(temp / "loadlib/loadlib.cpp"),
                         str(temp / "dbcfile.cpp"), "-o", str(temp / "oracle")], check=True)
-        result = subprocess.run([str(temp / "oracle"), str(destination.resolve()), *CASES],
-                                check=True, capture_output=True)
-        if result.stderr:
-            raise RuntimeError("source oracle stderr: " + result.stderr.decode())
+        def run(cases):
+            result = subprocess.run([str(temp / "oracle"), str(destination.resolve()), *cases],
+                                    check=True, capture_output=True)
+            if result.stderr:
+                raise RuntimeError("source oracle stderr: " + result.stderr.decode())
+
+        admitted = DRY_CASES | LIQUID_CASES
+        for case in admitted:
+            run([case])
+        baseline = {case: (destination / (case + ".map")).read_bytes() for case in admitted}
+        # Admission requires byte invariance after both distinct legal histories.
+        # The source globals are never cleared or modified by the fixture driver.
+        for seed in ("liquid_water_flat", "liquid_ocean_flat"):
+            for case in admitted:
+                run([seed, case])
+                if (destination / (case + ".map")).read_bytes() != baseline[case]:
+                    raise ValueError("admitted case depends on liquid history: " + case)
+        for case, history in SOURCE_HISTORIES.items():
+            run([*history, case])
     # The unchanged source driver reads original member names; only persisted
     # authored inputs use the suffix that keeps them in corresponding source.
     for name in [*authored_common(), *(case + ".adt" for case in CASES)]:
@@ -227,15 +346,22 @@ def generate(core, destination):
     for case, description in CASES.items():
         raw = (destination / (case + ".map")).read_bytes()
         words = struct.unpack_from("<10I", raw)
-        if raw[:8] != b"MAPSz1.4" or words[6:8] != (0, 0) or words[9] != 512:
-            raise ValueError("unexpected dry source envelope")
+        if (raw[:8] != b"MAPSz1.4" or words[9] != 512
+                or words[8] + words[9] != len(raw)):
+            raise ValueError("unexpected source envelope")
+        if case in DRY_CASES and words[6:8] != (0, 0):
+            raise ValueError("unexpected dry source liquid")
         products.append({"name": case, "description": description,
-                         "rust_supported": True,
+                         "rust_supported": case not in ORACLE_ONLY_CASES,
+                         "source_history": SOURCE_HISTORIES.get(case, []),
+                         "rejection_reason": ("history-dependent serialized outer liquid heights"
+                                              if case in ORACLE_ONLY_CASES else None),
                          "adt_bytes": len(authored_adt(case)),
                          "adt_sha256": sha(authored_adt(case)),
                          "map_bytes": len(raw), "map_sha256": sha(raw)})
     manifest = {
-        "schema": 1, "source_revision": PIN, "configuration": "ad -f 0; dry authored cells",
+        "schema": 2, "source_revision": PIN,
+        "configuration": "ad -f 0; dry and Classic MCLQ authored cells",
         "map": 1, "tile_x": 31, "tile_y": 32, "directory": "AuthoredOracle",
         "source_hashes": HASHES, "source_intervals": intervals,
         "compiler": version, "compiler_target": target, "compiler_flags": flags,
@@ -244,7 +370,13 @@ def generate(core, destination):
                                        "DBCFile", "FileLoader", "ADT_file", "ConvertADT"],
         "sanitizer_limit": "Alignment excluded: source casts string literals to uint32 for FourCC",
         "excluded": ["MPQ parsing/patch winner proof", "external extractor execution", "game assets",
-                     "wet terrain", "production malformed-input behavior", "VMap/MMap/world admission"],
+                     "MH2O terrain", "production malformed-input behavior", "VMap/MMap/world admission"],
+        "history_verification": {
+            "admitted_cases": list(DRY_CASES | LIQUID_CASES),
+            "independent_predecessors": ["liquid_water_flat", "liquid_ocean_flat"],
+            "requirement": "Every admitted output is byte-identical after either source history",
+            "oracle_only_pairs": [["liquid_stale_edge_a", "liquid_stale_edge_b"]],
+        },
         "common_files": {fixture_name(name): {"bytes": len(data), "sha256": sha(data)}
                          for name, data in authored_common().items()},
         "cases": products,

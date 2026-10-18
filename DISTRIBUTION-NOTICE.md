@@ -73,6 +73,6 @@ redistribute third-party game content. This packaging process is not legal advic
 or a guarantee of compliance with every applicable right or dependency obligation.
 
 The terrain-only local producer is a bounded Rust adaptation of the pinned CMaNGOS
-`ad -f 0` dry writer. Its source scope and unchanged upstream notice are in
+`ad -f 0` terrain/MCLQ writer. Its source scope and unchanged upstream notice are in
 `crates/benilla-native-terrain/README.md` and `CMANGOS-NOTICE.txt`. It distributes
 original authored fixtures, not client assets or generated real terrain.

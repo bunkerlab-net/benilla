@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Original fixture/integrity tests; no install, Rust build or extractor process."""
+import functools
 import json
 from pathlib import Path
 import struct
@@ -14,9 +15,11 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 class TerrainWriterOracle(unittest.TestCase):
+    @functools.cache
     def read_map(self, name):
         return (FIXTURES / (name + ".map")).read_bytes()
 
+    @functools.cache
     def header(self, name):
         return struct.unpack_from("<10I", self.read_map(name))
 
@@ -45,7 +48,7 @@ class TerrainWriterOracle(unittest.TestCase):
         self.assertFalse(any(name.endswith((".adt", ".dbc", ".wdt")) for name in names))
 
     def test_dry_layout_and_flat_compression(self):
-        for name in oracle.CASES:
+        for name in oracle.DRY_CASES:
             raw = self.read_map(name)
             header = self.header(name)
             self.assertEqual(raw[:8], b"MAPSz1.4")
@@ -104,10 +107,164 @@ class TerrainWriterOracle(unittest.TestCase):
 
     def test_missing_mcvt_preserves_base_and_signed_zero(self):
         manifest = json.loads((FIXTURES / "manifest.json").read_text())
-        self.assertTrue(all(case["rust_supported"] for case in manifest["cases"]))
+        for case in manifest["cases"]:
+            self.assertEqual(case["rust_supported"], case["name"] not in oracle.ORACLE_ONLY_CASES)
         self.assertEqual(self.read_map("missing_mcvt"), self.read_map("flat"))
         self.assertEqual(struct.unpack_from("<III", self.read_map("missing_mcvt_signed_zero"),
                                            52), (1, 0x80000000, 0x80000000))
+
+    @functools.cache
+    def liquid_header(self, name):
+        return struct.unpack_from("<4sBBHBBBBf", self.read_map(name), self.header(name)[6])
+
+    def liquid_types(self, name):
+        at = self.header(name)[6] + 16
+        raw = self.read_map(name)
+        return struct.unpack_from("<256H", raw, at), raw[at + 512:at + 768]
+
+    def liquid_height(self, name, y, x):
+        header = self.liquid_header(name)
+        _, flags, _, _, offset_x, offset_y, width, height, level = header
+        self.assertTrue(offset_x <= x < offset_x + width)
+        self.assertTrue(offset_y <= y < offset_y + height)
+        if flags & 2:
+            return level
+        at = self.header(name)[6] + 16 + (0 if flags & 1 else 768)
+        return struct.unpack_from("<f", self.read_map(name),
+                                  at + ((y - offset_y) * width + x - offset_x) * 4)[0]
+
+    def test_liquid_section_sizes_and_holes_follow_exact_payload(self):
+        for name in oracle.CASES:
+            with self.subTest(name=name):
+                header = self.header(name)
+                self.assertEqual(header[8] + header[9], len(self.read_map(name)))
+                self.assertEqual(header[9], 512)
+                if not header[6]:
+                    self.assertEqual(header[7], 0)
+                    self.assertEqual(header[8], header[4] + header[5])
+                    continue
+                fourcc, flags, _, _, x, y, width, height, _ = self.liquid_header(name)
+                self.assertEqual(fourcc, b"MLIQ")
+                self.assertEqual(flags & ~3, 0)
+                self.assertLessEqual(x + width, 129)
+                self.assertLessEqual(y + height, 129)
+                self.assertGreater(width, 1)
+                self.assertGreater(height, 1)
+                expected = 16 + (0 if flags & 1 else 768)
+                expected += 0 if flags & 2 else width * height * 4
+                self.assertEqual(header[6], header[4] + header[5])
+                self.assertEqual(header[7], expected)
+                self.assertEqual(header[8], header[6] + expected)
+
+    def test_liquid_absence_empty_small_sizes_and_untyped_are_dry(self):
+        for name in ("liquid_absent_flags", "liquid_empty", "liquid_size8", "liquid_untyped"):
+            self.assertEqual(self.read_map(name), self.read_map("flat"))
+        self.assertEqual({oracle.authored_liquid("liquid_size8", row, col)[2]
+                          for row in range(16) for col in range(16)}, set(range(9)))
+        self.assertEqual(oracle.authored_liquid("liquid_empty", 0, 0),
+                         (28, b"QLCM" + bytes(4), 8))
+        _, raw, size = oracle.authored_liquid("liquid_zero_size", 0, 0)
+        self.assertEqual(size, 812)
+        self.assertEqual(len(raw), 812)
+        self.assertEqual(raw[:8], b"QLCM" + bytes(4))
+        self.assertEqual(self.read_map("liquid_zero_size"), self.read_map("liquid_water_flat"))
+
+    def test_liquid_flat_uniform_and_full_type_storage(self):
+        for name, liquid_flags, entry, level in (
+                ("liquid_water_flat", 8, 1, 23.5),
+                ("liquid_ocean_flat", 18, 2, -17.25),
+                ("liquid_magma_flat", 1, 3, 31.75)):
+            self.assertEqual(self.liquid_header(name),
+                             (b"MLIQ", 3, liquid_flags, entry, 0, 0, 129, 129, level))
+            self.assertEqual(self.header(name)[7], 16)
+        self.assertEqual(self.liquid_header("liquid_full_types"),
+                         (b"MLIQ", 2, 0, 0, 0, 0, 129, 129, 13.25))
+        entries, flags = self.liquid_types("liquid_full_types")
+        entry_cycle = [1, 2, 3, 2, 3, 3, 3]
+        flag_cycle = [8, 2, 1, 10, 9, 3, 11]
+        self.assertEqual(entries, tuple(entry_cycle[i % 7] for i in range(256)))
+        self.assertEqual(flags, bytes(flag_cycle[i % 7] for i in range(256)))
+
+    def test_liquid_whole_byte_visibility_and_deep_only(self):
+        for name, expected_entry, expected_flags in (
+                ("liquid_flag_bytes", 1, 0x18), ("liquid_deep_only", 0, 0x10)):
+            self.assertEqual(self.liquid_header(name),
+                             (b"MLIQ", 0, 0, 0, 17, 10, 7, 2, -500.0))
+            entries, flags = self.liquid_types(name)
+            self.assertEqual(entries[18], expected_entry)
+            self.assertEqual(flags[18], expected_flags)
+            self.assertFalse(any(entries[:18] + entries[19:]))
+            self.assertFalse(any(flags[:18] + flags[19:]))
+            for x in range(17, 23):
+                self.assertEqual(self.liquid_height(name, 10, x), 44.0 + (x - 16) / 4.0)
+            self.assertEqual(self.liquid_height(name, 10, 23), -500.0)
+            for x in range(17, 24):
+                self.assertEqual(self.liquid_height(name, 11, x), -500.0)
+        _, raw, _ = oracle.authored_liquid("liquid_flag_bytes", 1, 2)
+        tile_flags = raw[664:728]
+        self.assertEqual(tile_flags[16:24], bytes([0x0f, 0, 0x1f, 0x8f, 0xff, 0x80, 0x40, 0x0f]))
+
+    def test_liquid_nonsymmetric_crop_masks_hidden_samples(self):
+        name = "liquid_nonsymmetric"
+        self.assertEqual(self.liquid_header(name),
+                         (b"MLIQ", 0, 0, 0, 57, 26, 6, 4, -500.0))
+        for y in range(26, 30):
+            for x in range(57, 63):
+                expected = -500.0 if x == 62 or y == 29 else 100.0 + (y - 24) * 2 + (x - 56) / 4
+                self.assertEqual(self.liquid_height(name, y, x), expected)
+        entries, flags = self.liquid_types(name)
+        self.assertEqual(entries[3 * 16 + 7], 1)
+        self.assertEqual(flags[3 * 16 + 7], 8)
+
+    def test_liquid_shared_seams_and_current_tile_outer_edge_heights(self):
+        name = "liquid_seams"
+        self.assertEqual(self.liquid_header(name),
+                         (b"MLIQ", 1, 8, 1, 0, 0, 129, 129, 0.0))
+        for y, x, expected in ((0, 8, 10.0), (8, 0, 160.0),
+                               (8, 8, 170.0), (128, 128, 2568.0)):
+            self.assertEqual(self.liquid_height(name, y, x), expected)
+        name = "liquid_outer_edges"
+        self.assertEqual(self.liquid_header(name),
+                         (b"MLIQ", 0, 0, 0, 121, 122, 8, 7, -500.0))
+        for y, x, expected in ((122, 121, 404.25), (122, 128, 406.0),
+                               (128, 121, 416.25), (128, 128, 418.0)):
+            self.assertEqual(self.liquid_height(name, y, x), expected)
+
+    def test_source_history_changes_only_unwritten_serialized_outer_edges(self):
+        first, second = "liquid_stale_edge_a", "liquid_stale_edge_b"
+        self.assertEqual(oracle.authored_adt(first), oracle.authored_adt(second))
+        self.assertNotEqual(self.read_map(first), self.read_map(second))
+        self.assertEqual(self.liquid_header(first), self.liquid_header(second))
+        self.assertEqual(self.liquid_types(first), self.liquid_types(second))
+        self.assertEqual(self.liquid_header(first),
+                         (b"MLIQ", 0, 0, 0, 29, 19, 100, 110, -500.0))
+        changed = 0
+        for y in range(19, 129):
+            for x in range(29, 129):
+                a, b = self.liquid_height(first, y, x), self.liquid_height(second, y, x)
+                if a != b:
+                    changed += 1
+                    self.assertTrue(x == 128 or y == 128)
+                    self.assertEqual((a, b), (23.5, -17.25))
+        self.assertEqual(changed, 199)
+        for name, seed in ((first, "liquid_water_flat"), (second, "liquid_ocean_flat")):
+            manifest = json.loads((FIXTURES / "manifest.json").read_text())
+            case = next(case for case in manifest["cases"] if case["name"] == name)
+            self.assertFalse(case["rust_supported"])
+            self.assertEqual(case["source_history"], [seed])
+            self.assertIn("history-dependent", case["rejection_reason"])
+
+    def test_sparse_flat_omits_unwritten_outer_edge_heights(self):
+        name = "liquid_sparse_flat"
+        self.assertEqual(self.liquid_header(name),
+                         (b"MLIQ", 2, 0, 0, 29, 19, 100, 110, -625.0))
+        self.assertEqual(self.header(name)[7], 784)
+        self.assertEqual(self.liquid_height(name, 128, 128), -625.0)
+        manifest = json.loads((FIXTURES / "manifest.json").read_text())
+        self.assertEqual(manifest["history_verification"]["admitted_cases"],
+                         list(oracle.DRY_CASES | oracle.LIQUID_CASES))
+        self.assertEqual(manifest["history_verification"]["independent_predecessors"],
+                         ["liquid_water_flat", "liquid_ocean_flat"])
 
     def test_source_hash_rejects_drift_before_compilation(self):
         with tempfile.TemporaryDirectory() as temporary:

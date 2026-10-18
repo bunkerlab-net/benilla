@@ -146,6 +146,11 @@ impl Chain {
         Ok(Self { archives })
     }
 
+    /// Mounted archives in ascending priority, for read-only source-profile checks.
+    pub fn archives(&self) -> impl Iterator<Item = &Archive> {
+        self.archives.iter()
+    }
+
     /// The highest-priority archive with an entry for `name`, a delete marker included, as a
     /// tombstone shadows every lower copy: check [`Archive::is_delete_marker`] for a readable file.
     fn resolve(&self, name: &str) -> Option<&Archive> {
