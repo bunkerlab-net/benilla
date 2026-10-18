@@ -254,6 +254,42 @@ fn real_flat_corridor_proves_all_local_predicates_and_loaded_source_los() {
 }
 
 #[test]
+fn real_corridor_rechecks_the_last_live_collider_vertex_and_triangle() {
+    let mut fixture = Fixture::new();
+    let root = fixture.roots[&(31, 31)];
+    let original = fixture.app.world().get::<Collider>(root).unwrap().clone();
+    assert_eq!(fixture.certify(FROM, TO, body()), Ok(()));
+    for mutation in 0..3 {
+        let mesh = original.shape_scaled().as_trimesh().unwrap();
+        let mut vertices = mesh.vertices().to_vec();
+        let mut triangles = mesh.indices().to_vec();
+        match mutation {
+            0 => vertices.last_mut().unwrap().y += 0.25,
+            1 => triangles.last_mut().unwrap().swap(0, 1),
+            _ => {
+                triangles.pop();
+            }
+        }
+        fixture
+            .app
+            .world_mut()
+            .entity_mut(root)
+            .insert(Collider::trimesh(vertices, triangles));
+        assert_eq!(
+            fixture.certify(FROM, TO, body()),
+            Err(Failure::MissingGeometry),
+            "mutation {mutation}"
+        );
+        fixture
+            .app
+            .world_mut()
+            .entity_mut(root)
+            .insert(original.clone());
+        assert_eq!(fixture.certify(FROM, TO, body()), Ok(()));
+    }
+}
+
+#[test]
 fn real_corridor_rejects_raw_hole_and_nonflat_fan_center() {
     for kind in [TerrainKind::Hole, TerrainKind::Nonflat] {
         let mut fixture = Fixture::with_terrain(kind);

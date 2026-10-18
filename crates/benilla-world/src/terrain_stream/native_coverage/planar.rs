@@ -154,21 +154,39 @@ pub(super) fn prove_planar_tile(
     Ok(())
 }
 
+// Exact canonical fan order; no source geometry or successful proof is cached here.
+const CELL_TRIANGLES: [[u32; 12]; 64] = {
+    let mut cells = [[0; 12]; 64];
+    let mut cell = 0;
+    while cell < 64 {
+        let row = cell as u32 / 8;
+        let col = cell as u32 % 8;
+        let tl = row * 17 + col;
+        let (tr, bl, br, center) = (tl + 1, tl + 17, tl + 18, row * 17 + 9 + col);
+        cells[cell] = [
+            center, tl, bl, center, bl, br, center, br, tr, center, tr, tl,
+        ];
+        cell += 1;
+    }
+    cells
+};
+
 fn validate_chunk(chunk: &ChunkMesh, tile: (u32, u32)) -> Result<(), CoverageError> {
     let expected_indices = (64 - chunk.holes.count_ones() as usize * 4) * 12;
     if chunk.positions.len() != 145 || chunk.indices.len() != expected_indices {
         return Err(CoverageError::MalformedTerrain);
     }
     // Checking sizes first bounds every scan, even for malformed decoded input.
-    if chunk.positions.iter().flatten().any(|v| !v.is_finite()) {
-        return Err(CoverageError::MalformedTerrain);
-    }
     let row_base = tile.1 * 128 + chunk.index_y * 8;
     let col_base = tile.0 * 128 + chunk.index_x * 8;
+    // Reuse only arithmetic within this invocation; every live vertex is still checked.
+    let columns: [f32; 9] = std::array::from_fn(|col| lattice(col_base + col as u32));
     for row in 0..9usize {
-        for col in 0..9usize {
+        let x = lattice(row_base + row as u32);
+        for (col, y) in columns.iter().enumerate() {
             let p = chunk.positions[row * 17 + col];
-            if p[0] != lattice(row_base + row as u32) || p[1] != lattice(col_base + col as u32) {
+            // Exact equality to the finite lattice also rejects nonfinite XY.
+            if p[0] != x || p[1] != *y || !p[2].is_finite() {
                 return Err(CoverageError::MalformedTerrain);
             }
         }
@@ -177,25 +195,30 @@ fn validate_chunk(chunk: &ChunkMesh, tile: (u32, u32)) -> Result<(), CoverageErr
     for row in 0..8usize {
         for col in 0..8usize {
             let tl = row * 17 + col;
-            let (tr, bl, br, center) = (tl + 1, tl + 17, tl + 18, row * 17 + 9 + col);
+            let (br, center) = (tl + 18, row * 17 + 9 + col);
             let p = chunk.positions[center];
             let nw = chunk.positions[tl];
             let se = chunk.positions[br];
-            if !(se[0] < p[0] && p[0] < nw[0] && se[1] < p[1] && p[1] < nw[1]) {
+            // Strict finite corners reject nonfinite XY, including centers inside holes.
+            if !(se[0] < p[0] && p[0] < nw[0] && se[1] < p[1] && p[1] < nw[1]) || !p[2].is_finite()
+            {
                 return Err(CoverageError::MalformedTerrain);
             }
             if chunk.holes & (1 << ((row >> 1) * 4 + (col >> 1))) != 0 {
                 continue;
             }
-            let expected = [
-                center, tl, bl, center, bl, br, center, br, tr, center, tr, tl,
-            ]
-            .map(|index| index as u32);
-            if chunk.indices[offset..offset + 12] != expected {
-                return Err(CoverageError::MalformedTerrain);
+            if chunk.holes != 0 {
+                if chunk.indices[offset..offset + 12] != CELL_TRIANGLES[row * 8 + col] {
+                    return Err(CoverageError::MalformedTerrain);
+                }
+                offset += 12;
             }
-            offset += 12;
         }
+    }
+    // The common hole-free stream is one exact integer-slice comparison. Holed chunks
+    // above compare every retained cell in the same order, without accepting a prefix.
+    if chunk.holes == 0 && chunk.indices != CELL_TRIANGLES.as_flattened() {
+        return Err(CoverageError::MalformedTerrain);
     }
     Ok(())
 }
@@ -557,6 +580,78 @@ mod tests {
             }
             assert_eq!(prove(&chunks), Err(CoverageError::MalformedTerrain));
         }
+    }
+
+    #[test]
+    fn every_hole_mask_matches_authored_topology_and_rejects_late_corruption() {
+        let mut source = chunk(15, 15);
+        let full = source.indices.clone();
+        for mask in 0..=u16::MAX {
+            source.holes = mask;
+            source.indices.clear();
+            // Use the independent authored generator's stream, never CELL_TRIANGLES.
+            for cell in 0..64 {
+                let bit = ((cell / 8) >> 1) * 4 + ((cell % 8) >> 1);
+                if mask & (1 << bit) == 0 {
+                    source
+                        .indices
+                        .extend_from_slice(&full[cell * 12..cell * 12 + 12]);
+                }
+            }
+            assert_eq!(validate_chunk(&source, TILE), Ok(()), "mask={mask:#06x}");
+            if let Some(last) = source.indices.last_mut() {
+                *last ^= 1;
+                assert_eq!(
+                    validate_chunk(&source, TILE),
+                    Err(CoverageError::MalformedTerrain)
+                );
+            } else {
+                // Fully holed geometry still checks source centers and exact stream length.
+                source.positions[9][2] = f32::NAN;
+                assert_eq!(
+                    validate_chunk(&source, TILE),
+                    Err(CoverageError::MalformedTerrain)
+                );
+                source.positions[9][2] = 7.0;
+                source.indices.push(0);
+                assert_eq!(
+                    validate_chunk(&source, TILE),
+                    Err(CoverageError::MalformedTerrain)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_vertex_axis_rejects_nonfinite_values_including_hole_centers() {
+        let mut source = chunk(15, 15);
+        hole(&mut source, 0);
+        assert_eq!(validate_chunk(&source, TILE), Ok(()));
+        for vertex in 0..145 {
+            for axis in 0..3 {
+                for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                    let before = source.positions[vertex][axis];
+                    source.positions[vertex][axis] = value;
+                    assert_eq!(
+                        validate_chunk(&source, TILE),
+                        Err(CoverageError::MalformedTerrain),
+                        "vertex={vertex} axis={axis} value={value}"
+                    );
+                    source.positions[vertex][axis] = before;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn finite_off_midpoint_centers_and_signed_zero_keep_exact_float_semantics() {
+        let mut source = chunk(0, 0);
+        source.positions[9][0] = source.positions[0][0] * 0.25 + source.positions[18][0] * 0.75;
+        source.positions[9][1] = source.positions[0][1] * 0.75 + source.positions[18][1] * 0.25;
+        source.positions[0][0] = -0.0;
+        source.positions[0][1] = -0.0;
+        source.positions[9][2] = -0.0;
+        assert_eq!(validate_chunk(&source, TILE), Ok(()));
     }
 
     #[test]

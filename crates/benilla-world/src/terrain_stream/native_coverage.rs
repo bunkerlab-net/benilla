@@ -654,16 +654,17 @@ fn collider_matches_tile(collider: &Collider, chunks: &[ChunkMesh]) -> bool {
     let mut vertex_offset = 0usize;
     let mut triangle_offset = 0usize;
     for chunk in chunks {
-        for (offset, position) in chunk.positions.iter().enumerate() {
-            if mesh.vertices()[vertex_offset + offset] != wow_to_bevy(*position) {
+        let vertices = &mesh.vertices()[vertex_offset..vertex_offset + chunk.positions.len()];
+        for (vertex, position) in vertices.iter().zip(&chunk.positions) {
+            if *vertex != wow_to_bevy(*position) {
                 return false;
             }
         }
-        for (offset, triangle) in chunk.indices.as_chunks::<3>().0.iter().enumerate() {
-            let base = vertex_offset as u32;
-            if mesh.indices()[triangle_offset + offset]
-                != [base + triangle[0], base + triangle[1], base + triangle[2]]
-            {
+        let source_triangles = chunk.indices.as_chunks::<3>().0;
+        let triangles = &mesh.indices()[triangle_offset..triangle_offset + source_triangles.len()];
+        let base = vertex_offset as u32;
+        for (actual, triangle) in triangles.iter().zip(source_triangles) {
+            if *actual != [base + triangle[0], base + triangle[1], base + triangle[2]] {
                 return false;
             }
         }
