@@ -1,0 +1,226 @@
+{
+  "schema": 1,
+  "source_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "configuration": "ad -f 0; dry authored cells",
+  "map": 1,
+  "tile_x": 31,
+  "tile_y": 32,
+  "directory": "AuthoredOracle",
+  "source_hashes": {
+    "contrib/extractor/System.cpp": "ca6d3ad1641cd998c62dc865499d275bd79f371526a7277bcb0581b50033af95",
+    "contrib/extractor/dbcfile.h": "93e573dd1d2e27ee2e345697e288e0403c79215669747907832a3be23c75dfee",
+    "contrib/extractor/dbcfile.cpp": "553475f64e1a409db973fd3583577b6b4bb9e1248c14c1b0dad4ac3f9cccbb06",
+    "contrib/extractor/loadlib/adt.h": "f628f107b8505362a51ecba0d0f53c69cfc531c7c22d72a36145e64dd3132166",
+    "contrib/extractor/loadlib/adt.cpp": "008cefcf246750a85af4796381eed7df2b9f22fb3c7e3f8983f9cd497f06ac61",
+    "contrib/extractor/loadlib/loadlib.h": "645feea5d6a93c05f45d1d05cca22819ce579fdc0c9ffb56c9e7430812696af3",
+    "contrib/extractor/loadlib/loadlib.cpp": "4354ae954f6e376d42ddce312fa17573946e515646cc4be5044bbb4c040499b2",
+    "src/game/Maps/GridMapDefines.h": "3a901f22b6d65edae74a93b5cd2be793ebc5c3884eb2c0aa06a37265ef53e54e"
+  },
+  "source_intervals": [
+    {
+      "name": "globals",
+      "source": "contrib/extractor/System.cpp",
+      "first_byte": 1447,
+      "last_byte_exclusive": 1638,
+      "first_line": 62,
+      "last_line": 74,
+      "sha256": "302b031c2a10fe4c466940cbc364cb07c1fee5d6646959d08dad6634b355e819"
+    },
+    {
+      "name": "options",
+      "source": "contrib/extractor/System.cpp",
+      "first_byte": 1941,
+      "last_byte_exclusive": 2590,
+      "first_line": 87,
+      "last_line": 98,
+      "sha256": "8f652d0491dec17051a4d17c8be580e22a31895325089a960e45e8dba9b3d160"
+    },
+    {
+      "name": "dbc_readers",
+      "source": "contrib/extractor/System.cpp",
+      "first_byte": 4891,
+      "last_byte_exclusive": 6715,
+      "first_line": 189,
+      "last_line": 255,
+      "sha256": "98af50b2aaf3ee2807371151ab775af9cc78faab7d37502ba5280e0a50720811"
+    },
+    {
+      "name": "converter",
+      "source": "contrib/extractor/System.cpp",
+      "first_byte": 6762,
+      "last_byte_exclusive": 27009,
+      "first_line": 260,
+      "last_line": 839,
+      "sha256": "194d539b58f917dd4b9f3b21f4fd0f7c99173a2d1e762d3b7397b56221ab328c"
+    }
+  ],
+  "compiler": "14.2.0",
+  "compiler_target": "x86_64-linux-gnu",
+  "compiler_flags": [
+    "-std=c++20",
+    "-O0",
+    "-fno-strict-aliasing",
+    "-fno-fast-math",
+    "-ffp-contract=off",
+    "-frounding-math",
+    "-fsanitize=undefined",
+    "-fno-sanitize=alignment",
+    "-fno-sanitize-recover=all"
+  ],
+  "transport_substitution": "Authored MPQFile leaf reads generated local fixture bytes",
+  "source_behaviors_unchanged": [
+    "ReadMapDBC",
+    "ReadAreaTableDBC",
+    "ReadLiquidTypeTableDBC",
+    "DBCFile",
+    "FileLoader",
+    "ADT_file",
+    "ConvertADT"
+  ],
+  "sanitizer_limit": "Alignment excluded: source casts string literals to uint32 for FourCC",
+  "excluded": [
+    "MPQ parsing/patch winner proof",
+    "external extractor execution",
+    "game assets",
+    "wet terrain",
+    "production malformed-input behavior",
+    "VMap/MMap/world admission"
+  ],
+  "common_files": {
+    "Map.dbc": {
+      "bytes": 204,
+      "sha256": "102aa67e7a2d8c777e66c0cb31ccc22ca80b581fa20d6c0eb2de7d2a95fa5f17"
+    },
+    "AreaTable.dbc": {
+      "bytes": 821,
+      "sha256": "561f6f8cef7f00cf3c749d7ed1ce1f747e0cb0c2226ded5e039648d902edf1db"
+    },
+    "LiquidType.dbc": {
+      "bytes": 37,
+      "sha256": "8ceb17748afb1ec3575fe2a26caed2cc51ff62b8fe2c7adcadf423c889a049b5"
+    },
+    "source.wdt": {
+      "bytes": 32836,
+      "sha256": "d3b62d70a6f30707a4be87a0e216f216d3f74ee69ed176c46261050f951274c3"
+    }
+  },
+  "cases": [
+    {
+      "name": "flat",
+      "description": "Exactly-flat float grid collapses to MHGT header only",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "5c0259d91778a9a1a9c6f328c4ad3939cc92a14331eec229ba2478abf6a42019",
+      "map_bytes": 576,
+      "map_sha256": "df0b345feeb18cec0fe7a29a6304c4b9ba1d370d32d40cfdd2623bdf22070c96"
+    },
+    {
+      "name": "varied",
+      "description": "Interleaved 145-height V9/V8 deinterleave and per-cell base addition",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "095f0782c9142dbe45064c675be8cd5150a0b2781f2eaea059657705c938e76f",
+      "map_bytes": 132676,
+      "map_sha256": "f44d1aa42bab205f9d2a25aad24e287d9749ab99a18e29af282ae16b9bf0ef0f"
+    },
+    {
+      "name": "seams",
+      "description": "Conflicting shared V9 edges; later MCIN row-major cell wins",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "855eeeab59c50981ac96dff99a4dce539314f2ba2212cb8a24e0ca6e155cf997",
+      "map_bytes": 132676,
+      "map_sha256": "962719e4a68edcfb9f56c5e61dbb63317921df6cf94280198e3c0873a3a00703"
+    },
+    {
+      "name": "clamp_mixed",
+      "description": "Mixed heights below and above source -500 minimum",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "b07c71f762a12c152d1f17557ea18a175ca2d9ab5195255da37f55b4f6acbedc",
+      "map_bytes": 132676,
+      "map_sha256": "43a8db8d605737bfb46e6fa989e9ea07c48801b6ba24f8d8418b27568bc707a9"
+    },
+    {
+      "name": "clamp_flat",
+      "description": "All heights below minimum collapse after clamping",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "90356be69ea4c01677c00eef0a04a435b680f6225e5b4c3808ba1ee85d40bb48",
+      "map_bytes": 576,
+      "map_sha256": "73e0198c42dc0d789d8a3b5ea1482c0621e19dde33b8f19de6b5ad8e31bc90e7"
+    },
+    {
+      "name": "tiny_range",
+      "description": "Nonzero range below 0.005 remains float data with -f 0",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "ce0071c89d5aaae45d461dc38e72ad2b536b635a24f79b72d47600ee2b18af0f",
+      "map_bytes": 132676,
+      "map_sha256": "b34b421e1146b503a90f3c4bc13403d65b5fe78e85ebb8d3df6543744a5d93be"
+    },
+    {
+      "name": "area_full",
+      "description": "Mixed known, missing, zero, out-of-range, sentinel and narrowed flags",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "0bb476ab3b7f626fc374d42c00f9d06d78c32d5b39e3f4b9db15374c24647b56",
+      "map_bytes": 1088,
+      "map_sha256": "1fb2105893a9abd0679a9acde78f9e540b2a6dfd5b9cbb81586bf804dc0ef6ac"
+    },
+    {
+      "name": "area_fallback",
+      "description": "Uniform unknown area collapses to 0xffff",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "f116a8144c26fb27e099fe6b0e10e8ddab37dd3f9d89d5f325c4800cfd62cd13",
+      "map_bytes": 576,
+      "map_sha256": "b5838fb9d5c25480f46065875a6a83d139867c76fe00ff342b726b169f66370b"
+    },
+    {
+      "name": "holes",
+      "description": "All 256 row-major hole masks, including each single bit",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "a60f86086a0ca726b44c3edca66bee36b84fb078d4ad23b41d9bb22ca7cd39d0",
+      "map_bytes": 576,
+      "map_sha256": "549bcc450d650d6c2dc7180dbce86c61eed7eade444b1b9063af5048574634b7"
+    },
+    {
+      "name": "nonflat_holes",
+      "description": "Nonflat height data with the same discriminating hole masks",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "2471740d8b9536fd29686e57ce26b04fefefaf1323ca04d7711970800579b6c5",
+      "map_bytes": 132676,
+      "map_sha256": "f5c1dc101b68e0eacfd4706a66d27c417a3cda970982446877b37d39672fd74a"
+    },
+    {
+      "name": "upper_sentinel",
+      "description": "Source minimum scan starts at 20000, even above all samples",
+      "rust_supported": true,
+      "adt_bytes": 189532,
+      "adt_sha256": "620c2c8edbdb64aae756169f3a8c310dfb74237cd573367418ddc875cba00c8b",
+      "map_bytes": 132676,
+      "map_sha256": "3a7e66026de45e5c1ed3d5d82a977959c5df88d6f8d3bb6ab2b876abf8870ed1"
+    },
+    {
+      "name": "missing_mcvt",
+      "description": "Absent MCVT uses the complete cell base height",
+      "rust_supported": true,
+      "adt_bytes": 39004,
+      "adt_sha256": "802ccd00a71503e19b1d7604df30d08a4484f7b25197e8510f24a442fe3a6650",
+      "map_bytes": 576,
+      "map_sha256": "df0b345feeb18cec0fe7a29a6304c4b9ba1d370d32d40cfdd2623bdf22070c96"
+    },
+    {
+      "name": "missing_mcvt_signed_zero",
+      "description": "Absent MCVT preserves negative-zero base bits",
+      "rust_supported": true,
+      "adt_bytes": 39004,
+      "adt_sha256": "80d54c7425baadfa8ad72665f13b448af77a4172a50e807a3cefcc1b0240df18",
+      "map_bytes": 576,
+      "map_sha256": "44aa878f3c1af0c6c641bb8f2015d9ff23e8dcaf63dfc9ee39218ca189508c4f"
+    }
+  ]
+}

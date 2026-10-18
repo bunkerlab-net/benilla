@@ -22,6 +22,7 @@
 - **benilla-native-dbc** (no Bevy) — Private bounded extraction of native starter DBC inputs through Benilla's patch chain
 - **benilla-native-geometry-tests** (no Bevy) — Exact app geometry mailbox and terrain proof tests without Bevy
 - **benilla-native-nav** (no Bevy) — Private validated pinned Detour MMap query boundary; no gameplay admission
+- **benilla-native-terrain** (no Bevy) — Private bounded dry terrain production from immutable local MPQ inputs
 - **benilla-p2p** (no Bevy) — Authenticated, bounded peer-to-peer transport for the Benilla fork
 - **benilla-profile** (no Bevy) — Local owner identities and durable exploration characters for the P2P fork
 - **benilla-protocol** (no Bevy) — WoW 1.12.1 auth (SRP6) + world wire protocol and the benilla-auth CLI
@@ -127,6 +128,7 @@
 - **benilla-native-corridor-tests** (lib.rs): core dual_reopen_component_tests home_component_tests home_mailbox_tests local_corridor products real_corridor_fixture reconstruction_component_tests route_commit source_cache_reconstruction source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_same_polygon_local source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap staged_wander_tests suspended_owner_component_tests wander_component_tests wander_reopen_component_tests
 - **benilla-native-geometry-tests** (lib.rs): core planar production_item_order products route_commit source_creature_initialization source_ground_height source_location source_navigation source_near_point source_near_point_empty source_pathfinder_query source_player_environment source_route_chase_gate source_route_filter source_route_point_path source_route_same_polygon source_route_smoothing source_route_straight_path source_route_warm_cache source_vmap static_mesh
 - **benilla-native-nav** (lib.rs): cold_distance cold_distance_tests direct_corridor_tests smoothing smoothing_tests source_cold_same_polygon source_home_same_polygon source_query source_wander_and_chase_reconstruction_tests source_wander_same_polygon tests tile_presence validate warm_cache warm_cache_tests warm_point_path warm_point_path_tests warm_straight_path warm_straight_path_tests
+- **benilla-native-terrain** (lib.rs): source writer
 - **benilla-p2p** (lib.rs): discovery identity internet rejection
 - **benilla-profile** (lib.rs): recovery starting_location storage tests world_setup
 - **benilla-protocol** (lib.rs): auth events guid messages wire world

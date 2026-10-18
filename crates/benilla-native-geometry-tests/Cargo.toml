@@ -9,6 +9,7 @@ description = "Exact app geometry mailbox and terrain proof tests without Bevy"
 workspace = true
 [dev-dependencies]
 benilla-native-nav = { path = "../benilla-native-nav" }
+benilla-native-terrain = { path = "../benilla-native-terrain" }
 benilla-sim = { path = "../benilla-sim" }
 benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }
 benilla-formats = { path = "../benilla-formats" }

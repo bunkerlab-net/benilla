@@ -1,7 +1,8 @@
 # Private native geometry export and admission contract
 
-This is the concrete next exporter/consumer boundary, not a claim that the exporter,
-VMap/MMap authority, or production gameplay exists. The current provider can inspect
+This describes the full exporter/consumer boundary; the full upstream pipeline and
+production gameplay remain unavailable. The selected dry terrain producer described
+below is implemented separately. The current provider can inspect
 strict dry ADT/M2/WMO sources and exact live client-static hulls. WMO roots require every
 declared group and MODD M2 dependency; renderer-recovered failures do not certify coverage.
 Sloped support, liquids, server masks, near-point selection and full navigation remain
@@ -243,3 +244,11 @@ The rest of this adapter remains an implementation contract, not a product avail
 The specific blocker is the absence of this source-bound native snapshot and its
 owner/body/path consumer, not a missing interpolation formula. No production admission
 or VMap/MMap parity follows from the flat-cell coverage extension.
+
+## Implemented selected dry terrain path
+
+The [terrain-only producer](../../../../../../benilla-native-terrain/README.md)
+now supplies a bounded source port for selected dry tiles, exact raw-member
+resolution comparison, fresh-source rechecks and private no-overwrite publication.
+It is separate from the proposed full upstream sequence above. It produces no
+VMap/MMap products or admission, and no real player asset run has been verified.

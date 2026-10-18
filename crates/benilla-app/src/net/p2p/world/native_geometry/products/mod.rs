@@ -18,6 +18,7 @@ pub(crate) mod source_query;
 mod terrain;
 pub(crate) mod terrain_area;
 pub(crate) mod terrain_liquid;
+pub(crate) mod terrain_production;
 pub(crate) mod terrain_wet_liquid;
 pub(crate) mod vmap;
 use sha2::{Digest, Sha256};

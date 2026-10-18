@@ -33,6 +33,7 @@ const FLAG_ENCRYPTED: u32 = 0x0001_0000;
 const FLAG_SINGLE_UNIT: u32 = 0x0100_0000;
 /// A patch archive's delete marker (size 0): the path is deleted from the composite chain.
 const FLAG_DELETE_MARKER: u32 = 0x0200_0000;
+const FLAG_SECTOR_CRC: u32 = 0x0400_0000;
 const FLAG_EXISTS: u32 = 0x8000_0000;
 
 /// Hash-table sentinels.
@@ -271,6 +272,74 @@ impl Archive {
         self.open_file(name)?.read_all()
     }
 
+    /// Opt-in member-shape check for the pinned Classic `ad` extractor's libmpq
+    /// resolution. Ordinary rendering/lookup/read behavior is unchanged.
+    /// The caller separately checks the archive header and mount-order profile,
+    /// and must still successfully read the member through the bounded reader.
+    /// `NotFound` means true absence only; malformed matching entries, tombstones,
+    /// dummy files, unsupported flags, and implicitly encrypted tables are errors.
+    pub fn verify_classic_ad_member(&self, name: &str) -> Result<()> {
+        let idx = &self.index;
+        if idx.limits.is_none() {
+            return Err(Error::Corrupt("classic ad requires bounded archive".into()));
+        }
+        let count = idx.hash_table.len();
+        if !count.is_power_of_two() {
+            return Err(Error::Corrupt("classic ad hash-table shape".into()));
+        }
+        let mask = count - 1;
+        let start = hash_string(name, hash_type::TABLE_OFFSET) as usize & mask;
+        let want_a = hash_string(name, hash_type::NAME_A);
+        let want_b = hash_string(name, hash_type::NAME_B);
+        let mut selected = None;
+        // libmpq__file_number matches the first hash pair without skipping a
+        // deleted index. Reject its unsafe match rather than fall through it.
+        for offset in 0..count {
+            let entry = idx.hash_table[(start + offset) & mask];
+            if entry.block_index == HASH_EMPTY {
+                break;
+            }
+            if entry.name_a == want_a && entry.name_b == want_b {
+                selected = Some(*idx.block_table.get(entry.block_index as usize).ok_or_else(
+                    || Error::Corrupt("classic ad matching invalid hash index".into()),
+                )?);
+                break;
+            }
+        }
+        let block = selected.ok_or_else(|| Error::NotFound(name.into()))?;
+        if block.flags & FLAG_EXISTS == 0
+            || block.flags & !(FLAG_EXISTS | FLAG_COMPRESS | FLAG_SECTOR_CRC) != 0
+            || (block.flags & FLAG_SECTOR_CRC != 0 && block.flags & FLAG_COMPRESS == 0)
+        {
+            return Err(Error::Corrupt("classic ad unsupported member flags".into()));
+        }
+        if block.file_size <= 1 {
+            return Err(Error::Corrupt("classic ad dummy member".into()));
+        }
+        let mut open = self.open_file(name)?;
+        if let Some(offsets) = &open.offsets {
+            let extra = usize::from(block.flags & FLAG_SECTOR_CRC != 0);
+            let table_bytes = offsets
+                .len()
+                .checked_add(extra)
+                .and_then(|words| words.checked_mul(4))
+                .ok_or_else(|| Error::Corrupt("classic ad offset-table size".into()))?;
+            // libmpq__file_open treats a different first offset as implicit
+            // encryption, even when the member's encryption flag is clear.
+            if offsets.first().copied().map(u64::from) != Some(table_bytes as u64)
+                || table_bytes > open.avail
+            {
+                return Err(Error::Corrupt(
+                    "classic ad noncanonical sector table".into(),
+                ));
+            }
+            for index in 0..open.size.div_ceil(open.sector_size) {
+                open.decode_sector_with_policy(index, true)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Open a file for reading in place: its own OS handle, its sectors decompressed one at a
     /// time as they are read, so a long sound streams without the whole file read first, as the
     /// reference's FMOD streams read the archive through the file callbacks it registers
@@ -406,6 +475,10 @@ impl ArchiveFile {
     /// the sector size, or the remainder for the last. One that inflates short is refused, since
     /// every later byte would shift into the gap.
     fn decode_sector(&mut self, i: usize) -> Result<Vec<u8>> {
+        self.decode_sector_with_policy(i, false)
+    }
+
+    fn decode_sector_with_policy(&mut self, i: usize, complete_zlib: bool) -> Result<Vec<u8>> {
         let want = (self.size - i * self.sector_size).min(self.sector_size);
         let name = &self.name;
         let offsets = self.offsets.as_deref().unwrap_or_default();
@@ -454,12 +527,16 @@ impl ArchiveFile {
         } else {
             // COMPRESS: the leading byte is the codec mask, the rest the payload.
             let method = raw[0]; // non-empty: refused above
-            decompress(
-                method,
-                &raw[1..],
-                want + usize::from(self.limits.is_some()),
-                name,
-            )?
+            if complete_zlib {
+                decompress_classic_ad(method, &raw[1..], want, name)?
+            } else {
+                decompress(
+                    method,
+                    &raw[1..],
+                    want + usize::from(self.limits.is_some()),
+                    name,
+                )?
+            }
         };
         // `decompress` stops at `want`, so only a short sector is left to refuse.
         if out.len() != want {
@@ -674,6 +751,28 @@ fn decompress(method: u8, data: &[u8], expected: usize, name: &str) -> Result<Ve
             "{name}: sector codec 0x{other:02X} not yet implemented"
         ))),
     }
+}
+
+/// The pinned libmpq requires inflate(Z_FINISH) to reach Z_STREAM_END. The
+/// ordinary streaming decoder can return full output from a truncated stream.
+fn decompress_classic_ad(method: u8, data: &[u8], expected: usize, name: &str) -> Result<Vec<u8>> {
+    if method != 0x02 {
+        return Err(Error::Unsupported(format!(
+            "{name}: classic ad sector codec"
+        )));
+    }
+    let mut output = vec![0; expected + 1];
+    let mut decoder = flate2::Decompress::new(true);
+    let status = decoder
+        .decompress(data, &mut output, flate2::FlushDecompress::Finish)
+        .map_err(|error| Error::Decompress(format!("{name}: classic ad zlib: {error}")))?;
+    if status != flate2::Status::StreamEnd || decoder.total_out() != expected as u64 {
+        return Err(Error::Decompress(format!(
+            "{name}: classic ad incomplete zlib sector"
+        )));
+    }
+    output.truncate(expected);
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -1180,5 +1279,140 @@ mod tests {
         );
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(other);
+    }
+
+    #[test]
+    fn classic_ad_profile_accepts_stored_and_canonical_zlib_or_stored_sectors() {
+        let plain = vec![7; 600];
+        for (flags, data) in [
+            (FLAG_EXISTS, plain.clone()),
+            (FLAG_EXISTS | FLAG_COMPRESS, sectored(&plain)),
+        ] {
+            let (_, path) = open_temp_kept(
+                "ad_valid",
+                &archive_with_one_block("a.bin", flags, &data, plain.len() as u32),
+            );
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            archive.verify_classic_ad_member("a.bin").unwrap();
+            assert_eq!(archive.read_file("a.bin").unwrap(), plain);
+            assert!(matches!(
+                archive.verify_classic_ad_member("missing.bin"),
+                Err(Error::NotFound(_))
+            ));
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_rejects_unsupported_flags_and_dummy_entries() {
+        for (flags, data) in [
+            (
+                FLAG_EXISTS | FLAG_COMPRESS | FLAG_IMPLODE,
+                b"valid".as_slice(),
+            ),
+            (FLAG_EXISTS | FLAG_IMPLODE, b"valid"),
+            (FLAG_EXISTS | FLAG_SECTOR_CRC, b"valid"),
+            (FLAG_EXISTS | FLAG_DELETE_MARKER, b"valid"),
+            (FLAG_EXISTS | 0x10, b"valid"),
+            (0, b"valid"),
+            (FLAG_EXISTS, b"x"),
+        ] {
+            let (_, path) =
+                open_temp_kept("ad_flags", &archive_with_one_entry("a.bin", flags, data));
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            assert!(matches!(
+                archive.verify_classic_ad_member("a.bin"),
+                Err(Error::Corrupt(_))
+            ));
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_requires_canonical_first_sector_offset_including_crc() {
+        let plain = vec![7; 600];
+        let original = sectored(&plain);
+        let words = plain.len().div_ceil(512) + 1;
+        let mut padded = original.clone();
+        for index in 0..words {
+            let value = u32_at(&padded, index * 4) + 4;
+            padded[index * 4..index * 4 + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        padded.splice(words * 4..words * 4, [0; 4]);
+        for (flags, allowed) in [
+            (FLAG_EXISTS | FLAG_COMPRESS, false),
+            (FLAG_EXISTS | FLAG_COMPRESS | FLAG_SECTOR_CRC, true),
+        ] {
+            let (_, path) = open_temp_kept(
+                "ad_offsets",
+                &archive_with_one_block("a.bin", flags, &padded, plain.len() as u32),
+            );
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            assert_eq!(
+                archive.read_file("a.bin").unwrap(),
+                plain,
+                "ordinary reader stays unchanged"
+            );
+            assert_eq!(archive.verify_classic_ad_member("a.bin").is_ok(), allowed);
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_rejects_first_matching_deleted_or_invalid_hash() {
+        for (invalid, later_valid) in [(HASH_DELETED, false), (HASH_DELETED, true), (9, false)] {
+            let mut bytes = archive_with_one_entry("a.bin", FLAG_EXISTS, b"valid");
+            let mut words = to_u32s(&bytes[32..96]);
+            let key = hash_string("(hash table)", hash_type::FILE_KEY);
+            decrypt_block(&mut words, key);
+            let slot = (hash_string("a.bin", hash_type::TABLE_OFFSET) & 3) as usize;
+            let original: [u32; 4] = words[slot * 4..slot * 4 + 4].try_into().unwrap();
+            words[slot * 4 + 3] = invalid;
+            if later_valid {
+                let later = (slot + 1) & 3;
+                words[later * 4..later * 4 + 4].copy_from_slice(&original);
+            }
+            crypto::encrypt_block(&mut words, key);
+            for (index, word) in words.into_iter().enumerate() {
+                bytes[32 + index * 4..36 + index * 4].copy_from_slice(&word.to_le_bytes());
+            }
+            let (_, path) = open_temp_kept("ad_hash", &bytes);
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            if later_valid {
+                assert_eq!(archive.read_file("a.bin").unwrap(), b"valid");
+            }
+            assert!(
+                matches!(archive.verify_classic_ad_member("a.bin"), Err(Error::Corrupt(reason)) if reason.contains("matching invalid hash index"))
+            );
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_requires_complete_zlib_checksum() {
+        let plain = vec![7; 512];
+        let mut stored = sectored(&plain);
+        stored.truncate(stored.len() - 4);
+        let end = stored.len() as u32;
+        stored[4..8].copy_from_slice(&end.to_le_bytes());
+        let (_, path) = open_temp_kept(
+            "ad_truncated_zlib",
+            &archive_with_one_block(
+                "a.bin",
+                FLAG_EXISTS | FLAG_COMPRESS,
+                &stored,
+                plain.len() as u32,
+            ),
+        );
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert_eq!(
+            archive.read_file("a.bin").unwrap(),
+            plain,
+            "ordinary decoder accepts full output despite missing checksum"
+        );
+        assert!(
+            matches!(archive.verify_classic_ad_member("a.bin"), Err(Error::Decompress(reason)) if reason.contains("classic ad"))
+        );
+        std::fs::remove_file(path).unwrap();
     }
 }

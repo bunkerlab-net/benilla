@@ -171,6 +171,22 @@ impl Chain {
             .with_context(|| format!("reading {name} from {}", archive.path().display()))
     }
 
+    /// Opt-in pinned extractor compatibility check, independent of normal reads.
+    /// True means the first matching member has a supported `ad` shape; false is
+    /// true absence. A malformed matching entry or tombstone never falls back.
+    /// Callers using one fixed source archive can also check an otherwise hidden
+    /// malformed hash entry before deciding that archive lacks the selected name.
+    pub fn verify_classic_ad_member(&self, name: &str) -> Result<bool> {
+        for archive in self.archives.iter().rev() {
+            match archive.verify_classic_ad_member(name) {
+                Ok(()) => return Ok(true),
+                Err(benilla_mpq::Error::NotFound(_)) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(false)
+    }
+
     /// The archive `name` reads from, as a cheap handle: a caller holding the chain behind a lock
     /// looks the file up under it and reads (`Archive::open_file`) after releasing it. No I/O.
     pub fn archive_for(&self, name: &str) -> Result<Archive> {

@@ -724,6 +724,7 @@ dependencies = [
  "benilla-encounter",
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-terrain",
  "benilla-p2p",
  "benilla-profile",
  "benilla-protocol",
@@ -876,6 +877,7 @@ dependencies = [
  "benilla-assets",
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-terrain",
  "benilla-sim",
  "benilla-world",
  "benilla-world-runtime",
@@ -905,6 +907,7 @@ version = "0.2.0"
 dependencies = [
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-terrain",
  "benilla-sim",
  "benilla-world-runtime",
  "crossbeam-channel",
@@ -920,6 +923,19 @@ version = "0.2.0"
 dependencies = [
  "cc",
  "serde_json",
+]
+
+[[package]]
+name = "benilla-native-terrain"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "benilla-formats",
+ "clap",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1065,6 +1081,7 @@ dependencies = [
  "benilla-config",
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-terrain",
  "benilla-profile",
  "benilla-protocol",
  "benilla-sim",
