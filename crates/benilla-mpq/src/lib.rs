@@ -59,6 +59,8 @@ struct BlockEntry {
 /// An archive's index, parsed once and immutable, shared behind an `Arc`.
 struct Index {
     path: PathBuf,
+    /// Length observed on the same file handle used to decode the index.
+    file_len: u64,
     /// Byte offset of the MPQ header in the file: 0 in 1.12 data, but found, not assumed.
     archive_offset: u64,
     /// Exact bytes used to decode this index; inspection must not reread a different header.
@@ -89,6 +91,15 @@ pub struct ReadLimits {
 #[derive(Clone)]
 pub struct Archive {
     index: Arc<Index>,
+}
+
+/// Pinned Classic libmpq's first matching hash entry, before any member read.
+/// This is only lookup metadata, never proof of a readable or valid payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassicMemberProbe {
+    Absent,
+    Dummy(u32),
+    Present(u32),
 }
 
 /// A read error; anything outside the 1.12.1 envelope surfaces here.
@@ -170,22 +181,33 @@ fn open_archive_file(path: &Path, bounded: bool) -> Result<File> {
 impl Archive {
     /// Open an archive: find the header, then read and decrypt the hash and block tables.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::open_inner(path.as_ref(), None)
+        Self::open_inner(path.as_ref(), None, false)
     }
 
     /// Open with persistent budgets that also constrain cloned handles and all
     /// subsequent member/sector reads. Bounded sectors must decode exactly.
     pub fn open_bounded(path: impl AsRef<Path>, limits: ReadLimits) -> Result<Self> {
-        Self::open_inner(path.as_ref(), Some(limits))
+        Self::open_inner(path.as_ref(), Some(limits), false)
     }
 
-    fn open_inner(path: &Path, limits: Option<ReadLimits>) -> Result<Self> {
+    /// Bounded index decode with pinned Classic libmpq's first 512-aligned MPQ
+    /// signature selection. User-data pointers are not followed. The caller must
+    /// still validate the retained header/profile and every consumed member.
+    pub fn open_classic_bounded(path: impl AsRef<Path>, limits: ReadLimits) -> Result<Self> {
+        Self::open_inner(path.as_ref(), Some(limits), true)
+    }
+
+    fn open_inner(path: &Path, limits: Option<ReadLimits>, classic: bool) -> Result<Self> {
         let path = path.to_path_buf();
         let mut file = open_archive_file(&path, limits.is_some())?;
         let file_len = file.metadata()?.len();
 
         let scan = limits.map_or(file_len, |l| file_len.min(l.header_scan_bytes));
-        let archive_offset = find_header(&mut file, scan)?;
+        let archive_offset = if classic {
+            find_classic_header(&mut file, scan)?
+        } else {
+            find_header(&mut file, scan)?
+        };
         if limits.is_some_and(|l| archive_offset.saturating_add(32) > l.header_scan_bytes) {
             return Err(Error::Corrupt("bounded header scan limit".into()));
         }
@@ -246,6 +268,7 @@ impl Archive {
         Ok(Archive {
             index: Arc::new(Index {
                 path,
+                file_len,
                 archive_offset,
                 header: hdr,
                 header_extension,
@@ -268,6 +291,51 @@ impl Archive {
     /// Only bounded opens retain this provenance; ordinary opens do not inspect extensions.
     pub fn header_extension_snapshot(&self) -> Option<[u8; 12]> {
         self.index.header_extension
+    }
+
+    /// File length from the same handle as the retained header and index.
+    pub fn file_len_snapshot(&self) -> u64 {
+        self.index.file_len
+    }
+
+    /// First-hash lookup used by pinned libmpq, with its unsafe matching-index
+    /// and non-existing-block cases rejected. VMap's MPQFile treats a size <=1
+    /// as a dummy before attempting a read, including flagged delete markers.
+    /// Positive results require a separate strict member check and bounded read.
+    pub fn probe_classic_member(&self, name: &str) -> Result<ClassicMemberProbe> {
+        let idx = &self.index;
+        if idx.limits.is_none() || !idx.hash_table.len().is_power_of_two() {
+            return Err(Error::Corrupt(
+                "classic probe requires bounded valid index".into(),
+            ));
+        }
+        let mask = idx.hash_table.len() - 1;
+        let start = hash_string(name, hash_type::TABLE_OFFSET) as usize & mask;
+        let want_a = hash_string(name, hash_type::NAME_A);
+        let want_b = hash_string(name, hash_type::NAME_B);
+        for offset in 0..idx.hash_table.len() {
+            let entry = idx.hash_table[(start + offset) & mask];
+            if entry.block_index == HASH_EMPTY {
+                break;
+            }
+            if entry.name_a == want_a && entry.name_b == want_b {
+                let block = idx
+                    .block_table
+                    .get(entry.block_index as usize)
+                    .ok_or_else(|| {
+                        Error::Corrupt("classic probe matching invalid hash index".into())
+                    })?;
+                if block.flags & FLAG_EXISTS == 0 {
+                    return Err(Error::Corrupt("classic probe non-existing block".into()));
+                }
+                return Ok(if block.file_size <= 1 {
+                    ClassicMemberProbe::Dummy(block.file_size)
+                } else {
+                    ClassicMemberProbe::Present(block.file_size)
+                });
+            }
+        }
+        Ok(ClassicMemberProbe::Absent)
     }
 
     /// Encoded hash/block table footprint, for cumulative chain budgeting.
@@ -693,6 +761,21 @@ fn find_header(file: &mut File, file_len: u64) -> Result<u64> {
             _ => {}
         }
         off += 512;
+    }
+    Err(Error::NotMpq)
+}
+
+// libmpq archive_open(-1), mpq.c:82-146 at CMaNGOS 8ec338a: no user-data jump.
+fn find_classic_header(file: &mut File, file_len: u64) -> Result<u64> {
+    let mut offset = 0u64;
+    while offset + 32 <= file_len {
+        file.seek(SeekFrom::Start(offset))?;
+        let mut header = [0u8; 32];
+        file.read_exact(&mut header)?;
+        if header[..4] == *b"MPQ\x1a" {
+            return Ok(offset);
+        }
+        offset += 512;
     }
     Err(Error::NotMpq)
 }
@@ -1565,5 +1648,55 @@ mod tests {
             matches!(archive.verify_classic_ad_member("a.bin"), Err(Error::Decompress(reason)) if reason.contains("classic ad"))
         );
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn classic_header_scan_is_opt_in_and_ignores_userdata_jumps() {
+        let mut bytes = vec![0u8; 512];
+        bytes[..4].copy_from_slice(&USERDATA_SIGNATURE.to_le_bytes());
+        bytes[8..12].copy_from_slice(&32u32.to_le_bytes());
+        bytes.extend(archive_with_one_entry("a.bin", FLAG_EXISTS, b"contents"));
+        let path = temp_path("classic_scan");
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(matches!(
+            Archive::open_bounded(&path, offline_limits()),
+            Err(Error::NotMpq)
+        ));
+        let archive = Archive::open_classic_bounded(&path, offline_limits()).unwrap();
+        assert_eq!(archive.header_snapshot().0, 512);
+        assert_eq!(archive.file_len_snapshot(), bytes.len() as u64);
+        assert_eq!(archive.read_file("a.bin").unwrap(), b"contents");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn classic_probe_distinguishes_absence_dummy_and_unvalidated_positive() {
+        for (size, flags, expected) in [
+            (0, FLAG_EXISTS, ClassicMemberProbe::Dummy(0)),
+            (1, FLAG_EXISTS, ClassicMemberProbe::Dummy(1)),
+            (
+                0,
+                FLAG_EXISTS | FLAG_DELETE_MARKER,
+                ClassicMemberProbe::Dummy(0),
+            ),
+            (
+                3,
+                FLAG_EXISTS | FLAG_ENCRYPTED,
+                ClassicMemberProbe::Present(3),
+            ),
+        ] {
+            let bytes = archive_with_one_block("a.bin", flags, b"abc", size);
+            let path = temp_path("classic_probe");
+            std::fs::write(&path, bytes).unwrap();
+            let archive = Archive::open_classic_bounded(&path, offline_limits()).unwrap();
+            assert_eq!(archive.probe_classic_member("a.bin").unwrap(), expected);
+            assert_eq!(
+                archive.probe_classic_member("missing").unwrap(),
+                ClassicMemberProbe::Absent
+            );
+            // Existing strict positive-member verification is never relaxed.
+            assert!(archive.verify_classic_ad_member("a.bin").is_err());
+            std::fs::remove_file(path).unwrap();
+        }
     }
 }

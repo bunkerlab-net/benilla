@@ -943,6 +943,18 @@ name = "benilla-native-vmap"
 version = "0.2.0"
 
 [[package]]
+name = "benilla-native-vmap-source"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "benilla-mpq",
+ "benilla-native-vmap",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "benilla-p2p"
 version = "0.2.0"
 dependencies = [

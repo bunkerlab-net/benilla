@@ -1,0 +1,20 @@
+[package]
+name = "benilla-native-vmap-source"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+publish = false
+description = "Private bounded selected-map VMap discovery from immutable local MPQ inputs; no assembly or admission"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+benilla-mpq = { path = "../benilla-mpq" }
+benilla-native-vmap = { path = "../benilla-native-vmap" }
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

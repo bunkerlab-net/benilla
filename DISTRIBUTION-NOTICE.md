@@ -81,3 +81,9 @@ The separate raw M2 and dry WMO collision writers are bounded Rust adaptations o
 CMaNGOS VMap extractor. Their scope and upstream notice are retained in
 `crates/benilla-native-vmap/PROVENANCE.md` and `CMANGOS-NOTICE.txt`.
 Their extractor/assembler regression inputs are authored numeric fixtures.
+
+The bounded VMap acquisition and placement-discovery library adapts the pinned
+CMaNGOS extractor's ordering and name handling. Its source scope, explicitly
+versioned listfile termination compatibility rule, and upstream notice are in
+`crates/benilla-native-vmap-source/PROVENANCE.md` and `CMANGOS-NOTICE.txt`.
+Its test archives are authored fixtures, not client-install data.
