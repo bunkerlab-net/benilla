@@ -6,11 +6,21 @@ and removes its own temporary fixture tree. Compiles its own fake helper using
 Windows' installed .NET Framework csc.exe. Run under powershell.exe AND pwsh.exe.
 #>
 [CmdletBinding()]
-param([string]$Collector = (Join-Path $PSScriptRoot 'Collect-BenillaTerrainDiagnostics.ps1'))
+param([string]$Collector = '')
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'These smoke tests require Windows.' }
+# Resolve script-relative defaults only after parameter binding (Windows PowerShell 5.1).
+if ([string]::IsNullOrWhiteSpace($Collector)) {
+    $scriptDirectory = $PSScriptRoot
+    if ([string]::IsNullOrWhiteSpace($scriptDirectory)) {
+        $scriptFile = $MyInvocation.MyCommand.Path
+        if ([string]::IsNullOrWhiteSpace($scriptFile)) { throw 'Cannot locate this test script; pass -Collector explicitly.' }
+        $scriptDirectory = [IO.Path]::GetDirectoryName($scriptFile)
+    }
+    $Collector = Join-Path $scriptDirectory 'Collect-BenillaTerrainDiagnostics.ps1'
+}
 $Collector = (Resolve-Path -LiteralPath $Collector).ProviderPath
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
