@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use serde::{Deserialize, Serialize};
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+#[path = "wander_reopen.rs"]
+mod wander_reopen;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub use wander_reopen::PendingWanderReopen;
+
+/// One exact snapshot may be structurally restored only inside an unpublished
+/// pending owner. This is not a native certificate or a public restore policy.
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub(super) struct PendingWanderRestore {
+    npc: crate::NpcId,
+    snapshot: NpcMotionSnapshot,
+}
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+impl PendingWanderRestore {
+    pub(super) fn matches(&self, npc: crate::NpcId, snapshot: &NpcMotionSnapshot) -> bool {
+        self.npc == npc && self.snapshot == *snapshot
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TickRecord {
@@ -463,6 +482,14 @@ impl NativeWorld {
         profile: Profile,
         checkpoint: Checkpoint,
     ) -> Result<Self, NativeError> {
+        Self::restore_synthetic_checkpoint(profile, checkpoint, None)
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    fn restore_synthetic_checkpoint(
+        profile: Profile,
+        checkpoint: Checkpoint,
+        pending_wander: Option<&PendingWanderRestore>,
+    ) -> Result<Self, NativeError> {
         checkpoint.state.validate_source_history_budget(&profile)?;
         profile.validate()?;
         profile.require_realizable_initial_casts()?;
@@ -720,11 +747,24 @@ impl NativeWorld {
             }
             let source_motion = n
                 .source_motion
-                .map(|m| match &source_generation {
-                    Some(owner) => {
-                        NpcMotion::restore_generation(m, &profile, &ai, s.now_ms, n.id, owner)
+                .map(|m| {
+                    if let Some(pending) = pending_wander.filter(|p| p.npc == n.id) {
+                        return NpcMotion::restore_pending_wander(
+                            m,
+                            &profile,
+                            &ai,
+                            s.now_ms,
+                            n.id,
+                            source_generation.as_ref(),
+                            pending,
+                        );
                     }
-                    None => NpcMotion::restore(m, &profile, &ai, s.now_ms, n.id),
+                    match &source_generation {
+                        Some(owner) => {
+                            NpcMotion::restore_generation(m, &profile, &ai, s.now_ms, n.id, owner)
+                        }
+                        None => NpcMotion::restore(m, &profile, &ai, s.now_ms, n.id),
+                    }
                 })
                 .transpose()?;
             npcs.insert(

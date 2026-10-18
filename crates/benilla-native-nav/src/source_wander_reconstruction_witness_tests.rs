@@ -635,3 +635,374 @@ fn bounded_witness_rejects_unsupported_or_nonconstructor_lineage_without_importi
     assert_eq!(witness.ordered_inputs().unwrap(), saved);
     assert_eq!(original.storage().len(), 75);
 }
+
+#[test]
+fn production_witness_replays_complete_state_and_continuation_for_both_dry_filters() {
+    assert_eq!(SOURCE_WANDER_MAX_RECONSTRUCTION_OPERATIONS, 4025);
+    for filter in [SourceOwnerFilter::GROUND, FILTER] {
+        let source = query();
+        let mut retained = source.retain_default();
+        let mut original = None;
+        let mut witness = SourceWanderWitness::default();
+        for input in [normal_a(), normal_b(), height_failure()]
+            .into_iter()
+            .chain((0..4103).map(|index| {
+                [
+                    normal_a(),
+                    minimum_distance(),
+                    missing_endpoint(),
+                    height_failure(),
+                ][index % 4]
+            }))
+            .chain([normal_a(), missing_endpoint(), minimum_distance()])
+        {
+            let next = execute(&mut retained, original.as_ref(), input, filter).unwrap();
+            let mut staged = witness.clone();
+            staged.record(&next).unwrap();
+            witness = staged;
+            original = Some(next);
+        }
+        let recipe = witness.recipe().unwrap();
+        assert_eq!(recipe.operation_count, 4109);
+        assert!(recipe.operations.len() <= 6);
+        assert_eq!(recipe.filter, filter);
+        let fresh = query();
+        let challenge = SourceWanderReconstructionChallenge::new();
+        let certificate = fresh
+            .reconstruct_wander(&recipe, &challenge, until())
+            .unwrap();
+        assert!(certificate.matches_challenge(&challenge.clone()));
+        assert!(!certificate.matches_challenge(&SourceWanderReconstructionChallenge::new()));
+        assert_eq!(certificate.witness().recipe().unwrap(), recipe);
+        assert_eq!(
+            certificate.terminal().semantic_state(),
+            original.as_ref().unwrap().semantic_state()
+        );
+        let mut fresh_retained = fresh.retain_default();
+        let selected = fresh_retained
+            .select_for_wander(SLOT, minimum_distance().from, minimum_distance().raw_end)
+            .unwrap();
+        certificate.check_query(&selected).unwrap();
+        let selected_other = retained
+            .select_for_wander(SLOT, minimum_distance().from, minimum_distance().raw_end)
+            .unwrap();
+        assert_eq!(
+            certificate.check_query(&selected_other),
+            Err(Error::Identity)
+        );
+        let (mut fresh_retained, mut restored, mut resumed) = certificate.into_parts();
+        assert!(fresh_retained.current_selected());
+        let mut original = original.unwrap();
+        for input in [
+            minimum_distance(),
+            normal_b(),
+            missing_endpoint(),
+            height_failure(),
+            normal_a(),
+        ] {
+            original = execute(&mut retained, Some(&original), input, filter).unwrap();
+            let next = execute(&mut fresh_retained, Some(&restored), input, filter).unwrap();
+            resumed.record(&next).unwrap();
+            witness.record(&original).unwrap();
+            restored = next;
+            assert_eq!(restored.semantic_state(), original.semantic_state());
+            assert_eq!(restored.before_storage(), original.before_storage());
+            assert_eq!(restored.before_active_len(), original.before_active_len());
+            assert_eq!(restored.endpoint_trace(), original.endpoint_trace());
+            assert_eq!(restored.build_trace(), original.build_trace());
+            assert_eq!(resumed.recipe().unwrap(), witness.recipe().unwrap());
+        }
+    }
+}
+
+#[test]
+fn production_capture_authenticates_exact_predecessor_even_when_semantics_match() {
+    let source = query();
+    let mut retained = source.retain_default();
+    let first = execute(&mut retained, None, normal_a(), FILTER).unwrap();
+    let twin = execute(&mut retained, None, normal_a(), FILTER).unwrap();
+    assert_eq!(first.semantic_state(), twin.semantic_state());
+    let mut witness = SourceWanderWitness::default();
+    witness.record(&first).unwrap();
+    let saved = witness.recipe().unwrap();
+    let wrong_branch = execute(&mut retained, Some(&twin), normal_a(), FILTER).unwrap();
+    assert_eq!(
+        witness.record(&wrong_branch),
+        Err(SourceWanderReconstructionError::UnsupportedLineage)
+    );
+    let second = execute(&mut retained, Some(&first), normal_a(), FILTER).unwrap();
+    let third = execute(&mut retained, Some(&second), normal_a(), FILTER).unwrap();
+    assert_eq!(first.semantic_state(), third.semantic_state());
+    assert_eq!(
+        witness.record(&third),
+        Err(SourceWanderReconstructionError::UnsupportedLineage)
+    );
+    assert_eq!(witness.recipe().unwrap(), saved);
+    let mut staged = witness.clone();
+    staged.record(&second).unwrap();
+    assert_eq!(witness.recipe().unwrap(), saved);
+    assert_eq!(
+        staged.record(&second),
+        Err(SourceWanderReconstructionError::UnsupportedLineage)
+    );
+    staged.record(&third).unwrap();
+    assert_eq!(staged.operation_count(), 3);
+    let mut new = SourceWanderWitness::default();
+    assert_eq!(
+        new.record(&second),
+        Err(SourceWanderReconstructionError::UnsupportedLineage)
+    );
+}
+
+#[test]
+fn production_recipe_shape_mutations_and_unsupported_inputs_fail_closed() {
+    let source = query();
+    let mut retained = source.retain_default();
+    let mut original = None;
+    let mut witness = SourceWanderWitness::default();
+    for input in [
+        normal_a(),
+        normal_b(),
+        height_failure(),
+        normal_a(),
+        missing_endpoint(),
+        minimum_distance(),
+    ] {
+        let next = execute(&mut retained, original.as_ref(), input, FILTER).unwrap();
+        witness.record(&next).unwrap();
+        original = Some(next);
+    }
+    let recipe = witness.recipe().unwrap();
+    let challenge = SourceWanderReconstructionChallenge::new();
+    let rejects = |mutated: SourceWanderReconstructionRecipe| {
+        assert!(query()
+            .reconstruct_wander(&mutated, &challenge, until())
+            .is_err());
+    };
+    let mut mutation = recipe.clone();
+    mutation.operations.clear();
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.operations.swap(0, 1);
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.operations[1].ordinal = mutation.operations[0].ordinal;
+    rejects(mutation);
+    for count in [0, 5, 7, u64::MAX] {
+        let mut mutation = recipe.clone();
+        mutation.operation_count = count;
+        rejects(mutation);
+    }
+    let mut mutation = recipe.clone();
+    mutation.operations.last_mut().unwrap().ordinal = u64::MAX;
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.operations =
+        vec![mutation.operations[0]; SOURCE_WANDER_MAX_RECONSTRUCTION_OPERATIONS + 1];
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.operations[0].from[0] = f32::NAN.to_bits();
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.operations[0].raw_end = normal_b().raw_end;
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.slot.instance_id += 1;
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.filter.include_flags = 4;
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.config.normalize_z = true;
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.compatibility_version += 1;
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.version += 1;
+    rejects(mutation);
+    let mut mutation = recipe.clone();
+    mutation.query_capacity = 512;
+    rejects(mutation);
+    for omitted in 0..recipe.operations.len() {
+        let mut mutation = recipe.clone();
+        mutation.operations.remove(omitted);
+        if let Ok(changed) = query().reconstruct_wander(&mutation, &challenge, until()) {
+            assert_ne!(
+                changed.terminal().semantic_state(),
+                original.as_ref().unwrap().semantic_state()
+            );
+        }
+    }
+    // Reordering inputs while keeping ordinals valid changes the actual full tail.
+    let mut mutation = recipe.clone();
+    let first = mutation.operations[0];
+    mutation.operations[0].from = mutation.operations[1].from;
+    mutation.operations[0].raw_end = mutation.operations[1].raw_end;
+    mutation.operations[1].from = first.from;
+    mutation.operations[1].raw_end = first.raw_end;
+    let changed = query()
+        .reconstruct_wander(&mutation, &challenge, until())
+        .unwrap();
+    assert_ne!(
+        changed.terminal().storage(),
+        original.as_ref().unwrap().storage()
+    );
+    assert!(query()
+        .reconstruct_wander(&recipe, &challenge, Instant::now())
+        .is_err());
+}
+
+#[test]
+fn production_minimum_only_and_endpoint_writer_compaction_preserve_endpoints() {
+    for writer in [
+        None,
+        Some(normal_a()),
+        Some(missing_endpoint()),
+        Some(height_failure()),
+    ] {
+        let source = query();
+        let mut retained = source.retain_default();
+        let mut original = None;
+        let mut witness = SourceWanderWitness::default();
+        for input in writer
+            .into_iter()
+            .chain(std::iter::repeat_n(minimum_distance(), 2053))
+        {
+            let next = execute(&mut retained, original.as_ref(), input, FILTER).unwrap();
+            witness.record(&next).unwrap();
+            original = Some(next);
+        }
+        let recipe = witness.recipe().unwrap();
+        assert_eq!(
+            recipe.operations.len(),
+            if writer.is_some() { 2 } else { 1 }
+        );
+        let restored = query()
+            .reconstruct_wander(
+                &recipe,
+                &SourceWanderReconstructionChallenge::new(),
+                until(),
+            )
+            .unwrap();
+        assert_eq!(
+            restored.terminal().semantic_state(),
+            original.unwrap().semantic_state()
+        );
+    }
+}
+
+#[test]
+fn production_replay_observers_are_ordered_read_only_and_can_reject_each_stage() {
+    let source = query();
+    let mut retained = source.retain_default();
+    let mut original = None;
+    let mut witness = SourceWanderWitness::default();
+    for input in [
+        normal_a(),
+        minimum_distance(),
+        missing_endpoint(),
+        minimum_distance(),
+    ] {
+        let next = execute(&mut retained, original.as_ref(), input, FILTER).unwrap();
+        witness.record(&next).unwrap();
+        original = Some(next);
+    }
+    let recipe = witness.recipe().unwrap();
+    let challenge = SourceWanderReconstructionChallenge::new();
+    let mut events = Vec::new();
+    let result = query()
+        .reconstruct_wander_observed(&recipe, &challenge, until(), |stage| {
+            match stage {
+                SourceWanderReconstructionStage::Constructor => events.push((0, 0)),
+                SourceWanderReconstructionStage::Prepared { ordinal, prefix } => {
+                    assert!(!prefix.current_selected());
+                    assert_eq!(prefix.cleared_active_len(), 0);
+                    assert_eq!(prefix.path_type(), 8);
+                    assert!(prefix.straight_line());
+                    assert!(!prefix.force_destination());
+                    assert!(prefix.points().is_empty());
+                    events.push((1, ordinal));
+                }
+                SourceWanderReconstructionStage::Selected { ordinal } => events.push((2, ordinal)),
+                SourceWanderReconstructionStage::Terminal { ordinal, terminal } => {
+                    assert_eq!(
+                        terminal.from(),
+                        recipe
+                            .operations
+                            .iter()
+                            .find(|op| op.ordinal == ordinal)
+                            .unwrap()
+                            .from
+                    );
+                    events.push((3, ordinal));
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        result.terminal().semantic_state(),
+        original.unwrap().semantic_state()
+    );
+    let expected: Vec<_> = std::iter::once((0, 0))
+        .chain(recipe.operations.iter().flat_map(|operation| {
+            [
+                (1, operation.ordinal),
+                (2, operation.ordinal),
+                (3, operation.ordinal),
+            ]
+        }))
+        .collect();
+    assert_eq!(events, expected);
+    for rejected in 0..events.len() {
+        let mut calls = 0;
+        let result = query().reconstruct_wander_observed(&recipe, &challenge, until(), |_| {
+            let reject = calls == rejected;
+            calls += 1;
+            if reject {
+                Err(SourceWanderReconstructionError::UnsupportedLineage)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(SourceWanderReconstructionError::UnsupportedLineage)
+        ));
+        assert_eq!(calls, rejected + 1);
+    }
+}
+
+#[test]
+fn production_resume_checked_count_overflow_never_changes_witness() {
+    let source = query();
+    let mut retained = source.retain_default();
+    let first = execute(&mut retained, None, minimum_distance(), FILTER).unwrap();
+    let mut witness = SourceWanderWitness::default();
+    witness.record(&first).unwrap();
+    let mut recipe = witness.recipe().unwrap();
+    recipe.operation_count = u64::MAX;
+    recipe.operations[0].ordinal = u64::MAX - 1;
+    let fresh = query();
+    let (mut fresh_retained, terminal, mut resumed) = fresh
+        .reconstruct_wander(
+            &recipe,
+            &SourceWanderReconstructionChallenge::new(),
+            until(),
+        )
+        .unwrap()
+        .into_parts();
+    let next = execute(
+        &mut fresh_retained,
+        Some(&terminal),
+        minimum_distance(),
+        FILTER,
+    )
+    .unwrap();
+    assert_eq!(
+        resumed.record(&next),
+        Err(SourceWanderReconstructionError::UnsupportedLineage)
+    );
+    assert_eq!(resumed.recipe().unwrap(), recipe);
+}

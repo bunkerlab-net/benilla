@@ -1094,6 +1094,7 @@ name = "benilla-world-runtime"
 version = "0.2.0"
 dependencies = [
  "benilla-formats",
+ "benilla-native-nav",
  "benilla-sim",
  "benilla-world-data",
  "serde",

@@ -81,6 +81,20 @@ impl RouteCommitBoundary {
         }
         Ok(boundary)
     }
+    #[cfg(test)]
+    pub(super) fn capture_reconstructed(
+        world: &n::NativeWorld,
+        proof: &super::source_route_same_polygon::ReopenBoundaryProof,
+    ) -> Result<Self, n::NativeError> {
+        proof.validate(world)?;
+        let checkpoint = world.checkpoint()?.identity();
+        Ok(Self::capture(
+            world,
+            RouteCommitSession(Arc::new(())),
+            checkpoint.history_tip,
+            checkpoint.state_digest,
+        ))
+    }
     fn capture(
         world: &n::NativeWorld,
         session: RouteCommitSession,
@@ -163,6 +177,8 @@ pub(crate) struct RouteCommitNotice {
     previous_record: Digest,
     before: Digest,
     routes: Vec<n::AuthorityReply>,
+    #[cfg(test)]
+    draws: Vec<n::Draw>,
 }
 impl RouteCommitNotice {
     /// The controller calls this only after successful step_batch and input retirement,
@@ -195,6 +211,8 @@ impl RouteCommitNotice {
             ),
             previous_record: record.previous_record,
             before: record.before,
+            #[cfg(test)]
+            draws: record.draws.clone(),
             routes: record
                 .replies
                 .iter()
@@ -217,6 +235,10 @@ impl RouteCommitNotice {
     }
     pub(crate) fn before(&self) -> Digest {
         self.before
+    }
+    #[cfg(test)]
+    pub(crate) fn draws(&self) -> &[n::Draw] {
+        &self.draws
     }
     pub(crate) fn routes(&self) -> &[n::AuthorityReply] {
         &self.routes

@@ -487,8 +487,13 @@ struct TerminalDependencies {
     candidate: Rc<SamePolygonCandidate>,
 }
 
+#[cfg(test)]
+#[path = "source_route_same_polygon/reconstruction.rs"]
+mod reconstruction;
 #[path = "source_route_same_polygon/staged.rs"]
 mod staged;
+#[cfg(test)]
+pub(super) use reconstruction::ReopenBoundaryProof;
 #[path = "source_route_same_polygon/wander.rs"]
 mod wander;
 use wander::SamePolygonTerminal;
@@ -503,6 +508,8 @@ struct GeneratorCandidates {
     proposals: Vec<Rc<SamePolygonCandidate>>,
     certified: Vec<AuthorityReply>,
     committed: Option<Rc<SamePolygonCandidate>>,
+    #[cfg(test)]
+    reconstruction: Option<reconstruction::WanderCapture>,
 }
 /// Bound before runtime is driven; consume requests inside its authority callback.
 /// A captured unclaimed event alone does not establish this installation ordering.
@@ -733,6 +740,11 @@ impl SourceSamePolygonRouteProvider {
             .iter()
             .map(|entry| entry.committed.clone())
             .collect();
+        #[cfg(test)]
+        // Idle movement ticks do not copy the bounded operation witness. Stage
+        // only owners with an accepted calculation; publish after the whole ACK.
+        let mut reconstruction: Vec<Option<Option<reconstruction::WanderCapture>>> =
+            self.candidates.iter().map(|_| None).collect();
         for reply in notice.routes() {
             if reply.request.binding.tick != boundary.tick() {
                 return Err(Failure::Binding);
@@ -771,6 +783,18 @@ impl SourceSamePolygonRouteProvider {
                 })
             {
                 return Err(Failure::Binding);
+            }
+            #[cfg(test)]
+            {
+                let staged =
+                    reconstruction[index].get_or_insert_with(|| entry.reconstruction.clone());
+                if let Some(capture) = staged {
+                    if capture.record(candidate, notice.draws()).is_err() {
+                        // Optional persistence evidence cannot reject supported gameplay.
+                        // This generation remains unsaveable until a new constructor.
+                        *staged = None;
+                    }
+                }
             }
             heads[index] = Some(Rc::clone(candidate));
         }
@@ -811,6 +835,12 @@ impl SourceSamePolygonRouteProvider {
                     .is_some_and(|head| head.context == reply.request)
             });
             entry.committed = selected;
+            #[cfg(test)]
+            {
+                if let Some(staged) = reconstruction[index].take() {
+                    entry.reconstruction = staged;
+                }
+            }
         }
         // Retire replaced generators only after the whole outer ACK validates.
         // Cache-free current heads retain their constructor for a later dispatch;
@@ -1239,6 +1269,10 @@ impl SourceSamePolygonRouteProvider {
                 proposals: vec![],
                 certified: vec![],
                 committed: None,
+                #[cfg(test)]
+                reconstruction: (event.constructor_kind()
+                    == motion::PathfinderConstructorKind::WanderInitialized)
+                    .then(reconstruction::WanderCapture::default),
             });
             self.candidates.len() - 1
         };

@@ -107,9 +107,9 @@ point, endpoint and Detour operation in the source transcript. The original
 one-quad observer uses a 64-unit tile and remains separate: its bytes are not
 rewritten or admitted through the production loader's fixed-grid guard.
 
-## Bounded reconstruction equivalence experiment
+## Bounded native reconstruction primitive
 
-The test-only reconstruction experiment is narrower than saved-owner admission.
+The native-only reconstruction primitive is narrower than saved-owner admission.
 For one immutable dry same-polygon Wander constructor, every Prepare clears the
 active length before lookup. Lookup then ignores the first 74 backing slots and
 searches the ordered retained tail. In this domain slots 1–73 remain zero,
@@ -123,17 +123,81 @@ With the existing 4,096-reference resource ceiling and 74 initial slots, at most
 4,022 calculations can append. The three final writers give at most 4,025 retained
 calculations, independent of intervening no-append ticks or calculations. Every
 retained operation still performs actual native Prepare, query selection and
-calculation on a fresh allocation; saved polygon references are comparison
+calculation. The typed reopen caller supplies a fresh allocation; saved polygon
+references are comparison
 outputs, never reconstruction inputs. Source compatibility policy, geometry,
 query capacity, filter and normalization configuration must remain identical.
 This bound does not extend to other path branches or mutable configurations.
 
+`SourceWanderWitness` captures successful native operations using the exact opaque
+predecessor identity, not equal coordinates or equal cache contents. A staged
+clone allows capture to become accepted only with the owner's commit ACK. Its
+inert input recipe contains no polygon references and is validated for bounded
+size, strict original ordinal order, checked count arithmetic and the canonical
+union of actual appenders and last writers. Re-execution on the supplied actual
+query begins with fresh constructor storage and preserves Prepare, selection and
+calculation order. The opaque certificate retains that selected query, actual
+terminal and resumed witness; a fresh attempt challenge prevents transferring a
+certificate between unrelated reopen attempts. It is native semantic evidence,
+not world, owner, inventory or composite geometry authority.
+
 Semantic retained-state equivalence is a different claim from original transcript
 equality. Elision may change a retained operation's recorded before-state;
-ordinary retry observation comparisons remain unchanged. This experiment grants
-no saved-owner capability. A future integration must separately preserve the
-accepted checkpoint's operational revision, original path identities, RNG counter,
-timers and spline; verify retained draws without consuming new gameplay RNG;
-and atomically bind the genuinely reconstructed native allocation to that exact
-checkpoint. Current dispatch seals, contiguous commit acknowledgements and
-cache-free restore guards are unchanged.
+ordinary retry observation comparisons remain unchanged. The original accepted
+operation count and cache revision are separate from the number of retained
+operations. Reconstruction does not replay omitted owner ticks, draw new gameplay
+RNG, or recreate historical dispatch seals and ACKs.
+
+## Selected typed component reopen boundary
+
+The app's typed bridge is `cfg(test)` only. Its runtime pending-world boundary is
+available only to the explicit `synthetic-native-tests` feature/test domain;
+neither admits authentic content or enables native startup. The selected scope
+is one current NORMAL, dry same-polygon Wander owner with immutable constructor,
+query configuration and filter. Earlier retained MinimumDistance, EndpointMissing
+and EndpointHeight calculations are allowed; a current NOPATH, Chase, Home or
+suspended owner is outside this restore boundary. Generic cached-world restore
+remains closed.
+
+The app capture retains accepted native input ordinals together with the original
+constructor and pre-draw preparation/request metadata and exact angle/radius draws.
+These serialized requests are inert expectations, not live dispatch permission.
+Reopen requires fresh unpublished loaded providers, matching immutable inventory
+and configuration, and source-ordered revalidation of constructor/createFilter,
+clear/updateFilter, query selection, retained draw values, reached endpoint lookup
+and height, the applicable dry suffix, and actual loaded corridor/body/ground/LOS
+coverage where required by the branch. Historical request checks share the ordinary
+initialized-body policy; the final retained request must equal the saved spline
+request in full. Draw validation uses the saved counter-addressable stream without
+advancing gameplay RNG. Serialized references never seed the native query.
+
+The pending runtime boundary requires the replayed terminal to match the saved
+current NORMAL Wander semantic state completely: full backing storage including
+inactive references, active length, filter, path type, endpoints, points and query
+configuration. It also binds the original operation count/revision and exact
+checkpoint. Runtime tick, timers, RNG counter, spline and path identities remain
+those of that checkpoint. Only after native, runtime and loaded-geometry checks
+succeed may the app publish the world, reconstructed provider ownership and commit
+boundary together. The actual selected retained query is transferred rather than
+replaced with a newly unselected lease.
+
+The separate Wander store persists a current checkpoint plus opaque recipe bytes
+under an exclusive writer and checked predecessor generation. Opening it returns
+inert data, never a restored world or callback-granted permission. Its combined
+checkpoint/recipe payload ceiling is 8 MiB; the native limits remain 4,096 backing
+references and 4,025 retained operations. These are operational resource ceilings,
+not source movement semantics or a full-history journal. If optional capture exceeds
+its supported lineage or byte bounds, the accepted gameplay operation remains
+committed but that generation cannot be saved through this bridge. A failed save
+does not truncate its witness or replace the previously durable pair.
+
+The executed integration test reached 2,201 alive ticks with four fresh mid-leg
+reopens at native revisions 2, 15, 32 and 48, followed by matching arrival and
+next-leg continuation against an uninterrupted baseline. It retained at most two
+operations in this authored entry-6-shaped dry filter-13 scene. All five reopen
+component tests passed, including wrong geometry, current NOPATH, failed
+reconstruction/rollback retry and mismatched durable checkpoint rejection. The
+complete concrete corridor suite passed 534 tests. Store publication faults are
+verified separately at the opaque-pair store layer, rather than injected into the
+concrete loaded reopen test. Native equivalence tests separately cover fixed dry
+filters 1 and 13. These receipts do not establish authentic gameplay/startup support.

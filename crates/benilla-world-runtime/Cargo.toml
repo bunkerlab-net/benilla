@@ -13,10 +13,14 @@ benilla-sim = { path = "../benilla-sim" }
 # Only the launcher's explicit dev feature may enable source-tree path resolution.
 benilla-formats = { path = "../benilla-formats", default-features = false }
 benilla-world-data = { path = "../benilla-world-data" }
+benilla-native-nav = { path = "../benilla-native-nav", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 
 [features]
 # Explicit test harness only. Never enables native raw-content admission or app startup.
-synthetic-native-tests = []
+synthetic-native-tests = ["dep:benilla-native-nav"]
+
+[dev-dependencies]
+benilla-native-nav = { path = "../benilla-native-nav" }

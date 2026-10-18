@@ -11,6 +11,7 @@ use sha2::{Digest as _, Sha256};
 use std::{fmt, path::Path};
 
 pub mod reconstruction;
+pub mod wander_reconstruction;
 
 const MAGIC: &[u8; 8] = b"BNNATV1\0";
 const HEADER: usize = 60;

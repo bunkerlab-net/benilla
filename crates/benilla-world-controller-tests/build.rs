@@ -23,6 +23,9 @@ fn enum_body(source: &str, name: &str) -> String {
     block_body(source, &format!("enum {name} {{"))
 }
 fn main() {
+    // This no-Bevy harness cannot activate the concrete loaded-Wander reopen seam.
+    println!("cargo::rustc-check-cfg=cfg(benilla_headless_geometry)");
+    println!("cargo::rustc-cfg=benilla_headless_geometry");
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
     let flags = root.join("crates/benilla-app/src/creature_anim/select.rs");
     println!("cargo:rerun-if-changed={}", flags.display());

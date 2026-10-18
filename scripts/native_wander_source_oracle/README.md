@@ -189,3 +189,33 @@ not a universal proof or a persistence implementation. Runtime cache revisions,
 route hashes, shared RNG ownership, constructor dispatch seals, checkpoint
 restore and commit ACK remain outside this oracle. The existing adapter still
 does not execute the full server PathFinder constructor/default-query lifecycle.
+
+## Consumer typed reconstruction boundary
+
+The native consumer now has a production native-only bounded input-replay primitive;
+its scope and the selected typed bridge are documented in
+[the endpoint compatibility policy](../../docs/CMANGOS-WANDER-ENDPOINT-COMPATIBILITY.md#selected-typed-component-reopen-boundary).
+The primitive captures exact opaque predecessors and keeps ordered appenders plus
+last writers. Its recipe imports no references. An attempt-bound opaque result
+retains the genuinely replayed terminal and selected query; it grants no runtime
+or loaded-world authority by itself.
+
+The app bridge remains `cfg(test)` and the runtime pending boundary is restricted
+to its explicit synthetic feature/domain. It retains accepted constructor and
+pre-draw request metadata and exact RNG draws, revalidates actual loaded dry/filter,
+height and corridor dependencies in source order on fresh providers, and requires
+complete saved current NORMAL Wander semantic equality before atomic world,
+provider and boundary publication. Earlier retained NOPATH inputs are permitted;
+current NOPATH, Chase, Home and suspended restore are not. Generic cached restore
+and authentic native startup remain closed. The independent opaque-pair store
+opens only inert checkpoint/recipe data and cannot authorize native reconstruction.
+
+The executed integration test reached 2,201 alive ticks with four fresh mid-leg
+reopens at revisions 2, 15, 32 and 48, exact continuation against the uninterrupted
+baseline and at most two retained operations. All five reopen component tests
+passed in the 534-test concrete corridor suite. Limits remain 4,096 backing
+references, 4,025 retained operations and an 8 MiB combined checkpoint/recipe
+payload. Store publication-fault coverage is separate from loaded reconstruction.
+The C++ source
+oracle above still does not execute that app/store/runtime bridge, and its numeric
+component results must not be presented as evidence of loaded-world admission.

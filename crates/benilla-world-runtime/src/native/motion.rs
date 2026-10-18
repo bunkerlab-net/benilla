@@ -366,7 +366,7 @@ impl NpcMotion {
         now: u64,
         npc: crate::NpcId,
     ) -> Result<Self, NativeError> {
-        Self::restore_with_generation(s, profile, ai, now, npc, None)
+        Self::restore_with_generation(s, profile, ai, now, npc, None, None)
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     pub(super) fn restore_generation(
@@ -377,7 +377,19 @@ impl NpcMotion {
         npc: crate::NpcId,
         generation: &CreatureGenerationOwner,
     ) -> Result<Self, NativeError> {
-        Self::restore_with_generation(s, profile, ai, now, npc, Some(generation))
+        Self::restore_with_generation(s, profile, ai, now, npc, Some(generation), None)
+    }
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn restore_pending_wander(
+        s: NpcMotionSnapshot,
+        profile: &Profile,
+        ai: &ai::SoloCreatureAi,
+        now: u64,
+        npc: crate::NpcId,
+        generation: Option<&CreatureGenerationOwner>,
+        pending: &super::persistence::PendingWanderRestore,
+    ) -> Result<Self, NativeError> {
+        Self::restore_with_generation(s, profile, ai, now, npc, generation, Some(pending))
     }
     #[cfg(any(test, feature = "synthetic-native-tests"))]
     fn restore_with_generation(
@@ -387,6 +399,7 @@ impl NpcMotion {
         now: u64,
         npc: crate::NpcId,
         generation: Option<&CreatureGenerationOwner>,
+        pending: Option<&super::persistence::PendingWanderRestore>,
     ) -> Result<Self, NativeError> {
         let Some(g) = &profile.source_motion else {
             return Err(NativeError::InvalidCheckpoint);
@@ -451,8 +464,13 @@ impl NpcMotion {
         }
         // Runtime alone knows owner generation. These consistency checks do not
         // authenticate source refs or supply a production rehydration path.
-        s.validate_saved_session_reopen()
-            .map_err(|_| NativeError::InvalidCheckpoint)?;
+        match pending {
+            Some(pending) if pending.matches(npc, &s) => {}
+            Some(_) => return Err(NativeError::InvalidCheckpoint),
+            None => s
+                .validate_saved_session_reopen()
+                .map_err(|_| NativeError::InvalidCheckpoint)?,
+        }
         let prior_cache = s
             .motion
             .spline

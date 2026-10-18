@@ -702,6 +702,61 @@ impl Session {
         }
         Ok(())
     }
+    /// Revalidate only the saved Wander inputs for one pending component reopen.
+    /// This shares the live route's source, model and initialized-body checks, but
+    /// compares inert dispatch metadata through the pending runtime. It creates no
+    /// live dispatch seal, constructor claim, route fact or clearance capability.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn reconstructed_wander_body(
+        &self,
+        pending: &benilla_world_runtime::native::PendingWanderReopen,
+        context: &AuthorityRequest,
+    ) -> Result<Body, Failure> {
+        self.check_request_binding(context)?;
+        let policy = self
+            .same_polygon_route
+            .as_ref()
+            .ok_or(Failure::UnsupportedQuery)?;
+        policy.validate_source_context(self, context)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery);
+        };
+        let q = &route.request;
+        if !matches!(
+            q.kind,
+            motion::RouteKind::Wander | motion::RouteKind::WanderPrepare
+        ) || q.launch_origin != q.origin
+            || q.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
+            || q.target.is_some()
+        {
+            return Err(Failure::UnsupportedQuery);
+        }
+        pending
+            .validate_wander_operation(context)
+            .map_err(|_| Failure::Binding)?;
+        let dispatch = route.pathfinder_dispatch.as_ref().ok_or(Failure::Binding)?;
+        // Keep the ordinary prior-cache policy: these bytes are inert history,
+        // but may not cross owners, inventories, source epochs or geometry.
+        match q.prior_cache.as_deref() {
+            None if dispatch.first_construction() || q.kind == motion::RouteKind::Wander => (),
+            Some(prior) if !dispatch.first_construction() => {
+                prior
+                    .validate_for(q.binding.identity)
+                    .map_err(|_| Failure::Binding)?;
+                if prior.source != motion::RouteSource::OwnerPathFinder
+                    || prior.binding.owner_generation != route.owner.npc().generation
+                    || prior.binding.inventory != policy.binding.navigation.inventory
+                    || prior.binding.source_epoch != policy.binding.navigation.source_epoch
+                    || prior.binding.navigation_policy != self.geometry
+                {
+                    return Err(Failure::Binding);
+                }
+            }
+            _ => return Err(Failure::Binding),
+        }
+        policy.validate_model(self, context)?;
+        policy.resolve_owner_body(self, context)
+    }
     pub(super) fn body(&self, request: &AuthorityRequest) -> Result<Body, Failure> {
         self.check_request_binding(request)?;
         let b = &request.binding;

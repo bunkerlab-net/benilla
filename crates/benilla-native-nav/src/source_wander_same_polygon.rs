@@ -6,7 +6,11 @@ use crate::{
     SourceMapQuerySlot, SourceOwnerFilter, SourceSamePolygonConfig, SourceWarmCacheError,
     SourceWarmLookup, SourceWarmTrace, WarmCache,
 };
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
+
+#[path = "source_wander_reconstruction.rs"]
+mod reconstruction;
+pub use reconstruction::*;
 
 /// Approved local initialization, only at ComputePathToRandomPoint's endpoint lookup.
 pub const SOURCE_WANDER_ENDPOINT_COMPATIBILITY_ID: &str =
@@ -72,6 +76,8 @@ impl From<SourceWarmCacheError> for SourceWanderError {
 #[derive(Debug)]
 pub struct LoadedSourceWanderTerminal {
     query: SourceMapQuery,
+    identity: Rc<()>,
+    predecessor: Option<Rc<()>>,
     before: WarmCache,
     from: [u32; 3],
     raw_end: [u32; 3],
@@ -221,6 +227,7 @@ impl LoadedSourceWanderTerminal {
 pub struct LoadedSourceWanderPrefix {
     pub(crate) query: SourceMapQuery,
     pub(crate) selected: bool,
+    predecessor: Option<Rc<()>>,
     before: WarmCache,
     cleared: WarmCache,
     retained_end: [u32; 3],
@@ -302,6 +309,7 @@ impl RetainedSourceQuery {
             Ok(LoadedSourceWanderPrefix {
                 query,
                 selected: false,
+                predecessor: prior.map(|prior| Rc::clone(&prior.identity)),
                 before,
                 cleared,
                 retained_end: prior.map_or([0; 3], LoadedSourceWanderTerminal::actual_end),
@@ -375,6 +383,8 @@ impl SelectedSourceQuery<'_> {
             }
             let result = LoadedSourceWanderTerminal {
                 query: self.retain_allocation(),
+                identity: Rc::new(()),
+                predecessor: prefix.predecessor.as_ref().map(Rc::clone),
                 before: prefix.before.try_copy()?,
                 from: self.from(),
                 raw_end: self.to(),
@@ -437,6 +447,8 @@ impl SelectedSourceQuery<'_> {
                 crate::deadline(until)?;
                 let result = LoadedSourceWanderTerminal {
                     query: self.retain_allocation(),
+                    identity: Rc::new(()),
+                    predecessor: prefix.predecessor.as_ref().map(Rc::clone),
                     before: prefix.before.try_copy()?,
                     from: self.from(),
                     raw_end: self.to(),
@@ -480,6 +492,8 @@ impl SelectedSourceQuery<'_> {
                 crate::detour(end)?;
                 let result = LoadedSourceWanderTerminal {
                     query: self.retain_allocation(),
+                    identity: Rc::new(()),
+                    predecessor: prefix.predecessor.as_ref().map(Rc::clone),
                     before: prefix.before.try_copy()?,
                     from: self.from(),
                     raw_end: self.to(),
@@ -516,6 +530,8 @@ impl SelectedSourceQuery<'_> {
             crate::deadline(until)?;
             Ok(LoadedSourceWanderTerminal {
                 query: self.retain_allocation(),
+                identity: Rc::new(()),
+                predecessor: prefix.predecessor.as_ref().map(Rc::clone),
                 before: prefix.before.try_copy()?,
                 from: self.from(),
                 raw_end: self.to(),

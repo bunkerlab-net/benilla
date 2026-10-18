@@ -550,6 +550,7 @@ fn registry_budget_failure_does_not_consume_the_live_constructor_claim() {
             npc: event.npc(),
             construction,
             first_event: event.clone(),
+            reopened: None,
             query: provider.navigation.query().retain_default(),
         });
     }
@@ -684,6 +685,7 @@ fn committed_constructor_retirement_keeps_cache_free_head_and_stable_handle() {
             npc: handle.npc,
             construction: obsolete,
             first_event: handle.first_event.clone(),
+            reopened: None,
             query: provider.navigation.query().retain_default(),
         },
     );
@@ -704,4 +706,90 @@ fn committed_constructor_retirement_keeps_cache_free_head_and_stable_handle() {
         provider.reborrow(&handle).err(),
         Some(ConstructorQueryError::MissingConstructor)
     );
+}
+
+#[test]
+fn reopened_handle_requires_exact_origin_and_never_uses_historical_live_seal() {
+    let (profile, session, mut provider) = setup();
+    let request = first_unconsumed(&profile);
+    let mut handle = provider.prepare_constructor(&request).unwrap();
+    let live = handle.first_event.clone();
+    let historical: PathfinderDispatchReceipt =
+        serde_json::from_value(serde_json::to_value(&live).unwrap()).unwrap();
+    assert_eq!(historical, live);
+    assert!(!historical.same_live_dispatch(&live));
+    let origin = Rc::new(());
+    // Registry identity controls only. The separate pending/certificate installer
+    // is the sole non-test constructor of this shape; no restored Route is served.
+    provider.constructors[0].reopened = Some(Rc::clone(&origin));
+    provider.constructors[0].first_event = historical.clone();
+    assert_eq!(
+        provider.reborrow(&handle).err(),
+        Some(ConstructorQueryError::Binding),
+        "a normal handle cannot adopt a reopened entry"
+    );
+    handle.reopened = Some(Rc::clone(&origin));
+    handle.first_event = historical;
+    assert!(provider.reborrow(&handle).is_ok());
+    let mut foreign = replacement(&profile, &session);
+    assert_eq!(
+        foreign.reborrow(&handle).err(),
+        Some(ConstructorQueryError::Binding)
+    );
+    handle.reopened = Some(Rc::new(()));
+    assert_eq!(
+        provider.reborrow(&handle).err(),
+        Some(ConstructorQueryError::Binding),
+        "equal metadata cannot replace the fresh reopened origin"
+    );
+    handle.reopened = Some(origin);
+    provider.constructors[0].reopened = None;
+    provider.constructors[0].first_event = live.clone();
+    assert_eq!(
+        provider.reborrow(&handle).err(),
+        Some(ConstructorQueryError::Binding),
+        "a reopened handle cannot adopt a normal entry"
+    );
+    handle.reopened = None;
+    assert_eq!(
+        provider.reborrow(&handle).err(),
+        Some(ConstructorQueryError::Binding),
+        "normal entries still require the genuine shared live event"
+    );
+    handle.first_event = live;
+    assert!(provider.reborrow(&handle).is_ok());
+}
+
+#[test]
+fn reopened_entry_rejects_first_use_without_claiming_or_replacing_it() {
+    let (profile, session, mut provider) = setup();
+    let request = first_unconsumed(&profile);
+    let event = request.require_pathfinder_dispatch(&profile).unwrap();
+    let historical: PathfinderDispatchReceipt =
+        serde_json::from_value(serde_json::to_value(event).unwrap()).unwrap();
+    let origin = Rc::new(());
+    // Registry rejection control only; the installer separately requires an
+    // actual pending NORMAL Wander checkpoint and its reconstructed query.
+    provider.constructors.push(RegisteredConstructor {
+        npc: event.npc(),
+        construction: event.construction_binding(),
+        first_event: historical.clone(),
+        reopened: Some(Rc::clone(&origin)),
+        query: provider.navigation.query().retain_default(),
+    });
+    for attempted in [request, first_unconsumed(&profile)] {
+        assert_eq!(
+            provider.retain_constructor(&attempted).err(),
+            Some(ConstructorQueryError::Binding)
+        );
+        assert_eq!(provider.constructor_count(), 1);
+        assert_eq!(provider.constructors[0].first_event, historical);
+        assert!(Rc::ptr_eq(
+            provider.constructors[0].reopened.as_ref().unwrap(),
+            &origin
+        ));
+        let mut normal = replacement(&profile, &session);
+        assert!(normal.retain_constructor(&attempted).is_ok());
+        assert_eq!(normal.constructor_count(), 1);
+    }
 }

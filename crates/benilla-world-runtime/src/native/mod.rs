@@ -125,6 +125,8 @@ mod rng;
 pub mod synthetic_initial_cast_fixture;
 use benilla_sim::{classic_spell as spell, creature_ai as ai, mage_resource as mana};
 pub use model::*;
+#[cfg(any(test, feature = "synthetic-native-tests"))]
+pub use persistence::PendingWanderReopen;
 pub use persistence::{decode_records, encode_records, Checkpoint, CheckpointIdentity, TickRecord};
 pub use rng::{Draw, DrawPurpose, RNG_POLICY};
 use std::collections::BTreeMap;

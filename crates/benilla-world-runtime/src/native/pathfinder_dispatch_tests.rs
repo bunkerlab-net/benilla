@@ -79,6 +79,65 @@ fn captured(p: Profile) -> (NativeWorld, CreatureRouteRequest) {
 }
 
 #[test]
+fn saved_dispatch_metadata_comparison_never_recreates_live_authority() {
+    let (world, _) = captured(profile());
+    let original = world
+        .last_tick()
+        .unwrap()
+        .replies
+        .iter()
+        .find(|reply| route(&reply.request).is_some())
+        .unwrap()
+        .request
+        .clone();
+    let decoded: AuthorityRequest =
+        serde_json::from_slice(&serde_json::to_vec(&original).unwrap()).unwrap();
+    assert!(decoded
+        .validate_saved_pathfinder_dispatch(world.profile())
+        .is_ok());
+    assert_eq!(
+        decoded.require_pathfinder_dispatch(world.profile()),
+        Err(NativeError::AuthorityUnavailable(
+            "live pathfinder dispatch"
+        )),
+    );
+    assert_eq!(
+        route(&decoded)
+            .unwrap()
+            .pathfinder_dispatch
+            .as_ref()
+            .unwrap()
+            .claim_constructor_query(),
+        Err(NativeError::AuthorityUnavailable(
+            "live pathfinder dispatch"
+        )),
+    );
+    for changed in 0..6 {
+        let mut wrong = decoded.clone();
+        match changed {
+            0 => wrong.binding.world[0] ^= 1,
+            1 => wrong.binding.tick += 1,
+            2 => wrong.binding.profile[0] ^= 1,
+            3 => wrong.binding.geometry[0] ^= 1,
+            4 => wrong.binding.npc.as_mut().unwrap().generation += 1,
+            5 => {
+                let Query::SourceMotion(MotionQuery::Route(request)) = &mut wrong.query else {
+                    unreachable!();
+                };
+                request.request.launch_origin.x = f::real(100.);
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            wrong
+                .validate_saved_pathfinder_dispatch(world.profile())
+                .is_err(),
+            "saved dispatch metadata mutation {changed}",
+        );
+    }
+}
+
+#[test]
 fn runtime_constructor_event_is_live_bound_and_one_use_but_transcript_is_not() {
     let (w, r) = captured(profile());
     let receipt = r.require_pathfinder_dispatch(w.profile()).unwrap();

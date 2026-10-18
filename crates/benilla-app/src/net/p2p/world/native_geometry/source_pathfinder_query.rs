@@ -42,7 +42,24 @@ struct RegisteredConstructor {
     npc: NpcId,
     construction: QueryBinding,
     first_event: PathfinderDispatchReceipt,
+    // Reopened entries use a fresh local identity, never a historical live seal.
+    reopened: Option<Rc<()>>,
     query: RetainedSourceQuery,
+}
+
+/// Private unpublished installation plan. Historical dispatch is metadata only;
+/// actual query ownership comes exclusively from the executed native certificate.
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(super) struct ReconstructedConstructorOrigin {
+    provider: Rc<()>,
+    challenge: benilla_native_nav::SourceWanderReconstructionChallenge,
+    npc: NpcId,
+    construction: QueryBinding,
+    first_event: PathfinderDispatchReceipt,
+    snapshot: SnapshotBinding,
+    configuration: [u8; 32],
+    semantic: benilla_native_nav::SourceWanderSemanticState,
+    recipe: benilla_native_nav::SourceWanderReconstructionRecipe,
 }
 
 /// This borrow is only the query fields of the actual modeled owner constructor.
@@ -63,6 +80,7 @@ pub(super) struct RegisteredConstructorHandle {
     npc: NpcId,
     construction: QueryBinding,
     first_event: PathfinderDispatchReceipt,
+    reopened: Option<Rc<()>>,
     dispatch: PathfinderDispatchReceipt,
     snapshot: SnapshotBinding,
     from: [u32; 3],
@@ -180,6 +198,177 @@ impl SourcePathfinderQueryProvider {
         self.constructors.len()
     }
 
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn nav_query(&self) -> &benilla_native_nav::SourceMapQuery {
+        self.navigation.query()
+    }
+    #[cfg(test)]
+    pub(super) fn snapshot_binding(&self) -> SnapshotBinding {
+        self.navigation.binding()
+    }
+    #[cfg(test)]
+    pub(super) fn configuration_binding(&self) -> [u8; 32] {
+        self.navigation.configuration_binding()
+    }
+
+    /// Historical metadata checks do not claim or recreate its constructor seal.
+    /// The caller must keep this provider unpublished until pending.finish succeeds.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn validate_reconstructed(
+        &self,
+        pending: &benilla_world_runtime::native::PendingWanderReopen,
+        first_prepare: &AuthorityRequest,
+        certificate: &benilla_native_nav::ReconstructedSourceWanderTerminal,
+    ) -> Result<ReconstructedConstructorOrigin, ConstructorQueryError> {
+        use benilla_sim::creature_motion as motion;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &first_prepare.query else {
+            return Err(ConstructorQueryError::Binding);
+        };
+        let checkpoint = pending.checkpoint().identity();
+        let binding = &first_prepare.binding;
+        let request = &route.request;
+        let event = route
+            .pathfinder_dispatch
+            .as_ref()
+            .ok_or(ConstructorQueryError::Binding)?;
+        let dispatch = request
+            .pathfinder_dispatch
+            .ok_or(ConstructorQueryError::Binding)?;
+        request
+            .validate_pathfinder_dispatch()
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        route
+            .owner
+            .validate_context(&self.profile, binding)
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        let now = binding
+            .tick
+            .checked_mul(u64::from(self.profile.tick_ms))
+            .and_then(|elapsed| self.profile.clock_origin_ms.checked_add(elapsed))
+            .ok_or(ConstructorQueryError::Binding)?;
+        let navigation = self.navigation.binding();
+        let cache = pending.cache();
+        let terminal = certificate.terminal();
+        if !self.constructors.is_empty()
+            || !certificate.matches_challenge(pending.challenge())
+            || checkpoint.domain != benilla_world_runtime::native::Domain::SyntheticComponentTest
+            || checkpoint.world != self.world
+            || checkpoint.profile != self.profile.digest()
+            || binding.world != self.world
+            || binding.profile != checkpoint.profile
+            || binding.authority_policy != self.profile.authority_policy
+            || binding.geometry != self.profile.geometry_revision
+            || binding.npc != Some(pending.owner())
+            || binding.tick == 0
+            || binding.tick > checkpoint.tick
+            || request.kind != motion::RouteKind::WanderPrepare
+            || request.binding.now_ms != now
+            || request.binding.identity != pending.construction().identity
+            || request.prior_cache.is_some()
+            || request.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
+            || route.owner_position != request.origin
+            || event.world() != self.world
+            || event.npc() != pending.owner()
+            || event.dispatch_tick() != binding.tick
+            || event.profile_binding() != checkpoint.profile
+            || event.configuration_binding() != self.navigation.configuration_binding()
+            || event.constructor_kind() != motion::PathfinderConstructorKind::WanderInitialized
+            || !event.first_construction()
+            || !dispatch.first_construction()
+            || event.construction_binding() != pending.construction()
+            || dispatch.construction_binding() != pending.construction()
+            || event.dispatch_binding() != request.binding
+            || cache.binding.identity != pending.construction().identity
+            || cache.binding.owner_generation != pending.owner().generation
+            || cache.binding.inventory != navigation.inventory
+            || cache.binding.source_epoch != navigation.source_epoch
+            || cache.binding.navigation_policy != self.profile.geometry_revision
+            || certificate.witness().operation_count() != cache.revision
+            || terminal.slot() != self.navigation.query().slot()
+            || terminal.query_capacity() != 1024
+            || terminal.config().normalize_z
+            || terminal.config().ignore_normalization
+            || terminal.filter().include_flags != cache.include_flags
+            || terminal.filter().exclude_flags != cache.exclude_flags
+            || terminal.storage() != cache.poly_refs
+            || terminal.active_len() != usize::from(cache.active_len)
+            || terminal.path_type() != cache.path_type
+            || terminal.actual_end()
+                != [
+                    cache.requested_end.x.bits(),
+                    cache.requested_end.y.bits(),
+                    cache.requested_end.z.bits(),
+                ]
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        certificate
+            .retained_query()
+            .check_query(self.navigation.query())
+            .map_err(ConstructorQueryError::Native)?;
+        let recipe = certificate
+            .witness()
+            .recipe()
+            .map_err(|_| ConstructorQueryError::Binding)?;
+        Ok(ReconstructedConstructorOrigin {
+            provider: Rc::clone(&self.identity),
+            challenge: pending.challenge().clone(),
+            npc: pending.owner(),
+            construction: pending.construction(),
+            first_event: event.clone(),
+            snapshot: navigation,
+            configuration: self.navigation.configuration_binding(),
+            semantic: terminal.semantic_state(),
+            recipe,
+        })
+    }
+
+    /// Consume the certificate returned by pending.finish. Failures never add an
+    /// entry; the caller discards the unpublished world/provider pair.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn install_reconstructed(
+        &mut self,
+        origin: ReconstructedConstructorOrigin,
+        certificate: benilla_native_nav::ReconstructedSourceWanderTerminal,
+    ) -> Result<
+        (
+            benilla_native_nav::LoadedSourceWanderTerminal,
+            benilla_native_nav::SourceWanderWitness,
+        ),
+        ConstructorQueryError,
+    > {
+        if !self.constructors.is_empty()
+            || !Rc::ptr_eq(&origin.provider, &self.identity)
+            || origin.snapshot != self.navigation.binding()
+            || origin.configuration != self.navigation.configuration_binding()
+            || !certificate.matches_challenge(&origin.challenge)
+            || certificate.terminal().semantic_state() != origin.semantic
+            || certificate
+                .witness()
+                .recipe()
+                .map_err(|_| ConstructorQueryError::Binding)?
+                != origin.recipe
+        {
+            return Err(ConstructorQueryError::Binding);
+        }
+        certificate
+            .retained_query()
+            .check_query(self.navigation.query())
+            .map_err(ConstructorQueryError::Native)?;
+        self.constructors
+            .try_reserve(1)
+            .map_err(|_| ConstructorQueryError::Budget)?;
+        let (query, terminal, witness) = certificate.into_parts();
+        self.constructors.push(RegisteredConstructor {
+            npc: origin.npc,
+            construction: origin.construction,
+            first_event: origin.first_event,
+            reopened: Some(Rc::new(())),
+            query,
+        });
+        Ok((terminal, witness))
+    }
+
     /// Called only after the complete outer ACK validates. A cache-free current
     /// generator still owns its constructor; replaced and local Home owners do not.
     pub(super) fn retain_committed_generators(
@@ -209,6 +398,7 @@ impl SourcePathfinderQueryProvider {
             npc: query.entry.npc,
             construction: query.entry.construction,
             first_event: query.entry.first_event.clone(),
+            reopened: query.entry.reopened.clone(),
             dispatch: query.dispatch,
             snapshot: query.snapshot,
             from: query.from,
@@ -291,6 +481,7 @@ impl SourcePathfinderQueryProvider {
             npc: prefix.npc,
             construction: prefix.construction,
             first_event: prefix.first_event.clone(),
+            reopened: prefix.reopened.clone(),
             dispatch: event.clone(),
             snapshot: prefix.snapshot,
             from: [
@@ -324,7 +515,11 @@ impl SourcePathfinderQueryProvider {
             .ok_or(ConstructorQueryError::MissingConstructor)?;
         if entry.npc != handle.npc
             || entry.construction != handle.construction
-            || !entry.first_event.same_live_dispatch(&handle.first_event)
+            || !match (&entry.reopened, &handle.reopened) {
+                (Some(entry), Some(handle)) => Rc::ptr_eq(entry, handle),
+                (None, None) => entry.first_event.same_live_dispatch(&handle.first_event),
+                _ => false,
+            }
         {
             return Err(ConstructorQueryError::Binding);
         }
@@ -398,6 +593,9 @@ impl SourcePathfinderQueryProvider {
             .position(|entry| entry.npc == npc && entry.construction == construction);
         let index = if let Some(index) = existing {
             let entry = &mut self.constructors[index];
+            if entry.reopened.is_some() && event.first_construction() {
+                return Err(ConstructorQueryError::Binding);
+            }
             entry
                 .query
                 .check_query(self.navigation.query())
@@ -425,6 +623,7 @@ impl SourcePathfinderQueryProvider {
                 npc,
                 construction,
                 first_event: event.clone(),
+                reopened: None,
                 query: self.navigation.query().retain_default(),
             };
             event

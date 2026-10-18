@@ -160,6 +160,20 @@ impl PathfinderDispatchReceipt {
         npc: crate::NpcId,
         configuration: &PathfinderConfigurationWitness,
     ) -> Result<(), NativeError> {
+        self.validate_metadata_after_configuration(profile, npc, configuration)?;
+        if self.live.is_none() {
+            return Err(NativeError::AuthorityUnavailable(
+                "live pathfinder dispatch",
+            ));
+        }
+        Ok(())
+    }
+    fn validate_metadata_after_configuration(
+        &self,
+        profile: &Profile,
+        npc: crate::NpcId,
+        configuration: &PathfinderConfigurationWitness,
+    ) -> Result<(), NativeError> {
         let binding = self.dispatch_binding();
         self.evidence.dispatch.validate_for(binding)?;
         if self.evidence.policy != PATHFINDER_DISPATCH_POLICY
@@ -172,11 +186,6 @@ impl PathfinderDispatchReceipt {
             || binding.identity.geometry.0 != profile.geometry_revision
         {
             return Err(NativeError::AuthorityBinding);
-        }
-        if self.live.is_none() {
-            return Err(NativeError::AuthorityUnavailable(
-                "live pathfinder dispatch",
-            ));
         }
         Ok(())
     }
@@ -313,6 +322,40 @@ impl ValidatedRouteModelOwner {
 }
 
 impl AuthorityRequest {
+    /// Comparison-only saved metadata for the private pending component bridge.
+    /// Never creates, claims, or repairs a live dispatch seal.
+    #[cfg(any(test, feature = "synthetic-native-tests"))]
+    pub(super) fn validate_saved_pathfinder_dispatch(
+        &self,
+        profile: &Profile,
+    ) -> Result<&PathfinderDispatchReceipt, NativeError> {
+        let Query::SourceMotion(MotionQuery::Route(request)) = &self.query else {
+            return Err(NativeError::AuthorityBinding);
+        };
+        request.owner.validate_context(profile, &self.binding)?;
+        let npc = request.owner.npc();
+        let configuration = profile
+            .pathfinder_configuration
+            .as_ref()
+            .ok_or(NativeError::AuthorityUnavailable(
+                "selected pathfinder configuration",
+            ))?
+            .constructor_binding(profile, npc.spawn)?;
+        let receipt = request.pathfinder_dispatch_after_owner(|receipt| {
+            receipt.validate_metadata_after_configuration(profile, npc, &configuration)
+        })?;
+        if self.binding.npc != Some(receipt.npc())
+            || receipt.world() != self.binding.world
+            || self.binding.tick != receipt.dispatch_tick()
+            || self.binding.profile != receipt.profile_binding()
+            || self.binding.authority_policy != profile.authority_policy
+            || self.binding.geometry != profile.geometry_revision
+        {
+            return Err(NativeError::AuthorityBinding);
+        }
+        Ok(receipt)
+    }
+
     /// Full live dispatch check, including the outer world/tick callback binding.
     pub fn require_pathfinder_dispatch(
         &self,
