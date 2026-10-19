@@ -2,8 +2,8 @@
 // Authored MPQ closures around the separately captured CMaNGOS
 // 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f one-candidate records. Exact comparisons
 // cover this corpus under the named portable profile, not every native libm.
-// The generated-ID word is excluded; candidate indexes never assert upstream
-// unordered-set enumeration or identify a globally allocated doodad.
+// Projection-only comparisons omit generated IDs. Complete-record comparisons
+// below include source-allocated IDs; multi-child ordering is covered separately.
 
 use super::*;
 use sha2::{Digest, Sha256};
@@ -454,4 +454,107 @@ fn nonfinite_source_mutations_never_produce_a_prepared_projection() {
             assert_eq!(dp_tree(&temp.0), before);
         }
     }
+}
+
+#[test]
+fn complete_selected_record_stream_matches_original_parent_and_child_bytes() {
+    for case in [
+        "portable_mdx",
+        "portable_mdl",
+        "portable_m2",
+        "portable_nonunit",
+        "portable_parent_rotation",
+        "portable_composed",
+        "portable_scale_zero",
+        "portable_scale_negative",
+        "portable_scale_signed_zero",
+        "portable_zero_origin",
+        "portable_signed_zero_origin",
+        "portable_destructible_origin",
+        "portable_destructible_nonzero",
+        "portable_destructible_signed_zero",
+        "portable_no_parent_collision_origin",
+        "portable_no_parent_collision_nonzero",
+        "portable_no_parent_collision_signed_zero",
+    ] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let mut entries = dp_entries(case, !case.contains("no_parent_collision"));
+        // Use the original probe's Parent.wmo basename in this authored MPQ,
+        // including its listfile, group names and ADT reference. Equal length.
+        for entry in &mut entries {
+            entry.name = entry.name.replace("Temple", "Parent");
+            let mut index = 0;
+            while index + 6 <= entry.bytes.len() {
+                if &entry.bytes[index..index + 6] == b"Temple" {
+                    entry.bytes[index..index + 6].copy_from_slice(b"Parent");
+                    index += 6;
+                } else {
+                    index += 1;
+                }
+            }
+        }
+        save(&data, "wmo.MPQ", &entries);
+        let before = dp_tree(&temp.0);
+        let prepared = prepare(&data, 7, || false).unwrap();
+        let records = prepared.placement_records(dp_profile(), || false).unwrap();
+        let parent = dp_fixture(case, "parent.dir");
+        let child = dp_fixture(case, "child.dir");
+        let expected = [parent.as_slice(), child.as_slice()].concat();
+        assert_eq!(records.bytes(), expected, "{case}");
+        assert_eq!(
+            records.record_count(),
+            usize::from(!parent.is_empty()) + usize::from(!child.is_empty())
+        );
+        assert_eq!(before, dp_tree(&temp.0));
+        assert!(!format!("{records:?}").contains("Parent"));
+    }
+}
+
+#[test]
+fn record_stream_cancellation_and_changed_capture_return_no_partial_product() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = dp_entries("portable_mdx", true);
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 7, || false).unwrap();
+    let total = std::cell::Cell::new(0);
+    prepared
+        .placement_records(dp_profile(), || {
+            total.set(total.get() + 1);
+            false
+        })
+        .unwrap();
+    assert!(
+        total.get() > 4,
+        "must include source recheck and output hashing"
+    );
+    for cutoff in 0..total.get() {
+        let polls = std::cell::Cell::new(0);
+        let error = prepared
+            .placement_records(dp_profile(), || {
+                let n = polls.get();
+                polls.set(n + 1);
+                n >= cutoff
+            })
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                PlacementRecordError::Cancelled
+                    | PlacementRecordError::Source(SourceError::Cancelled)
+            ),
+            "cutoff={cutoff}: {error:?}"
+        );
+    }
+    let original = prepared.placement_records(dp_profile(), || false).unwrap();
+    let changed = entries.iter_mut().find(|e| e.name == DP_MODEL).unwrap();
+    // An ignored authored model-header byte still belongs to the captured source.
+    changed.bytes[8] ^= 1;
+    save(&data, "wmo.MPQ", &entries);
+    assert!(matches!(
+        prepared.placement_records(dp_profile(), || false),
+        Err(PlacementRecordError::Source(_))
+    ));
+    assert!(!original.bytes().is_empty());
 }

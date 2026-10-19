@@ -218,7 +218,10 @@ impl PreparedDiscovery {
     }
 }
 
-fn parent_position(mut position: [f32; 3], disposition: PlacementDisposition) -> [f32; 3] {
+pub(crate) fn parent_position(
+    mut position: [f32; 3],
+    disposition: PlacementDisposition,
+) -> [f32; 3] {
     if disposition != PlacementDisposition::Emits {
         return position;
     }

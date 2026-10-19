@@ -15,6 +15,7 @@ mod doodad_reference_order;
 mod doodad_transform_math;
 mod doodads;
 mod encounter_ids;
+mod placement_records;
 mod source;
 
 use benilla_native_vmap::{
@@ -33,6 +34,9 @@ use std::{
 pub use discovery::{DiscoveryError, M2Placement, ModelKind, PlacementInput, WmoPlacement};
 pub use doodad_projection::{DoodadProjection, DoodadProjectionError, DoodadProjectionProfile};
 pub use doodads::{DoodadError, DoodadSet, DoodadSpawn};
+pub use placement_records::{
+    PlacementRecordError, PlacementRecords, MAX_PLACEMENT_RECORD_BYTES, PLACEMENT_RECORD_POLICY,
+};
 pub use source::SourceError;
 
 pub const SOURCE_PIN: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";

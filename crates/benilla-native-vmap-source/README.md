@@ -66,3 +66,9 @@ The [reference-container order proof](DOODAD-REFERENCE-ORDER.md) checks a bounde
 portable reproduction of one pinned GCC/libstdc++ uint16 insertion profile.
 Captured references use this profile before selected-set and late raw-file
 filtering. Its policy identifier is included in the summary and projection binding.
+
+
+[Selected-map placement records](PLACEMENT-RECORDS.md) combine the captured source
+order, generated IDs and explicitly profiled projections into an in-memory
+`dir_bin` stream. This API rechecks captured inputs before returning, writes no
+files and does not build the map/model BIHs or enable gameplay admission.

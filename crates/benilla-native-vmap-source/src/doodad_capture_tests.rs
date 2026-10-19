@@ -813,6 +813,31 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
         children,
         [(0, 1, 1, 2), (0, 0, 2, 3), (2, 1, 1, 2), (2, 0, 2, 3)]
     );
+    let profile =
+        DoodadProjectionProfile::from_policy_id(crate::doodad_transform_math::POLICY).unwrap();
+    let records = prepared.placement_records(profile, || false).unwrap();
+    let mut cursor = records.bytes();
+    let mut serialized = Vec::new();
+    while !cursor.is_empty() {
+        let word = |offset| u32::from_le_bytes(cursor[offset..offset + 4].try_into().unwrap());
+        let flags = word(12);
+        serialized.push((word(4), word(8), word(18)));
+        let name_offset = 50 + if flags & 4 != 0 { 24 } else { 0 };
+        let length = name_offset + 4 + word(name_offset) as usize;
+        cursor = &cursor[length..];
+    }
+    assert_eq!(
+        serialized,
+        [
+            (0, 0, 1),
+            (0, 0, 2),
+            (0, 0, 3),
+            (0, 0, 5),
+            (1, 0, 2),
+            (1, 0, 3)
+        ]
+    );
+    assert_eq!(records.record_count(), 6);
     assert_eq!(prepared.summary().encounter_id_count, 5);
     assert_eq!(prepared.summary().encounter_attempts, 10);
     assert_eq!(prepared.summary().prefix_maps, 1);

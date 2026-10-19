@@ -599,3 +599,49 @@ mod doodad_projection_capture_tests;
 
 #[path = "liquid_capture_tests.rs"]
 mod liquid_capture_tests;
+
+#[test]
+fn m2_record_stream_preserves_source_coordinate_scale_name_and_duplicate_ids() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = prerequisites();
+    let mut input = adt(&["Models\\Solid.mdx"], &[(0, 42), (0, 42)]);
+    let start = input.len() - 72;
+    for record in 0..2 {
+        let at = start + record * 36;
+        for (i, v) in [1.25_f32, -0.0, 9.0, -45.0, 180.0, 360.0]
+            .into_iter()
+            .enumerate()
+        {
+            set_word(&mut input, at + 8 + i * 4, v.to_bits());
+        }
+        input[at + 32..at + 34].copy_from_slice(&u16::MAX.to_le_bytes());
+    }
+    entries.push(raw_entry(ADT, input));
+    entries.push(raw_entry("Models\\Solid.m2", m2(true)));
+    save(&data, "model.MPQ", &entries);
+    let prepared = prepare(&data, 0, || false).unwrap();
+    let profile = DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-v1").unwrap();
+    let records = prepared.placement_records(profile, || false).unwrap();
+    let mut expected = Vec::new();
+    for v in [0_u32, 0, 0, 1] {
+        expected.extend_from_slice(&v.to_le_bytes());
+    }
+    expected.extend_from_slice(&0_u16.to_le_bytes());
+    expected.extend_from_slice(&1_u32.to_le_bytes());
+    for v in [9.0_f32, 1.25, -0.0, -45.0, 180.0, 360.0, 65535.0 / 1024.0] {
+        expected.extend_from_slice(&v.to_le_bytes());
+    }
+    expected.extend_from_slice(&8_u32.to_le_bytes());
+    expected.extend_from_slice(b"Solid.m2");
+    assert_eq!(
+        records.bytes(),
+        [expected.as_slice(), expected.as_slice()].concat()
+    );
+    assert_eq!(records.record_count(), 2);
+    let again = prepared.placement_records(profile, || false).unwrap();
+    assert_eq!(
+        records.preprocessing_binding(),
+        again.preprocessing_binding()
+    );
+}
