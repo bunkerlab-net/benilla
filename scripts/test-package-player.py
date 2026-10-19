@@ -28,6 +28,15 @@ def executables(platform):
     return ("benilla" + suffix, "benilla-native-terrain" + suffix)
 
 
+_path_read_text = Path.read_text
+
+
+def read_text_with_legacy_default(path, *args, **kwargs):
+    """Exercise source scanning with a Windows-style default on every host."""
+    kwargs.setdefault("encoding", "cp1252")
+    return _path_read_text(path, *args, **kwargs)
+
+
 class PlayerFeatureGraphTests(unittest.TestCase):
     """Resolve the actual player/dev graphs without compiling or linking the app."""
 
@@ -86,6 +95,7 @@ class PlayerFeatureGraphTests(unittest.TestCase):
         self.assertFalse(any(name.startswith("bevy_") for name in packages))
 
 
+    @patch.object(Path, "read_text", new=read_text_with_legacy_default)
     def test_shared_geometry_test_includes_declare_direct_dependencies(self):
         root = Path(__file__).resolve().parents[1]
         result = subprocess.run(
@@ -99,7 +109,7 @@ class PlayerFeatureGraphTests(unittest.TestCase):
             includes = any(
                 (path.parent / relative).resolve() == shared.resolve()
                 for path in directory.rglob("*.rs")
-                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', path.read_text()))
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', path.read_text(encoding="utf-8")))
             if package["name"] != "benilla-app" and not includes:
                 continue
             consumers.append(package["name"])
