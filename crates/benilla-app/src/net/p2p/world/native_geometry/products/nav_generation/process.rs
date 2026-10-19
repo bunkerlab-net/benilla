@@ -167,11 +167,20 @@ mod unix {
         cancelled: &impl Fn() -> bool,
     ) -> Result<Vec<u8>, GenerationError> {
         command.process_group(0);
-        let mut running = Running {
+        let running = Running {
             child: command.spawn().map_err(|_| GenerationError::Io)?,
             reaped: false,
             process_group: true,
         };
+        run_spawned(running, request, deadline, cancelled)
+    }
+
+    pub(super) fn run_spawned(
+        mut running: Running,
+        request: Vec<u8>,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Vec<u8>, GenerationError> {
         let mut stdin = Some(running.child.stdin.take().ok_or(GenerationError::Io)?);
         let mut stdout = Some(running.child.stdout.take().ok_or(GenerationError::Io)?);
         let mut stderr = Some(running.child.stderr.take().ok_or(GenerationError::Io)?);
@@ -470,7 +479,10 @@ mod tests {
         use super::*;
         use std::{
             fs,
-            os::unix::fs::PermissionsExt,
+            os::{
+                fd::{AsFd, AsRawFd},
+                unix::{fs::PermissionsExt, process::CommandExt},
+            },
             path::PathBuf,
             sync::{
                 atomic::{AtomicU64, Ordering},
@@ -626,21 +638,70 @@ mod tests {
         fn inherited_pipes_do_not_extend_deadline_or_leave_leader_unreaped() {
             let _serial = HELPER_TEST.lock().unwrap();
             let helper = Helper::new(
-                "with open(os.path.join(os.path.dirname(__file__), 'pid'), 'w') as f:\n    f.write(str(os.getpid()))\npid = os.fork()\nif pid == 0:\n    time.sleep(10)\nelse:\n    os._exit(0)",
+                "leader = os.getpid()\npid = os.fork()\nif pid == 0:\n    while os.getppid() == leader:\n        time.sleep(0.002)\n    directory = os.path.dirname(__file__)\n    with open(os.path.join(directory, 'pid.pending'), 'w') as f:\n        f.write(str(leader))\n    os.replace(os.path.join(directory, 'pid.pending'), os.path.join(directory, 'pid'))\n    time.sleep(10)\nelse:\n    os._exit(0)",
+            );
+            let mut command = helper.command();
+            command.process_group(0);
+            let running = Running {
+                child: command.spawn().unwrap(),
+                reaped: false,
+                process_group: true,
+            };
+            let mut inherited_stdout = fs::File::from(
+                running
+                    .child
+                    .stdout
+                    .as_ref()
+                    .unwrap()
+                    .as_fd()
+                    .try_clone_to_owned()
+                    .unwrap(),
+            );
+            let fd = inherited_stdout.as_raw_fd();
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            assert_ne!(flags, -1);
+            assert_ne!(
+                unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+                -1
+            );
+            // Startup is bounded separately; the descendant publishes only after inheriting pipes.
+            let ready = helper.0.parent().unwrap().join("pid");
+            let startup_deadline = Instant::now() + Duration::from_secs(5);
+            while !ready.is_file() && Instant::now() < startup_deadline {
+                pause(startup_deadline);
+            }
+            assert_eq!(
+                fs::read_to_string(ready)
+                    .expect("pipe holder must become ready")
+                    .parse::<u32>()
+                    .unwrap(),
+                running.child.id()
             );
             let began = Instant::now();
-            let result = run(
-                &helper.0,
-                vec![],
-                began + Duration::from_millis(120),
-                &|| false,
-            );
+            let result =
+                unix::run_spawned(running, vec![], began + Duration::from_millis(120), &|| {
+                    false
+                });
             assert!(
                 matches!(result, Err(GenerationError::Deadline)),
                 "{result:?}"
             );
-            assert!(began.elapsed() < Duration::from_secs(1));
             helper.assert_reaped();
+            // EOF proves the descendant's inherited writer was closed, without PID-reuse races.
+            loop {
+                match inherited_stdout.read(&mut [0; 1]) {
+                    Ok(0) => break,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        assert!(
+                            began.elapsed() < Duration::from_secs(1),
+                            "inherited pipe stayed open"
+                        );
+                        pause(began + Duration::from_secs(1));
+                    }
+                    other => panic!("unexpected inherited pipe result: {other:?}"),
+                }
+            }
+            assert!(began.elapsed() < Duration::from_secs(1));
         }
 
         #[test]
