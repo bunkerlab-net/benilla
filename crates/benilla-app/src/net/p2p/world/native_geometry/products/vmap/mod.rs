@@ -27,6 +27,8 @@ mod wmo_tests;
 use self::{bih::Bih, math::*};
 use super::{Error, Hash, InventoriedProducts, ProductId};
 #[cfg(test)]
+pub(crate) mod installed_source_fixture;
+#[cfg(test)]
 pub(crate) use liquid::tests::source_fixture as liquid_fixture;
 #[cfg(test)]
 pub(crate) use location::tests::fixture as location_fixture;

@@ -56,6 +56,14 @@ jobs:
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
+      - name: Verify installed source corridor
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-installed-source-corridor.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::installed_source_inventory_owner_certifies_concrete_corridor -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
       - name: Record installed Service timing
         shell: bash
         run: |

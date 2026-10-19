@@ -3,14 +3,14 @@
 //! Table primitives originate in benilla-mpq/src/crypto.rs (MIT OR Apache-2.0).
 //! Inputs are newly authored fixtures; this never reads or modifies a client install.
 
-pub(super) struct Entry {
-    pub(super) name: String,
-    pub(super) bytes: Vec<u8>,
+pub(in super::super) struct Entry {
+    pub(in super::super) name: String,
+    pub(in super::super) bytes: Vec<u8>,
     pub(super) flags: u32,
     pub(super) declared: u32,
 }
 
-pub(super) fn raw_entry(name: &str, bytes: Vec<u8>) -> Entry {
+pub(in super::super) fn raw_entry(name: &str, bytes: Vec<u8>) -> Entry {
     Entry {
         name: name.to_owned(),
         declared: bytes.len() as u32,

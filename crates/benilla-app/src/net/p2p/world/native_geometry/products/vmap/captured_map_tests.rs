@@ -17,12 +17,12 @@ use std::{
 };
 
 #[path = "captured_map_archive.rs"]
-mod archive;
+pub(super) mod archive;
 use archive::{archive, raw_entry, Entry};
 #[path = "diagnostic_tests.rs"]
 mod diagnostic_tests;
 #[path = "inventory_compatibility_tests.rs"]
-mod inventory_compatibility_tests;
+pub(super) mod inventory_compatibility_tests;
 #[path = "navigation_generation_tests.rs"]
 mod navigation_generation_tests;
 #[path = "prepared_tests.rs"]
@@ -44,9 +44,9 @@ const PRODUCTS: &str = include_str!(
     "../../../../../../../../benilla-native-vmap-source/tools/fixtures/map-products.tsv"
 );
 
-struct Install(PathBuf);
+pub(super) struct Install(pub(super) PathBuf);
 impl Install {
-    fn new(entries: &[Entry]) -> Self {
+    pub(super) fn new(entries: &[Entry]) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
             "native-captured-map-{}-{}",
@@ -58,10 +58,10 @@ impl Install {
         install.write(entries);
         install
     }
-    fn write(&self, entries: &[Entry]) {
+    pub(super) fn write(&self, entries: &[Entry]) {
         fs::write(self.0.join("model.MPQ"), archive(entries)).unwrap();
     }
-    fn bytes(&self) -> BTreeMap<String, Vec<u8>> {
+    pub(super) fn bytes(&self) -> BTreeMap<String, Vec<u8>> {
         fs::read_dir(&self.0)
             .unwrap()
             .map(|entry| {
@@ -125,7 +125,7 @@ fn entries() -> Vec<Entry> {
         raw_entry(ADT, adt),
     ]
 }
-fn profile() -> DoodadProjectionProfile {
+pub(super) fn profile() -> DoodadProjectionProfile {
     DoodadProjectionProfile::from_policy_id("g3d-portable-libm-0.2.16-v1").unwrap()
 }
 fn unhex(value: &str) -> Vec<u8> {

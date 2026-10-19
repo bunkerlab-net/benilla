@@ -72,7 +72,7 @@ fn strict_placed_adt() -> Vec<u8> {
     adt
 }
 
-fn compatible_entries() -> Vec<Entry> {
+pub(in super::super) fn compatible_entries() -> Vec<Entry> {
     let mut entries = source_height_tests::shared_entries();
     let mut root = fixture("hull.root.test-fixture");
     let mut group = fixture("hull_000.group.test-fixture");

@@ -429,3 +429,5 @@ fn static_index_retains_only_its_actual_inventory_provenance_owner() {
         benilla_world::terrain_stream::NativeStaticMapIndex::from_inventory(replacement).unwrap();
     assert!(!owner.same_owner(other.source_provenance().unwrap()));
 }
+
+mod installed_source;
