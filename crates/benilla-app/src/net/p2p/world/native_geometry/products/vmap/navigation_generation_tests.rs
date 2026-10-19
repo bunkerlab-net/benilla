@@ -12,8 +12,10 @@ fn oracle(name: &str) -> Vec<u8> {
     .unwrap()
 }
 pub(super) fn ridge_entries() -> Vec<Entry> {
+    placed_entries(oracle("authored/ridge.adt.test-fixture"))
+}
+fn placed_entries(mut adt: Vec<u8>) -> Vec<Entry> {
     let mut entries = source_height_tests::shared_entries();
-    let mut adt = oracle("authored/ridge.adt.test-fixture");
     for (field, tag, payload) in [
         (20, b"MWMO", format!("{ROOT}\0").into_bytes()),
         (32, b"MODF", fixture("hull.modf.test-fixture")),
@@ -203,4 +205,88 @@ fn extracted_neighbor_inventory_changes_origin_and_preserves_historical_output()
     assert_eq!(old.products().0, oracle("ridge_wmo/000.mmap"));
     old.load().unwrap();
     expanded.load().unwrap();
+}
+
+#[test]
+fn captured_liquid_generation_matches_original_but_preserves_dry_reader_refusal() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let terrain_root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../benilla-native-terrain/tools/fixtures");
+    let entries =
+        placed_entries(fs::read(terrain_root.join("liquid_full_types.adt.test-fixture")).unwrap());
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    assert_eq!(
+        terrain.tiles().next().unwrap().1,
+        fs::read(terrain_root.join("liquid_full_types.map")).unwrap()
+    );
+    let discovery = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = discovery
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let original_map = oracle("liquid_full_types_wmo/000.mmap");
+    let original_tile = oracle("liquid_full_types_wmo/0003130.mmtile");
+    let manifest: serde_json::Value = serde_json::from_slice(&oracle("manifest.json")).unwrap();
+    input.assert_original_products_for_test(
+        &helper(),
+        manifest["cases"]["liquid_full_types_wmo"]["helper_request"]["sha256"]
+            .as_str()
+            .unwrap(),
+        &original_map,
+        &original_tile,
+    );
+    // Original rasterization rounds the flat liquid surface to cell 46:
+    // minY + 46 * ch = 13.26666355, above the source input maximum 13.25.
+    // The current base-vertex envelope refuses it before inspecting wet flags.
+    let original_max_y = f32::from_le_bytes(original_tile[108..112].try_into().unwrap());
+    let original_first_y = f32::from_le_bytes(original_tile[124..128].try_into().unwrap());
+    assert_eq!(original_max_y, 13.25);
+    assert_eq!(
+        original_first_y.to_bits(),
+        (1.0f32 + 46.0 * (0.2666666f32)).to_bits()
+    );
+    assert!(original_first_y > original_max_y);
+    assert!(matches!(
+        benilla_native_nav::Mesh::load(
+            &original_map,
+            &[benilla_native_nav::TileInput {
+                grid: [31, 30],
+                bytes: &original_tile
+            }],
+        ),
+        Err(benilla_native_nav::Error::Format)
+    ));
+    let mut observed = None;
+    let generated = input.generate_observed(
+        &helper(),
+        Instant::now() + Duration::from_secs(60),
+        || false,
+        |summary| observed = Some(summary),
+    );
+    let summary = observed.expect("source generation metadata precedes reader refusal");
+    assert_eq!(
+        summary.status,
+        benilla_native_nav_generator::GenerationStatus::Generated
+    );
+    assert_eq!(summary.polygon_count, 998);
+    assert_eq!(
+        summary.output_bytes,
+        original_map.len() + original_tile.len()
+    );
+    assert!(matches!(
+        generated,
+        Err(GenerationError::Native(benilla_native_nav::Error::Format))
+    ));
+    input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
 }

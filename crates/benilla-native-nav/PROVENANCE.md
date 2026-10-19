@@ -833,3 +833,28 @@ interval. Recast can merge vertices up to two Y cells apart; this is not a gener
 reconstruction proof for those cases, which remain outside the supported envelope.
 Both original ridge captures establish the current subset; malformed bounds still
 reject rather than being reinterpreted as clear or walkable space.
+
+## Generated liquid evidence preserves the dry admission boundary
+
+The `liquid_full_types_wmo` original-source capture combines the existing authored
+full-type liquid terrain fixture with the captured WMO. Its expected result records
+original generation, polygon area counts and ground-only query misses. The genuine
+MPQ integration compares the emitted terrain product, complete helper request
+identity (normalizing only the oracle's larger allocation allowance), and complete
+map/tile bytes before separately exercising ordinary generation and reader refusal.
+The raw comparison helper exists only under `cfg(test)` and never creates an
+admitted `GeneratedNavigation` value.
+
+For this exact original tile the first refusal is `Format`: its base vertices are
+at Y=13.26666355 (minimum 1 plus 46 source cells), just above the input header's
+maximum 13.25. The current base-vertex envelope rejects this quantized surface
+before the area whitelist. The integration preserves that precise refusal; it
+neither expands height bounds nor treats it as corrupted source data.
+
+The production reader continues to admit only exact ground `(flags=1, area=11)`
+and steep `(flags=2, area=10)` polygon pairs. Water `(4,9)` and magma/slime `(8,8)`
+remain unsupported. Merely extending that pair list would be insufficient:
+`SourceOwnerFilter` currently permits source habitat mask `13/0` only within an
+already dry loaded mesh, and that mask contains the liquid flags. Wet traversal
+therefore requires a separate capability/filter and ownership design. Neither the
+fixture nor helper generation grants swimming, magma traversal or world admission.

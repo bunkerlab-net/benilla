@@ -362,6 +362,704 @@
       },
       "terrain": "liquid_full_types"
     },
+    "liquid_full_types_wmo": {
+      "collision": true,
+      "expected": {
+        "bounds_max_bits": [
+          "44855555",
+          "41540000",
+          "44055555"
+        ],
+        "bounds_min_bits": [
+          "44055555",
+          "3f800000",
+          "00000000"
+        ],
+        "combined_triangles": 1,
+        "combined_vertices_before_clean": 3,
+        "config": {
+          "borderSize": 5,
+          "detailSampleDist": 4.266665458679199,
+          "detailSampleMaxError": 0.26666659116744995,
+          "liquidFlagMergeThreshold": 0.0,
+          "maxEdgeLen": 81,
+          "maxSimplificationError": 1.7999999523162842,
+          "mergeRegionArea": 50,
+          "minRegionArea": 60,
+          "walkableClimb": 4,
+          "walkableHeight": 6,
+          "walkableRadius": 2,
+          "walkableSlopeAngle": 60.0
+        },
+        "liquid_triangle_areas": {
+          "8": 4736,
+          "9": 28032
+        },
+        "liquid_triangles": 32768,
+        "liquid_vertices": 16641,
+        "output": {
+          "add_tile_status": 1073741824,
+          "areas": {
+            "8": 228,
+            "9": 770
+          },
+          "bv_node_count": 1996,
+          "detail_tri_count": 1938,
+          "detail_vert_count": 0,
+          "emitted": true,
+          "max_polys": -2147483648,
+          "max_tiles": 1,
+          "merged_polygons": 998,
+          "mesh_init_status": 1073741824,
+          "params_origin_bits": [
+            "44055555",
+            "00800000",
+            "00000000"
+          ],
+          "paths": [],
+          "poly_count": 998,
+          "polygon_flags": {
+            "4": 770,
+            "8": 228
+          },
+          "queries": [
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "441b8e38",
+                "41640000",
+                "42b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "4431c71c",
+                "41640000",
+                "42b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "44480000",
+                "41640000",
+                "42b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "445e38e3",
+                "41640000",
+                "42b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "447471c6",
+                "41640000",
+                "42b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "441b8e38",
+                "41640000",
+                "4331c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "4431c71c",
+                "41640000",
+                "4331c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "44480000",
+                "41640000",
+                "4331c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "445e38e3",
+                "41640000",
+                "4331c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "447471c6",
+                "41640000",
+                "4331c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "441b8e38",
+                "41640000",
+                "43855555"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "4431c71c",
+                "41640000",
+                "43855555"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "44480000",
+                "41640000",
+                "43855555"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "445e38e3",
+                "41640000",
+                "43855555"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "447471c6",
+                "41640000",
+                "43855555"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "441b8e38",
+                "41640000",
+                "43b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "4431c71c",
+                "41640000",
+                "43b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "44480000",
+                "41640000",
+                "43b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "445e38e3",
+                "41640000",
+                "43b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "447471c6",
+                "41640000",
+                "43b1c71c"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "441b8e38",
+                "41640000",
+                "43de38e3"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "4431c71c",
+                "41640000",
+                "43de38e3"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "44480000",
+                "41640000",
+                "43de38e3"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "445e38e3",
+                "41640000",
+                "43de38e3"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            },
+            {
+              "extents_bits": [
+                "40a00000",
+                "461c4000",
+                "40a00000"
+              ],
+              "nearest_bits": [
+                "00000000",
+                "00000000",
+                "00000000"
+              ],
+              "point_bits": [
+                "447471c6",
+                "41640000",
+                "43de38e3"
+              ],
+              "poly_ref": 0,
+              "status": 1073741824
+            }
+          ],
+          "query_filter": {
+            "exclude_flags": 0,
+            "include_flags": 1
+          },
+          "query_init_status": 1073741824,
+          "tile_bmax_bits": [
+            "44855555",
+            "41540000",
+            "44055555"
+          ],
+          "tile_bmin_bits": [
+            "44055555",
+            "3f800000",
+            "00000000"
+          ],
+          "tile_x": 0,
+          "tile_y": 0,
+          "vert_count": 1029
+        },
+        "solid_triangles": 1,
+        "solid_vertices": 3,
+        "terrain_file_events": [
+          {
+            "basename": "0003130.map",
+            "mode": "rb",
+            "opened": true
+          },
+          {
+            "basename": "0003131.map",
+            "mode": "rb",
+            "opened": false
+          },
+          {
+            "basename": "0003129.map",
+            "mode": "rb",
+            "opened": false
+          },
+          {
+            "basename": "0003230.map",
+            "mode": "rb",
+            "opened": false
+          },
+          {
+            "basename": "0003030.map",
+            "mode": "rb",
+            "opened": false
+          }
+        ],
+        "terrain_triangles": 0,
+        "terrain_vertices_before_clean": 0,
+        "tile_union": [
+          [
+            30,
+            31
+          ]
+        ],
+        "vmap_loaded": true
+      },
+      "generated": true,
+      "helper_request": {
+        "bytes": 625872,
+        "sha256": "ef1e9b6a7f71baa3136bad09462f3e3e34dc0108f3efdfc00e5e47804a7b9a4c"
+      },
+      "input_provenance": {
+        "adt_fixture": "crates/benilla-native-terrain/tools/fixtures/liquid_full_types.adt.test-fixture",
+        "adt_sha256": "84fbe74be3acf7b7d636aa74ea2bfc6bcc8740ba01f7c2d0ed342662e29b9d1e",
+        "convert_adt_replay": "byte-identical to retained original map",
+        "map_fixture": "crates/benilla-native-terrain/tools/fixtures/liquid_full_types.map",
+        "map_sha256": "1093f2da859a3c806f3e52f79cfc513a03cf2b4f77598828aea37457b72d037b",
+        "original_tile": {
+          "map_id": 0,
+          "x": 30,
+          "y": 31
+        },
+        "production_tile_id": {
+          "map_id": 0,
+          "x": 31,
+          "y": 30
+        },
+        "source_hashes_sha256": "ade7638c449f3d6007df38f789c3ee5e483bffe9082dc1a5baa1ea677eb750da",
+        "vmap_case": "captured_wmo",
+        "vmap_products_sha256": {
+          "000.vmtree": "fb51cf1009f94f5890e3f736e670f3483472cc0ea76d2fd1e32ad83e43cff553",
+          "000_30_31.vmtile": "fd78692c19e67ec5b40e4c520137832e7830c7b644e2f3e03297127dffa728da",
+          "Hull.wmo.vmo": "a94dbf976e06dee80b3079782aa81dcddba2bdffe197669231100f3e15ce0419"
+        },
+        "writer_provenance_sha256": "e17c6992a64788596f1e73ecfa59d25926e2c3ddd25b66958d7020e12c93eb19"
+      },
+      "maps": {
+        "0003130.map": "1093f2da859a3c806f3e52f79cfc513a03cf2b4f77598828aea37457b72d037b"
+      },
+      "neighbors": false,
+      "products": {
+        "000.mmap": {
+          "bytes": 28,
+          "sha256": "f8fa94fced1d805c449910ee025feea7d41063d0e3bfee4b8b2cf728100cfd42"
+        },
+        "0003130.mmtile": {
+          "bytes": 159012,
+          "sha256": "e4f4a5c034fe5f7e2d98f92fe65e78c11c39d7117a20fed4f425261992ea8bdc"
+        }
+      },
+      "source-combined.bin": {
+        "arrays": {
+          "liquid": {
+            "triangle_count": 32768,
+            "triangles_sha256": "dabcb4bc4d8d9870443c795d4b0df3e36112874f78ccdc900814b8a21b6aeeda",
+            "types_sha256": "cc515378c7152ec02e2d7d651a76b8cc83671adef5fba579cf7456170d8333bc",
+            "vertex_count": 16641,
+            "vertices_sha256": "72f64c2382dec38911357013a56228919a9b409fcf57c1759727316adeabe6be"
+          },
+          "solid": {
+            "triangle_count": 1,
+            "triangles_sha256": "ad5dc1478de06a4c2728ea528bd9361a4b945e92a414bf4d180cedaaeaa5f4cc",
+            "vertex_count": 3,
+            "vertices_sha256": "bce8aa343e9e85b7d77e5ed2844542a54cf32abb35bb7c9dab2aec579ae8fa3f"
+          }
+        },
+        "bytes": 625740,
+        "sha256": "1604ce891de58efb3ad9a9b47f3dfdfa9619e83d2825f1eea0db74d596a06260"
+      },
+      "source-mesh.bin": {
+        "arrays": {
+          "liquid": {
+            "triangle_count": 32768,
+            "triangles_sha256": "dabcb4bc4d8d9870443c795d4b0df3e36112874f78ccdc900814b8a21b6aeeda",
+            "types_sha256": "cc515378c7152ec02e2d7d651a76b8cc83671adef5fba579cf7456170d8333bc",
+            "vertex_count": 16641,
+            "vertices_sha256": "72f64c2382dec38911357013a56228919a9b409fcf57c1759727316adeabe6be"
+          },
+          "solid": {
+            "triangle_count": 1,
+            "triangles_sha256": "ad5dc1478de06a4c2728ea528bd9361a4b945e92a414bf4d180cedaaeaa5f4cc",
+            "vertex_count": 3,
+            "vertices_sha256": "bce8aa343e9e85b7d77e5ed2844542a54cf32abb35bb7c9dab2aec579ae8fa3f"
+          }
+        },
+        "bytes": 625740,
+        "sha256": "1604ce891de58efb3ad9a9b47f3dfdfa9619e83d2825f1eea0db74d596a06260"
+      },
+      "source-terrain.bin": {
+        "arrays": {
+          "liquid": {
+            "triangle_count": 32768,
+            "triangles_sha256": "dabcb4bc4d8d9870443c795d4b0df3e36112874f78ccdc900814b8a21b6aeeda",
+            "types_sha256": "cc515378c7152ec02e2d7d651a76b8cc83671adef5fba579cf7456170d8333bc",
+            "vertex_count": 16641,
+            "vertices_sha256": "72f64c2382dec38911357013a56228919a9b409fcf57c1759727316adeabe6be"
+          },
+          "solid": {
+            "triangle_count": 0,
+            "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "vertex_count": 0,
+            "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "bytes": 625692,
+        "sha256": "e3765542c10d8a8a5180854ed822dfb1780e904f94ab40c38f1b52577d849edd"
+      },
+      "terrain": "liquid_full_types"
+    },
     "liquid_history61_initial": {
       "collision": false,
       "expected": {

@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     binary = args.helper.resolve(strict=True)
     measurements = {}
-    for case in ("ridge_wmo", "ridge_neighbors_wmo", "ridge_only"):
+    for case in ("ridge_wmo", "ridge_neighbors_wmo", "ridge_only", "liquid_full_types_wmo"):
         base = FIXTURES / case
         request = zlib.decompress((base / "helper-request.bin.zlib").read_bytes())
         started = time.monotonic()
@@ -52,6 +52,8 @@ def main():
             "wall_seconds": round(elapsed, 6),
             "solid_vertices": expected["solid_vertices"],
             "solid_triangles": expected["solid_triangles"],
+            "liquid_vertices": expected["liquid_vertices"],
+            "liquid_triangles": expected["liquid_triangles"],
         }
     print(json.dumps(measurements, indent=2, sort_keys=True))
 

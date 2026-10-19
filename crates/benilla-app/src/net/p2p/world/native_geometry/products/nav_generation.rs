@@ -279,6 +279,35 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
             revision: self.revision,
         })
     }
+    /// Test-only comparison of raw generation products. This never constructs an
+    /// admitted navigation view; the public generation path still loads the reader.
+    #[cfg(test)]
+    pub(crate) fn assert_original_products_for_test(
+        &self,
+        helper: &Path,
+        request_sha256: &str,
+        original_map: &[u8],
+        original_tile: &[u8],
+    ) {
+        self.verify_unchanged(|| false).unwrap();
+        let request = self.request.encode().unwrap();
+        // The independent oracle uses a 256 MiB native allocation allowance;
+        // production uses 128 MiB. Normalize only that resource field for comparison.
+        let mut normalized = request.clone();
+        normalized[24..32].copy_from_slice(&(256u64 * 1024 * 1024).to_le_bytes());
+        assert_eq!(format!("{:x}", Sha256::digest(&normalized)), request_sha256);
+        let response = process::run(
+            helper,
+            request,
+            Instant::now() + std::time::Duration::from_secs(60),
+            &|| false,
+        )
+        .unwrap();
+        validate_response(&self.request, &response).unwrap();
+        assert_eq!(response.mmap, original_map);
+        assert_eq!(response.mmtile, original_tile);
+        self.verify_unchanged(|| false).unwrap();
+    }
     pub(crate) fn verify_unchanged(
         &self,
         cancelled: impl Fn() -> bool,

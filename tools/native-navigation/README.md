@@ -15,6 +15,8 @@ python3 tools/native-navigation/run_oracle.py ../cmangos-source --check
 python3 tools/native-navigation/test_oracle.py
 python3 tools/native-navigation/capture_scalar_nearest.py ../cmangos-source --check
 python3 tools/native-navigation/retain_source.py ../cmangos-source --check
+BENILLA_ORACLE_SANITIZE_ALIGNMENT=1 python3 tools/native-navigation/run_oracle.py \
+  ../cmangos-source --work tools/native-navigation/.work/alignment --check
 ```
 
 The audited capture profile is Linux x86-64, little endian, GCC 14.2.0. The build
@@ -24,7 +26,8 @@ build uses three compiler workers. Generation uses one original worker and a
 not real-install performance claims or cross-platform byte-parity claims.
 
 `--check` recompiles original source, reauthors the ridge ADTs, runs unchanged
-original `ConvertADT`, reassembles the existing captured WMO using unchanged
+original `ConvertADT` (also replaying the retained full-types liquid ADT and
+requiring its exact original `.map` bytes), reassembles the existing captured WMO using unchanged
 original `TileAssembler`, executes original `TerrainBuilder`/`MapBuilder`, loads
 the actual emitted bytes with original Detour, and compares every deterministic
 file byte. Existing terrain fixtures are read-only and verified against their
@@ -49,6 +52,17 @@ profile. Link wrappers observe original `fopen` success/order and the final
 original `rcMergePolyMeshes` polygon count; they call the originals unchanged.
 Neither wrapper replaces source behavior.
 
+Query admission makes an owned raw-tile copy with a 0- or 4-byte base adjustment:
+original Detour uses `dtAlign4` for its 8-byte-aligned `dtLink` array. The driver
+checks both vertex-count parities and the actual loaded link pointer. Query and
+mesh owners are destroyed before the copied bytes, including exception exits.
+Failed original mesh initialization is process-bounded: its partial owner is not
+destructed because pinned `init` can fail before initializing the tile array that
+its destructor traverses. The failed capture exits without publishing a result.
+This allocation/alignment-only harness adaptation leaves every serialized byte
+and original algorithm unchanged. Both wide-height and scalar query captures are
+replayed under the optional alignment sanitizer above.
+
 The writer helper reuses the existing guarded original `ConvertADT` excerpt
 harness and its byte transport shim. `authored_ridge.py` changes only authored
 MCVT values. `source/` retains complete navigation source/config/offmesh excerpts
@@ -57,7 +71,7 @@ notices are retained beside those excerpts and under `notices/`.
 
 ## Fixture shape
 
-`fixtures/manifest.json` describes 14 terrain/combined cases. Per-case
+`fixtures/manifest.json` describes 15 terrain/combined cases. Per-case
 `expected.json` records source config, exact binary32 bounds, actual terrain
 file opens, discovered tile union, input counts and query expectations.
 
@@ -125,6 +139,36 @@ as a convenient positive limit or reconstruct origin only from the selected tile
 `helper-request.bin.zlib` encodes original captured arrays/config/parameters in
 the production helper's documented wire format. This is a test-input adapter;
 expected output files and queries still come exclusively from the original.
+
+## Generated Classic liquid evidence
+
+`liquid_full_types_wmo` reuses the unchanged retained
+`crates/benilla-native-terrain/tools/fixtures/liquid_full_types.adt.test-fixture`
+and its original `.map`, plus exactly the captured Hull WMO used by `ridge_wmo`.
+The selected original tile remains map 0, x 30, y 31; production `TileId` is
+map 0, x 31, y 30. Its manifest entry binds the ADT/map, original writer/source
+provenance and individual VMap product hashes. No neighboring maps are added.
+
+Original collection produces 16,641 liquid vertices and 32,768 liquid triangles:
+28,032 area 9 (water) and 4,736 area 8 (magma/slime). The collapsed solid terrain
+contributes no vertices or triangles; Hull adds three solid vertices and one
+triangle. Unchanged original `MapBuilder` emits 998 polygons: 770 area 9/flag 4
+and 228 area 8/flag 8, with no ground polygons. This genuinely generated output
+is retained with its helper request and exact MMap/MMTile bytes.
+
+Original Detour successfully initializes and loads the output. All 25 nearest
+queries use include flags 1 and exclude flags 0 and return `DT_SUCCESS` with
+reference 0; no height or corridor query is fabricated for those legitimate
+ground-only misses. Detailed flags, statuses and exact query bits are recorded
+only for this new case, leaving every existing per-case fixture unchanged.
+The old ridge cases still require successful complete ground corridors.
+
+`check_original.py` in the generator crate compares this new case's actual helper
+MMap/MMTile bytes against the independently generated original. Generation does
+not establish reader acceptance or swimming support. This exact output first
+fails the production reader's strict base-vertex envelope check (`Format`): its
+quantized maximum base-vertex height exceeds its original header maximum. Wet
+flags remain unsupported independently; no admission rule is relaxed here.
 
 ## Measurements and limits
 

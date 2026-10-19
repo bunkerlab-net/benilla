@@ -2,9 +2,11 @@
 // Authored driver. All generation and query algorithms are linked original source.
 #include <cfenv>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -56,7 +58,42 @@ static void dump_mesh(const std::string& path, const MMAP::MeshData& data) {
 static std::vector<unsigned char> read_file(const std::string& path) {
     std::ifstream input(path,std::ios::binary); return {std::istreambuf_iterator<char>(input),{}};
 }
+// Allocation-only harness adaptation: original Detour lays out dtLink with
+// dtAlign4 despite its 8-byte alignment. Serialized bytes remain unchanged.
+struct AlignedTileBytes {
+    std::unique_ptr<unsigned char,decltype(&std::free)> storage{nullptr,&std::free};
+    unsigned char* data=nullptr;
+    size_t links_offset=0;
+    AlignedTileBytes(const unsigned char* source,size_t size) {
+        static_assert(sizeof(dtMeshHeader)==100 && sizeof(dtPoly)==32 && sizeof(dtLink)==16);
+        static_assert(alignof(dtLink)==8 && alignof(dtMeshHeader)==4 && alignof(dtPoly)==4);
+        if(size<sizeof(dtMeshHeader))throw std::runtime_error("short original tile");
+        dtMeshHeader header;std::memcpy(&header,source,sizeof(header));
+        if(header.vertCount<0 || header.polyCount<0)throw std::runtime_error("negative original tile count");
+        links_offset=sizeof(header)+size_t(header.vertCount)*3*sizeof(float)+size_t(header.polyCount)*sizeof(dtPoly);
+        if(links_offset>size)throw std::runtime_error("short original tile arrays");
+        storage.reset(static_cast<unsigned char*>(std::malloc(size+8)));
+        if(!storage)throw std::bad_alloc();
+        data=storage.get()+(links_offset%8?4:0);
+        if(reinterpret_cast<uintptr_t>(data)%alignof(dtMeshHeader) ||
+           reinterpret_cast<uintptr_t>(data+links_offset)%alignof(dtLink))throw std::runtime_error("unaligned original tile copy");
+        std::memcpy(data,source,size);
+    }
+};
+static void check_tile_copy_parities() {
+    // Both layouts are exercised even when captured source tiles share parity.
+    for(int vertices:{1,2}) {
+        std::vector<unsigned char> bytes(sizeof(dtMeshHeader)+vertices*12+sizeof(dtPoly)+sizeof(dtLink),0xa5);
+        dtMeshHeader header{};header.vertCount=vertices;header.polyCount=1;
+        std::memcpy(bytes.data(),&header,sizeof(header));AlignedTileBytes copy(bytes.data(),bytes.size());
+        if(std::memcmp(bytes.data(),copy.data,bytes.size())!=0)throw std::runtime_error("tile copy changed bytes");
+    }
+}
+static void check_loaded_tile_alignment(const dtMeshTile* tile) {
+    if(reinterpret_cast<uintptr_t>(tile->links)%alignof(dtLink))throw std::runtime_error("unaligned loaded original links");
+}
 static json queries(const std::string& base, uint32_t map, uint32_t x, uint32_t y) {
+    const bool details=std::getenv("BENILLA_ORACLE_QUERY_DETAILS")!=nullptr;
     char path[1024]; std::snprintf(path,sizeof(path),"%s/mmaps/%03u.mmap",base.c_str(),map);
     auto mmap=read_file(path); if(mmap.size()!=sizeof(dtNavMeshParams)) throw std::runtime_error("missing mmap");
     dtNavMeshParams params; memcpy(&params,mmap.data(),sizeof(params));
@@ -66,19 +103,41 @@ static json queries(const std::string& base, uint32_t map, uint32_t x, uint32_t 
     auto bytes=read_file(path); result["emitted"]=!bytes.empty(); if(bytes.empty()) return result;
     MmapTileHeader framing; memcpy(&framing,bytes.data(),sizeof(framing));
     if(framing.size+sizeof(framing)!=bytes.size()) throw std::runtime_error("bad original framing");
-    dtNavMesh* mesh=dtAllocNavMesh(); if(dtStatusFailed(mesh->init(&params))) throw std::runtime_error("init failed");
+    AlignedTileBytes tile_bytes(bytes.data()+sizeof(framing),framing.size);
+    std::unique_ptr<dtNavMesh,decltype(&dtFreeNavMesh)> mesh(dtAllocNavMesh(),&dtFreeNavMesh);
+    if(!mesh)throw std::bad_alloc();
+    auto init_status=mesh->init(&params);
+    if(dtStatusFailed(init_status)) {
+        // Pinned init can leave m_tiles null/uninitialized after setting maxTiles.
+        // Its destructor is unsafe then. Fail this subprocess; the OS reclaims
+        // this unpublished partial owner rather than invoking that destructor.
+        (void)mesh.release();throw std::runtime_error("init failed");
+    }
     dtTileRef tile_ref=0;
-    auto status=mesh->addTile(bytes.data()+sizeof(framing),framing.size,0,0,&tile_ref);
+    auto status=mesh->addTile(tile_bytes.data,framing.size,0,0,&tile_ref);
     if(dtStatusFailed(status)) throw std::runtime_error("addTile failed");
+    if(details) { result["mesh_init_status"]=init_status; result["add_tile_status"]=status; }
     const dtMeshTile* tile=mesh->getTileByRef(tile_ref); const dtMeshHeader* header=tile->header;
+    check_loaded_tile_alignment(tile);
     result["poly_count"]=header->polyCount; result["vert_count"]=header->vertCount;
     result["detail_vert_count"]=header->detailVertCount; result["detail_tri_count"]=header->detailTriCount;
     result["bv_node_count"]=header->bvNodeCount; result["tile_x"]=header->x; result["tile_y"]=header->y;
     result["tile_bmin_bits"]=float_bits(header->bmin,3); result["tile_bmax_bits"]=float_bits(header->bmax,3);
     json areas=json::object(); for(int i=0;i<header->polyCount;++i) {auto key=std::to_string(tile->polys[i].getArea()); areas[key]=areas.value(key,0)+1;}
     result["areas"]=areas;
-    dtNavMeshQuery* query=dtAllocNavMeshQuery(); if(dtStatusFailed(query->init(mesh,32768))) throw std::runtime_error("query init failed");
+    if(details) {
+        json flags=json::object(); for(int i=0;i<header->polyCount;++i) {auto key=std::to_string(tile->polys[i].flags);flags[key]=flags.value(key,0)+1;}
+        result["polygon_flags"]=flags;
+    }
+    std::unique_ptr<dtNavMeshQuery,decltype(&dtFreeNavMeshQuery)> query(dtAllocNavMeshQuery(),&dtFreeNavMeshQuery);
+    if(!query)throw std::bad_alloc();
+    auto query_init_status=query->init(mesh.get(),32768);
+    if(dtStatusFailed(query_init_status)) throw std::runtime_error("query init failed");
     dtQueryFilter filter; filter.setIncludeFlags(NAV_GROUND); filter.setExcludeFlags(0);
+    if(details) {
+        result["query_init_status"]=query_init_status;
+        result["query_filter"]={{"include_flags",filter.getIncludeFlags()},{"exclude_flags",filter.getExcludeFlags()}};
+    }
     const float extents[3]={5.f,10000.f,5.f};
     result["queries"]=json::array(); std::vector<dtPolyRef> refs; std::vector<std::array<float,3>> points;
     for(int row=1;row<=5;++row) for(int col=1;col<=5;++col) {
@@ -103,7 +162,8 @@ static json queries(const std::string& base, uint32_t map, uint32_t x, uint32_t 
         item["straight_status"]=ss; item["straight_bits"]=float_bits(straight,straight_count*3);
         result["paths"].push_back(item);
     }
-    dtFreeNavMeshQuery(query); dtFreeNavMesh(mesh); return result;
+    // Declaration order destroys query, then mesh (flags=0), then tile_bytes.
+    return result;
 }
 static int scalar_nearest_queries(const char* base,const char* source_points,const char* destination) {
     std::ifstream original_points(source_points);json fixture=json::parse(original_points);
@@ -113,10 +173,19 @@ static int scalar_nearest_queries(const char* base,const char* source_points,con
     dtNavMeshParams params;std::memcpy(&params,mmap.data(),sizeof(params));
     MmapTileHeader framing;std::memcpy(&framing,bytes.data(),sizeof(framing));
     if(framing.size+sizeof(framing)!=bytes.size())throw std::runtime_error("bad original scalar-query framing");
-    dtNavMesh* mesh=dtAllocNavMesh();if(dtStatusFailed(mesh->init(&params)))throw std::runtime_error("scalar query mesh init failed");
-    dtTileRef tile_ref=0;auto add_status=mesh->addTile(bytes.data()+sizeof(framing),framing.size,0,0,&tile_ref);
+    AlignedTileBytes tile_bytes(bytes.data()+sizeof(framing),framing.size);
+    std::unique_ptr<dtNavMesh,decltype(&dtFreeNavMesh)> mesh(dtAllocNavMesh(),&dtFreeNavMesh);
+    if(!mesh)throw std::bad_alloc();
+    if(dtStatusFailed(mesh->init(&params))) {
+        // Same process-bounded failed-init ownership as the wide-height queries.
+        (void)mesh.release();throw std::runtime_error("scalar query mesh init failed");
+    }
+    dtTileRef tile_ref=0;auto add_status=mesh->addTile(tile_bytes.data,framing.size,0,0,&tile_ref);
     if(dtStatusFailed(add_status))throw std::runtime_error("scalar query tile load failed");
-    dtNavMeshQuery* query=dtAllocNavMeshQuery();if(dtStatusFailed(query->init(mesh,32768)))throw std::runtime_error("scalar query init failed");
+    check_loaded_tile_alignment(mesh->getTileByRef(tile_ref));
+    std::unique_ptr<dtNavMeshQuery,decltype(&dtFreeNavMeshQuery)> query(dtAllocNavMeshQuery(),&dtFreeNavMeshQuery);
+    if(!query)throw std::bad_alloc();
+    if(dtStatusFailed(query->init(mesh.get(),32768)))throw std::runtime_error("scalar query init failed");
     dtQueryFilter filter;filter.setIncludeFlags(NAV_GROUND);filter.setExcludeFlags(0);
     const float extents[3]={5.f,5.f,5.f};
     json result={{"schema",1},{"include_flags",NAV_GROUND},{"exclude_flags",0},{"extents_bits",float_bits(extents,3)},{"queries",json::array()}};
@@ -134,7 +203,7 @@ static int scalar_nearest_queries(const char* base,const char* source_points,con
         }
         result["queries"].push_back(item);
     }
-    dtFreeNavMeshQuery(query);dtFreeNavMesh(mesh);std::ofstream(destination)<<result.dump(2)<<"\n";return 0;
+    std::ofstream(destination)<<result.dump(2)<<"\n";return 0;
 }
 void from_json(const json&,rcConfig&);
 static int config_queries(const char* base,const char* config_path) {
@@ -151,6 +220,7 @@ static int config_queries(const char* base,const char* config_path) {
 int main(int argc,char** argv) {
     static_assert(sizeof(float)==4 && sizeof(dtNavMeshParams)==28 && sizeof(MmapTileHeader)==20);
     if(std::fesetround(FE_TONEAREST)!=0) return 1;
+    check_tile_copy_parities();
     if(argc==5 && std::string(argv[1])=="scalar_queries") return scalar_nearest_queries(argv[2],argv[3],argv[4]);
     if(argc==4 && std::string(argv[1])=="configs") return config_queries(argv[2],argv[3]);
     if(argc==4 && std::string(argv[1])=="assemble") { VMAP::TileAssembler assembler(argv[2],argv[3]); return assembler.convertWorld2()?0:2; }
@@ -173,6 +243,10 @@ int main(int argc,char** argv) {
     result["bounds_min_bits"]=float_bits(bmin,3); result["bounds_max_bits"]=float_bits(bmax,3);
     result["solid_vertices"]=data.solidVerts.size()/3; result["solid_triangles"]=data.solidTris.size()/3;
     result["liquid_vertices"]=data.liquidVerts.size()/3; result["liquid_triangles"]=data.liquidTris.size()/3;
+    if(std::getenv("BENILLA_ORACLE_QUERY_DETAILS")) {
+        json areas=json::object(); for(int i=0;i<data.liquidType.size();++i) {auto key=std::to_string(data.liquidType[i]);areas[key]=areas.value(key,0)+1;}
+        result["liquid_triangle_areas"]=areas;
+    }
     result["tile_union"]=json::array(); for(auto tile:builder.getTileList(map)) { uint32_t tx,ty; VMAP::StaticMapTree::unpackTileID(tile,tx,ty); result["tile_union"].push_back({tx,ty}); }
     if(!std::getenv("BENILLA_ORACLE_COLLECT_ONLY")) {
         builder.buildSingleTile(map,x,y);

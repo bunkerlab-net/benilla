@@ -51,6 +51,30 @@ def request(base,result,budget=256*1024*1024):
         value=result['config'][name];output+=struct.pack('<'+fmt,int(value) if fmt=='I' else value)
     return output+(base/'source-mesh.bin').read_bytes()
 
+def verify_liquid_writer(ridge):
+    # Replay the retained input through the already-built unchanged ConvertADT.
+    # Do not reauthor it or replace its independently captured map expectation.
+    name='liquid_full_types'
+    shutil.copyfile(TERRAIN/(name+'.adt.test-fixture'),ridge/(name+'.adt'))
+    subprocess.run([str(ridge/'writer-build/oracle'),str(ridge),name],check=True,timeout=20)
+    assert (ridge/(name+'.map')).read_bytes()==(TERRAIN/(name+'.map')).read_bytes(),'original liquid ConvertADT differs'
+
+def check_generation(case,result):
+    output=result['output']
+    if case=='ridge_only':
+        assert not output['emitted'] and output['merged_polygons']==625
+    elif case=='liquid_full_types_wmo':
+        # Measured source output is entirely wet. Ground-only misses are evidence,
+        # not a reason to relax the filter or manufacture a successful corridor.
+        assert output['emitted'] and output['merged_polygons']==998,case
+        assert output['areas']=={'8':228,'9':770},case
+        assert output['query_filter']=={'include_flags':1,'exclude_flags':0},case
+        assert len(output['queries'])==25 and not output['paths'],case
+        assert all(q['status']==0x40000000 and q['poly_ref']==0 for q in output['queries']),case
+    else:
+        assert output['emitted'],case
+        assert any(len(path['corridor'])>1 and path['corridor'][-1]==path['end_ref'] for path in output['paths']),case
+
 def worker(args):
     # Separate Python process keeps RUSAGE_CHILDREN from prior compiler/runs.
     base=Path(args.worker[0]);command=args.worker[1:];started=time.monotonic()
@@ -63,6 +87,7 @@ def worker(args):
 def capture(source,work,output,verify_inputs=True):
     output.mkdir(parents=True,exist_ok=True);work.mkdir(parents=True,exist_ok=True)
     exe=build(source,work/'build'); ridge=work/'ridge-input';generate_ridge(source,ridge)
+    verify_liquid_writer(ridge)
     vmaps=None
     for line in VMAP.read_text(encoding="utf-8").splitlines():
         if line.startswith('captured_wmo\t'):
@@ -83,7 +108,7 @@ def capture(source,work,output,verify_inputs=True):
         assert actual==vmaps,'original captured WMO reassembly differs'
 
     manifest={'schema':1,'source_pin':PIN,'map_id':0,'tile_x':30,'tile_y':31,'cases':{},'fixture_sources':{'terrain_manifest_sha256':sha((TERRAIN/'manifest.json').read_bytes()),'vmap_products_sha256':sha(VMAP.read_bytes())}}
-    cases=[('ridge_wmo','ridge',False,True,True),('ridge_neighbors_wmo','ridge',True,True,True),('ridge_only','ridge',False,False,True)]
+    cases=[('ridge_wmo','ridge',False,True,True),('ridge_neighbors_wmo','ridge',True,True,True),('ridge_only','ridge',False,False,True),('liquid_full_types_wmo','liquid_full_types',False,True,True)]
     for name in ['flat','varied','nonflat_holes','liquid_water_flat','liquid_full_types','liquid_flag_bytes','liquid_nonsymmetric','liquid_outer_edges','liquid_history61_initial']:
         cases.append((name,name,False,False,False))
     cases += [('varied_neighbors','varied',True,False,False),('nonflat_holes_neighbors','nonflat_holes',True,False,False)]
@@ -101,10 +126,27 @@ def capture(source,work,output,verify_inputs=True):
             for filename,content in vmaps.items():(base/'vmaps'/filename).write_bytes(bytes.fromhex(content))
         command=[str(exe),str(base),'0','30','31',str(source/'contrib/extractor_scripts/config.json'),str(source/'contrib/extractor_scripts/offmesh.txt')]
         env=os.environ.copy()
+        env.pop('BENILLA_ORACLE_QUERY_DETAILS',None)
+        env.pop('BENILLA_ORACLE_COLLECT_ONLY',None)
+        if case=='liquid_full_types_wmo':env['BENILLA_ORACLE_QUERY_DETAILS']='1'
         if not generate:env['BENILLA_ORACLE_COLLECT_ONLY']='1'
         subprocess.run([sys.executable,str(HERE/'run_oracle.py'),'--worker',str(base),*command],check=True,env=env,timeout=130)
         result=json.loads((base/'source-result.json').read_text(encoding="utf-8"));target=output/case;target.mkdir()
         entry={'terrain':terrain,'neighbors':neighbors,'collision':collision,'generated':generate,'maps':{n:sha(p.read_bytes()) for n,p in map_files.items()},'expected':result}
+        if case=='liquid_full_types_wmo':
+            entry['input_provenance']={
+                'adt_fixture':str((TERRAIN/(terrain+'.adt.test-fixture')).relative_to(ROOT)),
+                'adt_sha256':sha((TERRAIN/(terrain+'.adt.test-fixture')).read_bytes()),
+                'map_fixture':str(terrain_path.relative_to(ROOT)),
+                'map_sha256':sha(terrain_path.read_bytes()),
+                'convert_adt_replay':'byte-identical to retained original map',
+                'writer_provenance_sha256':sha((ridge/'writer-provenance.json').read_bytes()),
+                'vmap_case':'captured_wmo',
+                'vmap_products_sha256':{name:sha(bytes.fromhex(data)) for name,data in vmaps.items()},
+                'source_hashes_sha256':sha((HERE/'source/source-hashes.json').read_bytes()),
+                'original_tile':{'map_id':0,'x':30,'y':31},
+                'production_tile_id':{'map_id':0,'x':31,'y':30},
+            }
         for name in ['source-terrain.bin','source-combined.bin','source-mesh.bin']:
             raw=(base/name).read_bytes();entry[name]=mesh_info(raw);(target/(name+'.zlib')).write_bytes(zlib.compress(raw,9))
         (target/'expected.json').write_bytes(json_bytes(result))
@@ -113,11 +155,7 @@ def capture(source,work,output,verify_inputs=True):
             for path in sorted((base/'mmaps').iterdir()):
                 data=path.read_bytes();(target/path.name).write_bytes(data);entry['products'][path.name]={'bytes':len(data),'sha256':sha(data)}
             raw=request(base,result);(target/'helper-request.bin.zlib').write_bytes(zlib.compress(raw,9));entry['helper_request']={'bytes':len(raw),'sha256':sha(raw)}
-            if case=='ridge_only':
-                assert not result['output']['emitted'] and result['output']['merged_polygons']==625
-            else:
-                assert result['output']['emitted'],case
-                assert any(len(path['corridor'])>1 and path['corridor'][-1]==path['end_ref'] for path in result['output']['paths']),case
+            check_generation(case,result)
         manifest['cases'][case]=entry
         print(case,json.dumps({k:result[k] for k in ['solid_vertices','solid_triangles','liquid_vertices','liquid_triangles']}),flush=True)
     authored=output/'authored';authored.mkdir()
@@ -134,11 +172,11 @@ def capture(source,work,output,verify_inputs=True):
     capture_quantized(source,work,output/'quantized')
     config_output=output/'configs';config_output.mkdir()
     config_base=work/'ridge_wmo'
-    subprocess.run([str(exe),'configs',str(config_base),str(source/'contrib/extractor_scripts/config.json')],check=True,stdout=subprocess.DEVNULL)
+    subprocess.run([str(exe),'configs',str(config_base),str(source/'contrib/extractor_scripts/config.json')],check=True,stdout=subprocess.DEVNULL,timeout=15)
     shutil.copyfile(config_base/'config-result.json',config_output/'source-config-expected.json')
     authored={'1':{'walkableClimb':7.9,'minRegionArea':9,'123':{'walkableRadius':3.9,'maxSimplificationError':1.25},'ignored_object':{'x':1}}}
     (config_output/'authored-config.json').write_bytes(json_bytes(authored))
-    subprocess.run([str(exe),'configs',str(config_base),str(config_output/'authored-config.json')],check=True,stdout=subprocess.DEVNULL)
+    subprocess.run([str(exe),'configs',str(config_base),str(config_output/'authored-config.json')],check=True,stdout=subprocess.DEVNULL,timeout=15)
     shutil.copyfile(config_base/'config-result.json',config_output/'authored-config-expected.json')
     from capture_scalar_nearest import capture as capture_scalar
     capture_scalar(source,work,output,output/'scalar-nearest')

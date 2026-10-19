@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import json
 import hashlib
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 PIN='8ec338a1704e7dcb1c0213eb7ed58f9231ade40f'
@@ -31,10 +32,12 @@ using uint8=std::uint8_t; using uint16=std::uint16_t; using uint32=std::uint32_t
     sources += sorted((recast/'Recast/Source').glob('*.cpp'))+sorted((recast/'Detour/Source').glob('*.cpp'))
     includes=[work,vmap,source/'src/game',g3d,mmap,recast,recast/'Recast/Include',recast/'Detour/Include',source/'dep/json']
     flags=['g++','-std=c++17','-O2','-fno-fast-math','-ffp-contract=off','-fno-strict-aliasing','-fno-access-control','-ffunction-sections','-fdata-sections','-DNO_CORE_FUNCS','-DMMAP_GENERATOR','-DDT_POLYREF64',*['-I'+str(p) for p in includes]]
+    sanitizer=['-fsanitize=alignment','-fno-sanitize-recover=alignment'] if os.environ.get('BENILLA_ORACLE_SANITIZE_ALIGNMENT')=='1' else []
+    flags+=sanitizer
     sources=[HERE/'oracle_driver.cpp',*sources]
     objects=[work/(str(i)+'-'+p.stem+'.o') for i,p in enumerate(sources)]
     commands=[flags+['-c',str(p),'-o',str(o)] for p,o in zip(sources,objects)]
-    link=['g++',*[str(p) for p in objects],'-Wl,--gc-sections','-Wl,--wrap=fopen','-Wl,--wrap=_Z17rcMergePolyMeshesP9rcContextPP10rcPolyMeshiRS1_','-pthread','-lz','-o',str(work/'original-navigation')]
+    link=['g++',*sanitizer,*[str(p) for p in objects],'-Wl,--gc-sections','-Wl,--wrap=fopen','-Wl,--wrap=_Z17rcMergePolyMeshesP9rcContextPP10rcPolyMeshiRS1_','-pthread','-lz','-o',str(work/'original-navigation')]
     (work/'compile-command.json').write_text(json.dumps(commands+[link],indent=2)+'\n')
     def compile_one(args):
         src,obj,command=args

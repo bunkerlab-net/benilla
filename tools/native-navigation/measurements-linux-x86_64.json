@@ -14,6 +14,11 @@
     "max_rss_kib": 13440,
     "wall_seconds": 0.015987
   },
+  "liquid_full_types_wmo": {
+    "exit_code": 0,
+    "max_rss_kib": 13568,
+    "wall_seconds": 1.61996
+  },
   "liquid_history61_initial": {
     "exit_code": 0,
     "max_rss_kib": 13440,

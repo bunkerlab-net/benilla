@@ -6,7 +6,7 @@ from pathlib import Path
 import struct
 import unittest
 import zlib
-from run_oracle import mesh_info,sha
+from run_oracle import check_generation,mesh_info,sha
 from authored_models import cases as model_cases
 HERE=Path(__file__).resolve().parent
 
@@ -59,6 +59,43 @@ class SourceOracleFixtures(unittest.TestCase):
             self.assertEqual(expected['output']['max_tiles'],count)
             self.assertEqual(len(expected['tile_union']),count)
         self.assertEqual(len(manifest['cases']['flat']['expected']['terrain_file_events']),1)
+
+    def test_original_generated_liquid_retains_ground_only_misses(self):
+        manifest=json.loads((HERE/'fixtures/manifest.json').read_text(encoding="utf-8"))
+        case='liquid_full_types_wmo';entry=manifest['cases'][case];base=HERE/'fixtures'/case
+        expected=json.loads((base/'expected.json').read_text(encoding="utf-8"));output=expected['output']
+        self.assertEqual(expected,entry['expected']);check_generation(case,expected)
+        self.assertEqual((expected['solid_vertices'],expected['solid_triangles']),(3,1))
+        self.assertEqual((expected['liquid_vertices'],expected['liquid_triangles']),(16641,32768))
+        self.assertEqual(expected['liquid_triangle_areas'],{'8':4736,'9':28032})
+        self.assertEqual(output['poly_count'],998)
+        self.assertEqual(output['polygon_flags'],{'4':770,'8':228})
+        for key in ['mesh_init_status','add_tile_status','query_init_status']:
+            self.assertEqual(output[key],0x40000000)
+        for query in output['queries']:
+            self.assertEqual(query['nearest_bits'],['00000000']*3)
+            self.assertNotIn('height_status',query)
+        for name,description in entry['products'].items():
+            data=(base/name).read_bytes();self.assertEqual(len(data),description['bytes']);self.assertEqual(sha(data),description['sha256'])
+        raw=zlib.decompress((base/'helper-request.bin.zlib').read_bytes())
+        self.assertEqual(len(raw),entry['helper_request']['bytes']);self.assertEqual(sha(raw),entry['helper_request']['sha256'])
+        self.assertEqual(raw[:8],b'BNAVIN01');self.assertEqual(struct.unpack_from('<4I',raw,8),(0,30,31,1))
+        self.assertEqual(raw[32:60],(base/'000.mmap').read_bytes())
+        self.assertTrue(raw.endswith(zlib.decompress((base/'source-mesh.bin.zlib').read_bytes())))
+        provenance=entry['input_provenance'];root=HERE.parents[1]
+        for kind in ['adt','map']:
+            self.assertEqual(sha((root/provenance[kind+'_fixture']).read_bytes()),provenance[kind+'_sha256'])
+        self.assertEqual(provenance['production_tile_id'],{'map_id':0,'x':31,'y':30})
+        self.assertEqual(provenance['original_tile'],{'map_id':0,'x':30,'y':31})
+        self.assertEqual(sha((HERE/'fixtures/authored/writer-provenance.json').read_bytes()),provenance['writer_provenance_sha256'])
+        self.assertEqual(sha((HERE/'source/source-hashes.json').read_bytes()),provenance['source_hashes_sha256'])
+
+    def test_ground_corridor_requirement_remains_strict_for_ridge_cases(self):
+        manifest=json.loads((HERE/'fixtures/manifest.json').read_text(encoding="utf-8"))
+        for case in ['ridge_wmo','ridge_neighbors_wmo']:
+            expected=manifest['cases'][case]['expected'];check_generation(case,expected)
+            expected['output']['paths']=[]
+            with self.assertRaises(AssertionError):check_generation(case,expected)
 
     def test_original_scalar_nearest_query_replay(self):
         base=HERE/'fixtures/scalar-nearest';manifest=json.loads((base/'manifest.json').read_text(encoding="utf-8"))
