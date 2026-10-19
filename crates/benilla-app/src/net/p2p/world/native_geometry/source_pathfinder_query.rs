@@ -1084,3 +1084,7 @@ pub(crate) mod tests;
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[path = "source_pathfinder_query/pair_tests.rs"]
 pub(super) mod pair_tests;
+
+#[cfg(test)]
+#[path = "source_pathfinder_query/resident_cold_tests.rs"]
+pub(crate) mod resident_cold_tests;

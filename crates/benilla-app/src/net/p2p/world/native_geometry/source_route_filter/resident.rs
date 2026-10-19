@@ -11,6 +11,9 @@ use super::super::{
 use super::*;
 use std::rc::Rc;
 
+#[path = "cold.rs"]
+pub(crate) mod cold;
+
 const POLICY: &[u8] = b"benilla-resident-point-no-water-owner-filter-v1";
 pub(crate) fn geometry_revision(
     height: source_height::Binding,
@@ -30,6 +33,7 @@ pub(crate) enum ResidentFilterError {
     Context(Failure),
     Query(super::super::source_pathfinder_query::ConstructorQueryError),
     Source(source_height::CompositionError),
+    Terminal(benilla_native_nav::SourceSamePolygonError),
 }
 impl std::fmt::Display for ResidentFilterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,6 +41,7 @@ impl std::fmt::Display for ResidentFilterError {
             Self::Context(error) => write!(f, "resident filter context: {error:?}"),
             Self::Query(error) => write!(f, "resident filter query: {error:?}"),
             Self::Source(error) => write!(f, "resident filter source: {error:?}"),
+            Self::Terminal(error) => write!(f, "resident conditional terminal: {error:?}"),
         }
     }
 }
@@ -172,64 +177,15 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         self.query
             .retain_constructor(context)
             .map_err(ResidentFilterError::Query)?;
-        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
-            return Err(Failure::UnsupportedQuery.into());
-        };
-        let capabilities = route.owner.capabilities().map_err(|_| Failure::Binding)?;
-        let position = [
-            route.owner_position.x.bits(),
-            route.owner_position.y.bits(),
-            route.owner_position.z.bits(),
-        ];
-        let mut replies = [None, None];
-        let mut next = 0usize;
-        let mut liquid_query = |mask| {
-            let required = match next {
-                0 => route_filter::LiquidMask::AllLiquids,
-                1 => route_filter::LiquidMask::WaterOrOcean,
-                _ => return Err(Failure::Binding.into()),
-            };
-            if mask != required {
-                return Err(Failure::Binding.into());
-            }
-            let reply = self
-                .height
-                .point_no_water(
-                    PointNoWaterRequest {
-                        binding: self.height.binding(),
-                        ticket: first_ticket + next as u64,
-                        position,
-                        mask: if next == 0 { 15 } else { 10 },
-                    },
-                    deadline,
-                    &cancelled,
-                )
-                .map_err(ResidentFilterError::Source)?;
-            replies[next] = Some(reply);
-            next += 1;
-            route_filter::NoWater::try_from_status(0).map_err(|_| Failure::Water.into())
-        };
-        let filter = if let Some(retained) = retained {
-            liquid_query(route_filter::LiquidMask::AllLiquids)?;
-            liquid_query(route_filter::LiquidMask::WaterOrOcean)?;
-            // Both predicates are false, so updateFilter performs no read/write
-            // of include flags and never calls getNavTerrain.
-            retained
-        } else {
-            let created =
-                route_filter::create_dry_filter(capabilities, liquid_query).map_err(|error| {
-                    match error {
-                        route_filter::Error::UnsupportedCapabilities => {
-                            ResidentFilterError::Context(Failure::UnsupportedQuery)
-                        }
-                        route_filter::Error::Liquid(error) => error,
-                    }
-                })?;
-            benilla_native_nav::SourceOwnerFilter {
-                include_flags: created.include_flags(),
-                exclude_flags: created.exclude_flags(),
-            }
-        };
+        let (observations, filter) = point_observations(
+            self.height,
+            context,
+            first_ticket,
+            deadline,
+            &cancelled,
+            retained,
+            &mut |_| {},
+        )?;
         self.check_context(context, deadline, &cancelled)?;
         self.height
             .verify_unchanged(&cancelled)
@@ -239,10 +195,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             identity: Rc::clone(&self.identity),
             context: context.clone(),
             expires: deadline,
-            observations: [
-                replies[0].ok_or(Failure::Binding)?,
-                replies[1].ok_or(Failure::Binding)?,
-            ],
+            observations,
             filter,
         })
     }
@@ -293,4 +246,89 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         validate_route_context(&self.session, &self.profile, context)?;
         Ok(())
     }
+}
+
+fn point_observations(
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    context: &AuthorityRequest,
+    first_ticket: u64,
+    deadline: Instant,
+    cancelled: &impl Fn() -> bool,
+    retained: Option<benilla_native_nav::SourceOwnerFilter>,
+    observe: &mut impl FnMut(u8),
+) -> Result<
+    (
+        [PointNoWaterReply; 2],
+        benilla_native_nav::SourceOwnerFilter,
+    ),
+    ResidentFilterError,
+> {
+    if first_ticket == 0 || first_ticket.checked_add(1).is_none() {
+        return Err(Failure::Invalid.into());
+    }
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return Err(Failure::UnsupportedQuery.into());
+    };
+    let capabilities = route.owner.capabilities().map_err(|_| Failure::Binding)?;
+    let position = [
+        route.owner_position.x.bits(),
+        route.owner_position.y.bits(),
+        route.owner_position.z.bits(),
+    ];
+    let mut replies = [None, None];
+    let mut next = 0usize;
+    let mut liquid_query = |mask| {
+        let required = match next {
+            0 => route_filter::LiquidMask::AllLiquids,
+            1 => route_filter::LiquidMask::WaterOrOcean,
+            _ => return Err(Failure::Binding.into()),
+        };
+        if mask != required {
+            return Err(Failure::Binding.into());
+        }
+        observe(next as u8);
+        let reply = height
+            .point_no_water(
+                PointNoWaterRequest {
+                    binding: height.binding(),
+                    ticket: first_ticket + next as u64,
+                    position,
+                    mask: if next == 0 { 15 } else { 10 },
+                },
+                deadline,
+                cancelled,
+            )
+            .map_err(ResidentFilterError::Source)?;
+        replies[next] = Some(reply);
+        next += 1;
+        route_filter::NoWater::try_from_status(0).map_err(|_| Failure::Water.into())
+    };
+    let filter = if let Some(retained) = retained {
+        liquid_query(route_filter::LiquidMask::AllLiquids)?;
+        liquid_query(route_filter::LiquidMask::WaterOrOcean)?;
+        // Both predicates are false, so updateFilter performs no read/write
+        // of include flags and never calls getNavTerrain.
+        retained
+    } else {
+        let created = route_filter::create_dry_filter(capabilities, liquid_query).map_err(
+            |error| match error {
+                route_filter::Error::UnsupportedCapabilities => {
+                    ResidentFilterError::Context(Failure::UnsupportedQuery)
+                }
+                route_filter::Error::Liquid(error) => error,
+            },
+        )?;
+        benilla_native_nav::SourceOwnerFilter {
+            include_flags: created.include_flags(),
+            exclude_flags: created.exclude_flags(),
+        }
+    };
+
+    Ok((
+        [
+            replies[0].ok_or(Failure::Binding)?,
+            replies[1].ok_or(Failure::Binding)?,
+        ],
+        filter,
+    ))
 }
