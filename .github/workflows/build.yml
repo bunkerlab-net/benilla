@@ -95,7 +95,12 @@ jobs:
           python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
           python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
       - name: Test bounded CI diagnostic capture
-        run: python3 scripts/test-capture-ci-log.py
+        run: |
+          export BENILLA_TEST_BASH="$BASH"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export BENILLA_TEST_BASH="$(cygpath -w "$BASH")"
+          fi
+          python3 scripts/test-capture-ci-log.py
       - name: Test actual navigation helper without inherited environment
         id: native-helper
         run: |
