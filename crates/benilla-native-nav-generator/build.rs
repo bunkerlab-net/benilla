@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod link_plan;
+
 fn main() {
     println!("cargo:rerun-if-changed=native");
+    println!("cargo:rerun-if-changed=link_plan.rs");
     println!("cargo:rustc-check-cfg=cfg(benilla_native_generator)");
     let target = std::env::var("TARGET").unwrap();
     if !matches!(
@@ -51,19 +54,8 @@ fn main() {
     } else {
         "libbenilla_pinned_generator.a"
     });
-    // Binary-only link arguments deliberately do not propagate through the protocol-only rlib.
-    println!(
-        "cargo:rustc-link-arg-bin=benilla-native-navigation={}",
-        archive.display()
-    );
-    if !msvc {
-        println!(
-            "cargo:rustc-link-arg-bin=benilla-native-navigation=-l{}",
-            if target.contains("apple") {
-                "c++"
-            } else {
-                "stdc++"
-            }
-        );
+    // Binary-only arguments deliberately do not propagate through the protocol rlib.
+    for argument in link_plan::arguments(&target, &archive.to_string_lossy()) {
+        println!("cargo:rustc-link-arg-bin=benilla-native-navigation={argument}");
     }
 }
