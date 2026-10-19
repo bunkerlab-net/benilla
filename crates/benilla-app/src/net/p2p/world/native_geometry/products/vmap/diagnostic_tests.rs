@@ -36,10 +36,10 @@ fn run_report(path: &Path) -> (String, Vec<Value>) {
 }
 #[test]
 fn authored_capture_diagnostic_runs_all_phases_without_writing_install() {
-    let install = Install::new(&entries());
+    let install = Install::new(&source_height_tests::shared_entries());
     let before = install.bytes();
     let (_, rows) = run_report(&install.0);
-    let metrics = &rows[3]["metrics"];
+    let metrics = &rows.iter().find(|r| r["stage"] == "assembly").unwrap()["metrics"];
     assert_eq!(
         metrics["serialized_bytes"].as_u64().unwrap(),
         metrics["tree_bytes"].as_u64().unwrap()
@@ -51,9 +51,10 @@ fn authored_capture_diagnostic_runs_all_phases_without_writing_install() {
         .map(|row| row["stage"].as_str().unwrap())
         .collect();
     assert_eq!(
-        &stages[..5],
+        &stages[..6],
         &[
             "selection",
+            "terrain_capture",
             "capture",
             "placement",
             "assembly",
@@ -66,6 +67,21 @@ fn authored_capture_diagnostic_runs_all_phases_without_writing_install() {
     }
     assert_eq!(rows.iter().filter(|r| r["stage"] == "probe").count(), 9);
     assert_eq!(rows.last().unwrap()["metrics"]["completed_probes"], 9);
+    assert_eq!(
+        rows.last().unwrap()["metrics"]["completed_static_probes"],
+        9
+    );
+    assert_eq!(rows.len(), 28);
+    for row in rows.iter().filter(|r| r["stage"] == "static_probe") {
+        assert_eq!(row["probe"]["kind"], "static_height");
+        assert_eq!(row["probe"]["value_bits"], 7.25f32.to_bits());
+        let index = row["probe"]["index"].as_u64().unwrap();
+        let collision = rows
+            .iter()
+            .find(|r| r["stage"] == "probe" && r["probe"]["index"] == index)
+            .unwrap();
+        assert_eq!(row["probe"]["from_bits"], collision["probe"]["from_bits"]);
+    }
     for (index, row) in rows.iter().filter(|r| r["stage"] == "probe").enumerate() {
         let dx = [0.25f32, 0.5, 0.75][index / 3];
         let dy = [0.25f32, 0.5, 0.75][index % 3];
@@ -83,15 +99,17 @@ fn authored_capture_diagnostic_runs_all_phases_without_writing_install() {
 }
 #[test]
 fn capture_failure_reports_blocked_phases_and_never_leaks_asset_names() {
-    let mut content = entries();
+    let mut content = source_height_tests::shared_entries();
     content.retain(|entry| entry.name != GROUP);
     let install = Install::new(&content);
     let before = install.bytes();
     let (_, rows) = run_report(&install.0);
-    assert_eq!(rows[1]["stage"], "capture");
-    assert_eq!(rows[1]["status"], "failed");
-    assert!(rows[1]["source_stage"].is_string());
-    for row in &rows[2..rows.len() - 1] {
+    assert_eq!(rows[1]["stage"], "terrain_capture");
+    assert_eq!(rows[1]["status"], "passed");
+    assert_eq!(rows[2]["stage"], "capture");
+    assert_eq!(rows[2]["status"], "failed");
+    assert!(rows[2]["source_stage"].is_string());
+    for row in &rows[3..rows.len() - 1] {
         assert_eq!(row["status"], "unavailable");
     }
     assert_eq!(rows.last().unwrap()["metrics"]["failed_stages"], 1);
@@ -114,11 +132,15 @@ fn empty_install_matches_actual_player_smoke_schema() {
         .collect();
     let stages = [
         "selection",
+        "terrain_capture",
         "capture",
         "placement",
         "assembly",
         "validation",
         "probe",
+        "composition",
+        "static_probe",
+        "composition_freshness",
         "freshness",
         "complete",
     ];
@@ -130,11 +152,15 @@ fn empty_install_matches_actual_player_smoke_schema() {
             .remove("elapsed_ms")
             .unwrap()
             .is_u64());
-        let mut expected = serde_json::json!({"format":"benilla-collision-diagnostics-v1","stage":stage,"status":"unavailable","map":0,"tile_x":48,"tile_y":32,"code":"collision.prerequisite","source_stage":null,"metrics":{},"hashes":{},"probe":null,"gameplay_admitted":false});
+        let mut expected = serde_json::json!({"format":"benilla-collision-diagnostics-v2","stage":stage,"status":"unavailable","map":0,"tile_x":48,"tile_y":32,"code":"collision.prerequisite","source_stage":null,"metrics":{},"hashes":{},"probe":null,"gameplay_admitted":false});
         match stage {
             "selection" => {
                 expected["status"] = "passed".into();
                 expected["code"] = Value::Null;
+            }
+            "terrain_capture" => {
+                expected["status"] = "failed".into();
+                expected["code"] = "source.open_patch_chain".into();
             }
             "capture" => {
                 expected["status"] = "failed".into();
@@ -145,11 +171,35 @@ fn empty_install_matches_actual_player_smoke_schema() {
             "complete" => {
                 expected["status"] = "failed".into();
                 expected["code"] = Value::Null;
-                expected["metrics"] = serde_json::json!({"completed_probes":0,"failed_stages":1});
+                expected["metrics"] = serde_json::json!({"completed_probes":0,"completed_static_probes":0,"failed_stages":2});
             }
             _ => {}
         }
         assert_eq!(row, expected);
     }
     assert!(install.bytes().is_empty());
+}
+
+#[test]
+fn terrain_failure_preserves_independent_collision_observations() {
+    let mut content = source_height_tests::shared_entries();
+    content.retain(|e| e.name != "DBFilesClient\\AreaTable.dbc");
+    let install = Install::new(&content);
+    let (_, rows) = run_report(&install.0);
+    assert_eq!(
+        rows.iter()
+            .find(|r| r["stage"] == "terrain_capture")
+            .unwrap()["status"],
+        "failed"
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r["stage"] == "probe" && r["status"] == "passed")
+            .count(),
+        9
+    );
+    assert_eq!(
+        rows.iter().find(|r| r["stage"] == "composition").unwrap()["status"],
+        "unavailable"
+    );
 }

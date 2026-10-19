@@ -8,7 +8,7 @@ starting the window, reading a profile or configuration, or joining a network:
 ```
 
 All four options are required. Map IDs are 0–999, tile coordinates are 0–63,
-and the cooperative deadline is 1–600 seconds. The command writes one flushed
+and the requested cooperative deadline is 1–600 seconds. The command writes one flushed
 JSON object per line to standard output and creates no files. A zero exit status
 means the report was emitted; check each stage's status for the result.
 
@@ -18,20 +18,26 @@ fails or exceeds its deadline. Supply only a player executable you trust. The
 collector gives the cooperative deadline five seconds to flush a final report,
 then enforces a separate hard process timeout and bounded stream drain. It also
 limits output; the in-process
-cooperative deadline cannot interrupt every allocation or synchronous decoder.
+cooperative deadline cannot interrupt every allocation or synchronous decoder. Terrain preparation and freshness rereads are synchronous and cannot be interrupted by that soft deadline; the parent hard timeout also bounds those phases.
 
 ## Stages and interpretation
 
 1. Selection validates the command arguments
-2. Capture reads the mounted archive chain, global WMO references, Map.dbc order,
+2. Terrain capture independently prepares the selected genuine terrain tile
+3. Capture reads the mounted archive chain, global WMO references, Map.dbc order,
    required prefix maps, and the complete selected map through the production reader
-3. Placement creates the source-shaped placement records using the explicitly named
-   portable arithmetic profile
-4. Assembly creates the selected map's tree, tiles, and required model products in memory
-5. Validation runs the complete collision-only consumer checks on that bundle
-6. Probe performs nine height observations against the validated immutable collision snapshot
-7. Freshness rechecks the captured source receipts
-8. Complete summarizes the preceding results
+4. Placement and assembly create the selected map's tree, tiles, and model products
+5. Validation checks the whole placement index and loads selected collision residency
+6. Probe performs nine collision-height observations
+7. Composition compares actual terrain/collision shared receipts and creates a
+   historical static-height view using the original selection/retry arithmetic
+8. Static probe performs nine composed terrain/collision height observations
+9. Composition freshness and collision freshness recheck their source receipts
+10. Complete summarizes the independent and composed results
+
+This is format `benilla-collision-diagnostics-v2`. Use the matching collector;
+older strict collectors reject the new version rather than misinterpret stages.
+The command spelling is unchanged. The current collector accepts only version 2.
 
 A failed prerequisite makes later dependent stages unavailable. Capture failures
 include a fixed stage identifier and bounded work counters where available. The
@@ -47,10 +53,9 @@ world units. Coordinates and results are reported as unsigned IEEE binary32 bit
 patterns. A collision-height miss is the source sentinel -200000, not an error.
 The observations are not assertions that buildings or NPCs ought to exist there.
 
-A passed collision report does not establish terrain, navigation, NPC movement,
-or gameplay readiness. The view describes immutable captured bytes. The final
+A passed report supplies selected terrain and collision observations. It does not establish navigation, NPC movement, body support or gameplay readiness. The view describes immutable captured bytes. The final
 recheck detects observed source changes; it does not lock the installation or
-promise that files will remain unchanged afterward.
+promise that files will remain unchanged afterward. Terrain and collision rechecks are sequential observations, not an atomic whole-install snapshot. Exact shared winning receipts establish compatible consumed inputs; each consumer retains its own source identity.
 
 ## Privacy and resource bounds
 
@@ -62,8 +67,7 @@ version and are not proof of an authentic client build.
 
 Output is capped at 32 records, 16 KiB per record and 256 KiB total. Existing
 source capture, map assembly, model allocation and collision decoder budgets still
-apply. In particular, collision consumer decoding has a 16 MiB aggregate serialized
-product cap; a large map may exceed the currently supported envelope. The preceding
+apply. The tile-resident consumer validates the complete bounded placement index but decodes only selected geometry, retaining its 16 MiB resident serialized-input cap. Required unloaded geometry returns a missing-data error, never a clear ray. Full-map producer memory and whole-index limits still apply; residency does not remove those costs. The preceding
 assembly record includes tree, tile, model, and total serialized byte counts plus
 tile and model counts, so a refusal still provides sizing evidence. That is an
 explicit diagnostic limitation, not evidence that the installation is corrupt.

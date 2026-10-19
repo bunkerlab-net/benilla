@@ -28,7 +28,7 @@ fn terrain_fixture(name: &str) -> Vec<u8> {
     .unwrap()
 }
 
-fn shared_entries() -> Vec<Entry> {
+pub(super) fn shared_entries() -> Vec<Entry> {
     let mut entries = entries();
     let mut wdt = terrain_fixture("source.wdt.test-fixture");
     assert_eq!(&wdt[52..56], b"NIAM");

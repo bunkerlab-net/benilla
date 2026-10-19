@@ -474,7 +474,57 @@ $SafeCollisionIds = @(
     'collision.missing', 'collision.output', 'collision.outside_tile',
     'collision.prerequisite', 'collision.profile', 'collision.query',
     'collision.timeout', 'collision.unexpected', 'collision.unknown_error',
-    'collision.unsupported', 'vmap.allocation_failed', 'vmap.bih_allocation',
+    'collision.unsupported', 'output.already_exists', 'output.changed_product',
+    'output.create_new_directory', 'output.directory_name', 'output.inside_source_installation',
+    'output.parent_must_exist', 'output.published_but_durability_unconfirmed', 'selection.bounds',
+    'selection.duplicate_tile', 'selection.tile_bounds', 'source.absence_changed',
+    'source.absence_member_profile', 'source.ad_absence_changed', 'source.ad_absence_profile',
+    'source.ad_archive_case_ambiguity', 'source.ad_archive_metadata', 'source.ad_archive_size',
+    'source.ad_bytes_changed', 'source.ad_deleted', 'source.ad_directory_entry_limit',
+    'source.ad_dummy_member', 'source.ad_hash_count', 'source.ad_header_extension',
+    'source.ad_header_open', 'source.ad_header_read', 'source.ad_header_scan_limit',
+    'source.ad_header_selection', 'source.ad_header_signature', 'source.ad_header_truncated',
+    'source.ad_header_version', 'source.ad_index_budget', 'source.ad_index_spans',
+    'source.ad_member_profile', 'source.ad_missing_member', 'source.ad_missing_size',
+    'source.ad_open_archive', 'source.ad_read', 'source.ad_regular_archive_required',
+    'source.ad_sector_size', 'source.ad_winner_mismatch', 'source.adt_count_limit',
+    'source.aggregate_byte_limit', 'source.archive_basename', 'source.bytes_changed',
+    'source.data_directory', 'source.data_directory_required', 'source.discovery_absence_changed',
+    'source.discovery_changed', 'source.discovery_directory_changed', 'source.discovery_missing',
+    'source.duplicate_member', 'source.history_initial_recheck', 'source.history_lookup_limit',
+    'source.history_member_kind', 'source.history_member_profile', 'source.history_open',
+    'source.history_resolver_mismatch', 'source.installation_parent', 'source.map_directory',
+    'source.member_byte_limit', 'source.member_count_limit', 'source.member_length_changed',
+    'source.member_name_limit', 'source.missing_or_deleted', 'source.missing_size',
+    'source.multiple_maps', 'source.not_captured', 'source.open_patch_chain',
+    'source.read', 'source.recheck_absence', 'source.recheck_ad_profile',
+    'source.recheck_members', 'source.recheck_open', 'source.recheck_read',
+    'source.tile_coordinate', 'source.unselected_member_kind', 'source.wdt_count_limit',
+    'source.winner_changed', 'terrain.AreaTable', 'terrain.LiquidType',
+    'terrain.Map', 'terrain.adt_mhdr', 'terrain.adt_required_records',
+    'terrain.adt_unsupported_or_liquid', 'terrain.adt_version', 'terrain.canonical_mcin_required',
+    'terrain.cell_count', 'terrain.chunk_count', 'terrain.chunk_framing',
+    'terrain.chunk_header', 'terrain.chunk_overflow', 'terrain.chunk_payload',
+    'terrain.dangling_root_chunk', 'terrain.dangling_subchunk', 'terrain.dbc_framing',
+    'terrain.dbc_id_budget', 'terrain.dbc_layout', 'terrain.dbc_magic',
+    'terrain.dbc_nul', 'terrain.dbc_rows', 'terrain.dbc_size',
+    'terrain.dbc_string_nul', 'terrain.dbc_string_offset', 'terrain.dbc_string_utf8',
+    'terrain.dbc_strings', 'terrain.duplicate_chunk', 'terrain.duplicate_map_id',
+    'terrain.duplicate_mcin_reference', 'terrain.duplicate_subchunk', 'terrain.height_overflow',
+    'terrain.history_map_metadata', 'terrain.liquid_empty_bounds', 'terrain.liquid_excluded',
+    'terrain.liquid_history', 'terrain.liquid_history_interior', 'terrain.liquid_history_selection_changed',
+    'terrain.liquid_nonfinite', 'terrain.map_directory', 'terrain.map_missing',
+    'terrain.mccv_excluded', 'terrain.mcin_not_mcnk', 'terrain.mcin_size',
+    'terrain.mclq_length', 'terrain.mclq_size', 'terrain.mcnk_header',
+    'terrain.mcnk_unsupported_or_liquid', 'terrain.mcvt_length', 'terrain.member_budget',
+    'terrain.mfbo_excluded', 'terrain.mh2o_excluded', 'terrain.mhdr_reference',
+    'terrain.nonfinite_height', 'terrain.normal_padding', 'terrain.offset_overflow',
+    'terrain.operation_failed', 'terrain.selected_map_metadata', 'terrain.source_changed',
+    'terrain.subchunk_reference', 'terrain.tile_coordinate', 'terrain.truncated_half',
+    'terrain.truncated_word', 'terrain.unselected_map_metadata', 'terrain.wdt_global_or_header',
+    'terrain.wdt_global_wmo', 'terrain.wdt_main', 'terrain.wdt_required_records',
+    'terrain.wdt_tile_absent', 'terrain.wdt_unsupported_record', 'terrain.wdt_version',
+    'terrain.writer_framing', 'vmap.allocation_failed', 'vmap.bih_allocation',
     'vmap.bih_bounds', 'vmap.bih_cancelled', 'vmap.bih_limit',
     'vmap.bih_numeric', 'vmap.bounds_allocation', 'vmap.bounds_cancelled',
     'vmap.bounds_index', 'vmap.bounds_limit', 'vmap.bounds_model',
@@ -547,10 +597,10 @@ $SafeCollisionIds = @(
     'vmap.wmo.truncated_chunk_header', 'vmap.wmo.unexpected_chunk', 'vmap.wmo.unsupported_liquid',
     'vmap.wmo.unsupported_version', 'vmap.wmo.unterminated_group_name', 'vmap.wmo_input_limit'
 )
-$CollisionStages = @('selection','capture','placement','assembly','validation','probe','freshness','complete')
+$CollisionStages = @('selection','terrain_capture','capture','placement','assembly','validation','probe','composition','static_probe','composition_freshness','freshness','complete')
 $CollisionSourceStages = @('OpenSource','LiquidTypes','GlobalWmoLists','GlobalWmoRoot','MapMetadata','PrefixMap','SelectedWdt','AdtTraversal','Verification')
-$CollisionMetricNames = @('member_lookups','read_work_bytes','complete_raw_products','adt_attempts','global_root_ordinal','archive_count','products','placements','doodad_candidates','adts_present','adts_absent','adts_dummy','raw_bytes','placement_bytes','placement_records','tree_bytes','tiles','models','model_bytes','tile_bytes','serialized_bytes','completed_probes','failed_stages')
-$CollisionHashNames = @('source_epoch','preprocessing','inventory','policy')
+$CollisionMetricNames = @('member_lookups','read_work_bytes','complete_raw_products','adt_attempts','global_root_ordinal','archive_count','products','placements','doodad_candidates','adts_present','adts_absent','adts_dummy','raw_bytes','placement_bytes','placement_records','tree_bytes','tiles','models','model_bytes','tile_bytes','serialized_bytes','completed_probes','completed_static_probes','terrain_tiles','terrain_bytes','failed_stages')
+$CollisionHashNames = @('source_epoch','preprocessing','inventory','policy','terrain_source_epoch','composition')
 $CollisionRecordNames = @('format','stage','status','map','tile_x','tile_y','elapsed_ms','code','source_stage','metrics','hashes','probe','gameplay_admitted')
 
 function Test-CollisionJsonSyntax([string]$Text) {
@@ -626,7 +676,7 @@ function Test-CollisionVector($Value) {
 }
 function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$SelectedX, [int]$SelectedY) {
     if (-not (Test-CollisionObject $Object $CollisionRecordNames $true)) { return $null }
-    if ($Object.format -isnot [string] -or $Object.format -cne 'benilla-collision-diagnostics-v1') { return $null }
+    if ($Object.format -isnot [string] -or $Object.format -cne 'benilla-collision-diagnostics-v2') { return $null }
     if ($Object.stage -isnot [string] -or $CollisionStages -cnotcontains $Object.stage) { return $null }
     if ($Object.status -isnot [string] -or @('passed','failed','unavailable') -cnotcontains $Object.status) { return $null }
     $recordMap = Read-CollisionInteger $Object.map 999
@@ -652,9 +702,13 @@ function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$Selecte
     $probe = $null
     if ($null -ne $Object.probe) {
         $p = $Object.probe
-        if ($Object.stage -cne 'probe' -or -not (Test-CollisionObject $p @('index','kind','from_bits','to_bits','result','value_bits') $true)) { return $null }
-        $index = Read-CollisionInteger $p.index 15
-        if ($null -eq $index -or $p.kind -isnot [string] -or @('height','segment') -cnotcontains $p.kind) { return $null }
+        if (@('probe','static_probe') -cnotcontains $Object.stage -or -not (Test-CollisionObject $p @('index','kind','from_bits','to_bits','result','value_bits') $true)) { return $null }
+        $static = $Object.stage -ceq 'static_probe'
+        $index = Read-CollisionInteger $p.index $(if ($static) { 8 } else { 15 })
+        if ($null -eq $index -or $p.kind -isnot [string]) { return $null }
+        if ($static) {
+            if ($p.kind -cne 'static_height' -or $null -ne $p.to_bits -or @('height','miss','error') -cnotcontains $p.result) { return $null }
+        } elseif (@('height','segment') -cnotcontains $p.kind) { return $null }
         if ($p.result -isnot [string] -or @('height','hit','miss','error') -cnotcontains $p.result) { return $null }
         if (-not (Test-CollisionVector $p.from_bits)) { return $null }
         if ($null -ne $p.to_bits -and -not (Test-CollisionVector $p.to_bits)) { return $null }
@@ -666,7 +720,7 @@ function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$Selecte
         $probe = [ordered]@{ index = $index; kind = $p.kind; from_bits = @($p.from_bits | ForEach-Object { [long]$_ });
             to_bits = $(if ($null -eq $p.to_bits) { $null } else { @($p.to_bits | ForEach-Object { [long]$_ }) }); result = $p.result; value_bits = $value }
     }
-    return [ordered]@{ format = 'benilla-collision-diagnostics-v1'; stage = $Object.stage; status = $Object.status;
+    return [ordered]@{ format = 'benilla-collision-diagnostics-v2'; stage = $Object.stage; status = $Object.status;
         map = $recordMap; tile_x = $recordX; tile_y = $recordY; elapsed_ms = $elapsed; code = $Object.code;
         source_stage = $Object.source_stage; metrics = $metrics; hashes = $hashes; probe = $probe; gameplay_admitted = $false }
 }
@@ -676,7 +730,8 @@ function ConvertTo-SafeCollisionDiagnostics([string]$Text, [bool]$Truncated, [in
         partial_line_omitted = $false; records = @() }
     $utf8 = New-Object Text.UTF8Encoding($false)
     $lines = $Text -split "`n"; $lastStage = -1
-    $probeIndices = New-Object 'Collections.Generic.HashSet[long]'
+    # Collision and composed height observations deliberately share index 0..8.
+    $probeIndices = New-Object 'Collections.Generic.HashSet[string]'
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $line = $lines[$i]
         if ($line.EndsWith("`r")) { $line = $line.Substring(0, $line.Length - 1) }
@@ -684,7 +739,9 @@ function ConvertTo-SafeCollisionDiagnostics([string]$Text, [bool]$Truncated, [in
         if ($Truncated -and $i -eq ($lines.Count - 1) -and -not $Text.EndsWith("`n")) { $r.partial_line_omitted = $true; continue }
         $bytes = $utf8.GetByteCount($line)
         if ($bytes -gt $r.line_byte_limit) { $r.oversized_lines_omitted++; continue }
-        if ($r.records.Count -ge $r.record_limit -or ($r.accepted_bytes + $bytes) -gt $r.accepted_byte_limit) { $r.limit_records_omitted++; continue }
+        # Match the emitter's total byte budget, including each NDJSON newline.
+        $recordBytes = $bytes + 1
+        if ($r.records.Count -ge $r.record_limit -or ($r.accepted_bytes + $recordBytes) -gt $r.accepted_byte_limit) { $r.limit_records_omitted++; continue }
         $record = $null
         try {
             if (Test-CollisionJsonSyntax $line) {
@@ -694,12 +751,12 @@ function ConvertTo-SafeCollisionDiagnostics([string]$Text, [bool]$Truncated, [in
         } catch { $record = $null }
         if ($null -eq $record) { $r.invalid_records_omitted++; continue }
         $stageIndex = [Array]::IndexOf($CollisionStages, $record.stage)
-        if ($stageIndex -lt $lastStage -or ($stageIndex -eq $lastStage -and $record.stage -cne 'probe')) {
+        if ($stageIndex -lt $lastStage -or ($stageIndex -eq $lastStage -and @('probe','static_probe') -cnotcontains $record.stage)) {
             $r.invalid_records_omitted++; continue
         }
-        if ($record.stage -ceq 'probe' -and $null -ne $record.probe -and -not $probeIndices.Add($record.probe.index)) { $r.invalid_records_omitted++; continue }
+        if (@('probe','static_probe') -ccontains $record.stage -and $null -ne $record.probe -and -not $probeIndices.Add($record.stage + ':' + $record.probe.index)) { $r.invalid_records_omitted++; continue }
         $lastStage = $stageIndex
-        $r.records += $record; $r.accepted_bytes += $bytes
+        $r.records += $record; $r.accepted_bytes += $recordBytes
     }
     if ($r.records.Count -gt 0) { $r.status = 'recognized_records' }
     if ($r.invalid_records_omitted -gt 0 -or $r.oversized_lines_omitted -gt 0 -or $r.limit_records_omitted -gt 0 -or $r.partial_line_omitted) { $r.status = 'invalid_or_excess_records_omitted' }

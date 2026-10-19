@@ -87,10 +87,16 @@ using System.Threading;
 class FakeCollisionPlayer {
     static int map, x, y;
     static string Record(string stage) {
-        return "{\"format\":\"benilla-collision-diagnostics-v1\",\"stage\":\"" + stage + "\",\"status\":\"passed\",\"map\":" + map + ",\"tile_x\":" + x + ",\"tile_y\":" + y + ",\"elapsed_ms\":1,\"code\":null,\"source_stage\":null,\"metrics\":{},\"hashes\":{},\"probe\":null,\"gameplay_admitted\":false}";
+        return "{\"format\":\"benilla-collision-diagnostics-v2\",\"stage\":\"" + stage + "\",\"status\":\"passed\",\"map\":" + map + ",\"tile_x\":" + x + ",\"tile_y\":" + y + ",\"elapsed_ms\":1,\"code\":null,\"source_stage\":null,\"metrics\":{},\"hashes\":{},\"probe\":null,\"gameplay_admitted\":false}";
     }
     static string Probe(int index) {
         return Record("probe").Replace("\"probe\":null", "\"probe\":{\"index\":" + index + ",\"kind\":\"height\",\"from_bits\":[0,2147483648,4294967295],\"to_bits\":null,\"result\":\"miss\",\"value_bits\":null}");
+    }
+    static string StaticProbe(int index) {
+        return Probe(index).Replace("\"stage\":\"probe\"", "\"stage\":\"static_probe\"").Replace("\"kind\":\"height\"", "\"kind\":\"static_height\"");
+    }
+    static string Terrain() {
+        return Record("terrain_capture").Replace("\"metrics\":{}", "\"metrics\":{\"terrain_tiles\":1,\"terrain_bytes\":1234}").Replace("\"hashes\":{}", "\"hashes\":{\"terrain_source_epoch\":\"" + new String('b',64) + "\"}");
     }
     static void Write(string text) { Console.WriteLine(text); Console.Out.Flush(); }
     static int Main(string[] args) {
@@ -100,12 +106,22 @@ class FakeCollisionPlayer {
         map = Int32.Parse(args[4]); string[] tile = args[6].Split(','); x = Int32.Parse(tile[0]); y = Int32.Parse(tile[1]);
         string mode = Environment.GetEnvironmentVariable("BENILLA_COLLISION_TEST_MODE") ?? "success";
         Console.Error.WriteLine("PRIVATE_PLAYER_STDERR C:\\Private Person\\secret.txt");
+        if (mode == "legacy_version") {
+            Write(Record("selection").Replace("benilla-collision-diagnostics-v2", "benilla-collision-diagnostics-v1"));
+            Write(Terrain().Replace("benilla-collision-diagnostics-v2", "benilla-collision-diagnostics-v1")); return 0;
+        }
+        if (mode == "newline_budget") {
+            Write(Record("selection").PadRight(8192)); Write(Terrain().PadRight(8192));
+            for (int i = 0; i < 30; i++) Write(Record("probe").PadRight(8192)); return 0;
+        }
         Write(Record("selection"));
+        Write(Terrain());
         string capture = Record("capture");
         if (mode == "failure") {
             Write(capture.Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"vmap.source.member_read\"").Replace("\"source_stage\":null", "\"source_stage\":\"AdtTraversal\""));
             Write(Record("placement").Replace("\"passed\"", "\"unavailable\"").Replace("\"code\":null", "\"code\":\"collision.prerequisite\""));
-            Write(Record("probe").Replace("\"passed\"", "\"unavailable\""));
+            foreach (string stage in new string[] { "assembly", "validation", "probe", "composition", "static_probe", "composition_freshness", "freshness" })
+                Write(Record(stage).Replace("\"passed\"", "\"unavailable\"").Replace("\"code\":null", "\"code\":\"collision.prerequisite\""));
             Write(Record("complete").Replace("\"passed\"", "\"failed\"")); return 7;
         }
         if (mode == "soft_timeout") {
@@ -173,9 +189,29 @@ class FakeCollisionPlayer {
             foreach (string line in invalid) Write(line);
             Write(capture); return 0;
         }
+        if (mode == "invalid_static_schema") {
+            string[] invalid = {
+                StaticProbe(9),
+                StaticProbe(0).Replace("\"static_height\"", "\"height\""),
+                StaticProbe(0).Replace("\"static_height\"", "\"segment\""),
+                Probe(0).Replace("\"height\"", "\"static_height\""),
+                StaticProbe(0).Replace("\"to_bits\":null", "\"to_bits\":[0,1,2]"),
+                StaticProbe(0).Replace("\"miss\"", "\"hit\""),
+                StaticProbe(0).Replace("\"index\":0", "\"index\":false"),
+                StaticProbe(0).Replace("\"value_bits\":null", "\"value_bits\":\"PRIVATE_STATIC_VALUE\""),
+                Record("composition").Replace("\"hashes\":{}", "\"hashes\":{\"composition\":\"PRIVATE_COMPOSITION\"}"),
+                Terrain().Replace("\"terrain_tiles\":1", "\"terrain_tiles\":true"),
+                Terrain().Replace("\"terrain_bytes\":1234", "\"terrain_bytes\":-1"),
+                Record("complete").Replace("\"metrics\":{}", "\"metrics\":{\"completed_static_probes\":\"PRIVATE_COUNT\"}")
+            };
+            foreach (string line in invalid) Write(line);
+            Write(capture); Write(Record("composition")); Write(StaticProbe(0)); Write(StaticProbe(8)); return 0;
+        }
         if (mode == "order") {
             Write(capture); Write(capture); Write(Record("selection"));
-            Write(Probe(0)); Write(Probe(0)); Write(Probe(1)); Write(Record("freshness")); Write(Record("assembly")); return 0;
+            Write(Probe(0)); Write(Probe(0)); Write(Probe(1)); Write(Record("composition"));
+            Write(StaticProbe(0)); Write(StaticProbe(0)); Write(StaticProbe(1));
+            Write(Record("freshness")); Write(Record("assembly")); return 0;
         }
         if (mode == "budget") {
             Write(capture.PadRight(16000));
@@ -189,6 +225,7 @@ class FakeCollisionPlayer {
             Write(Record("placement").Replace("\"code\":null", "\"code\":\"vmap.source_changed_during_preparation\""));
             Write(Record("assembly").Replace("\"code\":null", "\"code\":\"vmap.bih_limit\""));
             Write(Record("validation").Replace("\"code\":null", "\"code\":\"vmap.model_write.allocation\""));
+            Write(Record("composition_freshness").Replace("\"code\":null", "\"code\":\"terrain.source_changed\""));
             Write(Record("complete").Replace("\"code\":null", "\"code\":\"collision.unknown_error\"")); return 0;
         }
         Write(capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":3,\"read_work_bytes\":9223372036854775807}").Replace("\"hashes\":{}", "\"hashes\":{\"source_epoch\":\"" + new String('a',64) + "\"}"));
@@ -197,7 +234,11 @@ class FakeCollisionPlayer {
         Write(Record("validation"));
         Write(Probe(0));
         Write(Probe(1).Replace("\"height\"", "\"segment\"").Replace("\"to_bits\":null", "\"to_bits\":[0,1,2]").Replace("\"miss\"", "\"hit\"").Replace("\"value_bits\":null", "\"value_bits\":4294967295"));
-        Write(Record("freshness")); Write(Record("complete")); return 0;
+        for (int i = 2; i < 9; i++) Write(Probe(i));
+        Write(Record("composition").Replace("\"hashes\":{}", "\"hashes\":{\"composition\":\"" + new String('c',64) + "\"}"));
+        for (int i = 0; i < 9; i++) Write(StaticProbe(i));
+        Write(Record("composition_freshness")); Write(Record("freshness"));
+        Write(Record("complete").Replace("\"metrics\":{}", "\"metrics\":{\"completed_probes\":9,\"completed_static_probes\":9,\"failed_stages\":0}")); return 0;
     }
 }
 '@
@@ -304,54 +345,68 @@ class FakeCollisionPlayer {
     }
     $r = Run-CollisionCase 'success'
     Assert-True ($r.collision_run.status -eq 'completed' -and $r.collision_run.exit_code -eq 0) 'collision success: player did not complete'
-    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 9) 'collision success: records not preserved'
+    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 28) 'collision success: records not preserved'
     Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'collision success: terrain results lost'
-    Assert-True ($r.collision_diagnostics.records[1].metrics.read_work_bytes -eq [long]::MaxValue) 'collision success: Int64 maximum rejected'
-    Assert-True ($r.collision_diagnostics.records[3].metrics.tile_bytes -eq 64 -and $r.collision_diagnostics.records[3].metrics.serialized_bytes -eq 224 -and $r.collision_diagnostics.records[3].metrics.tree_bytes -eq 32 -and $r.collision_diagnostics.records[3].metrics.model_bytes -eq 128) 'collision assembly: serialized sizing evidence lost'
-    Assert-True ($r.collision_diagnostics.records[5].probe.from_bits[2] -eq 4294967295 -and $null -eq $r.collision_diagnostics.records[5].probe.to_bits) 'collision success: height bits or null changed'
-    Assert-True ($r.collision_diagnostics.records[6].probe.to_bits.Count -eq 3 -and $r.collision_diagnostics.records[6].probe.value_bits -eq 4294967295) 'collision success: segment bits changed'
-    $passed++; Write-Output 'PASS: optional player, bounded numeric/hash/probe schema and Unicode executable/Data paths'
+    Assert-True ($r.collision_diagnostics.records[2].metrics.read_work_bytes -eq [long]::MaxValue) 'collision success: Int64 maximum rejected'
+    Assert-True ($r.collision_diagnostics.records[4].metrics.tile_bytes -eq 64 -and $r.collision_diagnostics.records[4].metrics.serialized_bytes -eq 224 -and $r.collision_diagnostics.records[4].metrics.tree_bytes -eq 32 -and $r.collision_diagnostics.records[4].metrics.model_bytes -eq 128) 'collision assembly: serialized sizing evidence lost'
+    Assert-True ($r.collision_diagnostics.records[6].probe.from_bits[2] -eq 4294967295 -and $null -eq $r.collision_diagnostics.records[6].probe.to_bits) 'collision success: height bits or null changed'
+    Assert-True ($r.collision_diagnostics.records[7].probe.to_bits.Count -eq 3 -and $r.collision_diagnostics.records[7].probe.value_bits -eq 4294967295) 'collision success: segment bits changed'
+    Assert-True ($r.collision_diagnostics.records[1].stage -eq 'terrain_capture' -and $r.collision_diagnostics.records[1].metrics.terrain_tiles -eq 1 -and $r.collision_diagnostics.records[1].metrics.terrain_bytes -eq 1234 -and $r.collision_diagnostics.records[1].hashes.terrain_source_epoch -eq ('b' * 64)) 'terrain capture: bounded evidence lost'
+    Assert-True ($r.collision_diagnostics.records[15].stage -eq 'composition' -and $r.collision_diagnostics.records[15].hashes.composition -eq ('c' * 64)) 'composition: binding evidence lost'
+    for ($i = 0; $i -lt 9; $i++) {
+        $static = $r.collision_diagnostics.records[16 + $i]
+        Assert-True ($static.stage -eq 'static_probe' -and $static.probe.index -eq $i -and $static.probe.kind -eq 'static_height' -and $null -eq $static.probe.to_bits -and $static.probe.from_bits[2] -eq 4294967295) 'composition: nine independent static probes not preserved'
+    }
+    Assert-True ($r.collision_diagnostics.records[25].stage -eq 'composition_freshness' -and $r.collision_diagnostics.records[26].stage -eq 'freshness' -and $r.collision_diagnostics.records[27].metrics.completed_static_probes -eq 9) 'composition: freshness/completion evidence lost'
+    $passed++; Write-Output 'PASS: optional player, all 28 v2 records, bounded numeric/hash/probe schema and Unicode executable/Data paths'
     $r = Run-CollisionCase 'success' 'nonzero'
-    Assert-True ($r.helper_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 9) 'terrain failure prevented collision success'
+    Assert-True ($r.helper_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 28) 'terrain failure prevented collision success'
     $r = Run-CollisionCase 'failure'
     Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered' -and $r.collision_run.exit_code -eq 7) 'collision failure lost independent terrain success'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 5 -and $r.collision_diagnostics.records[1].code -eq 'vmap.source.member_read' -and $r.collision_diagnostics.records[1].source_stage -eq 'AdtTraversal') 'collision failure lost safe source diagnostic'
-    Assert-True ($r.collision_diagnostics.records[3].status -eq 'unavailable' -and $null -eq $r.collision_diagnostics.records[3].probe) 'collision failure lost unavailable probe stage'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 12 -and $r.collision_diagnostics.records[2].code -eq 'vmap.source.member_read' -and $r.collision_diagnostics.records[2].source_stage -eq 'AdtTraversal') 'collision failure lost safe source diagnostic'
+    Assert-True ($r.collision_diagnostics.records[6].status -eq 'unavailable' -and $null -eq $r.collision_diagnostics.records[6].probe) 'collision failure lost unavailable probe stage'
+    Assert-True ($r.collision_diagnostics.records[1].stage -eq 'terrain_capture' -and $r.collision_diagnostics.records[1].status -eq 'passed' -and $r.collision_diagnostics.records[7].stage -eq 'composition' -and $r.collision_diagnostics.records[8].stage -eq 'static_probe' -and $r.collision_diagnostics.records[8].status -eq 'unavailable') 'collision failure lost independent player terrain capture or blocked composition'
     $r = Run-CollisionCase 'success' -SkipTerrain
-    Assert-True ($r.helper_run.status -eq 'skipped_by_request' -and $r.collision_diagnostics.records.Count -eq 9) 'SkipHelper incorrectly skipped collision'
+    Assert-True ($r.helper_run.status -eq 'skipped_by_request' -and $r.collision_diagnostics.records.Count -eq 28) 'SkipHelper incorrectly skipped collision'
     $r = Run-CollisionCase 'success' -PlayerPath '.\missing\benilla.exe'
     Assert-True ($r.player.status -eq 'missing' -and $r.collision_run.status -eq 'skipped_player_unavailable' -and $r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'missing player blocked terrain diagnostics'
     $passed++; Write-Output 'PASS: independent terrain/collision failures, missing player and terrain skip'
     $r = Run-CollisionCase 'timeout' -Timeout 1
     Assert-True ($r.collision_run.timed_out -and $r.collision_run.termination_confirmed -and $r.collision_run.elapsed_ms -ge 6000 -and $r.collision_run.elapsed_ms -lt 10000) 'collision timeout: five-second grace or bounded hard termination missing'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.partial_line_omitted) 'collision timeout: complete partial records lost or trailing text retained'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.partial_line_omitted) 'collision timeout: complete partial records lost or trailing text retained'
     Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'collision timeout: terrain result lost'
     $r = Run-CollisionCase 'soft_timeout' -Timeout 1
-    Assert-True ($r.collision_run.status -eq 'completed' -and -not $r.collision_run.timed_out -and $r.collision_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.records[1].code -eq 'collision.timeout') 'collision soft timeout: final cooperative diagnostics lost before hard grace deadline'
+    Assert-True ($r.collision_run.status -eq 'completed' -and -not $r.collision_run.timed_out -and $r.collision_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 4 -and $r.collision_diagnostics.records[2].code -eq 'collision.timeout') 'collision soft timeout: final cooperative diagnostics lost before hard grace deadline'
     $r = Run-CollisionCase 'success' 'timeout' 1
-    Assert-True ($r.helper_run.timed_out -and $r.collision_diagnostics.records.Count -eq 9) 'terrain timeout prevented collision collection'
+    Assert-True ($r.helper_run.timed_out -and $r.collision_diagnostics.records.Count -eq 28) 'terrain timeout prevented collision collection'
     $passed++; Write-Output 'PASS: hard timeout retains complete NDJSON records and independent terrain results'
     $r = Run-CollisionCase 'flood'
     Assert-True ($r.collision_run.stdout_truncated -and $r.collision_run.stderr_truncated -and $r.collision_run.status -eq 'output_limit_exceeded' -and $r.collision_run.elapsed_ms -lt 8000) 'collision flood: streams not bounded or drain deadlocked'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 1) 'collision flood: earlier valid record lost'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 2) 'collision flood: earlier valid record lost'
     $r = Run-CollisionCase 'oversized'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.oversized_lines_omitted -eq 1) 'collision oversized: safe adjacent records not preserved'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.oversized_lines_omitted -eq 1) 'collision oversized: safe adjacent records not preserved'
     $r = Run-CollisionCase 'malformed'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.invalid_records_omitted -eq 1) 'collision malformed: safe adjacent records not preserved'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.invalid_records_omitted -eq 1) 'collision malformed: safe adjacent records not preserved'
     $passed++; Write-Output 'PASS: stream saturation, oversized lines and malformed later output preserve valid records'
     $r = Run-CollisionCase 'invalid_schema'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.invalid_records_omitted -eq 46) 'collision invalid schema: invalid keys/types/ranges/syntax or private text accepted'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.invalid_records_omitted -eq 46) 'collision invalid schema: invalid keys/types/ranges/syntax or private text accepted'
+    $r = Run-CollisionCase 'legacy_version'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 0 -and $r.collision_diagnostics.invalid_records_omitted -eq 2) 'collision version: v1 records accepted as v2'
+    $r = Run-CollisionCase 'invalid_static_schema'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 6 -and $r.collision_diagnostics.invalid_records_omitted -eq 12 -and $r.collision_diagnostics.records[5].probe.index -eq 8) 'static schema: invalid kinds/types/ranges or private text accepted'
     $r = Run-CollisionCase 'order'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 5 -and $r.collision_diagnostics.invalid_records_omitted -eq 4) 'collision order: duplicate phase/probe or out-of-order record accepted'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 9 -and $r.collision_diagnostics.invalid_records_omitted -eq 5) 'collision order: duplicate phase/probe or out-of-order record accepted'
     $r = Run-CollisionCase 'budget'
     Assert-True ($r.collision_diagnostics.records.Count -gt 1 -and $r.collision_diagnostics.limit_records_omitted -gt 0 -and $r.collision_diagnostics.accepted_bytes -le 262144) 'collision budget: accepted JSON unbounded or prior records lost'
+    $r = Run-CollisionCase 'newline_budget'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 31 -and $r.collision_diagnostics.limit_records_omitted -eq 1 -and $r.collision_diagnostics.accepted_bytes -eq (31 * 8193)) 'collision budget: NDJSON newline bytes not counted'
     $r = Run-CollisionCase 'record_limit'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 32 -and $r.collision_diagnostics.limit_records_omitted -eq 9) 'collision record count: 32-record cap not enforced'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 32 -and $r.collision_diagnostics.limit_records_omitted -eq 10) 'collision record count: 32-record cap not enforced'
     $passed++; Write-Output 'PASS: exact schema, duplicate keys, numeric types/ranges, stage order and cumulative limits'
     $r = Run-CollisionCase 'source_codes'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 6 -and $r.collision_diagnostics.records[1].code -eq 'vmap.source.header_version' -and $r.collision_diagnostics.records[2].code -eq 'vmap.source_changed_during_preparation' -and $r.collision_diagnostics.records[3].code -eq 'vmap.bih_limit' -and $r.collision_diagnostics.records[4].code -eq 'vmap.model_write.allocation' -and $r.collision_diagnostics.records[5].code -eq 'collision.unknown_error') 'collision source codes: safe codes lost'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 8 -and $r.collision_diagnostics.records[2].code -eq 'vmap.source.header_version' -and $r.collision_diagnostics.records[3].code -eq 'vmap.source_changed_during_preparation' -and $r.collision_diagnostics.records[4].code -eq 'vmap.bih_limit' -and $r.collision_diagnostics.records[5].code -eq 'vmap.model_write.allocation' -and $r.collision_diagnostics.records[6].code -eq 'terrain.source_changed' -and $r.collision_diagnostics.records[7].code -eq 'collision.unknown_error') 'collision source codes: safe codes lost'
     $r = Run-CollisionCase 'success' -SelectedMap 1 -SelectedTile '1,2'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 9 -and $r.collision_diagnostics.records[0].map -eq 1 -and $r.collision_diagnostics.records[0].tile_x -eq 1 -and $r.collision_diagnostics.records[0].tile_y -eq 2) 'collision selection: explicit selection not forwarded/matched'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 28 -and $r.collision_diagnostics.records[0].map -eq 1 -and $r.collision_diagnostics.records[0].tile_x -eq 1 -and $r.collision_diagnostics.records[0].tile_y -eq 2) 'collision selection: explicit selection not forwarded/matched'
     $passed++; Write-Output 'PASS: fixed source codes, strict requested-selection matching and explicit CLI arguments'
     $r = Run-Case 'diagnose-again'
     Assert-True ($null -eq $r.PSObject.Properties['player'] -and $null -eq $r.PSObject.Properties['collision_run'] -and $r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'No -Player after collision: legacy report changed'

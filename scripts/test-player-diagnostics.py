@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import threading
@@ -23,21 +24,25 @@ spec.loader.exec_module(smoke)
 
 def report_rows():
     rows = []
-    for stage in ("selection", "capture", "placement", "assembly", "validation",
-                  "probe", "freshness", "complete"):
-        row = {"format": "benilla-collision-diagnostics-v1", "stage": stage,
+    for stage in ("selection", "terrain_capture", "capture", "placement", "assembly",
+                  "validation", "probe", "composition", "static_probe",
+                  "composition_freshness", "freshness", "complete"):
+        row = {"format": "benilla-collision-diagnostics-v2", "stage": stage,
                "status": "unavailable", "map": 0, "tile_x": 48, "tile_y": 32,
                "elapsed_ms": 0, "code": "collision.prerequisite", "source_stage": None,
                "metrics": {}, "hashes": {}, "probe": None, "gameplay_admitted": False}
         if stage == "selection":
             row.update(status="passed", code=None)
+        elif stage == "terrain_capture":
+            row.update(status="failed", code="source.open_patch_chain")
         elif stage == "capture":
             row.update(status="failed", code="vmap.required_member_absent",
                        source_stage="LiquidTypes", metrics={"member_lookups": 1,
                        "read_work_bytes": 0, "complete_raw_products": 0, "adt_attempts": 0})
         elif stage == "complete":
             row.update(status="failed", code=None,
-                       metrics={"completed_probes": 0, "failed_stages": 1})
+                       metrics={"completed_probes": 0, "completed_static_probes": 0,
+                                "failed_stages": 2})
         rows.append(row)
     return rows
 
@@ -68,9 +73,11 @@ class ReportTests(unittest.TestCase):
         variants = [(0, "map", False), (0, "elapsed_ms", True),
                     (0, "elapsed_ms", -1), (0, "elapsed_ms", 100000),
                     (1, "code", "collision.timeout"), (1, "path", "/private/secret"),
-                    (1, "metrics", {"member_lookups": 1, "read_work_bytes": 0,
+                    (2, "metrics", {"member_lookups": 1, "read_work_bytes": 0,
                                     "complete_raw_products": 0, "adt_attempts": False}),
-                    (7, "status", "passed"), (7, "gameplay_admitted", True)]
+                    (8, "probe", {"kind": "static_height"}),
+                    (11, "metrics", {"completed_probes": 0, "failed_stages": 1}),
+                    (11, "status", "passed"), (11, "gameplay_admitted", True)]
         for index, key, value in variants:
             with self.subTest(index=index, key=key):
                 rows = copy.deepcopy(report_rows())
@@ -81,6 +88,58 @@ class ReportTests(unittest.TestCase):
         rows[0]["elapsed_ms"] = 2
         with self.assertRaises(smoke.SmokeError):
             smoke.validate_report(report_bytes(rows))
+
+    def test_rejects_legacy_or_mixed_versions(self):
+        for index in (None, 0, 1, 8, 11):
+            rows = report_rows()
+            for row in rows if index is None else [rows[index]]:
+                row["format"] = "benilla-collision-diagnostics-v1"
+            with self.subTest(index=index), self.assertRaises(smoke.SmokeError):
+                smoke.validate_report(report_bytes(rows))
+
+    def test_requires_both_independent_failures_and_all_blocked_stages(self):
+        rows = report_rows()
+        for index in range(1, len(rows)):
+            with self.subTest(omitted=rows[index]["stage"]):
+                with self.assertRaises(smoke.SmokeError):
+                    smoke.validate_report(report_bytes(rows[:index] + rows[index + 1:]))
+        for index in (1, 2):
+            changed = copy.deepcopy(rows)
+            changed[index].update(status="unavailable", code="collision.prerequisite")
+            with self.subTest(changed=rows[index]["stage"]):
+                with self.assertRaises(smoke.SmokeError):
+                    smoke.validate_report(report_bytes(changed))
+
+
+class CollectorContractTests(unittest.TestCase):
+    """Cross-language closed-schema contracts; no PowerShell execution implied."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(__file__).resolve().parents[1]
+        cls.collector = (cls.root / "scripts/Collect-BenillaTerrainDiagnostics.ps1").read_text()
+
+    def values(self, name):
+        match = re.search(r"\$" + name + r" = @\((.*?)\)", self.collector, re.S)
+        self.assertIsNotNone(match)
+        return re.findall(r"'([^']+)'", match.group(1))
+
+    def test_collector_safe_codes_exactly_match_rust_closed_list(self):
+        codes_path = self.root / ("crates/benilla-app/src/net/p2p/world/"
+                                  "native_geometry/products/vmap/diagnostic_codes.json")
+        expected = json.loads(codes_path.read_text())
+        actual = self.values("SafeCollisionIds")
+        self.assertEqual(len(actual), len(set(actual)))
+        self.assertEqual(set(actual), set(expected))
+
+    def test_collector_stage_order_matches_player_smoke(self):
+        self.assertEqual(tuple(self.values("CollisionStages")), smoke.STAGES)
+
+    def test_collector_allowlists_new_metrics_and_hashes(self):
+        self.assertTrue({"terrain_tiles", "terrain_bytes", "completed_static_probes"}
+                        <= set(self.values("CollisionMetricNames")))
+        self.assertTrue({"terrain_source_epoch", "composition"}
+                        <= set(self.values("CollisionHashNames")))
 
 
 class ProcessTests(unittest.TestCase):

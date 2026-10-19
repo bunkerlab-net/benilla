@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Read-only, bounded and redacted collision inspection. No gameplay admission.
-use super::{
-    prepared::{PrepareError, PreparedCollision},
-    HeightRequest,
+use super::super::{
+    source_height::{CompositionError, HeightRequest as StaticHeightRequest, PreparedSourceHeight},
+    TileId,
 };
+use super::{prepared::PrepareError, tile_prepared::PreparedTileCollision, HeightRequest};
+use benilla_native_terrain as terrain_source;
 use benilla_native_vmap_source::{self as source, DoodadProjectionProfile};
 use serde_json::{json, Value};
 use std::{
@@ -13,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const FORMAT: &str = "benilla-collision-diagnostics-v1";
+const FORMAT: &str = "benilla-collision-diagnostics-v2";
 const CODES: &str = include_str!("diagnostic_codes.json");
 const MAX_LINE: usize = 16 * 1024;
 const MAX_OUTPUT: usize = 256 * 1024;
@@ -183,6 +185,36 @@ fn run_with_budget(
     let deadline = report.start + budget.unwrap_or(configured).min(configured);
     let cancelled = || Instant::now() >= deadline;
     report.simple("selection", "passed", None)?;
+    // Terrain preparation is bounded but synchronous. The external collector's
+    // hard process timeout is authoritative if a filesystem operation stalls.
+    let terrain = if cancelled() {
+        report.simple("terrain_capture", "failed", Some("collision.timeout"))?;
+        None
+    } else {
+        match terrain_source::prepare(
+            &selected.data,
+            selected.map,
+            &[terrain_source::Tile {
+                x: selected.x,
+                y: selected.y,
+            }],
+        ) {
+            Ok(terrain) => {
+                report.record("terrain_capture", "passed", None,
+                    json!({"terrain_tiles":terrain.tiles().count(),"terrain_bytes":terrain.tiles().map(|(_,b)|b.len()).sum::<usize>()}),
+                    json!({"terrain_source_epoch":terrain.source_epoch()}), Value::Null, Value::Null)?;
+                Some(terrain)
+            }
+            Err(error) => {
+                report.simple(
+                    "terrain_capture",
+                    "failed",
+                    Some(terrain_source::diagnostic_id(&error)),
+                )?;
+                None
+            }
+        }
+    };
     let capture = match source::prepare(&selected.data, selected.map, cancelled) {
         Ok(capture) => {
             let s = capture.summary();
@@ -271,7 +303,14 @@ fn run_with_budget(
         None
     };
     let view = if let Some(bundle) = &bundle {
-        match PreparedCollision::from_source(bundle, cancelled) {
+        match PreparedTileCollision::from_source(
+            bundle,
+            &[TileId {
+                x: selected.x,
+                y: selected.y,
+            }],
+            cancelled,
+        ) {
             Ok(view) => {
                 report.record("validation","passed",None,json!({}),json!({"preprocessing":hex(&view.source_version()),"inventory":hex(&view.binding().inventory),"policy":hex(&view.binding().policy)}),Value::Null,Value::Null)?;
                 Some(view)
@@ -342,6 +381,102 @@ fn run_with_budget(
     } else {
         report.simple("probe", "unavailable", Some("collision.prerequisite"))?;
     }
+    let composed = if let (Some(terrain), Some(bundle)) = (&terrain, &bundle) {
+        match PreparedSourceHeight::from_source(terrain, bundle, cancelled) {
+            Ok(view) => {
+                report.record(
+                    "composition",
+                    "passed",
+                    None,
+                    json!({}),
+                    json!({"composition":hex(&view.binding().revision)}),
+                    Value::Null,
+                    Value::Null,
+                )?;
+                Some(view)
+            }
+            Err(error) => {
+                report.simple("composition", "failed", Some(&composition_code(&error)))?;
+                None
+            }
+        }
+    } else {
+        report.simple("composition", "unavailable", Some("collision.prerequisite"))?;
+        None
+    };
+    let mut static_completed = 0;
+    if let Some(view) = &composed {
+        for (index, (dx, dy)) in [0.25f32, 0.5, 0.75]
+            .into_iter()
+            .flat_map(|x| [0.25f32, 0.5, 0.75].into_iter().map(move |y| (x, y)))
+            .enumerate()
+        {
+            let point = [
+                (32.0 - f32::from(selected.x) - dx) * (1600.0 / 3.0),
+                (32.0 - f32::from(selected.y) - dy) * (1600.0 / 3.0),
+                2000.0,
+            ]
+            .map(f32::to_bits);
+            let result = view.query(
+                StaticHeightRequest {
+                    binding: view.binding(),
+                    ticket: index as u64 + 1,
+                    position: point,
+                    max_search: 10000f32.to_bits(),
+                },
+                deadline,
+            );
+            let (status, code, value, result_name) = match result {
+                Ok(reply) => {
+                    static_completed += 1;
+                    (
+                        "passed",
+                        None,
+                        Some(reply.height),
+                        if f32::from_bits(reply.height) == -200000.0 {
+                            "miss"
+                        } else {
+                            "height"
+                        },
+                    )
+                }
+                Err(error) => (
+                    "failed",
+                    Some(if cancelled() {
+                        "collision.timeout"
+                    } else {
+                        validation_code(error)
+                    }),
+                    None,
+                    "error",
+                ),
+            };
+            report.record("static_probe",status,code,json!({}),json!({}),
+                json!({"index":index,"kind":"static_height","from_bits":point,"to_bits":null,"result":result_name,"value_bits":value}),Value::Null)?;
+            if cancelled() {
+                break;
+            }
+        }
+        match view.verify_unchanged(cancelled) {
+            Ok(()) => report.simple("composition_freshness", "passed", None)?,
+            Err(error) => report.simple(
+                "composition_freshness",
+                "failed",
+                Some(&composition_code(&error)),
+            )?,
+        }
+    } else {
+        report.simple(
+            "static_probe",
+            "unavailable",
+            Some("collision.prerequisite"),
+        )?;
+        report.simple(
+            "composition_freshness",
+            "unavailable",
+            Some("collision.prerequisite"),
+        )?;
+    }
     if let Some(capture) = &capture {
         match capture.verify_unchanged(cancelled) {
             Ok(()) => report.simple("freshness", "passed", None)?,
@@ -357,21 +492,29 @@ fn run_with_budget(
         "complete",
         if failed > 0 {
             "failed"
-        } else if completed == 9 {
+        } else if completed == 9 && static_completed == 9 {
             "passed"
         } else {
             "unavailable"
         },
-        if failed == 0 && completed != 9 {
+        if failed == 0 && (completed != 9 || static_completed != 9) {
             Some("collision.prerequisite")
         } else {
             None
         },
-        json!({"completed_probes":completed,"failed_stages":failed}),
+        json!({"completed_probes":completed,"completed_static_probes":static_completed,"failed_stages":failed}),
         json!({}),
         Value::Null,
         Value::Null,
     )
+}
+fn composition_code(error: &CompositionError) -> String {
+    match error {
+        CompositionError::Cancelled => "collision.cancelled".into(),
+        CompositionError::TerrainSource => "terrain.source_changed".into(),
+        CompositionError::Collision(error) => prepare_code(error),
+        CompositionError::Validation(error) => validation_code(*error).into(),
+    }
 }
 fn prepare_code(error: &PrepareError) -> String {
     match error {
@@ -495,9 +638,10 @@ mod tests {
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
         assert_eq!(rows[1]["code"], "collision.timeout");
-        assert_eq!(rows[1]["source_stage"], "OpenSource");
-        assert_eq!(rows.last().unwrap()["metrics"]["failed_stages"], 1);
-        for row in &rows[2..rows.len() - 1] {
+        assert_eq!(rows[2]["source_stage"], "OpenSource");
+        assert_eq!(rows[2]["code"], "collision.timeout");
+        assert_eq!(rows.last().unwrap()["metrics"]["failed_stages"], 2);
+        for row in &rows[3..rows.len() - 1] {
             assert_eq!(row["status"], "unavailable");
         }
     }

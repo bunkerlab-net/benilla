@@ -24,9 +24,10 @@ MAX_STDOUT = 256 * 1024
 MAX_STDERR = 64 * 1024
 MAX_LINE = 16 * 1024
 HARD_TIMEOUT = 20.0
-FORMAT = "benilla-collision-diagnostics-v1"
-STAGES = ("selection", "capture", "placement", "assembly", "validation",
-          "probe", "freshness", "complete")
+FORMAT = "benilla-collision-diagnostics-v2"
+STAGES = ("selection", "terrain_capture", "capture", "placement", "assembly",
+          "validation", "probe", "composition", "static_probe",
+          "composition_freshness", "freshness", "complete")
 
 
 class SmokeError(Exception):
@@ -174,6 +175,8 @@ def validate_report(output):
                         gameplay_admitted=False)
         if stage == "selection":
             expected.update(status="passed", code=None)
+        elif stage == "terrain_capture":
+            expected.update(status="failed", code="source.open_patch_chain")
         elif stage == "capture":
             expected.update(status="failed", code="vmap.required_member_absent",
                             source_stage="LiquidTypes", metrics={"member_lookups": 1,
@@ -181,7 +184,8 @@ def validate_report(output):
                             "adt_attempts": 0})
         elif stage == "complete":
             expected.update(status="failed", code=None,
-                            metrics={"completed_probes": 0, "failed_stages": 1})
+                            metrics={"completed_probes": 0, "completed_static_probes": 0,
+                                     "failed_stages": 2})
         # Canonical JSON comparison also rejects bool/number substitutions.
         if json.dumps(row, sort_keys=True) != json.dumps(expected, sort_keys=True):
             raise SmokeError("diagnostic report did not match the redacted empty-install failure")
