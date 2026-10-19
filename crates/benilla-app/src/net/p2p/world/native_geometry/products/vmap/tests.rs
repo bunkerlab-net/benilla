@@ -7,12 +7,34 @@ use std::time::Duration;
 const TREE: &[u8] = include_bytes!(
     "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/000.vmtree"
 );
-const TILE:&[u8]=include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/000_32_32.vmtile");
-const MODELS:[(&str,&[u8]);4]=[
-    ("ramp.wmo.vmo",include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/ramp.wmo.vmo")),
-    ("stack.wmo.vmo",include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/stack.wmo.vmo")),
-    ("wall.wmo.vmo",include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/wall.wmo.vmo")),
-    ("ramp.m2.vmo",include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/ramp.m2.vmo")),
+const TILE: &[u8] = include_bytes!(
+    "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/000_32_32.vmtile"
+);
+const MODELS: [(&str, &[u8]); 4] = [
+    (
+        "ramp.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/ramp.wmo.vmo"
+        ),
+    ),
+    (
+        "stack.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/stack.wmo.vmo"
+        ),
+    ),
+    (
+        "wall.wmo.vmo",
+        include_bytes!(
+            "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/wall.wmo.vmo"
+        ),
+    ),
+    (
+        "ramp.m2.vmo",
+        include_bytes!(
+            "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/vmap_source/ramp.m2.vmo"
+        ),
+    ),
 ];
 pub(crate) fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     let (mut spec, mut files) = product_tests::fixture();
@@ -374,15 +396,15 @@ fn decoder_rejects_every_truncated_native_product_without_panics() {
         }
     }
     let models = BTreeMap::from([
-        ("ramp.wmo.vmo", 0),
-        ("stack.wmo.vmo", 1),
-        ("wall.wmo.vmo", 2),
-        ("ramp.m2.vmo", 3),
+        (ProductId::VmapModel("ramp.wmo.vmo".into()), 0),
+        (ProductId::VmapModel("stack.wmo.vmo".into()), 1),
+        (ProductId::VmapModel("wall.wmo.vmo".into()), 2),
+        (ProductId::VmapModel("ramp.m2.vmo".into()), 3),
     ]);
     // First spawn has its entire count/model closure already checked by inventory.
     let spawn = &TILE[12..90];
     for length in 0..spawn.len() {
-        assert!(Spawn::decode(&mut Cursor::new(&spawn[..length]), &models).is_err());
+        assert!(Spawn::decode(&mut Cursor::new(&spawn[..length]), &models, false).is_err());
     }
 }
 

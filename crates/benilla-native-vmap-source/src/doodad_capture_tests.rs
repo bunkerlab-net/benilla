@@ -923,6 +923,13 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
     );
     assert_eq!(bundle.map().tree_bytes(), map_products.tree_bytes());
     for model in bundle.models() {
+        let identity = model.source_identity().unwrap();
+        assert_eq!(identity.as_bytes(), model.source_name());
+        assert_eq!(
+            identity.effective_source_basename().unwrap(),
+            model.effective_source_basename()
+        );
+        assert!(identity.safe_basename().unwrap().starts_with("source-"));
         let prefix = model
             .source_name()
             .strip_suffix(&[0])

@@ -8,3 +8,6 @@ description = "Bounded source-compatible raw M2 and dry WMO collision extraction
 
 [lints]
 workspace = true
+
+[dependencies]
+sha2 = "0.10"

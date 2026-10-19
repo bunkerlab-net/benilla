@@ -26,8 +26,12 @@ const MODELS: [(&str, &[u8]); 2] = [
 ];
 
 const RAW_MODELS: [&[u8]; 2] = [
-    include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/authored-m2.raw.vmap"),
-    include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/signed-zero-m2.raw.vmap"),
+    include_bytes!(
+        "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/authored-m2.raw.vmap"
+    ),
+    include_bytes!(
+        "../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/signed-zero-m2.raw.vmap"
+    ),
 ];
 
 fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
@@ -161,14 +165,17 @@ fn tile_records() -> Vec<Range<usize>> {
 }
 
 fn tile_spawns() -> Vec<(Range<usize>, Spawn)> {
-    let ids = BTreeMap::from([("authored.m2.vmo", 0), ("signed-zero.m2.vmo", 1)]);
+    let ids = BTreeMap::from([
+        (ProductId::VmapModel("authored.m2.vmo".into()), 0),
+        (ProductId::VmapModel("signed-zero.m2.vmo".into()), 1),
+    ]);
     let mut c = Cursor::new(TILE);
     c.magic(b"VMAP_7.0").unwrap();
     let count = c.count().unwrap();
     let mut ranges = Vec::new();
     for _ in 0..count {
         let start = c.at;
-        let (_, spawn) = Spawn::decode(&mut c, &ids).unwrap();
+        let (_, spawn) = Spawn::decode(&mut c, &ids, false).unwrap();
         ranges.push((start..c.at, spawn));
     }
     c.finish().unwrap();
@@ -464,4 +471,245 @@ fn classified_m2_models_reject_every_truncation_and_trailing_byte() {
         appended.push(0);
         assert!(Model::decode_classified(&appended, false, Some(ModelClassification::M2)).is_err());
     }
+}
+
+fn source_named_fixture(terminal_nul: bool) -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
+    let (mut spec, mut files) = fixture();
+    if terminal_nul {
+        mutate_tiles(&mut spec, &mut files, |bytes| {
+            for range in tile_records().into_iter().rev() {
+                // These independently captured M2 records all carry source bounds.
+                let length_at = range.start + 62;
+                let len = u32::from_le_bytes(bytes[length_at..length_at + 4].try_into().unwrap())
+                    as usize;
+                bytes.insert(length_at + 4 + len, 0);
+                word(bytes, length_at, (len + 1) as u32);
+            }
+        });
+    }
+    let map_id = |id: &ProductId| match id {
+        ProductId::VmapModel(name) => {
+            let mut raw = name.strip_suffix(".vmo").unwrap().as_bytes().to_vec();
+            if terminal_nul {
+                raw.push(0);
+            }
+            ProductId::VmapSourceModel(benilla_native_vmap::SourceModelName::new(&raw).unwrap())
+        }
+        _ => id.clone(),
+    };
+    for item in &mut spec.products {
+        let old = item.id.filename(spec.map).unwrap();
+        item.id = map_id(&item.id);
+        let new = item.id.filename(spec.map).unwrap();
+        if old != new {
+            let data = files.remove(&old).unwrap();
+            assert!(files.insert(new, data).is_none());
+        }
+        item.dependencies = item.dependencies.iter().map(&map_id).collect();
+    }
+    (spec, files)
+}
+
+#[test]
+fn typed_source_names_preserve_original_queries_with_safe_inventory_paths() {
+    for terminal_nul in [false, true] {
+        let (spec, files) = source_named_fixture(terminal_nul);
+        assert!(files.keys().all(|name| !name.contains('\0')));
+        let products = product_tests::load(spec.clone(), &files).unwrap();
+        let snapshot = products.load_static_vmap().unwrap();
+        let mut reordered = spec;
+        reordered.products.reverse();
+        for p in &mut reordered.products {
+            p.dependencies.reverse();
+        }
+        assert_eq!(
+            products.revision,
+            product_tests::load(reordered, &files).unwrap().revision
+        );
+        for line in include_str!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/heights.tsv").lines().filter(|line| !line.starts_with('#')) {
+            let row: Vec<_> = line.split('\t').collect();
+            let position = to_internal([number(row[1]), number(row[2]), number(row[3])]);
+            let request = HeightRequest { snapshot: snapshot.binding(), ticket: 1, position: position.map(f32::to_bits), max_search: bits(row[4]) };
+            let expected = if number(row[5]) == f32::INFINITY { (-200_000.0f32).to_bits() } else { bits(row[5]) };
+            assert_eq!(snapshot.query_height(request, budget().deadline).unwrap().height, expected);
+        }
+    }
+    let (plain, files) = source_named_fixture(false);
+    let (nul, nul_files) = source_named_fixture(true);
+    assert_ne!(
+        product_tests::load(plain, &files).unwrap().revision,
+        product_tests::load(nul, &nul_files).unwrap().revision
+    );
+}
+
+#[test]
+fn source_model_identity_mismatches_and_mixed_profiles_fail_closed() {
+    let (mut spec, files) = source_named_fixture(true);
+    let tile = spec
+        .products
+        .iter_mut()
+        .find(|p| matches!(p.id, ProductId::VmapTile(_)))
+        .unwrap();
+    let dependency = tile
+        .dependencies
+        .iter_mut()
+        .find(|id| id.is_vmap_model())
+        .unwrap();
+    if let ProductId::VmapSourceModel(name) = dependency {
+        *name = benilla_native_vmap::SourceModelName::new(name.raw_basename()).unwrap();
+    }
+    assert!(product_tests::load(spec, &files).is_err());
+    let (mut spec, _) = source_named_fixture(false);
+    let mut legacy = spec
+        .products
+        .iter()
+        .find(|p| p.id.is_vmap_model())
+        .unwrap()
+        .clone();
+    legacy.id = ProductId::VmapModel("authored.m2.vmo".into());
+    spec.products.push(legacy);
+    assert!(
+        super::super::InventoriedProducts::materialize(spec, |_, _| panic!(
+            "mixed profile must reject before reads"
+        ))
+        .is_err()
+    );
+}
+
+#[test]
+fn source_effective_output_aliases_reject_before_reads() {
+    let (mut spec, _) = source_named_fixture(false);
+    let second = spec
+        .products
+        .iter_mut()
+        .filter(|p| p.id.is_vmap_model())
+        .nth(1)
+        .unwrap();
+    second.id = ProductId::VmapSourceModel(
+        benilla_native_vmap::SourceModelName::new(b"authored.m2.vmo\0").unwrap(),
+    );
+    assert!(matches!(
+        super::super::InventoriedProducts::materialize(spec, |_, _| panic!(
+            "aliases must reject before reads"
+        )),
+        Err(super::super::Error::Duplicate)
+    ));
+}
+
+#[test]
+fn valid_source_inventory_rejects_different_exact_tile_name_bytes() {
+    let (mut spec, mut files) = source_named_fixture(true);
+    let (_, plain_files) = source_named_fixture(false);
+    for tile in spec.tiles.clone() {
+        let id = ProductId::VmapTile(tile);
+        let plain = plain_files[&id.filename(spec.map).unwrap()].clone();
+        product_tests::mutate(&mut spec, &mut files, &id, |bytes| *bytes = plain.clone());
+    }
+    assert!(matches!(
+        product_tests::load(spec, &files),
+        Err(super::super::Error::Dependency)
+    ));
+}
+
+#[test]
+fn distinct_plain_and_nul_names_coexist_without_merging_models() {
+    for new_name in [b"authored.m2\0".as_slice(), b"Authored.m2".as_slice()] {
+        let (mut spec, mut files) = source_named_fixture(false);
+        let previous = ProductId::VmapSourceModel(
+            benilla_native_vmap::SourceModelName::new(b"signed-zero.m2").unwrap(),
+        );
+        let replacement = ProductId::VmapSourceModel(
+            benilla_native_vmap::SourceModelName::new(new_name).unwrap(),
+        );
+        mutate_tiles(&mut spec, &mut files, |bytes| {
+            for range in tile_records().into_iter().rev() {
+                let length_at = range.start + 62;
+                let len = u32::from_le_bytes(bytes[length_at..length_at + 4].try_into().unwrap())
+                    as usize;
+                let name_at = length_at + 4;
+                if &bytes[name_at..name_at + len] == b"signed-zero.m2" {
+                    bytes.splice(name_at..name_at + len, new_name.iter().copied());
+                    word(bytes, length_at, new_name.len() as u32);
+                }
+            }
+        });
+        let old_path = previous.filename(spec.map).unwrap();
+        let new_path = replacement.filename(spec.map).unwrap();
+        let data = files.remove(&old_path).unwrap();
+        files.insert(new_path, data);
+        for item in &mut spec.products {
+            if item.id == previous {
+                item.id = replacement.clone();
+            }
+            for dependency in &mut item.dependencies {
+                if *dependency == previous {
+                    *dependency = replacement.clone();
+                }
+            }
+        }
+        let snapshot = product_tests::load(spec, &files)
+            .unwrap()
+            .load_static_vmap()
+            .unwrap();
+        assert_eq!(snapshot.models.len(), 2);
+        assert!(snapshot
+            .spawns
+            .iter()
+            .flatten()
+            .any(|spawn| spawn.model == 0));
+        assert!(snapshot
+            .spawns
+            .iter()
+            .flatten()
+            .any(|spawn| spawn.model == 1));
+    }
+}
+
+#[test]
+fn source_model_missing_and_unused_closure_fail_before_reads() {
+    let (mut missing, _) = source_named_fixture(false);
+    let at = missing
+        .products
+        .iter()
+        .position(|p| p.id.is_vmap_model())
+        .unwrap();
+    missing.products.remove(at);
+    assert!(matches!(
+        super::super::InventoriedProducts::materialize(missing, |_, _| panic!(
+            "missing model must reject before reads"
+        )),
+        Err(super::super::Error::Missing)
+    ));
+    let (mut extra, _) = source_named_fixture(false);
+    let mut unused = extra
+        .products
+        .iter()
+        .find(|p| p.id.is_vmap_model())
+        .unwrap()
+        .clone();
+    unused.id = ProductId::VmapSourceModel(
+        benilla_native_vmap::SourceModelName::new(b"Unused.m2").unwrap(),
+    );
+    extra.products.push(unused);
+    assert!(matches!(
+        super::super::InventoriedProducts::materialize(extra, |_, _| panic!(
+            "unused model must reject before reads"
+        )),
+        Err(super::super::Error::Unexpected)
+    ));
+}
+
+#[test]
+fn legacy_inventory_revision_matches_independent_native91_golden() {
+    // Captured from unchanged 2d368c1c61addcb07b1931c04f087bbddda14d30.
+    let (spec, files) = fixture();
+    let expected: [u8; 32] = [
+        0x98, 0xbc, 0x61, 0x08, 0xc4, 0xdf, 0x0b, 0xde, 0x30, 0xf3, 0xc5, 0xcf, 0x36, 0x2f, 0x60,
+        0xd6, 0x88, 0xa1, 0x3d, 0x46, 0xcc, 0x34, 0xc6, 0x85, 0xb6, 0xe0, 0x58, 0xce, 0xee, 0x01,
+        0x3b, 0xa7,
+    ];
+    assert_eq!(
+        product_tests::load(spec, &files).unwrap().revision(),
+        expected
+    );
 }

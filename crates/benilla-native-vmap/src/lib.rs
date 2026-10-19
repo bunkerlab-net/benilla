@@ -4,6 +4,7 @@
 //! with every declared group; the source-member API also accepts validated MLIQ. Both emit little-endian `VMAPs05`
 //! bytes. A separate pure BIH builder is documented in BIH-BUILDER.md.
 //! Pure raw-model VMO conversion is documented in MODEL-WRITER.md.
+//! Safe exact source model identities are documented in SOURCE-MODEL-IDENTITY.md.
 //! This crate does not open archives, write files, assemble complete VMaps, generate MMaps,
 //! establish a source lease, or admit geometry for gameplay. See `PROVENANCE.md`
 //! for the exact source and the stricter input-validation envelope.
@@ -11,6 +12,8 @@
 mod bih;
 mod error;
 mod model_writer;
+mod source_model_name;
+pub use source_model_name::{SourceModelName, SourceModelNameError};
 mod wmo;
 mod wmo_error;
 

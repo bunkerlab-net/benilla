@@ -101,14 +101,14 @@ fn group_ranges() -> Vec<Range<usize>> {
 }
 
 fn tile_spawns() -> Vec<(Range<usize>, Spawn)> {
-    let ids = BTreeMap::from([(MODEL_NAME, 0)]);
+    let ids = BTreeMap::from([(ProductId::VmapModel(MODEL_NAME.into()), 0)]);
     let mut cursor = Cursor::new(TILE);
     cursor.magic(b"VMAP_7.0").unwrap();
     let count = cursor.count().unwrap();
     let mut result = Vec::new();
     for _ in 0..count {
         let start = cursor.at;
-        let (_, spawn) = Spawn::decode(&mut cursor, &ids).unwrap();
+        let (_, spawn) = Spawn::decode(&mut cursor, &ids, false).unwrap();
         result.push((start..cursor.at, spawn));
     }
     cursor.finish().unwrap();

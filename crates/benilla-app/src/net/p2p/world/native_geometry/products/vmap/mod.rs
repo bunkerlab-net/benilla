@@ -137,7 +137,10 @@ impl VmapSnapshot {
         for (id, p) in &products.products {
             if matches!(
                 id,
-                ProductId::VmapTree | ProductId::VmapTile(_) | ProductId::VmapModel(_)
+                ProductId::VmapTree
+                    | ProductId::VmapTile(_)
+                    | ProductId::VmapModel(_)
+                    | ProductId::VmapSourceModel(_)
             ) {
                 bytes = bytes.checked_add(p.bytes.len()).ok_or(Error::Budget)?;
             }
@@ -153,10 +156,13 @@ impl VmapSnapshot {
         c.finish()?;
         let mut model_ids = BTreeMap::new();
         for id in products.products.keys() {
-            if let ProductId::VmapModel(name) = id {
-                model_ids.insert(name.as_str(), model_ids.len());
+            if id.is_vmap_model() && model_ids.insert(id.clone(), model_ids.len()).is_some() {
+                return Err(Error::Duplicate);
             }
         }
+        let source_names = model_ids
+            .keys()
+            .any(|id| matches!(id, ProductId::VmapSourceModel(_)));
         let mut spawns: Vec<Option<Spawn>> = allocate(tree.primitive_count())?;
         spawns.resize_with(tree.primitive_count(), || None);
         let mut spawn_ids = BTreeMap::new();
@@ -174,7 +180,7 @@ impl VmapSnapshot {
                 return Err(Error::Budget);
             }
             for _ in 0..count {
-                let (reference, spawn) = Spawn::decode(&mut c, &model_ids)?;
+                let (reference, spawn) = Spawn::decode(&mut c, &model_ids, source_names)?;
                 let slot = spawns.get_mut(reference).ok_or(Error::Format)?;
                 if let Some(previous) = slot {
                     if !previous.same_source(&spawn) {
@@ -202,7 +208,7 @@ impl VmapSnapshot {
         let mut models = allocate(model_ids.len())?;
         let mut groups = 0usize;
         for (id, p) in &products.products {
-            if let ProductId::VmapModel(_) = id {
+            if id.is_vmap_model() {
                 let model = Model::decode_classified(
                     &p.bytes,
                     allow_liquid,
@@ -666,7 +672,11 @@ impl Spawn {
         }
     }
 
-    fn decode(c: &mut Cursor<'_>, models: &BTreeMap<&str, usize>) -> Result<(usize, Self), Error> {
+    fn decode(
+        c: &mut Cursor<'_>,
+        models: &BTreeMap<ProductId, usize>,
+        source_names: bool,
+    ) -> Result<(usize, Self), Error> {
         let flags = c.word()?;
         if flags & !5 != 0 || flags & 4 == 0 {
             return Err(Error::Unsupported);
@@ -684,13 +694,8 @@ impl Spawn {
         }
         let bounds = c.bounds()?;
         let length = c.count()?;
-        if length == 0 || length > 156 {
-            return Err(Error::Identity);
-        }
-        let name = std::str::from_utf8(c.take(length)?).map_err(|_| Error::Identity)?;
-        let model = *models
-            .get(format!("{name}.vmo").as_str())
-            .ok_or(Error::Missing)?;
+        let id_key = ProductId::from_vmap_source_name(c.take(length)?, source_names)?;
+        let model = *models.get(&id_key).ok_or(Error::Missing)?;
         let reference = c.word()? as usize;
         Ok((
             reference,

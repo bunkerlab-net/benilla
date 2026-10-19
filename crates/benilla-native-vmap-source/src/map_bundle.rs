@@ -57,6 +57,15 @@ impl AssembledModelProduct {
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
+    /// Exact typed name for a source-aware inventory; construction grants no admission.
+    pub fn source_identity(&self) -> Result<benilla_native_vmap::SourceModelName, MapBundleError> {
+        benilla_native_vmap::SourceModelName::new(&self.name).map_err(|error| match error {
+            benilla_native_vmap::SourceModelNameError::AllocationFailed => {
+                MapBundleError::Allocation
+            }
+            _ => MapBundleError::Name,
+        })
+    }
 }
 pub struct AssembledSourceMap<'a> {
     source: &'a PreparedDiscovery,

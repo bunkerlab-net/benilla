@@ -944,6 +944,9 @@ dependencies = [
 [[package]]
 name = "benilla-native-vmap"
 version = "0.2.0"
+dependencies = [
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "benilla-native-vmap-source"

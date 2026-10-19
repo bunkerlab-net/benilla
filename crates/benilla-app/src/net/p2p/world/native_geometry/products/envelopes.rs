@@ -7,20 +7,29 @@ use std::collections::BTreeSet;
 const MAX_ELEMENTS: usize = 262_144;
 
 pub(super) fn validate(id: &ProductId, bytes: &[u8]) -> Result<BTreeSet<ProductId>, Error> {
-    validate_profile(id, bytes, false)
+    validate_profile(id, bytes, false, false)
 }
 
 pub(super) fn validate_with_vmap_liquid(
     id: &ProductId,
     bytes: &[u8],
 ) -> Result<BTreeSet<ProductId>, Error> {
-    validate_profile(id, bytes, true)
+    validate_profile(id, bytes, true, false)
+}
+
+pub(super) fn validate_source_names(
+    id: &ProductId,
+    bytes: &[u8],
+    allow_liquid: bool,
+) -> Result<BTreeSet<ProductId>, Error> {
+    validate_profile(id, bytes, allow_liquid, true)
 }
 
 fn validate_profile(
     id: &ProductId,
     bytes: &[u8],
     allow_vmap_liquid: bool,
+    source_names: bool,
 ) -> Result<BTreeSet<ProductId>, Error> {
     let mut models = BTreeSet::new();
     let mut c = Cursor { bytes, at: 0 };
@@ -74,17 +83,12 @@ fn validate_profile(
                     c.bounds()?;
                 }
                 let length = c.count()?;
-                if length == 0 || length > 156 {
-                    return Err(Error::Identity);
-                }
-                let name = std::str::from_utf8(c.take(length)?).map_err(|_| Error::Identity)?;
-                let model = ProductId::VmapModel(format!("{name}.vmo"));
-                model.filename(0)?;
+                let model = ProductId::from_vmap_source_name(c.take(length)?, source_names)?;
                 models.insert(model);
                 c.word()?; // referenced BIH value; validity requires the future loaded tree
             }
         }
-        ProductId::VmapModel(_) => {
+        ProductId::VmapModel(_) | ProductId::VmapSourceModel(_) => {
             c.magic(b"VMAP_7.0")?;
             c.magic(b"WMOD")?;
             if c.word()? != 8 {

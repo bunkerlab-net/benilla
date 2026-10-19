@@ -86,10 +86,30 @@ pub(crate) enum ProductId {
     VmapTree,
     VmapTile(TileId),
     VmapModel(String),
+    VmapSourceModel(benilla_native_vmap::SourceModelName),
     MmapParams,
     MmapTile(TileId),
 }
 impl ProductId {
+    fn is_vmap_model(&self) -> bool {
+        matches!(self, Self::VmapModel(_) | Self::VmapSourceModel(_))
+    }
+    fn from_vmap_source_name(name: &[u8], source_names: bool) -> Result<Self, Error> {
+        if source_names {
+            Ok(Self::VmapSourceModel(
+                benilla_native_vmap::SourceModelName::new(name).map_err(|_| Error::Identity)?,
+            ))
+        } else {
+            if name.is_empty() || name.len() > 156 {
+                return Err(Error::Identity);
+            }
+            let name = std::str::from_utf8(name).map_err(|_| Error::Identity)?;
+            let id = Self::VmapModel(format!("{name}.vmo"));
+            id.filename(0)?;
+            Ok(id)
+        }
+    }
+
     pub(crate) fn filename(&self, map: u32) -> Result<String, Error> {
         if map > 999 {
             return Err(Error::Identity);
@@ -109,6 +129,10 @@ impl ProductId {
             }
             Self::VmapTree => format!("vmaps/{map:03}.vmtree"),
             Self::MmapParams => format!("mmaps/{map:03}.mmap"),
+            Self::VmapSourceModel(name) => format!(
+                "vmaps/{}",
+                name.safe_basename().map_err(|_| Error::Identity)?
+            ),
             Self::VmapModel(name) => {
                 if name.len() > 160
                     || name.len() <= 4
@@ -317,12 +341,19 @@ impl InventoriedProducts {
     ) -> Result<Self, Error> {
         // Validate ALL identities, lengths, budgets and declared closure before any read.
         validate_spec(&spec)?;
+        let source_names = spec
+            .products
+            .iter()
+            .any(|p| matches!(p.id, ProductId::VmapSourceModel(_)));
         let mut revision = Sha256::new();
         revision.update(if allow_vmap_liquid {
             b"benilla-native-product-inventory-vmap-liquid-v1".as_slice()
         } else {
             POLICY
         });
+        if source_names {
+            revision.update(b"benilla-native-source-model-identities-v1");
+        }
         revision.update(SOURCE_PIN);
         revision.update(DETOUR_TREE);
         revision.update(spec.map.to_le_bytes());
@@ -353,7 +384,9 @@ impl InventoriedProducts {
             let terrain = match id {
                 ProductId::Terrain(tile) => Some(TerrainTile::decode(tile, &data)?),
                 _ => {
-                    let models = if allow_vmap_liquid {
+                    let models = if source_names {
+                        envelopes::validate_source_names(&id, &data, allow_vmap_liquid)?
+                    } else if allow_vmap_liquid {
                         envelopes::validate_with_vmap_liquid(&id, &data)?
                     } else {
                         envelopes::validate(&id, &data)?
@@ -361,7 +394,7 @@ impl InventoriedProducts {
                     let declared: BTreeSet<_> = item
                         .dependencies
                         .iter()
-                        .filter(|d| matches!(d, ProductId::VmapModel(_)))
+                        .filter(|d| d.is_vmap_model())
                         .cloned()
                         .collect();
                     if models != declared {
@@ -371,12 +404,20 @@ impl InventoriedProducts {
                 }
             };
             hash_name(&mut revision, &name);
+            if let ProductId::VmapSourceModel(source) = &id {
+                revision.update((source.as_bytes().len() as u32).to_le_bytes());
+                revision.update(source.as_bytes());
+            }
             revision.update(item.bytes.to_le_bytes());
             revision.update(item.sha256);
             let dependencies: BTreeSet<_> = item.dependencies.into_iter().collect();
             revision.update((dependencies.len() as u32).to_le_bytes());
             for dependency in dependencies {
                 hash_name(&mut revision, &dependency.filename(spec.map)?);
+                if let ProductId::VmapSourceModel(source) = &dependency {
+                    revision.update((source.as_bytes().len() as u32).to_le_bytes());
+                    revision.update(source.as_bytes());
+                }
             }
             products.insert(
                 id,
@@ -450,9 +491,22 @@ fn validate_spec(spec: &InventorySpec) -> Result<BTreeSet<String>, Error> {
             return Err(Error::Duplicate);
         }
     }
+    let has_source_names = spec
+        .products
+        .iter()
+        .any(|p| matches!(p.id, ProductId::VmapSourceModel(_)));
+    if has_source_names
+        && spec
+            .products
+            .iter()
+            .any(|p| matches!(p.id, ProductId::VmapModel(_)))
+    {
+        return Err(Error::Identity);
+    }
     let mut products = BTreeMap::new();
     let mut names = BTreeSet::new();
     let mut aliases = BTreeSet::new();
+    let mut source_outputs = BTreeSet::new();
     let mut total = 0u64;
     let mut edges = 0usize;
     for product in &spec.products {
@@ -465,6 +519,14 @@ fn validate_spec(spec: &InventorySpec) -> Result<BTreeSet<String>, Error> {
             .ok_or(Error::Budget)?;
         if total > MAX_TOTAL_BYTES || edges > MAX_EDGES {
             return Err(Error::Budget);
+        }
+        if let ProductId::VmapSourceModel(source) = &product.id {
+            let effective = source
+                .effective_source_basename()
+                .map_err(|_| Error::Identity)?;
+            if !source_outputs.insert(effective) {
+                return Err(Error::Duplicate);
+            }
         }
         let name = product.id.filename(spec.map)?;
         if !aliases.insert(name.to_ascii_lowercase())
@@ -514,7 +576,7 @@ fn validate_spec(spec: &InventorySpec) -> Result<BTreeSet<String>, Error> {
                 (&product.id, dependency),
                 (
                     ProductId::VmapTile(_),
-                    ProductId::VmapTree | ProductId::VmapModel(_)
+                    ProductId::VmapTree | ProductId::VmapModel(_) | ProductId::VmapSourceModel(_)
                 ) | (
                     ProductId::MmapTile(_),
                     ProductId::MmapParams | ProductId::Terrain(_) | ProductId::VmapTile(_)
@@ -523,7 +585,7 @@ fn validate_spec(spec: &InventorySpec) -> Result<BTreeSet<String>, Error> {
             if !valid {
                 return Err(Error::Dependency);
             }
-            if matches!(dependency, ProductId::VmapModel(_)) {
+            if dependency.is_vmap_model() {
                 referenced_models.insert(dependency);
             }
         }
@@ -543,7 +605,7 @@ fn validate_spec(spec: &InventorySpec) -> Result<BTreeSet<String>, Error> {
     if spec
         .products
         .iter()
-        .any(|p| matches!(p.id, ProductId::VmapModel(_)) && !referenced_models.contains(&p.id))
+        .any(|p| p.id.is_vmap_model() && !referenced_models.contains(&p.id))
     {
         return Err(Error::Unexpected);
     }
