@@ -885,6 +885,24 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
     );
     assert!(assembled.bounds().iter().all(|s| s.flags & 4 != 0));
     assert!(assembled.vertex_visits() > 0);
+    let map_tree = assembled.map_bih(|| false).unwrap();
+    let mut primitive_slots = map_tree.objects().to_vec();
+    primitive_slots.sort_unstable();
+    assert_eq!(primitive_slots, [0, 1, 2, 3]);
+    let ordered_boxes: Vec<_> = assembled
+        .bounds()
+        .iter()
+        .map(|spawn| spawn.bounds)
+        .collect();
+    let expected_tree = benilla_native_vmap::SourceBih::build(&ordered_boxes, 3, || false).unwrap();
+    assert_eq!(
+        map_tree.serialize(|| false).unwrap(),
+        expected_tree.serialize(|| false).unwrap()
+    );
+    assert_eq!(
+        assembled.map_bih(|| true).unwrap_err(),
+        benilla_native_vmap::BihBuildError::Cancelled
+    );
     assert_eq!(assembled.records().bytes(), records.bytes());
     let polls = std::cell::Cell::new(0usize);
     prepared

@@ -63,6 +63,27 @@ impl AssembledSpawnBounds {
     pub fn vertex_visits(&self) -> usize {
         self.visits
     }
+    /// Build the source map BIH in ascending unique-ID order. Tile references
+    /// still use these input slots, never the resulting object permutation.
+    pub fn map_bih(
+        &self,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<benilla_native_vmap::SourceBih, benilla_native_vmap::BihBuildError> {
+        if cancelled() {
+            return Err(benilla_native_vmap::BihBuildError::Cancelled);
+        }
+        let mut boxes = Vec::new();
+        boxes
+            .try_reserve_exact(self.bounds.len())
+            .map_err(|_| benilla_native_vmap::BihBuildError::Allocation)?;
+        for (i, b) in self.bounds.iter().enumerate() {
+            if i % 1024 == 0 && cancelled() {
+                return Err(benilla_native_vmap::BihBuildError::Cancelled);
+            }
+            boxes.push(b.bounds);
+        }
+        benilla_native_vmap::SourceBih::build(&boxes, 3, cancelled)
+    }
     pub fn policy_id(&self) -> &'static str {
         ASSEMBLED_BOUNDS_POLICY
     }
