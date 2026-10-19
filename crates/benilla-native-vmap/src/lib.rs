@@ -3,12 +3,14 @@
 //! M2 accepts the MD20 256/257 profile; WMO accepts bounded dry version 17 roots
 //! with every declared group; the source-member API also accepts validated MLIQ. Both emit little-endian `VMAPs05`
 //! bytes. A separate pure BIH builder is documented in BIH-BUILDER.md.
+//! Pure raw-model VMO conversion is documented in MODEL-WRITER.md.
 //! This crate does not open archives, write files, assemble complete VMaps, generate MMaps,
 //! establish a source lease, or admit geometry for gameplay. See `PROVENANCE.md`
 //! for the exact source and the stricter input-validation envelope.
 
 mod bih;
 mod error;
+mod model_writer;
 mod wmo;
 mod wmo_error;
 
@@ -16,6 +18,7 @@ pub use bih::{
     BihBounds, BihBuildError, SourceBih, MAX_BIH_PRIMITIVES, MAX_BIH_WORDS, MAX_BIH_WORK,
 };
 pub use error::{CollisionArray, Error};
+pub use model_writer::{assemble_raw_model, ModelWriteError};
 pub use wmo::{
     extract_wmo_collision, extract_wmo_collision_from_source, WmoCollision, WmoGroupInput,
     MAX_WMO_BATCHES, MAX_WMO_CHUNKS, MAX_WMO_FILE_BYTES, MAX_WMO_GROUPS, MAX_WMO_LIQUID_TILES,
