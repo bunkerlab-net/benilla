@@ -20,10 +20,12 @@ fn models() -> BTreeMap<String, Vec<u8>> {
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "vmo"))
         .map(|path| {
-            (
-                path.file_name().unwrap().to_str().unwrap().to_owned(),
-                fs::read(path).unwrap(),
-            )
+            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+            let stem = name.strip_suffix(".wmo.vmo").unwrap();
+            let raw = fs::read(fixture_path(&format!("raw/{stem}.raw.vmap"))).unwrap();
+            let assembled = benilla_native_vmap::assemble_raw_model(&raw, || false).unwrap();
+            assert_eq!(assembled, fs::read(path).unwrap(), "{name}");
+            (name, assembled)
         })
         .collect()
 }

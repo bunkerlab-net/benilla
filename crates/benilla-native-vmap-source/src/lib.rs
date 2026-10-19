@@ -16,9 +16,11 @@ mod doodad_reference_order;
 mod doodad_transform_math;
 mod doodads;
 mod encounter_ids;
+mod map_bundle;
 mod map_products;
 mod map_spawn_index;
 mod placement_records;
+mod selected_model_names;
 mod source;
 
 use benilla_native_vmap::{
@@ -41,6 +43,7 @@ pub use assembled_spawn_bounds::{
 pub use discovery::{DiscoveryError, M2Placement, ModelKind, PlacementInput, WmoPlacement};
 pub use doodad_projection::{DoodadProjection, DoodadProjectionError, DoodadProjectionProfile};
 pub use doodads::{DoodadError, DoodadSet, DoodadSpawn};
+pub use map_bundle::{AssembledModelProduct, AssembledSourceMap, MapBundleError};
 pub use map_products::{MapProductError, MapProducts, MapTileProduct};
 pub use map_spawn_index::{
     MapSpawnIndex, MapSpawnIndexError, MAP_SPAWN_INDEX_POLICY, MAX_INDEX_RECORDS,

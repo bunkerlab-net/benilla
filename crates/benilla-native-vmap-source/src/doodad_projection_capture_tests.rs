@@ -638,3 +638,67 @@ fn map_products_recheck_rejects_source_change_after_bounds_verification() {
         "{error:?}"
     );
 }
+
+#[test]
+fn map_bundle_recheck_rejects_source_change_after_map_verification() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = dp_entries("portable_mdx", true);
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 7, || false).unwrap();
+    let record_polls = std::cell::Cell::new(0);
+    prepared
+        .map_products(dp_profile(), || {
+            record_polls.set(record_polls.get() + 1);
+            false
+        })
+        .unwrap();
+    entries
+        .iter_mut()
+        .find(|e| e.name == DP_MODEL)
+        .unwrap()
+        .bytes[8] ^= 1;
+    let polls = std::cell::Cell::new(0);
+    let changed = std::cell::Cell::new(false);
+    let error = prepared
+        .assemble_map_bundle(dp_profile(), || {
+            let n = polls.get();
+            polls.set(n + 1);
+            // First model-selection callback follows completed map verification.
+            if n == record_polls.get() {
+                save(&data, "wmo.MPQ", &entries);
+                changed.set(true);
+            }
+            false
+        })
+        .unwrap_err();
+    assert!(changed.get());
+    assert!(
+        matches!(error, crate::MapBundleError::Source(SourceError::Changed)),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn completed_bundle_recheck_detects_later_source_change() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = dp_entries("portable_mdx", true);
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 7, || false).unwrap();
+    let bundle = prepared
+        .assemble_map_bundle(dp_profile(), || false)
+        .unwrap()
+        .unwrap();
+    bundle.verify_unchanged(|| false).unwrap();
+    entries
+        .iter_mut()
+        .find(|e| e.name == DP_MODEL)
+        .unwrap()
+        .bytes[8] ^= 1;
+    save(&data, "wmo.MPQ", &entries);
+    assert!(matches!(
+        bundle.verify_unchanged(|| false),
+        Err(crate::MapBundleError::Source(SourceError::Changed))
+    ));
+}

@@ -908,6 +908,55 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
     assert!(map_products.tree_bytes().starts_with(b"VMAP_7.0\x01NODE"));
     assert_eq!(map_products.spawn_model_names().count(), 4);
     assert_eq!(map_products.tiles().len(), 2);
+    let bundle = prepared
+        .assemble_map_bundle(profile, || false)
+        .unwrap()
+        .unwrap();
+    let expected_names: std::collections::BTreeSet<_> = map_products.spawn_model_names().collect();
+    assert_eq!(
+        bundle
+            .models()
+            .iter()
+            .map(|m| m.source_name())
+            .collect::<Vec<_>>(),
+        expected_names.into_iter().collect::<Vec<_>>()
+    );
+    assert_eq!(bundle.map().tree_bytes(), map_products.tree_bytes());
+    for model in bundle.models() {
+        let prefix = model
+            .source_name()
+            .strip_suffix(&[0])
+            .unwrap_or(model.source_name());
+        let raw = prepared
+            .products
+            .iter()
+            .find(|p| p.extracted_name.as_bytes() == prefix)
+            .unwrap()
+            .raw_vmap()
+            .unwrap();
+        assert_eq!(
+            model.bytes(),
+            benilla_native_vmap::assemble_raw_model(raw, || false).unwrap()
+        );
+    }
+    let total_model_bytes = bundle.models().iter().map(|m| m.bytes().len()).sum();
+    prepared
+        .assemble_map_bundle_with_limits(profile, || false, total_model_bytes, usize::MAX)
+        .unwrap()
+        .unwrap();
+    for (bytes, polls) in [(total_model_bytes - 1, usize::MAX), (usize::MAX, 0)] {
+        assert!(matches!(
+            prepared.assemble_map_bundle_with_limits(profile, || false, bytes, polls),
+            Err(crate::MapBundleError::Limit)
+        ));
+    }
+    bundle.verify_unchanged(|| false).unwrap();
+    assert!(matches!(
+        bundle.verify_unchanged(|| true),
+        Err(crate::MapBundleError::Source(SourceError::Cancelled)
+            | crate::MapBundleError::Cancelled)
+    ));
+
     assert_eq!(assembled.records().bytes(), records.bytes());
     let polls = std::cell::Cell::new(0usize);
     prepared

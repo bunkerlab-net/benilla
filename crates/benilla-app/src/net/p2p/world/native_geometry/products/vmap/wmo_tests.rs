@@ -40,11 +40,14 @@ fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
             .unwrap()
             .dependencies = vec![ProductId::VmapTree, model.clone()];
     }
-    files.insert(model.filename(0).unwrap(), MODEL.to_vec());
+    // All source-query and malformed-product tests use newly assembled bytes.
+    let assembled = benilla_native_vmap::assemble_raw_model(RAW, || false).unwrap();
+    assert_eq!(assembled, MODEL);
+    files.insert(model.filename(0).unwrap(), assembled.clone());
     spec.products.push(ProductSpec {
         id: model,
-        bytes: MODEL.len() as u64,
-        sha256: Sha256::digest(MODEL).into(),
+        bytes: assembled.len() as u64,
+        sha256: Sha256::digest(&assembled).into(),
         dependencies: vec![],
     });
     (spec, files)

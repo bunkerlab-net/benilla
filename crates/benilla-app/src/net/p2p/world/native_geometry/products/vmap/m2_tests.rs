@@ -25,6 +25,11 @@ const MODELS: [(&str, &[u8]); 2] = [
     ),
 ];
 
+const RAW_MODELS: [&[u8]; 2] = [
+    include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/authored-m2.raw.vmap"),
+    include_bytes!("../../../../../../../../benilla-native-geometry-tests/tools/fixtures/m2_vmap_source/signed-zero-m2.raw.vmap"),
+];
+
 fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
     let (mut spec, mut files) = product_tests::fixture();
     spec.products
@@ -49,13 +54,17 @@ fn fixture() -> (InventorySpec, BTreeMap<String, Vec<u8>>) {
             .unwrap()
             .dependencies = dependencies.clone();
     }
-    for (name, bytes) in MODELS {
+    for ((name, expected), raw) in MODELS.into_iter().zip(RAW_MODELS) {
+        // Exercise the Rust raw loader, model framing and BIHs through the real
+        // consumer/query path while retaining independent original-byte checks.
+        let bytes = benilla_native_vmap::assemble_raw_model(raw, || false).unwrap();
+        assert_eq!(bytes, expected, "{name}");
         let id = ProductId::VmapModel(name.into());
         files.insert(id.filename(0).unwrap(), bytes.to_vec());
         spec.products.push(ProductSpec {
             id,
             bytes: bytes.len() as u64,
-            sha256: Sha256::digest(bytes).into(),
+            sha256: Sha256::digest(&bytes).into(),
             dependencies: vec![],
         });
     }

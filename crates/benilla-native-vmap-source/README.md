@@ -2,8 +2,10 @@
 
 `prepare(data_path, map_id, cancelled)` reads a local Classic MPQ chain and returns
 private, complete raw model candidates, ordered raw placement inputs and selected
-profile-ordered doodad candidates for a selected map. It writes nothing. This library is not a player CLI and does not
-assemble a map, grant collision-clearance authority, or open gameplay admission.
+profile-ordered doodad candidates for a selected map. It writes nothing. The preparation call writes nothing and grants no gameplay admission.
+The separate [map bundle API](MAP-BUNDLE.md) assembles bounded map/tree and selected
+model products in memory. This library is not a player CLI or a publisher, and
+these products do not grant collision-clearance authority.
 
 Preparation performs the required LiquidType table check, the global per-archive
 listfile/WMO pass, and the physical Map.dbc prefix through the selected record.
