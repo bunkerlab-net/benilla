@@ -11,6 +11,9 @@ use benilla_world_runtime::{
 };
 use std::time::Instant;
 
+#[path = "source_player_environment/resident.rs"]
+pub(crate) mod resident;
+
 pub(crate) struct SourcePlayerEnvironmentProvider {
     snapshot: TerrainLiquidSnapshot<'static>,
     policy: PlayerEnvironmentPolicy,

@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Authored consumed geometry and actual NativeWorld cache lifecycle. No install
-//! provenance, fresh target liquid sample, route conversion or gameplay admission.
+//! Actual consumed-source dry replies and NativeWorld cache lifecycle over authored
+//! geometry/model inputs. Wet replies remain an explicitly authored complement.
+//! No install provenance, route conversion or gameplay admission.
 use super::super::{
-    core::Failure,
+    core::{Failure, PlayerEnvironmentPolicy, Session},
     products::{
         source_height::{CompositionError, PreparedSourceHeight},
         source_query::SourceMapQuerySnapshot,
+    },
+    source_player_environment::resident::{
+        ResidentEnvironmentError, ResidentPlayerEnvironmentProvider,
     },
     source_route_filter::resident::{
         self,
@@ -48,39 +52,66 @@ fn route_mut(context: &mut AuthorityRequest) -> &mut CreatureRouteRequest {
     route
 }
 
-#[derive(Default)]
-struct AuthoredEnvironmentAuthority {
+struct EnvironmentAuthority<F> {
     motion: motion_fixture::SyntheticMotionAuthority,
     seen: Vec<AuthorityRequest>,
-    wet_entry: Option<u32>,
+    environment: F,
 }
-impl Authority for AuthoredEnvironmentAuthority {
+impl<F> EnvironmentAuthority<F> {
+    fn new(environment: F) -> Self {
+        Self {
+            motion: motion_fixture::SyntheticMotionAuthority::default(),
+            seen: Vec::new(),
+            environment,
+        }
+    }
+}
+impl<F> Authority for EnvironmentAuthority<F>
+where
+    F: FnMut(&AuthorityRequest) -> Result<Facts, NativeError>,
+{
     fn resolve(&mut self, context: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         self.seen.push(context.clone());
-        if let Query::PlayerEnvironment(query) = &context.query {
+        if matches!(context.query, Query::PlayerEnvironment(_)) {
             return Ok(AuthorityReply {
                 request: context.clone(),
-                facts: Facts::PlayerEnvironment(PlayerEnvironmentFacts::new(
-                    query,
-                    BoundLiquidResult {
-                        query: query.liquid_query(),
-                        status: if self.wet_entry.is_some() {
-                            LiquidStatus::InWater
-                        } else {
-                            LiquidStatus::NoWater
-                        },
-                        data: self.wet_entry.map(|entry| LiquidData {
-                            entry,
-                            type_flags: 8,
-                            level: (query.pose().position.z.as_f32() + 1.0).to_bits(),
-                            depth_level: (query.pose().position.z.as_f32() - 10.0).to_bits(),
-                        }),
-                    },
-                )?),
+                facts: (self.environment)(context)?,
             });
         }
         self.motion.resolve(context)
     }
+}
+
+fn environment_session(p: &Profile) -> Session {
+    let mut s = los::session(p);
+    s.player_environment = Some(PlayerEnvironmentPolicy::from_profile(p, f::player()).unwrap());
+    s
+}
+
+fn authored_environment(
+    context: &AuthorityRequest,
+    wet_entry: Option<u32>,
+) -> Result<Facts, NativeError> {
+    let Query::PlayerEnvironment(query) = &context.query else {
+        panic!("expected player environment query")
+    };
+    Ok(Facts::PlayerEnvironment(PlayerEnvironmentFacts::new(
+        query,
+        BoundLiquidResult {
+            query: query.liquid_query(),
+            status: if wet_entry.is_some() {
+                LiquidStatus::InWater
+            } else {
+                LiquidStatus::NoWater
+            },
+            data: wet_entry.map(|entry| LiquidData {
+                entry,
+                type_flags: 8,
+                level: (query.pose().position.z.as_f32() + 1.0).to_bits(),
+                depth_level: (query.pose().position.z.as_f32() - 10.0).to_bits(),
+            }),
+        },
+    )?))
 }
 fn pose(position: ai::Point, orientation: f32) -> Command {
     Command::MovementPose {
@@ -89,11 +120,11 @@ fn pose(position: ai::Point, orientation: f32) -> Command {
         movement_flags: motion::GroundMovementFlags::STOPPED,
     }
 }
-fn step(
+fn try_step(
     world: &mut NativeWorld,
     commands: Vec<Command>,
-    authority: &mut AuthoredEnvironmentAuthority,
-) {
+    authority: &mut impl Authority,
+) -> Result<(), NativeError> {
     let inputs = commands
         .into_iter()
         .enumerate()
@@ -110,9 +141,12 @@ fn step(
         .collect();
     world
         .step_batch(world.state().tick + 1, inputs, authority)
-        .unwrap();
+        .map(|_| ())
 }
-fn environment_count(authority: &AuthoredEnvironmentAuthority) -> usize {
+fn step(world: &mut NativeWorld, commands: Vec<Command>, authority: &mut impl Authority) {
+    try_step(world, commands, authority).unwrap();
+}
+fn environment_count<F>(authority: &EnvironmentAuthority<F>) -> usize {
     authority
         .seen
         .iter()
@@ -121,32 +155,52 @@ fn environment_count(authority: &AuthoredEnvironmentAuthority) -> usize {
 }
 
 /// NativeWorld alone creates the cache, countdown receipts and route witness.
-fn cached_dispatch(p: &Profile, before_countdown: bool) -> (NativeWorld, AuthorityRequest) {
-    cached_dispatch_with_liquid(p, before_countdown, None)
+fn cached_dispatch(
+    p: &Profile,
+    before_countdown: bool,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+) -> (NativeWorld, AuthorityRequest) {
+    let session = environment_session(p);
+    let provider =
+        ResidentPlayerEnvironmentProvider::bind(&session, p, f::player(), height, until(), || {
+            false
+        })
+        .unwrap();
+    cached_dispatch_with(p, before_countdown, false, |request| {
+        Ok(provider
+            .resolve(&session, request, until(), || false)
+            .unwrap())
+    })
 }
-fn cached_dispatch_with_liquid(
+
+/// Explicitly authored wet complement and mismatched-binding consumer tests.
+fn cached_dispatch_authored(
     p: &Profile,
     before_countdown: bool,
     wet_entry: Option<u32>,
 ) -> (NativeWorld, AuthorityRequest) {
+    cached_dispatch_with(p, before_countdown, wet_entry.is_some(), |request| {
+        authored_environment(request, wet_entry)
+    })
+}
+fn cached_dispatch_with(
+    p: &Profile,
+    before_countdown: bool,
+    wet: bool,
+    environment: impl FnMut(&AuthorityRequest) -> Result<Facts, NativeError>,
+) -> (NativeWorld, AuthorityRequest) {
     let mut world =
         NativeWorld::synthetic_component_test(p.clone(), [8; 16], f::player(), 1234).unwrap();
-    let mut authority = AuthoredEnvironmentAuthority {
-        wet_entry,
-        ..Default::default()
-    };
-    let first = if before_countdown {
-        // The first relocation must really move: only a changed pose schedules
-        // the player notify callback which will run before tick13 countdown.
-        ai::Point::new(
-            p.player.start.x.as_f32(),
-            p.player.start.y.as_f32() + 1.0,
-            p.player.start.z.as_f32(),
-        )
-        .unwrap()
-    } else {
-        p.player.start
-    };
+    let initial = world.checkpoint().unwrap();
+    let mut authority = EnvironmentAuthority::new(environment);
+    // Both poses really relocate. The first move schedules the notify callback;
+    // the second must retain its older query position within the countdown.
+    let first = ai::Point::new(
+        p.player.start.x.as_f32(),
+        p.player.start.y.as_f32() + 1.0,
+        p.player.start.z.as_f32(),
+    )
+    .unwrap();
     let second =
         ai::Point::new(first.x.as_f32(), first.y.as_f32() + 1.0, first.z.as_f32()).unwrap();
     if before_countdown {
@@ -222,7 +276,7 @@ fn cached_dispatch_with_liquid(
     let target = route(&context)
         .require_target_water(p, [8; 16], f::player())
         .unwrap();
-    assert_eq!(target.in_water(), wet_entry.is_some());
+    assert_eq!(target.in_water(), wet);
     assert_eq!(
         target.moment(),
         if before_countdown {
@@ -272,6 +326,9 @@ fn cached_dispatch_with_liquid(
         );
         assert_eq!(saved["snapshot"]["state"]["timer_ms"], 0);
     }
+    let mut replay = NativeWorld::restore_synthetic_component_test(p.clone(), initial).unwrap();
+    replay.replay(world.records()).unwrap();
+    assert_eq!(replay.checkpoint().unwrap(), world.checkpoint().unwrap());
     (world, context)
 }
 
@@ -304,7 +361,7 @@ pub(crate) fn assert_resident_chase_water(
     let s = los::session(&p);
     let mut provider = ResidentFilterProvider::bind(&s, &p, height, query).unwrap();
     let other = ResidentFilterProvider::bind(&s, &p, height, replacement).unwrap();
-    let (world, mut context) = cached_dispatch(&p, false);
+    let (world, mut context) = cached_dispatch(&p, false, height);
     route_mut(&mut context).owner_ignore_pathfinding = None;
     let before = world.checkpoint().unwrap();
     let prior = provider.observe(&context, 501, until(), || false).unwrap();
@@ -360,7 +417,7 @@ pub(crate) fn assert_resident_chase_water(
 
     let decoded: AuthorityRequest =
         serde_json::from_value(serde_json::to_value(&context).unwrap()).unwrap();
-    let (_, mut independent) = cached_dispatch(&p, false);
+    let (_, mut independent) = cached_dispatch(&p, false, height);
     route_mut(&mut independent).owner_ignore_pathfinding = None;
     assert_eq!(independent, context);
     let mut invalid = vec![decoded, independent];
@@ -591,7 +648,7 @@ pub(crate) fn assert_resident_water_before_countdown(
 ) {
     let p = with_environment(p, &query, height, catalog);
     let mut provider = ResidentFilterProvider::bind(&los::session(&p), &p, height, query).unwrap();
-    let (world, context) = cached_dispatch(&p, true);
+    let (world, context) = cached_dispatch(&p, true, height);
     let before = world.checkpoint().unwrap();
     let prior = provider.observe(&context, 551, until(), || false).unwrap();
     let prefix = provider
@@ -634,11 +691,28 @@ pub(crate) fn assert_resident_water_binding_rejected(
         p.initialize_player_environment(binding, catalog.clone())
             .unwrap();
     }
+    let mut environment_session = los::session(&p);
+    if field != "missing" {
+        environment_session.player_environment =
+            Some(PlayerEnvironmentPolicy::from_profile(&p, f::player()).unwrap());
+    }
+    assert!(
+        ResidentPlayerEnvironmentProvider::bind(
+            &environment_session,
+            &p,
+            f::player(),
+            height,
+            until(),
+            || false
+        )
+        .is_err(),
+        "resident environment binding: {field}"
+    );
     let mut provider = ResidentFilterProvider::bind(&los::session(&p), &p, height, query).unwrap();
     let (world, context) = if field == "missing" {
         los::first_dispatch(&p, None)
     } else {
-        cached_dispatch(&p, false)
+        cached_dispatch_authored(&p, false, None)
     };
     let before = world.checkpoint().unwrap();
     let prior = provider.observe(&context, 561, until(), || false).unwrap();
@@ -734,7 +808,7 @@ pub(crate) fn assert_resident_water_cached_target_is_wet(
     let mut provider = ResidentFilterProvider::bind(&los::session(&p), &p, height, query).unwrap();
     // The authority's wet target reply is explicitly authored. Resident geometry
     // still proves only the fresh dry owner point; it never samples target feet.
-    let (world, context) = cached_dispatch_with_liquid(&p, false, Some(entry));
+    let (world, context) = cached_dispatch_authored(&p, false, Some(entry));
     let before = world.checkpoint().unwrap();
     let prior = provider.observe(&context, 581, until(), || false).unwrap();
     let prefix = provider
@@ -759,4 +833,456 @@ pub(crate) fn assert_resident_water_cached_target_is_wet(
     assert_eq!(observed.owner.unwrap().request().mask, 15);
     assert!(observed.target.unwrap().in_water());
     assert_eq!(world.checkpoint().unwrap(), before);
+}
+
+fn captured_environment(p: &Profile) -> (NativeWorld, AuthorityRequest) {
+    let mut world =
+        NativeWorld::synthetic_component_test(p.clone(), [8; 16], f::player(), 1234).unwrap();
+    let before = world.checkpoint().unwrap();
+    let mut authority = EnvironmentAuthority::new(|_: &AuthorityRequest| {
+        Err(NativeError::AuthorityUnavailable(
+            "capture exact environment query",
+        ))
+    });
+    assert!(try_step(&mut world, vec![pose(p.player.start, 0.0)], &mut authority).is_err());
+    assert_eq!(world.checkpoint().unwrap(), before);
+    let request = authority
+        .seen
+        .into_iter()
+        .find(|r| matches!(r.query, Query::PlayerEnvironment(_)))
+        .unwrap();
+    (world, request)
+}
+
+fn refused_environment(
+    p: &Profile,
+    mut resolve: impl FnMut(&AuthorityRequest) -> Result<Facts, ResidentEnvironmentError>,
+) -> ResidentEnvironmentError {
+    let mut world =
+        NativeWorld::synthetic_component_test(p.clone(), [8; 16], f::player(), 1234).unwrap();
+    let before = world.checkpoint().unwrap();
+    let records = world.records().to_vec();
+    let mut error = None;
+    let mut authority = EnvironmentAuthority::new(|request: &AuthorityRequest| {
+        error = Some(resolve(request).expect_err("refused source must not publish Facts"));
+        Err(NativeError::AuthorityUnavailable(
+            "resident environment refused",
+        ))
+    });
+    assert!(try_step(&mut world, vec![pose(p.player.start, 0.0)], &mut authority).is_err());
+    assert_eq!(
+        world.checkpoint().unwrap(),
+        before,
+        "failed refresh must not mutate cache or movement"
+    );
+    assert_eq!(world.records(), records);
+    error.unwrap()
+}
+
+pub(crate) fn assert_resident_environment_reply(
+    p: Profile,
+    query: SourceMapQuerySnapshot,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    catalog: &LiquidCatalog,
+    mut change_source: impl FnMut(bool),
+) {
+    let p = with_environment(p, &query, height, catalog);
+    let session = environment_session(&p);
+    let provider =
+        ResidentPlayerEnvironmentProvider::bind(&session, &p, f::player(), height, until(), || {
+            false
+        })
+        .unwrap();
+    let (mut world, request) = captured_environment(&p);
+    let initial = world.checkpoint().unwrap();
+    let mut phases = Vec::new();
+    let facts = provider
+        .resolve_observed(
+            &session,
+            &request,
+            until(),
+            || false,
+            |phase| phases.push(phase),
+        )
+        .unwrap();
+    assert_eq!(phases, [0, 1]);
+    let Facts::PlayerEnvironment(environment) = &facts else {
+        panic!("environment Facts")
+    };
+    let Query::PlayerEnvironment(exact) = &request.query else {
+        panic!("environment query")
+    };
+    assert_eq!(environment.query(), exact.as_ref());
+    assert_eq!(
+        environment.result(),
+        BoundLiquidResult {
+            query: exact.liquid_query(),
+            status: LiquidStatus::NoWater,
+            data: None,
+        }
+    );
+    assert_eq!(exact.liquid_query().required_type, 15);
+    assert_eq!(exact.liquid_query().ticket, exact.phase_sequence());
+    assert_eq!(exact.liquid_query().position, bits(exact.pose().position));
+    assert_eq!(
+        exact.liquid_query().collision_height,
+        exact.height_witness().height().bits()
+    );
+    exact
+        .height_witness()
+        .validate_for(&p, session.world, f::player())
+        .unwrap();
+    assert_eq!(
+        world.checkpoint().unwrap(),
+        initial,
+        "a reply itself never updates the runtime"
+    );
+
+    // Serialized historical queries remain answerable; no fabricated live-frame claim.
+    let historical: AuthorityRequest =
+        serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+    assert_eq!(
+        provider
+            .resolve(&session, &historical, until(), || false)
+            .unwrap(),
+        facts
+    );
+    for field in ["world", "profile", "policy", "geometry", "tick", "npc"] {
+        let mut changed = request.clone();
+        match field {
+            "world" => changed.binding.world[0] ^= 1,
+            "profile" => changed.binding.profile[0] ^= 1,
+            "policy" => changed.binding.authority_policy[0] ^= 1,
+            "geometry" => changed.binding.geometry[0] ^= 1,
+            "tick" => changed.binding.tick = 0,
+            "npc" => {
+                let (_, context) = cached_dispatch(&p, false, height);
+                changed.binding.npc = context.binding.npc;
+            }
+            _ => unreachable!(),
+        }
+        let mut phases = Vec::new();
+        assert!(
+            provider
+                .resolve_observed(
+                    &session,
+                    &changed,
+                    until(),
+                    || false,
+                    |phase| phases.push(phase)
+                )
+                .is_err(),
+            "{field}"
+        );
+        assert!(
+            phases.is_empty(),
+            "invalid context must precede source sampling: {field}"
+        );
+    }
+    for field in [
+        "world",
+        "player",
+        "height",
+        "height_source",
+        "source",
+        "epoch",
+        "inventory",
+        "policy",
+        "catalog",
+        "sequence",
+        "ticket",
+        "before",
+        "pose",
+        "position",
+        "mask",
+        "query_height",
+    ] {
+        let mut value = serde_json::to_value(exact).unwrap();
+        match field {
+            "world" => value["owner"]["height"]["world"][0] = 99.into(),
+            "player" => value["owner"]["height"]["player"]["character"][0] = 99.into(),
+            "height" => value["owner"]["height"]["height"] = 1.0_f32.to_bits().into(),
+            "height_source" => value["owner"]["height"]["source_binding"][0] = 99.into(),
+            "source" => value["owner"]["source"][0] = 99.into(),
+            "epoch" => value["query"]["snapshot"]["source_epoch"][0] = 99.into(),
+            "inventory" | "policy" => value["query"]["snapshot"][field][0] = 99.into(),
+            "catalog" => value["query"]["snapshot"]["liquid_catalog"][0] = 99.into(),
+            "sequence" => value["sequence"] = 0.into(),
+            "ticket" => value["query"]["ticket"] = 99.into(),
+            "before" => value["before"] = serde_json::to_value([0u8; 32]).unwrap(),
+            "pose" => value["pose"]["position"]["x"] = 7.0_f32.to_bits().into(),
+            "position" => value["query"]["position"][0] = 7.0_f32.to_bits().into(),
+            "mask" => value["query"]["required_type"] = 10.into(),
+            "query_height" => value["query"]["collision_height"] = 1.0_f32.to_bits().into(),
+            _ => unreachable!(),
+        }
+        let mut changed = request.clone();
+        changed.query = Query::PlayerEnvironment(Box::new(serde_json::from_value(value).unwrap()));
+        let mut phases = Vec::new();
+        assert!(
+            provider
+                .resolve_observed(
+                    &session,
+                    &changed,
+                    until(),
+                    || false,
+                    |phase| phases.push(phase)
+                )
+                .is_err(),
+            "{field}"
+        );
+        assert!(
+            phases.is_empty(),
+            "invalid query must precede source sampling: {field}"
+        );
+    }
+    for field in [
+        "world",
+        "map",
+        "player",
+        "height",
+        "participants",
+        "selection",
+    ] {
+        let mut changed = session.clone();
+        match field {
+            "world" => changed.world[0] ^= 1,
+            "map" => changed.map += 1,
+            "player" => changed.player = None,
+            "height" => changed.player.as_mut().unwrap().body.height = ai::Real::new(9.0).unwrap(),
+            "participants" => changed.participants = None,
+            "selection" => changed.player_environment = None,
+            _ => unreachable!(),
+        }
+        assert!(
+            provider
+                .resolve(&changed, &request, until(), || false)
+                .is_err(),
+            "{field}"
+        );
+        if field != "world" {
+            assert!(
+                ResidentPlayerEnvironmentProvider::bind(
+                    &changed,
+                    &p,
+                    f::player(),
+                    height,
+                    until(),
+                    || false
+                )
+                .is_err(),
+                "{field}"
+            );
+        }
+    }
+    let mut wrong_player = f::player();
+    wrong_player.character[0] ^= 1;
+    assert!(ResidentPlayerEnvironmentProvider::bind(
+        &session,
+        &p,
+        wrong_player,
+        height,
+        until(),
+        || false
+    )
+    .is_err());
+    assert!(matches!(
+        ResidentPlayerEnvironmentProvider::bind(
+            &session,
+            &p,
+            f::player(),
+            height,
+            Instant::now(),
+            || false
+        ),
+        Err(ResidentEnvironmentError::Context(Failure::Deadline))
+    ));
+    assert!(matches!(
+        ResidentPlayerEnvironmentProvider::bind(&session, &p, f::player(), height, until(), || {
+            true
+        }),
+        Err(ResidentEnvironmentError::Source(
+            CompositionError::Cancelled
+        ))
+    ));
+    assert!(matches!(
+        refused_environment(&p, |current| provider.resolve(
+            &session,
+            current,
+            Instant::now(),
+            || false
+        )),
+        ResidentEnvironmentError::Context(Failure::Deadline)
+    ));
+    assert!(matches!(
+        refused_environment(&p, |current| provider.resolve(
+            &session,
+            current,
+            until(),
+            || true
+        )),
+        ResidentEnvironmentError::Source(CompositionError::Cancelled)
+    ));
+    for stop in [0, 1] {
+        let cancelled = Cell::new(false);
+        let mut phases = Vec::new();
+        assert!(matches!(
+            refused_environment(&p, |current| provider.resolve_observed(
+                &session,
+                current,
+                until(),
+                || cancelled.get(),
+                |phase| {
+                    phases.push(phase);
+                    if phase == stop {
+                        cancelled.set(true);
+                    }
+                }
+            )),
+            ResidentEnvironmentError::Source(CompositionError::Cancelled)
+        ));
+        assert_eq!(phases.last(), Some(&stop));
+        let mut reached = false;
+        let error = refused_environment(&p, |current| {
+            provider.resolve_observed(
+                &session,
+                current,
+                until(),
+                || false,
+                |phase| {
+                    if phase == stop {
+                        reached = true;
+                        change_source(true);
+                    }
+                },
+            )
+        });
+        assert!(reached);
+        assert!(matches!(error, ResidentEnvironmentError::Source(_)));
+        assert!(ResidentPlayerEnvironmentProvider::bind(
+            &session,
+            &p,
+            f::player(),
+            height,
+            until(),
+            || false
+        )
+        .is_err());
+        change_source(false);
+        assert_eq!(
+            provider
+                .resolve(&session, &request, until(), || false)
+                .unwrap(),
+            facts
+        );
+    }
+    let expires = Instant::now() + Duration::from_millis(250);
+    let mut reached = false;
+    assert!(matches!(
+        refused_environment(&p, |current| provider.resolve_observed(
+            &session,
+            current,
+            expires,
+            || false,
+            |phase| {
+                if phase == 1 {
+                    reached = true;
+                    std::thread::sleep(expires.saturating_duration_since(Instant::now()));
+                }
+            }
+        )),
+        ResidentEnvironmentError::Context(Failure::Deadline)
+    ));
+    assert!(
+        reached,
+        "deadline expires after genuine point reply construction"
+    );
+
+    // Only the reducer knows which transcript belongs to its current cache/pose.
+    let mut actual = EnvironmentAuthority::new(|current: &AuthorityRequest| {
+        Ok(provider
+            .resolve(&session, current, until(), || false)
+            .unwrap())
+    });
+    step(&mut world, vec![pose(p.player.start, 0.0)], &mut actual);
+    while world
+        .state()
+        .player_environment()
+        .unwrap()
+        .environment()
+        .timer_ms()
+        != 0
+    {
+        step(&mut world, vec![], &mut actual);
+    }
+    assert_eq!(
+        provider
+            .resolve(&session, &historical, until(), || false)
+            .unwrap(),
+        facts
+    );
+    let checkpoint = world.checkpoint().unwrap();
+    let records = world.records().to_vec();
+    let moved = ai::Point::new(
+        p.player.start.x.as_f32(),
+        p.player.start.y.as_f32() + 1.0,
+        p.player.start.z.as_f32(),
+    )
+    .unwrap();
+    let mut stale = EnvironmentAuthority::new(|current: &AuthorityRequest| {
+        assert_ne!(*current, request);
+        let Query::PlayerEnvironment(current) = &current.query else {
+            panic!()
+        };
+        assert_ne!(current.phase_sequence(), exact.phase_sequence());
+        assert_ne!(current.pose(), exact.pose());
+        Ok(facts.clone())
+    });
+    assert!(try_step(&mut world, vec![pose(moved, 0.5)], &mut stale).is_err());
+    assert_eq!(environment_count(&stale), 1);
+    assert_eq!(world.checkpoint().unwrap(), checkpoint);
+    assert_eq!(world.records(), records);
+    step(&mut world, vec![pose(moved, 0.5)], &mut actual);
+    assert_eq!(environment_count(&actual), 2);
+    assert_eq!(world.state().position, moved);
+    let mut replay = NativeWorld::restore_synthetic_component_test(p, initial).unwrap();
+    replay.replay(world.records()).unwrap();
+    assert_eq!(replay.checkpoint().unwrap(), world.checkpoint().unwrap());
+}
+
+pub(crate) fn assert_resident_environment_unavailable(
+    mut p: Profile,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    catalog: &LiquidCatalog,
+    expected: super::super::products::Error,
+) {
+    let binding = height
+        .environment_binding(p.content_digest, catalog, || false)
+        .unwrap();
+    p.initialize_player_environment(binding, catalog.clone())
+        .unwrap();
+    let session = environment_session(&p);
+    let provider =
+        ResidentPlayerEnvironmentProvider::bind(&session, &p, f::player(), height, until(), || {
+            false
+        })
+        .unwrap();
+    let mut phases = Vec::new();
+    let error = refused_environment(&p, |request| {
+        provider.resolve_observed(
+            &session,
+            request,
+            until(),
+            || false,
+            |phase| phases.push(phase),
+        )
+    });
+    assert!(
+        matches!(error, ResidentEnvironmentError::Source(CompositionError::Validation(actual)) if actual == expected)
+    );
+    assert_eq!(
+        phases,
+        [0],
+        "missing/wet products never construct NoWater Facts"
+    );
 }

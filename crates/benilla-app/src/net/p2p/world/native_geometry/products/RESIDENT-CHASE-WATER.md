@@ -59,3 +59,8 @@ authored dry/wet runtime target caches, before/after countdown ownership, older
 cached positions, binding mismatches and stale evidence. Owner wet/Missing
 short-circuit and initial sequence-zero cache behavior retain complementary
 existing coverage; they are not newly demonstrated end to end here.
+
+The separate [resident dry environment provider](RESIDENT-PLAYER-ENVIRONMENT.md)
+now offers a genuine point-absence reply path into the existing cache reducer.
+It remains a separate component from this consumer and does not widen wet query
+support or normal-session installation.

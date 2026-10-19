@@ -1294,6 +1294,13 @@ fn genuine_resident_chase_water_binds_catalog_then_reads_runtime_cached_target()
         .find(|entry| entry.name == ADT)
         .unwrap()
         .bytes[0] ^= 1;
+    water::assert_resident_environment_reply(
+        p.clone(),
+        snapshot(&p),
+        &height,
+        &catalog,
+        |mutated| install.write(if mutated { &changed } else { &entries }),
+    );
     water::assert_resident_chase_water(
         p.clone(),
         snapshot(&p),
@@ -1359,4 +1366,103 @@ fn genuine_resident_chase_water_binds_catalog_then_reads_runtime_cached_target()
     install.write(&entries);
     input.verify_unchanged(|| false).unwrap();
     assert_eq!(install.bytes(), before);
+}
+
+#[test]
+fn genuine_resident_player_environment_wet_and_missing_products_never_refresh_cache() {
+    use super::super::super::super::source_pathfinder_query::{
+        resident_los_tests as los, resident_water_tests as water,
+    };
+    use super::super::super::source_height::PreparedSourceHeight;
+    use benilla_world_runtime::native::environment::LiquidCatalog;
+    let terrain_fixture = |name: &str| {
+        fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../benilla-native-terrain/tools/fixtures")
+                .join(name),
+        )
+        .unwrap()
+    };
+    let hit = [
+        f32::from_bits(0x43e8_d540),
+        f32::from_bits(0x4471_aaa0),
+        8.0,
+    ];
+    for case in [
+        "terrain_wet",
+        "selected_wmo_wet",
+        "missing_terrain",
+        "missing_collision",
+    ] {
+        let mut entries = source_height_tests::shared_entries();
+        match case {
+            "terrain_wet" => {
+                entries = placed_entries(terrain_fixture("liquid_water_flat.adt.test-fixture"));
+            }
+            "selected_wmo_wet" => {
+                // Same original physical MLIQ chunk used by resident_liquid_tests;
+                // this authored combination establishes refusal, not wet semantics.
+                let wet = fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(
+                    "../benilla-native-geometry-tests/tools/fixtures/wmo_liquid_source/inputs/Ocean_000.group.test-fixture"
+                )).unwrap();
+                let offset = wet.windows(4).position(|tag| tag == b"QILM").unwrap();
+                let size =
+                    u32::from_le_bytes(wet[offset + 4..offset + 8].try_into().unwrap()) as usize;
+                let mut group = fixture("hull_000.group.test-fixture");
+                group.extend_from_slice(&wet[offset..offset + 8 + size]);
+                *entries
+                    .iter_mut()
+                    .find(|entry| entry.name == GROUP)
+                    .unwrap() = raw_entry(GROUP, group);
+            }
+            "missing_collision" => {
+                *entries.iter_mut().find(|entry| entry.name == ADT).unwrap() =
+                    raw_entry(ADT, terrain_fixture("flat.adt.test-fixture"));
+                let mut other = chunk(b"MVER", &18u32.to_le_bytes());
+                other.extend(chunk(b"MWMO", format!("{ROOT}\0").as_bytes()));
+                other.extend(chunk(b"MODF", &fixture("hull.modf.test-fixture")));
+                entries.push(raw_entry(
+                    "World\\Maps\\Selected\\Selected_31_31.adt",
+                    other,
+                ));
+            }
+            "missing_terrain" => {}
+            _ => unreachable!(),
+        }
+        let catalog = LiquidCatalog::from_wdbc(
+            &entries
+                .iter()
+                .find(|entry| entry.name == "DBFilesClient\\LiquidType.dbc")
+                .unwrap()
+                .bytes,
+        )
+        .unwrap();
+        let install = Install::new(&entries);
+        let before = install.bytes();
+        let terrain = benilla_native_terrain::prepare(
+            &install.0,
+            0,
+            &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+        )
+        .unwrap();
+        let capture = source::prepare(&install.0, 0, || false).unwrap();
+        let bundle = capture
+            .assemble_map_bundle(profile(), || false)
+            .unwrap()
+            .unwrap();
+        let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+        let mut player = hit;
+        if case == "missing_terrain" {
+            player.swap(0, 1);
+        }
+        let p = los::model_profile([player[0], player[1] - 8.0, player[2]], player, 1.6, 2.4);
+        let error = if case.starts_with("missing") {
+            Error::Missing
+        } else {
+            Error::Unsupported
+        };
+        water::assert_resident_environment_unavailable(p, &height, &catalog, error);
+        height.verify_unchanged(|| false).unwrap();
+        assert_eq!(install.bytes(), before, "{case}");
+    }
 }
