@@ -907,7 +907,9 @@ try {
             $identity.unchanged_after_collection = $identity.sha256 -ceq $identity.sha256_after_collection
         } catch { $identity.unchanged_after_collection = $false }
     }
-    $json = ConvertTo-Json -InputObject $report -Depth 16
+    # Keep the closed-schema payload compact: PowerShell 5.1 aligns nested values
+    # to property names, adding large whitespace overhead to bounded record arrays.
+    $json = ConvertTo-Json -InputObject $report -Depth 16 -Compress
     $encoding = New-Object Text.UTF8Encoding($false)
     $bytes = $encoding.GetBytes($json + "`r`n")
     $reportStream.Write($bytes, 0, $bytes.Length); $reportStream.Flush()

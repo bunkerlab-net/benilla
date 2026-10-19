@@ -13,6 +13,14 @@ param([string]$Collector = '')
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+function Assert-ReportSerialization([string]$Path, [string]$Raw, [string]$Case) {
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $byteCount = $utf8.GetByteCount($Raw)
+    Assert-True ($byteCount -lt 100000) ($Case + ': report unexpectedly large (' + $byteCount + ' UTF-8 bytes)')
+    Assert-True ((New-Object IO.FileInfo($Path)).Length -eq $byteCount) ($Case + ': report is not BOM-free UTF-8')
+    Assert-True ($Raw.EndsWith("`r`n")) ($Case + ': report terminator changed')
+    Assert-True ($Raw.Substring(0, $Raw.Length - 2) -notmatch '[\r\n]') ($Case + ': report contains pretty-print line breaks')
+}
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'These smoke tests require Windows.' }
 # Resolve script-relative defaults only after parameter binding (Windows PowerShell 5.1).
 if ([string]::IsNullOrWhiteSpace($Collector)) {
@@ -388,7 +396,7 @@ class FakeCollisionPlayer {
         $reports.Add($output)
         $raw = [IO.File]::ReadAllText($output)
         Assert-True ($raw -notmatch 'PRIVATE_|Private Person|Benilla private path|[A-Za-z]:\\') ($Mode + ': private text leaked into report')
-        Assert-True ($raw.Length -lt 100000) ($Mode + ': report unexpectedly large')
+        Assert-ReportSerialization $output $raw $Mode
         $r = ConvertFrom-Json -InputObject $raw
         Assert-True ($r.helper.sha256 -eq (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()) ($Mode + ': helper hash mismatch')
         return $r
@@ -434,7 +442,7 @@ class FakeCollisionPlayer {
         $reports.Add($output)
         $raw = [IO.File]::ReadAllText($output)
         Assert-True ($raw -notmatch 'PRIVATE_|Private Person|Benilla private path|[A-Za-z]:\\') ($Mode + ': collision private text leaked')
-        Assert-True ($raw.Length -lt 100000) ($Mode + ': collision report unexpectedly large')
+        Assert-ReportSerialization $output $raw ('collision ' + $Mode)
         $r = ConvertFrom-Json -InputObject $raw
         if ($r.player.status -eq 'available') {
             Assert-True ($r.player.sha256 -eq (Get-FileHash -LiteralPath $playerExe -Algorithm SHA256).Hash.ToLowerInvariant() -and $r.player.unchanged_after_collection) ($Mode + ': player identity/hash mismatch')
@@ -443,6 +451,15 @@ class FakeCollisionPlayer {
         Assert-True ($r.collision_diagnostics.records.Count -le 64) ($Mode + ': record count limit exceeded')
         if ($null -ne $r.collision_diagnostics.PSObject.Properties['accepted_bytes']) {
             Assert-True ($r.collision_diagnostics.accepted_bytes -le 262144) ($Mode + ': cumulative JSON byte limit exceeded')
+            # Canonical records contain only allowlisted ASCII strings and bounded
+            # integers. Compact serialization must not expand their NDJSON budget.
+            $utf8 = New-Object Text.UTF8Encoding($false)
+            $retainedBytes = 0
+            foreach ($record in $r.collision_diagnostics.records) {
+                $recordJson = ConvertTo-Json -InputObject $record -Depth 16 -Compress
+                $retainedBytes += $utf8.GetByteCount($recordJson) + 1
+            }
+            Assert-True ($retainedBytes -le $r.collision_diagnostics.accepted_bytes) ($Mode + ': compact records exceed accepted NDJSON bytes')
         }
         return $r
     }

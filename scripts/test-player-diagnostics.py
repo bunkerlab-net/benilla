@@ -178,6 +178,18 @@ class CollectorContractTests(unittest.TestCase):
         self.assertEqual(smoke.MAX_STDOUT, 262144)
         self.assertEqual(smoke.HARD_TIMEOUT, 20.0)
 
+    def test_collector_serializes_compact_json_with_native_byte_bound_regressions(self):
+        # Source contracts only: the authored Windows smoke exercises both native
+        # serializers, the 46-record success report, and the full 64-record cap.
+        self.assertIn("$json = ConvertTo-Json -InputObject $report -Depth 16 -Compress",
+                      self.collector)
+        authored = (self.root / "scripts/Test-BenillaTerrainDiagnostics.ps1").read_text(encoding="utf-8")
+        self.assertIn("$byteCount = $utf8.GetByteCount($Raw)", authored)
+        self.assertIn("$byteCount -lt 100000", authored)
+        self.assertIn("Assert-ReportSerialization $output $raw $Mode", authored)
+        self.assertIn("Assert-ReportSerialization $output $raw ('collision ' + $Mode)", authored)
+        self.assertIn("$retainedBytes -le $r.collision_diagnostics.accepted_bytes", authored)
+
     def test_collector_only_accepts_v3(self):
         self.assertIn("$Object.format -cne 'benilla-collision-diagnostics-v3'", self.collector)
         self.assertNotIn("benilla-collision-diagnostics-v1", self.collector)
