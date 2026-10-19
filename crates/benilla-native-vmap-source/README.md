@@ -72,3 +72,6 @@ filtering. Its policy identifier is included in the summary and projection bindi
 order, generated IDs and explicitly profiled projections into an in-memory
 `dir_bin` stream. This API rechecks captured inputs before returning, writes no
 files and does not build the map/model BIHs or enable gameplay admission.
+
+See [map spawn indexing](MAP-SPAWN-INDEX.md) for source first-wins ID handling,
+duplicate tile references, bounds and the remaining complete-map dependencies.

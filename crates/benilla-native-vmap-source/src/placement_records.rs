@@ -263,4 +263,104 @@ mod tests {
             Err(PlacementRecordError::Limit)
         ));
     }
+    #[test]
+    fn map_index_matches_original_container_numeric_rows_and_rejects_bad_internal_streams() {
+        let rows = [
+            (1u32, 0u32, 9u32, 11u32),
+            (0, 0, 3, 33),
+            (0, 0, 9, 22),
+            (0, 0, 3, 44),
+            (65, 65, 1, 55),
+            (1, 0, 2, 66),
+        ];
+        let mut bytes = Vec::new();
+        for (x, y, id, payload) in rows {
+            let start = bytes.len();
+            bytes.resize(start + 55, 0);
+            for (at, value) in [
+                (0, 7),
+                (4, x),
+                (8, y),
+                (12, 1),
+                (18, id),
+                (22, payload),
+                (50, 1),
+            ] {
+                bytes[start + at..start + at + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            bytes[start + 54] = b'A';
+        }
+        let mut records = PlacementRecords {
+            bytes,
+            count: 6,
+            binding: [0; 32],
+        };
+        let index = records.map_spawn_index(|| false).unwrap();
+        let unique: Vec<_> = index
+            .unique_records()
+            .map(|(id, b)| (id, u32::from_le_bytes(b[22..26].try_into().unwrap())))
+            .collect();
+        assert_eq!(unique, [(1, 55), (2, 66), (3, 33), (9, 11)]);
+        assert_eq!(
+            index.tile_references().collect::<Vec<_>>(),
+            [(0, 3), (0, 9), (0, 3), (65536, 9), (65536, 2), (4259905, 1)]
+        );
+        records.count = crate::MAX_INDEX_RECORDS + 1;
+        assert_eq!(
+            records.map_spawn_index(|| false).unwrap_err(),
+            crate::MapSpawnIndexError::Limit
+        );
+        records.count = 6;
+        records.bytes.pop();
+        assert_eq!(
+            records.map_spawn_index(|| false).unwrap_err(),
+            crate::MapSpawnIndexError::Record
+        );
+        records.bytes.push(b'A');
+        records.bytes[55..59].copy_from_slice(&8u32.to_le_bytes());
+        assert_eq!(
+            records.map_spawn_index(|| false).unwrap_err(),
+            crate::MapSpawnIndexError::Record
+        );
+    }
+    #[test]
+    fn map_index_rejects_all_internal_framing_mismatches_and_accepts_empty() {
+        let empty = PlacementRecords {
+            bytes: Vec::new(),
+            count: 0,
+            binding: [0; 32],
+        };
+        let index = empty.map_spawn_index(|| false).unwrap();
+        assert_eq!((index.unique_count(), index.tile_reference_count()), (0, 0));
+        let mut one = vec![0u8; 55];
+        one[12..16].copy_from_slice(&1u32.to_le_bytes());
+        one[18..22].copy_from_slice(&1u32.to_le_bytes());
+        one[50..54].copy_from_slice(&1u32.to_le_bytes());
+        one[54] = b'A';
+        let mut oversized = one.clone();
+        oversized[50..54].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut wmo = one.clone();
+        wmo[12..16].copy_from_slice(&4u32.to_le_bytes());
+        let mut trailing = one.clone();
+        trailing.push(0);
+        for (bytes, count) in [
+            (vec![0; 3], 1),
+            (one[..18].to_vec(), 1),
+            (one.clone(), 0),
+            (one.clone(), 2),
+            (trailing, 1),
+            (oversized, 1),
+            (wmo, 1),
+        ] {
+            let records = PlacementRecords {
+                bytes,
+                count,
+                binding: [0; 32],
+            };
+            assert_eq!(
+                records.map_spawn_index(|| false).unwrap_err(),
+                crate::MapSpawnIndexError::Record
+            );
+        }
+    }
 }

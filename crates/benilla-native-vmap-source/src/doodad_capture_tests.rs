@@ -838,6 +838,42 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
         ]
     );
     assert_eq!(records.record_count(), 6);
+    let index = records.map_spawn_index(|| false).unwrap();
+    assert_eq!(index.unique_count(), 4);
+    assert_eq!(index.tile_reference_count(), 6);
+    assert_eq!(
+        index.unique_records().map(|(id, _)| id).collect::<Vec<_>>(),
+        [1, 2, 3, 5]
+    );
+    assert_eq!(
+        index.tile_references().collect::<Vec<_>>(),
+        [(0, 1), (0, 2), (0, 3), (0, 5), (65536, 2), (65536, 3)]
+    );
+    // The tile-1 duplicates retain references to the tile-0 first-wins record.
+    for (_, record) in index.unique_records() {
+        assert_eq!(&record[4..12], &[0; 8]);
+    }
+    assert_eq!(index.source_binding(), records.preprocessing_binding());
+    let polls = std::cell::Cell::new(0);
+    records
+        .map_spawn_index(|| {
+            polls.set(polls.get() + 1);
+            false
+        })
+        .unwrap();
+    for cutoff in 0..polls.get() {
+        let n = std::cell::Cell::new(0);
+        let error = records
+            .map_spawn_index(|| {
+                let current = n.get();
+                n.set(current + 1);
+                current >= cutoff
+            })
+            .unwrap_err();
+        assert_eq!(error, MapSpawnIndexError::Cancelled);
+    }
+    assert_eq!(records.map_spawn_index(|| false).unwrap().unique_count(), 4);
+
     assert_eq!(prepared.summary().encounter_id_count, 5);
     assert_eq!(prepared.summary().encounter_attempts, 10);
     assert_eq!(prepared.summary().prefix_maps, 1);
