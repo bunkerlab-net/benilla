@@ -430,4 +430,5 @@ fn static_index_retains_only_its_actual_inventory_provenance_owner() {
     assert!(!owner.same_owner(other.source_provenance().unwrap()));
 }
 
+#[path = "real_corridor_fixture/installed_source.rs"]
 mod installed_source;
