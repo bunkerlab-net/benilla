@@ -8,6 +8,8 @@ use super::super::super::{
 use super::*;
 use benilla_sim::chase_gate;
 use benilla_world_runtime::PlayerId;
+#[path = "water.rs"]
+pub(crate) mod water;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResidentChaseLosDecision {
@@ -21,6 +23,7 @@ pub(crate) struct ResidentChaseLosObservation {
     pub(crate) decision: ResidentChaseLosDecision,
     pub(crate) ray: Option<RayReply>,
 }
+#[derive(Clone)]
 pub(crate) struct ResidentChaseLosDependency {
     identity: Rc<()>,
     context: AuthorityRequest,

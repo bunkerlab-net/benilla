@@ -66,7 +66,7 @@ pub(crate) fn model_profile(
     p.validate().unwrap();
     p
 }
-fn session(p: &Profile) -> Session {
+pub(crate) fn session(p: &Profile) -> Session {
     let settings = p.source_motion.as_ref().unwrap();
     Session {
         world: [8; 16],
@@ -115,7 +115,7 @@ struct GoalAuthority {
     first_route_goal: Option<ai::Point>,
 }
 #[derive(Clone, Copy)]
-enum AuthoredGoal {
+pub(crate) enum AuthoredGoal {
     Absolute(ai::Point),
     OwnerOffset([f32; 3]),
 }
@@ -152,7 +152,10 @@ impl Authority for GoalAuthority {
         Ok(reply)
     }
 }
-fn first_dispatch(p: &Profile, goal: Option<AuthoredGoal>) -> (NativeWorld, AuthorityRequest) {
+pub(crate) fn first_dispatch(
+    p: &Profile,
+    goal: Option<AuthoredGoal>,
+) -> (NativeWorld, AuthorityRequest) {
     let mut world =
         NativeWorld::synthetic_component_test(p.clone(), [8; 16], f::player(), 1234).unwrap();
     let mut authority = GoalAuthority {

@@ -1160,3 +1160,203 @@ fn genuine_resident_chase_los_keeps_model_witnesses_fresh_and_exact_goal_endpoin
     input.verify_unchanged(|| false).unwrap();
     assert_eq!(install.bytes(), before);
 }
+
+#[test]
+fn genuine_resident_chase_water_binds_catalog_then_reads_runtime_cached_target() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    use super::super::super::super::source_pathfinder_query::{
+        resident_los_tests as los, resident_water_tests as water,
+    };
+    use super::super::super::super::source_route_filter::resident::chase_los::ResidentChaseLosDecision as Decision;
+    use super::super::super::{
+        source_height::{CompositionError, PreparedSourceHeight},
+        source_query::SourceMapQuerySnapshot,
+    };
+    use benilla_world_runtime::native::environment::LiquidCatalog;
+
+    let mut entries = ridge_entries();
+    let liquid = entries
+        .iter_mut()
+        .find(|entry| entry.name == "DBFilesClient\\LiquidType.dbc")
+        .unwrap();
+    // Keep the existing authored row and add an explicit spell-free surface row.
+    // Both runtime catalog and source receipts consume these same complete bytes.
+    assert_eq!(
+        u32::from_le_bytes(liquid.bytes[4..8].try_into().unwrap()),
+        1
+    );
+    liquid.bytes[4..8].copy_from_slice(&2u32.to_le_bytes());
+    liquid.bytes[16..20].copy_from_slice(&8u32.to_le_bytes());
+    liquid.bytes.truncate(36);
+    let surface_entry = 22u32;
+    for word in [surface_entry, 22, 3, 0] {
+        liquid.bytes.extend(word.to_le_bytes());
+    }
+    liquid.bytes.extend(b"\0source\0");
+    liquid.declared = liquid.bytes.len() as u32;
+    let catalog_bytes = liquid.bytes.clone();
+    let catalog = LiquidCatalog::from_wdbc(&catalog_bytes).unwrap();
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_slice(&oracle("ridge_wmo/expected.json")).unwrap();
+    let start_bits = expected["output"]["paths"][0]["start_bits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| f32::from_bits(u32::from_str_radix(v.as_str().unwrap(), 16).unwrap()))
+        .collect::<Vec<_>>();
+    let start = [start_bits[2], start_bits[0], start_bits[1]];
+    let end = [start[0], start[1] + 8.0, start[2]];
+    let p = los::model_profile(start, end, 1.6, 2.4);
+    let snapshot = |p: &benilla_world_runtime::native::Profile| {
+        SourceMapQuerySnapshot::from_generated(
+            &[(&input, &output)],
+            p,
+            Instant::now() + Duration::from_secs(10),
+            || false,
+        )
+        .unwrap()
+    };
+
+    let binding = height
+        .environment_binding(p.content_digest, &catalog, || false)
+        .unwrap();
+    assert_eq!(binding.map, p.map_id);
+    assert_eq!(binding.content, p.content_digest);
+    assert_eq!(binding.liquid_catalog, catalog.digest());
+    assert_ne!(binding.source_epoch, [0; 32]);
+    assert_ne!(binding.inventory, [0; 32]);
+    assert_ne!(binding.policy, [0; 32]);
+    assert_eq!(
+        height
+            .environment_binding(p.content_digest, &catalog, || false)
+            .unwrap(),
+        binding
+    );
+    let legacy = LiquidCatalog::from_legacy_wdbc(&catalog_bytes).unwrap();
+    assert_eq!(legacy.digest(), catalog.digest());
+    assert_eq!(legacy.get(surface_entry), catalog.get(surface_entry));
+    assert!(height
+        .environment_binding(p.content_digest, &legacy, || false)
+        .is_err());
+    let mut changed_bytes = catalog_bytes.clone();
+    changed_bytes[53] = b'S';
+    let changed_catalog = LiquidCatalog::from_wdbc(&changed_bytes).unwrap();
+    assert_eq!(changed_catalog.get(1), catalog.get(1));
+    assert_eq!(
+        changed_catalog.get(surface_entry),
+        catalog.get(surface_entry)
+    );
+    assert_ne!(changed_catalog.digest(), catalog.digest());
+    assert!(height
+        .environment_binding(p.content_digest, &changed_catalog, || false)
+        .is_err());
+    assert!(height
+        .environment_binding([0; 32], &catalog, || false)
+        .is_err());
+    assert!(matches!(
+        height.environment_binding(p.content_digest, &catalog, || true),
+        Err(CompositionError::Cancelled)
+    ));
+
+    let mut changed: Vec<_> = entries
+        .iter()
+        .map(|entry| Entry {
+            name: entry.name.clone(),
+            bytes: entry.bytes.clone(),
+            flags: entry.flags,
+            declared: entry.declared,
+        })
+        .collect();
+    changed
+        .iter_mut()
+        .find(|entry| entry.name == ADT)
+        .unwrap()
+        .bytes[0] ^= 1;
+    water::assert_resident_chase_water(
+        p.clone(),
+        snapshot(&p),
+        snapshot(&p),
+        &height,
+        &catalog,
+        |mutated| {
+            install.write(if mutated { &changed } else { &entries });
+        },
+    );
+    water::assert_resident_water_before_countdown(p.clone(), snapshot(&p), &height, &catalog);
+    water::assert_resident_water_cached_target_is_wet(
+        p.clone(),
+        snapshot(&p),
+        &height,
+        &catalog,
+        surface_entry,
+    );
+    for field in ["epoch", "inventory", "policy", "missing"] {
+        water::assert_resident_water_binding_rejected(
+            p.clone(),
+            snapshot(&p),
+            &height,
+            &catalog,
+            field,
+        );
+    }
+    let reach = benilla_world_runtime::native::synthetic_creature_model_fixture::selection()
+        .combat_reach()
+        .bits();
+    for (goal, decision) in [
+        (
+            [200.0 + f32::from_bits(reach), 0.0, 0.0],
+            Decision::Distance,
+        ),
+        ([0.0, 0.0, -5.0], Decision::Vertical),
+    ] {
+        water::assert_resident_water_prefix_rejected(
+            p.clone(),
+            snapshot(&p),
+            &height,
+            goal,
+            decision,
+        );
+    }
+    let hit = [
+        f32::from_bits(0x43e8_d540),
+        f32::from_bits(0x4471_aaa0),
+        0.0,
+    ];
+    let blocked = los::model_profile(hit, [hit[0] + 10.0, hit[1], hit[2]], 1.0, 16.0);
+    water::assert_resident_water_prefix_rejected(
+        blocked.clone(),
+        snapshot(&blocked),
+        &height,
+        [hit[0] + 0.01, hit[1], hit[2]],
+        Decision::Blocked,
+    );
+    install.write(&changed);
+    assert!(height
+        .environment_binding(p.content_digest, &catalog, || false)
+        .is_err());
+    install.write(&entries);
+    input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
+}
