@@ -231,21 +231,63 @@ mod unix {
 /// helper never spawns children. If a broken helper leaves inherited pipe handles,
 /// this still returns on deadline after killing/reaping the direct child, but cannot
 /// terminate those descendants portably. A lease prevents repeated calls from
-/// accumulating stranded workers; further calls fail until all three workers exit.
+/// accumulating stranded workers. Healthy contention waits within the caller's
+/// deadline; after its owner returns, further calls fail until all workers exit.
 #[cfg(any(not(unix), test))]
 mod portable {
     use super::*;
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
         mpsc::{self, TryRecvError},
-        Arc,
+        Mutex,
     };
 
-    static OCCUPIED: AtomicBool = AtomicBool::new(false);
+    struct State {
+        active: bool,
+        workers: usize,
+    }
+    static STATE: Mutex<State> = Mutex::new(State {
+        active: false,
+        workers: 0,
+    });
+
     struct Lease;
+    impl Lease {
+        fn acquire(
+            deadline: Instant,
+            cancelled: &impl Fn() -> bool,
+        ) -> Result<Self, GenerationError> {
+            loop {
+                check(deadline, cancelled)?;
+                {
+                    let mut state = STATE.lock().unwrap();
+                    if !state.active {
+                        if state.workers != 0 {
+                            return Err(GenerationError::Helper);
+                        }
+                        state.active = true;
+                        return Ok(Self);
+                    }
+                }
+                pause(deadline);
+            }
+        }
+    }
     impl Drop for Lease {
         fn drop(&mut self) {
-            OCCUPIED.store(false, Ordering::Release);
+            STATE.lock().unwrap().active = false;
+        }
+    }
+
+    struct WorkerLease;
+    impl WorkerLease {
+        fn new() -> Self {
+            STATE.lock().unwrap().workers += 1;
+            Self
+        }
+    }
+    impl Drop for WorkerLease {
+        fn drop(&mut self) {
+            STATE.lock().unwrap().workers -= 1;
         }
     }
 
@@ -291,10 +333,7 @@ mod portable {
         deadline: Instant,
         cancelled: &impl Fn() -> bool,
     ) -> Result<Vec<u8>, GenerationError> {
-        OCCUPIED
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| GenerationError::Helper)?;
-        let lease = Arc::new(Lease);
+        let _lease = Lease::acquire(deadline, cancelled)?;
         let mut running = Running {
             child: command.spawn().map_err(|_| GenerationError::Io)?,
             reaped: false,
@@ -305,7 +344,7 @@ mod portable {
         let stdout = running.child.stdout.take().ok_or(GenerationError::Io)?;
         let stderr = running.child.stderr.take().ok_or(GenerationError::Io)?;
         let (sender, receiver) = mpsc::sync_channel(3);
-        let (writer_sender, writer_lease) = (sender.clone(), lease.clone());
+        let (writer_sender, writer_lease) = (sender.clone(), WorkerLease::new());
         thread::Builder::new()
             .name("native-nav-stdin".into())
             .spawn(move || {
@@ -321,7 +360,7 @@ mod portable {
                 let _ = writer_sender.send(Event::Written(result));
             })
             .map_err(|_| GenerationError::Io)?;
-        let (stdout_sender, stdout_lease) = (sender.clone(), lease.clone());
+        let (stdout_sender, stdout_lease) = (sender.clone(), WorkerLease::new());
         thread::Builder::new()
             .name("native-nav-stdout".into())
             .spawn(move || {
@@ -330,7 +369,7 @@ mod portable {
                 let _ = stdout_sender.send(Event::Stdout(result));
             })
             .map_err(|_| GenerationError::Io)?;
-        let stderr_lease = lease.clone();
+        let stderr_lease = WorkerLease::new();
         thread::Builder::new()
             .name("native-nav-stderr".into())
             .spawn(move || {
@@ -599,6 +638,70 @@ mod tests {
             );
             assert!(began.elapsed() < Duration::from_secs(1));
             helper.assert_reaped();
+        }
+
+        #[test]
+        fn portable_healthy_contention_waits_with_deadline_and_cancellation() {
+            let _serial = HELPER_TEST.lock().unwrap();
+            let first = Helper::new(&format!(
+                "sys.stdin.buffer.read()\nwith open(os.path.join(os.path.dirname(__file__), 'pid'), 'w') as f:\n    f.write(str(os.getpid()))\nwhile not os.path.isfile(os.path.join(os.path.dirname(__file__), 'release')):\n    time.sleep(0.002)\nsys.stdout.buffer.write({EMPTY})"
+            ));
+            let next = Helper::new(&format!(
+                "sys.stdin.buffer.read()\nsys.stdout.buffer.write({EMPTY})"
+            ));
+            let checks = AtomicU64::new(0);
+            thread::scope(|scope| {
+                let first_run = scope.spawn(|| {
+                    portable::run(
+                        first.command(),
+                        vec![],
+                        Instant::now() + Duration::from_secs(5),
+                        &|| false,
+                    )
+                });
+                let started = first.0.parent().unwrap().join("pid");
+                let ready_deadline = Instant::now() + Duration::from_secs(2);
+                while !started.is_file() && Instant::now() < ready_deadline {
+                    pause(ready_deadline);
+                }
+                assert!(started.is_file(), "first helper must hold the active lease");
+                let began = Instant::now();
+                let cancelled = portable::run(
+                    next.command(),
+                    vec![],
+                    began + Duration::from_secs(2),
+                    &|| began.elapsed() >= Duration::from_millis(20),
+                );
+                let expired = portable::run(
+                    next.command(),
+                    vec![],
+                    Instant::now() + Duration::from_millis(20),
+                    &|| false,
+                );
+                let second_run = scope.spawn(|| {
+                    portable::run(
+                        next.command(),
+                        vec![],
+                        Instant::now() + Duration::from_secs(5),
+                        &|| {
+                            checks.fetch_add(1, Ordering::Relaxed);
+                            false
+                        },
+                    )
+                });
+                let waiting_deadline = Instant::now() + Duration::from_secs(2);
+                while checks.load(Ordering::Relaxed) < 2
+                    && !second_run.is_finished()
+                    && Instant::now() < waiting_deadline
+                {
+                    pause(waiting_deadline);
+                }
+                fs::write(first.0.parent().unwrap().join("release"), []).unwrap();
+                assert!(GenerationResponse::decode(&first_run.join().unwrap().unwrap()).is_ok());
+                assert!(GenerationResponse::decode(&second_run.join().unwrap().unwrap()).is_ok());
+                assert!(matches!(cancelled, Err(GenerationError::Cancelled)));
+                assert!(matches!(expired, Err(GenerationError::Deadline)));
+            });
         }
 
         #[test]

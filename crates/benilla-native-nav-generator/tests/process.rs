@@ -78,6 +78,54 @@ fn plane(hole: bool) -> GenerationRequest {
     input
 }
 #[test]
+fn empty_request_runs_without_inherited_environment() {
+    let expected = success(&request());
+    let clean_run = |system_root: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_benilla-native-navigation"));
+        command.env_clear();
+        if system_root {
+            if let Some(root) = std::env::var_os("SystemRoot") {
+                command.env("SystemRoot", root);
+            }
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let written = child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&request().encode().unwrap());
+        (written, child.wait_with_output().unwrap())
+    };
+    let (written, output) = clean_run(false);
+    #[cfg(windows)]
+    if !output.status.success() {
+        let (written, diagnostic) = clean_run(true);
+        eprintln!(
+            "SystemRoot-only diagnostic: status {:?}, stdin {written:?}, stderr {}",
+            diagnostic.status,
+            String::from_utf8_lossy(&diagnostic.stderr[..diagnostic.stderr.len().min(512)]),
+        );
+    }
+    assert!(
+        output.status.success(),
+        "clean-environment helper status {:?}, stdin {written:?}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr[..output.stderr.len().min(512)])
+    );
+    written.unwrap();
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        GenerationResponse::decode(&output.stdout).unwrap(),
+        expected
+    );
+}
+
+#[test]
 fn empty_is_explicit_and_source_map_bits_are_preserved() {
     let result = success(&request());
     assert_eq!(result.status, GenerationStatus::Empty);
