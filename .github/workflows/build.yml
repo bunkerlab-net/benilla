@@ -94,8 +94,33 @@ jobs:
         run: |
           python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
           python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+      - name: Test bounded CI diagnostic capture
+        run: python3 scripts/test-capture-ci-log.py
+      - name: Test actual navigation helper without inherited environment
+        id: native-helper
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/benilla-native-helper.log"
+          python3 scripts/capture-ci-log.py --log "$log" -- mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --nocapture
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
       - name: Test persistence and simulation on the native OS
-        run: mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-nav-generator -p benilla-native-dbc -p benilla-native-terrain -p benilla-mpq -p benilla-native-vmap -p benilla-native-vmap-source
+        # A focused helper failure stays red and must not skip the full native suite.
+        if: ${{ !cancelled() && (success() || steps.native-helper.outcome == 'failure') }}
+        run: |
+          set -o pipefail
+          python3 scripts/capture-ci-log.py --log "$RUNNER_TEMP/benilla-native-tests.log" -- mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-nav-generator -p benilla-native-dbc -p benilla-native-terrain -p benilla-mpq -p benilla-native-vmap -p benilla-native-vmap-source
+      - name: Upload native test failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-native-test-failure-${{ matrix.platform }}-${{ github.sha }}
+          # Only bounded command output; never collect the workspace or environment.
+          path: |
+            ${{ runner.temp }}/benilla-native-helper.log
+            ${{ runner.temp }}/benilla-native-tests.log
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Prepare matching source and locked dependencies
         run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
       - name: Build the player and native helpers from the distributed source
