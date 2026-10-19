@@ -95,16 +95,17 @@ jobs:
           python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
           python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
       - name: Test persistence and simulation on the native OS
-        run: mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-dbc -p benilla-native-terrain -p benilla-mpq -p benilla-native-vmap -p benilla-native-vmap-source
+        run: mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-nav-generator -p benilla-native-dbc -p benilla-native-terrain -p benilla-mpq -p benilla-native-vmap -p benilla-native-vmap-source
       - name: Prepare matching source and locked dependencies
         run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
-      - name: Build the player and terrain helper from the distributed source
+      - name: Build the player and native helpers from the distributed source
         run: |
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
           # Stable source/vendor paths let Cargo reuse restored dependency artifacts.
           cd .player-source/current
           mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
           mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target "$BUILD_TARGET"
+          mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-nav-generator --bin benilla-native-navigation --no-default-features --target "$BUILD_TARGET"
       - name: Verify actual player diagnostic dispatch without an install
         timeout-minutes: 2
         run: |

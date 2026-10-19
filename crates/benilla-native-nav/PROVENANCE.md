@@ -80,17 +80,19 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
 - Exact framing, count/width arithmetic, map filename grid versus native origin-relative
   tile coordinates, bounded finite coordinates (absolute value <=100,000), source
   grid width 533.3333, bounded dimensions, and safe quantization ranges
-- Ground type/area 11/flag 1 only; no off-mesh links, water/magma polygons, steep flags,
+- Ground area 11/flag 1 and source steep area 10/flag 2; no off-mesh links or water/magma polygons,
   extra layers or unknown flags. The generator's usesLiquids boolean alone is not an
-  actual liquid polygon; both boolean values are permitted with the ground checks
+  actual liquid polygon; both boolean values are permitted. Query filters remain ground-only
 - Clockwise strictly convex 3–6-vertex polygons; finite nondegenerate detail triangles;
   exact reciprocal internal neighbors and reversed shared edges; genuine, complete
   detail boundary edges with reversed internal edges and no duplicate directed edges
-- Canonical zero fresh link slots, exact source link capacity, valid contiguous detail
+- Serialized link heads/cache bytes are ignored because source addTile rebuilds every
+  reachable link and head before use; exact source link capacity, valid contiguous detail
   ranges, complete BV subtree structure/leaf coverage/enclosing quantized bounds, and
   depth <=32. The source writer's final all-zero BV padding node is preserved; native
   queries consequently retain its polygon-zero callback behavior
-- External portals only on exact cardinal tile faces, with nonzero projected spans.
+- External portals only on exact cardinal tile faces or the pinned positive quantized
+  plane min + 2000 * 0.2666666 (with the matching source quantization factor), with nonzero projected spans.
   Loaded cross-tile matches must be exact one-to-one reversed endpoints. Partial or
   split portals reject, avoiding the source's four-match truncation and dropped links
 - A preflight upper bound of 1,048,576 native construction edge examinations, including
@@ -809,3 +811,25 @@ unchanged and publish no candidate. Defined NoPath results publish a distinct
 source terminal for the owner to commit. Owner constructor/filter timing, source water/above-ground tail and
 concrete dry segment geometry remain application prerequisites. Native outputs
 alone do not authorize a Route, runtime cache commit or movement.
+
+## Source-generated detail representation
+
+Original MapBuilder serializes after addTile, so link caches need not be zero.
+Captured original ridge/WMO outputs exercise this path and an all-0xff cache test
+checks unchanged query results after reconstruction. Structural sections remain checked.
+
+Detail Y uses the source raster span rounding and the extra MeshDetail cell offset:
+its upper bound is (floor((maxY-minY)*q)+1)*(1/q) + (minY+1/q).
+Unset-height samples remain unsupported. On axis-aligned polygon edges, only a
+single adjacent binary32 normal-coordinate representation is accepted, and the
+along-edge coordinate must remain inside the closed segment. Stored coordinates
+are never snapped or changed.
+
+The source BV builder sees full detail vertices, while serialization replaces its
+first polygon-vertex entries with merged polygon coordinates. Exact BV containment
+is required for every serialized extra detail vertex. For replaced base vertices,
+a narrow fallback admits the captured +cell Y and adjacent-float quantization
+interval. Recast can merge vertices up to two Y cells apart; this is not a general
+reconstruction proof for those cases, which remain outside the supported envelope.
+Both original ridge captures establish the current subset; malformed bounds still
+reject rather than being reinterpreted as clear or walkable space.

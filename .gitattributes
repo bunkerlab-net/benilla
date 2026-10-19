@@ -93,3 +93,15 @@ crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/*.u16le -text
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/*.tsv text eol=lf
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/source-fragments.test-fixture text eol=lf -whitespace
+
+# Pinned navigation source is byte-preserved, including original whitespace and encodings.
+crates/benilla-native-nav-generator/native/Detour/** -text -whitespace
+crates/benilla-native-nav-generator/native/Recast/** -text -whitespace
+crates/benilla-native-nav-generator/native/RECAST-DETOUR-LICENSE.txt -text -whitespace
+crates/benilla-native-nav-generator/CMANGOS-* -text -whitespace
+crates/benilla-native-nav-generator/source_config/** -text -whitespace
+tools/native-navigation/source/** -text -whitespace
+tools/native-navigation/notices/** -text -whitespace
+# Authored binary products and their hashed metadata must survive CRLF checkouts.
+tools/native-navigation/fixtures/** -text
+tools/native-navigation/fixtures/**/*.zlib binary

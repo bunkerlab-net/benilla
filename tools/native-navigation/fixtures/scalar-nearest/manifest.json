@@ -1,0 +1,99 @@
+{
+  "cases": {
+    "ridge_neighbors_wmo": {
+      "expected_sha256": "d7968a6ba3aecccaf8d9838880855ed7e4febb6155d04734bc0f18a66a2d86e5",
+      "original_files_sha256": {
+        "000.mmap": "a1c02c3c94c2ee342616babda9090fba3fddaace6ce402cb02a9583719598dd9",
+        "0003130.mmtile": "94798309e27ac359eb2bc8201ebb96c4283df737af58253b9fbf0438aa208e5d",
+        "expected.json": "64b3bf70495bc2e639eaf9e456a210d1a3a9be96a2f16c74fb0d657c5ff3c50b"
+      },
+      "query_count": 25
+    },
+    "ridge_wmo": {
+      "expected_sha256": "d7968a6ba3aecccaf8d9838880855ed7e4febb6155d04734bc0f18a66a2d86e5",
+      "original_files_sha256": {
+        "000.mmap": "f8fa94fced1d805c449910ee025feea7d41063d0e3bfee4b8b2cf728100cfd42",
+        "0003130.mmtile": "d9032754b3a2bdf0e0c2c3891635256ad00915624b0d9bbe9ae76c5206eb4971",
+        "expected.json": "6e4c1d0c3d6e825f832b77118399dc05f1c8517b63b139e5cb4ea935efc2fec2"
+      },
+      "query_count": 25
+    }
+  },
+  "neighbor_fixture_inputs": [
+    {
+      "adt_fixture": "authored/ridge.adt.test-fixture",
+      "adt_sha256": "dff147a7ec8e979f1687202cae8d5cfe157df297815513fc756f76ea9262efbc",
+      "map_fixture": "authored/ridge.map",
+      "map_sha256": "7a1ec18c647071deaed58ee9ded5928d078e8542166197f28fe9b732de9a89b2",
+      "mpq_basename_template": "{directory}_30_31.adt",
+      "original_map_filename": "0003130.map",
+      "tile_x": 30,
+      "tile_y": 31
+    },
+    {
+      "adt_fixture": "authored/ridge_xplus.adt.test-fixture",
+      "adt_sha256": "01e3cd254362b3faf651010ff0efb0879b4f9c1d3a1f80e4136c5db4d1661a80",
+      "map_fixture": "authored/ridge_xplus.map",
+      "map_sha256": "c92c9e4a15b3a2674946e0aa2517ccafb464b8fe1513a27b65adbc53faad2a5c",
+      "mpq_basename_template": "{directory}_31_31.adt",
+      "original_map_filename": "0003131.map",
+      "tile_x": 31,
+      "tile_y": 31
+    },
+    {
+      "adt_fixture": "authored/ridge_xminus.adt.test-fixture",
+      "adt_sha256": "01e3cd254362b3faf651010ff0efb0879b4f9c1d3a1f80e4136c5db4d1661a80",
+      "map_fixture": "authored/ridge_xminus.map",
+      "map_sha256": "c92c9e4a15b3a2674946e0aa2517ccafb464b8fe1513a27b65adbc53faad2a5c",
+      "mpq_basename_template": "{directory}_29_31.adt",
+      "original_map_filename": "0003129.map",
+      "tile_x": 29,
+      "tile_y": 31
+    },
+    {
+      "adt_fixture": "authored/ridge_yplus.adt.test-fixture",
+      "adt_sha256": "a3591a5a32b6532728ab40330f64d52f288db23e585c630b5ac8dcb862cde624",
+      "map_fixture": "authored/ridge_yplus.map",
+      "map_sha256": "87a7cac2eb6043658888bbb88f01d1a1b620695b5422e2251394d7f7c8febe31",
+      "mpq_basename_template": "{directory}_30_32.adt",
+      "original_map_filename": "0003230.map",
+      "tile_x": 30,
+      "tile_y": 32
+    },
+    {
+      "adt_fixture": "authored/ridge_yminus.adt.test-fixture",
+      "adt_sha256": "ddfd0f298a776b1b8c3134181dc4b2f708496d3411b5fce8d5d6c9c21029538b",
+      "map_fixture": "authored/ridge_yminus.map",
+      "map_sha256": "d1ac0d3f04e2a64cf03cc4b2dbc82fba0fabae493ee9f6da6fd99c11748ab2dc",
+      "mpq_basename_template": "{directory}_30_30.adt",
+      "original_map_filename": "0003030.map",
+      "tile_x": 30,
+      "tile_y": 30
+    }
+  ],
+  "neighbor_tile_union": [
+    [
+      29,
+      31
+    ],
+    [
+      30,
+      30
+    ],
+    [
+      30,
+      31
+    ],
+    [
+      30,
+      32
+    ],
+    [
+      31,
+      31
+    ]
+  ],
+  "schema": 1,
+  "scope": "Original Detour findNearestPoly and getPolyHeight; original on-surface inputs; scalar half-extents 5",
+  "source_pin": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f"
+}

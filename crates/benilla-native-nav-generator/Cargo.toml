@@ -1,0 +1,17 @@
+[package]
+name = "benilla-native-nav-generator"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later AND Zlib"
+publish = false
+description = "Bounded separate-process pinned CMaNGOS selected-tile generator"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cc = "1.2"
+
+[[bin]]
+name = "benilla-native-navigation"
+path = "src/main.rs"

@@ -501,3 +501,6 @@ mod cold_distance_tests;
 
 #[cfg(all(test, benilla_native_detour))]
 mod source_wander_and_chase_reconstruction_tests;
+
+#[cfg(all(test, benilla_native_detour))]
+mod generated_tests;

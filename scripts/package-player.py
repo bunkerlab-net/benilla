@@ -18,8 +18,13 @@ TARGETS = {
     "macos-arm64": "aarch64-apple-darwin",
     "windows-amd64": "x86_64-pc-windows-msvc",
 }
-EXECUTABLES = ("benilla", "benilla-native-terrain")
+EXECUTABLES = ("benilla", "benilla-native-terrain", "benilla-native-navigation")
 DOCUMENTS = (
+    "crates/benilla-native-nav-generator/PROTOCOL.md",
+    "crates/benilla-native-nav-generator/README.md",
+    "crates/benilla-native-nav-generator/CMANGOS-NOTICE.txt",
+    "crates/benilla-native-nav-generator/CMANGOS-AUTHORS.md",
+    "crates/benilla-native-nav-generator/native/RECAST-DETOUR-LICENSE.txt",
     "LICENSE-MIT", "LICENSE-APACHE", "LICENSE-GPL-3.0", "DISTRIBUTION-NOTICE.md",
     "scripts/Collect-BenillaTerrainDiagnostics.ps1",
     "docs/BUILDS.md", "docs/P2P-CONFIG.md", "docs/P2P-ENCOUNTER.md", "docs/P2P-SETTINGS.md",
@@ -67,6 +72,10 @@ REQUIRED_SOURCE = (*DOCUMENTS, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"
                    "scripts/check-native-outfit-oracle.py", "scripts/test-initial-hooks.py",
                    "scripts/native_starter/outfit_cases.json",
                    "crates/benilla-native-dbc/src/main.rs", "crates/benilla-app/src/net/p2p/world.rs",
+                   "crates/benilla-native-nav-generator/Cargo.toml",
+                   "crates/benilla-native-nav-generator/src/main.rs",
+                   "crates/benilla-native-nav-generator/src/lib.rs",
+                   "crates/benilla-native-nav-generator/native/generator.cpp",
                    "crates/benilla-native-terrain/Cargo.toml",
                    "crates/benilla-native-terrain/src/main.rs", "crates/benilla-native-terrain/src/lib.rs",
                    "crates/benilla-native-terrain/src/source.rs", "crates/benilla-native-terrain/src/writer.rs",
@@ -286,7 +295,7 @@ def package(root, platform, commit, source_url=None, *, helper_only=False):
         if source_checksum.read_text(encoding="utf-8") != expected:
             raise ValueError("prepared source archive checksum mismatch")
         notice = dist / f"{name}-SOURCE-DOWNLOAD.txt"
-        subject = "benilla-native-terrain" if helper_only else "Benilla and benilla-native-terrain"
+        subject = "benilla-native-terrain" if helper_only else "Benilla, benilla-native-terrain and benilla-native-navigation"
         notice.write_text(
             f"Corresponding Source for {subject}\nSource commit: {commit}\n"
             f"Platform: {platform}\n\nDownload: {source_url}\n"

@@ -240,9 +240,6 @@ fn malformed_detail_boundary_and_bv_escape_never_reach_native_code() {
     let mut b = LEFT.to_vec();
     b[bv + 6..bv + 8].copy_from_slice(&0u16.to_le_bytes());
     cases.push(b);
-    let mut b = LEFT.to_vec();
-    b[links] = 1;
-    cases.push(b);
     for b in cases {
         assert!(Mesh::load(
             PARAMS,

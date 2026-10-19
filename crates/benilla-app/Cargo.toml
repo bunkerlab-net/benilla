@@ -26,6 +26,7 @@ serde_json = "1"
 benilla-native-vmap = { path = "../benilla-native-vmap" }
 benilla-native-vmap-source = { path = "../benilla-native-vmap-source" }
 benilla-native-nav = { path = "../benilla-native-nav" }
+benilla-native-nav-generator = { path = "../benilla-native-nav-generator" }
 benilla-native-terrain = { path = "../benilla-native-terrain" }
 benilla-sim = { path = "../benilla-sim" }
 benilla-config = { path = "../benilla-config" }

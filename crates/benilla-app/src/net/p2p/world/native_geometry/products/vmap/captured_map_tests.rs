@@ -21,6 +21,8 @@ mod archive;
 use archive::{archive, raw_entry, Entry};
 #[path = "diagnostic_tests.rs"]
 mod diagnostic_tests;
+#[path = "navigation_generation_tests.rs"]
+mod navigation_generation_tests;
 #[path = "prepared_tests.rs"]
 mod prepared_tests;
 #[path = "source_height_tests.rs"]

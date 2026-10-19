@@ -154,12 +154,12 @@ fn liquid_mask(liquid_type: u32) -> u8 {
 
 #[derive(Debug)]
 pub(super) struct WmoLiquid {
-    width: usize,
-    height: usize,
-    corner: Vector,
-    liquid_type: u32,
-    heights: Vec<f32>,
-    flags: Vec<u8>,
+    pub(super) width: usize,
+    pub(super) height: usize,
+    pub(super) corner: Vector,
+    pub(super) liquid_type: u32,
+    pub(super) heights: Vec<f32>,
+    pub(super) flags: Vec<u8>,
 }
 impl WmoLiquid {
     pub(super) fn decode(c: &mut Cursor<'_>, declared: usize) -> Result<Self, Error> {

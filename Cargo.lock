@@ -724,6 +724,7 @@ dependencies = [
  "benilla-encounter",
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-nav-generator",
  "benilla-native-terrain",
  "benilla-native-vmap",
  "benilla-native-vmap-source",
@@ -879,6 +880,7 @@ dependencies = [
  "benilla-assets",
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-nav-generator",
  "benilla-native-terrain",
  "benilla-native-vmap",
  "benilla-native-vmap-source",
@@ -888,6 +890,7 @@ dependencies = [
  "benilla-world-store",
  "bevy",
  "crossbeam-channel",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -911,12 +914,14 @@ version = "0.2.0"
 dependencies = [
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-nav-generator",
  "benilla-native-terrain",
  "benilla-native-vmap",
  "benilla-native-vmap-source",
  "benilla-sim",
  "benilla-world-runtime",
  "crossbeam-channel",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -929,6 +934,13 @@ version = "0.2.0"
 dependencies = [
  "cc",
  "serde_json",
+]
+
+[[package]]
+name = "benilla-native-nav-generator"
+version = "0.2.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -1108,6 +1120,7 @@ dependencies = [
  "benilla-config",
  "benilla-formats",
  "benilla-native-nav",
+ "benilla-native-nav-generator",
  "benilla-native-terrain",
  "benilla-native-vmap",
  "benilla-native-vmap-source",
@@ -1120,6 +1133,7 @@ dependencies = [
  "benilla-world-runtime",
  "benilla-world-store",
  "crossbeam-channel",
+ "libc",
  "rand 0.8.6",
  "serde",
  "serde_json",

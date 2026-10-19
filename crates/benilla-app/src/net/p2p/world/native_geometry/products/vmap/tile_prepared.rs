@@ -59,6 +59,13 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
             geometry,
         })
     }
+    pub(in super::super) fn append_navigation_mesh(
+        &self,
+        mesh: &mut super::super::nav_generation::terrain_mesh::Mesh,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<(), Error> {
+        super::nav_mesh::append(&self.geometry, mesh, cancelled)
+    }
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.geometry.binding()
     }

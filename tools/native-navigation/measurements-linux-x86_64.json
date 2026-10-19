@@ -1,0 +1,72 @@
+{
+  "flat": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.003618
+  },
+  "liquid_flag_bytes": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.008246
+  },
+  "liquid_full_types": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.015987
+  },
+  "liquid_history61_initial": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.008042
+  },
+  "liquid_nonsymmetric": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.008951
+  },
+  "liquid_outer_edges": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.007932
+  },
+  "liquid_water_flat": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.003967
+  },
+  "nonflat_holes": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.032215
+  },
+  "nonflat_holes_neighbors": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.03276
+  },
+  "ridge_neighbors_wmo": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 2.423173
+  },
+  "ridge_only": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 2.224211
+  },
+  "ridge_wmo": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 2.723768
+  },
+  "varied": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.031982
+  },
+  "varied_neighbors": {
+    "exit_code": 0,
+    "max_rss_kib": 13440,
+    "wall_seconds": 0.032087
+  }
+}

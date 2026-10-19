@@ -16,6 +16,7 @@ mod location;
 #[cfg(test)]
 mod m2_tests;
 mod math;
+mod nav_mesh;
 pub(crate) mod prepared;
 pub(crate) mod tile_prepared;
 mod trig;
@@ -686,6 +687,7 @@ struct Spawn {
     inverse_scale: f32,
     bounds: Bounds,
     model: usize,
+    navigation_m2: bool,
 }
 impl Spawn {
     fn classification(&self) -> ModelClassification {
@@ -718,7 +720,11 @@ impl Spawn {
         }
         let bounds = c.bounds()?;
         let length = c.count()?;
-        let id_key = ProductId::from_vmap_source_name(c.take(length)?, source_names)?;
+        let source_name = c.take(length)?;
+        let navigation_m2 = source_name
+            .windows(3)
+            .any(|part| part == b".m2" || part == b".M2");
+        let id_key = ProductId::from_vmap_source_name(source_name, source_names)?;
         let model = *models.get(&id_key).ok_or(Error::Missing)?;
         let reference = c.word()? as usize;
         Ok((
@@ -734,6 +740,7 @@ impl Spawn {
                 inverse_scale: 1.0 / scale,
                 bounds,
                 model,
+                navigation_m2,
             },
         ))
     }
@@ -742,6 +749,7 @@ impl Spawn {
             && self.adt == other.adt
             && self.id == other.id
             && self.model == other.model
+            && self.navigation_m2 == other.navigation_m2
             && self.position.map(f32::to_bits) == other.position.map(f32::to_bits)
             && self.angles.map(f32::to_bits) == other.angles.map(f32::to_bits)
             && self.scale.to_bits() == other.scale.to_bits()

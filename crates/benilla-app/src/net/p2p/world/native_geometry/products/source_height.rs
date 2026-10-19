@@ -182,7 +182,7 @@ enum Outcome<'a> {
     Absent,
     Dummy(&'a str, usize),
 }
-fn compatible_receipts(
+pub(super) fn compatible_receipts(
     terrain: &PreparedTerrain,
     source: &AssembledSourceMap<'_>,
     cancelled: &impl Fn() -> bool,

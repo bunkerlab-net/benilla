@@ -25,7 +25,7 @@ SHA = "a" * 40
 
 def executables(platform):
     suffix = ".exe" if platform == "windows-amd64" else ""
-    return ("benilla" + suffix, "benilla-native-terrain" + suffix)
+    return ("benilla" + suffix, "benilla-native-terrain" + suffix, "benilla-native-navigation" + suffix)
 
 
 _path_read_text = Path.read_text
@@ -130,6 +130,10 @@ class PlayerFeatureGraphTests(unittest.TestCase):
                 json_deps = [d for d in dependencies if d["name"] == "serde_json"]
                 self.assertEqual(len(json_deps), 1)
                 self.assertEqual(json_deps[0]["kind"], None if package["name"] == "benilla-app" else "dev")
+                for name in ("benilla-native-nav-generator", "libc"):
+                    direct = [d for d in dependencies if d["name"] == name]
+                    self.assertEqual(len(direct), 1)
+                    self.assertEqual(direct[0]["kind"], None if package["name"] == "benilla-app" else "dev")
                 model = [d for d in dependencies if d["name"] == "benilla-native-vmap"]
                 self.assertEqual(len(model), 1)
                 self.assertEqual(model[0]["kind"], None if package["name"] == "benilla-app" else "dev")

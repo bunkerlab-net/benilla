@@ -192,15 +192,36 @@ impl<'a> Validated<'a> {
             if at != b.len() {
                 return Err(Error::Framing);
             }
-            if links.iter().any(|v| *v != 0) {
+            // CMaNGOS serializes after addTile. Detour rebuilds all link heads and
+            // the freelist before reading these cached fields on every load.
+            let _ = links;
+            // RasterizeTriangles clamps to the input height range, rounds span tops
+            // upward and enforces one cell; MeshDetail then adds one cell to Y.
+            // RC_UNSET_HEIGHT samples remain outside this supported envelope.
+            let cell = 1.0 / q;
+            let detail_max_y = (((max[1] - min[1]) * q).floor() + 1.0) * cell + (min[1] + cell);
+            if !detail_max_y.is_finite() {
                 return Err(bad());
-            } // freshly serialized dynamic slots
+            }
             let mut vertices = reserve(nv)?;
             let mut dvertices = reserve(ndv)?;
-            for (bytes, count, out) in [(vs, nv, &mut vertices), (dvs, ndv, &mut dvertices)] {
+            for (bytes, count, out, detail) in [
+                (vs, nv, &mut vertices, false),
+                (dvs, ndv, &mut dvertices, true),
+            ] {
                 for j in 0..count {
                     let p = point(bytes, j * 12)?;
-                    if (0..3).any(|i| p[i] < min[i] || p[i] > max[i]) {
+                    // Recast detail heights are sampled from quantized heightfields and
+                    // may exceed the source input Y bounds; they remain finite/bounded.
+                    if (0..3).any(|i| {
+                        p[i] < min[i]
+                            || p[i]
+                                > if detail && i == 1 {
+                                    detail_max_y
+                                } else {
+                                    max[i]
+                                }
+                    }) {
                         return Err(bad());
                     }
                     out.push(p);
@@ -215,12 +236,12 @@ impl<'a> Validated<'a> {
             for pi in 0..n {
                 let p = &ps[pi * 32..(pi + 1) * 32];
                 let nv = p[30] as usize;
-                if !(3..=6).contains(&nv) || word(p, 0)? != 0 {
+                if !(3..=6).contains(&nv) {
                     return Err(bad());
                 }
-                if short(p, 28)? != 1 || p[31] != 11 {
+                if !matches!((short(p, 28)?, p[31]), (1, 11) | (2, 10)) {
                     return Err(Error::Unsupported);
-                } // dry CMaNGOS ground
+                } // Source ground and steep ground; query filters remain independent.
                 let mut poly = Poly {
                     verts: reserve(nv)?,
                     neis: reserve(nv)?,
@@ -270,7 +291,17 @@ impl<'a> Validated<'a> {
                         } else {
                             min[axis]
                         };
-                        if a[axis] != boundary || b[axis] != boundary || a[along] == b[along] {
+                        // MapBuilder emits VERTEX_PER_MAP=2000 cells of its fixed
+                        // BASE_UNIT_DIM, which is slightly shorter than GRID in f32.
+                        // Keep this exact source plane, not a geometric tolerance.
+                        let source_plane = min[axis] + 2000.0 * 0.2666666_f32;
+                        let quantized_positive = (side == 0 || side == 2)
+                            && q.to_bits() == (1.0 / 0.2666666_f32).to_bits()
+                            && a[axis] == source_plane
+                            && b[axis] == source_plane;
+                        if ((a[axis] != boundary || b[axis] != boundary) && !quantized_positive)
+                            || a[along] == b[along]
+                        {
                             return Err(bad());
                         }
                         all_portals.try_reserve(1).map_err(|_| Error::Budget)?;
@@ -310,6 +341,11 @@ impl<'a> Validated<'a> {
                             vertices[poly.verts[(i + 1) % nv]],
                             v,
                         ) > 0.
+                            && !adjacent_axis_detail(
+                                vertices[poly.verts[i]],
+                                vertices[poly.verts[(i + 1) % nv]],
+                                v,
+                            )
                         {
                             return Err(bad());
                         }
@@ -458,11 +494,24 @@ fn validate_bv(b: &[u8], polys: &[Poly], origin: [f32; 3], q: f32) -> Result<(),
                 return Err(bad());
             }
             seen[p] = true;
-            for v in &polys[p].detail {
+            for (vertex_index, v) in polys[p].detail.iter().enumerate() {
                 for i in 0..3 {
                     let quant = ((v[i] - origin[i]) * q) as u16;
                     if quant < lo[i] || quant > hi[i] {
-                        return Err(bad());
+                        // createBVTree sees the full original detail vertices. The
+                        // serialized first n vertices instead come from merged poly
+                        // quantization: this supported subset has +ch Y and adjacent-f32
+                        // coordinates. Recast can also merge vertices two Y cells apart;
+                        // those broader cases remain unsupported unless exact bounds hold.
+                        if vertex_index >= polys[p].verts.len() {
+                            return Err(bad());
+                        }
+                        let original = if i == 1 { v[i] + 1.0 / q } else { v[i] };
+                        let low = ((original.next_down() - origin[i]) * q) as u16;
+                        let high = ((original.next_up() - origin[i]) * q) as u16;
+                        if high < lo[i] || low > hi[i] {
+                            return Err(bad());
+                        }
                     }
                 }
             }
@@ -517,7 +566,9 @@ fn validate_detail_boundary(
         for (i, intervals) in coverage.iter_mut().enumerate() {
             let start = poly.detail[i];
             let end = poly.detail[(i + 1) % n];
-            if cross(start, end, from) != 0. || cross(start, end, to) != 0. {
+            if (cross(start, end, from) != 0. && !adjacent_axis_detail(start, end, from))
+                || (cross(start, end, to) != 0. && !adjacent_axis_detail(start, end, to))
+            {
                 continue;
             }
             let axis = if (end[0] - start[0]).abs() >= (end[2] - start[2]).abs() {
@@ -590,6 +641,20 @@ fn native_load_work(tiles: &[TileWork]) -> Result<usize, Error> {
     }
     Ok(work)
 }
+// Original MeshDetail interpolates local edges then adds the subtile origin;
+// NavMeshBuilder reconstructs polygon coordinates from merged integer vertices.
+// Source captures prove a one-binary32-step disagreement on axis-aligned edges.
+// This narrow representation allowance is not a body/support tolerance.
+fn adjacent_axis_detail(a: [f32; 3], b: [f32; 3], p: [f32; 3]) -> bool {
+    [0, 2].into_iter().any(|axis| {
+        let along = 2 - axis;
+        a[axis] == b[axis]
+            && (p[axis] == a[axis].next_up() || p[axis] == a[axis].next_down())
+            && p[along] >= a[along].min(b[along])
+            && p[along] <= a[along].max(b[along])
+    })
+}
+
 #[cfg(test)]
 mod work_tests {
     use super::*;
