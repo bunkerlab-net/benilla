@@ -431,4 +431,5 @@ fn static_index_retains_only_its_actual_inventory_provenance_owner() {
 }
 
 #[path = "real_corridor_fixture/installed_source.rs"]
+#[cfg(test)]
 mod installed_source;
