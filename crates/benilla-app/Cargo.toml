@@ -22,6 +22,7 @@ trace_chrome = ["bevy/trace_chrome"]
 bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
+benilla-native-vmap = { path = "../benilla-native-vmap" }
 benilla-native-nav = { path = "../benilla-native-nav" }
 benilla-native-terrain = { path = "../benilla-native-terrain" }
 benilla-sim = { path = "../benilla-sim" }
@@ -127,7 +128,6 @@ windows-sys = { version = "0.59", features = [
 
 # The login cycle's fake realmd runs the server half of SRP6 (`net::io::cycle_tests`).
 [dev-dependencies]
-benilla-native-vmap = { path = "../benilla-native-vmap" }
 # Real native corridor tests need private streamer residency setup, never admission.
 benilla-world = { path = "../benilla-world", default-features = false, features = ["authored-native-fixtures"] }
 # Private native controller component tests never grant a production capability.
