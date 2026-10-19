@@ -1,14 +1,20 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-Collect bounded, path-redacted diagnostics for one Benilla terrain selection.
+Collect bounded, path-redacted terrain and optional collision diagnostics.
 .DESCRIPTION
 Reads the selected local Data folder and existing helper. Creates exactly one NEW
 JSON report; never overwrites it. No downloads, network requests, administrator
 rights, policy changes, archive extraction, game configuration reads or exports.
 The helper is invoked only with --help and --diagnose (or older --inspect).
+An explicit -Player invokes only diagnose-collision, independently of the helper;
+no player executable is searched for or started when -Player is absent.
+The collision CLI receives -TimeoutSeconds as its soft budget; the collector
+allows five additional seconds before hard termination, then at most two seconds
+for bounded stream drain. Terrain helper timing is unchanged.
 Use only your trusted benilla-native-terrain.exe: this script is not a sandbox for
-an arbitrary executable. Windows itself may maintain normal process/file metadata.
+an arbitrary executable. Use only your trusted benilla.exe for -Player.
+Windows itself may maintain normal process/file metadata.
 
 The report includes helper SHA-256, numeric executable version/architecture,
 bounded relevant MPQ layout, five archive envelopes, and a single selected-tile
@@ -24,6 +30,8 @@ at the first error and cannot expose deep liquid-history diagnostics.
 .\Collect-BenillaTerrainDiagnostics.ps1 -Data '.\Data' -Helper '.\benilla-native-terrain.exe' -Output '.\Benilla-Terrain-Diagnostics.json'
 .EXAMPLE
 .\Collect-BenillaTerrainDiagnostics.ps1 -Data 'E:\Blizzard\Benilla\Data' -Helper 'E:\Tools\benilla-native-terrain.exe' -Output '.\Benilla-Terrain-Diagnostics.json'
+.EXAMPLE
+.\Collect-BenillaTerrainDiagnostics.ps1 -Data '.\Data' -Helper '.\benilla-native-terrain.exe' -Player '.\benilla.exe' -Output '.\Benilla-Terrain-And-Collision.json'
 .NOTES
 Windows PowerShell 5.1 or PowerShell 7 on Windows. Report parent must exist;
 report must be outside Data. Reparse-point paths and network drives are refused.
@@ -38,7 +46,8 @@ param(
     [ValidateRange(0, 999)][int]$Map = 0,
     [ValidatePattern('^\d{1,2},\d{1,2}$')][string]$Tile = '48,32',
     [ValidateRange(1, 600)][int]$TimeoutSeconds = 120,
-    [switch]$SkipHelper
+    [switch]$SkipHelper,
+    [string]$Player
 )
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -155,13 +164,13 @@ function Get-Sha256([string]$Path) {
         if ($null -ne $stream) { $stream.Dispose() }
     }
 }
-function Get-HelperIdentity([string]$Path) {
-    $result = [ordered]@{ status = 'unavailable'; basename = 'benilla-native-terrain.exe'; bytes = $null;
+function Get-HelperIdentity([string]$Path, [string]$ExpectedBasename = 'benilla-native-terrain.exe') {
+    $result = [ordered]@{ status = 'unavailable'; basename = $ExpectedBasename; bytes = $null;
         sha256 = $null; sha256_after_collection = $null; unchanged_after_collection = $null;
         version = $null; pe_machine = $null; pe_machine_name = $null }
     $stream = $null
     try {
-        if ([IO.Path]::GetFileName($Path) -ine 'benilla-native-terrain.exe') { $result.status = 'unexpected_basename'; return $result }
+        if ([IO.Path]::GetFileName($Path) -ine $ExpectedBasename) { $result.status = 'unexpected_basename'; return $result }
         if (-not [IO.File]::Exists($Path)) { $result.status = 'missing'; return $result }
         if (Test-ReparseAncestor $Path) { $result.status = 'reparse_path_refused'; return $result }
         $file = New-Object IO.FileInfo($Path)
@@ -455,6 +464,248 @@ function ConvertTo-SafeDiagnostic([string]$Text) {
     }
     return [ordered]@{ status = 'recognized_schema_filtered'; report = $r }
 }
+# This protocol has no free-text fields. Keep the exact public IDs in sync with
+# the player's diagnostic emitter; never accept an ID merely by its prefix.
+$SafeCollisionIds = @(
+    'collision.arguments', 'collision.budget', 'collision.cancelled',
+    'collision.deadline', 'collision.dependency', 'collision.duplicate',
+    'collision.empty_map', 'collision.format', 'collision.framing',
+    'collision.hash', 'collision.identity', 'collision.io',
+    'collision.missing', 'collision.output', 'collision.outside_tile',
+    'collision.prerequisite', 'collision.profile', 'collision.query',
+    'collision.timeout', 'collision.unexpected', 'collision.unknown_error',
+    'collision.unsupported', 'vmap.allocation_failed', 'vmap.bih_allocation',
+    'vmap.bih_bounds', 'vmap.bih_cancelled', 'vmap.bih_limit',
+    'vmap.bih_numeric', 'vmap.bounds_allocation', 'vmap.bounds_cancelled',
+    'vmap.bounds_index', 'vmap.bounds_limit', 'vmap.bounds_model',
+    'vmap.bounds_numeric', 'vmap.bounds_preparation', 'vmap.bounds_record',
+    'vmap.bounds_source', 'vmap.bundle_allocation', 'vmap.bundle_ambiguous_output',
+    'vmap.bundle_cancelled', 'vmap.bundle_limit', 'vmap.bundle_map',
+    'vmap.bundle_missing_model', 'vmap.bundle_model', 'vmap.bundle_name',
+    'vmap.bundle_source', 'vmap.cancelled', 'vmap.chunk_count',
+    'vmap.chunk_header', 'vmap.chunk_length', 'vmap.chunk_payload',
+    'vmap.dependency_limit', 'vmap.dependency_order', 'vmap.discovery_internal',
+    'vmap.doodad_allocation', 'vmap.doodad_budget', 'vmap.doodad_chunk_count',
+    'vmap.doodad_chunk_header', 'vmap.doodad_chunk_payload', 'vmap.doodad_duplicate_header',
+    'vmap.doodad_duplicate_version', 'vmap.doodad_file_bytes', 'vmap.doodad_group_count',
+    'vmap.doodad_group_header', 'vmap.doodad_missing_group_header', 'vmap.doodad_missing_root_header',
+    'vmap.doodad_missing_version', 'vmap.doodad_name_count', 'vmap.doodad_name_identity',
+    'vmap.doodad_name_length', 'vmap.doodad_name_nul', 'vmap.doodad_name_offset',
+    'vmap.doodad_nonfinite_transform', 'vmap.doodad_projection.allocation', 'vmap.doodad_projection.candidate_index',
+    'vmap.doodad_projection.numeric_domain', 'vmap.doodad_projection.policy_mismatch', 'vmap.doodad_projection.retained_identity',
+    'vmap.doodad_projection.unsupported_numeric_profile', 'vmap.doodad_record_limit', 'vmap.doodad_reference_record',
+    'vmap.doodad_root_header', 'vmap.doodad_set_range', 'vmap.doodad_set_record',
+    'vmap.doodad_spawn_record', 'vmap.doodad_unexpected_chunk', 'vmap.doodad_unsupported_liquid',
+    'vmap.doodad_version', 'vmap.duplicate_map', 'vmap.duplicate_map_id',
+    'vmap.duplicate_version', 'vmap.encounter_attempt_limit', 'vmap.encounter_id_limit',
+    'vmap.flat_name_collision', 'vmap.global_root_limit', 'vmap.index_allocation',
+    'vmap.index_cancelled', 'vmap.index_limit', 'vmap.index_record',
+    'vmap.invalid_doodad_envelope', 'vmap.invalid_doodad_reference_order', 'vmap.invalid_wmo_envelope',
+    'vmap.liquid_dbc_bytes', 'vmap.liquid_dbc_layout', 'vmap.liquid_dbc_length',
+    'vmap.liquid_dbc_magic', 'vmap.liquid_dbc_rows', 'vmap.liquid_id_limit',
+    'vmap.liquid_last_row_not_max', 'vmap.listfile_bytes', 'vmap.listfile_root_count',
+    'vmap.listfile_root_extension', 'vmap.listfile_root_name', 'vmap.listfile_token_count',
+    'vmap.m2.allocation_failed', 'vmap.m2.array_before_header', 'vmap.m2.array_range_overflow',
+    'vmap.m2.count_limit', 'vmap.m2.incomplete_triangle', 'vmap.m2.index_out_of_range',
+    'vmap.m2.input_limit', 'vmap.m2.non_finite_vertex', 'vmap.m2.output_size_overflow',
+    'vmap.m2.truncated_array', 'vmap.m2.truncated_header', 'vmap.m2.unsupported_magic',
+    'vmap.m2.unsupported_version', 'vmap.map_allocation', 'vmap.map_bih',
+    'vmap.map_bounds', 'vmap.map_cancelled', 'vmap.map_dbc_bytes',
+    'vmap.map_dbc_layout', 'vmap.map_dbc_length', 'vmap.map_dbc_magic',
+    'vmap.map_dbc_rows', 'vmap.map_dbc_string_nul', 'vmap.map_dbc_string_reference',
+    'vmap.map_dbc_strings', 'vmap.map_directory', 'vmap.map_index',
+    'vmap.map_limit', 'vmap.map_metadata_length', 'vmap.map_metadata_utf8',
+    'vmap.map_missing', 'vmap.map_mixed_world_tile', 'vmap.map_record',
+    'vmap.map_source', 'vmap.mddf_name_reference', 'vmap.mddf_record_length',
+    'vmap.member_name_length', 'vmap.member_name_profile', 'vmap.member_path',
+    'vmap.missing_version', 'vmap.model_write.allocation', 'vmap.model_write.cancelled',
+    'vmap.model_write.invalid', 'vmap.model_write.limit', 'vmap.modf_bounds_order',
+    'vmap.modf_name_reference', 'vmap.modf_record_length', 'vmap.name_count',
+    'vmap.name_nul', 'vmap.nonfinite_transform', 'vmap.placement_bytes',
+    'vmap.placement_count', 'vmap.placement_limit', 'vmap.product_limit',
+    'vmap.records_allocation', 'vmap.records_cancelled', 'vmap.records_limit',
+    'vmap.records_nonfinite', 'vmap.records_retained_identity', 'vmap.replay_step_limit',
+    'vmap.required_member_absent', 'vmap.required_member_dummy', 'vmap.retained_output_limit',
+    'vmap.source.archive_case', 'vmap.source.archive_limit', 'vmap.source.archive_not_regular',
+    'vmap.source.archive_open', 'vmap.source.cancelled', 'vmap.source.changed',
+    'vmap.source.data_directory', 'vmap.source.directory_limit', 'vmap.source.directory_read',
+    'vmap.source.dummy_listfile', 'vmap.source.header_extension', 'vmap.source.header_index',
+    'vmap.source.header_sector', 'vmap.source.header_size', 'vmap.source.header_version',
+    'vmap.source.index_limit', 'vmap.source.invalid_archive', 'vmap.source.invalid_name',
+    'vmap.source.lookup_limit', 'vmap.source.member_limit', 'vmap.source.member_profile',
+    'vmap.source.member_read', 'vmap.source.read_work_limit', 'vmap.source_changed_during_preparation',
+    'vmap.unresolved_wmo_reference', 'vmap.unsupported_global_wmo', 'vmap.unsupported_model_extension',
+    'vmap.unsupported_prefix_map_directory', 'vmap.unsupported_wmo_doodad_closure', 'vmap.unsupported_wmo_extension',
+    'vmap.unsupported_wmo_liquid', 'vmap.version', 'vmap.wmo.allocation_failed',
+    'vmap.wmo.chunk_limit', 'vmap.wmo.count_limit', 'vmap.wmo.duplicate_chunk',
+    'vmap.wmo.group_count_limit', 'vmap.wmo.group_count_mismatch', 'vmap.wmo.group_order',
+    'vmap.wmo.index_out_of_range', 'vmap.wmo.input_limit', 'vmap.wmo.invalid_chunk_size',
+    'vmap.wmo.invalid_liquid_dimensions', 'vmap.wmo.invalid_source_member', 'vmap.wmo.liquid_size_overflow',
+    'vmap.wmo.missing_chunk', 'vmap.wmo.negative_group_name', 'vmap.wmo.non_finite',
+    'vmap.wmo.non_finite_liquid_height', 'vmap.wmo.output_limit', 'vmap.wmo.reversed_bounds',
+    'vmap.wmo.total_input_limit', 'vmap.wmo.triangle_index_count', 'vmap.wmo.truncated_chunk',
+    'vmap.wmo.truncated_chunk_header', 'vmap.wmo.unexpected_chunk', 'vmap.wmo.unsupported_liquid',
+    'vmap.wmo.unsupported_version', 'vmap.wmo.unterminated_group_name', 'vmap.wmo_input_limit'
+)
+$CollisionStages = @('selection','capture','placement','assembly','validation','probe','freshness','complete')
+$CollisionSourceStages = @('OpenSource','LiquidTypes','GlobalWmoLists','GlobalWmoRoot','MapMetadata','PrefixMap','SelectedWdt','AdtTraversal','Verification')
+$CollisionMetricNames = @('member_lookups','read_work_bytes','complete_raw_products','adt_attempts','global_root_ordinal','archive_count','products','placements','doodad_candidates','adts_present','adts_absent','adts_dummy','raw_bytes','placement_bytes','placement_records','tree_bytes','tiles','models','model_bytes','tile_bytes','serialized_bytes','completed_probes','failed_stages')
+$CollisionHashNames = @('source_epoch','preprocessing','inventory','policy')
+$CollisionRecordNames = @('format','stage','status','map','tile_x','tile_y','elapsed_ms','code','source_stage','metrics','hashes','probe','gameplay_admitted')
+
+function Test-CollisionJsonSyntax([string]$Text) {
+    # ConvertFrom-Json differs across 5.1/7 (duplicate keys, comments, numbers).
+    # Validate a bounded strict JSON grammar first. Protocol strings are ASCII
+    # constants or lowercase hex, so escaped strings are intentionally refused.
+    $tokens = New-Object 'Collections.Generic.List[string]'
+    $position = 0
+    foreach ($m in [regex]::Matches($Text, '"[A-Za-z0-9_.-]*"|0|[1-9][0-9]*|true|false|null|[{}\[\]:,]|[ \t\r\n]+')) {
+        if ($m.Index -ne $position) { return $false }
+        $position += $m.Length
+        if ($m.Value -match '^[ \t\r\n]+$') { continue }
+        if ($tokens.Count -ge 512) { return $false }
+        $tokens.Add($m.Value)
+    }
+    if ($position -ne $Text.Length -or $tokens.Count -eq 0) { return $false }
+    $stack = New-Object 'Collections.Generic.List[object]'
+    $rootSeen = $false
+    foreach ($token in $tokens) {
+        if ($stack.Count -eq 0) {
+            if ($rootSeen -or $token -cne '{') { return $false }
+            $rootSeen = $true
+            $stack.Add([pscustomobject]@{ kind = '{'; state = 'key_or_end'; keys = (New-Object 'Collections.Generic.HashSet[string]') })
+            continue
+        }
+        $frame = $stack[$stack.Count - 1]
+        if ($token -ceq '}' -or $token -ceq ']') {
+            if ($token -ceq '}' -and ($frame.kind -cne '{' -or @('key_or_end','comma_or_end') -cnotcontains $frame.state)) { return $false }
+            if ($token -ceq ']' -and ($frame.kind -cne '[' -or @('value_or_end','comma_or_end') -cnotcontains $frame.state)) { return $false }
+            $stack.RemoveAt($stack.Count - 1)
+            continue
+        }
+        if ($frame.state -ceq 'key_or_end' -or $frame.state -ceq 'key') {
+            if (-not $token.StartsWith('"') -or -not $frame.keys.Add($token)) { return $false }
+            $frame.state = 'colon'; continue
+        }
+        if ($frame.state -ceq 'colon') {
+            if ($token -cne ':') { return $false }
+            $frame.state = 'value'; continue
+        }
+        if ($frame.state -ceq 'comma_or_end') {
+            if ($token -cne ',') { return $false }
+            $frame.state = $(if ($frame.kind -ceq '{') { 'key' } else { 'value' })
+            continue
+        }
+        if ($token -ceq '{' -or $token -ceq '[') {
+            if ($stack.Count -ge 3) { return $false }
+            $frame.state = 'comma_or_end'
+            $stack.Add([pscustomobject]@{ kind = $token; state = $(if ($token -ceq '{') { 'key_or_end' } else { 'value_or_end' }); keys = (New-Object 'Collections.Generic.HashSet[string]') })
+        } elseif ($token -cmatch '^(?:"[A-Za-z0-9_.-]*"|0|[1-9][0-9]*|true|false|null)$') {
+            $frame.state = 'comma_or_end'
+        } else { return $false }
+    }
+    return $rootSeen -and $stack.Count -eq 0
+}
+function Test-CollisionObject($Value, [string[]]$Names, [bool]$Exact) {
+    if ($Value -isnot [pscustomobject]) { return $false }
+    $properties = @($Value.PSObject.Properties)
+    if ($Exact -and $properties.Count -ne $Names.Count) { return $false }
+    foreach ($property in $properties) { if ($Names -cnotcontains $property.Name) { return $false } }
+    return $true
+}
+function Read-CollisionInteger($Value, [long]$Maximum) {
+    # Do not coerce strings, booleans, fractional/exponent numbers or decimals.
+    if ($Value -isnot [int] -and $Value -isnot [long] -and $Value -isnot [uint32] -and $Value -isnot [uint64]) { return $null }
+    if ([decimal]$Value -lt 0 -or [decimal]$Value -gt [decimal]$Maximum) { return $null }
+    return [long]$Value
+}
+function Test-CollisionVector($Value) {
+    if ($Value -isnot [Array] -or $Value.Count -ne 3) { return $false }
+    foreach ($n in $Value) { if ($null -eq (Read-CollisionInteger $n 4294967295)) { return $false } }
+    return $true
+}
+function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$SelectedX, [int]$SelectedY) {
+    if (-not (Test-CollisionObject $Object $CollisionRecordNames $true)) { return $null }
+    if ($Object.format -isnot [string] -or $Object.format -cne 'benilla-collision-diagnostics-v1') { return $null }
+    if ($Object.stage -isnot [string] -or $CollisionStages -cnotcontains $Object.stage) { return $null }
+    if ($Object.status -isnot [string] -or @('passed','failed','unavailable') -cnotcontains $Object.status) { return $null }
+    $recordMap = Read-CollisionInteger $Object.map 999
+    $recordX = Read-CollisionInteger $Object.tile_x 63; $recordY = Read-CollisionInteger $Object.tile_y 63
+    $elapsed = Read-CollisionInteger $Object.elapsed_ms ([long]::MaxValue)
+    if ($null -eq $recordMap -or $null -eq $recordX -or $null -eq $recordY -or $null -eq $elapsed) { return $null }
+    if ($recordMap -ne $SelectedMap -or $recordX -ne $SelectedX -or $recordY -ne $SelectedY) { return $null }
+    if ($Object.gameplay_admitted -isnot [bool] -or $Object.gameplay_admitted) { return $null }
+    if ($null -ne $Object.code -and ($Object.code -isnot [string] -or $SafeCollisionIds -cnotcontains $Object.code)) { return $null }
+    if ($null -ne $Object.source_stage -and ($Object.source_stage -isnot [string] -or $CollisionSourceStages -cnotcontains $Object.source_stage)) { return $null }
+    if (-not (Test-CollisionObject $Object.metrics $CollisionMetricNames $false) -or -not (Test-CollisionObject $Object.hashes $CollisionHashNames $false)) { return $null }
+    $metrics = [ordered]@{}; $hashes = [ordered]@{}
+    foreach ($property in $Object.metrics.PSObject.Properties) {
+        $n = Read-CollisionInteger $property.Value ([long]::MaxValue)
+        if ($null -eq $n) { return $null }
+        $metrics[$property.Name] = $n
+    }
+    foreach ($property in $Object.hashes.PSObject.Properties) {
+        $h = Read-SafeHash $property.Value
+        if ($null -eq $h) { return $null }
+        $hashes[$property.Name] = $h
+    }
+    $probe = $null
+    if ($null -ne $Object.probe) {
+        $p = $Object.probe
+        if ($Object.stage -cne 'probe' -or -not (Test-CollisionObject $p @('index','kind','from_bits','to_bits','result','value_bits') $true)) { return $null }
+        $index = Read-CollisionInteger $p.index 15
+        if ($null -eq $index -or $p.kind -isnot [string] -or @('height','segment') -cnotcontains $p.kind) { return $null }
+        if ($p.result -isnot [string] -or @('height','hit','miss','error') -cnotcontains $p.result) { return $null }
+        if (-not (Test-CollisionVector $p.from_bits)) { return $null }
+        if ($null -ne $p.to_bits -and -not (Test-CollisionVector $p.to_bits)) { return $null }
+        $value = $null
+        if ($null -ne $p.value_bits) {
+            $value = Read-CollisionInteger $p.value_bits 4294967295
+            if ($null -eq $value) { return $null }
+        }
+        $probe = [ordered]@{ index = $index; kind = $p.kind; from_bits = @($p.from_bits | ForEach-Object { [long]$_ });
+            to_bits = $(if ($null -eq $p.to_bits) { $null } else { @($p.to_bits | ForEach-Object { [long]$_ }) }); result = $p.result; value_bits = $value }
+    }
+    return [ordered]@{ format = 'benilla-collision-diagnostics-v1'; stage = $Object.stage; status = $Object.status;
+        map = $recordMap; tile_x = $recordX; tile_y = $recordY; elapsed_ms = $elapsed; code = $Object.code;
+        source_stage = $Object.source_stage; metrics = $metrics; hashes = $hashes; probe = $probe; gameplay_admitted = $false }
+}
+function ConvertTo-SafeCollisionDiagnostics([string]$Text, [bool]$Truncated, [int]$SelectedMap, [int]$SelectedX, [int]$SelectedY) {
+    $r = [ordered]@{ status = 'no_valid_records'; record_limit = 32; line_byte_limit = 16384; accepted_byte_limit = 262144;
+        accepted_bytes = 0; invalid_records_omitted = 0; oversized_lines_omitted = 0; limit_records_omitted = 0;
+        partial_line_omitted = $false; records = @() }
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $lines = $Text -split "`n"; $lastStage = -1
+    $probeIndices = New-Object 'Collections.Generic.HashSet[long]'
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        if ($line.EndsWith("`r")) { $line = $line.Substring(0, $line.Length - 1) }
+        if ($line.Length -eq 0) { continue }
+        if ($Truncated -and $i -eq ($lines.Count - 1) -and -not $Text.EndsWith("`n")) { $r.partial_line_omitted = $true; continue }
+        $bytes = $utf8.GetByteCount($line)
+        if ($bytes -gt $r.line_byte_limit) { $r.oversized_lines_omitted++; continue }
+        if ($r.records.Count -ge $r.record_limit -or ($r.accepted_bytes + $bytes) -gt $r.accepted_byte_limit) { $r.limit_records_omitted++; continue }
+        $record = $null
+        try {
+            if (Test-CollisionJsonSyntax $line) {
+                $obj = ConvertFrom-Json -InputObject $line -ErrorAction Stop
+                $record = ConvertTo-SafeCollisionRecord $obj $SelectedMap $SelectedX $SelectedY
+            }
+        } catch { $record = $null }
+        if ($null -eq $record) { $r.invalid_records_omitted++; continue }
+        $stageIndex = [Array]::IndexOf($CollisionStages, $record.stage)
+        if ($stageIndex -lt $lastStage -or ($stageIndex -eq $lastStage -and $record.stage -cne 'probe')) {
+            $r.invalid_records_omitted++; continue
+        }
+        if ($record.stage -ceq 'probe' -and $null -ne $record.probe -and -not $probeIndices.Add($record.probe.index)) { $r.invalid_records_omitted++; continue }
+        $lastStage = $stageIndex
+        $r.records += $record; $r.accepted_bytes += $bytes
+    }
+    if ($r.records.Count -gt 0) { $r.status = 'recognized_records' }
+    if ($r.invalid_records_omitted -gt 0 -or $r.oversized_lines_omitted -gt 0 -or $r.limit_records_omitted -gt 0 -or $r.partial_line_omitted) { $r.status = 'invalid_or_excess_records_omitted' }
+    return $r
+}
+
 function ConvertTo-RunMetadata($Run) {
     $r = [ordered]@{}
     foreach ($key in @('status','exit_code','elapsed_ms','timed_out','termination_attempted','termination_confirmed','stdout_characters_seen','stderr_characters_seen','stdout_truncated','stderr_truncated')) { $r[$key] = $Run[$key] }
@@ -468,6 +719,8 @@ try {
     if ($tileX -gt 63 -or $tileY -gt 63) { throw 'selection.tile_bounds' }
     $Tile = [string]$tileX + ',' + [string]$tileY
     $dataPath = Get-LocalFullPath $Data; $helperPath = Get-LocalFullPath $Helper; $outputPath = Get-LocalFullPath $Output
+    $playerPath = $null
+    if ($PSBoundParameters.ContainsKey('Player')) { $playerPath = Get-LocalFullPath $Player }
     if ([IO.Path]::GetExtension($outputPath) -ine '.json') { throw 'output.json_extension_required' }
     if (Test-InDirectory $outputPath $dataPath) { throw 'output.inside_data_refused' }
     if (-not [IO.Directory]::Exists([IO.Path]::GetDirectoryName($outputPath))) { throw 'output.parent_missing' }
@@ -524,6 +777,30 @@ try {
             $report.helper_run = $runReport
         }
     }
+    # Independent of helper capability, exit status, timeout, or schema outcome.
+    # The optional player is never probed with normal startup or --help.
+    if ($null -ne $playerPath) {
+        $report.scope['player'] = '[PLAYER]'
+        $playerIdentity = Get-HelperIdentity $playerPath 'benilla.exe'
+        $report['player'] = $playerIdentity
+        $report['collision_run'] = $null
+        $report['collision_diagnostics'] = [ordered]@{ status = 'unavailable'; records = @() }
+        if (-not $dataAvailable) { $report.collision_run = [ordered]@{ status = 'skipped_data_unavailable' } }
+        elseif ($playerIdentity.status -ne 'available') { $report.collision_run = [ordered]@{ status = 'skipped_player_unavailable' } }
+        else {
+            # Let a cooperative soft timeout flush its final bounded progress records.
+            $collision = Invoke-BoundedHelper $playerPath @('diagnose-collision', '--data', $dataPath, '--map', [string]$Map, '--tile', $Tile, '--timeout-seconds', [string]$TimeoutSeconds) ($TimeoutSeconds + 5)
+            $report.collision_run = ConvertTo-RunMetadata $collision
+            $incomplete = $collision.stdout_truncated -or $collision.status -ne 'completed'
+            $report.collision_diagnostics = ConvertTo-SafeCollisionDiagnostics $collision.stdout $incomplete $Map $tileX $tileY
+        }
+        if ($playerIdentity.status -eq 'available') {
+            try {
+                $playerIdentity.sha256_after_collection = Get-Sha256 $playerPath
+                $playerIdentity.unchanged_after_collection = $playerIdentity.sha256 -ceq $playerIdentity.sha256_after_collection
+            } catch { $playerIdentity.unchanged_after_collection = $false }
+        }
+    }
     if ($identity.status -eq 'available') {
         try {
             $identity.sha256_after_collection = Get-Sha256 $helperPath
@@ -536,6 +813,9 @@ try {
     $reportStream.Write($bytes, 0, $bytes.Length); $reportStream.Flush()
     if ($report.helper_run.Contains('termination_confirmed') -and $report.helper_run.termination_confirmed -eq $false) {
         Write-Warning 'The helper could not be confirmed stopped. Check for a running benilla-native-terrain process.'
+    }
+    if ($null -ne $playerPath -and $report.collision_run.Contains('termination_confirmed') -and $report.collision_run.termination_confirmed -eq $false) {
+        Write-Warning 'The player diagnostic could not be confirmed stopped. Check for a running benilla process.'
     }
     Write-Output 'Diagnostic report created. Review the JSON, then share it; the selected Data and helper paths are not included.'
 } catch {

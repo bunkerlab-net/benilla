@@ -7,6 +7,7 @@ pub(crate) mod area;
 mod bih;
 #[cfg(test)]
 mod captured_map_tests;
+pub(crate) mod diagnostic;
 #[cfg(test)]
 mod generated_map_tests;
 mod height;

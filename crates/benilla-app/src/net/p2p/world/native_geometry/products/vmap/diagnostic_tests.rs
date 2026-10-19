@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Exercise the real read-only CLI body against authored captured archives.
+use super::super::diagnostic;
+use super::*;
+use serde_json::Value;
+use std::ffi::OsString;
+
+fn arguments(path: &Path) -> Vec<OsString> {
+    vec![
+        "--data".into(),
+        path.into(),
+        "--map".into(),
+        "0".into(),
+        "--tile".into(),
+        "31,30".into(),
+        "--timeout-seconds".into(),
+        "60".into(),
+    ]
+}
+fn run_report(path: &Path) -> (String, Vec<Value>) {
+    let mut bytes = Vec::new();
+    diagnostic::run(&arguments(path), &mut bytes).unwrap();
+    let text = String::from_utf8(bytes).unwrap();
+    assert!(!text.contains(&path.to_string_lossy().to_string()));
+    assert!(!text.contains(ROOT));
+    assert!(!text.contains("model.MPQ"));
+    let rows: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    for row in &rows {
+        assert_eq!(row["gameplay_admitted"], false);
+        assert_eq!(row.as_object().unwrap().len(), 13);
+    }
+    (text, rows)
+}
+#[test]
+fn authored_capture_diagnostic_runs_all_phases_without_writing_install() {
+    let install = Install::new(&entries());
+    let before = install.bytes();
+    let (_, rows) = run_report(&install.0);
+    let metrics = &rows[3]["metrics"];
+    assert_eq!(
+        metrics["serialized_bytes"].as_u64().unwrap(),
+        metrics["tree_bytes"].as_u64().unwrap()
+            + metrics["tile_bytes"].as_u64().unwrap()
+            + metrics["model_bytes"].as_u64().unwrap()
+    );
+    let stages: Vec<_> = rows
+        .iter()
+        .map(|row| row["stage"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        &stages[..5],
+        &[
+            "selection",
+            "capture",
+            "placement",
+            "assembly",
+            "validation"
+        ]
+    );
+    assert_eq!(&stages[stages.len() - 2..], &["freshness", "complete"]);
+    for row in &rows {
+        assert_eq!(row["status"], "passed", "{row}");
+    }
+    assert_eq!(rows.iter().filter(|r| r["stage"] == "probe").count(), 9);
+    assert_eq!(rows.last().unwrap()["metrics"]["completed_probes"], 9);
+    for (index, row) in rows.iter().filter(|r| r["stage"] == "probe").enumerate() {
+        let dx = [0.25f32, 0.5, 0.75][index / 3];
+        let dy = [0.25f32, 0.5, 0.75][index % 3];
+        let expected = [
+            (1.0 - dx) * (1600.0 / 3.0),
+            (2.0 - dy) * (1600.0 / 3.0),
+            2000.0f32,
+        ]
+        .map(f32::to_bits);
+        assert_eq!(row["probe"]["from_bits"], serde_json::json!(expected));
+        assert_eq!(row["probe"]["result"], "miss");
+        assert_eq!(row["probe"]["value_bits"], (-200000f32).to_bits());
+    }
+    assert_eq!(install.bytes(), before);
+}
+#[test]
+fn capture_failure_reports_blocked_phases_and_never_leaks_asset_names() {
+    let mut content = entries();
+    content.retain(|entry| entry.name != GROUP);
+    let install = Install::new(&content);
+    let before = install.bytes();
+    let (_, rows) = run_report(&install.0);
+    assert_eq!(rows[1]["stage"], "capture");
+    assert_eq!(rows[1]["status"], "failed");
+    assert!(rows[1]["source_stage"].is_string());
+    for row in &rows[2..rows.len() - 1] {
+        assert_eq!(row["status"], "unavailable");
+    }
+    assert_eq!(rows.last().unwrap()["metrics"]["failed_stages"], 1);
+    assert_eq!(install.bytes(), before);
+}
+
+#[test]
+fn empty_install_matches_actual_player_smoke_schema() {
+    // Keep this independent of the Python fixture: execute the real Rust body.
+    let install = Install::new(&[]);
+    fs::remove_file(install.0.join("model.MPQ")).unwrap();
+    let mut args = arguments(&install.0);
+    args[5] = "48,32".into();
+    let mut output = Vec::new();
+    diagnostic::run(&args, &mut output).unwrap();
+    let text = String::from_utf8(output).unwrap();
+    let rows: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let stages = [
+        "selection",
+        "capture",
+        "placement",
+        "assembly",
+        "validation",
+        "probe",
+        "freshness",
+        "complete",
+    ];
+    assert_eq!(rows.len(), stages.len());
+    for (mut row, stage) in rows.into_iter().zip(stages) {
+        assert!(row
+            .as_object_mut()
+            .unwrap()
+            .remove("elapsed_ms")
+            .unwrap()
+            .is_u64());
+        let mut expected = serde_json::json!({"format":"benilla-collision-diagnostics-v1","stage":stage,"status":"unavailable","map":0,"tile_x":48,"tile_y":32,"code":"collision.prerequisite","source_stage":null,"metrics":{},"hashes":{},"probe":null,"gameplay_admitted":false});
+        match stage {
+            "selection" => {
+                expected["status"] = "passed".into();
+                expected["code"] = Value::Null;
+            }
+            "capture" => {
+                expected["status"] = "failed".into();
+                expected["code"] = "vmap.required_member_absent".into();
+                expected["source_stage"] = "LiquidTypes".into();
+                expected["metrics"] = serde_json::json!({"member_lookups":1,"read_work_bytes":0,"complete_raw_products":0,"adt_attempts":0});
+            }
+            "complete" => {
+                expected["status"] = "failed".into();
+                expected["code"] = Value::Null;
+                expected["metrics"] = serde_json::json!({"completed_probes":0,"failed_stages":1});
+            }
+            _ => {}
+        }
+        assert_eq!(row, expected);
+    }
+    assert!(install.bytes().is_empty());
+}

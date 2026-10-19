@@ -31,6 +31,8 @@ the explicit product/placement interface, not these diagnostic serializers.
 
 The app also provides a separate [prepared collision view](PREPARED-COLLISION-VIEW.md)
 for source-version-bound historical queries without terrain or navigation placeholders.
+The player’s [read-only collision diagnostics](COLLISION-DIAGNOSTICS.md) exercise
+that real capture and query path and report each reachable stage independently.
 
 ## Supported boundary
 

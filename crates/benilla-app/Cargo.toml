@@ -22,6 +22,7 @@ trace_chrome = ["bevy/trace_chrome"]
 bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
+serde_json = "1"
 benilla-native-vmap = { path = "../benilla-native-vmap" }
 benilla-native-vmap-source = { path = "../benilla-native-vmap-source" }
 benilla-native-nav = { path = "../benilla-native-nav" }
@@ -135,7 +136,6 @@ benilla-world = { path = "../benilla-world", default-features = false, features 
 # Private native controller component tests never grant a production capability.
 benilla-world-runtime = { path = "../benilla-world-runtime", features = ["synthetic-native-tests"] }
 # Source-level solo-world fixtures exercise the actual app test module as well as its harness.
-serde_json = "1"
 benilla-srp = { path = "../benilla-srp" }
 num-bigint = "0.4.6"
 sha1.workspace = true

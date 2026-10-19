@@ -127,11 +127,31 @@ class PlayerFeatureGraphTests(unittest.TestCase):
                     normal = [d for d in sources if d["kind"] is None]
                     self.assertEqual(len(normal), 1)
                     self.assertNotIn("synthetic-map-tests", normal[0]["features"])
+                json_deps = [d for d in dependencies if d["name"] == "serde_json"]
+                self.assertEqual(len(json_deps), 1)
+                self.assertEqual(json_deps[0]["kind"], None if package["name"] == "benilla-app" else "dev")
                 model = [d for d in dependencies if d["name"] == "benilla-native-vmap"]
                 self.assertEqual(len(model), 1)
                 self.assertEqual(model[0]["kind"], None if package["name"] == "benilla-app" else "dev")
         self.assertIn("benilla-app", consumers)
         self.assertGreater(len(consumers), 1, "discover actual include harnesses, not only the app")
+
+    def test_collision_diagnostics_dispatch_precedes_persistent_or_window_setup(self):
+        root = Path(__file__).resolve().parents[1]
+        code = (root / "crates/benilla-app/src/lib.rs").read_text(encoding="utf-8")
+        launch = code.split("fn launch(", 1)[1]
+        diagnostic = launch.index('OsStr::new("diagnose-collision")')
+        recovery = launch.index("profile_recovery::run(build)")
+        self.assertLess(diagnostic, recovery)
+        branch = launch[diagnostic:recovery]
+        self.assertIn("return match net::run_collision_diagnostics", branch)
+        self.assertIn("std::io::stdout().lock()", branch)
+        self.assertNotIn("local_state", branch)
+        self.assertNotIn("App::new", branch)
+        codes = json.loads((root / "crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/diagnostic_codes.json").read_text(encoding="utf-8"))
+        collector = (root / "scripts/Collect-BenillaTerrainDiagnostics.ps1").read_text(encoding="utf-8")
+        for code in codes:
+            self.assertIn("'" + code + "'", collector)
 
 
 class PackagingTests(unittest.TestCase):

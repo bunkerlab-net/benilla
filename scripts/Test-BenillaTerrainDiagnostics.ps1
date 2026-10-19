@@ -2,7 +2,7 @@
 <#
 Windows-only authored smoke tests for the sibling collector. No game assets,
 network, downloads, administrator rights, or execution-policy changes. Creates
-and removes its own temporary fixture tree. Compiles its own fake helper using
+and removes its own temporary fixture tree. Compiles its own fake helper and player using
 Windows' installed .NET Framework csc.exe. Run under powershell.exe AND pwsh.exe.
 #>
 [CmdletBinding()]
@@ -25,11 +25,13 @@ $Collector = (Resolve-Path -LiteralPath $Collector).ProviderPath
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 if (-not (Test-Path -LiteralPath $compiler)) { throw 'Installed .NET Framework compiler not found; tests were not run.' }
-$root = Join-Path ([IO.Path]::GetTempPath()) ('Benilla private path ' + [Guid]::NewGuid().ToString('N'))
+$root = Join-Path ([IO.Path]::GetTempPath()) ('Benilla private path ' + [char]0x00E9 + [char]0x4E2D + ' ' + [Guid]::NewGuid().ToString('N'))
 $data = Join-Path $root 'Data'; $locale = Join-Path $data 'enUS'
 [void][IO.Directory]::CreateDirectory($locale)
 $oldMode = [Environment]::GetEnvironmentVariable('BENILLA_DIAG_TEST_MODE', 'Process')
 $oldData = [Environment]::GetEnvironmentVariable('BENILLA_DIAG_TEST_DATA', 'Process')
+$oldCollisionMode = [Environment]::GetEnvironmentVariable('BENILLA_COLLISION_TEST_MODE', 'Process')
+$reports = New-Object 'Collections.Generic.List[string]'
 $oldLocation = Get-Location
 $passed = 0
 try {
@@ -79,6 +81,130 @@ class FakeTerrainHelper {
     [IO.File]::WriteAllText($sourcePath, $source)
     $compilerOutput = & $compiler /nologo /target:exe ("/out:" + $exe) $sourcePath 2>&1
     Assert-True ($LASTEXITCODE -eq 0 -and [IO.File]::Exists($exe)) ('Authored fixture compilation failed: ' + ($compilerOutput -join ' '))
+    $playerSource = @'
+using System;
+using System.Threading;
+class FakeCollisionPlayer {
+    static int map, x, y;
+    static string Record(string stage) {
+        return "{\"format\":\"benilla-collision-diagnostics-v1\",\"stage\":\"" + stage + "\",\"status\":\"passed\",\"map\":" + map + ",\"tile_x\":" + x + ",\"tile_y\":" + y + ",\"elapsed_ms\":1,\"code\":null,\"source_stage\":null,\"metrics\":{},\"hashes\":{},\"probe\":null,\"gameplay_admitted\":false}";
+    }
+    static string Probe(int index) {
+        return Record("probe").Replace("\"probe\":null", "\"probe\":{\"index\":" + index + ",\"kind\":\"height\",\"from_bits\":[0,2147483648,4294967295],\"to_bits\":null,\"result\":\"miss\",\"value_bits\":null}");
+    }
+    static void Write(string text) { Console.WriteLine(text); Console.Out.Flush(); }
+    static int Main(string[] args) {
+        if (args.Length != 9 || args[0] != "diagnose-collision" || args[1] != "--data" || args[2] != Environment.GetEnvironmentVariable("BENILLA_DIAG_TEST_DATA") || args[3] != "--map" || args[5] != "--tile" || args[7] != "--timeout-seconds") {
+            Console.Error.WriteLine("PRIVATE_PLAYER_ARGUMENT_MISMATCH " + String.Join(" ", args)); return 9;
+        }
+        map = Int32.Parse(args[4]); string[] tile = args[6].Split(','); x = Int32.Parse(tile[0]); y = Int32.Parse(tile[1]);
+        string mode = Environment.GetEnvironmentVariable("BENILLA_COLLISION_TEST_MODE") ?? "success";
+        Console.Error.WriteLine("PRIVATE_PLAYER_STDERR C:\\Private Person\\secret.txt");
+        Write(Record("selection"));
+        string capture = Record("capture");
+        if (mode == "failure") {
+            Write(capture.Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"vmap.source.member_read\"").Replace("\"source_stage\":null", "\"source_stage\":\"AdtTraversal\""));
+            Write(Record("placement").Replace("\"passed\"", "\"unavailable\"").Replace("\"code\":null", "\"code\":\"collision.prerequisite\""));
+            Write(Record("probe").Replace("\"passed\"", "\"unavailable\""));
+            Write(Record("complete").Replace("\"passed\"", "\"failed\"")); return 7;
+        }
+        if (mode == "soft_timeout") {
+            Thread.Sleep((Int32.Parse(args[8]) + 1) * 1000);
+            Write(capture.Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"collision.timeout\""));
+            Write(Record("complete").Replace("\"passed\"", "\"failed\"")); return 7;
+        }
+        if (mode == "timeout") { Write(capture); Console.Write("{\"PRIVATE_PARTIAL\":"); Console.Out.Flush(); Thread.Sleep(30000); return 0; }
+        if (mode == "flood") {
+            string block = new String('x', 4096);
+            for (int i = 0; i < 1024; i++) { Console.Write(block); Console.Error.Write(block); }
+            return 0;
+        }
+        if (mode == "oversized") { Write(new String('x', 16385)); Write(capture); return 0; }
+        if (mode == "malformed") { Write("PRIVATE_NOT_JSON C:\\Private Person\\secret.txt"); Write(capture); return 0; }
+        if (mode == "invalid_schema") {
+            string[] invalid = {
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":\"PRIVATE_METRIC\"}"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":true}"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":1.0}"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":1e0}"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":-1}"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":9223372036854775808}"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"PRIVATE_MEMBER_NAME\":0}"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":[]"),
+                capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":1,\"member_lookups\":2}"),
+                capture.Replace("\"hashes\":{}", "\"hashes\":{\"source_epoch\":\"PRIVATE_HASH\"}"),
+                capture.Replace("\"hashes\":{}", "\"hashes\":{\"source_epoch\":true}"),
+                capture.Replace("\"hashes\":{}", "\"hashes\":{\"PRIVATE_HASH_NAME\":\"" + new String('a',64) + "\"}"),
+                capture.Replace("\"hashes\":{}", "\"hashes\":null"),
+                capture.Replace("\"code\":null", "\"code\":\"vmap.PRIVATE_INJECTED_ID\""),
+                capture.Replace("\"source_stage\":null", "\"source_stage\":\"PRIVATE_SOURCE\""),
+                capture.Replace("\"status\":\"passed\"", "\"status\":\"Passed\""),
+                capture.Replace("\"map\":" + map, "\"map\":999"),
+                capture.Replace("\"map\":" + map, "\"map\":1000"),
+                capture.Replace("\"tile_x\":" + x, "\"tile_x\":64"),
+                capture.Replace("\"tile_y\":" + y, "\"tile_y\":1"),
+                capture.Replace("\"map\":" + map, "\"map\":\"0\""),
+                capture.Replace("\"map\":" + map, "\"map\":false"),
+                capture.Replace("\"map\":" + map, "\"map\":[0]"),
+                capture.Replace("\"elapsed_ms\":1", "\"elapsed_ms\":null"),
+                capture.Replace("\"elapsed_ms\":1", "\"elapsed_ms\":9223372036854775808"),
+                capture.Replace("\"elapsed_ms\":1,", ""),
+                capture.Replace("\"gameplay_admitted\":false", "\"gameplay_admitted\":true"),
+                capture.Replace("\"gameplay_admitted\":false", "\"gameplay_admitted\":\"false\""),
+                capture.Replace("\"map\":" + map, "\"map\":0,\"map\":0"),
+                capture.Replace("\"map\":" + map, "\"map\":0,\"Map\":0"),
+                capture.Replace("\"map\":", "\"m\\u0061p\":"),
+                capture.Replace("\"map\":", "map:"),
+                capture.Replace('"', '\''),
+                capture.Substring(0,capture.Length-1) + ",}",
+                capture.Replace("\"map\":", "/*PRIVATE_COMMENT*/\"map\":"),
+                capture.Substring(0,capture.Length-1) + ",\"PRIVATE_PATH\":\"C:\\\\Private Person\\\\secret.txt\"}",
+                capture.Replace("\"probe\":null", "\"probe\":{}"),
+                Probe(16),
+                Probe(0).Replace("4294967295", "4294967296"),
+                Probe(0).Replace("[0,2147483648,4294967295]", "[0,1]"),
+                Probe(0).Replace("\"to_bits\":null", "\"to_bits\":[0,1,\"PRIVATE_BIT\"]"),
+                Probe(0).Replace("\"value_bits\":null", "\"value_bits\":4294967296"),
+                Probe(0).Replace("\"result\":\"miss\"", "\"result\":\"PRIVATE_RESULT\""),
+                Probe(0).Replace("\"kind\":\"height\"", "\"kind\":\"PRIVATE_KIND\""),
+                Probe(0).Replace("\"index\":0", "\"index\":0,\"PRIVATE_PROBE\":0"),
+                "[" + capture + "]"
+            };
+            foreach (string line in invalid) Write(line);
+            Write(capture); return 0;
+        }
+        if (mode == "order") {
+            Write(capture); Write(capture); Write(Record("selection"));
+            Write(Probe(0)); Write(Probe(0)); Write(Probe(1)); Write(Record("freshness")); Write(Record("assembly")); return 0;
+        }
+        if (mode == "budget") {
+            Write(capture.PadRight(16000));
+            Write(Record("placement").PadRight(16000)); Write(Record("assembly").PadRight(16000)); Write(Record("validation").PadRight(16000));
+            for (int i = 0; i < 16; i++) Write(Probe(i).PadRight(16000));
+            Write(Record("freshness").PadRight(16000)); Write(Record("complete").PadRight(16000)); return 0;
+        }
+        if (mode == "record_limit") { for (int i = 0; i < 40; i++) Write(Record("probe")); return 0; }
+        if (mode == "source_codes") {
+            Write(capture.Replace("\"code\":null", "\"code\":\"vmap.source.header_version\"").Replace("\"source_stage\":null", "\"source_stage\":\"OpenSource\""));
+            Write(Record("placement").Replace("\"code\":null", "\"code\":\"vmap.source_changed_during_preparation\""));
+            Write(Record("assembly").Replace("\"code\":null", "\"code\":\"vmap.bih_limit\""));
+            Write(Record("validation").Replace("\"code\":null", "\"code\":\"vmap.model_write.allocation\""));
+            Write(Record("complete").Replace("\"code\":null", "\"code\":\"collision.unknown_error\"")); return 0;
+        }
+        Write(capture.Replace("\"metrics\":{}", "\"metrics\":{\"member_lookups\":3,\"read_work_bytes\":9223372036854775807}").Replace("\"hashes\":{}", "\"hashes\":{\"source_epoch\":\"" + new String('a',64) + "\"}"));
+        Write(Record("placement"));
+        Write(Record("assembly").Replace("\"metrics\":{}", "\"metrics\":{\"tree_bytes\":32,\"tile_bytes\":64,\"model_bytes\":128,\"serialized_bytes\":224,\"tiles\":1,\"models\":2}"));
+        Write(Record("validation"));
+        Write(Probe(0));
+        Write(Probe(1).Replace("\"height\"", "\"segment\"").Replace("\"to_bits\":null", "\"to_bits\":[0,1,2]").Replace("\"miss\"", "\"hit\"").Replace("\"value_bits\":null", "\"value_bits\":4294967295"));
+        Write(Record("freshness")); Write(Record("complete")); return 0;
+    }
+}
+'@
+    $playerSourcePath = Join-Path $root 'AuthoredFakePlayer.cs'; $playerExe = Join-Path $root 'benilla.exe'
+    [IO.File]::WriteAllText($playerSourcePath, $playerSource)
+    $compilerOutput = & $compiler /nologo /target:exe ("/out:" + $playerExe) $playerSourcePath 2>&1
+    Assert-True ($LASTEXITCODE -eq 0 -and [IO.File]::Exists($playerExe)) ('Authored player fixture compilation failed: ' + ($compilerOutput -join ' '))
     # Small authored MPQ envelopes, not usable archives or copyrighted assets.
     function Write-Envelope([string]$Name, [int]$Version, [int]$Prefix = 0) {
         $size = $(if ($Version -eq 1) { 44 } else { 32 }); $length = $size + 32
@@ -115,6 +241,7 @@ class FakeTerrainHelper {
         # Omit -Data to exercise the relative .\Data default and native quoting of spaces.
         $messages = & $Collector -Helper '.\benilla-native-terrain.exe' -Output $output -TimeoutSeconds $Timeout
         Assert-True ([IO.File]::Exists($output)) ($Mode + ': report not created')
+        $reports.Add($output)
         $raw = [IO.File]::ReadAllText($output)
         Assert-True ($raw -notmatch 'PRIVATE_|Private Person|Benilla private path|[A-Za-z]:\\') ($Mode + ': private text leaked into report')
         Assert-True ($raw.Length -lt 100000) ($Mode + ': report unexpectedly large')
@@ -123,6 +250,7 @@ class FakeTerrainHelper {
         return $r
     }
     $r = Run-Case 'diagnose'
+    Assert-True ($null -eq $r.PSObject.Properties['player'] -and $null -eq $r.PSObject.Properties['collision_run']) 'No -Player: report schema changed'
     Assert-True ($r.helper_run.mode -eq '--diagnose' -and $r.helper_run.exit_code -eq 0) 'diagnose: wrong execution mode'
     Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'diagnose: schema not recognized'
     Assert-True ($r.detailed_diagnostics.report.map_table.selected_row_ordinal -eq 2) 'diagnose: lost selected map row'
@@ -153,6 +281,80 @@ class FakeTerrainHelper {
     $r = Run-Case 'badjson'
     Assert-True ($r.detailed_diagnostics.status -eq 'invalid_json') 'badjson: unknown output not marked invalid'
     $passed++; Write-Output 'PASS: malformed diagnostic JSON is safely omitted'
+    function Run-CollisionCase([string]$Mode, [string]$TerrainMode = 'diagnose', [int]$Timeout = 8, [int]$SelectedMap = 0, [string]$SelectedTile = '48,32', [switch]$SkipTerrain, [string]$PlayerPath = '.\benilla.exe') {
+        [Environment]::SetEnvironmentVariable('BENILLA_DIAG_TEST_MODE', $TerrainMode, 'Process')
+        [Environment]::SetEnvironmentVariable('BENILLA_COLLISION_TEST_MODE', $Mode, 'Process')
+        $output = Join-Path $root ('collision-' + $reports.Count + '.json')
+        $messages = & $Collector -Helper '.\benilla-native-terrain.exe' -Player $PlayerPath -Output $output -TimeoutSeconds $Timeout -Map $SelectedMap -Tile $SelectedTile -SkipHelper:$SkipTerrain
+        Assert-True ([IO.File]::Exists($output)) ($Mode + ': collision report not created')
+        $reports.Add($output)
+        $raw = [IO.File]::ReadAllText($output)
+        Assert-True ($raw -notmatch 'PRIVATE_|Private Person|Benilla private path|[A-Za-z]:\\') ($Mode + ': collision private text leaked')
+        Assert-True ($raw.Length -lt 100000) ($Mode + ': collision report unexpectedly large')
+        $r = ConvertFrom-Json -InputObject $raw
+        if ($r.player.status -eq 'available') {
+            Assert-True ($r.player.sha256 -eq (Get-FileHash -LiteralPath $playerExe -Algorithm SHA256).Hash.ToLowerInvariant() -and $r.player.unchanged_after_collection) ($Mode + ': player identity/hash mismatch')
+        }
+        Assert-True ($null -eq $r.collision_run.PSObject.Properties['stdout'] -and $null -eq $r.collision_run.PSObject.Properties['stderr']) ($Mode + ': raw player output retained')
+        Assert-True ($r.collision_diagnostics.records.Count -le 32) ($Mode + ': record count limit exceeded')
+        if ($null -ne $r.collision_diagnostics.PSObject.Properties['accepted_bytes']) {
+            Assert-True ($r.collision_diagnostics.accepted_bytes -le 262144) ($Mode + ': cumulative JSON byte limit exceeded')
+        }
+        return $r
+    }
+    $r = Run-CollisionCase 'success'
+    Assert-True ($r.collision_run.status -eq 'completed' -and $r.collision_run.exit_code -eq 0) 'collision success: player did not complete'
+    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 9) 'collision success: records not preserved'
+    Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'collision success: terrain results lost'
+    Assert-True ($r.collision_diagnostics.records[1].metrics.read_work_bytes -eq [long]::MaxValue) 'collision success: Int64 maximum rejected'
+    Assert-True ($r.collision_diagnostics.records[3].metrics.tile_bytes -eq 64 -and $r.collision_diagnostics.records[3].metrics.serialized_bytes -eq 224 -and $r.collision_diagnostics.records[3].metrics.tree_bytes -eq 32 -and $r.collision_diagnostics.records[3].metrics.model_bytes -eq 128) 'collision assembly: serialized sizing evidence lost'
+    Assert-True ($r.collision_diagnostics.records[5].probe.from_bits[2] -eq 4294967295 -and $null -eq $r.collision_diagnostics.records[5].probe.to_bits) 'collision success: height bits or null changed'
+    Assert-True ($r.collision_diagnostics.records[6].probe.to_bits.Count -eq 3 -and $r.collision_diagnostics.records[6].probe.value_bits -eq 4294967295) 'collision success: segment bits changed'
+    $passed++; Write-Output 'PASS: optional player, bounded numeric/hash/probe schema and Unicode executable/Data paths'
+    $r = Run-CollisionCase 'success' 'nonzero'
+    Assert-True ($r.helper_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 9) 'terrain failure prevented collision success'
+    $r = Run-CollisionCase 'failure'
+    Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered' -and $r.collision_run.exit_code -eq 7) 'collision failure lost independent terrain success'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 5 -and $r.collision_diagnostics.records[1].code -eq 'vmap.source.member_read' -and $r.collision_diagnostics.records[1].source_stage -eq 'AdtTraversal') 'collision failure lost safe source diagnostic'
+    Assert-True ($r.collision_diagnostics.records[3].status -eq 'unavailable' -and $null -eq $r.collision_diagnostics.records[3].probe) 'collision failure lost unavailable probe stage'
+    $r = Run-CollisionCase 'success' -SkipTerrain
+    Assert-True ($r.helper_run.status -eq 'skipped_by_request' -and $r.collision_diagnostics.records.Count -eq 9) 'SkipHelper incorrectly skipped collision'
+    $r = Run-CollisionCase 'success' -PlayerPath '.\missing\benilla.exe'
+    Assert-True ($r.player.status -eq 'missing' -and $r.collision_run.status -eq 'skipped_player_unavailable' -and $r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'missing player blocked terrain diagnostics'
+    $passed++; Write-Output 'PASS: independent terrain/collision failures, missing player and terrain skip'
+    $r = Run-CollisionCase 'timeout' -Timeout 1
+    Assert-True ($r.collision_run.timed_out -and $r.collision_run.termination_confirmed -and $r.collision_run.elapsed_ms -ge 6000 -and $r.collision_run.elapsed_ms -lt 10000) 'collision timeout: five-second grace or bounded hard termination missing'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.partial_line_omitted) 'collision timeout: complete partial records lost or trailing text retained'
+    Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'collision timeout: terrain result lost'
+    $r = Run-CollisionCase 'soft_timeout' -Timeout 1
+    Assert-True ($r.collision_run.status -eq 'completed' -and -not $r.collision_run.timed_out -and $r.collision_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.records[1].code -eq 'collision.timeout') 'collision soft timeout: final cooperative diagnostics lost before hard grace deadline'
+    $r = Run-CollisionCase 'success' 'timeout' 1
+    Assert-True ($r.helper_run.timed_out -and $r.collision_diagnostics.records.Count -eq 9) 'terrain timeout prevented collision collection'
+    $passed++; Write-Output 'PASS: hard timeout retains complete NDJSON records and independent terrain results'
+    $r = Run-CollisionCase 'flood'
+    Assert-True ($r.collision_run.stdout_truncated -and $r.collision_run.stderr_truncated -and $r.collision_run.status -eq 'output_limit_exceeded' -and $r.collision_run.elapsed_ms -lt 8000) 'collision flood: streams not bounded or drain deadlocked'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 1) 'collision flood: earlier valid record lost'
+    $r = Run-CollisionCase 'oversized'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.oversized_lines_omitted -eq 1) 'collision oversized: safe adjacent records not preserved'
+    $r = Run-CollisionCase 'malformed'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.invalid_records_omitted -eq 1) 'collision malformed: safe adjacent records not preserved'
+    $passed++; Write-Output 'PASS: stream saturation, oversized lines and malformed later output preserve valid records'
+    $r = Run-CollisionCase 'invalid_schema'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 2 -and $r.collision_diagnostics.invalid_records_omitted -eq 46) 'collision invalid schema: invalid keys/types/ranges/syntax or private text accepted'
+    $r = Run-CollisionCase 'order'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 5 -and $r.collision_diagnostics.invalid_records_omitted -eq 4) 'collision order: duplicate phase/probe or out-of-order record accepted'
+    $r = Run-CollisionCase 'budget'
+    Assert-True ($r.collision_diagnostics.records.Count -gt 1 -and $r.collision_diagnostics.limit_records_omitted -gt 0 -and $r.collision_diagnostics.accepted_bytes -le 262144) 'collision budget: accepted JSON unbounded or prior records lost'
+    $r = Run-CollisionCase 'record_limit'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 32 -and $r.collision_diagnostics.limit_records_omitted -eq 9) 'collision record count: 32-record cap not enforced'
+    $passed++; Write-Output 'PASS: exact schema, duplicate keys, numeric types/ranges, stage order and cumulative limits'
+    $r = Run-CollisionCase 'source_codes'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 6 -and $r.collision_diagnostics.records[1].code -eq 'vmap.source.header_version' -and $r.collision_diagnostics.records[2].code -eq 'vmap.source_changed_during_preparation' -and $r.collision_diagnostics.records[3].code -eq 'vmap.bih_limit' -and $r.collision_diagnostics.records[4].code -eq 'vmap.model_write.allocation' -and $r.collision_diagnostics.records[5].code -eq 'collision.unknown_error') 'collision source codes: safe codes lost'
+    $r = Run-CollisionCase 'success' -SelectedMap 1 -SelectedTile '1,2'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 9 -and $r.collision_diagnostics.records[0].map -eq 1 -and $r.collision_diagnostics.records[0].tile_x -eq 1 -and $r.collision_diagnostics.records[0].tile_y -eq 2) 'collision selection: explicit selection not forwarded/matched'
+    $passed++; Write-Output 'PASS: fixed source codes, strict requested-selection matching and explicit CLI arguments'
+    $r = Run-Case 'diagnose-again'
+    Assert-True ($null -eq $r.PSObject.Properties['player'] -and $null -eq $r.PSObject.Properties['collision_run'] -and $r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'No -Player after collision: legacy report changed'
     $overwrite = $false
     try { & $Collector -Helper '.\benilla-native-terrain.exe' -Output (Join-Path $root 'diagnose.json') | Out-Null } catch { $overwrite = $true }
     Assert-True $overwrite 'overwrite: existing output was not refused'
@@ -163,7 +365,7 @@ class FakeTerrainHelper {
     $privateLock.Dispose(); $privateLock = $null; $mpqLock.Dispose(); $mpqLock = $null
     foreach ($path in $before.Keys) { Assert-True ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $before[$path]) 'Original fixture file changed' }
     $newFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object { -not $before.ContainsKey($_.FullName) })
-    Assert-True ($newFiles.Count -eq 6 -and @($newFiles | Where-Object { $_.Extension -ne '.json' }).Count -eq 0) 'Collector created files other than its explicit JSON reports'
+    Assert-True ($newFiles.Count -eq $reports.Count -and @($newFiles | Where-Object { $_.Extension -ne '.json' }).Count -eq 0) 'Collector created files other than its explicit JSON reports'
     $passed++; Write-Output 'PASS: input hashes unchanged and no extra files created'
     Write-Output ('PASS: ' + $passed + ' authored smoke groups under PowerShell ' + $PSVersionTable.PSVersion.ToString())
 } finally {
@@ -172,5 +374,6 @@ class FakeTerrainHelper {
     Set-Location -LiteralPath $oldLocation.Path
     [Environment]::SetEnvironmentVariable('BENILLA_DIAG_TEST_MODE', $oldMode, 'Process')
     [Environment]::SetEnvironmentVariable('BENILLA_DIAG_TEST_DATA', $oldData, 'Process')
+    [Environment]::SetEnvironmentVariable('BENILLA_COLLISION_TEST_MODE', $oldCollisionMode, 'Process')
     if ([IO.Directory]::Exists($root)) { Remove-Item -LiteralPath $root -Recurse -Force }
 }

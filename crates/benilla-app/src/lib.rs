@@ -229,6 +229,13 @@ type Extension<'a> = Box<dyn FnOnce(&mut App) + 'a>;
 
 /// The one body behind [`run`] and [`run_with`], not generic, so a launcher compiles none of it.
 fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("diagnose-collision")) {
+        let args: Vec<_> = std::env::args_os().skip(2).take(9).collect();
+        return match net::run_collision_diagnostics(&args, &mut std::io::stdout().lock()) {
+            Ok(()) => AppExit::Success,
+            Err(_) => AppExit::error(),
+        };
+    }
     if let Some(result) = profile_recovery::run(build) {
         return result;
     }

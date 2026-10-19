@@ -6,6 +6,8 @@
 //! It runs in [`WorldStage::Net`], before `Input`, so a server teleport snaps, streams and covers
 //! in one frame. Coordinates cross from WoW into Bevy space here (`wow_to_bevy`).
 
+pub(crate) use p2p::run_collision_diagnostics;
+
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 

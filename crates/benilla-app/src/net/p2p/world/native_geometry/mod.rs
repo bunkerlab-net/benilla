@@ -8,6 +8,13 @@
 pub(super) mod core;
 mod local_corridor;
 mod products;
+pub(crate) fn run_collision_diagnostics(
+    args: &[std::ffi::OsString],
+    output: &mut impl std::io::Write,
+) -> std::io::Result<()> {
+    products::vmap::diagnostic::run(args, output)
+}
+
 use local_corridor::LocalCorridor;
 #[cfg(test)]
 pub(crate) mod real_corridor_fixture;

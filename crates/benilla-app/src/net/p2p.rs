@@ -2,6 +2,8 @@
 //! trusted-friends exploration sessions, not authoritative combat or a complete WoW realm.
 //! Saved-character sessions bind group admission to the profile owner's signing identity.
 
+pub(crate) use native_geometry::run_collision_diagnostics;
+
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

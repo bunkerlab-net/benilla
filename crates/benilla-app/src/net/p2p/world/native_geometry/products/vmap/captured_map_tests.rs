@@ -19,6 +19,8 @@ use std::{
 #[path = "captured_map_archive.rs"]
 mod archive;
 use archive::{archive, raw_entry, Entry};
+#[path = "diagnostic_tests.rs"]
+mod diagnostic_tests;
 #[path = "prepared_tests.rs"]
 mod prepared_tests;
 
