@@ -81,6 +81,13 @@ impl fmt::Debug for AssembledSourceMap<'_> {
     }
 }
 impl AssembledSourceMap<'_> {
+    pub fn source_receipts(&self) -> impl Iterator<Item = crate::SourceReceipt<'_>> {
+        self.source.source_receipts()
+    }
+    pub fn source_policy(&self) -> &'static str {
+        self.source.source_policy()
+    }
+
     pub fn map(&self) -> &MapProducts {
         &self.map
     }

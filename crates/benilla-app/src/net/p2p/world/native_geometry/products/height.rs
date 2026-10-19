@@ -191,9 +191,9 @@ pub(super) fn height(
     Ok(height)
 }
 
-/// Exact source decision order and binary32 arithmetic. The only production caller
-/// closes over this snapshot's real VMap; the function has no authority constructor.
-fn select_height(
+/// Exact source decision order and binary32 arithmetic. Production callers close
+/// over actual decoded VMap geometry; the function has no authority constructor.
+pub(super) fn select_height(
     map_height: f32,
     z: f32,
     mut max_search: f32,

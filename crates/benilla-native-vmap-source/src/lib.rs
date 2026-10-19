@@ -22,6 +22,8 @@ mod map_bundle;
 mod map_products;
 mod map_spawn_index;
 mod placement_records;
+mod receipts;
+pub use receipts::{SourceOutcome, SourceReceipt};
 mod selected_model_names;
 mod source;
 
@@ -257,6 +259,15 @@ impl PreparedDiscovery {
     pub fn map_id(&self) -> u32 {
         self.summary.map_id
     }
+    /// Ordered chain lookups, including repeated history and absence/dummy results.
+    /// Archive-scoped enumeration remains bound by the original source epoch.
+    pub fn source_receipts(&self) -> impl Iterator<Item = SourceReceipt<'_>> {
+        self.source.source_receipts()
+    }
+    pub fn source_policy(&self) -> &'static str {
+        source::SOURCE_POLICY
+    }
+
     pub fn summary(&self) -> &DiscoverySummary {
         &self.summary
     }

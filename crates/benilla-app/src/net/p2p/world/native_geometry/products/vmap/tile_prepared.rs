@@ -78,6 +78,15 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
             .map_err(PrepareError::Source)?;
         check(&cancelled)
     }
+    /// Scalar observation composition retains one shared query work/deadline budget.
+    pub(in super::super) fn height_with_budget(
+        &self,
+        position: [f32; 3],
+        search: f32,
+        budget: &mut super::QueryBudget,
+    ) -> Result<f32, Error> {
+        self.geometry.height(position, search, budget)
+    }
     pub(crate) fn query(&self, request: RayRequest, deadline: Instant) -> Result<RayReply, Error> {
         self.geometry.query(request, deadline)
     }

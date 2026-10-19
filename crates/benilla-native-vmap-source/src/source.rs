@@ -189,6 +189,30 @@ impl fmt::Debug for CapturedSource {
 }
 
 impl CapturedSource {
+    pub(crate) fn source_receipts(&self) -> impl Iterator<Item = crate::SourceReceipt<'_>> {
+        self.receipts.iter().filter_map(|receipt| {
+            if !matches!(receipt.scope, LookupScope::Chain) {
+                return None;
+            }
+            let outcome = match &receipt.outcome {
+                Outcome::Present(member) => crate::SourceOutcome::Present {
+                    winning_archive: &member.winning_archive,
+                    sha256: &member.sha256,
+                    bytes: member.bytes,
+                },
+                Outcome::Absent => crate::SourceOutcome::Absent,
+                Outcome::Dummy {
+                    winning_archive,
+                    bytes,
+                } => crate::SourceOutcome::Dummy {
+                    winning_archive,
+                    bytes: *bytes,
+                },
+            };
+            Some(crate::SourceReceipt::new(&receipt.name, outcome))
+        })
+    }
+
     pub(crate) fn open(data: &Path, cancel: &dyn Fn() -> bool) -> Result<Self> {
         check_cancel(cancel)?;
         if !data.is_dir() {

@@ -572,3 +572,44 @@ fn absent_listfile_never_falls_back_and_dummy_listfile_fails_closed() {
     );
     assert_eq!(source.read_count(), 0);
 }
+
+#[test]
+fn borrowed_chain_receipts_preserve_exact_outcomes_order_and_epoch() {
+    let temp = Temp::new();
+    let data = temp.data();
+    store(
+        &data,
+        "model.MPQ",
+        &[entry(MAP, 1), raw_entry("dummy.wmo", vec![0])],
+    );
+    let mut source = CapturedSource::open(&data, &|| false).unwrap();
+    source.read(MAP, &|| false).unwrap();
+    source.read("absent.wmo", &|| false).unwrap();
+    source.read("dummy.wmo", &|| false).unwrap();
+    source.read(MAP, &|| false).unwrap();
+    let epoch = source.binding_digest();
+    let views: Vec<_> = source.source_receipts().collect();
+    assert_eq!(
+        views.iter().map(|r| r.name()).collect::<Vec<_>>(),
+        [MAP, "absent.wmo", "dummy.wmo", MAP]
+    );
+    assert!(matches!(
+        views[0].outcome(),
+        crate::SourceOutcome::Present {
+            winning_archive: "model.MPQ",
+            bytes: 8,
+            ..
+        }
+    ));
+    assert!(matches!(views[1].outcome(), crate::SourceOutcome::Absent));
+    assert!(matches!(
+        views[2].outcome(),
+        crate::SourceOutcome::Dummy {
+            winning_archive: "model.MPQ",
+            bytes: 1
+        }
+    ));
+    assert!(views[0] == views[3]);
+    assert_eq!(source.binding_digest(), epoch);
+    source.verify_unchanged(&|| false).unwrap();
+}

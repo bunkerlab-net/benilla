@@ -4,9 +4,11 @@
 //! detects changed selected inputs; it is not a filesystem lock or a live source lease.
 mod diagnostic_id;
 mod diagnostics;
+mod receipts;
 mod source;
 pub use diagnostic_id::diagnostic_id;
 pub use diagnostics::{diagnose, DiagnosticReport};
+pub use receipts::{SourceOutcome, SourceReceipt};
 pub mod writer;
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
@@ -57,14 +59,28 @@ struct Manifest<'a> {
 pub struct PreparedTerrain {
     source: CapturedSource,
     map: u32,
+    directory: String,
     products: Vec<(Product, Vec<u8>)>,
 }
 impl PreparedTerrain {
     pub fn source_epoch(&self) -> &str {
         self.source.binding_digest()
     }
+    /// Resolution policy used by this genuine capture, including history lookups.
+    pub fn source_policy(&self) -> &'static str {
+        source::SOURCE_POLICY
+    }
+    /// Borrow the exact consumed positive and absent receipts, including history.
+    /// This does not read the install or refresh the capture's freshness check.
+    pub fn source_receipts(&self) -> impl Iterator<Item = SourceReceipt<'_>> {
+        receipts::iter(&self.source)
+    }
     pub fn map_id(&self) -> u32 {
         self.map
+    }
+    /// Validated selected-map directory derived from the captured Map.dbc.
+    pub fn map_directory(&self) -> &str {
+        &self.directory
     }
     pub fn tiles(&self) -> impl Iterator<Item = (Tile, &[u8])> {
         self.products
@@ -241,6 +257,7 @@ pub fn prepare(data: &Path, map: u32, tiles: &[Tile]) -> Result<PreparedTerrain>
     Ok(PreparedTerrain {
         source,
         map,
+        directory,
         products,
     })
 }
