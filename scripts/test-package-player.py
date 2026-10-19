@@ -86,6 +86,36 @@ class PlayerFeatureGraphTests(unittest.TestCase):
         self.assertFalse(any(name.startswith("bevy_") for name in packages))
 
 
+    def test_shared_geometry_test_includes_declare_direct_dependencies(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1"],
+            cwd=root, check=True, capture_output=True, text=True, timeout=60)
+        packages = json.loads(result.stdout)["packages"]
+        shared = root / "crates/benilla-app/src/net/p2p/world/native_geometry/products/mod.rs"
+        consumers = []
+        for package in packages:
+            directory = Path(package["manifest_path"]).parent
+            includes = any(
+                (path.parent / relative).resolve() == shared.resolve()
+                for path in directory.rglob("*.rs")
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', path.read_text()))
+            if package["name"] != "benilla-app" and not includes:
+                continue
+            consumers.append(package["name"])
+            dependencies = package["dependencies"]
+            with self.subTest(package=package["name"]):
+                sources = [d for d in dependencies if d["name"] == "benilla-native-vmap-source"]
+                self.assertEqual(len(sources), 1, "shared geometry tests need a direct source dependency")
+                self.assertEqual(sources[0]["kind"], "dev")
+                self.assertIn("synthetic-map-tests", sources[0]["features"])
+                model = [d for d in dependencies if d["name"] == "benilla-native-vmap"]
+                self.assertEqual(len(model), 1)
+                self.assertEqual(model[0]["kind"], None if package["name"] == "benilla-app" else "dev")
+        self.assertIn("benilla-app", consumers)
+        self.assertGreater(len(consumers), 1, "discover actual include harnesses, not only the app")
+
+
 class PackagingTests(unittest.TestCase):
     def fixture(self, root, platform="linux-amd64"):
         executable = executables(platform)[0]
