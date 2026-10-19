@@ -19,6 +19,8 @@ use std::{
 #[path = "captured_map_archive.rs"]
 mod archive;
 use archive::{archive, raw_entry, Entry};
+#[path = "prepared_tests.rs"]
+mod prepared_tests;
 
 const CASE: &str = "captured_wmo";
 const TILE: TileId = TileId { x: 31, y: 30 };
@@ -124,7 +126,7 @@ fn unhex(value: &str) -> Vec<u8> {
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect()
 }
-fn expected_products() -> BTreeMap<String, Vec<u8>> {
+pub(super) fn expected_products() -> BTreeMap<String, Vec<u8>> {
     let rows: Vec<_> = PRODUCTS
         .lines()
         .filter(|line| line.split('\t').next() == Some(CASE))
@@ -361,6 +363,7 @@ fn captured_map_public_source_bundle_matches_original_bytes_and_queries() {
     assert_eq!((spawn.id, spawn.adt, spawn.flags), (1, 11, 4));
     assert_eq!(spawn.classification(), ModelClassification::Wmo);
     assert_eq!(spawn.position, [16600.0, 16100.0, 4.0]);
+    prepared_tests::assert_distinct_inventory_binding(&bundle, &snapshot);
     super::generated_map_tests::assert_public_queries([(CASE, snapshot)], 66);
     bundle.verify_unchanged(|| false).unwrap();
     let repeated = source::prepare(&install.0, 0, || false).unwrap();

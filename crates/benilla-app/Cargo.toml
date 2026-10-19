@@ -23,6 +23,7 @@ bevy_dynamic_linking = ["bevy/dynamic_linking"]
 
 [dependencies]
 benilla-native-vmap = { path = "../benilla-native-vmap" }
+benilla-native-vmap-source = { path = "../benilla-native-vmap-source" }
 benilla-native-nav = { path = "../benilla-native-nav" }
 benilla-native-terrain = { path = "../benilla-native-terrain" }
 benilla-sim = { path = "../benilla-sim" }

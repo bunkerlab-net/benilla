@@ -29,6 +29,9 @@ identifiers, source revision/policy labels and a digest, with no asset text or
 personal paths. Model names and raw placement values are accessible only through
 the explicit product/placement interface, not these diagnostic serializers.
 
+The app also provides a separate [prepared collision view](PREPARED-COLLISION-VIEW.md)
+for source-version-bound historical queries without terrain or navigation placeholders.
+
 ## Supported boundary
 
 - Numeric patches 1 through 99, reverse mount winner order and blocking members

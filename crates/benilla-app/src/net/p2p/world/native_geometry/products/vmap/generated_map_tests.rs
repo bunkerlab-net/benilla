@@ -238,8 +238,32 @@ fn generated_map_public_height_los_and_hit_points_match_original_bits() {
     assert_public_queries(CASES.map(|case| (case, snapshot(case))), 132);
 }
 
-pub(super) fn assert_public_queries<'a>(
-    snapshots: impl IntoIterator<Item = (&'a str, VmapSnapshot)>,
+// Only the public query surface is shared; the oracle cannot obtain or invent
+// terrain/nav products, convert a prepared view, or grant gameplay authority.
+pub(super) trait PublicQueries {
+    fn binding(&self) -> SnapshotBinding;
+    fn query(&self, request: RayRequest, deadline: Instant) -> Result<RayReply, Error>;
+    fn query_height(&self, request: HeightRequest, deadline: Instant)
+        -> Result<HeightReply, Error>;
+}
+impl PublicQueries for VmapSnapshot {
+    fn binding(&self) -> SnapshotBinding {
+        VmapSnapshot::binding(self)
+    }
+    fn query(&self, request: RayRequest, deadline: Instant) -> Result<RayReply, Error> {
+        VmapSnapshot::query(self, request, deadline)
+    }
+    fn query_height(
+        &self,
+        request: HeightRequest,
+        deadline: Instant,
+    ) -> Result<HeightReply, Error> {
+        VmapSnapshot::query_height(self, request, deadline)
+    }
+}
+
+pub(super) fn assert_public_queries<'a, S: PublicQueries>(
+    snapshots: impl IntoIterator<Item = (&'a str, S)>,
     expected_total: u64,
 ) {
     let mut total = 0;

@@ -56,6 +56,9 @@ class PlayerFeatureGraphTests(unittest.TestCase):
             if separator:
                 features.setdefault(package.split()[0], set()).update(
                     filter(None, selected.removesuffix(" (*)").strip().split(",")))
+        if not test_dependencies:
+            self.assertIn("benilla-native-vmap-source", features)
+            self.assertNotIn("synthetic-map-tests", features["benilla-native-vmap-source"])
         for package in ["benilla-app", "benilla-assets", "benilla-formats", "benilla-world"]:
             with self.subTest(package=package):
                 self.assertIn(package, features, "the resolved graph must contain the dev seam")
@@ -116,9 +119,14 @@ class PlayerFeatureGraphTests(unittest.TestCase):
             dependencies = package["dependencies"]
             with self.subTest(package=package["name"]):
                 sources = [d for d in dependencies if d["name"] == "benilla-native-vmap-source"]
-                self.assertEqual(len(sources), 1, "shared geometry tests need a direct source dependency")
-                self.assertEqual(sources[0]["kind"], "dev")
-                self.assertIn("synthetic-map-tests", sources[0]["features"])
+                self.assertEqual(len(sources), 2 if package["name"] == "benilla-app" else 1)
+                development = [d for d in sources if d["kind"] == "dev"]
+                self.assertEqual(len(development), 1)
+                self.assertIn("synthetic-map-tests", development[0]["features"])
+                if package["name"] == "benilla-app":
+                    normal = [d for d in sources if d["kind"] is None]
+                    self.assertEqual(len(normal), 1)
+                    self.assertNotIn("synthetic-map-tests", normal[0]["features"])
                 model = [d for d in dependencies if d["name"] == "benilla-native-vmap"]
                 self.assertEqual(len(model), 1)
                 self.assertEqual(model[0]["kind"], None if package["name"] == "benilla-app" else "dev")

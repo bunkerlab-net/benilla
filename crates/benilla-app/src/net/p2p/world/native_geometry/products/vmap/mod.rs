@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded dry static VMap loader/query port, not Map LOS, navigation or admission.
-//! Every product is already inventoried; all hierarchy/model references are validated
-//! before publication. No untrusted bytes are passed to native code. See PROVENANCE.md.
+//! Bounded static VMap loader/query port, not Map LOS, navigation or admission.
+//! Inputs come from a validated inventory or a distinct source-bound collision view.
+//! Hierarchy/model references are checked before queries; no untrusted bytes reach
+//! native code. See PROVENANCE.md.
 pub(crate) mod area;
 mod bih;
 #[cfg(test)]
@@ -14,6 +15,7 @@ mod location;
 #[cfg(test)]
 mod m2_tests;
 mod math;
+pub(crate) mod prepared;
 mod trig;
 #[cfg(test)]
 mod wmo_liquid_production_tests;
@@ -137,8 +139,39 @@ impl VmapSnapshot {
     }
 
     fn load_profile(products: &InventoriedProducts, allow_liquid: bool) -> Result<Self, Error> {
+        let inventory = products.revision();
+        let policy = if allow_liquid {
+            let mut h = Sha256::new();
+            h.update(b"benilla-static-vmap-liquid-geometry-v2-source-m2-zero-group-bounds");
+            h.update(inventory);
+            h.finalize().into()
+        } else {
+            dry_policy(inventory)
+        };
+        let binding = SnapshotBinding {
+            map: products.map,
+            content: products.content,
+            source_epoch: products.source_epoch,
+            inventory,
+            policy,
+        };
+        let rows = products
+            .products
+            .iter()
+            .map(|(id, product)| (id.clone(), product.bytes.as_ref()))
+            .collect();
+        Self::load_rows(binding, &rows, allow_liquid)
+    }
+
+    // Shared decoder. Callers establish their distinct product closure and binding.
+    // This function never constructs an inventory or grants gameplay admission.
+    fn load_rows(
+        binding: SnapshotBinding,
+        rows: &BTreeMap<ProductId, &[u8]>,
+        allow_liquid: bool,
+    ) -> Result<Self, Error> {
         let mut bytes = 0usize;
-        for (id, p) in &products.products {
+        for (id, p) in rows {
             if matches!(
                 id,
                 ProductId::VmapTree
@@ -146,20 +179,20 @@ impl VmapSnapshot {
                     | ProductId::VmapModel(_)
                     | ProductId::VmapSourceModel(_)
             ) {
-                bytes = bytes.checked_add(p.bytes.len()).ok_or(Error::Budget)?;
+                bytes = bytes.checked_add(p.len()).ok_or(Error::Budget)?;
             }
         }
         if bytes > MAX_VMAP_BYTES {
             return Err(Error::Budget);
         }
-        let data = products.inventoried_bytes(products.map, &ProductId::VmapTree)?;
+        let data = rows.get(&ProductId::VmapTree).ok_or(Error::Missing)?;
         let mut c = Cursor::new(data);
         c.magic(b"VMAP_7.0\x01NODE")?;
         let tree = Bih::decode(&mut c)?;
         c.magic(b"GOBJ")?;
         c.finish()?;
         let mut model_ids = BTreeMap::new();
-        for id in products.products.keys() {
+        for id in rows.keys() {
             if id.is_vmap_model() && model_ids.insert(id.clone(), model_ids.len()).is_some() {
                 return Err(Error::Duplicate);
             }
@@ -172,11 +205,11 @@ impl VmapSnapshot {
         let mut spawn_ids = BTreeMap::new();
         let mut classifications = BTreeMap::new();
         let mut total_spawns = 0usize;
-        for (id, p) in &products.products {
+        for (id, p) in rows {
             if !matches!(id, ProductId::VmapTile(_)) {
                 continue;
             }
-            let mut c = Cursor::new(&p.bytes);
+            let mut c = Cursor::new(p);
             c.magic(b"VMAP_7.0")?;
             let count = c.count()?;
             total_spawns = total_spawns.checked_add(count).ok_or(Error::Budget)?;
@@ -211,10 +244,10 @@ impl VmapSnapshot {
         // authorize the extractor's M2 zero-group-bound representation.
         let mut models = allocate(model_ids.len())?;
         let mut groups = 0usize;
-        for (id, p) in &products.products {
+        for (id, p) in rows {
             if id.is_vmap_model() {
                 let model = Model::decode_classified(
-                    &p.bytes,
+                    p,
                     allow_liquid,
                     classifications.get(&models.len()).copied(),
                 )?;
@@ -238,23 +271,8 @@ impl VmapSnapshot {
             .map(|s| s.as_ref().map(|s| s.bounds))
             .collect();
         tree.validate_bounds(&bounds)?;
-        let inventory = products.revision();
-        let policy = if allow_liquid {
-            let mut h = Sha256::new();
-            h.update(b"benilla-static-vmap-liquid-geometry-v2-source-m2-zero-group-bounds");
-            h.update(inventory);
-            h.finalize().into()
-        } else {
-            dry_policy(inventory)
-        };
         Ok(Self {
-            binding: SnapshotBinding {
-                map: products.map,
-                content: products.content,
-                source_epoch: products.source_epoch,
-                inventory,
-                policy,
-            },
+            binding,
             tree,
             models,
             spawns,
