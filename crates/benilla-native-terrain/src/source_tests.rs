@@ -6,8 +6,7 @@ use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 // The same test-only table encoder used by benilla-native-dbc/extract_chain.rs.
-#[path = "../../benilla-mpq/src/crypto.rs"]
-mod crypto;
+use crate::test_support::crypto;
 
 const MAP: &str = "DBFilesClient\\Map.dbc";
 const AREA: &str = "DBFilesClient\\AreaTable.dbc";

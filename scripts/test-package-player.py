@@ -742,6 +742,49 @@ class HelperWorkflowTests(unittest.TestCase):
         self.assertIn("dist/benilla-native-terrain-windows-amd64-${{ github.sha }}.zip.sha256", helper)
 
 
+def case_insensitive_path_collisions(names):
+    seen = {}
+    collisions = set()
+    for name in names:
+        parts = name.split("/")
+        for end in range(1, len(parts) + 1):
+            path = "/".join(parts[:end])
+            previous = seen.setdefault(path.casefold(), path)
+            if previous != path:
+                collisions.add(tuple(sorted((previous, path))))
+    return sorted(collisions)
+
+
+class SourceCheckoutTests(unittest.TestCase):
+    maxDiff = None
+
+    def test_collision_probe_checks_files_and_ancestor_directories(self):
+        self.assertEqual(case_insensitive_path_collisions([
+            "models/Foo.m2/inputs.json", "models/Foo.M2/inputs.json",
+            "other/Upper/one.json", "other/upper/two.json",
+        ]), [
+            ("models/Foo.M2", "models/Foo.m2"),
+            ("models/Foo.M2/inputs.json", "models/Foo.m2/inputs.json"),
+            ("other/Upper", "other/upper"),
+        ])
+        self.assertEqual(case_insensitive_path_collisions([
+            "models/lower_m2/inputs.json", "models/upper_m2/inputs.json",
+            "models/lower_m2/inputs.json",
+        ]), [])
+
+    def test_repository_source_paths_survive_case_insensitive_checkout(self):
+        root = Path(__file__).resolve().parents[1]
+        names = subprocess.check_output([
+            "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z",
+        ], cwd=root).split(b"\0")
+        # Include pending additions and exclude removals so an unstaged rename
+        # can be checked too. Ancestor casing matters even for distinct files.
+        names = [os.fsdecode(name) for name in names
+                 if name and os.path.lexists(root / os.fsdecode(name))]
+        self.assertEqual(case_insensitive_path_collisions(names), [],
+                         "source paths must coexist on case-insensitive filesystems")
+
+
 class OracleCheckoutTests(unittest.TestCase):
     """Keep byte-pinned inputs intact without disabling ordinary CRLF checkouts."""
 

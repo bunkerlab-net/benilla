@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Authored synthetic raw members only. No install data or caller-supplied products.
 use super::*;
-#[path = "../../tests/support/map_dbc.rs"]
-mod map_fixture;
-use map_fixture::map_dbc;
+use crate::map_fixture::map_dbc;
 
 fn set_word(bytes: &mut [u8], at: usize, value: u32) {
     bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());

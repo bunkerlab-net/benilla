@@ -70,15 +70,9 @@ pub(crate) fn iter(source: &CapturedSource) -> impl Iterator<Item = SourceReceip
 }
 
 #[cfg(test)]
-#[path = "../tests/support/map_dbc.rs"]
-mod map_fixture;
-#[cfg(test)]
-#[path = "../tests/support/mod.rs"]
-mod test_support;
-
-#[cfg(test)]
 mod tests {
-    use super::{map_fixture::map_dbc, test_support::*, SourceOutcome};
+    use super::SourceOutcome;
+    use crate::{map_fixture::map_dbc, test_support::*};
     use crate::{prepare, PreparedTerrain, Tile, DBCS};
     use sha2::{Digest, Sha256};
     use std::{

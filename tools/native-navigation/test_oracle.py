@@ -7,9 +7,22 @@ import struct
 import unittest
 import zlib
 from run_oracle import mesh_info,sha
+from authored_models import cases as model_cases
 HERE=Path(__file__).resolve().parent
 
 class SourceOracleFixtures(unittest.TestCase):
+    def test_model_case_labels_preserve_authored_inputs_on_case_insensitive_filesystems(self):
+        base = HERE / 'fixtures/models'
+        manifest = json.loads((base / 'manifest.json').read_bytes())
+        cases = list(model_cases())
+        self.assertEqual({name for name, _, _ in cases}, set(manifest))
+        self.assertEqual(len({name.casefold() for name, _, _ in cases}), len(cases))
+        for name, records, models in cases:
+            with self.subTest(case=name):
+                inputs = json.loads((base / name / 'inputs.json').read_bytes())
+                self.assertEqual(bytes.fromhex(inputs['dir_bin_hex']), records)
+                self.assertEqual({key: bytes.fromhex(value) for key, value in inputs['raw_models'].items()}, models)
+
     def test_all_raw_arrays_match_recorded_original_hashes(self):
         for manifest_path in [HERE/'fixtures/manifest.json',HERE/'fixtures/models/manifest.json',HERE/'fixtures/quantized/manifest.json']:
             manifest=json.loads(manifest_path.read_text(encoding="utf-8"));cases=manifest.get('cases',manifest)

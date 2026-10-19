@@ -441,8 +441,8 @@ mod tests {
         .unwrap();
         let cases = [
             model_fixture!("filename_Hull_wmo"),
-            model_fixture!("filename_Foo_m2"),
-            model_fixture!("filename_Foo_M2"),
+            model_fixture!("filename_Foo_lower_m2"),
+            model_fixture!("filename_Foo_upper_m2"),
             model_fixture!("filename_Foo_m2_wmo"),
             model_fixture!("wmo_flagged_m2"),
             model_fixture!("signed_zero"),

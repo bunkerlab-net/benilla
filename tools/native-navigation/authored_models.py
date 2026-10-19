@@ -36,8 +36,11 @@ def spawn(identifier,name,position=(16600.,16100.,4.),rotation=(0.,0.,0.),scale=
     return result+struct.pack('<I',len(name))+name
 
 def cases():
-    for name in [b'Hull.wmo',b'Foo.m2',b'Foo.M2',b'Foo.m2.wmo']:
-        label='filename_'+name.decode().replace('.','_')
+    # Container labels must coexist on case-insensitive checkout filesystems.
+    for label,name in [('filename_Hull_wmo',b'Hull.wmo'),
+                       ('filename_Foo_lower_m2',b'Foo.m2'),
+                       ('filename_Foo_upper_m2',b'Foo.M2'),
+                       ('filename_Foo_m2_wmo',b'Foo.m2.wmo')]:
         yield label,spawn(90,name,rotation=(17.,-31.,67.),scale=1.5),{name.decode():raw([group(23),group(24)])}
     yield 'wmo_flagged_m2',spawn(90,b'Hull.wmo',flags=5,rotation=(17.,-31.,67.),scale=1.5),{'Hull.wmo':raw([group(23)])}
     yield 'signed_zero',spawn(90,b'Hull.wmo',position=(0.,-0.,-0.),rotation=(-0.,0.,-0.),scale=1.),{'Hull.wmo':raw([group(23)])}

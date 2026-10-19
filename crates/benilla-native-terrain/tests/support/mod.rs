@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Original authored transport fixtures; never client assets.
 #[path = "../../../benilla-mpq/src/crypto.rs"]
-mod crypto;
+pub(crate) mod crypto;
 pub struct Entry {
     name: String,
     bytes: Vec<u8>,

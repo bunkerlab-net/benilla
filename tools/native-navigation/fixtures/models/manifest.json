@@ -1,93 +1,5 @@
 {
-  "filename_Foo_M2": {
-    "expected": {
-      "bounds_max_bits": [
-        "44855555",
-        "41329a0f",
-        "44055555"
-      ],
-      "bounds_min_bits": [
-        "44055555",
-        "3dee12c0",
-        "00000000"
-      ],
-      "combined_triangles": 2,
-      "combined_vertices_before_clean": 8,
-      "config": {
-        "borderSize": 5,
-        "detailSampleDist": 4.266665458679199,
-        "detailSampleMaxError": 0.26666659116744995,
-        "liquidFlagMergeThreshold": 0.0,
-        "maxEdgeLen": 81,
-        "maxSimplificationError": 1.7999999523162842,
-        "mergeRegionArea": 50,
-        "minRegionArea": 60,
-        "walkableClimb": 4,
-        "walkableHeight": 6,
-        "walkableRadius": 2,
-        "walkableSlopeAngle": 60.0
-      },
-      "liquid_triangles": 0,
-      "liquid_vertices": 0,
-      "solid_triangles": 2,
-      "solid_vertices": 6,
-      "terrain_file_events": [
-        {
-          "basename": "0003130.map",
-          "mode": "rb",
-          "opened": false
-        }
-      ],
-      "terrain_triangles": 0,
-      "terrain_vertices_before_clean": 0,
-      "tile_union": [
-        [
-          30,
-          31
-        ]
-      ],
-      "vmap_loaded": true
-    },
-    "source-combined.bin": {
-      "arrays": {
-        "liquid": {
-          "triangle_count": 0,
-          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "vertex_count": 0,
-          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        },
-        "solid": {
-          "triangle_count": 2,
-          "triangles_sha256": "f94503b6884a34a1d455eb7af65e9b91bfbf77440152ad7e89631e11be66cda4",
-          "vertex_count": 8,
-          "vertices_sha256": "0c040f9f8ec786ec0f4f48721a43188e07741f78de68c5cb638df689f07e3991"
-        }
-      },
-      "bytes": 136,
-      "sha256": "2e3c80c62ac2c123de583e057b4617ae87773d9c202a3be4892d7be876d7ae81"
-    },
-    "source-mesh.bin": {
-      "arrays": {
-        "liquid": {
-          "triangle_count": 0,
-          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "vertex_count": 0,
-          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        },
-        "solid": {
-          "triangle_count": 2,
-          "triangles_sha256": "0b77d6d33920cb76e3e07fe1dd3bfab2ce911c8cd3fb363480c9c4fa9bf38b69",
-          "vertex_count": 6,
-          "vertices_sha256": "1029d2545d1396bdc3d8c1dec35b377d5073c97617ef69ef9d5f8cbb65028dfc"
-        }
-      },
-      "bytes": 112,
-      "sha256": "2c5ae5b7ae29f3c813894cd089d393bb88849b3490cb66e152a6c41eb7e7ab62"
-    }
-  },
-  "filename_Foo_m2": {
+  "filename_Foo_lower_m2": {
     "expected": {
       "bounds_max_bits": [
         "44855555",
@@ -176,6 +88,94 @@
     }
   },
   "filename_Foo_m2_wmo": {
+    "expected": {
+      "bounds_max_bits": [
+        "44855555",
+        "41329a0f",
+        "44055555"
+      ],
+      "bounds_min_bits": [
+        "44055555",
+        "3dee12c0",
+        "00000000"
+      ],
+      "combined_triangles": 2,
+      "combined_vertices_before_clean": 8,
+      "config": {
+        "borderSize": 5,
+        "detailSampleDist": 4.266665458679199,
+        "detailSampleMaxError": 0.26666659116744995,
+        "liquidFlagMergeThreshold": 0.0,
+        "maxEdgeLen": 81,
+        "maxSimplificationError": 1.7999999523162842,
+        "mergeRegionArea": 50,
+        "minRegionArea": 60,
+        "walkableClimb": 4,
+        "walkableHeight": 6,
+        "walkableRadius": 2,
+        "walkableSlopeAngle": 60.0
+      },
+      "liquid_triangles": 0,
+      "liquid_vertices": 0,
+      "solid_triangles": 2,
+      "solid_vertices": 6,
+      "terrain_file_events": [
+        {
+          "basename": "0003130.map",
+          "mode": "rb",
+          "opened": false
+        }
+      ],
+      "terrain_triangles": 0,
+      "terrain_vertices_before_clean": 0,
+      "tile_union": [
+        [
+          30,
+          31
+        ]
+      ],
+      "vmap_loaded": true
+    },
+    "source-combined.bin": {
+      "arrays": {
+        "liquid": {
+          "triangle_count": 0,
+          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "vertex_count": 0,
+          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "solid": {
+          "triangle_count": 2,
+          "triangles_sha256": "f94503b6884a34a1d455eb7af65e9b91bfbf77440152ad7e89631e11be66cda4",
+          "vertex_count": 8,
+          "vertices_sha256": "0c040f9f8ec786ec0f4f48721a43188e07741f78de68c5cb638df689f07e3991"
+        }
+      },
+      "bytes": 136,
+      "sha256": "2e3c80c62ac2c123de583e057b4617ae87773d9c202a3be4892d7be876d7ae81"
+    },
+    "source-mesh.bin": {
+      "arrays": {
+        "liquid": {
+          "triangle_count": 0,
+          "triangles_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "types_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "vertex_count": 0,
+          "vertices_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "solid": {
+          "triangle_count": 2,
+          "triangles_sha256": "0b77d6d33920cb76e3e07fe1dd3bfab2ce911c8cd3fb363480c9c4fa9bf38b69",
+          "vertex_count": 6,
+          "vertices_sha256": "1029d2545d1396bdc3d8c1dec35b377d5073c97617ef69ef9d5f8cbb65028dfc"
+        }
+      },
+      "bytes": 112,
+      "sha256": "2c5ae5b7ae29f3c813894cd089d393bb88849b3490cb66e152a6c41eb7e7ab62"
+    }
+  },
+  "filename_Foo_upper_m2": {
     "expected": {
       "bounds_max_bits": [
         "44855555",

@@ -6,6 +6,13 @@ mod diagnostic_id;
 mod diagnostics;
 mod receipts;
 mod source;
+// Shared authored fixtures are loaded once in the library test target.
+#[cfg(test)]
+#[path = "../tests/support/map_dbc.rs"]
+mod map_fixture;
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod test_support;
 pub use diagnostic_id::diagnostic_id;
 pub use diagnostics::{diagnose, DiagnosticReport};
 pub use receipts::{SourceOutcome, SourceReceipt};
