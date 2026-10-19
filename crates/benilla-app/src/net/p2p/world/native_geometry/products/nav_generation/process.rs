@@ -586,15 +586,18 @@ mod tests {
                 ("stdout", MAX_RESPONSE_BYTES + 1, true),
                 ("stderr", MAX_STDERR_BYTES + 1, false),
             ] {
-                let helper = Helper::new(&format!("sys.{stream}.buffer.write(bytes({count}))\nsys.{stream}.buffer.flush()\ntime.sleep(10)"));
-                let began = Instant::now();
+                // No normal exit can satisfy this fixture; rejection must kill and reap it.
+                let helper = Helper::new(&format!("with open(os.path.join(os.path.dirname(__file__), 'pid'), 'w') as f:\n    f.write(str(os.getpid()))\nsys.{stream}.buffer.write(bytes({count}))\nsys.{stream}.buffer.flush()\nwhile True:\n    time.sleep(10)"));
                 let result = helper.run(vec![]);
-                assert!(began.elapsed() < Duration::from_secs(3));
                 if protocol {
-                    assert!(matches!(result, Err(GenerationError::Protocol)));
+                    assert!(
+                        matches!(result, Err(GenerationError::Protocol)),
+                        "{result:?}"
+                    );
                 } else {
-                    assert!(matches!(result, Err(GenerationError::Helper)));
+                    assert!(matches!(result, Err(GenerationError::Helper)), "{result:?}");
                 }
+                helper.assert_reaped();
             }
         }
 
