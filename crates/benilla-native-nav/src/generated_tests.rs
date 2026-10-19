@@ -311,3 +311,105 @@ fn source_quantized_portal_rejects_one_ulp_interior_displacement() {
     }
     assert_format_rejection(&params, &tile);
 }
+
+#[test]
+fn two_original_generated_tiles_replay_complete_bidirectional_crossings() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tools/native-navigation/fixtures/two-tile-seam");
+    let params = std::fs::read(fixtures.join("000.mmap")).unwrap();
+    let selected = std::fs::read(fixtures.join("0003130.mmtile")).unwrap();
+    let neighbor = std::fs::read(fixtures.join("0003129.mmtile")).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixtures.join("expected.json")).unwrap()).unwrap();
+    let mut mesh = Mesh::load(
+        &params,
+        &[
+            TileInput {
+                grid: [31, 30],
+                bytes: &selected,
+            },
+            TileInput {
+                grid: [31, 29],
+                bytes: &neighbor,
+            },
+        ],
+    )
+    .unwrap();
+    let queries = expected["queries"].as_array().unwrap();
+    assert_eq!(queries.len(), 6);
+    for query in queries {
+        let position = |key| {
+            let v = json_point(&query[key]);
+            [v[2], v[0], v[1]]
+        };
+        let route = mesh
+            .route(
+                position("start_bits"),
+                position("end_bits"),
+                Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .unwrap();
+        assert_eq!(route.start.polygon, query["start_ref"].as_u64().unwrap());
+        assert_eq!(route.end.polygon, query["end_ref"].as_u64().unwrap());
+        assert_eq!(route.start.point, position("start_nearest_bits"));
+        assert_eq!(route.end.point, position("end_nearest_bits"));
+        assert_eq!(
+            route.start.over,
+            query["start_over_poly"].as_bool().unwrap()
+        );
+        assert_eq!(route.end.over, query["end_over_poly"].as_bool().unwrap());
+        let corridor: Vec<_> = query["corridor"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(route.polygons, corridor);
+        assert_eq!(route.polygons.last(), Some(&route.end.polygon));
+        let tile_refs: std::collections::BTreeSet<_> = query["corridor_tile_refs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(tile_refs.len(), 2);
+        let straight: Vec<_> = query["straight_bits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| u32::from_str_radix(v.as_str().unwrap(), 16).unwrap())
+            .collect();
+        let corners: Vec<_> = straight
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|v| [v[2], v[0], v[1]])
+            .collect();
+        assert_eq!(
+            route.corners.iter().map(|c| c.point).collect::<Vec<_>>(),
+            corners
+        );
+        assert_eq!(
+            route
+                .corners
+                .iter()
+                .map(|c| u64::from(c.flags))
+                .collect::<Vec<_>>(),
+            query["straight_flags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            route.corners.iter().map(|c| c.polygon).collect::<Vec<_>>(),
+            query["straight_refs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect::<Vec<_>>()
+        );
+    }
+}

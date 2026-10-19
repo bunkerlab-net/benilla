@@ -238,3 +238,80 @@ case's exact two-file inventory and union are in its main manifest entry.
 The MPQ basename template is `{directory}_X_Y.adt`;
 the source map filename places Y before X. Only the selected ADT needs the
 existing captured WMO placement; neighboring ADTs contain authored terrain only.
+
+## Two emitted tiles and original seam routes
+
+`fixtures/two-tile-seam/` extends the single-neighbor inputs with precisely one
+interior hole bit: MCNK row 8, column 8, mask `0x0001` in `ridge_xminus`.
+The authored neighbor ADT differs from the prior input at one byte only;
+unchanged original `ConvertADT` produces a map differing at one hole-mask byte.
+All heights and shared-edge terrain stay unchanged. The selected tile's complete
+collected arrays, helper request, MMTile and original single-tile query results
+remain byte-identical to `ridge_xminus_wmo`.
+
+Unchanged original generation emits selected `0003130.mmtile` with 634 polygons
+and neighboring `0003129.mmtile` with 632. Both independent generation runs
+write exactly the same original `000.mmap` parameters. A retained control with
+the original hole-free neighbor still merges exactly 625 and emits no MMTile.
+Neither source rejection nor the serialized output is altered.
+
+The query harness loads both actual source outputs into one original Detour
+mesh, with separate aligned owned storage for each that outlives query and mesh.
+Six queries use exact original nearest-point input bits and scalar half-extents
+(5,5,5): forward and reverse at three positions along the common edge. Every
+original route returns `DT_SUCCESS`, reaches its destination, and contains ten
+polygon refs whose resolved owners include both loaded tiles (coordinates 0,0
+and 1,0). Original straight paths and reference/owner arrays are retained.
+The shared normal-coordinate headers differ by one float ULP, so this evidence
+exercises original slab matching rather than exact endpoint equality.
+
+Generation subprocesses have a 120-second wall/CPU bound and 1 GiB address-space
+limit. The combined-query subprocess has a 15-second wall bound, at most two
+1 MiB input tiles, 16 requests, 256 corridor/straight points and 32,768 query
+nodes. The original collector/generator algorithms and source config are
+unchanged. This proves authored two-tile traversal only, not real-install
+completeness or a broader production admission policy.
+
+`fixtures/slab-predicates/` separately captures 28 explicit predicate cases by
+including the complete unchanged original `DetourNavMesh.cpp` translation unit.
+Its 25 bounded finite cases cover normal tolerance ±1 ULP, the 0.01 horizontal
+shrink equality, vertical `2*target.walkableClimb` thresholds, directional climb,
+crossing slopes, reversed endpoints and all cardinal sides. Three diagnostics
+exercise finite inputs with overflowing or degenerate intermediates; they are
+explicitly outside bounded finite support. In particular, original horizontal
+overflow can return a connection. Those predicate-only stack edge structs are
+not manufactured MMTiles and do not contribute navigation output.
+
+Standalone focused regeneration is available through
+`capture_two_tile_seam.py SOURCE --work WORK --check` and
+`capture_slab_predicates.py SOURCE --work WORK --check`. Both are included in the
+full ordinary and alignment-sanitized `run_oracle.py --check` workflow.
+
+The interior-hole neighbor also exposes the pinned generator's own dtLink
+alignment defect: MapBuilder loads its freshly created tile before writing it.
+A harness-only linker adapter now copies the unchanged `dtCreateNavMeshData`
+result into an original `dtAlloc(size+8)` allocation, selecting a zero- or
+four-byte offset so the header and link array are both aligned. A bounded
+owner registry translates the original `dtFree(data)` back to that exact
+allocation base. The initial original buffer is freed once immediately after
+its byte-identical copy; the replacement base is freed once by the source
+remove/free lifecycle. No source function, output byte or sanitizer check is
+changed. Both complete replay modes compare against the unadapted original
+capture, including the new neighboring MMTile.
+
+An independent allocator-callback smoke runs before every harness invocation:
+both offset parities stay live together, are released in reverse order, and
+the actual original allocator callbacks must observe exactly four original
+allocation bases freed exactly once. A shifted pointer, duplicate release or
+live owner aborts the harness. Normal generation additionally requires every
+registered copied tile to have been released before querying its output.
+
+The original TerrainBuilder also reads its TU-local `"z1.4"` string literal
+through a `uint32` pointer; ordinary string pooling does not guarantee that
+literal's required alignment. `terrain_version_alignment.h` is force-included
+only for that original translation unit. Before main, it copies the original
+five bytes into `alignas(uint32)` storage, checks byte equality/alignment, and
+repoints the same original TU-local pointer. Its comparison and contents are
+unchanged. The build identity includes both the per-source command and shim
+bytes. This separate storage adaptation avoids dependence on linker placement;
+it does not disable sanitizer instrumentation or edit the original source.

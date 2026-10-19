@@ -27,6 +27,29 @@ fn placed_entries(mut adt: Vec<u8>) -> Vec<Entry> {
     *entries.iter_mut().find(|entry| entry.name == ADT).unwrap() = raw_entry(ADT, adt);
     entries
 }
+fn cardinal_entries(neighbor_adt: Vec<u8>) -> Vec<Entry> {
+    let mut entries = ridge_entries();
+    let mut wdt = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../benilla-native-terrain/tools/fixtures/source.wdt.test-fixture"),
+    )
+    .unwrap();
+    wdt[60..60 + 64 * 64 * 8].fill(0);
+    for (x, y) in [(30usize, 31usize), (29, 31)] {
+        let offset = 60 + (y * 64 + x) * 8;
+        wdt[offset..offset + 4].copy_from_slice(&1u32.to_le_bytes());
+    }
+    *entries
+        .iter_mut()
+        .find(|e| e.name.ends_with("Selected.wdt"))
+        .unwrap() = raw_entry("World\\Maps\\Selected\\Selected.wdt", wdt);
+    entries.push(raw_entry(
+        "World\\Maps\\Selected\\Selected_29_31.adt",
+        neighbor_adt,
+    ));
+    entries
+}
+
 pub(super) fn helper() -> PathBuf {
     let mut executable = std::env::current_exe().unwrap();
     executable.pop();
@@ -300,25 +323,7 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     if !benilla_native_nav::SUPPORTED_ABI {
         return;
     }
-    let mut entries = ridge_entries();
-    let mut wdt = fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../benilla-native-terrain/tools/fixtures/source.wdt.test-fixture"),
-    )
-    .unwrap();
-    wdt[60..60 + 64 * 64 * 8].fill(0);
-    for (x, y) in [(30usize, 31usize), (29, 31)] {
-        let offset = 60 + (y * 64 + x) * 8;
-        wdt[offset..offset + 4].copy_from_slice(&1u32.to_le_bytes());
-    }
-    *entries
-        .iter_mut()
-        .find(|e| e.name.ends_with("Selected.wdt"))
-        .unwrap() = raw_entry("World\\Maps\\Selected\\Selected.wdt", wdt);
-    entries.push(raw_entry(
-        "World\\Maps\\Selected\\Selected_29_31.adt",
-        oracle("authored/ridge_xminus.adt.test-fixture"),
-    ));
+    let entries = cardinal_entries(oracle("authored/ridge_xminus.adt.test-fixture"));
     let install = Install::new(&entries);
     let before = install.bytes();
     let discovery = source::prepare(&install.0, 0, || false).unwrap();
@@ -394,5 +399,130 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     historical.load().unwrap();
     selected_input.verify_unchanged(|| false).unwrap();
     input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
+}
+
+#[test]
+fn genuine_hole_neighbor_generates_two_tiles_and_crosses_the_source_seam() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let entries = cardinal_entries(oracle(
+        "two-tile-seam/authored/ridge_xminus_hole.adt.test-fixture",
+    ));
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[
+            benilla_native_terrain::Tile { x: 31, y: 30 },
+            benilla_native_terrain::Tile { x: 31, y: 29 },
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        terrain
+            .tiles()
+            .find(|(tile, _)| tile.x == 31 && tile.y == 29)
+            .unwrap()
+            .1,
+        oracle("two-tile-seam/authored/ridge_xminus_hole.map")
+    );
+    let discovery = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = discovery
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&oracle("two-tile-seam/manifest.json")).unwrap();
+    let original_map = oracle("two-tile-seam/000.mmap");
+    let mut outputs = Vec::new();
+    for (name, grid, filename) in [
+        ("selected", TILE, "0003130.mmtile"),
+        (
+            "neighbor",
+            super::super::super::TileId { x: 31, y: 29 },
+            "0003129.mmtile",
+        ),
+    ] {
+        let input =
+            PreparedNavigationInput::from_source(&terrain, &bundle, grid, || false).unwrap();
+        let original_tile = oracle(&format!("two-tile-seam/{filename}"));
+        input.assert_original_products_for_test(
+            &helper(),
+            manifest["tiles"][name]["helper_request"]["sha256"]
+                .as_str()
+                .unwrap(),
+            &original_map,
+            &original_tile,
+        );
+        let output = input
+            .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+                false
+            })
+            .unwrap();
+        assert_eq!(
+            output.products(),
+            (original_map.as_slice(), original_tile.as_slice())
+        );
+        input.verify_unchanged(|| false).unwrap();
+        outputs.push(output);
+    }
+    let mut mesh = benilla_native_nav::Mesh::load(
+        outputs[0].products().0,
+        &[
+            benilla_native_nav::TileInput {
+                grid: [31, 30],
+                bytes: outputs[0].products().1,
+            },
+            benilla_native_nav::TileInput {
+                grid: [31, 29],
+                bytes: outputs[1].products().1,
+            },
+        ],
+    )
+    .unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_slice(&oracle("two-tile-seam/expected.json")).unwrap();
+    let queries = expected["queries"].as_array().unwrap();
+    assert_eq!(queries.len(), 6);
+    for query in queries {
+        let point = |name: &str| {
+            let v: Vec<u32> = query[name]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| u32::from_str_radix(v.as_str().unwrap(), 16).unwrap())
+                .collect();
+            [v[2], v[0], v[1]]
+        };
+        let route = mesh
+            .route(
+                point("start_bits"),
+                point("end_bits"),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap();
+        assert_eq!(route.start.polygon, query["start_ref"].as_u64().unwrap());
+        assert_eq!(route.end.polygon, query["end_ref"].as_u64().unwrap());
+        assert_eq!(
+            route.polygons,
+            query["corridor"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect::<Vec<_>>()
+        );
+        let tile_refs: std::collections::BTreeSet<_> = query["corridor_tile_refs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(tile_refs.len(), 2);
+        assert_eq!(route.polygons.last(), Some(&route.end.polygon));
+    }
     assert_eq!(install.bytes(), before);
 }

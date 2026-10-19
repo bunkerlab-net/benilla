@@ -11,6 +11,72 @@ from authored_models import cases as model_cases
 HERE=Path(__file__).resolve().parent
 
 class SourceOracleFixtures(unittest.TestCase):
+    def test_two_tile_seam_uses_one_authored_interior_hole(self):
+        base=HERE/'fixtures/two-tile-seam';manifest=json.loads((base/'manifest.json').read_bytes())
+        feature=manifest['authored_feature']
+        self.assertEqual((feature['mcnk_row'],feature['mcnk_col'],feature['hole_mask']),(8,8,1))
+        self.assertTrue(feature['height_function_unchanged'])
+        for extension in ['adt','map']:
+            new=(base/feature[extension+'_fixture']).read_bytes()
+            old=(HERE/'fixtures/authored'/('ridge_xminus.'+extension+('.test-fixture' if extension=='adt' else ''))).read_bytes()
+            self.assertEqual(len(new),len(old));self.assertEqual(sha(new),feature[extension+'_sha256'])
+            cell=8*16+8
+            offset=struct.unpack_from('<I',old,92+16*cell)[0]+8+60 if extension=='adt' else struct.unpack_from('<I',old,32)[0]+2*cell
+            self.assertEqual([(index,a,b) for index,(a,b) in enumerate(zip(old,new)) if a!=b],[(offset,0,1)])
+        self.assertEqual(sha((base/'authored/writer-provenance.json').read_bytes()),manifest['writer_provenance_sha256'])
+        negative=json.loads((base/'neighbor-without-hole-expected.json').read_bytes())
+        self.assertFalse(negative['output']['emitted']);self.assertEqual(negative['output']['merged_polygons'],625)
+        self.assertEqual(sha((base/'neighbor-without-hole-expected.json').read_bytes()),manifest['negative_control']['expected_sha256'])
+
+    def test_two_original_emitted_tiles_preserve_generation_and_query_inputs(self):
+        from capture_two_tile_seam import check_crossing
+        base=HERE/'fixtures/two-tile-seam';manifest=json.loads((base/'manifest.json').read_bytes())
+        self.assertEqual(set(manifest['products']),{'000.mmap','0003130.mmtile','0003129.mmtile'})
+        for filename,expected in manifest['products'].items():
+            raw=(base/filename).read_bytes();self.assertEqual({'bytes':len(raw),'sha256':sha(raw)},expected)
+        for name,x in [('selected',30),('neighbor',29)]:
+            entry=manifest['tiles'][name]
+            self.assertEqual(entry['original_tile'],{'map_id':0,'x':x,'y':31})
+            self.assertEqual(entry['production_tile_id'],{'map_id':0,'x':31,'y':x})
+            self.assertEqual(json.loads((base/name/'expected.json').read_bytes()),entry['expected'])
+            for filename in ['source-terrain.bin','source-combined.bin','source-mesh.bin']:
+                self.assertEqual(mesh_info(zlib.decompress((base/name/(filename+'.zlib')).read_bytes())),entry[filename])
+            raw=zlib.decompress((base/name/'helper-request.bin.zlib').read_bytes())
+            self.assertEqual({'bytes':len(raw),'sha256':sha(raw)},entry['helper_request'])
+            self.assertEqual(struct.unpack_from('<4I',raw,8),(0,x,31,1))
+            self.assertEqual(raw[32:60],(base/'000.mmap').read_bytes())
+            self.assertTrue(raw.endswith(zlib.decompress((base/name/'source-mesh.bin.zlib').read_bytes())))
+        prior=HERE/'fixtures/ridge_xminus_wmo'
+        self.assertEqual((base/'0003130.mmtile').read_bytes(),(prior/'0003130.mmtile').read_bytes())
+        self.assertEqual((base/'selected/expected.json').read_bytes(),(prior/'expected.json').read_bytes())
+        for filename in ['source-terrain.bin','source-combined.bin','source-mesh.bin','helper-request.bin']:
+            self.assertEqual((base/'selected'/(filename+'.zlib')).read_bytes(),(prior/(filename+'.zlib')).read_bytes())
+        query_input=json.loads((base/'query-input.json').read_bytes())
+        result=json.loads((base/'expected.json').read_bytes());check_crossing(result)
+        self.assertEqual(sha((base/'query-input.json').read_bytes()),manifest['query_input_sha256'])
+        self.assertEqual(sha((base/'expected.json').read_bytes()),manifest['expected_sha256'])
+        for request,result in zip(query_input['queries'],result['queries']):
+            a=manifest['tiles']['selected']['expected']['output']['queries'][request['selected_source_query_index']]['nearest_bits']
+            b=manifest['tiles']['neighbor']['expected']['output']['queries'][request['neighbor_source_query_index']]['nearest_bits']
+            if request['name'].endswith('reverse'):a,b=b,a
+            self.assertEqual(request['start_bits'],a);self.assertEqual(request['end_bits'],b)
+            self.assertEqual(result['start_bits'],a);self.assertEqual(result['end_bits'],b)
+
+    def test_original_slab_predicate_boundary_capture(self):
+        base=HERE/'fixtures/slab-predicates';manifest=json.loads((base/'manifest.json').read_bytes())
+        raw=(base/'expected.json').read_bytes();self.assertEqual(sha(raw),manifest['expected_sha256'])
+        cases={row['name']:row for row in json.loads(raw)['cases']}
+        self.assertEqual(len(cases),28);self.assertEqual(sum(row['bounded_finite_scope'] for row in cases.values()),25)
+        self.assertEqual(manifest['source_sha256'],json.loads((HERE/'source/source-hashes.json').read_bytes())[manifest['source_file']])
+        for stem in ['normal_positive','normal_negative','horizontal_shrink','vertical_positive','vertical_negative']:
+            self.assertEqual([cases[stem+'_'+suffix]['connection_count'] for suffix in ['below','equal','above']],[1,1,0])
+        for name in ['horizontal_touching','target_climb_one_rejects']:
+            self.assertEqual(cases[name]['connection_count'],0)
+        for name in ['target_climb_two_accepts_reverse','crossing_slopes','reversed_source','reversed_target','reversed_both','side_zero','side_two','side_six_reversed']:
+            self.assertEqual(cases[name]['connection_count'],1)
+        self.assertFalse(cases['unsupported_horizontal_overflow']['bounded_finite_scope'])
+        self.assertEqual(cases['unsupported_horizontal_overflow']['connection_count'],1)
+
     def test_model_case_labels_preserve_authored_inputs_on_case_insensitive_filesystems(self):
         base = HERE / 'fixtures/models'
         manifest = json.loads((base / 'manifest.json').read_bytes())

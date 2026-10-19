@@ -29,11 +29,13 @@ def cell_values(case,row,col):
         if y<8: values += [height(dx+col*8+x+0.5,dy+row*8+y+0.5) for x in range(8)]
     return 0.0,values,1,0
 
-def generate(source,out,height_scale=1.0,quantize=False):
+def generate(source,out,height_scale=1.0,quantize=False,interior_hole=False):
     out.mkdir(parents=True,exist_ok=True); m=module()
     m.CASES.update({case:'Authored continuous broad ridge and gentle perpendicular slope' for case in OFFSETS})
     def scaled_values(case,row,col):
         base,values,area,holes=cell_values(case,row,col)
+        # Explicit authored interior feature, well away from every shared edge.
+        if interior_hole and case=='ridge_xminus' and (row,col)==(8,8): holes=0x0001
         return base*height_scale,[v*height_scale for v in values],area,holes
     m.cell_values=scaled_values
     for case in OFFSETS: (out/(case+'.adt')).write_bytes(m.authored_adt(case))

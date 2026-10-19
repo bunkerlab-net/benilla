@@ -41,9 +41,9 @@ def mesh_info(raw):
     assert offset==len(raw)
     return {'bytes':len(raw),'sha256':sha(raw),'arrays':result}
 
-def request(base,result,budget=256*1024*1024):
+def request(base,result,budget=256*1024*1024,tile_x=30,tile_y=31):
     # Protocol encoding only. Every algorithmic input comes from original capture.
-    output=b'BNAVIN01'+struct.pack('<4IQ',0,30,31,1,budget)
+    output=b'BNAVIN01'+struct.pack('<4IQ',0,tile_x,tile_y,1,budget)
     output+=(base/'mmaps/000.mmap').read_bytes()
     for key in ('bounds_min_bits','bounds_max_bits'):
         output+=b''.join(struct.pack('<I',int(v,16)) for v in result[key])
@@ -200,6 +200,10 @@ def capture(source,work,output,verify_inputs=True):
     (config_output/'authored-config.json').write_bytes(json_bytes(authored))
     subprocess.run([str(exe),'configs',str(config_base),str(config_output/'authored-config.json')],check=True,stdout=subprocess.DEVNULL,timeout=15)
     shutil.copyfile(config_base/'config-result.json',config_output/'authored-config-expected.json')
+    from capture_slab_predicates import capture as capture_slabs
+    capture_slabs(source,work/'slab-predicates',output/'slab-predicates')
+    from capture_two_tile_seam import capture as capture_two_tile
+    capture_two_tile(source,work,output/'two-tile-seam')
     from capture_scalar_nearest import capture as capture_scalar
     capture_scalar(source,work,output,output/'scalar-nearest')
 

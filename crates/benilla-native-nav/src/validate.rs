@@ -75,6 +75,7 @@ const MAX_LOAD_WORK: usize = 1_048_576;
 struct Portal {
     tile: [i32; 2],
     side: u16,
+    climb: f32,
     a: [f32; 3],
     b: [f32; 3],
 }
@@ -308,6 +309,7 @@ impl<'a> Validated<'a> {
                         all_portals.push(Portal {
                             tile: xy,
                             side,
+                            climb: dimensions[2],
                             a,
                             b,
                         });
@@ -413,43 +415,7 @@ impl<'a> Validated<'a> {
             tiles.push(b);
         }
         native_load_work(&load_tiles)?;
-        // Restrict loaded cross-tile topology to exact one-to-one dry portals.
-        // This prevents source four-match truncation and link-pool exhaustion;
-        // absent adjacent tiles stay absent, never invented as closed-world coverage.
-        let mut work = 0usize;
-        for a in &all_portals {
-            let delta = match a.side {
-                0 => [1, 0],
-                2 => [0, 1],
-                4 => [-1, 0],
-                6 => [0, -1],
-                _ => unreachable!(),
-            };
-            let target = [a.tile[0] + delta[0], a.tile[1] + delta[1]];
-            let mut matches = 0;
-            for b in &all_portals {
-                work += 1;
-                if work > 1_048_576 {
-                    return Err(Error::Budget);
-                }
-                if b.tile != target || b.side != (a.side + 4) % 8 {
-                    continue;
-                }
-                let along = if a.side == 0 || a.side == 4 { 2 } else { 0 };
-                let lo = a.a[along].min(a.b[along]).max(b.a[along].min(b.b[along]));
-                let hi = a.a[along].max(a.b[along]).min(b.a[along].max(b.b[along]));
-                if hi <= lo {
-                    continue;
-                }
-                if a.a != b.b || a.b != b.a {
-                    return Err(Error::Unsupported);
-                }
-                matches += 1;
-                if matches > 1 {
-                    return Err(Error::Unsupported);
-                }
-            }
-        }
+        validate_portal_matches(&all_portals)?;
         Ok(Self {
             params,
             tiles,
@@ -458,6 +424,113 @@ impl<'a> Validated<'a> {
         })
     }
 }
+fn validate_portal_matches(all_portals: &[Portal]) -> Result<(), Error> {
+    // Restrict loaded cross-tile topology to source-matched one-to-one dry portals.
+    // This prevents source four-match truncation and link-pool exhaustion;
+    // absent adjacent tiles stay absent, never invented as closed-world coverage.
+    let mut work = 0usize;
+    for a in all_portals {
+        let delta = match a.side {
+            0 => [1, 0],
+            2 => [0, 1],
+            4 => [-1, 0],
+            6 => [0, -1],
+            _ => unreachable!(),
+        };
+        let target = [a.tile[0] + delta[0], a.tile[1] + delta[1]];
+        let mut matches = 0;
+        for b in all_portals {
+            work += 1;
+            if work > 1_048_576 {
+                return Err(Error::Budget);
+            }
+            if b.tile != target || b.side != (a.side + 4) % 8 {
+                continue;
+            }
+            if !source_portals_connect(a, b)? {
+                continue;
+            }
+            matches += 1;
+            if matches > 1 {
+                return Err(Error::Unsupported);
+            }
+        }
+    }
+    Ok(())
+}
+
+// Pinned DetourNavMesh.cpp findConnectingPolys/overlapSlabs, preserving f32
+// operation order and the TARGET tile's climb. Unsupported non-finite arithmetic
+// is refused before native link construction; no endpoints or bytes are snapped.
+fn source_portals_connect(a: &Portal, b: &Portal) -> Result<bool, Error> {
+    let checked = |value: f32| {
+        if value.is_finite() {
+            Ok(value)
+        } else {
+            Err(Error::Unsupported)
+        }
+    };
+    let axis = if a.side == 0 || a.side == 4 { 0 } else { 2 };
+    let along = 2 - axis;
+    if checked(a.a[axis] - b.a[axis])?.abs() > 0.01 {
+        return Ok(false);
+    }
+    let ends = |p: &Portal| {
+        if p.a[along] < p.b[along] {
+            ([p.a[along], p.a[1]], [p.b[along], p.b[1]])
+        } else {
+            ([p.b[along], p.b[1]], [p.a[along], p.a[1]])
+        }
+    };
+    if a.a[along] == a.b[along] || b.a[along] == b.b[along] {
+        return Err(Error::Unsupported);
+    }
+    let (amin, amax) = ends(a);
+    let (bmin, bmax) = ends(b);
+    let minx = source_max(amin[0] + 0.01, bmin[0] + 0.01);
+    let maxx = source_min(amax[0] - 0.01, bmax[0] - 0.01);
+    if minx > maxx {
+        return Ok(false);
+    }
+    let ad = checked(checked(amax[1] - amin[1])? / checked(amax[0] - amin[0])?)?;
+    let ak = checked(amin[1] - checked(ad * amin[0])?)?;
+    let bd = checked(checked(bmax[1] - bmin[1])? / checked(bmax[0] - bmin[0])?)?;
+    let bk = checked(bmin[1] - checked(bd * bmin[0])?)?;
+    let aminy = checked(checked(ad * minx)? + ak)?;
+    let amaxy = checked(checked(ad * maxx)? + ak)?;
+    let bminy = checked(checked(bd * minx)? + bk)?;
+    let bmaxy = checked(checked(bd * maxx)? + bk)?;
+    let dmin = checked(bminy - aminy)?;
+    let dmax = checked(bmaxy - amaxy)?;
+    let crossing = checked(dmin * dmax)? < 0.0;
+    let twice_climb = checked(b.climb * 2.0)?;
+    let threshold = checked(twice_climb * twice_climb)?;
+    let connected =
+        crossing || checked(dmin * dmin)? <= threshold || checked(dmax * dmax)? <= threshold;
+    if connected {
+        // Source connectExtLinks later divides these overlap limits before
+        // converting clamped values to bytes. Validate those intermediates too.
+        let denominator = checked(a.b[along] - a.a[along])?;
+        checked((source_max(amin[0], bmin[0]) - a.a[along]) / denominator)?;
+        checked((source_min(amax[0], bmax[0]) - a.a[along]) / denominator)?;
+    }
+    Ok(connected)
+}
+fn source_min(a: f32, b: f32) -> f32 {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
+fn source_max(a: f32, b: f32) -> f32 {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
 fn validate_bv(b: &[u8], polys: &[Poly], origin: [f32; 3], q: f32) -> Result<(), Error> {
     if b.is_empty() {
         return Err(Error::Unsupported);
@@ -682,5 +755,133 @@ mod work_tests {
             portals: [0, 0, 0, 0, 1, 0, 0, 0],
         };
         assert_eq!(native_load_work(&[a, b]), Ok(96));
+    }
+}
+
+#[cfg(test)]
+mod portal_match_tests {
+    use super::*;
+    fn left() -> Portal {
+        Portal {
+            tile: [0, 0],
+            side: 0,
+            climb: 0.0,
+            a: [0.0, 0.0, 0.0],
+            b: [0.0, 0.0, 10.0],
+        }
+    }
+    fn right(height: f32, climb: f32) -> Portal {
+        Portal {
+            tile: [1, 0],
+            side: 4,
+            climb,
+            a: [0.0, height, 10.0],
+            b: [0.0, height, 0.0],
+        }
+    }
+    #[test]
+    fn target_climb_is_directional_and_multiple_matches_stay_unsupported() {
+        let a = left();
+        let b = right(3.0, 2.0);
+        assert!(source_portals_connect(&a, &b).unwrap());
+        assert!(!source_portals_connect(&b, &a).unwrap());
+        validate_portal_matches(&[a, b]).unwrap();
+        assert!(matches!(
+            validate_portal_matches(&[left(), right(3.0, 2.0), right(4.0, 2.0)]),
+            Err(Error::Unsupported)
+        ));
+    }
+    #[test]
+    fn tiny_and_zero_spans_do_not_connect_and_nonfinite_intermediates_refuse() {
+        for width in [f32::from_bits(1), 0.01] {
+            let mut a = left();
+            a.b[2] = width;
+            let mut b = right(0.0, 0.0);
+            b.a[2] = width;
+            assert!(!source_portals_connect(&a, &b).unwrap());
+        }
+        let mut a = left();
+        let mut b = right(0.0, 0.0);
+        a.a[0] = f32::MAX;
+        b.a[0] = -f32::MAX;
+        assert!(matches!(
+            source_portals_connect(&a, &b),
+            Err(Error::Unsupported)
+        ));
+        let mut a = left();
+        let b = right(0.0, 0.0);
+        a.a[1] = -f32::MAX;
+        a.b[1] = f32::MAX;
+        assert!(matches!(
+            source_portals_connect(&a, &b),
+            Err(Error::Unsupported)
+        ));
+        assert!(matches!(
+            source_portals_connect(&left(), &right(0.0, f32::MAX)),
+            Err(Error::Unsupported)
+        ));
+    }
+    #[test]
+    fn original_source_slab_boundaries_match_and_unsupported_domain_refuses() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tools/native-navigation/fixtures/slab-predicates/expected.json");
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let mut matched = 0;
+        let mut rejected = 0;
+        for case in expected["cases"].as_array().unwrap() {
+            let point = |name: &str| {
+                let v: Vec<f32> = case[name]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| f32::from_bits(u32::from_str_radix(v.as_str().unwrap(), 16).unwrap()))
+                    .collect();
+                [v[0], v[1], v[2]]
+            };
+            let side = case["side"].as_u64().unwrap() as u16;
+            let a = Portal {
+                tile: [0, 0],
+                side: (side + 4) % 8,
+                climb: 0.0,
+                a: point("source_a_bits"),
+                b: point("source_b_bits"),
+            };
+            let b = Portal {
+                tile: [1, 0],
+                side,
+                climb: f32::from_bits(
+                    u32::from_str_radix(case["target_climb_bits"].as_str().unwrap(), 16).unwrap(),
+                ),
+                a: point("target_a_bits"),
+                b: point("target_b_bits"),
+            };
+            let result = source_portals_connect(&a, &b);
+            if case["bounded_finite_scope"].as_bool().unwrap() {
+                assert_eq!(
+                    result.unwrap(),
+                    case["connection_count"].as_u64().unwrap() == 1,
+                    "{}",
+                    case["name"]
+                );
+                matched += 1;
+            } else {
+                assert!(
+                    matches!(result, Err(Error::Unsupported)),
+                    "{}",
+                    case["name"]
+                );
+                rejected += 1;
+            }
+        }
+        assert_eq!((matched, rejected), (25, 3));
+    }
+    #[test]
+    fn all_portal_comparisons_remain_work_bounded() {
+        let portals: Vec<_> = (0..1025).map(|_| left()).collect();
+        assert!(matches!(
+            validate_portal_matches(&portals),
+            Err(Error::Budget)
+        ));
     }
 }

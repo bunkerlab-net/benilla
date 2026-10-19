@@ -93,14 +93,17 @@ The app snapshot uses a non-reentrant RefCell in the existing NonSend service.
   queries consequently retain its polygon-zero callback behavior
 - External portals only on exact cardinal tile faces or the pinned positive quantized
   plane min + 2000 * 0.2666666 (with the matching source quantization factor), with nonzero projected spans.
-  Loaded cross-tile matches must be exact one-to-one reversed endpoints. Partial or
-  split portals reject, avoiding the source's four-match truncation and dropped links
+  Loaded cross-tile matches use the original ordered binary32 slab comparison,
+  including its 0.01 plane/shrink constants and directional target-tile climb. Each
+  directed portal may match at most one target edge; split or ambiguous matches reject,
+  avoiding the source's four-match truncation and dropped links. All intermediate
+  arithmetic and compression ratios must remain finite; geometry is never snapped
 - A preflight upper bound of 1,048,576 native construction edge examinations, including
   each portal times every neighboring target edge, plus source-side scans. Cross-tile
   validation separately caps comparisons at 1,048,576. Oversized closures reject
 
 This is intentionally a restricted source-compatible subset; it may reject lawful
-source-generated data with narrow/degenerate triangles, partial portals or larger
+source-generated data with narrow/degenerate triangles, ambiguous portals or larger
 closures. It does not reinterpret rejection as empty or traversable geometry. Bounds
 cover CPU loops and allocation sizes, not hard operating-system scheduling. Peak memory
 includes the inventory, validation scratch, native copies and fixed query state; the
@@ -858,3 +861,16 @@ remain unsupported. Merely extending that pair list would be insufficient:
 already dry loaded mesh, and that mask contains the liquid flags. Wet traversal
 therefore requires a separate capability/filter and ownership design. Neither the
 fixture nor helper generation grants swimming, magma traversal or world admission.
+
+## Two emitted tile seam evidence
+
+The authored `two-tile-seam` fixture adds one interior hole to the neighboring ridge
+ADT, preserving the shared edge. The pinned extractor and generator emit both tiles;
+the corresponding neighbor without the hole retains its original 625-polygon skipped
+result. Genuine MPQ capture, generation requests and both products are compared with
+the original bytes. Six original forward/reverse crossings check nearest points and
+references, complete corridors and corner bits/flags/references using both tile slots.
+The seam uses the source slab rule rather than exact endpoint equality. An independent
+original-function corpus covers 25 bounded finite cases; three zero-span/overflow
+cases explicitly remain outside the supported arithmetic envelope. This evidence
+concerns generated geometry queries, not normal game-session movement admission.

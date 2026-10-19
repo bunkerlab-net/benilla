@@ -20,7 +20,11 @@ def main():
     args = parser.parse_args()
     binary = args.helper.resolve(strict=True)
     measurements = {}
-    for case in ("ridge_wmo", "ridge_neighbors_wmo", "ridge_xminus_wmo", "ridge_only", "liquid_full_types_wmo"):
+    cases = [(case, FIXTURES / case, "0003130.mmtile") for case in
+             ("ridge_wmo", "ridge_neighbors_wmo", "ridge_xminus_wmo", "ridge_only", "liquid_full_types_wmo")]
+    cases += [("two-tile-seam/selected", FIXTURES / "two-tile-seam", "0003130.mmtile"),
+              ("two-tile-seam/neighbor", FIXTURES / "two-tile-seam", "0003129.mmtile")]
+    for case, products, tile_filename in cases:
         base = FIXTURES / case
         request = zlib.decompress((base / "helper-request.bin.zlib").read_bytes())
         started = time.monotonic()
@@ -34,13 +38,13 @@ def main():
         status, mmap_size, tile_size, polygons, peak = struct.unpack_from("<4IQ", output, 8)
         expected = json.loads((base / "expected.json").read_text(encoding="utf-8"))
         assert mmap_size == 28 and len(output) == 32 + mmap_size + tile_size, case
-        assert output[32:60] == (base / "000.mmap").read_bytes(), case
+        assert output[32:60] == (products / "000.mmap").read_bytes(), case
         if expected["output"]["emitted"]:
             assert status == 0, case
-            assert output[60:] == (base / "0003130.mmtile").read_bytes(), case
+            assert output[60:] == (products / tile_filename).read_bytes(), case
         else:
             assert status == 2 and polygons == 625 and tile_size == 0, case
-            assert not (base / "0003130.mmtile").exists(), case
+            assert not (products / tile_filename).exists(), case
         assert polygons == expected["output"]["merged_polygons"], case
         measurements[case] = {
             "status": status,

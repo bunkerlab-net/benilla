@@ -36,12 +36,13 @@ using uint8=std::uint8_t; using uint16=std::uint16_t; using uint32=std::uint32_t
     flags+=sanitizer
     sources=[HERE/'oracle_driver.cpp',*sources]
     objects=[work/(str(i)+'-'+p.stem+'.o') for i,p in enumerate(sources)]
-    commands=[flags+['-c',str(p),'-o',str(o)] for p,o in zip(sources,objects)]
-    link=['g++',*sanitizer,*[str(p) for p in objects],'-Wl,--gc-sections','-Wl,--wrap=fopen','-Wl,--wrap=_Z17rcMergePolyMeshesP9rcContextPP10rcPolyMeshiRS1_','-pthread','-lz','-o',str(work/'original-navigation')]
+    terrain_alignment=HERE/'terrain_version_alignment.h'
+    commands=[flags+(['-include',str(terrain_alignment)] if p==mmap/'TerrainBuilder.cpp' else [])+['-c',str(p),'-o',str(o)] for p,o in zip(sources,objects)]
+    link=['g++',*sanitizer,*[str(p) for p in objects],'-Wl,--gc-sections','-Wl,--wrap=fopen','-Wl,--wrap=_Z19dtCreateNavMeshDataP21dtNavMeshCreateParamsPPhPi','-Wl,--wrap=_Z6dtFreePv','-Wl,--wrap=_Z17rcMergePolyMeshesP9rcContextPP10rcPolyMeshiRS1_','-pthread','-lz','-o',str(work/'original-navigation')]
     (work/'compile-command.json').write_text(json.dumps(commands+[link],indent=2)+'\n')
     def compile_one(args):
         src,obj,command=args
-        stamp=obj.with_suffix('.json'); identity=hashlib.sha256(src.read_bytes()+json.dumps(flags).encode()).hexdigest()
+        stamp=obj.with_suffix('.json'); identity=hashlib.sha256(src.read_bytes()+json.dumps(command).encode()+(terrain_alignment.read_bytes() if src==mmap/'TerrainBuilder.cpp' else b'')).hexdigest()
         if not obj.exists() or not stamp.exists() or stamp.read_text(encoding="utf-8")!=identity:
             subprocess.run(command,check=True,timeout=180); stamp.write_text(identity)
     with ThreadPoolExecutor(max_workers=3) as executor:
