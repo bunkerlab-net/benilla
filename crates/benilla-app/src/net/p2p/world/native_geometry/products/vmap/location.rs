@@ -64,6 +64,25 @@ impl VmapSnapshot {
         position: Vector,
         budget: &mut QueryBudget,
     ) -> Result<Option<SelectedLocation>, Error> {
+        self.select_location_inner(position, budget, true)
+    }
+
+    /// Resident point traversal: an encountered unloaded slot remains Missing.
+    /// This never supplies the existing complete-map location contract.
+    pub(super) fn select_resident_location(
+        &self,
+        position: Vector,
+        budget: &mut QueryBudget,
+    ) -> Result<Option<SelectedLocation>, Error> {
+        self.select_location_inner(position, budget, false)
+    }
+
+    fn select_location_inner(
+        &self,
+        position: Vector,
+        budget: &mut QueryBudget,
+        require_complete: bool,
+    ) -> Result<Option<SelectedLocation>, Error> {
         if position.iter().any(|value| !value.is_finite()) {
             return Err(Error::Format);
         }
@@ -72,10 +91,12 @@ impl VmapSnapshot {
         }
         budget.take()?;
         // Charge every slot, including unrelated ones, before any absence proof.
-        for spawn in &self.spawns {
-            budget.take()?;
-            if spawn.is_none() {
-                return Err(Error::Missing);
+        if require_complete {
+            for spawn in &self.spawns {
+                budget.take()?;
+                if spawn.is_none() {
+                    return Err(Error::Missing);
+                }
             }
         }
         let position = to_internal(position);

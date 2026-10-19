@@ -15,6 +15,9 @@ use benilla_world_runtime::native::{
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Instant};
 
+#[path = "source_route_filter/resident.rs"]
+pub(crate) mod resident;
+
 pub(crate) struct SourceRouteFilterProvider {
     identity: Arc<()>,
     session: Session,

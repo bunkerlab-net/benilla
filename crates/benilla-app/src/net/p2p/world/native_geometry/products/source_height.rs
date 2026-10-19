@@ -12,6 +12,9 @@ use benilla_native_terrain::PreparedTerrain;
 use benilla_native_vmap_source::AssembledSourceMap;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, time::Instant};
+mod point_liquid;
+pub(crate) use point_liquid::{PointNoWaterReply, PointNoWaterRequest};
+
 const POLICY: &[u8] = b"benilla-compatible-consumed-source-static-height-observation-v1";
 const TERRAIN_POLICY: &str = "benilla-chain-and-cmangos-ad-fixed-five-exact-winner-v3";
 const COLLISION_POLICY: &str = "cmangos-vmap-numeric-1-through-99-reverse-first-hit-v1";
@@ -116,6 +119,12 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         check(&cancelled)?;
         Ok(result)
     }
+    pub(crate) fn generated_query_source_epoch(&self) -> Hash {
+        super::nav_generation::query_source_epoch(
+            self.terrain.source_epoch(),
+            self.collision.source_version(),
+        )
+    }
     pub(crate) fn binding(&self) -> Binding {
         self.binding
     }
@@ -137,6 +146,14 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         request: HeightRequest,
         deadline: Instant,
     ) -> Result<HeightReply, Error> {
+        let mut budget = vmap::QueryBudget::new(deadline);
+        self.query_with_budget(request, &mut budget)
+    }
+    fn query_with_budget(
+        &self,
+        request: HeightRequest,
+        budget: &mut vmap::QueryBudget,
+    ) -> Result<HeightReply, Error> {
         if request.binding != self.binding || request.ticket == 0 {
             return Err(Error::Identity);
         }
@@ -148,7 +165,6 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         if p.iter().any(|v| v.abs() > 100_000.0) || search.abs() > 10_000.0 {
             return Err(Error::Unsupported);
         }
-        let mut budget = vmap::QueryBudget::new(deadline);
         budget.complete()?;
         let tile = self
             .tiles
@@ -160,7 +176,7 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         };
         let value = height::select_height(terrain, p[2], search, |z, distance| {
             self.collision
-                .height_with_budget([p[0], p[1], z], distance, &mut budget)
+                .height_with_budget([p[0], p[1], z], distance, budget)
         })?;
         budget.complete()?;
         Ok(HeightReply {

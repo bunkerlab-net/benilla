@@ -809,3 +809,52 @@ fn crossing_profile() -> benilla_world_runtime::native::Profile {
     end[1] = seam + 5.0;
     super::super::super::super::source_pathfinder_query::tests::generated_profile(start, end)
 }
+
+#[test]
+fn genuine_source_points_feed_actual_constructor_filter_and_expire() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    use super::super::super::super::source_pathfinder_query::tests as provider;
+    use super::super::super::{
+        source_height::PreparedSourceHeight, source_query::SourceMapQuerySnapshot,
+    };
+    let entries = cardinal_entries(oracle(
+        "two-tile-seam/authored/ridge_xminus_hole.adt.test-fixture",
+    ));
+    let install = Install::new(&entries);
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[
+            benilla_native_terrain::Tile { x: 31, y: 30 },
+            benilla_native_terrain::Tile { x: 31, y: 29 },
+        ],
+    )
+    .unwrap();
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    let p = crossing_profile();
+    let query = SourceMapQuerySnapshot::from_generated(
+        &[(&input, &output)],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    provider::assert_resident_filter(p, query, &height, || {
+        let mut changed = entries;
+        changed.iter_mut().find(|e| e.name == ADT).unwrap().bytes[0] ^= 1;
+        install.write(&changed);
+    });
+}

@@ -182,6 +182,16 @@ impl SourcePathfinderQueryProvider {
             .map_err(|_| ConstructorQueryError::Binding)?;
         Self::bind_revision(session, profile, navigation, expected)
     }
+    pub(super) fn bind_with_resident_filter(
+        session: &Session,
+        profile: &Profile,
+        navigation: SourceMapQuerySnapshot,
+        height: super::products::source_height::Binding,
+    ) -> Result<Self, ConstructorQueryError> {
+        let expected =
+            super::source_route_filter::resident::geometry_revision(height, navigation.binding());
+        Self::bind_revision(session, profile, navigation, expected)
+    }
     fn bind_revision(
         session: &Session,
         profile: &Profile,

@@ -94,6 +94,27 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
     ) -> Result<f32, Error> {
         self.geometry.height(position, search, budget)
     }
+    /// Exact selected group absence only; a wet group remains unsupported here.
+    /// Traversal uses the complete index and refuses any required unloaded slot.
+    pub(in super::super) fn no_liquid_with_budget(
+        &self,
+        position: [f32; 3],
+        budget: &mut super::QueryBudget,
+    ) -> Result<Option<super::LocationFloor>, Error> {
+        let Some(selected) = self.geometry.select_resident_location(position, budget)? else {
+            return Ok(None);
+        };
+        budget.take()?;
+        let spawn = self.geometry.spawns[selected.spawn]
+            .as_ref()
+            .ok_or(Error::Missing)?;
+        let group = &self.geometry.models[spawn.model].groups[selected.group];
+        if group.liquid.is_some() {
+            return Err(Error::Unsupported);
+        }
+        budget.complete()?;
+        Ok(Some(selected.floor))
+    }
     pub(crate) fn query(&self, request: RayRequest, deadline: Instant) -> Result<RayReply, Error> {
         self.geometry.query(request, deadline)
     }
@@ -384,6 +405,31 @@ mod tests {
             .map(|(id, b)| (id.clone(), b.as_slice()))
             .collect();
         decode_rows(0, [1; 32], &rows, &[], &|| false)
+    }
+    #[test]
+    fn resident_point_ignores_only_unvisited_unloaded_slots() {
+        let geometry = decode(&rows()).unwrap();
+        let point = [
+            f32::from_bits(0x43e8_d540),
+            f32::from_bits(0x4471_aaa0),
+            20.0,
+        ];
+        let budget =
+            || super::super::QueryBudget::new(Instant::now() + std::time::Duration::from_secs(10));
+        // Original captured Hull tree spans z=1..10. Point traversal rejects
+        // z=20 at the root; unlike a height ray, it does not search downwards.
+        assert!(geometry
+            .select_resident_location(point, &mut budget())
+            .unwrap()
+            .is_none());
+        assert!(matches!(
+            geometry.select_location(point, &mut budget()),
+            Err(Error::Missing)
+        ));
+        assert!(matches!(
+            geometry.select_resident_location([point[0], point[1], 8.0], &mut budget()),
+            Err(Error::Missing)
+        ));
     }
     #[test]
     fn unloaded_index_is_still_validated_completely() {

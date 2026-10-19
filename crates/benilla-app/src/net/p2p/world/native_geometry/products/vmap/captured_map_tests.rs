@@ -25,6 +25,8 @@ mod diagnostic_tests;
 mod navigation_generation_tests;
 #[path = "prepared_tests.rs"]
 mod prepared_tests;
+#[path = "resident_liquid_tests.rs"]
+mod resident_liquid_tests;
 #[path = "source_height_tests.rs"]
 mod source_height_tests;
 #[path = "tile_prepared_tests.rs"]

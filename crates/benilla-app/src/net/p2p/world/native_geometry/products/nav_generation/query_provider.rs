@@ -65,11 +65,10 @@ fn load_query_set_inner(
         .try_reserve_exact(pairs.len())
         .map_err(|_| Error::Budget)?;
     let mut total = output.response.mmap.len();
-    let mut source = Sha256::new();
-    source.update(POLICY);
-    source.update(first.terrain.source_epoch().as_bytes());
-    source.update(first.source.map().source_binding());
-    let source_epoch: Hash = source.finalize().into();
+    let source_epoch = source_epoch(
+        first.terrain.source_epoch(),
+        *first.source.map().source_binding(),
+    );
     let mut inventory = Sha256::new();
     inventory.update(POLICY);
     inventory.update(source_epoch);
@@ -181,4 +180,12 @@ pub(crate) fn assert_source_change_after_query_load(
         ),
         Err(GenerationError::Composition(_)) | Err(GenerationError::Collision(_))
     ));
+}
+
+pub(in super::super) fn source_epoch(terrain: &str, collision: Hash) -> Hash {
+    let mut hash = Sha256::new();
+    hash.update(POLICY);
+    hash.update(terrain.as_bytes());
+    hash.update(collision);
+    hash.finalize().into()
 }

@@ -5,7 +5,7 @@ mod process;
 mod query_provider;
 #[cfg(test)]
 pub(crate) use query_provider::assert_source_change_after_query_load;
-pub(super) use query_provider::load_query_set;
+pub(super) use query_provider::{load_query_set, source_epoch as query_source_epoch};
 pub(super) mod terrain_mesh;
 use super::{
     source_height,

@@ -912,3 +912,164 @@ pub(crate) fn generated_rejected_configurations(p: &Profile) -> Vec<Profile> {
     }
     variants
 }
+
+pub(crate) fn assert_resident_filter(
+    mut p: Profile,
+    query: SourceMapQuerySnapshot,
+    height: &super::super::products::source_height::PreparedSourceHeight<'_, '_, '_>,
+    mutate_source: impl FnOnce(),
+) {
+    use super::super::source_route_filter::resident::{self, ResidentFilterProvider};
+    p.geometry_revision = resident::geometry_revision(height.binding(), query.binding());
+    let s = session(&p);
+    let mut running = world(&p);
+    let mut authority = motion_fixture::SyntheticMotionAuthority::default();
+    let (context, first_tick) = (1..=8)
+        .find_map(|tick| {
+            running.step(tick, None, &mut authority).unwrap();
+            std::mem::take(&mut authority.queries)
+                .into_iter()
+                .find(|q| matches!(q.query, Query::SourceMotion(MotionQuery::Route(_))))
+                .map(|q| (q, tick))
+        })
+        .expect("actual constructor dispatch");
+    let mut provider = ResidentFilterProvider::bind(&s, &p, height, query).unwrap();
+    let mut created = provider.observe(&context, 101, until(), || false).unwrap();
+    let flags = provider
+        .filter_for(&created, &context, until(), || false)
+        .unwrap();
+    // Original route_filter corpus: initialized habitat 1 -> ground-only 1/0.
+    assert_eq!((flags.include_flags, flags.exclude_flags), (1, 0));
+    assert_eq!(created.observations().map(|r| r.request().mask), [15, 10]);
+    assert_eq!(
+        created.observations().map(|r| r.request().ticket),
+        [101, 102]
+    );
+    let updated = provider
+        .observe_update(&created, &context, 105, until(), || false)
+        .unwrap();
+    assert_eq!(
+        provider
+            .filter_for(&updated, &context, until(), || false)
+            .unwrap(),
+        flags
+    );
+    assert_eq!(
+        updated.observations().map(|r| r.request().ticket),
+        [105, 106]
+    );
+    assert!(provider
+        .observe_update(&updated, &context, 105, until(), || false)
+        .is_err());
+    assert!(matches!(
+        provider.filter_for(&created, &context, Instant::now(), || false),
+        Err(resident::ResidentFilterError::Context(
+            super::super::core::Failure::Deadline
+        ))
+    ));
+    assert!(matches!(
+        provider.filter_for(&created, &context, until(), || true),
+        Err(resident::ResidentFilterError::Source(
+            super::super::products::source_height::CompositionError::Cancelled
+        ))
+    ));
+    let mut moved = context.clone();
+    let request = route(&mut moved);
+    request.owner_position.x = ai::Real::new(request.owner_position.x.as_f32() + 1.0).unwrap();
+    request.request.origin = request.owner_position;
+    assert!(provider
+        .filter_for(&created, &moved, until(), || false)
+        .is_err());
+    let different_live_dispatch = first_unconsumed(&p);
+    assert!(provider
+        .filter_for(&created, &different_live_dispatch, until(), || false)
+        .is_err());
+
+    let decoded: AuthorityRequest =
+        serde_json::from_value(serde_json::to_value(&context).unwrap()).unwrap();
+    assert!(provider
+        .filter_for(&created, &decoded, until(), || false)
+        .is_err());
+    let mut changed = serde_json::to_value(&context).unwrap();
+    changed["query"]["SourceMotion"]["Route"]["owner"]["inhabit_type"] = 3.into();
+    let changed: AuthorityRequest = serde_json::from_value(changed).unwrap();
+    assert!(provider.observe(&changed, 109, until(), || false).is_err());
+    // Same actual dispatch can acquire fresh observations instead of reusing expired evidence.
+    created.expire_for_test();
+    assert!(provider
+        .filter_for(&created, &context, until(), || false)
+        .is_err());
+    let fresh = provider.observe(&context, 113, until(), || false).unwrap();
+    assert_eq!(
+        provider
+            .filter_for(&fresh, &context, until(), || false)
+            .unwrap(),
+        flags
+    );
+    // Movement causes genuine continuation dispatches from the same NativeWorld.
+    // Previous point evidence is rejected there; explicit update re-queries both masks.
+    let mut retained = fresh;
+    let mut latest = context.clone();
+    let mut updates = 0usize;
+    for tick in first_tick + 1..=first_tick + 10 {
+        let input = OwnedInput {
+            authenticated_owner: running.state().player.owner,
+            input: Input {
+                world: running.state().world,
+                tick,
+                player: running.state().player,
+                sequence: running.state().next_sequence,
+                command: Command::MovementPose {
+                    destination: point(
+                        p.player.start.x.as_f32(),
+                        p.player.start.y.as_f32() + (tick - first_tick) as f32 * 0.6,
+                        p.player.start.z.as_f32(),
+                    ),
+                    orientation: running.state().orientation,
+                    movement_flags: benilla_sim::creature_motion::GroundMovementFlags::from_bits(1)
+                        .unwrap(),
+                },
+            },
+        };
+        running.step(tick, Some(input), &mut authority).unwrap();
+        for next in std::mem::take(&mut authority.queries) {
+            let Query::SourceMotion(MotionQuery::Route(route)) = &next.query else {
+                continue;
+            };
+            if route
+                .require_pathfinder_dispatch(&p)
+                .unwrap()
+                .first_construction()
+            {
+                continue;
+            }
+            assert!(provider
+                .filter_for(&retained, &next, until(), || false)
+                .is_err());
+            retained.expire_for_test();
+            assert!(provider
+                .filter_for(&retained, &latest, until(), || false)
+                .is_err());
+            retained = provider
+                .observe_update(&retained, &next, 200 + updates as u64 * 4, until(), || {
+                    false
+                })
+                .unwrap();
+            assert_eq!(
+                provider
+                    .filter_for(&retained, &next, until(), || false)
+                    .unwrap(),
+                flags
+            );
+            assert_eq!(retained.observations().map(|r| r.request().mask), [15, 10]);
+            latest = next;
+            updates += 1;
+        }
+    }
+    assert!(updates > 0);
+    mutate_source();
+    assert!(provider
+        .filter_for(&retained, &latest, until(), || false)
+        .is_err());
+    assert!(provider.observe(&context, 117, until(), || false).is_err());
+}
