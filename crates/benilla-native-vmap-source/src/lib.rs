@@ -11,6 +11,9 @@
 
 mod discovery;
 mod doodad_projection;
+// Reference-container profile is proof-only until its complete gates pass.
+#[cfg(test)]
+mod doodad_reference_order;
 mod doodad_transform_math;
 mod doodads;
 mod source;

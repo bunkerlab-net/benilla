@@ -60,3 +60,7 @@ in its summary. See [the raw liquid contract](../benilla-native-vmap/WMO-LIQUID.
 explicit selection of its pinned portable numerical compatibility profile. Its
 record spans deliberately omit the generated-ID word and do not establish map
 assembly or portable equality with every native C++ libm.
+
+The [reference-container order proof](DOODAD-REFERENCE-ORDER.md) checks a bounded
+portable reproduction of one pinned GCC/libstdc++ uint16 insertion profile.
+It is test-only pending integration into the complete captured placement order.

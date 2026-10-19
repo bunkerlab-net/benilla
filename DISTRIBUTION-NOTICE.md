@@ -94,3 +94,10 @@ the explicit portable `libm 0.2.16` numerical compatibility policy documented in
 BSD grant is retained in `G3D-NOTICE.cpp.txt`; shared sine/cosine source and its
 LGPL notices remain in `benilla-sim::source_trig`. No native-libm universal
 bit-parity claim is made.
+
+The test-only WMO reference-order profile derives list operations from GNU
+libstdc++ 14's `bits/hashtable.h` (Free Software Foundation, GPL-3.0-or-later
+with GCC Runtime Library Exception 3.1). Its unchanged notice and exception
+are retained in `crates/benilla-native-vmap-source/GCC-RUNTIME-NOTICE.txt`.
+The authored reference fixtures contain numeric keys and iteration orders,
+with compiler/header/library hash provenance; they contain no installation data.

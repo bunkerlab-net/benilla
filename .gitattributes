@@ -88,3 +88,8 @@ crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*/*.dir -text
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/*.tsv text eol=lf
 crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_transform_source/source-fragments.cpp.test-fixture text eol=lf -whitespace
+
+# Authored reference-container input/iteration vectors are fixed little-endian uint16.
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/*.u16le -text
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/*.tsv text eol=lf
+crates/benilla-native-geometry-tests/tools/fixtures/wmo_doodad_order_source/source-fragments.test-fixture text eol=lf -whitespace
