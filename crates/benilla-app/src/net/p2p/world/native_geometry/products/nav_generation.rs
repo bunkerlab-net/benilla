@@ -2,6 +2,10 @@
 //! Genuine selected-tile extraction inventory to a bounded separate native generator.
 //! Inventory-relative neighbor absence is explicit; it is not whole-install coverage.
 mod process;
+mod query_provider;
+#[cfg(test)]
+pub(crate) use query_provider::assert_source_change_after_query_load;
+pub(super) use query_provider::load_query_set;
 pub(super) mod terrain_mesh;
 use super::{
     source_height,
@@ -61,6 +65,7 @@ pub(crate) struct InputSummary {
     pub revision: Hash,
 }
 pub(crate) struct GeneratedNavigation {
+    input_revision: Hash,
     revision: Hash,
     tile: TileId,
     response: GenerationResponse,
@@ -369,6 +374,7 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
         digest.update(&response.mmap);
         digest.update(&response.mmtile);
         Ok(GeneratedNavigation {
+            input_revision: self.revision,
             revision: digest.finalize().into(),
             tile: self.tile,
             response,

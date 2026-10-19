@@ -24,6 +24,26 @@ pub(crate) struct SourceMapQuerySnapshot {
     query: SourceMapQuery,
 }
 impl SourceMapQuerySnapshot {
+    /// Genuine generated immutable query ownership. Profile/content are selected
+    /// configuration, not server-data import or dry-region/movement evidence.
+    pub(crate) fn from_generated(
+        pairs: &[(
+            &super::nav_generation::PreparedNavigationInput<'_, '_, '_>,
+            &super::nav_generation::GeneratedNavigation,
+        )],
+        profile: &Profile,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, super::nav_generation::GenerationError> {
+        let (binding, configuration, query) =
+            super::nav_generation::load_query_set(pairs, profile, deadline, cancelled)?;
+        Ok(Self {
+            binding,
+            configuration,
+            query,
+        })
+    }
+
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.binding
     }

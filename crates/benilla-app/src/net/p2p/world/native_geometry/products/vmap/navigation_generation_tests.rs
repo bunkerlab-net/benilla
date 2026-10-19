@@ -397,6 +397,60 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     assert_eq!(historical.products().0, oracle("ridge_wmo/000.mmap"));
     assert_eq!(historical.products().1, oracle("ridge_wmo/0003130.mmtile"));
     historical.load().unwrap();
+    // A genuine source Exact625 outcome stays unavailable, but differs from omission.
+    use super::super::super::super::source_pathfinder_query::tests as provider;
+    use super::super::super::source_query::SourceMapQuerySnapshot;
+    let neighbor_input = PreparedNavigationInput::from_source(
+        &expanded,
+        &bundle,
+        super::super::super::TileId { x: 31, y: 29 },
+        || false,
+    )
+    .unwrap();
+    let skipped = neighbor_input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    assert_eq!(
+        skipped.summary().status,
+        benilla_native_nav_generator::GenerationStatus::Exact625
+    );
+    let p = crossing_profile();
+    let omitted = SourceMapQuerySnapshot::from_generated(
+        &[(&input, &output)],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    let explicit_skip = SourceMapQuerySnapshot::from_generated(
+        &[(&input, &output), (&neighbor_input, &skipped)],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    assert_ne!(
+        omitted.binding().inventory,
+        explicit_skip.binding().inventory
+    );
+    provider::assert_generated_dispatch(p.clone(), omitted, None, false);
+    provider::assert_generated_dispatch(p.clone(), explicit_skip, None, false);
+    assert!(SourceMapQuerySnapshot::from_generated(
+        &[(&neighbor_input, &skipped)],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false
+    )
+    .is_err());
+    assert!(SourceMapQuerySnapshot::from_generated(
+        &[(&selected_input, &historical), (&neighbor_input, &skipped)],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false
+    )
+    .is_err());
     selected_input.verify_unchanged(|| false).unwrap();
     input.verify_unchanged(|| false).unwrap();
     assert_eq!(install.bytes(), before);
@@ -525,4 +579,233 @@ fn genuine_hole_neighbor_generates_two_tiles_and_crosses_the_source_seam() {
         assert_eq!(route.polygons.last(), Some(&route.end.polygon));
     }
     assert_eq!(install.bytes(), before);
+}
+
+#[test]
+fn genuine_generated_tiles_connect_to_actual_owner_constructor_query() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    use super::super::super::super::source_pathfinder_query::tests as provider;
+    use super::super::super::source_query::SourceMapQuerySnapshot;
+    let entries = cardinal_entries(oracle(
+        "two-tile-seam/authored/ridge_xminus_hole.adt.test-fixture",
+    ));
+    let install = Install::new(&entries);
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[
+            benilla_native_terrain::Tile { x: 31, y: 30 },
+            benilla_native_terrain::Tile { x: 31, y: 29 },
+        ],
+    )
+    .unwrap();
+    let discovery = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = discovery
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let inputs = [
+        PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap(),
+        PreparedNavigationInput::from_source(
+            &terrain,
+            &bundle,
+            super::super::super::TileId { x: 31, y: 29 },
+            || false,
+        )
+        .unwrap(),
+    ];
+    let outputs: Vec<_> = inputs
+        .iter()
+        .map(|input| {
+            input
+                .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+                    false
+                })
+                .unwrap()
+        })
+        .collect();
+    let p = crossing_profile();
+    let pairs = [(&inputs[0], &outputs[0]), (&inputs[1], &outputs[1])];
+    for invalid in provider::generated_rejected_configurations(&p) {
+        assert!(SourceMapQuerySnapshot::from_generated(
+            &pairs,
+            &invalid,
+            Instant::now() + Duration::from_secs(10),
+            || false
+        )
+        .is_err());
+    }
+
+    assert!(matches!(
+        SourceMapQuerySnapshot::from_generated(
+            &[],
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || false
+        ),
+        Err(GenerationError::Validation(
+            super::super::super::Error::Missing
+        ))
+    ));
+    assert!(matches!(
+        SourceMapQuerySnapshot::from_generated(
+            &[pairs[0]; 10],
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || false
+        ),
+        Err(GenerationError::Validation(
+            super::super::super::Error::Budget
+        ))
+    ));
+    assert!(matches!(
+        SourceMapQuerySnapshot::from_generated(
+            &[pairs[0], pairs[0]],
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || false
+        ),
+        Err(GenerationError::Validation(
+            super::super::super::Error::Duplicate
+        ))
+    ));
+    assert!(matches!(
+        SourceMapQuerySnapshot::from_generated(
+            &[(&inputs[0], &outputs[1])],
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || false
+        ),
+        Err(GenerationError::Validation(
+            super::super::super::Error::Identity
+        ))
+    ));
+    assert!(matches!(
+        SourceMapQuerySnapshot::from_generated(
+            &pairs,
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || true
+        ),
+        Err(GenerationError::Cancelled)
+    ));
+    assert!(matches!(
+        SourceMapQuerySnapshot::from_generated(&pairs, &p, Instant::now(), || false),
+        Err(GenerationError::Deadline)
+    ));
+    let snapshot = SourceMapQuerySnapshot::from_generated(
+        &pairs,
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    let replacement = SourceMapQuerySnapshot::from_generated(
+        &pairs,
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    let reversed = SourceMapQuerySnapshot::from_generated(
+        &[pairs[1], pairs[0]],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(snapshot.binding(), reversed.binding());
+    provider::assert_generated_binding_rejection(p.clone(), reversed);
+    provider::assert_generated_dispatch(p.clone(), snapshot, Some(replacement), true);
+    let selected_only = SourceMapQuerySnapshot::from_generated(
+        &pairs[..1],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    provider::assert_generated_dispatch(p.clone(), selected_only, None, false);
+    let polls = std::cell::Cell::new(0usize);
+    let historical = SourceMapQuerySnapshot::from_generated(
+        &pairs,
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || {
+            polls.set(polls.get() + 1);
+            false
+        },
+    )
+    .unwrap();
+    let count = polls.get();
+    assert!(count > 10);
+    polls.set(0);
+    assert!(SourceMapQuerySnapshot::from_generated(
+        &pairs,
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || {
+            polls.set(polls.get() + 1);
+            polls.get() == count
+        }
+    )
+    .is_err());
+    let reduced_terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let different_input =
+        PreparedNavigationInput::from_source(&reduced_terrain, &bundle, TILE, || false).unwrap();
+    assert!(matches!(
+        SourceMapQuerySnapshot::from_generated(
+            &[(&different_input, &outputs[0])],
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || false
+        ),
+        Err(GenerationError::Validation(
+            super::super::super::Error::Identity
+        ))
+    ));
+    // Historical native query remains owned, while a new construction must recheck source.
+    let mut changed = entries;
+    let adt = changed.iter_mut().find(|e| e.name == ADT).unwrap();
+    adt.bytes[0] ^= 1;
+    super::super::super::nav_generation::assert_source_change_after_query_load(&pairs, &p, || {
+        install.write(&changed)
+    });
+    assert!(SourceMapQuerySnapshot::from_generated(
+        &pairs,
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false
+    )
+    .is_err());
+    provider::assert_generated_dispatch(p, historical, None, true);
+}
+
+fn crossing_profile() -> benilla_world_runtime::native::Profile {
+    let expected: serde_json::Value =
+        serde_json::from_slice(&oracle("two-tile-seam/expected.json")).unwrap();
+    let query = &expected["queries"][0];
+    let point = |name: &str| {
+        let values: Vec<_> = query[name]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| f32::from_bits(u32::from_str_radix(v.as_str().unwrap(), 16).unwrap()))
+            .collect();
+        [values[2], values[0], values[1]]
+    };
+    let mut start = point("start_bits");
+    let mut end = point("end_bits");
+    // Constructor/tile-presence evidence only: use a ten-unit aggro pair straddling
+    // the same seam, rather than the original 178-unit route-query endpoints.
+    let seam = (start[1] + end[1]) * 0.5;
+    start[1] = seam - 5.0;
+    end[1] = seam + 5.0;
+    super::super::super::super::source_pathfinder_query::tests::generated_profile(start, end)
 }

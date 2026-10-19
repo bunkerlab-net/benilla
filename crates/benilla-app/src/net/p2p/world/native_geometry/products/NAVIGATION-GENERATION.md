@@ -65,3 +65,36 @@ exactly-625-polygon skip even though its terrain is not flat.
 Measurements from these authored fixtures are not measurements of a real install.
 Real-install generation, large-map coverage, additional navigation classes and
 live-session admission remain separate verification work.
+
+## Retained source query provider
+
+`SourceMapQuerySnapshot::from_generated` connects paired genuine prepared inputs
+and generated outputs to the existing retained 1024-node map-query provider. It
+accepts at most nine selected outputs and 16 MiB of serialized navigation bytes.
+Every output must match its private prepared-input revision and exact result hash;
+all pairs must share the terrain/collision source receipts and exact MMap bytes.
+Ordering is canonical. Omitted, empty and exactly-625 skipped tiles never become
+loaded geometry; explicit skip receipts nevertheless change the snapshot binding.
+
+The selected validated exterior profile supplies runtime content/configuration
+identity only. This is not evidence that a server database was imported. The new
+policy does not construct a legacy inventory, complete-dry proof, owner filter or
+movement authorization. It loads the actual source query and can be registered
+with the existing owner-constructor dispatch provider using that exact binding.
+Old world/session or consumed constructor receipts cannot be transplanted into
+an equal-byte replacement query allocation.
+
+Inputs are checked before and after the native load. Native loading and terrain
+freshness reads are bounded but synchronous; cancellation/deadlines are checked
+around them, not interruptible midway. Checks are sequential observations, never
+an atomic source lease. The returned native snapshot owns historical geometry and
+survives later source changes. A future live-use adapter must establish current
+source-epoch/freshness per operation; this factory alone does not grant that claim.
+
+Tests use genuine authored MPQ capture and actual generated neighboring tiles,
+then real runtime constructor receipts and provider registration. Synthetic
+runtime metadata/replies only advance unrelated owner stages. Missing and skipped
+neighbors remain unavailable; no movement Route is certified by these tests.
+Live NPC movement still needs resident terrain/collision/liquid checks, creature
+capabilities and player environment, owner path stages and atomic body/participant
+validation and route commit. Normal world startup remains separate.

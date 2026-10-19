@@ -1069,7 +1069,7 @@ pub(crate) mod test_archive;
 
 #[cfg(test)]
 #[path = "source_pathfinder_query/tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[path = "source_pathfinder_query/pair_tests.rs"]
