@@ -5,6 +5,8 @@
 pub(crate) mod area;
 mod bih;
 #[cfg(test)]
+mod captured_map_tests;
+#[cfg(test)]
 mod generated_map_tests;
 mod height;
 pub(crate) mod liquid;

@@ -75,6 +75,7 @@ bool ExtractSingleModel(std::string&, std::string&, StringSet&) {
 }
 
 // PINNED_SOURCE_METHODS
+// CAPTURED_SOURCE_METHODS
 
 static uint32 bits(float value) {
     uint32 result; std::memcpy(&result, &value, sizeof(result)); return result;
@@ -209,14 +210,106 @@ static void load(const fs::path& root, VMAP::StaticMapTree& tree, std::vector<st
     }
     require(std::fgetc(file)==EOF && !std::fclose(file),"tile end");
 }
+// A separate single-triangle source capture connects actual extraction and MODF
+// placement to the public map oracle. No manually serialized spawn is used here.
+static Bytes capturedRootBytes() {
+    Bytes bytes, header;
+    authoredChunk(bytes,"MVER",version());
+    for (uint32 value:{0u,1u,0u,0u,0u,0u,0u,0u,5875u}) append(header,value);
+    for (float value:{-1.f,-2.f,-3.f,4.f,5.f,6.f}) append(header,value);
+    append(header,uint32(0));
+    require(header.size()==64,"captured MOHD64"); authoredChunk(bytes,"MOHD",header);
+    const char name[]="hull";
+    authoredChunk(bytes,"MOGN",Bytes(name,name+sizeof(name)));
+    return bytes;
+}
+static Bytes capturedGroupBytes() {
+    Bytes bytes, header, data;
+    for (uint32 value:{0u,0u,0x2000u}) append(header,value);
+    for (float value:{-1.f,-2.f,-3.f,4.f,5.f,6.f}) append(header,value);
+    for (uint16 value:{0,0,1,0}) append(header,value);
+    for (uint32 value:{0u,0u,15u,23u,0u,0u}) append(header,value);
+    require(header.size()==68,"captured MOGP68");
+    Bytes body=header;
+    authoredChunk(body,"MOPY",Bytes{0x08,0x00});
+    for (uint16 value:{0,1,2}) append(data,value);
+    authoredChunk(body,"MOVI",data); data.clear();
+    for (float value:{-1.f,-2.f,-3.f,4.f,0.f,6.f,0.f,5.f,1.f}) append(data,value);
+    authoredChunk(body,"MOVT",data); data.clear();
+    for (unsigned word=0;word<12;++word) append(data,uint16(word==8?1:0));
+    authoredChunk(body,"MOBA",data);
+    authoredChunk(bytes,"MVER",version()); authoredChunk(bytes,"MOGP",body);
+    return bytes;
+}
+static Bytes capturedModfBytes() {
+    Bytes bytes;
+    append(bytes,uint32(0)); append(bytes,uint32(0x89abcdefu));
+    for (float value:{16100.f,4.f,16600.f,0.f,0.f,0.f,
+                     16098.f,1.f,16599.f,16105.f,10.f,16604.f}) append(bytes,value);
+    for (uint16 value:{0,0,11,1024}) append(bytes,value);
+    require(bytes.size()==64,"captured MODF64");
+    return bytes;
+}
+static void capturePlacement(const fs::path& root) {
+    const auto raw=root/".extraction"; fs::create_directory(raw);
+    save(root/"hull.root.test-fixture",capturedRootBytes());
+    save(root/"hull_000.group.test-fixture",capturedGroupBytes());
+    save(root/"hull.modf.test-fixture",capturedModfBytes());
+    authoredFiles={{"Hull.wmo",root/"hull.root.test-fixture"},
+                   {"Hull_000.wmo",root/"hull_000.group.test-fixture"},
+                   {"authored.modf",root/"hull.modf.test-fixture"}};
+    openedFiles.clear(); uniqueObjectIds.clear(); WmoDoodads.clear();
+    require(raw.string().size()<sizeof(szWorkDirWmo),"capture temporary path bound");
+    std::strcpy(szWorkDirWmo,raw.c_str());
+    std::string filename="Hull.wmo";
+    require(ExtractSingleWmo(filename),"captured original ExtractSingleWmo");
+    require(filename=="Hull.wmo" && openedFiles==std::vector<std::string>{"Hull.wmo","Hull_000.wmo"},
+            "captured plain root and one group");
+    require(WmoDoodads.size()==1 && WmoDoodads.at("Hull.wmo").Sets.empty() &&
+            !WmoDoodads.at("Hull.wmo").Paths && WmoDoodads.at("Hull.wmo").Spawns.empty() &&
+            WmoDoodads.at("Hull.wmo").References.empty(),"captured no doodad data");
+    fs::copy_file(raw/"Hull.wmo",root/"hull.raw.vmap");
+    FILE* file=std::fopen((root/"hull.raw.vmap").c_str(),"rb"); require(file,"captured raw output");
+    char magic[8]; uint32 triangles,groups,rootId;
+    require(std::fread(magic,1,8,file)==8 && !std::memcmp(magic,"VMAPs05",8),"captured raw magic");
+    require(std::fread(&triangles,4,1,file)==1 && triangles==1,"original offset8 collision triangle count");
+    require(std::fread(&groups,4,1,file)==1 && groups==1,"captured retained group count");
+    require(std::fread(&rootId,4,1,file)==1 && rootId==5875,"captured root ID");
+    require(!std::fclose(file),"close captured raw");
+    file=std::fopen((root/"dir_bin").c_str(),"wb"); require(file,"captured original parent record");
+    MPQFile modf("authored.modf"); modf.seek(4); // Original ADT caller has consumed NameId.
+    WMOInstance parent(modf,"Hull.wmo",0,30,31,file);
+    require(modf.getPos()==64,"original constructor consumes complete MODF"); modf.close();
+    require(!std::fclose(file),"close captured parent record");
+    require(uniqueObjectIds.size()==1 && uniqueObjectIds.at({0x89abcdefu,0})==1,
+            "original empty allocator produces ID one");
+    file=std::fopen((root/"dir_bin").c_str(),"rb"); require(file,"reopen captured parent record");
+    uint32 map,tileX,tileY;
+    require(std::fread(&map,4,1,file)==1 && map==0 &&
+            std::fread(&tileX,4,1,file)==1 && tileX==30 &&
+            std::fread(&tileY,4,1,file)==1 && tileY==31,"captured map and tile");
+    VMAP::ModelSpawn placement;
+    require(VMAP::ModelSpawn::readFromFile(file,placement),"original captured spawn reader");
+    require(placement.ID==1 && placement.flags==VMAP::MOD_HAS_BOUND && placement.adtId==11 &&
+            placement.name=="Hull.wmo" && placement.iScale==1.f &&
+            placement.iPos==Vector3(16600,16100,4) && placement.iRot==Vector3(0,0,0) &&
+            placement.iBound.low()==Vector3(16599,16098,1) &&
+            placement.iBound.high()==Vector3(16604,16105,10),"captured original placement fields");
+    require(std::fgetc(file)==EOF && !std::fclose(file),"exactly one original parent record");
+    fs::remove_all(raw);
+    std::printf("Original single WMO extraction and MODF placement captured; allocated ID 1, raw triangle count 1\n");
+}
 int main(int argc,char** argv) {
     try {
-        require(argc==2,"usage: oracle output-directory");
+        require(argc==2 || (argc==3 && std::string(argv[2])=="captured"),
+                "usage: oracle output-directory [captured]");
         require(!std::fesetround(FE_TONEAREST),"round to nearest");
         static_assert(sizeof(float)==4 && std::numeric_limits<float>::is_iec559);
         static_assert(sizeof(Vec3D)==12 && sizeof(Vector3)==12 && sizeof(AABox)==24);
         const uint32 endian=1; require(*reinterpret_cast<const uint8*>(&endian)==1,"little endian");
-        const fs::path root(argv[1]); const auto raw=root/".assembly", products=root/"products";
+        const fs::path root(argv[1]);
+        if (argc==3) { capturePlacement(root); return 0; }
+        const auto raw=root/".assembly", products=root/"products";
         fs::create_directory(raw); fs::create_directory(products);
         save(root/"authored-wmo.root.test-fixture",rootBytes());
         authoredFiles["Authored.wmo"]=root/"authored-wmo.root.test-fixture";

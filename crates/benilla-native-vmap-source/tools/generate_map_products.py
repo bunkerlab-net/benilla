@@ -11,8 +11,9 @@ the Python harness never uses a NUL-containing name as a filesystem path.
 
 TSV columns are case, dir_bin hex, raw models JSON, generated products JSON,
 and consumer lookups JSON. JSON objects contain filenames and hex bytes.
-The companion map-queries.tsv records public-manager queries on two geometrically
-valid map-0 placements. All floating-point inputs/results are binary32 bit hex;
+The companion map-queries.tsv records public-manager queries on three geometrically
+valid map-0 placements, including original WMO extraction and MODF capture.
+All floating-point inputs/results are binary32 bit hex;
 world and internal roundtrip coordinates come from the original public converter.
 No Rust implementation, held compiler patch or listfile oracle is consulted.
 """
@@ -28,6 +29,8 @@ import tempfile
 PIN = '8ec338a1704e7dcb1c0213eb7ed58f9231ade40f'
 HERE = Path(__file__).resolve().parent
 MODEL_NAMES = frozenset({'Hull.wmo', 'Decoy.wmo', 'Foo.m2'})
+GEOMETRY_TOOLS = HERE.parent.parent / 'benilla-native-geometry-tests/tools'
+CAPTURED = GEOMETRY_TOOLS / 'fixtures/captured_wmo_source'
 
 
 def array(tag, count, payload):
@@ -138,6 +141,13 @@ def cases():
                row, {'Hull.wmo': raw_model()},
                {'000.vmtree', '000_30_31.vmtile',
                 'Hull.wmo' if shortened else 'Hull.wmo.vmo'}, 'query_wmo')
+
+    # These bytes are original ExtractSingleWmo and WMOInstance outputs, verified
+    # by re-executing their guarded source before any case is assembled. The ID,
+    # raw count and placement are never replaced with the authored helpers above.
+    yield ('captured_wmo', (CAPTURED / 'dir_bin').read_bytes(),
+           {'Hull.wmo': (CAPTURED / 'hull.raw.vmap').read_bytes()},
+           {'000.vmtree', '000_30_31.vmtile', 'Hull.wmo.vmo'}, 'captured_wmo')
 
 
 HARNESS = r'''
@@ -306,12 +316,12 @@ def main():
         raise SystemExit('Original binary fixture profile requires little-endian')
     source = args.source.resolve()
     revision = subprocess.check_output(
-        ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+        ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True, timeout=10).strip()
     if revision != PIN:
         raise SystemExit(f'Wrong source revision: expected {PIN}, got {revision}')
     subprocess.run(['git', '-C', str(source), 'diff', '--exit-code', 'HEAD', '--',
                     'src/game/vmap', 'src/game/Maps/GridMapDefines.h', 'dep/g3dlite'],
-                   check=True, stdout=subprocess.DEVNULL)
+                   check=True, stdout=subprocess.DEVNULL, timeout=10)
     rows = [
         '# case\tdir-bin-hex\traw-models-json\tgenerated-products-json\tconsumer-lookups-json',
         f'# source-pin\t{PIN}',
@@ -330,7 +340,10 @@ def main():
         '# results\theight_bits is the public getHeight result including its invalid-height sentinel; hit positions are public getObjectHitPos outputs and their original converter roundtrip; no distance is reconstructed from hit position',
         '# modifiers\tzero=+0, negative_zero=-0, positive=+1, negative=-1, clamped=-100; short search and sub-1e-10 segment are distinct from zero',
     ]
+    subprocess.run([sys.executable, str(GEOMETRY_TOOLS / 'generate_wmo_vmap_fixture.py'),
+                    str(source), '--check'], check=True, timeout=120)
     fixtures = list(cases())
+    query_count = 0
     with tempfile.TemporaryDirectory(prefix='benilla-map-products-') as temporary:
         work = Path(temporary)
         (work / 'Platform').mkdir()
@@ -371,7 +384,8 @@ using uint8=std::uint8_t; using uint16=std::uint16_t; using uint32=std::uint32_t
             products = {path.name: path.read_bytes().hex() for path in paths}
             lookups = []
             kinds = (['plain', 'nul'] if lookup_kind == 'm2' else
-                     ['wmo', 'wmo_nul'] if lookup_kind == 'query_wmo' else [lookup_kind])
+                     ['wmo', 'wmo_nul'] if lookup_kind == 'query_wmo' else
+                     ['wmo'] if lookup_kind == 'captured_wmo' else [lookup_kind])
             for kind in kinds:
                 if kind == 'none':
                     continue
@@ -393,19 +407,20 @@ using uint8=std::uint8_t; using uint16=std::uint16_t; using uint32=std::uint32_t
             rows.append('\t'.join([case, payload.hex(),
                                    compact({name: raw.hex() for name, raw in models.items()}),
                                    compact(products), compact(lookups)]))
-            if lookup_kind == 'query_wmo':
+            if lookup_kind in ('query_wmo', 'captured_wmo'):
                 result = subprocess.run([str(work / 'probe'), 'queries', str(output_dir), 'map0'],
                                         check=True, capture_output=True, text=True, timeout=10)
                 records = [line.split('\t') for line in result.stdout.splitlines()
                            if line.startswith('QUERY\t')]
                 assert len(records) == 66, result.stdout
+                query_count += len(records)
                 assert len({fields[1] for fields in records}) == len(records)
                 for marker, query, request, response in records:
                     assert marker == 'QUERY'
                     query_rows.append('\t'.join([case, query, compact(json.loads(request)),
                                                  compact(json.loads(response))]))
     for filename, content, count in [('map-products.tsv', rows, len(fixtures)),
-                                     ('map-queries.tsv', query_rows, 132)]:
+                                     ('map-queries.tsv', query_rows, query_count)]:
         output = ('\n'.join(content) + '\n').encode()
         target = HERE / 'fixtures' / filename
         if args.check:

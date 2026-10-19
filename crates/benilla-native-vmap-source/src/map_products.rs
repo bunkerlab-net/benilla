@@ -381,7 +381,7 @@ mod tests {
             assert_eq!(actual, expected, "{}", f[0]);
             cases += 1;
         }
-        assert_eq!(cases, 14);
+        assert_eq!(cases, 15);
     }
     #[test]
     fn empty_map_and_mixed_world_tile_policy() {

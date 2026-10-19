@@ -2,7 +2,7 @@
 
 `prepare(data_path, map_id, cancelled)` reads a local Classic MPQ chain and returns
 private, complete raw model candidates, ordered raw placement inputs and selected
-profile-ordered doodad candidates for a selected map. It writes nothing. The preparation call writes nothing and grants no gameplay admission.
+profile-ordered doodad candidates for a selected map. It writes nothing and grants no gameplay admission.
 The separate [map bundle API](MAP-BUNDLE.md) assembles bounded map/tree and selected
 model products in memory. This library is not a player CLI or a publisher, and
 these products do not grant collision-clearance authority.
@@ -48,12 +48,14 @@ unsupported input profiles fail explicitly. These restrictions can stop an actua
 install during its global WMO pass before the selected map is reached. Real asset
 acceptance has not been established for this acquisition library.
 
-Map assembly still requires all complete transformed placements,
-transformed doodad instances and validated map-wide
-BIHs and original duplicate first-wins geometry. The later
-GameObjectDisplayInfo extraction phase is outside this selected-prefix result.
-The independent terrain helper's successful real Northshire conversion does not
-establish those remaining collision prerequisites.
+The map bundle API now assembles transformed placements, profiled doodad instances,
+map/model BIHs and source first-wins geometry within its validated envelope.
+[Captured source query tests](CAPTURED-MAP-QUERIES.md) exercise an authored ordinary
+WMO from MPQ preparation through the existing inventory and geometry queries.
+They do not establish real-install acceptance or complete world geometry. The
+later GameObjectDisplayInfo extraction phase remains outside this selected-prefix
+result. The independent terrain helper's successful real Northshire conversion
+does not establish acceptance of the collision source library.
 
 WMO liquid production uses the witnessed root member for the source
 case-sensitive type override and identifies `wmo-liquid-header-zero-padding-v1`

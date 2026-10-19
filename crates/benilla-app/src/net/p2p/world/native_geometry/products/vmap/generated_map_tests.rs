@@ -235,9 +235,15 @@ fn public_hit_point(from: [u32; 3], to: [u32; 3], result: StaticRay, modifier: f
 
 #[test]
 fn generated_map_public_height_los_and_hit_points_match_original_bits() {
+    assert_public_queries(CASES.map(|case| (case, snapshot(case))), 132);
+}
+
+pub(super) fn assert_public_queries<'a>(
+    snapshots: impl IntoIterator<Item = (&'a str, VmapSnapshot)>,
+    expected_total: u64,
+) {
     let mut total = 0;
-    for case in CASES {
-        let snapshot = snapshot(case);
+    for (case, snapshot) in snapshots {
         let mut points = BTreeMap::new();
         let mut counts = [0; 5]; // load, coordinates, height, LOS, hit point
         let mut positives = [0; 3]; // height hits, blocked LOS, hit points
@@ -340,7 +346,7 @@ fn generated_map_public_height_los_and_hit_points_match_original_bits() {
         // Missing geometry cannot satisfy this oracle by returning only misses.
         assert_eq!(positives, [2, 4, 10], "{case}");
     }
-    assert_eq!(total, 132);
+    assert_eq!(total, expected_total);
 }
 
 #[test]

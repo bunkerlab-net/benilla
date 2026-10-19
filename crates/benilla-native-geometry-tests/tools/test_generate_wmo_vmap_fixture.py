@@ -196,15 +196,66 @@ class PinnedSourceIntegration(unittest.TestCase):
                           'bool WMOGroup::ShouldSkip(']:
             self.assertIn(generator.method(source[generator.EXTRACTOR+'wmo.cpp'],signature),extracted)
         self.assertIn(generator.method(source[generator.EXTRACTOR+'vmapexport.cpp'],'bool ExtractSingleWmo('),extracted)
+        captured = generator.captured_fragments(source)
+        self.assertIn(generator.method(source[generator.EXTRACTOR+'vmapexport.cpp'], 'uint32 GenerateUniqueObjectId('), captured)
+        self.assertIn(generator.method(source[generator.EXTRACTOR+'wmo.cpp'], 'WMOInstance::WMOInstance('), captured)
+        self.assertEqual((generator.CAPTURED/'source-fragments.cpp.test-fixture').read_bytes(),
+                         (extracted+captured+collision).encode())
 
     def test_every_generated_fixture_matches_without_replacement(self):
         before={path.relative_to(FIXTURES):path.read_bytes() for path in FIXTURES.rglob('*') if path.is_file()}
+        captured_before={path.relative_to(generator.CAPTURED):path.read_bytes() for path in generator.CAPTURED.rglob('*') if path.is_file()}
         result=subprocess.run([sys.executable,str(generator.HERE/'generate_wmo_vmap_fixture.py'),
                                os.environ['CMANGOS_SOURCE'],'--check'],check=True,text=True,capture_output=True)
         self.assertIn('Verified 15 authored WMO oracle files',result.stdout)
         self.assertIn('Could not open all Group file for: Authored.wmo',result.stdout)
         after={path.relative_to(FIXTURES):path.read_bytes() for path in FIXTURES.rglob('*') if path.is_file()}
         self.assertEqual(before,after)
+        captured_after={path.relative_to(generator.CAPTURED):path.read_bytes() for path in generator.CAPTURED.rglob('*') if path.is_file()}
+        self.assertEqual(captured_before,captured_after)
+
+
+
+class CapturedWmoFixtures(unittest.TestCase):
+    def read(self, name):
+        return (generator.HERE / 'fixtures/captured_wmo_source' / name).read_bytes()
+
+    def test_capture_has_real_triangle_count_and_natural_source_identity(self):
+        data = self.read('hull.raw.vmap')
+        self.assertEqual(data[:8], b'VMAPs05\0')
+        self.assertEqual(struct.unpack_from('<3I', data, 8), (1, 1, 5875))
+        self.assertEqual(struct.unpack_from('<2I', data, 20), (0x2000, 23))
+        self.assertEqual(struct.unpack_from('<6f', data, 28), (-1, -2, -3, 4, 5, 6))
+        self.assertEqual(struct.unpack_from('<I', data, 52)[0], 0)
+        at = 56
+        payloads = {}
+        for name in [b'GRP ', b'INDX', b'VERT']:
+            self.assertEqual(data[at:at+4], name)
+            size, = struct.unpack_from('<I', data, at+4)
+            payloads[name] = data[at+8:at+8+size]
+            self.assertEqual(len(payloads[name]), size)
+            at += 8 + size
+        self.assertEqual(at, len(data))
+        self.assertEqual(payloads[b'INDX'], struct.pack('<I3H', 3, 0, 1, 2))
+        self.assertEqual(payloads[b'VERT'], struct.pack('<I9f', 3, -1, -2, -3, 4, 0, 6, 0, 5, 1))
+
+    def test_source_modf_conversion_allocates_the_first_generated_identity(self):
+        modf = self.read('hull.modf.test-fixture')
+        self.assertEqual(len(modf), 64)
+        self.assertEqual(struct.unpack_from('<2I', modf), (0, 0x89abcdef))
+        self.assertEqual(struct.unpack_from('<3f', modf, 8), (16100, 4, 16600))
+        self.assertEqual(struct.unpack_from('<3f', modf, 20), (0, 0, 0))
+        self.assertEqual(struct.unpack_from('<6f', modf, 32), (16098, 1, 16599, 16105, 10, 16604))
+        self.assertEqual(struct.unpack_from('<4H', modf, 56), (0, 0, 11, 1024))
+        record = self.read('dir_bin')
+        self.assertEqual(struct.unpack_from('<4I', record), (0, 30, 31, 4))
+        self.assertEqual(struct.unpack_from('<HI', record, 16), (11, 1))
+        self.assertEqual(struct.unpack_from('<3f', record, 22), (16600, 16100, 4))
+        self.assertEqual(struct.unpack_from('<3f', record, 34), (0, 0, 0))
+        self.assertEqual(struct.unpack_from('<f', record, 46), (1,))
+        self.assertEqual(struct.unpack_from('<6f', record, 50), (16599, 16098, 1, 16604, 16105, 10))
+        self.assertEqual(struct.unpack_from('<I', record, 74)[0], 8)
+        self.assertEqual(record[78:], b'Hull.wmo')
 
 
 if __name__ == '__main__':
