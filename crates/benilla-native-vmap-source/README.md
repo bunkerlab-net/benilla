@@ -38,7 +38,7 @@ the explicit product/placement interface, not these diagnostic serializers.
 
 [Doodad dependency closure](DOODADS.md) retains raw transforms and selected-set
 membership. Reference ordering and per-candidate G3D projection use the explicit
-compatibility profiles below; global encounter identities remain unimplemented.
+compatibility profiles below; global encounter identities follow the [bounded source ledger](ENCOUNTER-IDS.md).
 Malformed or unsupported MLIQ dimensions, incompatible emitted/lookup model basenames, nonempty global-WMO
 placement, flat-name collisions between distinct canonical members, empty ADT/WDT
 name-table entries and other
@@ -46,9 +46,9 @@ unsupported input profiles fail explicitly. These restrictions can stop an actua
 install during its global WMO pass before the selected map is reached. Real asset
 acceptance has not been established for this acquisition library.
 
-Map assembly still requires exact global encounter IDs, all map placements,
+Map assembly still requires all complete transformed placements,
 transformed doodad instances and validated map-wide
-BIHs. The later
+BIHs and original duplicate first-wins geometry. The later
 GameObjectDisplayInfo extraction phase is outside this selected-prefix result.
 The independent terrain helper's successful real Northshire conversion does not
 establish those remaining collision prerequisites.

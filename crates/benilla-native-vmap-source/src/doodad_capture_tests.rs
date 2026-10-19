@@ -757,3 +757,128 @@ fn cancellation_during_root_reference_preparation_never_returns_partial_candidat
     assert_eq!(prepared.doodad_candidates().len(), 30);
     prepared.verify_unchanged(|| false).unwrap();
 }
+
+#[test]
+fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = wmo_entries(1);
+    dc_replace(&mut entries, MAP, maps(&[(90, "Earlier"), (0, "Selected")]));
+    dc_replace(
+        &mut entries,
+        ROOT,
+        dc_root(1, b"Models\\Solid.mdx\0", &[(0, 2)], &[0, 0]),
+    );
+    dc_replace(
+        &mut entries,
+        "World\\Wmo\\Temple_000.wmo",
+        dc_group(false, true, &[0, 1]),
+    );
+    entries.push(raw_entry(SOLID, m2(true)));
+    entries.push(raw_entry(
+        "World\\Maps\\Earlier\\Earlier.wdt",
+        chunk(b"MVER", &18u32.to_le_bytes()),
+    ));
+    let mut earlier = dc_adt(0, 0, 42);
+    earlier.extend_from_slice(&adt(&["Models\\Solid.mdx"], &[(0, 9)])[12..]);
+    entries.push(raw_entry("World\\Maps\\Earlier\\Earlier_0_0.adt", earlier));
+    let mut selected = dc_adt(0, 0, 42);
+    selected.extend_from_slice(&adt(&["Models\\Solid.mdx"], &[(0, 99)])[12..]);
+    entries.push(raw_entry(ADT, selected));
+    entries.push(raw_entry(
+        "World\\Maps\\Selected\\Selected_1_0.adt",
+        dc_adt(1, 0, 42),
+    ));
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 0, || false).unwrap();
+    let ids: Vec<_> = prepared
+        .placements()
+        .iter()
+        .map(Placement::generated_id)
+        .collect();
+    assert_eq!(ids, [Some(1), Some(5), None]);
+    let children: Vec<_> = prepared
+        .doodad_candidates()
+        .iter()
+        .map(|v| {
+            (
+                v.wmo_placement_index,
+                v.spawn_index,
+                v.child_ordinal,
+                v.generated_id,
+            )
+        })
+        .collect();
+    assert_eq!(
+        children,
+        [(0, 1, 1, 2), (0, 0, 2, 3), (2, 1, 1, 2), (2, 0, 2, 3)]
+    );
+    assert_eq!(prepared.summary().encounter_id_count, 5);
+    assert_eq!(prepared.summary().encounter_attempts, 10);
+    assert_eq!(prepared.summary().prefix_maps, 1);
+    prepared.verify_unchanged(|| false).unwrap();
+}
+
+#[test]
+fn filtered_prefix_replay_is_bounded_before_parent_and_child_eligibility() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = wmo_entries(1);
+    dc_replace(&mut entries, MAP, maps(&[(90, "Earlier"), (0, "Selected")]));
+    dc_replace(
+        &mut entries,
+        ROOT,
+        dc_root(1, b"Models\\Solid.mdx\0", &[(0, 0)], &[0; 30]),
+    );
+    dc_replace(
+        &mut entries,
+        "World\\Wmo\\Temple_000.wmo",
+        dc_group(false, true, &(0..30).collect::<Vec<_>>()),
+    );
+    entries.push(raw_entry(SOLID, m2(true)));
+    entries.push(raw_entry(
+        "World\\Maps\\Earlier\\Earlier.wdt",
+        chunk(b"MVER", &18u32.to_le_bytes()),
+    ));
+    entries.push(raw_entry(
+        "World\\Maps\\Earlier\\Earlier_0_0.adt",
+        dc_adt(1, 0, 42),
+    ));
+    save(&data, "wmo.MPQ", &entries);
+    let mut builder = Builder::new(CapturedSource::open(&data, &|| false).unwrap(), 0, 0);
+    builder.summary.replay_steps = MAX_REPLAY_STEPS - 2;
+    let error = prepare_inner(&mut builder, 0, &|| false).unwrap_err();
+    assert!(matches!(error, Error::ReplayStepLimit));
+    assert_eq!(builder.stage, PreparationStage::PrefixMap);
+    assert_eq!(builder.summary.replay_steps, MAX_REPLAY_STEPS);
+    assert_eq!(builder.summary.encounter_attempts, 0);
+    assert_eq!(builder.encounter_ids.len(), 0);
+    assert!(builder.placements.is_empty());
+    assert!(builder.doodad_candidates.is_empty());
+
+    // A fresh preparation is unaffected; the destructible parent and all 30
+    // excluded references consume steps even though no encounter IDs emit.
+    let prepared = prepare(&data, 0, || false).unwrap();
+    assert_eq!(prepared.summary().replay_steps, 31);
+    assert_eq!(prepared.summary().encounter_attempts, 0);
+
+    let mut builder = Builder::new(prepared.source, 0, 0);
+    builder.products = prepared.products;
+    let product = builder
+        .products
+        .iter()
+        .position(|p| p.kind == ModelKind::Wmo)
+        .unwrap();
+    let polls = std::cell::Cell::new(0);
+    let error = builder
+        .select_doodads(None, product, 0, 42, &|| {
+            let n = polls.get();
+            polls.set(n + 1);
+            n == 2
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Cancelled));
+    assert_eq!(builder.summary.replay_steps, 2);
+    assert_eq!(builder.encounter_ids.len(), 0);
+    assert!(builder.doodad_candidates.is_empty());
+}

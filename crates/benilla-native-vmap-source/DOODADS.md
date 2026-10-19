@@ -53,7 +53,7 @@ verification cover the expanded dependency reads. No output is published on fail
 Public diagnostic summaries expose only counts/categories and policy labels; raw
 asset paths/set-name bytes are excluded from their serializers.
 
-The writer policy is `cmangos-vmaps05-liquid-doodad-reference-order-v4`.
+The writer policy is `cmangos-vmaps05-encounter-ledger-v5`.
 This revision captures dependencies and selected membership, not final placement.
 
 ## Remaining assembly obligations
@@ -61,11 +61,12 @@ This revision captures dependencies and selected membership, not final placement
 Captured candidates follow the explicitly named [reference-container profile](DOODAD-REFERENCE-ORDER.md),
 including its retained-group insertion and rehash history before later set/raw-file
 filters. Upstream increments uint16 doodad ordinals only after those filters;
-ordinal wrapping, global generated IDs and duplicate first-wins remain unimplemented.
+the [encounter ledger](ENCOUNTER-IDS.md) preserves wrapping and global generated
+IDs. Assembler duplicate first-wins geometry remains unimplemented.
 
 Final placement also needs the exact parent early-return/zero-origin/permutation
 state, G3D quaternion/matrix/Euler arithmetic and float rounding. No final position,
-rotation, generated ID or map-wide collision authority is produced here. The source
+rotation or map-wide collision authority is produced by dependency capture. The source
 records its basename length before extension shortening, so eventual dir_bin output
 must retain that trailing-NUL name serialization detail. Full map BIHs and the later
 GameObjectDisplayInfo phase remain separate prerequisites.

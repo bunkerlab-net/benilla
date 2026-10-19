@@ -3,8 +3,9 @@
 `PreparedDiscovery::project_doodad` resolves one eligible candidate from its
 private captured parent, model and MODD data. It produces validated numeric
 placement fields and the exact record spans before and after the four-byte
-**generated ID hole**. These spans are not a complete `dir_bin`, a generated
-object identity, source emission ordering or collision admission.
+**generated ID hole**. These spans are not a complete `dir_bin`,
+a complete map record or collision admission. Generated identities are retained
+separately by the [encounter ledger](ENCOUNTER-IDS.md).
 
 ## Deliberate numerical compatibility decision
 

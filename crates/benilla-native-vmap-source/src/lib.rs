@@ -6,7 +6,7 @@
 //! consumed member, absent lookup, and winning dummy has a private ordered
 //! receipt. The fresh-chain check detects changed inputs, not a filesystem lock.
 //! Complete raw model products and raw client IDs are candidates only: this
-//! crate publishes no files, generates no final encounter IDs, and grants no
+//! crate publishes no files and grants no
 //! map, BIH, collision-absence, or gameplay authority.
 
 mod discovery;
@@ -14,6 +14,7 @@ mod doodad_projection;
 mod doodad_reference_order;
 mod doodad_transform_math;
 mod doodads;
+mod encounter_ids;
 mod source;
 
 use benilla_native_vmap::{
@@ -43,6 +44,10 @@ pub const MAX_DEPENDENCY_EVENTS: usize = 262_144;
 pub const MAX_GLOBAL_ROOT_EVENTS: usize = 32_768;
 pub const MAX_RETAINED_DOODAD_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_DOODAD_CANDIDATES: usize = 1_048_576;
+/// Includes repeated IDs across prior maps; bounds replay work as well as memory.
+pub const MAX_ENCOUNTER_ATTEMPTS: usize = 4_194_304;
+/// Includes non-emitting prefix placements and every pre-filter child reference.
+pub const MAX_REPLAY_STEPS: usize = 16_777_216;
 
 /// Numeric source discovery scope, never a collision-clearance conclusion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -52,7 +57,7 @@ pub enum MapDiscoveryState {
     Scanned,
 }
 
-/// Source raw-output filtering, before assembly and without generated IDs.
+/// Source raw-output filtering before assembly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlacementDisposition {
     Emits,
@@ -68,15 +73,20 @@ pub struct Tile {
 }
 
 /// Original client record with its source-order product association.
-/// No coordinate transformation or global encounter ID allocation is performed.
+/// Generated identity follows the complete physical-row prefix; geometry is
+/// still untransformed and this is not an assembled-map placement.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
     tile: Tile,
     product: usize,
     input: PlacementInput,
     disposition: PlacementDisposition,
+    generated_id: Option<u32>,
 }
 impl Placement {
+    pub fn generated_id(&self) -> Option<u32> {
+        self.generated_id
+    }
     pub fn tile(&self) -> Tile {
         self.tile
     }
@@ -92,11 +102,14 @@ impl Placement {
 }
 
 /// Raw selected-set member in the declared reference-container profile order,
-/// after source set and raw-collision filtering. This is not a generated ID.
+/// after source set and raw-collision filtering. The assigned ID preserves the
+/// source global namespace; it does not establish complete map assembly.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DoodadCandidate {
     pub wmo_placement_index: usize,
     pub spawn_index: u16,
+    pub generated_id: u32,
+    pub child_ordinal: u16,
     pub product_index: usize,
     pub spawn: DoodadSpawn,
     /// Original basename length before .mdx/.mdl shortening; no asset text.
@@ -177,6 +190,10 @@ pub struct DiscoverySummary {
     pub writer_policy: &'static str,
     pub liquid_header_policy: &'static str,
     pub doodad_reference_order_policy: &'static str,
+    pub encounter_id_policy: &'static str,
+    pub encounter_id_count: usize,
+    pub encounter_attempts: usize,
+    pub replay_steps: usize,
     pub source_epoch: String,
     pub map_id: u32,
     pub map_record_ordinal: usize,
@@ -303,6 +320,9 @@ pub enum Error {
     UnsupportedWmoDoodadClosure,
     InvalidDoodadEnvelope,
     InvalidDoodadReferenceOrder,
+    EncounterIdLimit,
+    EncounterAttemptLimit,
+    ReplayStepLimit,
     DoodadNameIdentity,
     DoodadBudget,
     UnsupportedWmoLiquid,
@@ -361,6 +381,9 @@ impl Error {
                 Self::InvalidWmoEnvelope => "vmap.invalid_wmo_envelope",
                 Self::UnsupportedWmoDoodadClosure => "vmap.unsupported_wmo_doodad_closure",
                 Self::InvalidDoodadEnvelope => "vmap.invalid_doodad_envelope",
+                Self::EncounterIdLimit => "vmap.encounter_id_limit",
+                Self::ReplayStepLimit => "vmap.replay_step_limit",
+                Self::EncounterAttemptLimit => "vmap.encounter_attempt_limit",
                 Self::InvalidDoodadReferenceOrder => "vmap.invalid_doodad_reference_order",
                 Self::DoodadNameIdentity => "vmap.doodad_name_identity",
                 Self::DoodadBudget => "vmap.doodad_budget",
@@ -523,7 +546,8 @@ fn prepare_inner(
         return Err(Error::DuplicateMap);
     }
     builder.summary.map_record_ordinal = selected_ordinal;
-    // Earlier physical rows may seed the M2 flat-file cache used by this map.
+    // Earlier physical rows seed both the M2 flat-file cache and global
+    // first-encounter ID namespace used by this map.
     // Rows after the selected row have no effect on the prepared source prefix.
     for (ordinal, map) in maps.iter().enumerate().take(selected_ordinal + 1) {
         let selected = ordinal == selected_ordinal;
@@ -610,6 +634,7 @@ struct Builder {
     placements: Vec<Placement>,
     products: Vec<RawProduct>,
     names: HashMap<String, usize>,
+    encounter_ids: encounter_ids::EncounterIds,
     doodad_candidates: Vec<DoodadCandidate>,
     stage: PreparationStage,
     global_root_ordinal: Option<usize>,
@@ -622,9 +647,13 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "cmangos-vmaps05-liquid-doodad-reference-order-v4",
+                writer_policy: "cmangos-vmaps05-encounter-ledger-v5",
                 liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
                 doodad_reference_order_policy: doodad_reference_order::POLICY,
+                encounter_id_policy: encounter_ids::POLICY,
+                encounter_id_count: 0,
+                encounter_attempts: 0,
+                replay_steps: 0,
                 source_epoch: String::new(),
                 map_id,
                 map_record_ordinal,
@@ -657,6 +686,7 @@ impl Builder {
             placements: Vec::new(),
             products: Vec::new(),
             names: HashMap::new(),
+            encounter_ids: encounter_ids::EncounterIds::default(),
             doodad_candidates: Vec::new(),
             stage: PreparationStage::OpenSource,
             global_root_ordinal: None,
@@ -709,9 +739,7 @@ impl Builder {
                     *resolved.get_mut(index).ok_or(Error::DependencyOrder)? = Some(product);
                 }
                 DiscoveryEvent::Placement(index) => {
-                    if !keep_placements {
-                        continue;
-                    }
+                    charge_replay_step(&mut self.summary.replay_steps)?;
                     let input = inputs.placements.get(index).ok_or(Error::DependencyOrder)?;
                     let dependency = match input {
                         PlacementInput::M2(v) => v.dependency,
@@ -731,25 +759,45 @@ impl Builder {
                     } else {
                         PlacementDisposition::Emits
                     };
-                    if self.placements.len() == MAX_PLACEMENTS {
-                        return Err(Error::PlacementLimit);
-                    }
-                    self.placements
-                        .try_reserve(1)
-                        .map_err(|_| Error::AllocationFailed)?;
-                    self.placements.push(Placement {
-                        tile,
-                        product,
-                        input: input.clone(),
-                        disposition,
-                    });
+                    let client_id = match input {
+                        PlacementInput::M2(v) => v.unique_id,
+                        PlacementInput::Wmo(v) => v.unique_id,
+                    };
+                    let generated_id = if disposition == PlacementDisposition::Emits {
+                        Some(self.encounter(client_id, 0)?)
+                    } else {
+                        None
+                    };
+                    let placement_index = if keep_placements {
+                        if self.placements.len() == MAX_PLACEMENTS {
+                            return Err(Error::PlacementLimit);
+                        }
+                        self.placements
+                            .try_reserve(1)
+                            .map_err(|_| Error::AllocationFailed)?;
+                        let index = self.placements.len();
+                        self.placements.push(Placement {
+                            tile,
+                            product,
+                            input: input.clone(),
+                            disposition,
+                            generated_id,
+                        });
+                        Some(index)
+                    } else {
+                        None
+                    };
                     if let PlacementInput::Wmo(wmo) = input {
                         self.select_doodads(
-                            self.placements.len() - 1,
+                            placement_index,
                             product,
                             wmo.doodad_set,
+                            client_id,
                             cancelled,
                         )?;
+                    }
+                    if !keep_placements {
+                        continue;
                     }
                     match disposition {
                         PlacementDisposition::Emits => self.summary.emitting_placements += 1,
@@ -767,9 +815,10 @@ impl Builder {
     }
     fn select_doodads(
         &mut self,
-        placement: usize,
+        placement: Option<usize>,
         product: usize,
         set_index: u16,
+        client_id: u32,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<(), Error> {
         let Some(metadata) = &self.products[product].doodads else {
@@ -784,8 +833,10 @@ impl Builder {
             .ok_or(Error::InvalidDoodadEnvelope)?;
         // Apply later filters only AFTER the complete retained-group insertion
         // history has established the declared source-container order.
+        let mut child_ordinal = 0_u16;
         for &spawn_index in &metadata.references {
             check_cancel(cancelled)?;
+            charge_replay_step(&mut self.summary.replay_steps)?;
             if (spawn_index as u32) < set.start_index || (spawn_index as u32) >= end {
                 continue;
             }
@@ -807,6 +858,17 @@ impl Builder {
             if !self.products[product_index].source_has_collision() {
                 continue;
             }
+            // C++ increments the uint16 only for an emitting child. Wrapping
+            // is defined and reuses the parent's (client,0) key at 65,536.
+            child_ordinal = child_ordinal.wrapping_add(1);
+            if self.summary.encounter_attempts >= MAX_ENCOUNTER_ATTEMPTS {
+                return Err(Error::EncounterAttemptLimit);
+            }
+            self.summary.encounter_attempts += 1;
+            let generated_id = self.encounter_ids.intern(client_id, child_ordinal)?;
+            let Some(placement) = placement else {
+                continue;
+            };
             check_doodad_candidate_count(self.doodad_candidates.len())?;
             self.doodad_candidates
                 .try_reserve(1)
@@ -814,6 +876,8 @@ impl Builder {
             self.doodad_candidates.push(DoodadCandidate {
                 wmo_placement_index: placement,
                 spawn_index,
+                generated_id,
+                child_ordinal,
                 product_index,
                 spawn: spawn.clone(),
                 serialized_name_len: path
@@ -825,6 +889,13 @@ impl Builder {
         }
         self.summary.doodad_candidates = self.doodad_candidates.len();
         Ok(())
+    }
+    fn encounter(&mut self, client: u32, child: u16) -> Result<u32, Error> {
+        if self.summary.encounter_attempts >= MAX_ENCOUNTER_ATTEMPTS {
+            return Err(Error::EncounterAttemptLimit);
+        }
+        self.summary.encounter_attempts += 1;
+        self.encounter_ids.intern(client, child)
     }
     fn capture(
         &mut self,
@@ -1038,6 +1109,7 @@ impl Builder {
         }
     }
     fn finish(mut self) -> Result<PreparedDiscovery, Error> {
+        self.summary.encounter_id_count = self.encounter_ids.len();
         self.summary.source_epoch = self.source.binding_digest();
         self.summary.archive_count = self.source.archives().len();
         self.summary.member_lookups = self.source.read_count();
@@ -1110,4 +1182,12 @@ fn reference_order_error(error: doodad_reference_order::ReferenceOrderError) -> 
             Error::InvalidDoodadReferenceOrder
         }
     }
+}
+
+fn charge_replay_step(steps: &mut usize) -> Result<(), Error> {
+    if *steps >= MAX_REPLAY_STEPS {
+        return Err(Error::ReplayStepLimit);
+    }
+    *steps += 1;
+    Ok(())
 }

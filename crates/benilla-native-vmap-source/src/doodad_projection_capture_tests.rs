@@ -301,14 +301,16 @@ fn projection_binding_names_the_pin_policy_and_full_capture_epoch_and_is_not_a_l
         prepared.verify_unchanged(|| false).unwrap();
         let projection = prepared.project_doodad(0, dp_profile()).unwrap();
         let mut digest = Sha256::new();
-        digest.update(b"benilla-wmo-doodad-projection-binding-v2\0");
+        digest.update(b"benilla-wmo-doodad-projection-binding-v3\0");
         digest.update(SOURCE_PIN.as_bytes());
         digest.update([0]);
         digest.update(DP_POLICY.as_bytes());
         digest.update([0]);
         digest.update(b"gcc14-libstdcxx-u16-identity-prime-load1-fresh-insert-v1");
         digest.update([0]);
-        digest.update(b"cmangos-vmaps05-liquid-doodad-reference-order-v4");
+        digest.update(b"cmangos-vmaps05-encounter-ledger-v5");
+        digest.update([0]);
+        digest.update(b"cmangos-client-u32-child-u16-first-encounter-v1");
         digest.update([0]);
         digest.update(prepared.source_epoch().as_bytes());
         let expected: [u8; 32] = digest.finalize().into();

@@ -63,7 +63,8 @@ impl fmt::Display for DoodadProjectionError {
 }
 impl std::error::Error for DoodadProjectionError {}
 
-/// Validated per-candidate projection. No generated identity or map order exists.
+/// Validated per-candidate projection. The candidate's generated identity is
+/// retained separately; this projection deliberately omits its ID word.
 /// Prefix is exactly 18 bytes before the source's uint32 generated ID; suffix
 /// starts immediately after that absent word. Neither is a complete dir_bin record.
 #[derive(Clone, PartialEq)]
@@ -193,7 +194,7 @@ impl PreparedDiscovery {
             suffix.push(0);
         }
         let mut digest = Sha256::new();
-        digest.update(b"benilla-wmo-doodad-projection-binding-v2\0");
+        digest.update(b"benilla-wmo-doodad-projection-binding-v3\0");
         digest.update(crate::SOURCE_PIN.as_bytes());
         digest.update([0]);
         digest.update(profile.policy_id().as_bytes());
@@ -201,6 +202,8 @@ impl PreparedDiscovery {
         digest.update(self.summary.doodad_reference_order_policy.as_bytes());
         digest.update([0]);
         digest.update(self.summary.writer_policy.as_bytes());
+        digest.update([0]);
+        digest.update(self.summary.encounter_id_policy.as_bytes());
         digest.update([0]);
         digest.update(self.summary.source_epoch.as_bytes());
         Ok(DoodadProjection {

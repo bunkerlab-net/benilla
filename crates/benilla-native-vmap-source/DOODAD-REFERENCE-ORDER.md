@@ -40,12 +40,12 @@ cover duplicate references, retained zero-triangle groups, early extraction
 failures and late raw-file exclusions across a growth boundary.
 
 The summary names `doodad_reference_order_policy`; the writer policy is
-`cmangos-vmaps05-liquid-doodad-reference-order-v4`. Projection binding version 2
-includes both identifiers, along with the numerical policy, source pin and capture
-epoch. A candidate index is still not a generated object ID. This library does
-not yet allocate source encounter IDs or publish complete map products. The
-source uint16 ordinal wrap and duplicate first-wins behavior remain assembler
-requirements, separate from the full-domain reference-container proof.
+`cmangos-vmaps05-encounter-ledger-v5`. Projection binding version 3
+includes both identifiers and the encounter-ID policy, along with the numerical policy, source pin and capture
+epoch. A candidate index is still not its generated object ID. The separate
+[encounter ledger](ENCOUNTER-IDS.md) assigns source IDs and preserves uint16
+child wrap. Complete map products and assembler duplicate first-wins geometry
+remain separate from the full-domain reference-container proof.
 
 The reference-order oracle uses only authored keys and the installed standard
 library. Licensing is retained in [GCC-RUNTIME-NOTICE.txt](GCC-RUNTIME-NOTICE.txt);
