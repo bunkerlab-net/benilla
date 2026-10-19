@@ -259,9 +259,9 @@ mod portable {
         workers: 0,
     });
 
-    struct Lease;
+    pub(super) struct Lease;
     impl Lease {
-        fn acquire(
+        pub(super) fn acquire(
             deadline: Instant,
             cancelled: &impl Fn() -> bool,
         ) -> Result<Self, GenerationError> {
@@ -343,12 +343,22 @@ mod portable {
         cancelled: &impl Fn() -> bool,
     ) -> Result<Vec<u8>, GenerationError> {
         let _lease = Lease::acquire(deadline, cancelled)?;
-        let mut running = Running {
+        let running = Running {
             child: command.spawn().map_err(|_| GenerationError::Io)?,
             reaped: false,
             #[cfg(unix)]
             process_group: false,
         };
+        // Retain the lease until the spawned supervisor has killed/reaped its child.
+        run_spawned(running, request, deadline, cancelled)
+    }
+
+    pub(super) fn run_spawned(
+        mut running: Running,
+        request: Vec<u8>,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Vec<u8>, GenerationError> {
         let mut stdin = running.child.stdin.take().ok_or(GenerationError::Io)?;
         let stdout = running.child.stdout.take().ok_or(GenerationError::Io)?;
         let stderr = running.child.stderr.take().ok_or(GenerationError::Io)?;
@@ -783,37 +793,60 @@ mod tests {
             .unwrap();
             assert!(GenerationResponse::decode(&bytes).is_ok());
 
-            let inherited = Helper::new("with open(os.path.join(os.path.dirname(__file__), 'pid'), 'w') as f:\n    f.write(str(os.getpid()))\npid = os.fork()\nif pid == 0:\n    time.sleep(0.5)\nelse:\n    os._exit(0)");
+            let inherited = Helper::new("leader = os.getpid()\npid = os.fork()\nif pid == 0:\n    while os.getppid() == leader:\n        time.sleep(0.002)\n    directory = os.path.dirname(__file__)\n    with open(os.path.join(directory, 'pid.pending'), 'w') as f:\n        f.write(str(leader))\n    os.replace(os.path.join(directory, 'pid.pending'), os.path.join(directory, 'pid'))\n    while os.path.isdir(directory) and not os.path.isfile(os.path.join(directory, 'release')):\n        time.sleep(0.002)\nelse:\n    os._exit(0)");
+            let startup_deadline = Instant::now() + Duration::from_secs(5);
+            let lease = portable::Lease::acquire(startup_deadline, &|| false).unwrap();
+            let running = Running {
+                child: inherited.command().spawn().unwrap(),
+                reaped: false,
+                process_group: false,
+            };
+            // The same lease covers startup; only a ready pipe holder starts the short deadline.
+            let directory = inherited.0.parent().unwrap();
+            let ready = directory.join("pid");
+            while !ready.is_file() && Instant::now() < startup_deadline {
+                pause(startup_deadline);
+            }
+            assert_eq!(
+                fs::read_to_string(ready)
+                    .expect("portable pipe holder must become ready")
+                    .parse::<u32>()
+                    .unwrap(),
+                running.child.id()
+            );
             let began = Instant::now();
-            assert!(matches!(
-                portable::run(
-                    inherited.command(),
-                    vec![],
-                    began + Duration::from_millis(120),
-                    &|| false
-                ),
-                Err(GenerationError::Deadline)
-            ));
+            let result =
+                portable::run_spawned(running, vec![], began + Duration::from_millis(120), &|| {
+                    false
+                });
+            drop(lease);
+            assert!(
+                matches!(result, Err(GenerationError::Deadline)),
+                "{result:?}"
+            );
             assert!(began.elapsed() < Duration::from_secs(1));
             inherited.assert_reaped();
-            assert!(matches!(
-                portable::run(
-                    helper.command(),
-                    vec![],
-                    Instant::now() + Duration::from_secs(1),
-                    &|| false
-                ),
-                Err(GenerationError::Helper)
-            ));
-            // The finite mock descendant closes its handles; the lease then recovers.
-            thread::sleep(Duration::from_millis(500));
-            let bytes = portable::run(
+            assert!(!directory.join("release").exists());
+            let stranded = portable::run(
                 helper.command(),
                 vec![],
-                Instant::now() + Duration::from_secs(2),
+                Instant::now() + Duration::from_secs(1),
                 &|| false,
-            )
-            .unwrap();
+            );
+            assert!(
+                matches!(stranded, Err(GenerationError::Helper)),
+                "{stranded:?}"
+            );
+            // Release the inherited writers, then wait only for the bounded worker recovery.
+            fs::write(directory.join("release"), []).unwrap();
+            let recovery_deadline = Instant::now() + Duration::from_secs(2);
+            let bytes = loop {
+                match portable::run(helper.command(), vec![], recovery_deadline, &|| false) {
+                    Ok(bytes) => break bytes,
+                    Err(GenerationError::Helper) => pause(recovery_deadline),
+                    other => panic!("unexpected portable recovery result: {other:?}"),
+                }
+            };
             assert!(GenerationResponse::decode(&bytes).is_ok());
         }
     }
