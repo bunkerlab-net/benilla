@@ -3,8 +3,8 @@
 // 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f: vmapextract/wmo.cpp::WMORoot::open,
 // vmapexport.cpp::ExtractSingleWmo, gameobject_extract.cpp::ExtractSingleModel,
 // model.cpp::Doodad::ExtractSet, and adtfile.cpp's MODF dispatch.
-// Candidate comparisons below establish set membership, never the upstream
-// unordered-set enumeration, transformed placement values, or generated IDs.
+// Membership cases and explicit GCC14 ordering cases are separate. Neither
+// establishes transformed placement values or generated IDs.
 
 use super::*;
 use std::collections::BTreeSet;
@@ -636,4 +636,124 @@ fn doodad_success_and_malformed_input_diagnostics_do_not_disclose_asset_or_set_t
     assert!(!diagnostic.contains("PRIVATE_MALFORMED_ASSET"));
     assert!(!diagnostic.contains("Temple"));
     assert!(!diagnostic.contains(&data.display().to_string()));
+}
+
+#[test]
+fn capture_preserves_profile_order_before_set_and_late_raw_model_filters() {
+    for late_empty in [false, true] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let (paths, offsets) = dc_names(&["Models\\Solid.mdx", "Models\\Empty.mdx"]);
+        let mut spawns = vec![offsets[0]; 17];
+        spawns[5] = offsets[1];
+        spawns[8] = offsets[1];
+        let mut entries = wmo_entries(2);
+        let mut root = if late_empty {
+            // The first MODN successfully extracts both offsets. The final
+            // MODN replaces Paths, but leaves both valid-name offsets present.
+            let (early, early_offsets) = dc_names(&["Models\\Solid.mdx", "Models\\Solid.mdx"]);
+            assert_eq!(early_offsets, offsets);
+            dc_root(2, &early, &[(2, 14)], &spawns)
+        } else {
+            dc_root(2, &paths, &[(2, 14)], &spawns)
+        };
+        if late_empty {
+            root.extend(chunk(b"MODN", &paths));
+        }
+        dc_replace(&mut entries, ROOT, root);
+        dc_replace(
+            &mut entries,
+            "World\\Wmo\\Temple_000.wmo",
+            dc_group(false, true, &(0..10).collect::<Vec<_>>()),
+        );
+        dc_replace(
+            &mut entries,
+            "World\\Wmo\\Temple_001.wmo",
+            dc_group(false, false, &(8..17).collect::<Vec<_>>()),
+        );
+        entries.push(raw_entry(SOLID, m2(true)));
+        entries.push(raw_entry(EMPTY, m2(false)));
+        entries.push(raw_entry(ADT, dc_adt(0, 0, 88)));
+        save(&data, "wmo.MPQ", &entries);
+        let prepared = prepare(&data, 0, || false).unwrap();
+        // Literal GCC14 probe expectations: early extraction failure omits
+        // keys 5/8 before insertion; a late raw-file exclusion omits them only
+        // after reference rehash and enumeration. MODS excludes 0/1/16 later.
+        let order: Vec<_> = prepared
+            .doodad_candidates()
+            .iter()
+            .map(|x| x.spawn_index)
+            .collect();
+        let expected = if late_empty {
+            vec![15, 14, 13, 2, 3, 4, 6, 7, 9, 10, 11, 12]
+        } else {
+            vec![15, 13, 14, 2, 3, 4, 6, 7, 9, 10, 11, 12]
+        };
+        assert_eq!(order, expected, "late_empty={late_empty}");
+        assert_eq!(
+            prepared.summary().doodad_reference_order_policy,
+            "gcc14-libstdcxx-u16-identity-prime-load1-fresh-insert-v1"
+        );
+        prepared.verify_unchanged(|| false).unwrap();
+    }
+}
+
+#[test]
+fn cancellation_during_root_reference_preparation_never_returns_partial_candidates() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = wmo_entries(1);
+    dc_replace(
+        &mut entries,
+        ROOT,
+        dc_root(1, b"Models\\Solid.mdx\0", &[(0, 30)], &[0; 30]),
+    );
+    dc_replace(
+        &mut entries,
+        "World\\Wmo\\Temple_000.wmo",
+        dc_group(false, true, &(0..30).collect::<Vec<_>>()),
+    );
+    entries.push(raw_entry(SOLID, m2(true)));
+    entries.push(raw_entry(ADT, dc_adt(0, 0, 88)));
+    save(&data, "wmo.MPQ", &entries);
+    // Sweep early preparation polling boundaries, including the bounded link
+    // initialization, group insertions and rehash. Every partial state is lost.
+    let mut root_cancellations = 0;
+    let mut reached_map_metadata = false;
+    for cutoff in 0..2048 {
+        let polls = std::cell::Cell::new(0);
+        let error = prepare(&data, 0, || {
+            let n = polls.get();
+            polls.set(n + 1);
+            n >= cutoff
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error.category(),
+            Error::Cancelled | Error::Source(SourceError::Cancelled)
+        ));
+        match error {
+            Error::Preparation {
+                stage: PreparationStage::GlobalWmoRoot,
+                ..
+            } => root_cancellations += 1,
+            Error::Preparation {
+                stage: PreparationStage::MapMetadata,
+                ..
+            } => {
+                reached_map_metadata = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(reached_map_metadata, "sweep must cover the full root phase");
+    assert!(
+        root_cancellations >= 100,
+        "reference work must be included in cancellation sweep"
+    );
+    // Cancelled attempts cannot poison a later independent capture.
+    let prepared = prepare(&data, 0, || false).unwrap();
+    assert_eq!(prepared.doodad_candidates().len(), 30);
+    prepared.verify_unchanged(|| false).unwrap();
 }

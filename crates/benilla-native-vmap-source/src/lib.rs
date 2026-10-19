@@ -11,8 +11,6 @@
 
 mod discovery;
 mod doodad_projection;
-// Reference-container profile is proof-only until its complete gates pass.
-#[cfg(test)]
 mod doodad_reference_order;
 mod doodad_transform_math;
 mod doodads;
@@ -93,8 +91,8 @@ impl Placement {
     }
 }
 
-/// Raw selected-set member. Iteration is a stable diagnostic presentation only;
-/// it is not the upstream unordered-set order or a generated doodad ID.
+/// Raw selected-set member in the declared reference-container profile order,
+/// after source set and raw-collision filtering. This is not a generated ID.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DoodadCandidate {
     pub wmo_placement_index: usize,
@@ -178,6 +176,7 @@ pub struct DiscoverySummary {
     pub listfile_policy: &'static str,
     pub writer_policy: &'static str,
     pub liquid_header_policy: &'static str,
+    pub doodad_reference_order_policy: &'static str,
     pub source_epoch: String,
     pub map_id: u32,
     pub map_record_ordinal: usize,
@@ -303,6 +302,7 @@ pub enum Error {
     InvalidWmoEnvelope,
     UnsupportedWmoDoodadClosure,
     InvalidDoodadEnvelope,
+    InvalidDoodadReferenceOrder,
     DoodadNameIdentity,
     DoodadBudget,
     UnsupportedWmoLiquid,
@@ -361,6 +361,7 @@ impl Error {
                 Self::InvalidWmoEnvelope => "vmap.invalid_wmo_envelope",
                 Self::UnsupportedWmoDoodadClosure => "vmap.unsupported_wmo_doodad_closure",
                 Self::InvalidDoodadEnvelope => "vmap.invalid_doodad_envelope",
+                Self::InvalidDoodadReferenceOrder => "vmap.invalid_doodad_reference_order",
                 Self::DoodadNameIdentity => "vmap.doodad_name_identity",
                 Self::DoodadBudget => "vmap.doodad_budget",
                 Self::UnsupportedWmoLiquid => "vmap.unsupported_wmo_liquid",
@@ -621,8 +622,9 @@ impl Builder {
                 source_pin: SOURCE_PIN,
                 acquisition_policy: source::SOURCE_POLICY,
                 listfile_policy: discovery::LISTFILE_POLICY,
-                writer_policy: "cmangos-vmaps05-liquid-doodad-dependencies-v3",
+                writer_policy: "cmangos-vmaps05-liquid-doodad-reference-order-v4",
                 liquid_header_policy: WMO_LIQUID_HEADER_ZERO_PADDING_V1,
+                doodad_reference_order_policy: doodad_reference_order::POLICY,
                 source_epoch: String::new(),
                 map_id,
                 map_record_ordinal,
@@ -780,7 +782,8 @@ impl Builder {
             .start_index
             .checked_add(set.count)
             .ok_or(Error::InvalidDoodadEnvelope)?;
-        // This is set membership only. Sorted storage never stands for C++ unordered iteration.
+        // Apply later filters only AFTER the complete retained-group insertion
+        // history has established the declared source-container order.
         for &spawn_index in &metadata.references {
             check_cancel(cancelled)?;
             if (spawn_index as u32) < set.start_index || (spawn_index as u32) >= end {
@@ -979,7 +982,8 @@ impl Builder {
             extract_wmo_collision_from_source(&dependency.member, root.bytes(), &inputs)
                 .map_err(Error::Wmo)?;
         self.summary.wmo_liquid_groups += collision.liquid_group_count as usize;
-        let mut references = BTreeSet::new();
+        let mut references = doodad_reference_order::ReferenceOrder::fresh(cancelled)
+            .map_err(reference_order_error)?;
         for (index, group) in groups.iter().enumerate() {
             check_cancel(cancelled)?;
             let group_references =
@@ -993,15 +997,15 @@ impl Builder {
                     continue;
                 };
                 if valid_names.contains(&spawn.name_index) {
-                    references.insert(reference);
+                    references
+                        .insert(reference, cancelled)
+                        .map_err(reference_order_error)?;
                 }
             }
         }
-        let mut resolved = Vec::new();
-        resolved
-            .try_reserve_exact(references.len())
-            .map_err(|_| Error::AllocationFailed)?;
-        resolved.extend(references);
+        let resolved = references
+            .into_order(cancelled)
+            .map_err(reference_order_error)?;
         let retained = retained_doodad_total(
             self.summary.retained_doodad_bytes,
             metadata.sets.len(),
@@ -1097,3 +1101,13 @@ fn required(lookup: Lookup) -> Result<CapturedMember, Error> {
 
 #[cfg(test)]
 mod tests;
+
+fn reference_order_error(error: doodad_reference_order::ReferenceOrderError) -> Error {
+    match error {
+        doodad_reference_order::ReferenceOrderError::Allocation => Error::AllocationFailed,
+        doodad_reference_order::ReferenceOrderError::Cancelled => Error::Cancelled,
+        doodad_reference_order::ReferenceOrderError::InvalidState => {
+            Error::InvalidDoodadReferenceOrder
+        }
+    }
+}

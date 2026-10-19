@@ -1,11 +1,11 @@
-# Bounded reference-container ordering proof
+# Bounded reference-container ordering
 
 The pinned extractor inserts eligible MODR indices into a default
 `std::unordered_set<uint16>`. Its iteration order affects doodad ordinals,
 generated IDs, assembler primitive order and equal-hit query winners. A sorted
 set is not an equivalent replacement.
 
-The private proof module reproduces one explicit original implementation profile:
+The private ordering module reproduces one explicit original implementation profile:
 GCC 14 / libstdc++ 20250315, identity integer hash, default maximum load factor,
 fresh empty construction/swap and insertion only. It is not a generic C++
 unordered container or a promise about other standard libraries. The compiler,
@@ -31,12 +31,21 @@ and initializes 167,878 bucket slots; work is linear in this bounded setup plus
 input attempts, rehash work and final members. Cancellation poisons any partially mutated state;
 no partial ordering is returned.
 
-This checkpoint is test-only. Existing captured candidates remain diagnostic
-membership, and no generated IDs, complete map products or admission are added.
-The next integration must form the proven reference order from eligible group
-MODR insertions before selected-set/raw-file exclusions. That typed order can
-then drive the original ordinal/duplicate/assembler rules. Full-container tests
-do not prove the later uint16 ordinal-wrap behavior of ExtractSet.
+Captured WMO references now use this profile. Insertions occur in retained-group
+and MODR record order, after spawn-index and successful-name eligibility checks.
+Selected MODS ranges and later raw-file/collision exclusions are applied only
+after enumeration. This distinction matters: excluded keys can change a rehash
+and the relative order of the remaining keys. Authored MPQ integration tests
+cover duplicate references, retained zero-triangle groups, early extraction
+failures and late raw-file exclusions across a growth boundary.
+
+The summary names `doodad_reference_order_policy`; the writer policy is
+`cmangos-vmaps05-liquid-doodad-reference-order-v4`. Projection binding version 2
+includes both identifiers, along with the numerical policy, source pin and capture
+epoch. A candidate index is still not a generated object ID. This library does
+not yet allocate source encounter IDs or publish complete map products. The
+source uint16 ordinal wrap and duplicate first-wins behavior remain assembler
+requirements, separate from the full-domain reference-container proof.
 
 The reference-order oracle uses only authored keys and the installed standard
 library. Licensing is retained in [GCC-RUNTIME-NOTICE.txt](GCC-RUNTIME-NOTICE.txt);

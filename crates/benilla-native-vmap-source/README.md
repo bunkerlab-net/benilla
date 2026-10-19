@@ -2,7 +2,7 @@
 
 `prepare(data_path, map_id, cancelled)` reads a local Classic MPQ chain and returns
 private, complete raw model candidates, ordered raw placement inputs and selected
-doodad membership candidates for a selected map. It writes nothing. This library is not a player CLI and does not
+profile-ordered doodad candidates for a selected map. It writes nothing. This library is not a player CLI and does not
 assemble a map, grant collision-clearance authority, or open gameplay admission.
 
 Preparation performs the required LiquidType table check, the global per-archive
@@ -37,7 +37,8 @@ the explicit product/placement interface, not these diagnostic serializers.
 - Cooperative cancellation, checked bounds and changed-input rejection
 
 [Doodad dependency closure](DOODADS.md) retains raw transforms and selected-set
-membership without claiming final emission order or G3D placement arithmetic.
+membership. Reference ordering and per-candidate G3D projection use the explicit
+compatibility profiles below; global encounter identities remain unimplemented.
 Malformed or unsupported MLIQ dimensions, incompatible emitted/lookup model basenames, nonempty global-WMO
 placement, flat-name collisions between distinct canonical members, empty ADT/WDT
 name-table entries and other
@@ -63,4 +64,5 @@ assembly or portable equality with every native C++ libm.
 
 The [reference-container order proof](DOODAD-REFERENCE-ORDER.md) checks a bounded
 portable reproduction of one pinned GCC/libstdc++ uint16 insertion profile.
-It is test-only pending integration into the complete captured placement order.
+Captured references use this profile before selected-set and late raw-file
+filtering. Its policy identifier is included in the summary and projection binding.

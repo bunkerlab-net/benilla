@@ -53,15 +53,15 @@ verification cover the expanded dependency reads. No output is published on fail
 Public diagnostic summaries expose only counts/categories and policy labels; raw
 asset paths/set-name bytes are excluded from their serializers.
 
-The writer policy is `cmangos-vmaps05-small-dry-doodad-dependencies-v2`.
+The writer policy is `cmangos-vmaps05-liquid-doodad-reference-order-v4`.
 This revision captures dependencies and selected membership, not final placement.
 
 ## Remaining assembly obligations
 
-Candidate ordering is a deterministic presentation only. Upstream iterates a
-`std::unordered_set<uint16>` and increments doodad IDs after raw-file eligibility;
-its implementation-dependent iteration affects the global generated IDs. Sorting
-for inspection does not certify that emission order.
+Captured candidates follow the explicitly named [reference-container profile](DOODAD-REFERENCE-ORDER.md),
+including its retained-group insertion and rehash history before later set/raw-file
+filters. Upstream increments uint16 doodad ordinals only after those filters;
+ordinal wrapping, global generated IDs and duplicate first-wins remain unimplemented.
 
 Final placement also needs the exact parent early-return/zero-origin/permutation
 state, G3D quaternion/matrix/Euler arithmetic and float rounding. No final position,
@@ -70,10 +70,11 @@ records its basename length before extension shortening, so eventual dir_bin out
 must retain that trailing-NUL name serialization detail. Full map BIHs and the later
 GameObjectDisplayInfo phase remain separate prerequisites.
 
-Tests use authored MPQ/model/WMO bytes. Real-install WMO acquisition and an independent
-original-source doodad oracle have not been established. The separate blocked
+Tests use authored MPQ/model/WMO bytes. Real-install WMO acquisition has not been
+established. Independent original-source projection and container oracles cover
+their named profiles, but do not prove complete multi-instance map assembly. The separate blocked
 listfile-oracle work is neither retried nor used by this implementation.
 
 Captured candidates also retain the original pre-extension basename length for
-[source-shaped, explicitly profiled projection](DOODAD-PROJECTION.md). This does
-not change their stable diagnostic presentation into source emission ordering.
+[source-shaped, explicitly profiled projection](DOODAD-PROJECTION.md). The projection binding
+includes the reference-order and writer policies; it is not a complete map witness.

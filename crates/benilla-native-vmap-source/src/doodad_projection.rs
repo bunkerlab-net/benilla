@@ -91,7 +91,8 @@ impl DoodadProjection {
     pub fn profile(&self) -> DoodadProjectionProfile {
         self.profile
     }
-    /// Source epoch + pin + numeric policy. Peers must also compare this policy;
+    /// Source epoch + pin + numeric, writer and reference-order policies.
+    /// Peers must also compare the declared policies;
     /// a matching hash cannot establish content admission or a filesystem lease.
     pub fn preprocessing_binding(&self) -> &[u8; 32] {
         &self.binding
@@ -119,8 +120,8 @@ impl DoodadProjection {
 
 impl PreparedDiscovery {
     /// Project one internally captured eligible candidate with an explicit
-    /// numeric compatibility profile. Stable candidate index is not source
-    /// unordered emission order, a doodad ordinal, or a generated object ID.
+    /// numeric compatibility profile. Candidate order follows the declared
+    /// reference profile, but an index is not a global generated object ID.
     pub fn project_doodad(
         &self,
         candidate_index: usize,
@@ -192,10 +193,14 @@ impl PreparedDiscovery {
             suffix.push(0);
         }
         let mut digest = Sha256::new();
-        digest.update(b"benilla-wmo-doodad-projection-binding-v1\0");
+        digest.update(b"benilla-wmo-doodad-projection-binding-v2\0");
         digest.update(crate::SOURCE_PIN.as_bytes());
         digest.update([0]);
         digest.update(profile.policy_id().as_bytes());
+        digest.update([0]);
+        digest.update(self.summary.doodad_reference_order_policy.as_bytes());
+        digest.update([0]);
+        digest.update(self.summary.writer_policy.as_bytes());
         digest.update([0]);
         digest.update(self.summary.source_epoch.as_bytes());
         Ok(DoodadProjection {
