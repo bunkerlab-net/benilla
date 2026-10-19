@@ -11,7 +11,7 @@ fn oracle(name: &str) -> Vec<u8> {
     )
     .unwrap()
 }
-fn ridge_entries() -> Vec<Entry> {
+pub(super) fn ridge_entries() -> Vec<Entry> {
     let mut entries = source_height_tests::shared_entries();
     let mut adt = oracle("authored/ridge.adt.test-fixture");
     for (field, tag, payload) in [
@@ -25,7 +25,7 @@ fn ridge_entries() -> Vec<Entry> {
     *entries.iter_mut().find(|entry| entry.name == ADT).unwrap() = raw_entry(ADT, adt);
     entries
 }
-fn helper() -> PathBuf {
+pub(super) fn helper() -> PathBuf {
     let mut executable = std::env::current_exe().unwrap();
     executable.pop();
     executable.pop();

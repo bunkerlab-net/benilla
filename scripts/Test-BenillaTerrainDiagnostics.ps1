@@ -4,6 +4,9 @@ Windows-only authored smoke tests for the sibling collector. No game assets,
 network, downloads, administrator rights, or execution-policy changes. Creates
 and removes its own temporary fixture tree. Compiles its own fake helper and player using
 Windows' installed .NET Framework csc.exe. Run under powershell.exe AND pwsh.exe.
+The authored player emits v3 navigation records without launching a navigation
+helper. These tests validate collector filtering and process bounds, not the
+production player's sibling-helper trust/path checks or navigation generation.
 #>
 [CmdletBinding()]
 param([string]$Collector = '')
@@ -87,13 +90,31 @@ using System.Threading;
 class FakeCollisionPlayer {
     static int map, x, y;
     static string Record(string stage) {
-        return "{\"format\":\"benilla-collision-diagnostics-v2\",\"stage\":\"" + stage + "\",\"status\":\"passed\",\"map\":" + map + ",\"tile_x\":" + x + ",\"tile_y\":" + y + ",\"elapsed_ms\":1,\"code\":null,\"source_stage\":null,\"metrics\":{},\"hashes\":{},\"probe\":null,\"gameplay_admitted\":false}";
+        return "{\"format\":\"benilla-collision-diagnostics-v3\",\"stage\":\"" + stage + "\",\"status\":\"passed\",\"map\":" + map + ",\"tile_x\":" + x + ",\"tile_y\":" + y + ",\"elapsed_ms\":1,\"code\":null,\"source_stage\":null,\"metrics\":{},\"hashes\":{},\"probe\":null,\"gameplay_admitted\":false}";
     }
     static string Probe(int index) {
         return Record("probe").Replace("\"probe\":null", "\"probe\":{\"index\":" + index + ",\"kind\":\"height\",\"from_bits\":[0,2147483648,4294967295],\"to_bits\":null,\"result\":\"miss\",\"value_bits\":null}");
     }
     static string StaticProbe(int index) {
         return Probe(index).Replace("\"stage\":\"probe\"", "\"stage\":\"static_probe\"").Replace("\"kind\":\"height\"", "\"kind\":\"static_height\"");
+    }
+    static string NavigationProbe(int index) {
+        return Record("navigation_probe").Replace("\"metrics\":{}", "\"metrics\":{\"polygon_ref_low\":4294967295,\"polygon_ref_high\":0}").Replace("\"probe\":null", "\"probe\":{\"index\":" + index + ",\"kind\":\"nearest\",\"from_bits\":[0,2147483648,4294967295],\"to_bits\":[4294967295,1,0],\"result\":\"nearest\",\"value_bits\":null}");
+    }
+    static string NavigationMiss(int index) {
+        return NavigationProbe(index).Replace("\"metrics\":{\"polygon_ref_low\":4294967295,\"polygon_ref_high\":0}", "\"metrics\":{}").Replace("\"to_bits\":[4294967295,1,0]", "\"to_bits\":null").Replace("\"result\":\"nearest\"", "\"result\":\"miss\"");
+    }
+    static string NavigationError(int index) {
+        return NavigationMiss(index).Replace("\"passed\"", "\"failed\"").Replace("\"result\":\"miss\"", "\"result\":\"error\"").Replace("\"code\":null", "\"code\":\"navigation.native_query\"");
+    }
+    static string Unavailable(string stage) {
+        return Record(stage).Replace("\"passed\"", "\"unavailable\"").Replace("\"code\":null", "\"code\":\"collision.prerequisite\"");
+    }
+    static string NavigationGeneration(int status) {
+        return Record("navigation_generation").Replace("\"metrics\":{}", "\"metrics\":{\"native_peak_bytes\":65536,\"navigation_output_bytes\":" + (status == 0 ? 456 : 0) + ",\"navigation_polygons\":" + (status == 0 ? 42 : status == 2 ? 625 : 0) + ",\"navigation_status\":" + status + "}");
+    }
+    static string NavigationValidation() {
+        return Record("navigation_validation").Replace("\"hashes\":{}", "\"hashes\":{\"navigation_output\":\"" + new String('e',64) + "\"}");
     }
     static string Terrain() {
         return Record("terrain_capture").Replace("\"metrics\":{}", "\"metrics\":{\"terrain_tiles\":1,\"terrain_bytes\":1234}").Replace("\"hashes\":{}", "\"hashes\":{\"terrain_source_epoch\":\"" + new String('b',64) + "\"}");
@@ -106,9 +127,16 @@ class FakeCollisionPlayer {
         map = Int32.Parse(args[4]); string[] tile = args[6].Split(','); x = Int32.Parse(tile[0]); y = Int32.Parse(tile[1]);
         string mode = Environment.GetEnvironmentVariable("BENILLA_COLLISION_TEST_MODE") ?? "success";
         Console.Error.WriteLine("PRIVATE_PLAYER_STDERR C:\\Private Person\\secret.txt");
-        if (mode == "legacy_version") {
-            Write(Record("selection").Replace("benilla-collision-diagnostics-v2", "benilla-collision-diagnostics-v1"));
-            Write(Terrain().Replace("benilla-collision-diagnostics-v2", "benilla-collision-diagnostics-v1")); return 0;
+        if (mode == "legacy_version" || mode == "legacy_v2") {
+            string version = mode == "legacy_version" ? "v1" : "v2";
+            Write(Record("selection").Replace("benilla-collision-diagnostics-v3", "benilla-collision-diagnostics-" + version));
+            Write(Terrain().Replace("benilla-collision-diagnostics-v3", "benilla-collision-diagnostics-" + version)); return 0;
+        }
+        if (mode == "mixed_version") {
+            Write(Record("selection"));
+            Write(Terrain().Replace("benilla-collision-diagnostics-v3", "benilla-collision-diagnostics-v1"));
+            Write(Record("capture").Replace("benilla-collision-diagnostics-v3", "benilla-collision-diagnostics-v2"));
+            Write(Terrain()); Write(Record("capture")); return 0;
         }
         if (mode == "newline_budget") {
             Write(Record("selection").PadRight(8192)); Write(Terrain().PadRight(8192));
@@ -120,7 +148,7 @@ class FakeCollisionPlayer {
         if (mode == "failure") {
             Write(capture.Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"vmap.source.member_read\"").Replace("\"source_stage\":null", "\"source_stage\":\"AdtTraversal\""));
             Write(Record("placement").Replace("\"passed\"", "\"unavailable\"").Replace("\"code\":null", "\"code\":\"collision.prerequisite\""));
-            foreach (string stage in new string[] { "assembly", "validation", "probe", "composition", "static_probe", "composition_freshness", "freshness" })
+            foreach (string stage in new string[] { "assembly", "validation", "probe", "composition", "static_probe", "composition_freshness", "navigation_neighbor_0", "navigation_neighbor_1", "navigation_neighbor_2", "navigation_neighbor_3", "navigation_terrain", "navigation_input", "navigation_generation", "navigation_validation", "navigation_probe", "navigation_freshness", "freshness" })
                 Write(Record(stage).Replace("\"passed\"", "\"unavailable\"").Replace("\"code\":null", "\"code\":\"collision.prerequisite\""));
             Write(Record("complete").Replace("\"passed\"", "\"failed\"")); return 7;
         }
@@ -207,11 +235,55 @@ class FakeCollisionPlayer {
             foreach (string line in invalid) Write(line);
             Write(capture); Write(Record("composition")); Write(StaticProbe(0)); Write(StaticProbe(8)); return 0;
         }
+        if (mode == "invalid_navigation_schema") {
+            string[] invalid = {
+                NavigationProbe(9),
+                NavigationProbe(0).Replace("\"kind\":\"nearest\"", "\"kind\":\"height\""),
+                NavigationProbe(0).Replace("\"kind\":\"nearest\"", "\"kind\":\"static_height\""),
+                Probe(0).Replace("\"kind\":\"height\"", "\"kind\":\"nearest\""),
+                NavigationProbe(0).Replace("\"result\":\"nearest\"", "\"result\":\"height\""),
+                NavigationProbe(0).Replace("\"result\":\"nearest\"", "\"result\":\"miss\""),
+                NavigationProbe(0).Replace("\"result\":\"nearest\"", "\"result\":\"error\""),
+                NavigationProbe(0).Replace("\"to_bits\":[4294967295,1,0]", "\"to_bits\":null"),
+                NavigationProbe(0).Replace("\"to_bits\":[4294967295,1,0]", "\"to_bits\":[0,1]"),
+                NavigationProbe(0).Replace("\"to_bits\":[4294967295,1,0]", "\"to_bits\":[4294967296,1,0]"),
+                NavigationProbe(0).Replace("\"to_bits\":[4294967295,1,0]", "\"to_bits\":[false,1,0]"),
+                NavigationProbe(0).Replace("\"from_bits\":[0,2147483648,4294967295]", "\"from_bits\":null"),
+                NavigationProbe(0).Replace("\"from_bits\":[0,2147483648,4294967295]", "\"from_bits\":[0,1,\"PRIVATE_BIT\"]"),
+                NavigationProbe(0).Replace("\"value_bits\":null", "\"value_bits\":0"),
+                NavigationProbe(0).Replace("\"index\":0", "\"index\":true"),
+                NavigationProbe(0).Replace("\"passed\"", "\"unavailable\""),
+                NavigationProbe(0).Replace("\"passed\"", "\"failed\""),
+                NavigationProbe(0).Replace("\"code\":null", "\"code\":\"navigation.native_query\""),
+                NavigationError(0).Replace("\"failed\"", "\"passed\""),
+                NavigationError(0).Replace("\"to_bits\":null", "\"to_bits\":[0,1,2]"),
+                NavigationMiss(0).Replace("\"value_bits\":null", "\"value_bits\":0"),
+                Record("navigation_probe"),
+                Record("navigation_probe").Replace("\"passed\"", "\"failed\""),
+                Record("navigation_probe").Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"collision.query\""),
+                Record("navigation_input").Replace("\"metrics\":{}", "\"metrics\":{\"neighbor_present\":2}"),
+                Record("navigation_input").Replace("\"metrics\":{}", "\"metrics\":{\"neighbor_index\":4}"),
+                NavigationGeneration(3),
+                NavigationProbe(0).Replace("\"polygon_ref_low\":4294967295", "\"polygon_ref_low\":4294967296"),
+                NavigationProbe(0).Replace("\"polygon_ref_high\":0", "\"polygon_ref_high\":4294967296"),
+                NavigationProbe(0).Replace("\"polygon_ref_high\":0", "\"polygon_ref_high\":false"),
+                Record("complete").Replace("\"metrics\":{}", "\"metrics\":{\"completed_navigation_probes\":10}"),
+                Record("navigation_input").Replace("\"metrics\":{}", "\"metrics\":{\"request_bytes\":\"PRIVATE_BYTES\"}"),
+                Record("navigation_input").Replace("\"metrics\":{}", "\"metrics\":{\"solid_vertices\":-1}"),
+                Record("navigation_input").Replace("\"hashes\":{}", "\"hashes\":{\"navigation_input\":\"PRIVATE_HASH\"}"),
+                NavigationValidation().Replace(new String('e',64), new String('e',63)),
+                NavigationValidation().Replace(new String('e',64), new String('E',64)),
+                NavigationGeneration(0).Replace("\"code\":null", "\"code\":\"navigation.PRIVATE_ERROR\"")
+            };
+            foreach (string line in invalid) Write(line);
+            Write(capture); Write(NavigationProbe(0)); Write(NavigationMiss(1)); Write(NavigationError(8)); return 0;
+        }
         if (mode == "order") {
             Write(capture); Write(capture); Write(Record("selection"));
             Write(Probe(0)); Write(Probe(0)); Write(Probe(1)); Write(Record("composition"));
             Write(StaticProbe(0)); Write(StaticProbe(0)); Write(StaticProbe(1));
-            Write(Record("freshness")); Write(Record("assembly")); return 0;
+            Write(NavigationProbe(0)); Write(NavigationProbe(0)); Write(NavigationProbe(1));
+            Write(StaticProbe(2)); Write(Record("freshness")); Write(Record("assembly")); return 0;
         }
         if (mode == "budget") {
             Write(capture.PadRight(16000));
@@ -219,7 +291,7 @@ class FakeCollisionPlayer {
             for (int i = 0; i < 16; i++) Write(Probe(i).PadRight(16000));
             Write(Record("freshness").PadRight(16000)); Write(Record("complete").PadRight(16000)); return 0;
         }
-        if (mode == "record_limit") { for (int i = 0; i < 40; i++) Write(Record("probe")); return 0; }
+        if (mode == "record_limit") { for (int i = 0; i < 72; i++) Write(Record("probe")); return 0; }
         if (mode == "source_codes") {
             Write(capture.Replace("\"code\":null", "\"code\":\"vmap.source.header_version\"").Replace("\"source_stage\":null", "\"source_stage\":\"OpenSource\""));
             Write(Record("placement").Replace("\"code\":null", "\"code\":\"vmap.source_changed_during_preparation\""));
@@ -237,8 +309,39 @@ class FakeCollisionPlayer {
         for (int i = 2; i < 9; i++) Write(Probe(i));
         Write(Record("composition").Replace("\"hashes\":{}", "\"hashes\":{\"composition\":\"" + new String('c',64) + "\"}"));
         for (int i = 0; i < 9; i++) Write(StaticProbe(i));
-        Write(Record("composition_freshness")); Write(Record("freshness"));
-        Write(Record("complete").Replace("\"metrics\":{}", "\"metrics\":{\"completed_probes\":9,\"completed_static_probes\":9,\"failed_stages\":0}")); return 0;
+        Write(Record("composition_freshness"));
+        for (int i = 0; i < 4; i++) {
+            string neighbor = Record("navigation_neighbor_" + i).Replace("\"metrics\":{}", "\"metrics\":{\"neighbor_index\":" + i + ",\"neighbor_present\":" + (i % 2) + "}");
+            if (mode == "navigation_neighbor_failure" && i == 1)
+                neighbor = neighbor.Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"source.open_patch_chain\"");
+            Write(neighbor);
+        }
+        if (mode == "navigation_neighbor_failure") {
+            foreach (string stage in new string[] { "navigation_terrain", "navigation_input", "navigation_generation", "navigation_validation", "navigation_probe" }) Write(Unavailable(stage));
+        } else {
+            Write(Record("navigation_terrain").Replace("\"metrics\":{}", "\"metrics\":{\"navigation_tiles\":3}"));
+            Write(Record("navigation_input").Replace("\"metrics\":{}", "\"metrics\":{\"solid_vertices\":3,\"solid_triangles\":1,\"liquid_vertices\":4,\"liquid_triangles\":2,\"request_bytes\":512}").Replace("\"hashes\":{}", "\"hashes\":{\"navigation_input\":\"" + new String('d',64) + "\"}"));
+            if (mode == "navigation_helper_failure") {
+                Write(Record("navigation_generation").Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"navigation.helper_missing\""));
+                Write(Unavailable("navigation_validation")); Write(Unavailable("navigation_probe"));
+            } else if (mode == "navigation_empty" || mode == "navigation_exact625") {
+                Write(NavigationGeneration(mode == "navigation_empty" ? 1 : 2));
+                Write(Unavailable("navigation_validation").Replace("collision.prerequisite", mode == "navigation_empty" ? "navigation.empty" : "navigation.exact625")); Write(Unavailable("navigation_probe"));
+            } else {
+                Write(NavigationGeneration(0)); Write(NavigationValidation());
+                for (int i = 0; i < 9; i++) {
+                    if (mode == "navigation_load_failure") { Write(Record("navigation_probe").Replace("\"passed\"", "\"failed\"").Replace("\"code\":null", "\"code\":\"navigation.native_format\"")); break; }
+                    if (mode == "navigation_partial" && i != 0 && i != 8) continue;
+                    Write(mode == "navigation_miss" && i == 0 ? NavigationMiss(i) : mode == "navigation_error" && i == 0 ? NavigationError(i) : NavigationProbe(i));
+                }
+            }
+        }
+        Write(mode == "navigation_neighbor_failure" ? Unavailable("navigation_freshness") : Record("navigation_freshness")); Write(Record("freshness"));
+        int completedNavigation = mode == "navigation_partial" ? 2 : mode == "navigation_error" ? 8 : mode == "navigation_helper_failure" || mode == "navigation_neighbor_failure" || mode == "navigation_empty" || mode == "navigation_exact625" || mode == "navigation_load_failure" ? 0 : 9;
+        int failedStages = mode == "navigation_helper_failure" || mode == "navigation_neighbor_failure" || mode == "navigation_error" || mode == "navigation_load_failure" ? 1 : 0;
+        string complete = Record("complete").Replace("\"metrics\":{}", "\"metrics\":{\"completed_probes\":9,\"completed_static_probes\":9,\"completed_navigation_probes\":" + completedNavigation + ",\"failed_stages\":" + failedStages + "}");
+        if (failedStages != 0 || completedNavigation != 9) complete = complete.Replace("\"passed\"", "\"failed\"");
+        Write(complete); return 0;
     }
 }
 '@
@@ -337,7 +440,7 @@ class FakeCollisionPlayer {
             Assert-True ($r.player.sha256 -eq (Get-FileHash -LiteralPath $playerExe -Algorithm SHA256).Hash.ToLowerInvariant() -and $r.player.unchanged_after_collection) ($Mode + ': player identity/hash mismatch')
         }
         Assert-True ($null -eq $r.collision_run.PSObject.Properties['stdout'] -and $null -eq $r.collision_run.PSObject.Properties['stderr']) ($Mode + ': raw player output retained')
-        Assert-True ($r.collision_diagnostics.records.Count -le 32) ($Mode + ': record count limit exceeded')
+        Assert-True ($r.collision_diagnostics.records.Count -le 64) ($Mode + ': record count limit exceeded')
         if ($null -ne $r.collision_diagnostics.PSObject.Properties['accepted_bytes']) {
             Assert-True ($r.collision_diagnostics.accepted_bytes -le 262144) ($Mode + ': cumulative JSON byte limit exceeded')
         }
@@ -345,7 +448,7 @@ class FakeCollisionPlayer {
     }
     $r = Run-CollisionCase 'success'
     Assert-True ($r.collision_run.status -eq 'completed' -and $r.collision_run.exit_code -eq 0) 'collision success: player did not complete'
-    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 28) 'collision success: records not preserved'
+    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 46) 'collision success: records not preserved'
     Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'collision success: terrain results lost'
     Assert-True ($r.collision_diagnostics.records[2].metrics.read_work_bytes -eq [long]::MaxValue) 'collision success: Int64 maximum rejected'
     Assert-True ($r.collision_diagnostics.records[4].metrics.tile_bytes -eq 64 -and $r.collision_diagnostics.records[4].metrics.serialized_bytes -eq 224 -and $r.collision_diagnostics.records[4].metrics.tree_bytes -eq 32 -and $r.collision_diagnostics.records[4].metrics.model_bytes -eq 128) 'collision assembly: serialized sizing evidence lost'
@@ -357,17 +460,51 @@ class FakeCollisionPlayer {
         $static = $r.collision_diagnostics.records[16 + $i]
         Assert-True ($static.stage -eq 'static_probe' -and $static.probe.index -eq $i -and $static.probe.kind -eq 'static_height' -and $null -eq $static.probe.to_bits -and $static.probe.from_bits[2] -eq 4294967295) 'composition: nine independent static probes not preserved'
     }
-    Assert-True ($r.collision_diagnostics.records[25].stage -eq 'composition_freshness' -and $r.collision_diagnostics.records[26].stage -eq 'freshness' -and $r.collision_diagnostics.records[27].metrics.completed_static_probes -eq 9) 'composition: freshness/completion evidence lost'
-    $passed++; Write-Output 'PASS: optional player, all 28 v2 records, bounded numeric/hash/probe schema and Unicode executable/Data paths'
+    Assert-True ($r.collision_diagnostics.records[25].stage -eq 'composition_freshness' -and $r.collision_diagnostics.records[44].stage -eq 'freshness' -and $r.collision_diagnostics.records[45].metrics.completed_static_probes -eq 9) 'composition: freshness/completion evidence lost'
+    for ($i = 0; $i -lt 4; $i++) {
+        $neighbor = $r.collision_diagnostics.records[26 + $i]
+        Assert-True ($neighbor.stage -eq ('navigation_neighbor_' + $i) -and $neighbor.status -eq 'passed' -and $neighbor.metrics.neighbor_index -eq $i -and $neighbor.metrics.neighbor_present -eq ($i % 2)) 'navigation: absent/present neighbor observations changed'
+    }
+    Assert-True ($r.collision_diagnostics.records[30].metrics.navigation_tiles -eq 3 -and $r.collision_diagnostics.records[31].metrics.solid_vertices -eq 3 -and $r.collision_diagnostics.records[31].metrics.solid_triangles -eq 1 -and $r.collision_diagnostics.records[31].metrics.liquid_vertices -eq 4 -and $r.collision_diagnostics.records[31].metrics.liquid_triangles -eq 2 -and $r.collision_diagnostics.records[31].metrics.request_bytes -eq 512 -and $r.collision_diagnostics.records[31].hashes.navigation_input -eq ('d' * 64)) 'navigation: combined terrain/input evidence lost'
+    Assert-True ($r.collision_diagnostics.records[32].metrics.native_peak_bytes -eq 65536 -and $r.collision_diagnostics.records[32].metrics.navigation_output_bytes -eq 456 -and $r.collision_diagnostics.records[32].metrics.navigation_polygons -eq 42 -and $r.collision_diagnostics.records[32].metrics.navigation_status -eq 0 -and $r.collision_diagnostics.records[33].hashes.navigation_output -eq ('e' * 64)) 'navigation: validated generation summary/hash lost'
+    for ($i = 0; $i -lt 9; $i++) {
+        $navigation = $r.collision_diagnostics.records[34 + $i]
+        Assert-True ($navigation.stage -eq 'navigation_probe' -and $navigation.probe.index -eq $i -and $navigation.probe.kind -eq 'nearest' -and $navigation.probe.result -eq 'nearest' -and $navigation.probe.from_bits[2] -eq 4294967295 -and $navigation.probe.to_bits[0] -eq 4294967295 -and $null -eq $navigation.probe.value_bits -and $navigation.metrics.polygon_ref_low -eq 4294967295 -and $navigation.metrics.polygon_ref_high -eq 0) 'navigation: nine independently indexed nearest observations changed'
+    }
+    Assert-True ($r.collision_diagnostics.records[43].stage -eq 'navigation_freshness' -and $r.collision_diagnostics.records[45].metrics.completed_navigation_probes -eq 9 -and -not $r.collision_diagnostics.records[45].gameplay_admitted) 'navigation: freshness, completion or no-admission evidence lost'
+    $passed++; Write-Output 'PASS: optional player, all 46 v3 records, bounded numeric/hash/probe schema and Unicode executable/Data paths'
+    $r = Run-CollisionCase 'navigation_miss'
+    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 46 -and $r.collision_diagnostics.records[34].status -eq 'passed' -and $r.collision_diagnostics.records[34].probe.result -eq 'miss' -and $null -eq $r.collision_diagnostics.records[34].probe.to_bits -and $r.collision_diagnostics.records[45].metrics.completed_navigation_probes -eq 9) 'navigation miss: completed absence observation changed'
+    $r = Run-CollisionCase 'navigation_error'
+    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 46 -and $r.collision_diagnostics.records[34].status -eq 'failed' -and $r.collision_diagnostics.records[34].probe.result -eq 'error' -and $r.collision_diagnostics.records[34].code -eq 'navigation.native_query' -and $null -eq $r.collision_diagnostics.records[34].probe.to_bits -and $r.collision_diagnostics.records[45].metrics.completed_navigation_probes -eq 8) 'navigation error: indexed query failure changed'
+    $r = Run-CollisionCase 'navigation_partial'
+    Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 39 -and $r.collision_diagnostics.records[34].probe.index -eq 0 -and $r.collision_diagnostics.records[35].probe.index -eq 8 -and $r.collision_diagnostics.records[38].metrics.completed_navigation_probes -eq 2) 'navigation: sparse eligible sample indices were renumbered or manufactured'
+    foreach ($mode in @('navigation_empty','navigation_exact625','navigation_helper_failure','navigation_neighbor_failure','navigation_load_failure')) {
+        $r = Run-CollisionCase $mode
+        Assert-True ($r.collision_diagnostics.status -eq 'recognized_records' -and $r.collision_diagnostics.records.Count -eq 38 -and $r.collision_diagnostics.records[25].stage -eq 'composition_freshness' -and $r.collision_diagnostics.records[37].metrics.completed_navigation_probes -eq 0) ($mode + ': independent terrain/collision/static evidence lost')
+        Assert-True ($r.collision_diagnostics.records[34].stage -eq 'navigation_probe' -and $null -eq $r.collision_diagnostics.records[34].probe) ($mode + ': synthetic query evidence manufactured')
+        if ($mode -eq 'navigation_helper_failure') {
+            Assert-True ($r.collision_diagnostics.records[31].metrics.request_bytes -eq 512 -and $r.collision_diagnostics.records[32].code -eq 'navigation.helper_missing' -and @($r.collision_diagnostics.records[32].metrics.PSObject.Properties).Count -eq 0) 'navigation helper failure: request evidence lost or output metrics fabricated'
+        } elseif ($mode -eq 'navigation_neighbor_failure') {
+            Assert-True ($r.collision_diagnostics.records[27].status -eq 'failed' -and $r.collision_diagnostics.records[27].code -eq 'source.open_patch_chain' -and $r.collision_diagnostics.records[30].status -eq 'unavailable') 'navigation neighbor failure: genuine source failure treated as absent'
+        } elseif ($mode -eq 'navigation_load_failure') {
+            Assert-True ($r.collision_diagnostics.records[34].status -eq 'failed' -and $r.collision_diagnostics.records[34].code -eq 'navigation.native_format') 'navigation load failure: safe unindexed loader error lost'
+        } else {
+            $status = $(if ($mode -eq 'navigation_empty') { 1 } else { 2 })
+            $code = $(if ($mode -eq 'navigation_empty') { 'navigation.empty' } else { 'navigation.exact625' })
+            Assert-True ($r.collision_diagnostics.records[32].status -eq 'passed' -and $r.collision_diagnostics.records[32].metrics.navigation_status -eq $status -and $r.collision_diagnostics.records[32].metrics.navigation_output_bytes -eq 0 -and $r.collision_diagnostics.records[33].status -eq 'unavailable' -and $r.collision_diagnostics.records[33].code -eq $code) ($mode + ': terminal generation outcome lost')
+        }
+    }
+    $passed++; Write-Output 'PASS: navigation absence, nearest misses, indexed errors, sparse probes, helper failures and empty/exact625 outcomes'
     $r = Run-CollisionCase 'success' 'nonzero'
-    Assert-True ($r.helper_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 28) 'terrain failure prevented collision success'
+    Assert-True ($r.helper_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 46) 'terrain failure prevented collision success'
     $r = Run-CollisionCase 'failure'
     Assert-True ($r.detailed_diagnostics.status -eq 'recognized_schema_filtered' -and $r.collision_run.exit_code -eq 7) 'collision failure lost independent terrain success'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 12 -and $r.collision_diagnostics.records[2].code -eq 'vmap.source.member_read' -and $r.collision_diagnostics.records[2].source_stage -eq 'AdtTraversal') 'collision failure lost safe source diagnostic'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 22 -and $r.collision_diagnostics.records[2].code -eq 'vmap.source.member_read' -and $r.collision_diagnostics.records[2].source_stage -eq 'AdtTraversal') 'collision failure lost safe source diagnostic'
     Assert-True ($r.collision_diagnostics.records[6].status -eq 'unavailable' -and $null -eq $r.collision_diagnostics.records[6].probe) 'collision failure lost unavailable probe stage'
     Assert-True ($r.collision_diagnostics.records[1].stage -eq 'terrain_capture' -and $r.collision_diagnostics.records[1].status -eq 'passed' -and $r.collision_diagnostics.records[7].stage -eq 'composition' -and $r.collision_diagnostics.records[8].stage -eq 'static_probe' -and $r.collision_diagnostics.records[8].status -eq 'unavailable') 'collision failure lost independent player terrain capture or blocked composition'
     $r = Run-CollisionCase 'success' -SkipTerrain
-    Assert-True ($r.helper_run.status -eq 'skipped_by_request' -and $r.collision_diagnostics.records.Count -eq 28) 'SkipHelper incorrectly skipped collision'
+    Assert-True ($r.helper_run.status -eq 'skipped_by_request' -and $r.collision_diagnostics.records.Count -eq 46) 'SkipHelper incorrectly skipped collision'
     $r = Run-CollisionCase 'success' -PlayerPath '.\missing\benilla.exe'
     Assert-True ($r.player.status -eq 'missing' -and $r.collision_run.status -eq 'skipped_player_unavailable' -and $r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'missing player blocked terrain diagnostics'
     $passed++; Write-Output 'PASS: independent terrain/collision failures, missing player and terrain skip'
@@ -378,7 +515,7 @@ class FakeCollisionPlayer {
     $r = Run-CollisionCase 'soft_timeout' -Timeout 1
     Assert-True ($r.collision_run.status -eq 'completed' -and -not $r.collision_run.timed_out -and $r.collision_run.exit_code -eq 7 -and $r.collision_diagnostics.records.Count -eq 4 -and $r.collision_diagnostics.records[2].code -eq 'collision.timeout') 'collision soft timeout: final cooperative diagnostics lost before hard grace deadline'
     $r = Run-CollisionCase 'success' 'timeout' 1
-    Assert-True ($r.helper_run.timed_out -and $r.collision_diagnostics.records.Count -eq 28) 'terrain timeout prevented collision collection'
+    Assert-True ($r.helper_run.timed_out -and $r.collision_diagnostics.records.Count -eq 46) 'terrain timeout prevented collision collection'
     $passed++; Write-Output 'PASS: hard timeout retains complete NDJSON records and independent terrain results'
     $r = Run-CollisionCase 'flood'
     Assert-True ($r.collision_run.stdout_truncated -and $r.collision_run.stderr_truncated -and $r.collision_run.status -eq 'output_limit_exceeded' -and $r.collision_run.elapsed_ms -lt 8000) 'collision flood: streams not bounded or drain deadlocked'
@@ -391,22 +528,28 @@ class FakeCollisionPlayer {
     $r = Run-CollisionCase 'invalid_schema'
     Assert-True ($r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.invalid_records_omitted -eq 46) 'collision invalid schema: invalid keys/types/ranges/syntax or private text accepted'
     $r = Run-CollisionCase 'legacy_version'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 0 -and $r.collision_diagnostics.invalid_records_omitted -eq 2) 'collision version: v1 records accepted as v2'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 0 -and $r.collision_diagnostics.invalid_records_omitted -eq 2) 'collision version: v1 records accepted as v3'
+    $r = Run-CollisionCase 'legacy_v2'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 0 -and $r.collision_diagnostics.invalid_records_omitted -eq 2) 'collision version: v2 records accepted as v3'
+    $r = Run-CollisionCase 'mixed_version'
+    Assert-True ($r.collision_diagnostics.status -eq 'invalid_or_excess_records_omitted' -and $r.collision_diagnostics.records.Count -eq 3 -and $r.collision_diagnostics.invalid_records_omitted -eq 2) 'collision version: mixed versions were accepted as a valid v3 report'
     $r = Run-CollisionCase 'invalid_static_schema'
     Assert-True ($r.collision_diagnostics.records.Count -eq 6 -and $r.collision_diagnostics.invalid_records_omitted -eq 12 -and $r.collision_diagnostics.records[5].probe.index -eq 8) 'static schema: invalid kinds/types/ranges or private text accepted'
+    $r = Run-CollisionCase 'invalid_navigation_schema'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 6 -and $r.collision_diagnostics.invalid_records_omitted -eq 37 -and $r.collision_diagnostics.records[3].probe.result -eq 'nearest' -and $r.collision_diagnostics.records[4].probe.result -eq 'miss' -and $r.collision_diagnostics.records[5].probe.result -eq 'error') 'navigation schema: invalid status/kinds/types/ranges/hashes or private text accepted'
     $r = Run-CollisionCase 'order'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 9 -and $r.collision_diagnostics.invalid_records_omitted -eq 5) 'collision order: duplicate phase/probe or out-of-order record accepted'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 11 -and $r.collision_diagnostics.invalid_records_omitted -eq 7) 'collision order: duplicate phase/probe or out-of-order record accepted'
     $r = Run-CollisionCase 'budget'
     Assert-True ($r.collision_diagnostics.records.Count -gt 1 -and $r.collision_diagnostics.limit_records_omitted -gt 0 -and $r.collision_diagnostics.accepted_bytes -le 262144) 'collision budget: accepted JSON unbounded or prior records lost'
     $r = Run-CollisionCase 'newline_budget'
     Assert-True ($r.collision_diagnostics.records.Count -eq 31 -and $r.collision_diagnostics.limit_records_omitted -eq 1 -and $r.collision_diagnostics.accepted_bytes -eq (31 * 8193)) 'collision budget: NDJSON newline bytes not counted'
     $r = Run-CollisionCase 'record_limit'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 32 -and $r.collision_diagnostics.limit_records_omitted -eq 10) 'collision record count: 32-record cap not enforced'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 64 -and $r.collision_diagnostics.limit_records_omitted -eq 10) 'collision record count: 64-record cap not enforced'
     $passed++; Write-Output 'PASS: exact schema, duplicate keys, numeric types/ranges, stage order and cumulative limits'
     $r = Run-CollisionCase 'source_codes'
     Assert-True ($r.collision_diagnostics.records.Count -eq 8 -and $r.collision_diagnostics.records[2].code -eq 'vmap.source.header_version' -and $r.collision_diagnostics.records[3].code -eq 'vmap.source_changed_during_preparation' -and $r.collision_diagnostics.records[4].code -eq 'vmap.bih_limit' -and $r.collision_diagnostics.records[5].code -eq 'vmap.model_write.allocation' -and $r.collision_diagnostics.records[6].code -eq 'terrain.source_changed' -and $r.collision_diagnostics.records[7].code -eq 'collision.unknown_error') 'collision source codes: safe codes lost'
     $r = Run-CollisionCase 'success' -SelectedMap 1 -SelectedTile '1,2'
-    Assert-True ($r.collision_diagnostics.records.Count -eq 28 -and $r.collision_diagnostics.records[0].map -eq 1 -and $r.collision_diagnostics.records[0].tile_x -eq 1 -and $r.collision_diagnostics.records[0].tile_y -eq 2) 'collision selection: explicit selection not forwarded/matched'
+    Assert-True ($r.collision_diagnostics.records.Count -eq 46 -and $r.collision_diagnostics.records[0].map -eq 1 -and $r.collision_diagnostics.records[0].tile_x -eq 1 -and $r.collision_diagnostics.records[0].tile_y -eq 2) 'collision selection: explicit selection not forwarded/matched'
     $passed++; Write-Output 'PASS: fixed source codes, strict requested-selection matching and explicit CLI arguments'
     $r = Run-Case 'diagnose-again'
     Assert-True ($null -eq $r.PSObject.Properties['player'] -and $null -eq $r.PSObject.Properties['collision_run'] -and $r.detailed_diagnostics.status -eq 'recognized_schema_filtered') 'No -Player after collision: legacy report changed'

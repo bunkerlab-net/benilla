@@ -15,7 +15,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-const FORMAT: &str = "benilla-collision-diagnostics-v2";
+#[path = "diagnostic_navigation.rs"]
+mod navigation;
+const FORMAT: &str = "benilla-collision-diagnostics-v3";
 const CODES: &str = include_str!("diagnostic_codes.json");
 const MAX_LINE: usize = 16 * 1024;
 const MAX_OUTPUT: usize = 256 * 1024;
@@ -110,7 +112,7 @@ impl<W: Write> Report<'_, W> {
             "code":code, "source_stage":source_stage, "metrics":metrics, "hashes":hashes,
             "probe":probe, "gameplay_admitted":false});
         let line = serde_json::to_vec(&record)?;
-        if self.lines >= 32 || line.len() > MAX_LINE || self.bytes + line.len() + 1 > MAX_OUTPUT {
+        if self.lines >= 64 || line.len() > MAX_LINE || self.bytes + line.len() + 1 > MAX_OUTPUT {
             return Err(io::Error::other("diagnostic output limit"));
         }
         self.output.write_all(&line)?;
@@ -154,10 +156,35 @@ pub(crate) fn run(args: &[OsString], output: &mut impl Write) -> io::Result<()> 
     run_with_budget(args, output, None)
 }
 
+#[cfg(test)]
+pub(crate) fn run_for_test(
+    args: &[OsString],
+    output: &mut impl Write,
+    helper: Option<PathBuf>,
+) -> io::Result<()> {
+    run_with_helper(args, output, None, helper)
+}
+
 fn run_with_budget(
     args: &[OsString],
     output: &mut impl Write,
     budget: Option<Duration>,
+) -> io::Result<()> {
+    let helper = std::env::current_exe().ok().and_then(|path| {
+        path.parent().map(|p| {
+            p.join(format!(
+                "benilla-native-navigation{}",
+                std::env::consts::EXE_SUFFIX
+            ))
+        })
+    });
+    run_with_helper(args, output, budget, helper)
+}
+fn run_with_helper(
+    args: &[OsString],
+    output: &mut impl Write,
+    budget: Option<Duration>,
+    helper: Option<PathBuf>,
 ) -> io::Result<()> {
     let selected = selection(args);
     let mut report = Report {
@@ -405,6 +432,7 @@ fn run_with_budget(
         None
     };
     let mut static_completed = 0;
+    let mut navigation_points = [None; 9];
     if let Some(view) = &composed {
         for (index, (dx, dy)) in [0.25f32, 0.5, 0.75]
             .into_iter()
@@ -429,6 +457,9 @@ fn run_with_budget(
             let (status, code, value, result_name) = match result {
                 Ok(reply) => {
                     static_completed += 1;
+                    if f32::from_bits(reply.height) != -200000.0 {
+                        navigation_points[index] = Some([point[0], point[1], reply.height]);
+                    }
                     (
                         "passed",
                         None,
@@ -477,6 +508,14 @@ fn run_with_budget(
             Some("collision.prerequisite"),
         )?;
     }
+    let navigation_completed = navigation::run(
+        &mut report,
+        terrain.as_ref(),
+        bundle.as_ref(),
+        &navigation_points,
+        deadline,
+        helper,
+    )?;
     if let Some(capture) = &capture {
         match capture.verify_unchanged(cancelled) {
             Ok(()) => report.simple("freshness", "passed", None)?,
@@ -492,17 +531,17 @@ fn run_with_budget(
         "complete",
         if failed > 0 {
             "failed"
-        } else if completed == 9 && static_completed == 9 {
+        } else if completed == 9 && static_completed == 9 && navigation_completed == 9 {
             "passed"
         } else {
             "unavailable"
         },
-        if failed == 0 && (completed != 9 || static_completed != 9) {
+        if failed == 0 && (completed != 9 || static_completed != 9 || navigation_completed != 9) {
             Some("collision.prerequisite")
         } else {
             None
         },
-        json!({"completed_probes":completed,"completed_static_probes":static_completed,"failed_stages":failed}),
+        json!({"completed_probes":completed,"completed_static_probes":static_completed,"completed_navigation_probes":navigation_completed,"failed_stages":failed}),
         json!({}),
         Value::Null,
         Value::Null,
@@ -671,11 +710,11 @@ mod tests {
             lines: 0,
             failed: 0,
         };
-        for _ in 0..32 {
+        for _ in 0..64 {
             r.simple("probe", "unavailable", None).unwrap();
         }
         assert!(r.simple("probe", "unavailable", None).is_err());
-        assert_eq!(sink.flushes, 32);
+        assert_eq!(sink.flushes, 64);
         struct Broken;
         impl Write for Broken {
             fn write(&mut self, _: &[u8]) -> io::Result<usize> {

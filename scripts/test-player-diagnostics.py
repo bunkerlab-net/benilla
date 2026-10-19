@@ -25,9 +25,12 @@ spec.loader.exec_module(smoke)
 def report_rows():
     rows = []
     for stage in ("selection", "terrain_capture", "capture", "placement", "assembly",
-                  "validation", "probe", "composition", "static_probe",
-                  "composition_freshness", "freshness", "complete"):
-        row = {"format": "benilla-collision-diagnostics-v2", "stage": stage,
+                  "validation", "probe", "composition", "static_probe", "composition_freshness",
+                  "navigation_neighbor_0", "navigation_neighbor_1", "navigation_neighbor_2",
+                  "navigation_neighbor_3", "navigation_terrain", "navigation_input",
+                  "navigation_generation", "navigation_validation", "navigation_probe", "navigation_freshness",
+                  "freshness", "complete"):
+        row = {"format": "benilla-collision-diagnostics-v3", "stage": stage,
                "status": "unavailable", "map": 0, "tile_x": 48, "tile_y": 32,
                "elapsed_ms": 0, "code": "collision.prerequisite", "source_stage": None,
                "metrics": {}, "hashes": {}, "probe": None, "gameplay_admitted": False}
@@ -42,6 +45,7 @@ def report_rows():
         elif stage == "complete":
             row.update(status="failed", code=None,
                        metrics={"completed_probes": 0, "completed_static_probes": 0,
+                                "completed_navigation_probes": 0,
                                 "failed_stages": 2})
         rows.append(row)
     return rows
@@ -54,6 +58,7 @@ def report_bytes(rows=None):
 
 class ReportTests(unittest.TestCase):
     def test_accepts_complete_redacted_failure(self):
+        self.assertEqual(len(report_rows()), 22)
         smoke.validate_report(report_bytes())
 
     def test_rejects_incomplete_chatter_and_invalid_json_without_echoing(self):
@@ -76,8 +81,9 @@ class ReportTests(unittest.TestCase):
                     (2, "metrics", {"member_lookups": 1, "read_work_bytes": 0,
                                     "complete_raw_products": 0, "adt_attempts": False}),
                     (8, "probe", {"kind": "static_height"}),
-                    (11, "metrics", {"completed_probes": 0, "failed_stages": 1}),
-                    (11, "status", "passed"), (11, "gameplay_admitted", True)]
+                    (18, "probe", {"kind": "nearest"}),
+                    (21, "metrics", {"completed_probes": 0, "failed_stages": 1}),
+                    (21, "status", "passed"), (21, "gameplay_admitted", True)]
         for index, key, value in variants:
             with self.subTest(index=index, key=key):
                 rows = copy.deepcopy(report_rows())
@@ -90,11 +96,31 @@ class ReportTests(unittest.TestCase):
             smoke.validate_report(report_bytes(rows))
 
     def test_rejects_legacy_or_mixed_versions(self):
-        for index in (None, 0, 1, 8, 11):
+        for version in ("v1", "v2"):
+            for index in (None, 0, 1, 8, 10, 18, 19, 21):
+                rows = report_rows()
+                for row in rows if index is None else [rows[index]]:
+                    row["format"] = "benilla-collision-diagnostics-" + version
+                with self.subTest(version=version, index=index), \
+                        self.assertRaisesRegex(smoke.SmokeError, "requires v3"):
+                    smoke.validate_report(report_bytes(rows))
+
+    def test_requires_empty_install_navigation_counts_and_no_generated_evidence(self):
+        for key, value in (("completed_navigation_probes", None),
+                           ("completed_navigation_probes", 1),
+                           ("completed_navigation_probes", False),
+                           ("failed_stages", 3)):
             rows = report_rows()
-            for row in rows if index is None else [rows[index]]:
-                row["format"] = "benilla-collision-diagnostics-v1"
-            with self.subTest(index=index), self.assertRaises(smoke.SmokeError):
+            if value is None:
+                del rows[-1]["metrics"][key]
+            else:
+                rows[-1]["metrics"][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(smoke.SmokeError):
+                smoke.validate_report(report_bytes(rows))
+        for index in range(10, 20):
+            rows = report_rows()
+            rows[index].update(status="passed", code=None)
+            with self.subTest(stage=rows[index]["stage"]), self.assertRaises(smoke.SmokeError):
                 smoke.validate_report(report_bytes(rows))
 
     def test_requires_both_independent_failures_and_all_blocked_stages(self):
@@ -136,10 +162,35 @@ class CollectorContractTests(unittest.TestCase):
         self.assertEqual(tuple(self.values("CollisionStages")), smoke.STAGES)
 
     def test_collector_allowlists_new_metrics_and_hashes(self):
-        self.assertTrue({"terrain_tiles", "terrain_bytes", "completed_static_probes"}
+        self.assertTrue({"terrain_tiles", "terrain_bytes", "completed_static_probes",
+                         "neighbor_present", "neighbor_index", "navigation_tiles",
+                         "solid_vertices", "solid_triangles", "liquid_vertices",
+                         "liquid_triangles", "request_bytes", "native_peak_bytes",
+                         "navigation_output_bytes", "navigation_polygons", "navigation_status",
+                         "polygon_ref_low", "polygon_ref_high", "completed_navigation_probes"}
                         <= set(self.values("CollisionMetricNames")))
-        self.assertTrue({"terrain_source_epoch", "composition"}
+        self.assertTrue({"terrain_source_epoch", "composition", "navigation_input", "navigation_output"}
                         <= set(self.values("CollisionHashNames")))
+
+    def test_collector_preserves_byte_limits_and_raises_only_record_limit(self):
+        self.assertRegex(self.collector, r"record_limit = 64; line_byte_limit = 16384; accepted_byte_limit = 262144")
+        self.assertEqual(smoke.MAX_LINE, 16384)
+        self.assertEqual(smoke.MAX_STDOUT, 262144)
+        self.assertEqual(smoke.HARD_TIMEOUT, 20.0)
+
+    def test_collector_only_accepts_v3(self):
+        self.assertIn("$Object.format -cne 'benilla-collision-diagnostics-v3'", self.collector)
+        self.assertNotIn("benilla-collision-diagnostics-v1", self.collector)
+        self.assertNotIn("benilla-collision-diagnostics-v2", self.collector)
+
+    def test_collector_help_discloses_sibling_execution_and_trust_limits(self):
+        help_text = self.collector.split("#>", 1)[0]
+        self.assertIn("automatically executes its sibling benilla-native-navigation.exe", help_text)
+        self.assertIn("matching trusted package", help_text)
+        self.assertIn("does not separately\nhash or authenticate", help_text)
+        self.assertIn("not a sandbox", help_text)
+        self.assertIn("replacement races", help_text)
+        self.assertIn("checks its explicit Data, Helper,\nPlayer, and report paths", help_text)
 
 
 class ProcessTests(unittest.TestCase):

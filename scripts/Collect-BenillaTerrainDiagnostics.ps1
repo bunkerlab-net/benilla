@@ -1,19 +1,26 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-Collect bounded, path-redacted terrain and optional collision diagnostics.
+Collect bounded, path-redacted terrain and optional collision/navigation diagnostics.
 .DESCRIPTION
 Reads the selected local Data folder and existing helper. Creates exactly one NEW
-JSON report; never overwrites it. No downloads, network requests, administrator
-rights, policy changes, archive extraction, game configuration reads or exports.
+JSON report; never overwrites it. The collector itself makes no downloads, network
+requests, administrator-rights requests, policy changes, archive extraction,
+game configuration reads or exports.
 The helper is invoked only with --help and --diagnose (or older --inspect).
 An explicit -Player invokes only diagnose-collision, independently of the helper;
 no player executable is searched for or started when -Player is absent.
+For v3, the player automatically executes its sibling benilla-native-navigation.exe
+when navigation generation is reached. Keep the player and both native helpers
+from the matching trusted package together. The collector does not separately
+hash or authenticate that navigation child; the player checks its sibling path.
 The collision CLI receives -TimeoutSeconds as its soft budget; the collector
 allows five additional seconds before hard termination, then at most two seconds
 for bounded stream drain. Terrain helper timing is unchanged.
-Use only your trusted benilla-native-terrain.exe: this script is not a sandbox for
-an arbitrary executable. Use only your trusted benilla.exe for -Player.
+This script is not a sandbox for any executable it or the player starts. Network
+and write descriptions cover the collector's own actions, not restrictions
+enforced on spawned programs. Hashes and path checks do not establish executable
+trust or prevent replacement races.
 Windows itself may maintain normal process/file metadata.
 
 The report includes helper SHA-256, numeric executable version/architecture,
@@ -34,7 +41,10 @@ at the first error and cannot expose deep liquid-history diagnostics.
 .\Collect-BenillaTerrainDiagnostics.ps1 -Data '.\Data' -Helper '.\benilla-native-terrain.exe' -Player '.\benilla.exe' -Output '.\Benilla-Terrain-And-Collision.json'
 .NOTES
 Windows PowerShell 5.1 or PowerShell 7 on Windows. Report parent must exist;
-report must be outside Data. Reparse-point paths and network drives are refused.
+report must be outside Data. The collector checks its explicit Data, Helper,
+Player, and report paths for network drives and detected reparse-point ancestors;
+detected reparse archive/locale entries are also refused. These are path checks
+at collection time, not a race-free filesystem or executable trust guarantee.
 If your execution policy blocks this script, inspect it and use your normal
 approved script-running process; the collector does not change that policy.
 #>
@@ -474,7 +484,13 @@ $SafeCollisionIds = @(
     'collision.missing', 'collision.output', 'collision.outside_tile',
     'collision.prerequisite', 'collision.profile', 'collision.query',
     'collision.timeout', 'collision.unexpected', 'collision.unknown_error',
-    'collision.unsupported', 'output.already_exists', 'output.changed_product',
+    'collision.unsupported', 'navigation.budget', 'navigation.cancelled',
+    'navigation.collision', 'navigation.deadline', 'navigation.empty',
+    'navigation.exact625', 'navigation.helper', 'navigation.helper_missing',
+    'navigation.input', 'navigation.io', 'navigation.missing',
+    'navigation.native_format', 'navigation.native_framing', 'navigation.native_identity',
+    'navigation.native_query', 'navigation.protocol', 'navigation.source_compatibility',
+    'navigation.unsupported', 'output.already_exists', 'output.changed_product',
     'output.create_new_directory', 'output.directory_name', 'output.inside_source_installation',
     'output.parent_must_exist', 'output.published_but_durability_unconfirmed', 'selection.bounds',
     'selection.duplicate_tile', 'selection.tile_bounds', 'source.absence_changed',
@@ -597,10 +613,10 @@ $SafeCollisionIds = @(
     'vmap.wmo.truncated_chunk_header', 'vmap.wmo.unexpected_chunk', 'vmap.wmo.unsupported_liquid',
     'vmap.wmo.unsupported_version', 'vmap.wmo.unterminated_group_name', 'vmap.wmo_input_limit'
 )
-$CollisionStages = @('selection','terrain_capture','capture','placement','assembly','validation','probe','composition','static_probe','composition_freshness','freshness','complete')
+$CollisionStages = @('selection','terrain_capture','capture','placement','assembly','validation','probe','composition','static_probe','composition_freshness','navigation_neighbor_0','navigation_neighbor_1','navigation_neighbor_2','navigation_neighbor_3','navigation_terrain','navigation_input','navigation_generation','navigation_validation','navigation_probe','navigation_freshness','freshness','complete')
 $CollisionSourceStages = @('OpenSource','LiquidTypes','GlobalWmoLists','GlobalWmoRoot','MapMetadata','PrefixMap','SelectedWdt','AdtTraversal','Verification')
-$CollisionMetricNames = @('member_lookups','read_work_bytes','complete_raw_products','adt_attempts','global_root_ordinal','archive_count','products','placements','doodad_candidates','adts_present','adts_absent','adts_dummy','raw_bytes','placement_bytes','placement_records','tree_bytes','tiles','models','model_bytes','tile_bytes','serialized_bytes','completed_probes','completed_static_probes','terrain_tiles','terrain_bytes','failed_stages')
-$CollisionHashNames = @('source_epoch','preprocessing','inventory','policy','terrain_source_epoch','composition')
+$CollisionMetricNames = @('member_lookups','read_work_bytes','complete_raw_products','adt_attempts','global_root_ordinal','archive_count','products','placements','doodad_candidates','adts_present','adts_absent','adts_dummy','raw_bytes','placement_bytes','placement_records','tree_bytes','tiles','models','model_bytes','tile_bytes','serialized_bytes','completed_probes','completed_static_probes','terrain_tiles','terrain_bytes','neighbor_present','neighbor_index','navigation_tiles','solid_vertices','solid_triangles','liquid_vertices','liquid_triangles','request_bytes','native_peak_bytes','navigation_output_bytes','navigation_polygons','navigation_status','polygon_ref_low','polygon_ref_high','completed_navigation_probes','failed_stages')
+$CollisionHashNames = @('source_epoch','preprocessing','inventory','policy','terrain_source_epoch','composition','navigation_input','navigation_output')
 $CollisionRecordNames = @('format','stage','status','map','tile_x','tile_y','elapsed_ms','code','source_stage','metrics','hashes','probe','gameplay_admitted')
 
 function Test-CollisionJsonSyntax([string]$Text) {
@@ -676,7 +692,7 @@ function Test-CollisionVector($Value) {
 }
 function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$SelectedX, [int]$SelectedY) {
     if (-not (Test-CollisionObject $Object $CollisionRecordNames $true)) { return $null }
-    if ($Object.format -isnot [string] -or $Object.format -cne 'benilla-collision-diagnostics-v2') { return $null }
+    if ($Object.format -isnot [string] -or $Object.format -cne 'benilla-collision-diagnostics-v3') { return $null }
     if ($Object.stage -isnot [string] -or $CollisionStages -cnotcontains $Object.stage) { return $null }
     if ($Object.status -isnot [string] -or @('passed','failed','unavailable') -cnotcontains $Object.status) { return $null }
     $recordMap = Read-CollisionInteger $Object.map 999
@@ -690,7 +706,16 @@ function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$Selecte
     if (-not (Test-CollisionObject $Object.metrics $CollisionMetricNames $false) -or -not (Test-CollisionObject $Object.hashes $CollisionHashNames $false)) { return $null }
     $metrics = [ordered]@{}; $hashes = [ordered]@{}
     foreach ($property in $Object.metrics.PSObject.Properties) {
-        $n = Read-CollisionInteger $property.Value ([long]::MaxValue)
+        $maximum = [long]::MaxValue
+        switch -CaseSensitive ($property.Name) {
+            'neighbor_present' { $maximum = 1 }
+            'neighbor_index' { $maximum = 3 }
+            'navigation_status' { $maximum = 2 }
+            'polygon_ref_low' { $maximum = 4294967295 }
+            'polygon_ref_high' { $maximum = 4294967295 }
+            'completed_navigation_probes' { $maximum = 9 }
+        }
+        $n = Read-CollisionInteger $property.Value $maximum
         if ($null -eq $n) { return $null }
         $metrics[$property.Name] = $n
     }
@@ -702,14 +727,27 @@ function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$Selecte
     $probe = $null
     if ($null -ne $Object.probe) {
         $p = $Object.probe
-        if (@('probe','static_probe') -cnotcontains $Object.stage -or -not (Test-CollisionObject $p @('index','kind','from_bits','to_bits','result','value_bits') $true)) { return $null }
+        if (@('probe','static_probe','navigation_probe') -cnotcontains $Object.stage -or -not (Test-CollisionObject $p @('index','kind','from_bits','to_bits','result','value_bits') $true)) { return $null }
         $static = $Object.stage -ceq 'static_probe'
-        $index = Read-CollisionInteger $p.index $(if ($static) { 8 } else { 15 })
+        $navigation = $Object.stage -ceq 'navigation_probe'
+        $index = Read-CollisionInteger $p.index $(if ($static -or $navigation) { 8 } else { 15 })
         if ($null -eq $index -or $p.kind -isnot [string]) { return $null }
-        if ($static) {
+        if ($navigation) {
+            if ($p.kind -cne 'nearest' -or $null -ne $p.value_bits) { return $null }
+            if ($Object.status -ceq 'passed') {
+                if ($null -ne $Object.code) { return $null }
+                if ($p.result -ceq 'nearest') {
+                    if (-not (Test-CollisionVector $p.to_bits)) { return $null }
+                } elseif ($p.result -ceq 'miss') {
+                    if ($null -ne $p.to_bits) { return $null }
+                } else { return $null }
+            } elseif ($Object.status -ceq 'failed') {
+                if ($p.result -cne 'error' -or $null -ne $p.to_bits) { return $null }
+            } else { return $null }
+        } elseif ($static) {
             if ($p.kind -cne 'static_height' -or $null -ne $p.to_bits -or @('height','miss','error') -cnotcontains $p.result) { return $null }
         } elseif (@('height','segment') -cnotcontains $p.kind) { return $null }
-        if ($p.result -isnot [string] -or @('height','hit','miss','error') -cnotcontains $p.result) { return $null }
+        if ($p.result -isnot [string] -or (-not $navigation -and @('height','hit','miss','error') -cnotcontains $p.result)) { return $null }
         if (-not (Test-CollisionVector $p.from_bits)) { return $null }
         if ($null -ne $p.to_bits -and -not (Test-CollisionVector $p.to_bits)) { return $null }
         $value = $null
@@ -719,18 +757,21 @@ function ConvertTo-SafeCollisionRecord($Object, [int]$SelectedMap, [int]$Selecte
         }
         $probe = [ordered]@{ index = $index; kind = $p.kind; from_bits = @($p.from_bits | ForEach-Object { [long]$_ });
             to_bits = $(if ($null -eq $p.to_bits) { $null } else { @($p.to_bits | ForEach-Object { [long]$_ }) }); result = $p.result; value_bits = $value }
+    } elseif ($Object.stage -ceq 'navigation_probe' -and $Object.status -cne 'unavailable') {
+        # Loading can fail before any indexed observation exists.
+        if ($Object.status -cne 'failed' -or $null -eq $Object.code -or -not $Object.code.StartsWith('navigation.')) { return $null }
     }
-    return [ordered]@{ format = 'benilla-collision-diagnostics-v2'; stage = $Object.stage; status = $Object.status;
+    return [ordered]@{ format = 'benilla-collision-diagnostics-v3'; stage = $Object.stage; status = $Object.status;
         map = $recordMap; tile_x = $recordX; tile_y = $recordY; elapsed_ms = $elapsed; code = $Object.code;
         source_stage = $Object.source_stage; metrics = $metrics; hashes = $hashes; probe = $probe; gameplay_admitted = $false }
 }
 function ConvertTo-SafeCollisionDiagnostics([string]$Text, [bool]$Truncated, [int]$SelectedMap, [int]$SelectedX, [int]$SelectedY) {
-    $r = [ordered]@{ status = 'no_valid_records'; record_limit = 32; line_byte_limit = 16384; accepted_byte_limit = 262144;
+    $r = [ordered]@{ status = 'no_valid_records'; record_limit = 64; line_byte_limit = 16384; accepted_byte_limit = 262144;
         accepted_bytes = 0; invalid_records_omitted = 0; oversized_lines_omitted = 0; limit_records_omitted = 0;
         partial_line_omitted = $false; records = @() }
     $utf8 = New-Object Text.UTF8Encoding($false)
     $lines = $Text -split "`n"; $lastStage = -1
-    # Collision and composed height observations deliberately share index 0..8.
+    # Collision, composed height, and navigation observations share index 0..8.
     $probeIndices = New-Object 'Collections.Generic.HashSet[string]'
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $line = $lines[$i]
@@ -751,10 +792,10 @@ function ConvertTo-SafeCollisionDiagnostics([string]$Text, [bool]$Truncated, [in
         } catch { $record = $null }
         if ($null -eq $record) { $r.invalid_records_omitted++; continue }
         $stageIndex = [Array]::IndexOf($CollisionStages, $record.stage)
-        if ($stageIndex -lt $lastStage -or ($stageIndex -eq $lastStage -and @('probe','static_probe') -cnotcontains $record.stage)) {
+        if ($stageIndex -lt $lastStage -or ($stageIndex -eq $lastStage -and @('probe','static_probe','navigation_probe') -cnotcontains $record.stage)) {
             $r.invalid_records_omitted++; continue
         }
-        if (@('probe','static_probe') -ccontains $record.stage -and $null -ne $record.probe -and -not $probeIndices.Add($record.stage + ':' + $record.probe.index)) { $r.invalid_records_omitted++; continue }
+        if (@('probe','static_probe','navigation_probe') -ccontains $record.stage -and $null -ne $record.probe -and -not $probeIndices.Add($record.stage + ':' + $record.probe.index)) { $r.invalid_records_omitted++; continue }
         $lastStage = $stageIndex
         $r.records += $record; $r.accepted_bytes += $recordBytes
     }
@@ -806,6 +847,8 @@ try {
             'Older inspect helpers stop at the first refusal; deeper dependent stages remain unknown.',
             'The helper may inspect a bounded predecessor dependency closure; this collector does not perform a separate world scan.',
             'A completed diagnostic process does not establish gameplay admission.',
+            'Player v3 may launch its sibling benilla-native-navigation.exe from the matching trusted package; this collector does not separately hash or authenticate that child.',
+            'Spawned programs are not sandboxed; collector path checks do not establish trust or prevent replacement races.',
             'Only allowlisted structured fields and sanitized text are retained; unknown helper output is omitted.')
     }
     foreach ($name in @('model.MPQ','dbc.MPQ','terrain.MPQ','patch.MPQ','patch-2.MPQ')) { $report.archive_envelopes += Get-ArchiveEnvelope $dataPath $name $dataAvailable }

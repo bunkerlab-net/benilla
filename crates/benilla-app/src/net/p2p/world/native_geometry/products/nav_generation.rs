@@ -43,6 +43,23 @@ pub(crate) struct PreparedNavigationInput<'terrain, 'bundle, 'source> {
     revision: Hash,
     request: GenerationRequest,
 }
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GenerationSummary {
+    pub status: GenerationStatus,
+    pub polygon_count: u32,
+    pub output_bytes: usize,
+    pub native_peak_bytes: u64,
+}
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct InputSummary {
+    pub tiles: usize,
+    pub solid_vertices: usize,
+    pub solid_triangles: usize,
+    pub liquid_vertices: usize,
+    pub liquid_triangles: usize,
+    pub request_bytes: usize,
+    pub revision: Hash,
+}
 pub(crate) struct GeneratedNavigation {
     revision: Hash,
     tile: TileId,
@@ -247,6 +264,21 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
         result.verify_unchanged(&cancelled)?;
         Ok(result)
     }
+    pub(crate) fn summary(&self) -> Result<InputSummary, GenerationError> {
+        Ok(InputSummary {
+            tiles: self.terrain.tiles().count(),
+            solid_vertices: self.request.solid.vertices.len(),
+            solid_triangles: self.request.solid.triangles.len(),
+            liquid_vertices: self.request.liquid.vertices.len(),
+            liquid_triangles: self.request.liquid.triangles.len(),
+            request_bytes: self
+                .request
+                .encode()
+                .map_err(|_| GenerationError::Protocol)?
+                .len(),
+            revision: self.revision,
+        })
+    }
     pub(crate) fn verify_unchanged(
         &self,
         cancelled: impl Fn() -> bool,
@@ -266,6 +298,17 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<GeneratedNavigation, GenerationError> {
+        self.generate_observed(helper, deadline, cancelled, |_| {})
+    }
+    /// The observer receives only bounded metadata after framing, exact requested map-parameter binding,
+    /// and consistent count/liquid metadata; it does not establish production validation or source freshness.
+    pub(crate) fn generate_observed(
+        &self,
+        helper: &Path,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        mut observed: impl FnMut(GenerationSummary),
+    ) -> Result<GeneratedNavigation, GenerationError> {
         self.verify_unchanged(&cancelled)?;
         if Instant::now() >= deadline {
             return Err(GenerationError::Deadline);
@@ -276,6 +319,7 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
             .map_err(|_| GenerationError::Protocol)?;
         let response = process::run(helper, request, deadline, &cancelled)?;
         validate_response(&self.request, &response)?;
+        observed(summary(&response));
         // The independently validated production Detour reader remains mandatory.
         if response.status == GenerationStatus::Generated {
             benilla_native_nav::Mesh::load(
@@ -302,7 +346,19 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
         })
     }
 }
+fn summary(response: &GenerationResponse) -> GenerationSummary {
+    GenerationSummary {
+        status: response.status,
+        polygon_count: response.polygon_count,
+        output_bytes: response.mmap.len() + response.mmtile.len(),
+        native_peak_bytes: response.native_peak_bytes,
+    }
+}
 impl GeneratedNavigation {
+    pub(crate) fn summary(&self) -> GenerationSummary {
+        summary(&self.response)
+    }
+
     pub(crate) fn products(&self) -> (&[u8], &[u8]) {
         (&self.response.mmap, &self.response.mmtile)
     }
@@ -440,7 +496,7 @@ fn validate_response(
     {
         expected[index * 4..index * 4 + 4].copy_from_slice(&bits.to_le_bytes());
     }
-    if response.mmap != expected {
+    if response.mmap != expected || response.native_peak_bytes > request.allocation_budget_bytes {
         return Err(GenerationError::Protocol);
     }
     if response.status == GenerationStatus::Generated {
@@ -524,6 +580,12 @@ mod tests {
             native_peak_bytes: 0,
         };
         validate_response(&request, &response).unwrap();
+        response.native_peak_bytes = request.allocation_budget_bytes + 1;
+        assert!(matches!(
+            validate_response(&request, &response),
+            Err(GenerationError::Protocol)
+        ));
+        response.native_peak_bytes = 0;
         for offset in [0, 4, 8, 12, 16, 20, 24] {
             let original = response.mmap[offset];
             response.mmap[offset] ^= 1;

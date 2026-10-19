@@ -4,6 +4,12 @@
 The executable is copied away from the checkout before it runs. This verifies
 the report-only path, absence of startup chatter, and unchanged isolated state;
 it is not a syscall tracer or a network/window sandbox.
+
+With sufficient input, v3 diagnose-collision automatically executes the trusted
+benilla-native-navigation sibling from the matching player package. This smoke
+copies only the trusted player and uses empty Data, so it exercises blocked
+navigation stages without executing that sibling. It does not establish helper
+trust, race-free path validation, or successful navigation generation.
 """
 import argparse
 import hashlib
@@ -24,10 +30,13 @@ MAX_STDOUT = 256 * 1024
 MAX_STDERR = 64 * 1024
 MAX_LINE = 16 * 1024
 HARD_TIMEOUT = 20.0
-FORMAT = "benilla-collision-diagnostics-v2"
+FORMAT = "benilla-collision-diagnostics-v3"
 STAGES = ("selection", "terrain_capture", "capture", "placement", "assembly",
-          "validation", "probe", "composition", "static_probe",
-          "composition_freshness", "freshness", "complete")
+          "validation", "probe", "composition", "static_probe", "composition_freshness",
+          "navigation_neighbor_0", "navigation_neighbor_1", "navigation_neighbor_2",
+          "navigation_neighbor_3", "navigation_terrain", "navigation_input",
+          "navigation_generation", "navigation_validation", "navigation_probe", "navigation_freshness",
+          "freshness", "complete")
 
 
 class SmokeError(Exception):
@@ -165,6 +174,8 @@ def validate_report(output):
             raise SmokeError("diagnostic report contains invalid JSON") from None
         if not isinstance(row, dict):
             raise SmokeError("diagnostic report contains an invalid record")
+        if row.get("format") != FORMAT:
+            raise SmokeError("diagnostic report requires v3; legacy or mixed versions rejected")
         elapsed = row.pop("elapsed_ms", None)
         if type(elapsed) is not int or not last_elapsed <= elapsed <= HARD_TIMEOUT * 1000:
             raise SmokeError("diagnostic report contains invalid elapsed time")
@@ -185,6 +196,7 @@ def validate_report(output):
         elif stage == "complete":
             expected.update(status="failed", code=None,
                             metrics={"completed_probes": 0, "completed_static_probes": 0,
+                                     "completed_navigation_probes": 0,
                                      "failed_stages": 2})
         # Canonical JSON comparison also rejects bool/number substitutions.
         if json.dumps(row, sort_keys=True) != json.dumps(expected, sort_keys=True):

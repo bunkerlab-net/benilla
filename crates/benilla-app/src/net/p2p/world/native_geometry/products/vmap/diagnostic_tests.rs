@@ -62,7 +62,9 @@ fn authored_capture_diagnostic_runs_all_phases_without_writing_install() {
         ]
     );
     assert_eq!(&stages[stages.len() - 2..], &["freshness", "complete"]);
-    for row in &rows {
+    for row in rows.iter().filter(|r| {
+        !r["stage"].as_str().unwrap().starts_with("navigation_") && r["stage"] != "complete"
+    }) {
         assert_eq!(row["status"], "passed", "{row}");
     }
     assert_eq!(rows.iter().filter(|r| r["stage"] == "probe").count(), 9);
@@ -71,7 +73,7 @@ fn authored_capture_diagnostic_runs_all_phases_without_writing_install() {
         rows.last().unwrap()["metrics"]["completed_static_probes"],
         9
     );
-    assert_eq!(rows.len(), 28);
+    assert_eq!(rows.len(), 38);
     for row in rows.iter().filter(|r| r["stage"] == "static_probe") {
         assert_eq!(row["probe"]["kind"], "static_height");
         assert_eq!(row["probe"]["value_bits"], 7.25f32.to_bits());
@@ -141,6 +143,16 @@ fn empty_install_matches_actual_player_smoke_schema() {
         "composition",
         "static_probe",
         "composition_freshness",
+        "navigation_neighbor_0",
+        "navigation_neighbor_1",
+        "navigation_neighbor_2",
+        "navigation_neighbor_3",
+        "navigation_terrain",
+        "navigation_input",
+        "navigation_generation",
+        "navigation_validation",
+        "navigation_probe",
+        "navigation_freshness",
         "freshness",
         "complete",
     ];
@@ -152,7 +164,7 @@ fn empty_install_matches_actual_player_smoke_schema() {
             .remove("elapsed_ms")
             .unwrap()
             .is_u64());
-        let mut expected = serde_json::json!({"format":"benilla-collision-diagnostics-v2","stage":stage,"status":"unavailable","map":0,"tile_x":48,"tile_y":32,"code":"collision.prerequisite","source_stage":null,"metrics":{},"hashes":{},"probe":null,"gameplay_admitted":false});
+        let mut expected = serde_json::json!({"format":"benilla-collision-diagnostics-v3","stage":stage,"status":"unavailable","map":0,"tile_x":48,"tile_y":32,"code":"collision.prerequisite","source_stage":null,"metrics":{},"hashes":{},"probe":null,"gameplay_admitted":false});
         match stage {
             "selection" => {
                 expected["status"] = "passed".into();
@@ -171,7 +183,7 @@ fn empty_install_matches_actual_player_smoke_schema() {
             "complete" => {
                 expected["status"] = "failed".into();
                 expected["code"] = Value::Null;
-                expected["metrics"] = serde_json::json!({"completed_probes":0,"completed_static_probes":0,"failed_stages":2});
+                expected["metrics"] = serde_json::json!({"completed_probes":0,"completed_static_probes":0,"completed_navigation_probes":0,"failed_stages":2});
             }
             _ => {}
         }
@@ -202,4 +214,86 @@ fn terrain_failure_preserves_independent_collision_observations() {
         rows.iter().find(|r| r["stage"] == "composition").unwrap()["status"],
         "unavailable"
     );
+}
+
+fn navigation_report(path: &Path, helper: Option<PathBuf>) -> Vec<Value> {
+    let mut output = Vec::new();
+    diagnostic::run_for_test(&arguments(path), &mut output, helper).unwrap();
+    let text = String::from_utf8(output).unwrap();
+    assert!(!text.contains(&path.to_string_lossy().to_string()));
+    assert!(!text.contains(ROOT));
+    assert!(!text.contains("model.MPQ"));
+    text.lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+#[test]
+fn genuine_navigation_diagnostic_observes_actual_helper_and_ground_queries() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let install = Install::new(&navigation_generation_tests::ridge_entries());
+    let before = install.bytes();
+    let rows = navigation_report(&install.0, Some(navigation_generation_tests::helper()));
+    for row in &rows {
+        assert_eq!(row["gameplay_admitted"], false);
+        assert_eq!(row["status"], "passed", "{row}");
+    }
+    assert_eq!(rows.len(), 46);
+    let input = rows
+        .iter()
+        .find(|r| r["stage"] == "navigation_input")
+        .unwrap();
+    assert_eq!(input["metrics"]["solid_vertices"], 33028);
+    assert_eq!(input["metrics"]["solid_triangles"], 65537);
+    assert_eq!(input["metrics"]["navigation_tiles"], 1);
+    let generated = rows
+        .iter()
+        .find(|r| r["stage"] == "navigation_generation")
+        .unwrap();
+    assert_eq!(generated["metrics"]["navigation_polygons"], 634);
+    assert_eq!(generated["metrics"]["navigation_output_bytes"], 106252 + 28);
+    assert!(generated["metrics"]["native_peak_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r["stage"] == "navigation_probe")
+            .count(),
+        9
+    );
+    assert_eq!(
+        rows.last().unwrap()["metrics"]["completed_navigation_probes"],
+        9
+    );
+    assert_eq!(install.bytes(), before);
+}
+#[test]
+fn missing_navigation_helper_keeps_other_observations_and_input_sizing() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let install = Install::new(&navigation_generation_tests::ridge_entries());
+    let before = install.bytes();
+    let rows = navigation_report(&install.0, None);
+    for stage in [
+        "terrain_capture",
+        "validation",
+        "composition",
+        "composition_freshness",
+        "navigation_input",
+        "navigation_freshness",
+        "freshness",
+    ] {
+        assert_eq!(
+            rows.iter().find(|r| r["stage"] == stage).unwrap()["status"],
+            "passed"
+        );
+    }
+    let failure = rows
+        .iter()
+        .find(|r| r["stage"] == "navigation_generation")
+        .unwrap();
+    assert_eq!(failure["status"], "failed");
+    assert_eq!(failure["code"], "navigation.helper_missing");
+    assert_eq!(rows.last().unwrap()["metrics"]["failed_stages"], 1);
+    assert_eq!(install.bytes(), before);
 }
