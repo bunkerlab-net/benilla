@@ -87,3 +87,5 @@ duplicate tile references, bounds and the remaining complete-map dependencies.
 
 [Source placement bounds](ASSEMBLED-BOUNDS.md) describes the first-wins M2 vertex
 scan, WMO handling, numeric profile and remaining collision-map assembly work.
+
+The private [tile-resident collision view](TILE-COLLISION-RESIDENCY.md) validates the complete placement index while decoding an explicit bounded tile selection. Unloaded geometry remains unavailable to queries.

@@ -17,6 +17,7 @@ mod location;
 mod m2_tests;
 mod math;
 pub(crate) mod prepared;
+pub(crate) mod tile_prepared;
 mod trig;
 #[cfg(test)]
 mod wmo_liquid_production_tests;

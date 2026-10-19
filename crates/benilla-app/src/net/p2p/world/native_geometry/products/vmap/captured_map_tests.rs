@@ -23,6 +23,8 @@ use archive::{archive, raw_entry, Entry};
 mod diagnostic_tests;
 #[path = "prepared_tests.rs"]
 mod prepared_tests;
+#[path = "tile_prepared_tests.rs"]
+mod tile_prepared_tests;
 
 const CASE: &str = "captured_wmo";
 const TILE: TileId = TileId { x: 31, y: 30 };
