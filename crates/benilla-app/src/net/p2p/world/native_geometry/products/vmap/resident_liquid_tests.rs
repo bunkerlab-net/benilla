@@ -26,7 +26,7 @@ fn terrain_fixture(name: &str) -> Vec<u8> {
     .unwrap()
 }
 
-fn placed_terrain(name: &str) -> Vec<u8> {
+pub(super) fn placed_terrain(name: &str) -> Vec<u8> {
     let mut adt = terrain_fixture(name);
     // Keep original MCIN/cell bytes; only add the established authored placement.
     for (field, tag, payload) in [
@@ -195,7 +195,7 @@ fn resident_liquid_present_terrain_liquid_is_not_point_or_mask_absence() {
     }
 }
 
-fn liquid_group_entries() -> Vec<Entry> {
+pub(super) fn liquid_group_entries() -> Vec<Entry> {
     let mut entries = shared_entries();
     let wet = fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR")).join(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Source-ordered creature IsSwimmable observations over an immutable dry inventory.
+//! Source-ordered IsSwimmable observations from dry inventories or resident points.
 //! This provider neither creates a native admission token nor invents model data.
 use super::{
     core::Failure,
@@ -18,6 +18,9 @@ use benilla_world_runtime::{
 };
 use sha2::{Digest, Sha256};
 use std::time::Instant;
+
+#[path = "source_creature_initialization/resident.rs"]
+pub(crate) mod resident;
 
 const POLICY: &[u8] = b"cmangos-8ec338a1-creature-initialization-complete-dry-products-v1";
 

@@ -27,6 +27,9 @@ pub(super) mod inventory_compatibility_tests;
 mod navigation_generation_tests;
 #[path = "prepared_tests.rs"]
 mod prepared_tests;
+#[cfg(test)]
+#[path = "resident_initialization_tests.rs"]
+mod resident_initialization_tests;
 #[path = "resident_liquid_tests.rs"]
 mod resident_liquid_tests;
 #[path = "source_height_tests.rs"]
