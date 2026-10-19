@@ -903,6 +903,11 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
         assembled.map_bih(|| true).unwrap_err(),
         benilla_native_vmap::BihBuildError::Cancelled
     );
+    let map_products = prepared.map_products(profile, || false).unwrap().unwrap();
+    assert_eq!(map_products.map_id(), prepared.map_id());
+    assert!(map_products.tree_bytes().starts_with(b"VMAP_7.0\x01NODE"));
+    assert_eq!(map_products.spawn_model_names().count(), 4);
+    assert_eq!(map_products.tiles().len(), 2);
     assert_eq!(assembled.records().bytes(), records.bytes());
     let polls = std::cell::Cell::new(0usize);
     prepared

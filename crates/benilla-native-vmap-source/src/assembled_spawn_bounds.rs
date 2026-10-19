@@ -54,6 +54,29 @@ impl fmt::Debug for AssembledSpawnBounds {
     }
 }
 impl AssembledSpawnBounds {
+    #[cfg(test)]
+    pub(crate) fn fixture(records: PlacementRecords) -> Self {
+        let index = records.map_spawn_index(|| false).unwrap();
+        let bounds = index
+            .unique_records()
+            .map(|(id, record)| {
+                let flags = word(record, 12).unwrap();
+                assert_eq!(flags & 1, 0, "fixture expects pre-bounded WMO");
+                AssembledSpawnBound {
+                    generated_id: id,
+                    flags,
+                    bounds: supplied_wmo_bounds(record, flags).unwrap(),
+                }
+            })
+            .collect();
+        drop(index);
+        Self {
+            records,
+            bounds,
+            visits: 0,
+        }
+    }
+
     pub fn records(&self) -> &PlacementRecords {
         &self.records
     }

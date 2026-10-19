@@ -598,3 +598,43 @@ fn assembled_bounds_recheck_rejects_source_change_after_record_verification() {
         "{error:?}"
     );
 }
+
+#[test]
+fn map_products_recheck_rejects_source_change_after_bounds_verification() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = dp_entries("portable_mdx", true);
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 7, || false).unwrap();
+    let record_polls = std::cell::Cell::new(0);
+    prepared
+        .assembled_spawn_bounds(dp_profile(), || {
+            record_polls.set(record_polls.get() + 1);
+            false
+        })
+        .unwrap();
+    entries
+        .iter_mut()
+        .find(|e| e.name == DP_MODEL)
+        .unwrap()
+        .bytes[8] ^= 1;
+    let polls = std::cell::Cell::new(0);
+    let changed = std::cell::Cell::new(false);
+    let error = prepared
+        .map_products(dp_profile(), || {
+            let n = polls.get();
+            polls.set(n + 1);
+            // First map-framing callback follows completed bounds verification.
+            if n == record_polls.get() {
+                save(&data, "wmo.MPQ", &entries);
+                changed.set(true);
+            }
+            false
+        })
+        .unwrap_err();
+    assert!(changed.get());
+    assert!(
+        matches!(error, crate::MapProductError::Source(SourceError::Changed)),
+        "{error:?}"
+    );
+}

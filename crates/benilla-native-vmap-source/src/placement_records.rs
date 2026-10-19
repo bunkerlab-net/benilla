@@ -52,6 +52,14 @@ impl fmt::Debug for PlacementRecords {
     }
 }
 impl PlacementRecords {
+    #[cfg(test)]
+    pub(crate) fn fixture(bytes: Vec<u8>, count: usize) -> Self {
+        Self {
+            bytes,
+            count,
+            binding: [0; 32],
+        }
+    }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
