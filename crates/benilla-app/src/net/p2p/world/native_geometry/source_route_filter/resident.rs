@@ -11,6 +11,8 @@ use super::super::{
 use super::*;
 use std::rc::Rc;
 
+#[path = "chase_los.rs"]
+pub(crate) mod chase_los;
 #[path = "cold.rs"]
 pub(crate) mod cold;
 

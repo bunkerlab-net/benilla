@@ -284,6 +284,19 @@ fn resident_liquid_missing_terrain_and_required_unloaded_collision_remain_missin
         );
         assert_eq!(trace, [0], "missing initial height cannot become NO_WATER");
     }
+    // Primitive-level LOS coverage: this ray reaches the unavailable Hull leaf.
+    // This does not claim a resident prefix can pass its earlier point filter.
+    assert!(matches!(
+        view.chase_ray(
+            503,
+            [HIT_XY[0], HIT_XY[1], 8.0f32.to_bits()],
+            [HIT_XY[0], HIT_XY[1], 0.0f32.to_bits()],
+            deadline(),
+            || false,
+        ),
+        Err(CompositionError::Validation(Error::Missing))
+    ));
+    view.verify_unchanged(|| false).unwrap();
 }
 
 #[test]

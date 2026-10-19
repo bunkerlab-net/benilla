@@ -55,6 +55,41 @@ pub(crate) struct PreparedSourceHeight<'terrain, 'bundle, 'source> {
     binding: Binding,
 }
 impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source> {
+    /// Fixed source Chase LOS geometry primitive. It carries no model-height or
+    /// caller-gate authority; the resident provider validates those separately.
+    pub(crate) fn chase_ray(
+        &self,
+        ticket: u64,
+        from: [u32; 3],
+        to: [u32; 3],
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<vmap::RayReply, CompositionError> {
+        check(&cancelled)?;
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline.into());
+        }
+        self.verify_unchanged(&cancelled)?;
+        check(&cancelled)?;
+        let request = vmap::RayRequest {
+            snapshot: self.collision.binding(),
+            ticket,
+            from,
+            to,
+            ignore_m2: false,
+        };
+        let reply = self.collision.query(request, deadline)?;
+        if reply.request != request {
+            return Err(Error::Identity.into());
+        }
+        self.verify_unchanged(&cancelled)?;
+        check(&cancelled)?;
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline.into());
+        }
+        Ok(reply)
+    }
+
     pub(crate) fn from_source(
         terrain: &'terrain PreparedTerrain,
         source: &'bundle AssembledSourceMap<'source>,

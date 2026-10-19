@@ -1088,3 +1088,7 @@ pub(super) mod pair_tests;
 #[cfg(test)]
 #[path = "source_pathfinder_query/resident_cold_tests.rs"]
 pub(crate) mod resident_cold_tests;
+
+#[cfg(test)]
+#[path = "source_pathfinder_query/resident_los_tests.rs"]
+pub(crate) mod resident_los_tests;

@@ -1057,3 +1057,106 @@ fn genuine_resident_cold_calculate_different_polygons_have_no_terminal() {
     input.verify_unchanged(|| false).unwrap();
     assert_eq!(install.bytes(), before);
 }
+
+#[test]
+fn genuine_resident_chase_los_keeps_model_witnesses_fresh_and_exact_goal_endpoints() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    use super::super::super::super::source_pathfinder_query::{
+        resident_los_tests as resident, tests as provider,
+    };
+    use super::super::super::super::source_route_filter::resident::chase_los::ResidentChaseLosDecision as Decision;
+    use super::super::super::{
+        source_height::PreparedSourceHeight, source_query::SourceMapQuerySnapshot,
+    };
+    let entries = ridge_entries();
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_slice(&oracle("ridge_wmo/expected.json")).unwrap();
+    let source = &expected["output"]["paths"][0];
+    let values: Vec<_> = source["start_bits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| f32::from_bits(u32::from_str_radix(v.as_str().unwrap(), 16).unwrap()))
+        .collect();
+    let start = [values[2], values[0], values[1]];
+    let end = [start[0], start[1] + 8.0, start[2]];
+    let p = resident::model_profile(start, end, 1.6, 2.4);
+    let snapshot = |p: &benilla_world_runtime::native::Profile| {
+        SourceMapQuerySnapshot::from_generated(
+            &[(&input, &output)],
+            p,
+            Instant::now() + Duration::from_secs(10),
+            || false,
+        )
+        .unwrap()
+    };
+    let query = snapshot(&p);
+    let replacement = snapshot(&p);
+    let mut changed = ridge_entries();
+    changed.iter_mut().find(|e| e.name == ADT).unwrap().bytes[0] ^= 1;
+    resident::assert_resident_chase_los(p.clone(), query, replacement, &height, |mutated| {
+        install.write(if mutated { &changed } else { &entries });
+    });
+    // Strict 200+selected-owner-reach distance boundary precedes the strict
+    // five-unit vertical boundary, with no LOS request after either rejection.
+    let reach = benilla_world_runtime::native::synthetic_creature_model_fixture::selection()
+        .combat_reach()
+        .bits();
+    for (goal, decision) in [
+        (
+            [200.0 + f32::from_bits(reach), 0.0, 0.0],
+            Decision::Distance,
+        ),
+        // Downward subtraction keeps this fixture's five-unit boundary exact;
+        // upward addition at its nonintegral Z can round just below the boundary.
+        ([0.0, 0.0, -5.0], Decision::Vertical),
+        ([500.0, 0.0, -5.0], Decision::Distance),
+    ] {
+        resident::assert_resident_los_decision(p.clone(), snapshot(&p), &height, goal, decision);
+    }
+    let scalar = provider::generated_profile(start, end);
+    let query = snapshot(&scalar);
+    resident::assert_resident_scalar_body_is_not_model(scalar, query, &height);
+
+    // Original generated Hull's pinned hit XY and z=5 plane. Raw authored model
+    // fields produce different eyes across that plane while the feet pass both
+    // numeric predicates; the real runtime seals this authored near-point goal.
+    let hit = [
+        f32::from_bits(0x43e8_d540),
+        f32::from_bits(0x4471_aaa0),
+        0.0,
+    ];
+    let player = [hit[0] + 10.0, hit[1], hit[2]];
+    let blocked = resident::model_profile(hit, player, 1.0, 16.0);
+    resident::assert_resident_los_decision(
+        blocked.clone(),
+        snapshot(&blocked),
+        &height,
+        [hit[0] + 0.01, hit[1], hit[2]],
+        Decision::Blocked,
+    );
+    input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
+}
