@@ -558,3 +558,43 @@ fn record_stream_cancellation_and_changed_capture_return_no_partial_product() {
     ));
     assert!(!original.bytes().is_empty());
 }
+
+#[test]
+fn assembled_bounds_recheck_rejects_source_change_after_record_verification() {
+    let temp = Temp::new();
+    let data = temp.data();
+    let mut entries = dp_entries("portable_mdx", true);
+    save(&data, "wmo.MPQ", &entries);
+    let prepared = prepare(&data, 7, || false).unwrap();
+    let record_polls = std::cell::Cell::new(0);
+    prepared
+        .placement_records(dp_profile(), || {
+            record_polls.set(record_polls.get() + 1);
+            false
+        })
+        .unwrap();
+    entries
+        .iter_mut()
+        .find(|e| e.name == DP_MODEL)
+        .unwrap()
+        .bytes[8] ^= 1;
+    let polls = std::cell::Cell::new(0);
+    let changed = std::cell::Cell::new(false);
+    let error = prepared
+        .assembled_spawn_bounds(dp_profile(), || {
+            let n = polls.get();
+            polls.set(n + 1);
+            // First index callback follows completed record verification/hash.
+            if n == record_polls.get() {
+                save(&data, "wmo.MPQ", &entries);
+                changed.set(true);
+            }
+            false
+        })
+        .unwrap_err();
+    assert!(changed.get());
+    assert!(
+        matches!(error, SpawnBoundsError::Source(SourceError::Changed)),
+        "{error:?}"
+    );
+}

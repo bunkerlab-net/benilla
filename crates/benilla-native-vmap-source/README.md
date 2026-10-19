@@ -75,3 +75,6 @@ files and does not build the map/model BIHs or enable gameplay admission.
 
 See [map spawn indexing](MAP-SPAWN-INDEX.md) for source first-wins ID handling,
 duplicate tile references, bounds and the remaining complete-map dependencies.
+
+[Source placement bounds](ASSEMBLED-BOUNDS.md) describes the first-wins M2 vertex
+scan, WMO handling, numeric profile and remaining collision-map assembly work.

@@ -721,7 +721,7 @@ fn cancellation_during_root_reference_preparation_never_returns_partial_candidat
     let mut root_cancellations = 0;
     let mut reached_map_metadata = false;
     for cutoff in 0..2048 {
-        let polls = std::cell::Cell::new(0);
+        let polls = std::cell::Cell::new(0usize);
         let error = prepare(&data, 0, || {
             let n = polls.get();
             polls.set(n + 1);
@@ -854,7 +854,7 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
         assert_eq!(&record[4..12], &[0; 8]);
     }
     assert_eq!(index.source_binding(), records.preprocessing_binding());
-    let polls = std::cell::Cell::new(0);
+    let polls = std::cell::Cell::new(0usize);
     records
         .map_spawn_index(|| {
             polls.set(polls.get() + 1);
@@ -873,6 +873,57 @@ fn encounter_ids_replay_prior_physical_maps_and_reuse_duplicate_parent_children(
         assert_eq!(error, MapSpawnIndexError::Cancelled);
     }
     assert_eq!(records.map_spawn_index(|| false).unwrap().unique_count(), 4);
+
+    let assembled = prepared.assembled_spawn_bounds(profile, || false).unwrap();
+    assert_eq!(
+        assembled
+            .bounds()
+            .iter()
+            .map(|s| s.generated_id)
+            .collect::<Vec<_>>(),
+        [1, 2, 3, 5]
+    );
+    assert!(assembled.bounds().iter().all(|s| s.flags & 4 != 0));
+    assert!(assembled.vertex_visits() > 0);
+    assert_eq!(assembled.records().bytes(), records.bytes());
+    let polls = std::cell::Cell::new(0usize);
+    prepared
+        .assembled_spawn_bounds(profile, || {
+            polls.set(polls.get() + 1);
+            false
+        })
+        .unwrap();
+    // Prefix-map source rechecks include thousands of absent-tile lookups.
+    // Sample across the full operation, including every last callback, instead
+    // of quadratic rechecking at every internal archive polling point.
+    let mut cutoffs: Vec<_> = (0..32.min(polls.get())).collect();
+    cutoffs.extend((0..32).map(|i| polls.get() * i / 32));
+    cutoffs.extend(polls.get().saturating_sub(16)..polls.get());
+    cutoffs.sort_unstable();
+    cutoffs.dedup();
+    for cutoff in cutoffs {
+        let n = std::cell::Cell::new(0);
+        let error = prepared
+            .assembled_spawn_bounds(profile, || {
+                let current = n.get();
+                n.set(current + 1);
+                current >= cutoff
+            })
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                SpawnBoundsError::Cancelled
+                    | SpawnBoundsError::Preparation(
+                        PlacementRecordError::Cancelled
+                            | PlacementRecordError::Source(SourceError::Cancelled)
+                    )
+                    | SpawnBoundsError::Index(MapSpawnIndexError::Cancelled)
+                    | SpawnBoundsError::Source(SourceError::Cancelled)
+            ),
+            "cutoff={cutoff}: {error:?}"
+        );
+    }
 
     assert_eq!(prepared.summary().encounter_id_count, 5);
     assert_eq!(prepared.summary().encounter_attempts, 10);
@@ -930,7 +981,7 @@ fn filtered_prefix_replay_is_bounded_before_parent_and_child_eligibility() {
         .iter()
         .position(|p| p.kind == ModelKind::Wmo)
         .unwrap();
-    let polls = std::cell::Cell::new(0);
+    let polls = std::cell::Cell::new(0usize);
     let error = builder
         .select_doodads(None, product, 0, 42, &|| {
             let n = polls.get();

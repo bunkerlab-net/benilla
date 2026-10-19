@@ -9,6 +9,7 @@
 //! crate publishes no files and grants no
 //! map, BIH, collision-absence, or gameplay authority.
 
+mod assembled_spawn_bounds;
 mod discovery;
 mod doodad_projection;
 mod doodad_reference_order;
@@ -32,6 +33,10 @@ use std::{
     path::Path,
 };
 
+pub use assembled_spawn_bounds::{
+    AssembledSpawnBound, AssembledSpawnBounds, SpawnBoundsError, ASSEMBLED_BOUNDS_POLICY,
+    MAX_BOUND_VERTEX_VISITS,
+};
 pub use discovery::{DiscoveryError, M2Placement, ModelKind, PlacementInput, WmoPlacement};
 pub use doodad_projection::{DoodadProjection, DoodadProjectionError, DoodadProjectionProfile};
 pub use doodads::{DoodadError, DoodadSet, DoodadSpawn};
