@@ -21,7 +21,7 @@ def encoded(value):return (json.dumps(value,indent=2,sort_keys=True)+'\n').encod
 def capture(source,work,fixtures,output):
     exe=build(source,work/'build');output.mkdir(parents=True,exist_ok=True)
     manifest={'schema':1,'source_pin':PIN,'scope':'Original Detour findNearestPoly and getPolyHeight; original on-surface inputs; scalar half-extents 5','cases':{}}
-    for case in ['ridge_wmo','ridge_neighbors_wmo']:
+    for case in ['ridge_wmo','ridge_neighbors_wmo','ridge_xminus_wmo']:
         original=fixtures/case;base=work/('scalar-'+case);(base/'mmaps').mkdir(parents=True,exist_ok=True)
         inputs={name:sha(original/name) for name in ['000.mmap','0003130.mmtile','expected.json']}
         for name in ['000.mmap','0003130.mmtile']:shutil.copyfile(original/name,base/'mmaps'/name)
@@ -48,8 +48,8 @@ if __name__=='__main__':
     capture(a.source.resolve(),a.work.resolve(),HERE/'fixtures',generated)
     if a.check:
         assert {f.name:f.read_bytes() for f in generated.iterdir()}=={f.name:f.read_bytes() for f in target.iterdir()},'scalar nearest capture differs'
-        print('Verified 50 original scalar nearest queries')
+        print('Verified 75 original scalar nearest queries')
     else:
         target.mkdir(exist_ok=True)
         for path in generated.iterdir():shutil.copyfile(path,target/path.name)
-        print('Captured 50 original scalar nearest queries')
+        print('Captured 75 original scalar nearest queries')

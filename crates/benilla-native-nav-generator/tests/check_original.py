@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     binary = args.helper.resolve(strict=True)
     measurements = {}
-    for case in ("ridge_wmo", "ridge_neighbors_wmo", "ridge_only", "liquid_full_types_wmo"):
+    for case in ("ridge_wmo", "ridge_neighbors_wmo", "ridge_xminus_wmo", "ridge_only", "liquid_full_types_wmo"):
         base = FIXTURES / case
         request = zlib.decompress((base / "helper-request.bin.zlib").read_bytes())
         started = time.monotonic()

@@ -38,36 +38,7 @@ pub(super) fn helper() -> PathBuf {
     assert!(executable.is_file(),"Build benilla-native-nav-generator before scoped geometry tests; workspace tests and CI build it as an integration-test binary");
     executable
 }
-#[test]
-fn captured_ridge_and_wmo_generate_original_bytes_and_load_production_queries() {
-    if !benilla_native_nav::SUPPORTED_ABI {
-        return;
-    }
-    let install = Install::new(&ridge_entries());
-    let before = install.bytes();
-    let terrain = benilla_native_terrain::prepare(
-        &install.0,
-        0,
-        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
-    )
-    .unwrap();
-    let discovery = source::prepare(&install.0, 0, || false).unwrap();
-    let bundle = discovery
-        .assemble_map_bundle(profile(), || false)
-        .unwrap()
-        .unwrap();
-    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
-    let output = input
-        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
-            false
-        })
-        .unwrap();
-    let (params, tile) = output.products();
-    assert_eq!(params, oracle("ridge_wmo/000.mmap"));
-    assert_eq!(tile, oracle("ridge_wmo/0003130.mmtile"));
-    let expected: serde_json::Value =
-        serde_json::from_slice(&oracle("ridge_wmo/expected.json")).unwrap();
-    let mut mesh = output.load().unwrap();
+fn assert_original_routes(mesh: &mut benilla_native_nav::Mesh, expected: &serde_json::Value) {
     for path in expected["output"]["paths"].as_array().unwrap() {
         let point = |name: &str| {
             let values = path[name].as_array().unwrap();
@@ -110,6 +81,39 @@ fn captured_ridge_and_wmo_generate_original_bytes_and_load_production_queries() 
             expected_corners
         );
     }
+}
+
+#[test]
+fn captured_ridge_and_wmo_generate_original_bytes_and_load_production_queries() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let install = Install::new(&ridge_entries());
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let discovery = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = discovery
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    let (params, tile) = output.products();
+    assert_eq!(params, oracle("ridge_wmo/000.mmap"));
+    assert_eq!(tile, oracle("ridge_wmo/0003130.mmtile"));
+    let expected: serde_json::Value =
+        serde_json::from_slice(&oracle("ridge_wmo/expected.json")).unwrap();
+    let mut mesh = output.load().unwrap();
+    assert_original_routes(&mut mesh, &expected);
     input.verify_unchanged(|| false).unwrap();
     assert_eq!(install.bytes(), before);
     assert!(matches!(
@@ -287,6 +291,108 @@ fn captured_liquid_generation_matches_original_but_preserves_dry_reader_refusal(
         generated,
         Err(GenerationError::Native(benilla_native_nav::Error::Format))
     ));
+    input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
+}
+
+#[test]
+fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let mut entries = ridge_entries();
+    let mut wdt = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../benilla-native-terrain/tools/fixtures/source.wdt.test-fixture"),
+    )
+    .unwrap();
+    wdt[60..60 + 64 * 64 * 8].fill(0);
+    for (x, y) in [(30usize, 31usize), (29, 31)] {
+        let offset = 60 + (y * 64 + x) * 8;
+        wdt[offset..offset + 4].copy_from_slice(&1u32.to_le_bytes());
+    }
+    *entries
+        .iter_mut()
+        .find(|e| e.name.ends_with("Selected.wdt"))
+        .unwrap() = raw_entry("World\\Maps\\Selected\\Selected.wdt", wdt);
+    entries.push(raw_entry(
+        "World\\Maps\\Selected\\Selected_29_31.adt",
+        oracle("authored/ridge_xminus.adt.test-fixture"),
+    ));
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let discovery = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = discovery
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let selected = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let selected_input =
+        PreparedNavigationInput::from_source(&selected, &bundle, TILE, || false).unwrap();
+    let historical = selected_input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    let expanded = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[
+            benilla_native_terrain::Tile { x: 31, y: 30 },
+            benilla_native_terrain::Tile { x: 31, y: 29 },
+        ],
+    )
+    .unwrap();
+    let input = PreparedNavigationInput::from_source(&expanded, &bundle, TILE, || false).unwrap();
+    assert_eq!(selected_input.summary().unwrap().tiles, 1);
+    assert_eq!(input.summary().unwrap().tiles, 2);
+    assert_ne!(
+        selected_input.summary().unwrap().revision,
+        input.summary().unwrap().revision
+    );
+    let original_map = oracle("ridge_xminus_wmo/000.mmap");
+    let original_tile = oracle("ridge_xminus_wmo/0003130.mmtile");
+    let manifest: serde_json::Value = serde_json::from_slice(&oracle("manifest.json")).unwrap();
+    input.assert_original_products_for_test(
+        &helper(),
+        manifest["cases"]["ridge_xminus_wmo"]["helper_request"]["sha256"]
+            .as_str()
+            .unwrap(),
+        &original_map,
+        &original_tile,
+    );
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    assert_eq!(
+        output.products(),
+        (original_map.as_slice(), original_tile.as_slice())
+    );
+    assert_eq!(&historical.products().0[..12], &output.products().0[..12]);
+    assert_eq!(
+        u32::from_le_bytes(historical.products().0[20..24].try_into().unwrap()),
+        1
+    );
+    assert_eq!(
+        u32::from_le_bytes(output.products().0[20..24].try_into().unwrap()),
+        2
+    );
+    assert_ne!(historical.revision(), output.revision());
+    assert_ne!(historical.products().1, output.products().1);
+    let expected: serde_json::Value =
+        serde_json::from_slice(&oracle("ridge_xminus_wmo/expected.json")).unwrap();
+    assert_original_routes(&mut output.load().unwrap(), &expected);
+    assert_eq!(historical.products().0, oracle("ridge_wmo/000.mmap"));
+    assert_eq!(historical.products().1, oracle("ridge_wmo/0003130.mmtile"));
+    historical.load().unwrap();
+    selected_input.verify_unchanged(|| false).unwrap();
     input.verify_unchanged(|| false).unwrap();
     assert_eq!(install.bytes(), before);
 }

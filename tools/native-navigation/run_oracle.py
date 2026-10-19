@@ -108,7 +108,7 @@ def capture(source,work,output,verify_inputs=True):
         assert actual==vmaps,'original captured WMO reassembly differs'
 
     manifest={'schema':1,'source_pin':PIN,'map_id':0,'tile_x':30,'tile_y':31,'cases':{},'fixture_sources':{'terrain_manifest_sha256':sha((TERRAIN/'manifest.json').read_bytes()),'vmap_products_sha256':sha(VMAP.read_bytes())}}
-    cases=[('ridge_wmo','ridge',False,True,True),('ridge_neighbors_wmo','ridge',True,True,True),('ridge_only','ridge',False,False,True),('liquid_full_types_wmo','liquid_full_types',False,True,True)]
+    cases=[('ridge_wmo','ridge',False,True,True),('ridge_neighbors_wmo','ridge',True,True,True),('ridge_xminus_wmo','ridge',('xminus',),True,True),('ridge_only','ridge',False,False,True),('liquid_full_types_wmo','liquid_full_types',False,True,True)]
     for name in ['flat','varied','nonflat_holes','liquid_water_flat','liquid_full_types','liquid_flag_bytes','liquid_nonsymmetric','liquid_outer_edges','liquid_history61_initial']:
         cases.append((name,name,False,False,False))
     cases += [('varied_neighbors','varied',True,False,False),('nonflat_holes_neighbors','nonflat_holes',True,False,False)]
@@ -120,6 +120,7 @@ def capture(source,work,output,verify_inputs=True):
         map_files={'0003130.map':terrain_path}
         if neighbors:
             for filename,suffix in [('0003131.map','xplus'),('0003129.map','xminus'),('0003230.map','yplus'),('0003030.map','yminus')]:
+                if neighbors is not True and suffix not in neighbors:continue
                 map_files[filename]=ridge/('ridge_'+suffix+'.map') if terrain=='ridge' else terrain_path
         for filename,path in map_files.items():shutil.copyfile(path,base/'maps'/filename)
         if collision:
@@ -146,6 +147,27 @@ def capture(source,work,output,verify_inputs=True):
                 'source_hashes_sha256':sha((HERE/'source/source-hashes.json').read_bytes()),
                 'original_tile':{'map_id':0,'x':30,'y':31},
                 'production_tile_id':{'map_id':0,'x':31,'y':30},
+            }
+        elif case=='ridge_xminus_wmo':
+            entry['input_provenance']={
+                'scope':'Selected tile generation with one cardinal terrain strip; no neighboring MMTile or two-tile traversal',
+                'terrain_inputs':[
+                    {'adt_fixture':'authored/'+name+'.adt.test-fixture',
+                     'adt_sha256':sha((ridge/(name+'.adt')).read_bytes()),
+                     'map_fixture':'authored/'+name+'.map',
+                     'map_sha256':sha((ridge/(name+'.map')).read_bytes()),
+                     'original_map_filename':f'000{y:02}{x:02}.map',
+                     'mpq_basename_template':f'{{directory}}_{x}_{y}.adt',
+                     'original_tile':{'map_id':0,'x':x,'y':y},
+                     'production_tile_id':{'map_id':0,'x':y,'y':x}}
+                    for name,x,y in [('ridge',30,31),('ridge_xminus',29,31)]
+                ],
+                'absent_original_map_filenames':['0003131.map','0003230.map','0003030.map'],
+                'convert_adt_replay':'Both authored ADTs generated through unchanged original ConvertADT',
+                'writer_provenance_sha256':sha((ridge/'writer-provenance.json').read_bytes()),
+                'vmap_case':'captured_wmo',
+                'vmap_products_sha256':{name:sha(bytes.fromhex(data)) for name,data in vmaps.items()},
+                'source_hashes_sha256':sha((HERE/'source/source-hashes.json').read_bytes()),
             }
         for name in ['source-terrain.bin','source-combined.bin','source-mesh.bin']:
             raw=(base/name).read_bytes();entry[name]=mesh_info(raw);(target/(name+'.zlib')).write_bytes(zlib.compress(raw,9))

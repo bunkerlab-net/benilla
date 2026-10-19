@@ -64,6 +64,11 @@
     "max_rss_kib": 13440,
     "wall_seconds": 2.723768
   },
+  "ridge_xminus_wmo": {
+    "exit_code": 0,
+    "max_rss_kib": 13568,
+    "wall_seconds": 2.471641
+  },
   "varied": {
     "exit_code": 0,
     "max_rss_kib": 13440,

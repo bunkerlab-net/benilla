@@ -17,6 +17,15 @@
         "expected.json": "6e4c1d0c3d6e825f832b77118399dc05f1c8517b63b139e5cb4ea935efc2fec2"
       },
       "query_count": 25
+    },
+    "ridge_xminus_wmo": {
+      "expected_sha256": "d7968a6ba3aecccaf8d9838880855ed7e4febb6155d04734bc0f18a66a2d86e5",
+      "original_files_sha256": {
+        "000.mmap": "637a7408ec391555e84b0f8d10a82c17e70526b36ff6a1dfd9f7758b2d88cf5f",
+        "0003130.mmtile": "43b1072fcf64088d342da617656ebd4f3e208e46f6f0dbf8c14095ee4f1dc8ea",
+        "expected.json": "e0b431cd068940d67eded2a454b06cc1b5c2bab6f890e49e0bbd6bc507ab8c7f"
+      },
+      "query_count": 25
     }
   },
   "neighbor_fixture_inputs": [

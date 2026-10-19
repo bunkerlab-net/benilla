@@ -115,7 +115,7 @@ fn source_generated_tiles_match_same_input_original_scalar_queries() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tools/native-navigation/fixtures");
     let mut query_count = 0;
-    for case in ["ridge_wmo", "ridge_neighbors_wmo"] {
+    for case in ["ridge_wmo", "ridge_neighbors_wmo", "ridge_xminus_wmo"] {
         let params = std::fs::read(fixtures.join(case).join("000.mmap")).unwrap();
         let tile = std::fs::read(fixtures.join(case).join("0003130.mmtile")).unwrap();
         let expected: serde_json::Value = serde_json::from_slice(
@@ -162,7 +162,7 @@ fn source_generated_tiles_match_same_input_original_scalar_queries() {
             query_count += 1;
         }
     }
-    assert_eq!(query_count, 50);
+    assert_eq!(query_count, 75);
 }
 
 #[test]

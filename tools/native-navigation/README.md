@@ -71,7 +71,7 @@ notices are retained beside those excerpts and under `notices/`.
 
 ## Fixture shape
 
-`fixtures/manifest.json` describes 15 terrain/combined cases. Per-case
+`fixtures/manifest.json` describes 16 terrain/combined cases. Per-case
 `expected.json` records source config, exact binary32 bounds, actual terrain
 file opens, discovered tile union, input counts and query expectations.
 
@@ -140,6 +140,40 @@ as a convenient positive limit or reconstruct origin only from the selected tile
 the production helper's documented wire format. This is a test-input adapter;
 expected output files and queries still come exclusively from the original.
 
+## Single cardinal-neighbor evidence
+
+`ridge_xminus_wmo` keeps the selected original tile (30,31), production tile
+(31,30), and the captured Hull WMO unchanged. Only `ridge_xminus` is added:
+original tile (29,31), production tile (31,29), filename `0003129.map`.
+The five original terrain-open attempts record success only for `0003130.map`
+and `0003129.map`; the other three cardinal files are absent. Both ADTs pass
+through unchanged original `ConvertADT`, and the manifest binds their exact
+input/output hashes and the original assembled WMO hashes.
+
+The original two-tile discovery union increases `maxTiles` from 1 to 2 while
+preserving all origin bytes, selected-tile bounds, config, and output tile
+coordinate (0,0). The additional strip contributes 512 terrain triangles.
+Original cleaned collection contains 33,414 solid vertices and 66,049 triangles,
+including the same three WMO vertices and one WMO triangle, and no liquids.
+The original emits 634 polygons and a 107,052-byte selected MMTile, SHA256
+`43b1072fcf64088d342da617656ebd4f3e208e46f6f0dbf8c14095ee4f1dc8ea`.
+
+The strip changes 26 base vertices along the selected boundary, creates 25
+external portal edges on Detour side 0 only, and changes the BV-node bytes.
+Reserved link capacity increases from 2,530 to 2,580, accounting for the
+800-byte size increase over selected-only output. Detail mesh, vertex and
+triangle arrays are unchanged. All 25 sampled original nearest/height queries
+and 24 corridor/straight-path results remain identical to selected-only.
+The extra 25 scalar-extent queries are independently replayed on this output.
+
+This captures neighbor-strip influence on selected-tile generation. Only
+`0003130.mmtile` is generated or loaded; the evidence does not establish
+two-tile traversal, an emitted neighboring tile, or real-install coverage.
+Existing case files remain byte-identical, and both expanded manifests retain
+every prior entry unchanged. Ordinary and alignment-sanitized original replay
+check all deterministic fixtures, including this case, without changing the
+alignment-safe original-query ownership harness.
+
 ## Generated Classic liquid evidence
 
 `liquid_full_types_wmo` reuses the unchanged retained
@@ -196,8 +230,11 @@ The result records exact input/output bits, reference/status and height at both
 the input and returned point. These are independently measured expectations,
 not assertions that a production reprojection happened to be stable.
 
-Its manifest binds both positive fixtures by their original input file hashes.
+Its manifest binds all three positive ridge fixtures by their original input
+file hashes, with 75 scalar nearest/height queries in total.
 It also lists the exact five neighbor ADT/map filenames and SHA256 values, plus
-the full source tile union. The MPQ basename template is `{directory}_X_Y.adt`;
+the full source tile union for the four-neighbor case. The single-neighbor
+case's exact two-file inventory and union are in its main manifest entry.
+The MPQ basename template is `{directory}_X_Y.adt`;
 the source map filename places Y before X. Only the selected ADT needs the
 existing captured WMO placement; neighboring ADTs contain authored terrain only.
