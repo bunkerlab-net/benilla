@@ -6,6 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=link_plan.rs");
     println!("cargo:rustc-check-cfg=cfg(benilla_native_generator)");
     let target = std::env::var("TARGET").unwrap();
+    println!("cargo:rustc-env=BENILLA_NATIVE_TEST_TARGET={target}");
     if !matches!(
         target.as_str(),
         "x86_64-unknown-linux-gnu"

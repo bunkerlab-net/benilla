@@ -9,6 +9,9 @@ description = "Bounded separate-process pinned CMaNGOS selected-tile generator"
 [lints]
 workspace = true
 
+[dev-dependencies]
+cc = "1.2"
+
 [build-dependencies]
 cc = "1.2"
 

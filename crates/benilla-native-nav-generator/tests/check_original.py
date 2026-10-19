@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+from itertools import islice, zip_longest
 from pathlib import Path
 import struct
 import subprocess
@@ -12,6 +13,17 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "tools/native-navigation/fixtures"
+
+
+def assert_bytes(actual, expected, label):
+    if actual == expected:
+        return
+    offsets = list(islice((i for i, pair in enumerate(zip_longest(actual, expected))
+                           if pair[0] != pair[1]), 8))
+    raise AssertionError(
+        f"{label}: byte mismatch; actual_len={len(actual)} expected_len={len(expected)} "
+        f"actual_sha256={hashlib.sha256(actual).hexdigest()} "
+        f"expected_sha256={hashlib.sha256(expected).hexdigest()} first_offsets={offsets}")
 
 
 def main():
@@ -38,10 +50,10 @@ def main():
         status, mmap_size, tile_size, polygons, peak = struct.unpack_from("<4IQ", output, 8)
         expected = json.loads((base / "expected.json").read_text(encoding="utf-8"))
         assert mmap_size == 28 and len(output) == 32 + mmap_size + tile_size, case
-        assert output[32:60] == (products / "000.mmap").read_bytes(), case
+        assert_bytes(output[32:60], (products / "000.mmap").read_bytes(), f"{case}/MMap")
         if expected["output"]["emitted"]:
             assert status == 0, case
-            assert output[60:] == (products / tile_filename).read_bytes(), case
+            assert_bytes(output[60:], (products / tile_filename).read_bytes(), f"{case}/MMTile")
         else:
             assert status == 2 and polygons == 625 and tile_size == 0, case
             assert not (products / tile_filename).exists(), case

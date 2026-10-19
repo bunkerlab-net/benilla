@@ -20,6 +20,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+#include <limits.h>
+#include <stdint.h>
+#include <memory>
+
+// Benilla adaptation: BV ordering policy v1 (see CMANGOS-NOTICE.txt).
+// Preserve incoming equal-minimum order, independent of the host libc qsort.
 #include "DetourNavMesh.h"
 #include "DetourCommon.h"
 #include "DetourMath.h"
@@ -37,37 +43,24 @@ struct BVItem
 	int i;
 };
 
-static int compareItemX(const void* va, const void* vb)
+// One tracked scratch array is reused by every axis sort and subdivision.
+// Left wins equal minima: ties preserve this subrange's incoming order, not IDs.
+static void stableSortItems(BVItem* items, BVItem* scratch, int count, int axis)
 {
-	const BVItem* a = (const BVItem*)va;
-	const BVItem* b = (const BVItem*)vb;
-	if (a->bmin[0] < b->bmin[0])
-		return -1;
-	if (a->bmin[0] > b->bmin[0])
-		return 1;
-	return 0;
-}
-
-static int compareItemY(const void* va, const void* vb)
-{
-	const BVItem* a = (const BVItem*)va;
-	const BVItem* b = (const BVItem*)vb;
-	if (a->bmin[1] < b->bmin[1])
-		return -1;
-	if (a->bmin[1] > b->bmin[1])
-		return 1;
-	return 0;
-}
-
-static int compareItemZ(const void* va, const void* vb)
-{
-	const BVItem* a = (const BVItem*)va;
-	const BVItem* b = (const BVItem*)vb;
-	if (a->bmin[2] < b->bmin[2])
-		return -1;
-	if (a->bmin[2] > b->bmin[2])
-		return 1;
-	return 0;
+	if (count < 2)
+		return;
+	const int middle = count / 2;
+	stableSortItems(items, scratch, middle, axis);
+	stableSortItems(items + middle, scratch + middle, count - middle, axis);
+	int left = 0, right = middle;
+	for (int out = 0; out < count; ++out)
+	{
+		if (left < middle && (right == count || items[left].bmin[axis] <= items[right].bmin[axis]))
+			scratch[out] = items[left++];
+		else
+			scratch[out] = items[right++];
+	}
+	memcpy(items, scratch, sizeof(BVItem) * (size_t)count);
 }
 
 static void calcExtends(BVItem* items, const int /*nitems*/, const int imin, const int imax,
@@ -110,7 +103,7 @@ inline int longestAxis(unsigned short x, unsigned short y, unsigned short z)
 	return axis;
 }
 
-static void subdivide(BVItem* items, int nitems, int imin, int imax, int& curNode, dtBVNode* nodes)
+static void subdivide(BVItem* items, BVItem* scratch, int nitems, int imin, int imax, int& curNode, dtBVNode* nodes)
 {
 	int inum = imax - imin;
 	int icur = curNode;
@@ -139,28 +132,14 @@ static void subdivide(BVItem* items, int nitems, int imin, int imax, int& curNod
 							   node.bmax[1] - node.bmin[1],
 							   node.bmax[2] - node.bmin[2]);
 		
-		if (axis == 0)
-		{
-			// Sort along x-axis
-			qsort(items+imin, inum, sizeof(BVItem), compareItemX);
-		}
-		else if (axis == 1)
-		{
-			// Sort along y-axis
-			qsort(items+imin, inum, sizeof(BVItem), compareItemY);
-		}
-		else
-		{
-			// Sort along z-axis
-			qsort(items+imin, inum, sizeof(BVItem), compareItemZ);
-		}
-		
+		stableSortItems(items + imin, scratch + imin, inum, axis);
+
 		int isplit = imin+inum/2;
 		
 		// Left
-		subdivide(items, nitems, imin, isplit, curNode, nodes);
+		subdivide(items, scratch, nitems, imin, isplit, curNode, nodes);
 		// Right
-		subdivide(items, nitems, isplit, imax, curNode, nodes);
+		subdivide(items, scratch, nitems, isplit, imax, curNode, nodes);
 		
 		int iescape = curNode - icur;
 		// Negative index means escape.
@@ -168,11 +147,23 @@ static void subdivide(BVItem* items, int nitems, int imin, int imax, int& curNod
 	}
 }
 
-static int createBVTree(dtNavMeshCreateParams* params, dtBVNode* nodes, int /*nnodes*/)
+static int createBVTree(dtNavMeshCreateParams* params, dtBVNode* nodes, int nnodes)
 {
-	// Build tree
+	// Reject unrepresentable temporary sizes/node counts before multiplication.
+	if (params->polyCount <= 0 || params->polyCount > INT_MAX / 2 ||
+		(size_t)params->polyCount > SIZE_MAX / sizeof(BVItem) ||
+		nnodes < params->polyCount * 2)
+		return 0;
+	const size_t itemBytes = sizeof(BVItem) * (size_t)params->polyCount;
+	std::unique_ptr<BVItem, decltype(&dtFree)> itemsOwner((BVItem*)dtAlloc(itemBytes, DT_ALLOC_TEMP), dtFree);
+	if (!itemsOwner)
+		return 0;
+	std::unique_ptr<BVItem, decltype(&dtFree)> scratch((BVItem*)dtAlloc(itemBytes, DT_ALLOC_TEMP), dtFree);
+	if (!scratch)
+		return 0;
+	BVItem* items = itemsOwner.get();
+	// Build tree; source quantization, axes, median splits and escapes are unchanged.
 	float quantFactor = 1 / params->cs;
-	BVItem* items = (BVItem*)dtAlloc(sizeof(BVItem)*params->polyCount, DT_ALLOC_TEMP);
 	for (int i = 0; i < params->polyCount; i++)
 	{
 		BVItem& it = items[i];
@@ -233,9 +224,7 @@ static int createBVTree(dtNavMeshCreateParams* params, dtBVNode* nodes, int /*nn
 	}
 	
 	int curNode = 0;
-	subdivide(items, params->polyCount, 0, params->polyCount, curNode, nodes);
-	
-	dtFree(items);
+	subdivide(items, scratch.get(), params->polyCount, 0, params->polyCount, curNode, nodes);
 	
 	return curNode;
 }
@@ -285,7 +274,10 @@ bool dtCreateNavMeshData(dtNavMeshCreateParams* params, unsigned char** outData,
 		return false;
 	if (!params->vertCount || !params->verts)
 		return false;
-	if (!params->polyCount || !params->polys)
+	if (params->polyCount <= 0 || !params->polys)
+		return false;
+	// BV storage and the node count must fit the source int-sized output fields.
+	if (params->buildBvTree && (size_t)params->polyCount > INT_MAX / (2 * sizeof(dtBVNode)))
 		return false;
 
 	const int nvp = params->nvp;
@@ -624,7 +616,12 @@ bool dtCreateNavMeshData(dtNavMeshCreateParams* params, unsigned char** outData,
 	// Store and create BVtree.
 	if (params->buildBvTree)
 	{
-		createBVTree(params, navBvtree, 2*params->polyCount);
+		if (!createBVTree(params, navBvtree, 2*params->polyCount))
+		{
+			dtFree(data);
+			dtFree(offMeshConClass);
+			return false;
+		}
 	}
 	
 	// Store Off-Mesh connections.

@@ -58,3 +58,8 @@ round upwards). Output buffering is bounded by 32 MiB. The wrapper uses a fixed
 625-entry tile array and bounded triangle flags. The parent owns a hard wall-clock
 process timeout and cancellation/kill/reap. This is a process boundary, not a claim
 that an arbitrary native Recast call can be cooperatively interrupted.
+
+Generator compatibility policy stable-BV v1 specifies stable equal-axis minima
+ordering at each BV-tree split; it is independent of the unchanged v1 wire framing.
+The parent product identity is navigation v2 / stable-BV v1. See README.md for the
+explicit libc compatibility difference, scratch memory/work bounds, and failures.

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Genuine authored MPQ capture through generation and the production Detour reader.
-use super::super::super::nav_generation::{GenerationError, PreparedNavigationInput};
+use super::super::super::nav_generation::{
+    assert_navigation_bytes, GenerationError, PreparedNavigationInput,
+};
 use super::*;
 use std::time::{Duration, Instant};
 fn oracle(name: &str) -> Vec<u8> {
@@ -131,8 +133,12 @@ fn captured_ridge_and_wmo_generate_original_bytes_and_load_production_queries() 
         })
         .unwrap();
     let (params, tile) = output.products();
-    assert_eq!(params, oracle("ridge_wmo/000.mmap"));
-    assert_eq!(tile, oracle("ridge_wmo/0003130.mmtile"));
+    assert_navigation_bytes(params, &oracle("ridge_wmo/000.mmap"), "ridge_wmo/000.mmap");
+    assert_navigation_bytes(
+        tile,
+        &oracle("ridge_wmo/0003130.mmtile"),
+        "ridge_wmo/0003130.mmtile",
+    );
     let expected: serde_json::Value =
         serde_json::from_slice(&oracle("ridge_wmo/expected.json")).unwrap();
     let mut mesh = output.load().unwrap();
@@ -221,15 +227,21 @@ fn extracted_neighbor_inventory_changes_origin_and_preserves_historical_output()
         .unwrap();
     assert_ne!(old.revision(), expanded.revision());
     assert_ne!(old.products().0, expanded.products().0);
-    assert_eq!(
+    assert_navigation_bytes(
         expanded.products().0,
-        oracle("ridge_neighbors_wmo/000.mmap")
+        &oracle("ridge_neighbors_wmo/000.mmap"),
+        "ridge_neighbors_wmo/000.mmap",
     );
-    assert_eq!(
+    assert_navigation_bytes(
         expanded.products().1,
-        oracle("ridge_neighbors_wmo/0003130.mmtile")
+        &oracle("ridge_neighbors_wmo/0003130.mmtile"),
+        "ridge_neighbors_wmo/0003130.mmtile",
     );
-    assert_eq!(old.products().0, oracle("ridge_wmo/000.mmap"));
+    assert_navigation_bytes(
+        old.products().0,
+        &oracle("ridge_wmo/000.mmap"),
+        "ridge_wmo/000.mmap",
+    );
     old.load().unwrap();
     expanded.load().unwrap();
 }
@@ -376,10 +388,8 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
             false
         })
         .unwrap();
-    assert_eq!(
-        output.products(),
-        (original_map.as_slice(), original_tile.as_slice())
-    );
+    assert_navigation_bytes(output.products().0, &original_map, "original MMap");
+    assert_navigation_bytes(output.products().1, &original_tile, "original MMTile");
     assert_eq!(&historical.products().0[..12], &output.products().0[..12]);
     assert_eq!(
         u32::from_le_bytes(historical.products().0[20..24].try_into().unwrap()),
@@ -394,8 +404,16 @@ fn one_cardinal_neighbor_changes_generation_without_changing_map_origin() {
     let expected: serde_json::Value =
         serde_json::from_slice(&oracle("ridge_xminus_wmo/expected.json")).unwrap();
     assert_original_routes(&mut output.load().unwrap(), &expected);
-    assert_eq!(historical.products().0, oracle("ridge_wmo/000.mmap"));
-    assert_eq!(historical.products().1, oracle("ridge_wmo/0003130.mmtile"));
+    assert_navigation_bytes(
+        historical.products().0,
+        &oracle("ridge_wmo/000.mmap"),
+        "ridge_wmo/000.mmap",
+    );
+    assert_navigation_bytes(
+        historical.products().1,
+        &oracle("ridge_wmo/0003130.mmtile"),
+        "ridge_wmo/0003130.mmtile",
+    );
     historical.load().unwrap();
     // A genuine source Exact625 outcome stays unavailable, but differs from omission.
     use super::super::super::super::source_pathfinder_query::tests as provider;
@@ -516,10 +534,8 @@ fn genuine_hole_neighbor_generates_two_tiles_and_crosses_the_source_seam() {
                 false
             })
             .unwrap();
-        assert_eq!(
-            output.products(),
-            (original_map.as_slice(), original_tile.as_slice())
-        );
+        assert_navigation_bytes(output.products().0, &original_map, "original MMap");
+        assert_navigation_bytes(output.products().1, &original_tile, "original MMTile");
         input.verify_unchanged(|| false).unwrap();
         outputs.push(output);
     }
@@ -890,8 +906,16 @@ fn genuine_generated_resident_cold_same_polygon_is_private_fresh_and_retryable()
             false
         })
         .unwrap();
-    assert_eq!(output.products().0, oracle("ridge_wmo/000.mmap"));
-    assert_eq!(output.products().1, oracle("ridge_wmo/0003130.mmtile"));
+    assert_navigation_bytes(
+        output.products().0,
+        &oracle("ridge_wmo/000.mmap"),
+        "ridge_wmo/000.mmap",
+    );
+    assert_navigation_bytes(
+        output.products().1,
+        &oracle("ridge_wmo/0003130.mmtile"),
+        "ridge_wmo/0003130.mmtile",
+    );
 
     // Existing original scalar-query start, converted from Detour YZX to source
     // XYZ. Its first ground polygon is 21.333 units wide along source Y; the

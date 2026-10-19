@@ -49,6 +49,66 @@ fn success(request: &GenerationRequest) -> GenerationResponse {
     assert!(output.stderr.is_empty());
     GenerationResponse::decode(&output.stdout).unwrap()
 }
+fn assert_response(actual: &GenerationResponse, expected: &GenerationResponse) {
+    assert_eq!(actual.status, expected.status);
+    assert_eq!(actual.polygon_count, expected.polygon_count);
+    assert_eq!(actual.native_peak_bytes, expected.native_peak_bytes);
+    for (label, actual, expected) in [
+        ("MMap", actual.mmap.as_slice(), expected.mmap.as_slice()),
+        (
+            "MMTile",
+            actual.mmtile.as_slice(),
+            expected.mmtile.as_slice(),
+        ),
+    ] {
+        if actual == expected {
+            continue;
+        }
+        // Stable diagnostic checksum only; full byte equality above decides success.
+        let digest = |bytes: &[u8]| {
+            bytes.iter().fold(0xcbf29ce484222325u64, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+            })
+        };
+        let offsets: Vec<_> = (0..actual.len().max(expected.len()))
+            .filter(|&offset| actual.get(offset) != expected.get(offset))
+            .take(8)
+            .collect();
+        panic!(
+            "{label}: byte mismatch; actual_len={} expected_len={} actual_fnv1a64={:016x} expected_fnv1a64={:016x} first_offsets={offsets:?}",
+            actual.len(),
+            expected.len(),
+            digest(actual),
+            digest(expected),
+        );
+    }
+}
+#[test]
+fn response_diagnostics_check_full_bytes_with_bounded_output() {
+    let response = GenerationResponse {
+        status: GenerationStatus::Generated,
+        mmap: vec![0; 28],
+        mmtile: vec![0; 1_000_000],
+        polygon_count: 2,
+        native_peak_bytes: 1,
+    };
+    assert_response(&response, &response);
+    let mut changed = response.clone();
+    changed.mmtile[999_999] = 1;
+    for expected in [
+        changed,
+        GenerationResponse {
+            mmtile: vec![0; 999_999],
+            ..response.clone()
+        },
+    ] {
+        let panic = std::panic::catch_unwind(|| assert_response(&response, &expected))
+            .expect_err("unequal complete products must fail");
+        let message = panic.downcast_ref::<String>().unwrap();
+        assert!(message.len() < 300 && message.contains("first_offsets=[999999]"));
+        assert!(message.contains("actual_fnv1a64="));
+    }
+}
 fn plane(hole: bool) -> GenerationRequest {
     let mut input = request();
     input.bmin[1] = 0.0;
@@ -119,9 +179,9 @@ fn empty_request_runs_without_inherited_environment() {
     );
     written.unwrap();
     assert!(output.stderr.is_empty());
-    assert_eq!(
-        GenerationResponse::decode(&output.stdout).unwrap(),
-        expected
+    assert_response(
+        &GenerationResponse::decode(&output.stdout).unwrap(),
+        &expected,
     );
 }
 
@@ -178,7 +238,7 @@ fn nontrivial_hole_generates_deterministically_and_budget_failures_are_clean() {
         0,
         "this regression must exercise the shifted dtLink buffer"
     );
-    assert_eq!(first, success(&input));
+    assert_response(&first, &success(&input));
     for budget in [
         1,
         128,
@@ -207,7 +267,7 @@ fn nontrivial_hole_generates_deterministically_and_budget_failures_are_clean() {
     }
     let mut exact_budget = input;
     exact_budget.allocation_budget_bytes = first.native_peak_bytes;
-    assert_eq!(first, success(&exact_budget));
+    assert_response(&first, &success(&exact_budget));
 }
 #[test]
 fn native_index_validation_is_independent_of_rust_encoder() {

@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Genuine selected-tile extraction inventory to a bounded separate native generator.
 //! Inventory-relative neighbor absence is explicit; it is not whole-install coverage.
+#[cfg(test)]
+mod byte_assert;
+#[cfg(test)]
+pub(crate) use byte_assert::assert_navigation_bytes;
 mod process;
 mod query_provider;
 #[cfg(test)]
@@ -20,7 +24,7 @@ use benilla_native_terrain::PreparedTerrain;
 use benilla_native_vmap_source::AssembledSourceMap;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, path::Path, time::Instant};
-const POLICY: &[u8] = b"benilla-source-extraction-inventory-navigation-v1";
+const POLICY: &[u8] = b"benilla-source-extraction-inventory-navigation-v2-stable-bv-v1";
 #[derive(Debug)]
 pub(crate) enum GenerationError {
     Cancelled,
@@ -309,8 +313,8 @@ impl<'terrain, 'bundle, 'source> PreparedNavigationInput<'terrain, 'bundle, 'sou
         )
         .unwrap();
         validate_response(&self.request, &response).unwrap();
-        assert_eq!(response.mmap, original_map);
-        assert_eq!(response.mmtile, original_tile);
+        assert_navigation_bytes(&response.mmap, original_map, "original MMap");
+        assert_navigation_bytes(&response.mmtile, original_tile, "original MMTile");
         self.verify_unchanged(|| false).unwrap();
     }
     pub(crate) fn verify_unchanged(
