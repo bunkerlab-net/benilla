@@ -66,10 +66,22 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<vmap::RayReply, CompositionError> {
+        let mut budget = vmap::QueryBudget::new(deadline);
+        self.source_ray_with_budget(ticket, from, to, &mut budget, cancelled)
+    }
+
+    /// Fixed ignore-M2=false ray with one caller-owned cumulative work budget.
+    /// This is a geometry observation, not a Chase or NearPoint caller certificate.
+    pub(crate) fn source_ray_with_budget(
+        &self,
+        ticket: u64,
+        from: [u32; 3],
+        to: [u32; 3],
+        budget: &mut vmap::QueryBudget,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<vmap::RayReply, CompositionError> {
         check(&cancelled)?;
-        if Instant::now() >= deadline {
-            return Err(Error::Deadline.into());
-        }
+        budget.complete()?;
         self.verify_unchanged(&cancelled)?;
         check(&cancelled)?;
         let request = vmap::RayRequest {
@@ -79,15 +91,13 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
             to,
             ignore_m2: false,
         };
-        let reply = self.collision.query(request, deadline)?;
+        let reply = self.collision.query_with_budget(request, budget)?;
         if reply.request != request {
             return Err(Error::Identity.into());
         }
         self.verify_unchanged(&cancelled)?;
         check(&cancelled)?;
-        if Instant::now() >= deadline {
-            return Err(Error::Deadline.into());
-        }
+        budget.complete()?;
         Ok(reply)
     }
 
@@ -185,7 +195,7 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         let mut budget = vmap::QueryBudget::new(deadline);
         self.query_with_budget(request, &mut budget)
     }
-    fn query_with_budget(
+    pub(crate) fn query_with_budget(
         &self,
         request: HeightRequest,
         budget: &mut vmap::QueryBudget,

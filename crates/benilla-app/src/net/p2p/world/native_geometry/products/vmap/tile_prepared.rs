@@ -115,6 +115,13 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         budget.complete()?;
         Ok(Some(selected.floor))
     }
+    pub(in super::super) fn query_with_budget(
+        &self,
+        request: RayRequest,
+        budget: &mut super::QueryBudget,
+    ) -> Result<RayReply, Error> {
+        self.geometry.query_with_budget(request, budget)
+    }
     pub(crate) fn query(&self, request: RayRequest, deadline: Instant) -> Result<RayReply, Error> {
         self.geometry.query(request, deadline)
     }

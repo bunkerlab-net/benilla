@@ -15,14 +15,39 @@ use std::rc::Rc;
 pub(crate) mod chase_los;
 #[path = "cold.rs"]
 pub(crate) mod cold;
+#[path = "near_point.rs"]
+pub(crate) mod near_point;
 
-const POLICY: &[u8] = b"benilla-resident-point-no-water-owner-filter-v1";
+const POLICY: &[u8] = b"benilla-resident-query-ground-primary-v2";
 pub(crate) fn geometry_revision(
     height: source_height::Binding,
     navigation: navigation::SnapshotBinding,
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(POLICY);
+    hash.update([1, 1, 1]); // Fixed collision detection, VMap height and LOS enabled.
+    hash.update(10.0f32.to_bits().to_le_bytes()); // Ground Map::GetHeight search.
+    hash.update(b"independent-empty-dynamic-participants-v1");
+    hash.update(b"cmangos-8ec338a1-map-height-ground-search10-allowed-z-v1");
+    // Pinned Unit.cpp, including the Ground UpdateAllowedPositionZ branch.
+    hash.update(b"03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0");
+    for policy in [
+        benilla_sim::near_point::primary::POLICY,
+        benilla_sim::near_point::POLICY,
+        benilla_sim::source_trig::SOFT_POLICY,
+        benilla_sim::facing::POLICY,
+    ] {
+        hash.update((policy.len() as u64).to_le_bytes());
+        hash.update(policy.as_bytes());
+    }
+    for source in benilla_sim::near_point::primary::SOURCE_SHA256
+        .iter()
+        .chain(benilla_sim::near_point::SOURCE_SHA256.iter())
+        .chain(benilla_sim::source_trig::SOURCE_SHA256.iter())
+        .chain(benilla_sim::facing::SOURCE_SHA256.iter())
+    {
+        hash.update(source.as_bytes());
+    }
     hash.update(height.map.to_le_bytes());
     hash.update(height.revision);
     hash.update(super::super::source_pathfinder_query::geometry_revision(

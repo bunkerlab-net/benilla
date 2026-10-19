@@ -1096,3 +1096,7 @@ pub(crate) mod resident_los_tests;
 #[cfg(test)]
 #[path = "source_pathfinder_query/resident_water_tests.rs"]
 pub(crate) mod resident_water_tests;
+
+#[cfg(test)]
+#[path = "source_pathfinder_query/resident_near_point_tests.rs"]
+pub(crate) mod resident_near_point_tests;

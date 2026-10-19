@@ -1466,3 +1466,214 @@ fn genuine_resident_player_environment_wet_and_missing_products_never_refresh_ca
         assert_eq!(install.bytes(), before, "{case}");
     }
 }
+
+#[test]
+fn genuine_resident_primary_point_drives_runtime_dry_cache_and_conditional_chase() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    use super::super::super::super::source_pathfinder_query::{
+        resident_los_tests as los, resident_near_point_tests as primary,
+    };
+    use super::super::super::{
+        source_height::PreparedSourceHeight, source_query::SourceMapQuerySnapshot,
+    };
+    use benilla_world_runtime::native::environment::LiquidCatalog;
+    let entries = ridge_entries();
+    let catalog = LiquidCatalog::from_wdbc(
+        &entries
+            .iter()
+            .find(|entry| entry.name == "DBFilesClient\\LiquidType.dbc")
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_slice(&oracle("ridge_wmo/expected.json")).unwrap();
+    let start = expected["output"]["paths"][0]["start_bits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|word| f32::from_bits(u32::from_str_radix(word.as_str().unwrap(), 16).unwrap()))
+        .collect::<Vec<_>>();
+    let start = [start[2], start[0], start[1]];
+    // Existing authored model and starter sources remain labeled. Every selected
+    // NearPoint geometry observation comes from the real MPQ consumed inputs.
+    let p = los::model_profile(start, [start[0], start[1] + 8.0, start[2]], 1.6, 2.4);
+    let snapshot = || {
+        SourceMapQuerySnapshot::from_generated(
+            &[(&input, &output)],
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || false,
+        )
+        .unwrap()
+    };
+    let mut changed = ridge_entries();
+    changed
+        .iter_mut()
+        .find(|entry| entry.name == ADT)
+        .unwrap()
+        .bytes[0] ^= 1;
+    primary::assert_resident_primary_near_point(
+        p.clone(),
+        snapshot(),
+        snapshot(),
+        snapshot(),
+        &height,
+        &catalog,
+        |mutated| install.write(if mutated { &changed } else { &entries }),
+    );
+    input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
+}
+
+#[test]
+fn genuine_resident_primary_vertical_and_missing_geometry_never_publish_goals() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    use super::super::super::super::{
+        core::Failure,
+        source_pathfinder_query::{
+            resident_los_tests as los, resident_near_point_tests as primary,
+        },
+    };
+    use super::super::super::{
+        source_height::PreparedSourceHeight, source_query::SourceMapQuerySnapshot,
+    };
+    let entries = ridge_entries();
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    for (start, end, error, observations) in [
+        // The supported ground candidate is well below the target. Vertical
+        // rejection occurs after real ground and before any ray observation.
+        (
+            [88.0, 622.0, 30.0],
+            [88.0, 630.0, 30.0],
+            Failure::UnsupportedNearPointFallback,
+            1,
+        ),
+        // These actual runtime poses select an entirely unloaded terrain tile.
+        (
+            [0.0, -8.0, 7.25],
+            [0.0, 0.0, 7.25],
+            Failure::MissingGeometry,
+            0,
+        ),
+    ] {
+        let p = los::model_profile(start, end, 1.6, 2.4);
+        let query = SourceMapQuerySnapshot::from_generated(
+            &[(&input, &output)],
+            &p,
+            Instant::now() + Duration::from_secs(10),
+            || false,
+        )
+        .unwrap();
+        primary::assert_resident_primary_unavailable(p, query, &height, error, observations);
+    }
+    input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
+}
+
+#[test]
+fn genuine_resident_primary_blocked_los_never_publishes_a_goal() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    use super::super::super::super::{
+        core::Failure,
+        source_pathfinder_query::{
+            resident_los_tests as los, resident_near_point_tests as primary,
+        },
+    };
+    use super::super::super::{
+        source_height::PreparedSourceHeight, source_query::SourceMapQuerySnapshot,
+    };
+    let entries = ridge_entries();
+    let install = Install::new(&entries);
+    let before = install.bytes();
+    let terrain = benilla_native_terrain::prepare(
+        &install.0,
+        0,
+        &[benilla_native_terrain::Tile { x: 31, y: 30 }],
+    )
+    .unwrap();
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let input = PreparedNavigationInput::from_source(&terrain, &bundle, TILE, || false).unwrap();
+    let output = input
+        .generate(&helper(), Instant::now() + Duration::from_secs(60), || {
+            false
+        })
+        .unwrap();
+    assert_eq!(
+        output.summary().status,
+        benilla_native_nav_generator::GenerationStatus::Generated
+    );
+    let height = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let hit = [f32::from_bits(0x43e8_d540), f32::from_bits(0x4471_aaa0)];
+    // Source Hull rises above the target's eye and falls below candidate feet,
+    // so the actual ray crosses the interior rather than an endpoint seam.
+    let p = los::model_profile([hit[0] + 8.0, hit[1], 4.5], [hit[0], hit[1], 4.5], 0.1, 2.4);
+    let query = SourceMapQuerySnapshot::from_generated(
+        &[(&input, &output)],
+        &p,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+    )
+    .unwrap();
+    primary::assert_resident_primary_unavailable(
+        p,
+        query,
+        &height,
+        Failure::UnsupportedNearPointFallback,
+        2,
+    );
+    // Missing collision-slot fallback remains separate primitive coverage in
+    // source_height_tests; this fixture proves no loaded resident composition
+    // for that case. Missing terrain is exercised through NativeWorld above.
+    input.verify_unchanged(|| false).unwrap();
+    assert_eq!(install.bytes(), before);
+}

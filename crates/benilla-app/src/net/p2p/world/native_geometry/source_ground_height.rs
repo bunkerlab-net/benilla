@@ -417,3 +417,10 @@ pub(crate) fn geometry_revision(b: SnapshotBinding) -> [u8; 32] {
 #[cfg(test)]
 #[path = "source_ground_height/tests.rs"]
 mod tests;
+
+/// Pure pinned initial-candidate arithmetic; no source or caller authority.
+pub(super) fn initial_candidate_position(
+    request: &benilla_sim::creature_motion::NearPointRequest,
+) -> Result<(u32, [u32; 3]), Failure> {
+    initial_candidate::initial_position(request)
+}

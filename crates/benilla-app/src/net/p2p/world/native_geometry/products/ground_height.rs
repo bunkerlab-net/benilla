@@ -219,7 +219,7 @@ impl<'a> MapHeightSnapshot<'a> {
 }
 
 /// Map.cpp:2758-2765. Callbacks are private source-oracle seams, not providers.
-fn map_height(
+pub(crate) fn map_height(
     p: [f32; 3],
     swim: bool,
     mut static_height: impl FnMut([f32; 3], bool, f32) -> Result<f32, Error>,
