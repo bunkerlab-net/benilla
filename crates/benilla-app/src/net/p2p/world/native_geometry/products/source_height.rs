@@ -13,6 +13,7 @@ use benilla_native_vmap_source::AssembledSourceMap;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, time::Instant};
 mod environment;
+pub(crate) mod inventory;
 mod point_liquid;
 pub(crate) use point_liquid::{PointNoWaterReply, PointNoWaterRequest};
 

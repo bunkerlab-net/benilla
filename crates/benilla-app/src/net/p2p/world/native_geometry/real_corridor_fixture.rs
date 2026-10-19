@@ -409,3 +409,23 @@ fn real_avian_overlap_never_treats_an_uncatalogued_obstacle_as_empty_space() {
     fixture.app.world_mut().despawn(wall);
     assert_eq!(fixture.certify(FROM, goal, body()), Ok(()));
 }
+
+#[test]
+fn static_index_retains_only_its_actual_inventory_provenance_owner() {
+    let raw = RawMap::new(TerrainKind::Flat);
+    let inventory = raw.inventory();
+    let owner = inventory.source_provenance().unwrap().clone();
+    let replacement = raw.inventory();
+    assert_eq!(inventory.source_digest(), replacement.source_digest());
+    assert_eq!(
+        owner.receipt_digest(),
+        replacement.source_provenance().unwrap().receipt_digest()
+    );
+    assert!(!owner.same_owner(replacement.source_provenance().unwrap()));
+    let index =
+        benilla_world::terrain_stream::NativeStaticMapIndex::from_inventory(inventory).unwrap();
+    assert!(owner.same_owner(index.source_provenance().unwrap()));
+    let other =
+        benilla_world::terrain_stream::NativeStaticMapIndex::from_inventory(replacement).unwrap();
+    assert!(!owner.same_owner(other.source_provenance().unwrap()));
+}

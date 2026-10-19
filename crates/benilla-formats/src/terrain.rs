@@ -302,7 +302,9 @@ pub(crate) fn snap_to_lattice(coord: f32) -> f32 {
 
 mod native_inventory;
 mod native_static;
-pub use native_inventory::{NativeM2MapInventory, NativeWmoMapModel};
+pub use native_inventory::{
+    NativeInventoryReceipt, NativeInventorySource, NativeM2MapInventory, NativeWmoMapModel,
+};
 
 /// Rendering intentionally tolerates missing records. Native coverage cannot: inspect raw
 /// chunk framing and liquid offsets before any parser/filter can omit a placement or pool.

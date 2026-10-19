@@ -69,6 +69,12 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
     pub(crate) fn binding(&self) -> SnapshotBinding {
         self.geometry.binding()
     }
+    /// Metadata from the actual borrowed capture; no raw member bytes are exposed.
+    pub(in super::super) fn source_receipts(
+        &self,
+    ) -> impl Iterator<Item = benilla_native_vmap_source::SourceReceipt<'_>> {
+        self.source.source_receipts()
+    }
     pub(crate) fn source_version(&self) -> Hash {
         *self.source.map().source_binding()
     }

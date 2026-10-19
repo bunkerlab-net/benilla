@@ -9,6 +9,13 @@ use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Cursor, sync::Arc};
 
+mod source;
+pub use source::{NativeInventoryReceipt, NativeInventorySource};
+use source::{SourceLimits, SourceReceipts};
+
+#[cfg(test)]
+mod source_tests;
+
 /// Immutable dependency closure of a WMO root, all groups and all MODD M2 sources (including
 /// inactive sets). A missing dependency never produces an empty successful entry.
 pub struct NativeWmoMapModel {
@@ -33,30 +40,39 @@ pub struct NativeM2MapInventory {
     directory: String,
     wdt: [u8; 32],
     digest: [u8; 32],
+    provenance: Option<NativeInventorySource>,
     tiles: BTreeMap<(i32, i32), [u8; 32]>,
     placements: BTreeMap<u32, (Doodad, Arc<NativeM2Collision>)>,
     wmos: BTreeMap<u32, (WmoInstance, Arc<NativeWmoMapModel>)>,
 }
 impl NativeM2MapInventory {
     pub fn load(chain: &mut Chain, directory: &str) -> Result<Self> {
-        Self::read(directory, |path| {
+        Self::load_with_limits(chain, directory, SourceLimits::default())
+    }
+    fn load_with_limits(chain: &mut Chain, directory: &str, limits: SourceLimits) -> Result<Self> {
+        let mut receipts = SourceReceipts::new(limits);
+        let mut inventory = Self::read(directory, |path| {
             let archive = chain.archive_for(path)?;
-            let limit = if path.ends_with(".wdt") {
-                1024 * 1024
-            } else {
-                64 * 1024 * 1024
-            };
             if archive
                 .file_size(path)
-                .context("missing inventory member size")?
-                > limit
+                .context("missing inventory member size")? as usize
+                > limits.member_limit(path)
             {
                 bail!("native inventory member size limit: {path}");
             }
-            archive
+            let bytes = archive
                 .read_file(path)
-                .with_context(|| format!("reading native inventory member {path}"))
-        })
+                .with_context(|| format!("reading native inventory member {path}"))?;
+            let winner = archive
+                .path()
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("native inventory archive basename is not UTF-8")?;
+            receipts.record(path, winner, &bytes)?;
+            Ok(bytes)
+        })?;
+        inventory.provenance = Some(receipts.finish(directory, inventory.digest));
+        Ok(inventory)
     }
     pub fn directory(&self) -> &str {
         &self.directory
@@ -66,6 +82,10 @@ impl NativeM2MapInventory {
     }
     pub fn source_digest(&self) -> [u8; 32] {
         self.digest
+    }
+    /// Available only for the successful archive-backed load of this exact inventory.
+    pub fn source_provenance(&self) -> Option<&NativeInventorySource> {
+        self.provenance.as_ref()
     }
     pub fn tile_digest(&self, tile: (i32, i32)) -> Option<[u8; 32]> {
         self.tiles.get(&tile).copied()
@@ -124,6 +144,7 @@ impl NativeM2MapInventory {
             directory: directory.into(),
             wdt: wdt_digest,
             digest: [0; 32],
+            provenance: None,
             tiles: BTreeMap::new(),
             placements: BTreeMap::new(),
             wmos: BTreeMap::new(),
@@ -383,7 +404,7 @@ mod tests {
 mod model_tests {
     use super::tests::{chunk, wdt};
     use super::*;
-    fn placed() -> Vec<u8> {
+    pub(super) fn placed() -> Vec<u8> {
         let mut b = super::super::native_coverage_tests::source();
         b.extend(chunk(b"XDMM", b"World\\Tree.m2\0"));
         b.extend(chunk(b"DIMM", &0u32.to_le_bytes()));
@@ -399,7 +420,7 @@ mod model_tests {
         b[8 + 0x20..8 + 0x24].copy_from_slice(&offset.to_le_bytes());
         b
     }
-    fn empty_model() -> Vec<u8> {
+    pub(super) fn empty_model() -> Vec<u8> {
         let mut b = vec![0; 0x144];
         b[..4].copy_from_slice(b"MD20");
         b[4..8].copy_from_slice(&256u32.to_le_bytes());
@@ -448,7 +469,7 @@ mod wmo_tests {
     use super::tests::{chunk, wdt};
     use super::*;
     use crate::models::native_wmo::tests::{group, root};
-    fn tile() -> Vec<u8> {
+    pub(super) fn tile() -> Vec<u8> {
         let mut b = super::super::native_coverage_tests::source();
         b.extend(chunk(b"OMWM", b"World\\House.wmo\0"));
         b.extend(chunk(b"DIWM", &0u32.to_le_bytes()));

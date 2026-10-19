@@ -13,6 +13,11 @@ pub struct NativeStaticMapIndex {
     exterior: ExteriorIndex,
 }
 impl NativeStaticMapIndex {
+    /// Provenance belongs to the exact inventory consumed by this index.
+    /// A detached equal-content inventory does not authorize this owner.
+    pub fn source_provenance(&self) -> Option<&benilla_formats::NativeInventorySource> {
+        self.source.source_provenance()
+    }
     pub fn from_inventory(source: NativeM2MapInventory) -> Result<Self, CoverageError> {
         let mut exterior = ExteriorIndex::default();
         for (d, c) in source.placements() {
