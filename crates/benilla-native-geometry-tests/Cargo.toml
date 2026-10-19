@@ -8,6 +8,7 @@ description = "Exact app geometry mailbox and terrain proof tests without Bevy"
 [lints]
 workspace = true
 [dev-dependencies]
+benilla-native-vmap-source = { path = "../benilla-native-vmap-source", features = ["synthetic-map-tests"] }
 benilla-native-nav = { path = "../benilla-native-nav" }
 benilla-native-terrain = { path = "../benilla-native-terrain" }
 benilla-native-vmap = { path = "../benilla-native-vmap" }

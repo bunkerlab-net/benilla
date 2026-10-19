@@ -11,6 +11,9 @@ the Python harness never uses a NUL-containing name as a filesystem path.
 
 TSV columns are case, dir_bin hex, raw models JSON, generated products JSON,
 and consumer lookups JSON. JSON objects contain filenames and hex bytes.
+The companion map-queries.tsv records public-manager queries on two geometrically
+valid map-0 placements. All floating-point inputs/results are binary32 bit hex;
+world and internal roundtrip coordinates come from the original public converter.
 No Rust implementation, held compiler patch or listfile oracle is consulted.
 """
 import argparse
@@ -44,7 +47,7 @@ def raw_model(root=5875):
 def spawn(map_id, tile, identifier, bounds, *, flags=4, adt=11,
           position=(0, 0, 0), rotation=(0, 0, 0), scale=1, name=b'Hull.wmo'):
     """Author the original input record layout, not expected output bytes."""
-    assert name in (b'Hull.wmo', b'Decoy.wmo', b'Foo.m2', b'Foo.m2\0')
+    assert name in (b'Hull.wmo', b'Hull.wmo\0', b'Decoy.wmo', b'Foo.m2', b'Foo.m2\0')
     result = struct.pack('<4IHI7f', map_id, *tile, flags, adt, identifier,
                          *position, *rotation, scale)
     if flags & 4:
@@ -125,10 +128,21 @@ def cases():
                {'Foo.m2': raw_model()},
                {'001.vmtree', '001_04_08.vmtile',
                 'Foo.m2' if shortened else 'Foo.m2.vmo'}, 'm2')
+    # Unlike structural-only map fixtures above, these bounds exactly enclose
+    # the transformed triangle. Separate directories isolate C-string shortening.
+    for shortened in (False, True):
+        name = b'Hull.wmo\0' if shortened else b'Hull.wmo'
+        row = spawn(0, (30, 31), 23, (16599, 16098, 1, 16604, 16105, 10),
+                    position=(16600, 16100, 4), name=name)
+        yield ('query_wmo_shortened_name' if shortened else 'query_wmo_plain_name',
+               row, {'Hull.wmo': raw_model()},
+               {'000.vmtree', '000_30_31.vmtile',
+                'Hull.wmo' if shortened else 'Hull.wmo.vmo'}, 'query_wmo')
 
 
 HARNESS = r'''
 #include <cfenv>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -149,6 +163,106 @@ extern "C" FILE* __wrap_fopen(const char* path, const char* mode) {
     }
     return __real_fopen(path, mode);
 }
+static std::string bits(float value) {
+    uint32_t word;
+    std::memcpy(&word, &value, sizeof(word));
+    char buffer[11];
+    std::snprintf(buffer, sizeof(buffer), "\"%08x\"", word);
+    return buffer;
+}
+static std::string vector_bits(const G3D::Vector3& value) {
+    return "[" + bits(value.x) + "," + bits(value.y) + "," + bits(value.z) + "]";
+}
+static const char* boolean(bool value) { return value ? "true" : "false"; }
+static void record(const std::string& query, const std::string& request,
+                   const std::string& result) {
+    std::printf("QUERY\t%s\t%s\t%s\n", query.c_str(), request.c_str(), result.c_str());
+}
+struct QueryPoint {
+    const char* name;
+    G3D::Vector3 authored, world, roundtrip;
+    QueryPoint(VMAP::VMapManager2& manager, const char* label, float x, float y, float z)
+        : name(label), authored(x, y, z),
+          world(manager.convertPositionToInternalRep(x, y, z)),
+          roundtrip(manager.convertPositionToInternalRep(world.x, world.y, world.z)) {
+        record(std::string("coordinates_") + name,
+               "{\"internal_bits\":" + vector_bits(authored) + "}",
+               "{\"world_bits\":" + vector_bits(world) +
+               ",\"roundtrip_internal_bits\":" + vector_bits(roundtrip) + "}");
+    }
+};
+static void height_query(VMAP::VMapManager2& manager, const char* label,
+                         const QueryPoint& point, float search) {
+    const float height = manager.getHeight(0, point.world.x, point.world.y, point.world.z, search);
+    record(std::string("height_") + label,
+           "{\"position\":\"" + std::string(point.name) + "\",\"max_search_dist_bits\":" + bits(search) + "}",
+           "{\"height_bits\":" + bits(height) + "}");
+}
+static bool segment_queries(VMAP::VMapManager2& manager, const char* label,
+                            const QueryPoint& start, const QueryPoint& end) {
+    const std::string endpoints = "{\"start\":\"" + std::string(start.name) +
+                                 "\",\"end\":\"" + end.name + "\"";
+    for (bool ignore : {false, true}) {
+        const bool clear = manager.isInLineOfSight(0, start.world.x, start.world.y, start.world.z,
+                                                  end.world.x, end.world.y, end.world.z, ignore);
+        record(std::string("los_") + label + (ignore ? "_ignore_m2" : "_include_m2"),
+               endpoints + ",\"ignore_m2\":" + boolean(ignore) + "}",
+               std::string("{\"clear\":") + boolean(clear) + "}");
+    }
+    bool unmodified_hit = false;
+    const float modifiers[] = {0.f, -0.f, 1.f, -1.f, -100.f};
+    const char* names[] = {"zero", "negative_zero", "positive", "negative", "clamped"};
+    for (unsigned i = 0; i < sizeof(modifiers) / sizeof(modifiers[0]); ++i) {
+        G3D::Vector3 result;
+        const bool hit = manager.getObjectHitPos(0, start.world.x, start.world.y, start.world.z,
+                                                 end.world.x, end.world.y, end.world.z,
+                                                 result.x, result.y, result.z, modifiers[i]);
+        const G3D::Vector3 internal = manager.convertPositionToInternalRep(result.x, result.y, result.z);
+        record(std::string("hit_") + label + "_" + names[i],
+               endpoints + ",\"modify_dist_bits\":" + bits(modifiers[i]) + "}",
+               std::string("{\"hit\":") + boolean(hit) + ",\"world_bits\":" + vector_bits(result) +
+               ",\"internal_bits\":" + vector_bits(internal) + "}");
+        if (i == 0) unmodified_hit = hit;
+    }
+    return unmodified_hit;
+}
+static int map_queries(const char* base) {
+    VMAP::VMapManager2 manager;
+    // StaticMapTree::getTileFileName swaps x/y relative to dir_bin's tile fields.
+    const auto loaded = manager.loadMap(base, 0, 31, 30);
+    const bool tile_loaded = manager.IsTileLoaded(0, 31, 30);
+    const bool transposed_loaded = manager.IsTileLoaded(0, 30, 31);
+    record("load", "{\"map_id\":0,\"tile_x\":31,\"tile_y\":30}",
+           "{\"load_result\":" + std::to_string(static_cast<unsigned>(loaded)) +
+           ",\"tile_loaded\":" + boolean(tile_loaded) +
+           ",\"transposed_tile_loaded\":" + boolean(transposed_loaded) + "}");
+    if (loaded != VMAP::VMAP_LOAD_RESULT_OK || !tile_loaded || transposed_loaded) return 5;
+    const QueryPoint top(manager, "hit_top", 16601.f, 16100.f, 20.f);
+    const QueryPoint bottom(manager, "hit_bottom", 16601.f, 16100.f, 0.f);
+    const QueryPoint short_end(manager, "short_end", 16601.f, 16100.f, 15.f);
+    const QueryPoint tiny_end(manager, "tiny_end", 16601.f, 16100.f, 1e-11f);
+    const QueryPoint miss_top(manager, "miss_top", 16603.f, 16104.f, 20.f);
+    const QueryPoint miss_bottom(manager, "miss_bottom", 16603.f, 16104.f, 0.f);
+    height_query(manager, "down", top, 20.f);
+    height_query(manager, "up", bottom, -20.f);
+    height_query(manager, "short_down", top, 5.f);
+    height_query(manager, "short_up", bottom, -1.f);
+    height_query(manager, "zero", top, 0.f);
+    height_query(manager, "negative_zero", top, -0.f);
+    height_query(manager, "below_down", bottom, 20.f);
+    height_query(manager, "above_up", top, -20.f);
+    height_query(manager, "miss_down", miss_top, 20.f);
+    height_query(manager, "miss_up", miss_bottom, -20.f);
+    const bool hit_down = segment_queries(manager, "down", top, bottom);
+    const bool hit_up = segment_queries(manager, "up", bottom, top);
+    segment_queries(manager, "miss_down", miss_top, miss_bottom);
+    segment_queries(manager, "miss_up", miss_bottom, miss_top);
+    segment_queries(manager, "short", top, short_end);
+    segment_queries(manager, "zero", top, top);
+    segment_queries(manager, "tiny", bottom, tiny_end);
+    manager.unloadMap(0);
+    return hit_down && hit_up ? 0 : 6;
+}
 int main(int argc, char** argv) {
     static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
     static_assert(sizeof(int) == 4 && sizeof(short) == 2);
@@ -158,6 +272,7 @@ int main(int argc, char** argv) {
         VMAP::TileAssembler assembler(argv[2], argv[3]);
         return assembler.convertWorld2() ? 0 : 2;
     }
+    if (std::string(argv[1]) == "queries") return map_queries(argv[2]);
     if (std::string(argv[1]) != "lookup") return 3;
     std::string name;
     const std::string kind(argv[3]);
@@ -165,6 +280,7 @@ int main(int argc, char** argv) {
     if (kind == "plain") name = "Foo.m2";
     else if (kind == "nul") name = std::string("Foo.m2\0", 7);
     else if (kind == "wmo") name = "Hull.wmo";
+    else if (kind == "wmo_nul") name = std::string("Hull.wmo\0", 9);
     else return 4;
     VMAP::VMapManager2 manager;
     trace_open = true;
@@ -203,6 +319,16 @@ def main():
         '# raw-models-json\tfilename -> raw hex; one dry group, root 5875 (Decoy 99), group ID 23, flags 8192, bounds [-1,-2,-3,4,5,6], vertices [[-1,-2,-3],[4,0,6],[0,5,1]], indices [0,1,2]',
         '# generated-products-json\tactual output filename -> complete output hex; filenames validated against authored expected set',
         '# consumer-lookups-json\tname_hex, fopen_basename_hex and loaded; fresh original manager for each lookup; fopen observed through link wrapper',
+    ]
+    query_rows = [
+        '# case\tquery\trequest-json\tresult-json',
+        f'# source-pin\t{PIN}',
+        '# scope\tunchanged original public VMapManager2 loadMap, IsTileLoaded, convertPositionToInternalRep, getHeight, isInLineOfSight and getObjectHitPos; generated products from matching map-products.tsv case',
+        '# binary32\tall *_bits values are eight-digit IEEE-754 binary32 hex words; arrays are x,y,z; C++ memcpy captures original inputs and return values without decimal conversion',
+        '# load\tmap 0 dir_bin tile 30,31 is loaded with public manager tile 31,30 because StaticMapTree::getTileFileName transposes tile indices; IsTileLoaded and positive forward/reverse hit are required',
+        '# coordinates\tauthored internal input -> original convertPositionToInternalRep world -> original convertPositionToInternalRep roundtrip; other query requests refer to these point names and use their world coordinates',
+        '# results\theight_bits is the public getHeight result including its invalid-height sentinel; hit positions are public getObjectHitPos outputs and their original converter roundtrip; no distance is reconstructed from hit position',
+        '# modifiers\tzero=+0, negative_zero=-0, positive=+1, negative=-1, clamped=-100; short search and sub-1e-10 segment are distinct from zero',
     ]
     fixtures = list(cases())
     with tempfile.TemporaryDirectory(prefix='benilla-map-products-') as temporary:
@@ -244,7 +370,8 @@ using uint8=std::uint8_t; using uint16=std::uint16_t; using uint32=std::uint32_t
                 raise AssertionError(f'{case}: unexpected output filenames')
             products = {path.name: path.read_bytes().hex() for path in paths}
             lookups = []
-            kinds = ['plain', 'nul'] if lookup_kind == 'm2' else [lookup_kind]
+            kinds = (['plain', 'nul'] if lookup_kind == 'm2' else
+                     ['wmo', 'wmo_nul'] if lookup_kind == 'query_wmo' else [lookup_kind])
             for kind in kinds:
                 if kind == 'none':
                     continue
@@ -255,8 +382,10 @@ using uint8=std::uint8_t; using uint16=std::uint16_t; using uint32=std::uint32_t
                 loaded = [line.removeprefix('LOADED ') for line in result.stdout.splitlines()
                           if line.startswith('LOADED ')]
                 assert len(opened) == len(loaded) == 1, result.stdout
-                names = {'plain': b'Foo.m2', 'nul': b'Foo.m2\0', 'wmo': b'Hull.wmo'}
-                basename = {'plain': b'Foo.m2.vmo', 'nul': b'Foo.m2', 'wmo': b'Hull.wmo.vmo'}[kind]
+                names = {'plain': b'Foo.m2', 'nul': b'Foo.m2\0',
+                         'wmo': b'Hull.wmo', 'wmo_nul': b'Hull.wmo\0'}
+                basename = {'plain': b'Foo.m2.vmo', 'nul': b'Foo.m2',
+                            'wmo': b'Hull.wmo.vmo', 'wmo_nul': b'Hull.wmo'}[kind]
                 assert opened[0] == basename.hex()
                 assert (loaded[0] == '1') == (basename.decode() in expected_names)
                 lookups.append({'name_hex': names[kind].hex(),
@@ -264,15 +393,28 @@ using uint8=std::uint8_t; using uint16=std::uint16_t; using uint32=std::uint32_t
             rows.append('\t'.join([case, payload.hex(),
                                    compact({name: raw.hex() for name, raw in models.items()}),
                                    compact(products), compact(lookups)]))
-    output = ('\n'.join(rows) + '\n').encode()
-    target = HERE / 'fixtures/map-products.tsv'
-    if args.check:
-        if target.read_bytes() != output:
-            raise SystemExit('Original map products differ')
-    else:
-        target.write_bytes(output)
-    print(f'{"Verified" if args.check else "Generated"} {len(fixtures)} original map product fixtures; '
-          f'sha256={hashlib.sha256(output).hexdigest()}')
+            if lookup_kind == 'query_wmo':
+                result = subprocess.run([str(work / 'probe'), 'queries', str(output_dir), 'map0'],
+                                        check=True, capture_output=True, text=True, timeout=10)
+                records = [line.split('\t') for line in result.stdout.splitlines()
+                           if line.startswith('QUERY\t')]
+                assert len(records) == 66, result.stdout
+                assert len({fields[1] for fields in records}) == len(records)
+                for marker, query, request, response in records:
+                    assert marker == 'QUERY'
+                    query_rows.append('\t'.join([case, query, compact(json.loads(request)),
+                                                 compact(json.loads(response))]))
+    for filename, content, count in [('map-products.tsv', rows, len(fixtures)),
+                                     ('map-queries.tsv', query_rows, 132)]:
+        output = ('\n'.join(content) + '\n').encode()
+        target = HERE / 'fixtures' / filename
+        if args.check:
+            if target.read_bytes() != output:
+                raise SystemExit(f'Original {filename} differs')
+        else:
+            target.write_bytes(output)
+        print(f'{"Verified" if args.check else "Generated"} {count} original {filename} fixtures; '
+              f'sha256={hashlib.sha256(output).hexdigest()}')
 
 
 if __name__ == '__main__':

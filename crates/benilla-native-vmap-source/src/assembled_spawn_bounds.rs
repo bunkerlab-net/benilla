@@ -476,3 +476,150 @@ mod tests {
         }
     }
 }
+
+/// Assemble authored pre-bounded WMO records for cross-crate oracle tests only.
+/// This does not capture archives, create a source lease, or admit a game map.
+/// Callers must pass the result through the normal consumer inventory checks.
+#[cfg(feature = "synthetic-map-tests")]
+pub fn assemble_authored_wmo_map(
+    bytes: Vec<u8>,
+    count: usize,
+    cancelled: impl Fn() -> bool,
+) -> Result<Option<crate::MapProducts>, crate::MapProductError> {
+    use crate::MapProductError as E;
+    if cancelled() {
+        return Err(E::Cancelled);
+    }
+    if bytes.len() > crate::MAX_PLACEMENT_RECORD_BYTES || count > crate::MAX_INDEX_RECORDS {
+        return Err(E::Limit);
+    }
+    let records = PlacementRecords::fixture(bytes, count);
+    let index = records.map_spawn_index(&cancelled).map_err(E::Index)?;
+    let mut bounds = Vec::new();
+    bounds
+        .try_reserve_exact(index.unique_count())
+        .map_err(|_| E::Allocation)?;
+    for (generated_id, record) in index.unique_records() {
+        if cancelled() {
+            return Err(E::Cancelled);
+        }
+        let flags = word(record, 12).map_err(E::Bounds)?;
+        // The normal preparation path validates these even for supplied WMO bounds.
+        vector(record, 22).map_err(E::Bounds)?;
+        vector(record, 34).map_err(E::Bounds)?;
+        float(record, 46).map_err(E::Bounds)?;
+        if flags & 1 != 0 || flags & 4 == 0 {
+            return Err(E::Record);
+        }
+        bounds.push(AssembledSpawnBound {
+            generated_id,
+            flags,
+            bounds: supplied_wmo_bounds(record, flags).map_err(E::Bounds)?,
+        });
+    }
+    drop(index);
+    AssembledSpawnBounds {
+        records,
+        bounds,
+        visits: 0,
+    }
+    .map_products(cancelled)
+}
+
+#[cfg(all(test, feature = "synthetic-map-tests"))]
+mod authored_adapter_tests {
+    use super::*;
+    use crate::MapProductError as E;
+
+    fn record() -> Vec<u8> {
+        let row = include_str!("../tools/fixtures/map-products.tsv")
+            .lines()
+            .find(|line| !line.starts_with('#') && !line.is_empty())
+            .unwrap();
+        let hex = row.split('\t').nth(1).unwrap();
+        let bytes: Vec<u8> = hex
+            .as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        let length = u32::from_le_bytes(bytes[74..78].try_into().unwrap()) as usize;
+        bytes[..78 + length].to_vec()
+    }
+    #[test]
+    fn authored_adapter_retains_production_record_and_numeric_checks() {
+        assert!(assemble_authored_wmo_map(record(), 1, || false)
+            .unwrap()
+            .is_some());
+        assert!(assemble_authored_wmo_map(vec![], 0, || false)
+            .unwrap()
+            .is_none());
+        assert!(matches!(
+            assemble_authored_wmo_map(record(), 1, || true),
+            Err(E::Cancelled)
+        ));
+        assert!(matches!(
+            assemble_authored_wmo_map(record(), crate::MAX_INDEX_RECORDS + 1, || false),
+            Err(E::Limit)
+        ));
+        for count in [0, 2] {
+            assert!(matches!(
+                assemble_authored_wmo_map(record(), count, || false),
+                Err(E::Index(_))
+            ));
+        }
+        let mut truncated = record();
+        truncated.pop();
+        assert!(matches!(
+            assemble_authored_wmo_map(truncated, 1, || false),
+            Err(E::Index(_))
+        ));
+        let mut m2 = record();
+        m2[12..16].copy_from_slice(&5u32.to_le_bytes());
+        assert!(matches!(
+            assemble_authored_wmo_map(m2, 1, || false),
+            Err(E::Record)
+        ));
+        for invalid in [f32::NAN, f32::INFINITY] {
+            for offset in [22, 26, 30, 34, 38, 42, 46, 50, 62] {
+                let mut raw = record();
+                raw[offset..offset + 4].copy_from_slice(&invalid.to_le_bytes());
+                assert!(
+                    matches!(
+                        assemble_authored_wmo_map(raw, 1, || false),
+                        Err(E::Bounds(SpawnBoundsError::Numeric))
+                    ),
+                    "offset {offset}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn authored_adapter_propagates_every_observed_cancellation_poll() {
+        use std::cell::Cell;
+        let polls = Cell::new(0);
+        assemble_authored_wmo_map(record(), 1, || {
+            polls.set(polls.get() + 1);
+            false
+        })
+        .unwrap();
+        assert!(polls.get() > 10);
+        for stop in 1..=polls.get() {
+            let seen = Cell::new(0);
+            let result = assemble_authored_wmo_map(record(), 1, || {
+                seen.set(seen.get() + 1);
+                seen.get() == stop
+            });
+            assert!(
+                matches!(
+                    result,
+                    Err(E::Cancelled)
+                        | Err(E::Index(crate::MapSpawnIndexError::Cancelled))
+                        | Err(E::Bih(benilla_native_vmap::BihBuildError::Cancelled))
+                ),
+                "poll {stop}"
+            );
+        }
+    }
+}

@@ -9,6 +9,10 @@ description = "Private bounded selected-map VMap discovery from immutable local 
 [lints]
 workspace = true
 
+[features]
+# Authored oracle fixtures only; disabled in normal builds.
+synthetic-map-tests = []
+
 [dependencies]
 anyhow.workspace = true
 benilla-mpq = { path = "../benilla-mpq" }

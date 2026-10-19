@@ -4,6 +4,8 @@
 //! before publication. No untrusted bytes are passed to native code. See PROVENANCE.md.
 pub(crate) mod area;
 mod bih;
+#[cfg(test)]
+mod generated_map_tests;
 mod height;
 pub(crate) mod liquid;
 mod location;

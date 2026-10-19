@@ -52,7 +52,7 @@ impl fmt::Debug for PlacementRecords {
     }
 }
 impl PlacementRecords {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "synthetic-map-tests"))]
     pub(crate) fn fixture(bytes: Vec<u8>, count: usize) -> Self {
         Self {
             bytes,

@@ -10,6 +10,8 @@
 //! map, BIH, collision-absence, or gameplay authority.
 
 mod assembled_spawn_bounds;
+#[cfg(feature = "synthetic-map-tests")]
+pub use assembled_spawn_bounds::assemble_authored_wmo_map;
 mod discovery;
 mod doodad_projection;
 mod doodad_reference_order;
