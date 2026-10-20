@@ -723,3 +723,7 @@ mod cold_commit;
 #[cfg(test)]
 #[path = "installed_source/cold_refusals.rs"]
 mod cold_refusals;
+
+#[cfg(test)]
+#[path = "installed_source/cold_retry.rs"]
+mod cold_retry;

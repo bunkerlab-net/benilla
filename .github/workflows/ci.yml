@@ -60,6 +60,13 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
+      - name: Verify navigation helper prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-navigation-helper.log"
+          mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
       - name: Verify resident first cold Route feasibility
         shell: bash
         run: |
@@ -80,6 +87,14 @@ jobs:
             real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_decoded_and_foreign_prerequisites \
             real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_equal_bytes_new_live_seal \
             real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_observation_only_policy
+      - name: Verify resident cold Route rollback retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-cold-retry.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor

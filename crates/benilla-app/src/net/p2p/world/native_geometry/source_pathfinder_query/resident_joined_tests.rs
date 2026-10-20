@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Same-install source/Generated navigation and genuine runtime Chase inputs.
-//! Runtime deliberately refuses Route; no displacement or committed cache is claimed.
+//! Observation-only cases refuse Route; concrete probes are explicit component tests.
 use super::super::{
     core::{PlayerEnvironmentPolicy, PrimaryNearPointPolicy, Session},
     products::{
@@ -1214,11 +1214,99 @@ pub(crate) fn complete_cold_probe(
     height: &PreparedSourceHeight<'_, '_, '_>,
     compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
     provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
-    mut route: impl FnMut(
+    route: impl FnMut(
         &mut ResidentFilterProvider<'_, '_, '_, '_>,
         &AuthorityRequest,
     ) -> Result<Facts, NativeError>,
 ) -> Result<NativeWorld, NativeError> {
+    cold_probe(p, s, height, compatibility, provider, route, false)
+}
+
+/// Same world and input batch, with one failure at the next actual callback after
+/// a valid real Route. No fabricated callback, reply, commit notice or ACK.
+#[cfg(not(benilla_headless_geometry))]
+pub(crate) fn retry_cold_probe(
+    p: &Profile,
+    s: &Session,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    route: impl FnMut(
+        &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        &AuthorityRequest,
+    ) -> Result<Facts, NativeError>,
+) -> Result<NativeWorld, NativeError> {
+    cold_probe(p, s, height, compatibility, provider, route, true)
+}
+
+#[cfg(not(benilla_headless_geometry))]
+fn cold_probe(
+    p: &Profile,
+    s: &Session,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    mut route: impl FnMut(
+        &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        &AuthorityRequest,
+    ) -> Result<Facts, NativeError>,
+    retry_late_failure: bool,
+) -> Result<NativeWorld, NativeError> {
+    const LATE_FAILURE: &str = "resident real Route accepted before later callback failure";
+    struct ProbeAuthority<A> {
+        inner: A,
+        fail_once: bool,
+        callback: usize,
+        routes: Vec<(usize, AuthorityRequest)>,
+        failed: Option<(usize, &'static str, AuthorityRequest)>,
+    }
+    impl<A> ProbeAuthority<A> {
+        fn before(
+            &mut self,
+            request: &AuthorityRequest,
+            kind: &'static str,
+        ) -> Result<(), NativeError> {
+            self.callback += 1;
+            if self.fail_once && !self.routes.is_empty() {
+                assert!(self.failed.is_none(), "inject exactly once");
+                assert_eq!(self.routes.len(), 1);
+                let (route_callback, route) = &self.routes[0];
+                assert_eq!(self.callback, route_callback + 1, "strictly later callback");
+                assert_eq!(request.binding.tick, route.binding.tick);
+                assert!(
+                    !matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))),
+                    "a second real dispatch cannot masquerade as later-frame failure"
+                );
+                self.failed = Some((self.callback, kind, request.clone()));
+                return Err(NativeError::AuthorityUnavailable(LATE_FAILURE));
+            }
+            Ok(())
+        }
+    }
+    impl<A: Authority> Authority for ProbeAuthority<A> {
+        fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+            self.before(request, "resolve")?;
+            let reply = self.inner.resolve(request)?;
+            if let Query::SourceMotion(MotionQuery::Route(route)) = &request.query {
+                assert_eq!(reply.request, *request);
+                let Facts::SourceMotion(MotionFacts::Spatial(spatial)) = &reply.facts else {
+                    panic!("real Route facts required before arming");
+                };
+                assert_eq!(spatial.request, motion::Query::Route(route.request.clone()));
+                let motion::Fact::RouteCalculation(calculation) = &spatial.fact else {
+                    panic!("real calculation required before arming");
+                };
+                assert_eq!(calculation.source, motion::RouteSource::OwnerPathFinder);
+                calculation.validate_for(&route.request).unwrap();
+                self.routes.push((self.callback, request.clone()));
+            }
+            Ok(reply)
+        }
+        fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
+            self.before(&reply.request, "observe_derived")?;
+            self.inner.observe_derived(reply)
+        }
+    }
     let initializer = ResidentCreatureInitializationProvider::bind(
         s.world,
         p,
@@ -1231,7 +1319,7 @@ pub(crate) fn complete_cold_probe(
     let environment = provider
         .player_environment(f::player(), until(), || false)
         .unwrap();
-    let mut authority = RuntimeAuthority {
+    let source_authority = RuntimeAuthority {
         authored: Default::default(),
         source: |request: &AuthorityRequest| match &request.query {
             Query::CreatureInitialization(_) => Ok(Some(
@@ -1273,6 +1361,13 @@ pub(crate) fn complete_cold_probe(
             _ => Ok(None),
         },
     };
+    let mut authority = ProbeAuthority {
+        inner: source_authority,
+        fail_once: retry_late_failure,
+        callback: 0,
+        routes: vec![],
+        failed: None,
+    };
     let mut world = NativeWorld::synthetic_component_test_with_initialization(
         p.clone(),
         s.world,
@@ -1286,7 +1381,7 @@ pub(crate) fn complete_cold_probe(
     for tick in 1..=12 {
         let before = world.checkpoint().unwrap();
         let records = world.records().to_vec();
-        let inputs = if tick == 1 {
+        let inputs: Vec<OwnedInput> = if tick == 1 {
             (1..=2)
                 .map(|offset| OwnedInput {
                     authenticated_owner: world.state().player.owner,
@@ -1311,10 +1406,78 @@ pub(crate) fn complete_cold_probe(
         } else {
             vec![]
         };
-        if let Err(error) = world.step_batch(tick, inputs, &mut authority) {
+        if let Err(error) = world.step_batch(tick, inputs.clone(), &mut authority) {
             assert_eq!(world.checkpoint().unwrap(), before);
-            assert_eq!(world.records(), records);
-            return Err(error);
+            assert_eq!(
+                world.records(),
+                records,
+                "no journal/output from failed attempt"
+            );
+            if !retry_late_failure || authority.failed.is_none() {
+                return Err(error);
+            }
+            assert_eq!(error, NativeError::AuthorityUnavailable(LATE_FAILURE));
+            assert_eq!(
+                authority.routes.len(),
+                1,
+                "one real Route in failed attempt"
+            );
+            let (_, kind, failed) = authority.failed.as_ref().unwrap();
+            assert_eq!(failed.binding.tick, tick);
+            assert_eq!(world.state().tick + 1, tick);
+            let snapshot = world.state().npcs[&2]
+                .source_motion
+                .as_ref()
+                .unwrap()
+                .motion
+                .snapshot();
+            let cache = match &snapshot.generator {
+                motion::Generator::Chase(chase) => chase.pathfinder_cache.as_ref(),
+                motion::Generator::Wander(wander) => wander.pathfinder_cache.as_ref(),
+                _ => None,
+            };
+            assert!(cache.is_none(), "failed cache was not committed");
+            assert!(snapshot.suspended_wander.is_none());
+            assert!(records
+                .iter()
+                .all(|record| record.replies.iter().all(|reply| !matches!(
+                    reply.request.query,
+                    Query::SourceMotion(MotionQuery::Route(_))
+                ))));
+            eprintln!(
+                "resident cold rollback: tick={tick} later={kind} request={:?}",
+                failed.query
+            );
+            authority.fail_once = false;
+            if let Err(error) = world.step_batch(tick, inputs.clone(), &mut authority) {
+                assert_eq!(world.checkpoint().unwrap(), before);
+                assert_eq!(world.records(), records);
+                return Err(error);
+            }
+            assert_eq!(authority.routes.len(), 2, "one fresh Route in retry");
+            assert_eq!(world.records().len(), records.len() + 1);
+            assert_eq!(&world.records()[..records.len()], records);
+            assert_eq!(world.last_tick().unwrap().tick, tick);
+            assert_eq!(
+                world.last_tick().unwrap().inputs,
+                inputs
+                    .into_iter()
+                    .map(|owned| owned.input)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                world
+                    .last_tick()
+                    .unwrap()
+                    .replies
+                    .iter()
+                    .filter(|reply| matches!(
+                        reply.request.query,
+                        Query::SourceMotion(MotionQuery::Route(_))
+                    ))
+                    .count(),
+                1
+            );
         }
         if world.last_tick().unwrap().replies.iter().any(|reply| {
             matches!(
@@ -1322,6 +1485,10 @@ pub(crate) fn complete_cold_probe(
                 Query::SourceMotion(MotionQuery::Route(_))
             )
         }) {
+            assert!(
+                !retry_late_failure || authority.failed.is_some(),
+                "no actual later callback followed Route; rollback feasibility is unproved"
+            );
             return Ok(world);
         }
     }
