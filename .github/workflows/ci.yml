@@ -80,6 +80,14 @@ jobs:
           python3 scripts/verify-libtest-output.py "$log" \
             real_corridor_fixture::installed_source::joined::resident_joined_actual_installed_owner_and_corridor \
             real_corridor_fixture::installed_source::joined::resident_joined_rechecks_live_geometry_and_final_source_after_segment
+      - name: Verify resident first cold Route feasibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-first-cold-route.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_commit::resident_first_cold_real_route_feasibility -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::cold_commit::resident_first_cold_real_route_feasibility
       - name: Verify joined resident source geometry
         shell: bash
         run: |

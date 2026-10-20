@@ -715,3 +715,7 @@ fn installed_source_rebuilt_exterior_overlap_has_no_live_coverage() {
 #[cfg(test)]
 #[path = "installed_source/joined.rs"]
 mod joined;
+
+#[cfg(test)]
+#[path = "installed_source/cold_commit.rs"]
+mod cold_commit;

@@ -65,6 +65,7 @@ pub(crate) fn geometry_revision(
 pub(crate) struct ResidentGeometryPolicy {
     installed: Option<InstalledGeometryPolicy>,
     dry_primary: bool,
+    first_cold_route: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -77,6 +78,7 @@ impl ResidentGeometryPolicy {
     const PRIMARY: Self = Self {
         installed: None,
         dry_primary: false,
+        first_cold_route: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -90,6 +92,7 @@ impl ResidentGeometryPolicy {
                 owner: inventory.owner().clone(),
             }),
             dry_primary: false,
+            first_cold_route: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -98,6 +101,14 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_corridor(inventory);
         policy.dry_primary = true;
+        policy
+    }
+    /// Separate calculation policy; the observation-only join cannot emit Route facts.
+    pub(crate) fn installed_first_cold_route(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_dry_corridor(inventory);
+        policy.first_cold_route = true;
         policy
     }
     pub(crate) fn revision(
@@ -113,7 +124,19 @@ impl ResidentGeometryPolicy {
             return Err(Failure::Binding);
         }
         let mut hash = Sha256::new();
-        if self.dry_primary {
+        if self.first_cold_route {
+            if !self.dry_primary {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-installed-first-cold-route-v1".as_slice());
+            hash.update(
+                b"single-first-calculation-revision1-exact-live-dispatch-historical-ordered-ack-v1",
+            );
+            hash.update(dry_near_point::geometry_revision(height));
+            hash.update(super::super::source_pathfinder_query::geometry_revision(
+                navigation,
+            ));
+        } else if self.dry_primary {
             hash.update(b"benilla-resident-installed-dry-corridor-evidence-v1".as_slice());
             hash.update(dry_near_point::geometry_revision(height));
             hash.update(super::super::source_pathfinder_query::geometry_revision(
@@ -227,6 +250,16 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             query,
         })
     }
+    pub(crate) fn require_first_cold_route(&self) -> Result<(), ResidentFilterError> {
+        if !self.geometry_policy.first_cold_route
+            || !self.geometry_policy.dry_primary
+            || self.geometry_policy.installed.is_none()
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
     /// The dry adapter borrows this exact installed policy and native query owner.
     /// Compatibility is rechecked, never supplied as an arbitrary revision hash.
     #[allow(clippy::too_many_arguments)]

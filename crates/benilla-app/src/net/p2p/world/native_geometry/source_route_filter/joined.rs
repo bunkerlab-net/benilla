@@ -142,6 +142,21 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         self.check_context(context, deadline, &cancelled)?;
         Ok(ResidentJoinedColdObservation { terminal, body })
     }
+    pub(crate) fn joined_cache(
+        &self,
+        dependency: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<motion::PathFinderCache, ResidentFilterError> {
+        self.joined_for(dependency, context, deadline, &cancelled)?;
+        self.cold_cache(
+            &dependency.cold,
+            context,
+            dependency.deadline(deadline),
+            cancelled,
+        )
+    }
     /// Separate source LOS for the actual calculated segment. Chase LOS used
     /// target height; this ray uses owner collision height at BOTH endpoints.
     pub(crate) fn joined_segment_los(

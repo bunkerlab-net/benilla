@@ -61,10 +61,27 @@ pub(crate) fn with_fixture<T>(
 ) -> T {
     let (start, _) = input::support();
     // Start beyond melee reach so the real runtime must issue Chase/NearPoint.
-    with_fixture_at((start, [start[0] - 8., start[1], start[2]]), test)
+    with_fixture_at((start, [start[0] - 8., start[1], start[2]]), false, test)
+}
+pub(crate) fn with_route_fixture<T>(
+    test: impl FnOnce(
+        &input::Install,
+        &PreparedSourceHeight<'_, '_, '_>,
+        &InventoryCompatibility<'_, '_, '_, '_>,
+        NativeM2MapInventory,
+        ResidentGeometryPolicy,
+        Profile,
+        SourceMapQuerySnapshot,
+        SourceMapQuerySnapshot,
+    ) -> T,
+) -> T {
+    let (start, _) = input::support();
+    // Start beyond melee reach so the real runtime must issue Chase/NearPoint.
+    with_fixture_at((start, [start[0] - 8., start[1], start[2]]), true, test)
 }
 fn with_fixture_at<T>(
     endpoints: ([f32; 3], [f32; 3]),
+    first_cold_route: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -94,7 +111,11 @@ fn with_fixture_at<T>(
         .match_raw_inventory(&inventory, until(), || false)
         .unwrap();
     // Policy precedes the Profile, every runtime session and all owned receipts.
-    let policy = ResidentGeometryPolicy::installed_dry_corridor(&compatibility);
+    let policy = if first_cold_route {
+        ResidentGeometryPolicy::installed_first_cold_route(&compatibility)
+    } else {
+        ResidentGeometryPolicy::installed_dry_corridor(&compatibility)
+    };
     let (start, end) = endpoints;
     let binding = height
         .initialization_binding(
@@ -1063,6 +1084,7 @@ fn resident_joined_missing_generated_endpoint_refuses_calculation() {
             [-4265., -4276., input::HEIGHT],
             [-4272., -4284., input::HEIGHT],
         ),
+        false,
         |_install, height, compatibility, _inventory, policy, p, query, _| {
             let s = session(&p);
             let mut provider =
@@ -1180,4 +1202,126 @@ fn resident_joined_rejected_chase_prefix_never_calculates() {
             );
         },
     );
+}
+
+/// Genuine initialized runtime for concrete certification. Spatial replies use
+/// resident geometry/source numeric bearing; combat and visitor scaffolding is authored.
+pub(crate) fn complete_cold_probe(
+    p: &Profile,
+    s: &Session,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    mut route: impl FnMut(
+        &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        &AuthorityRequest,
+    ) -> Result<Facts, NativeError>,
+) -> Result<NativeWorld, NativeError> {
+    let initializer = ResidentCreatureInitializationProvider::bind(
+        s.world,
+        p,
+        height,
+        INITIALIZATION_CONFIG,
+        until(),
+        || false,
+    )
+    .unwrap();
+    let environment = provider
+        .player_environment(f::player(), until(), || false)
+        .unwrap();
+    let mut authority = RuntimeAuthority {
+        authored: Default::default(),
+        source: |request: &AuthorityRequest| match &request.query {
+            Query::CreatureInitialization(_) => Ok(Some(
+                initializer.resolve(request, until(), || false).unwrap(),
+            )),
+            Query::PlayerEnvironment(_) => Ok(Some(
+                environment.resolve(s, request, until(), || false).unwrap(),
+            )),
+            Query::SourceMotion(MotionQuery::NearPoint(_)) => Ok(Some(
+                provider
+                    .resolve_dry_primary_near_point(
+                        s,
+                        request,
+                        f::player(),
+                        compatibility,
+                        INITIALIZATION_CONFIG,
+                        until(),
+                        || false,
+                    )
+                    .unwrap(),
+            )),
+            Query::SourceMotion(MotionQuery::Route(_)) => route(provider, request).map(Some),
+            Query::SourceMotion(MotionQuery::Spatial(motion::Query::Bearing(bearing))) => {
+                let angle = benilla_sim::facing::bearing_bits(
+                    [bearing.origin.x.bits(), bearing.origin.y.bits()],
+                    [bearing.toward.x.bits(), bearing.toward.y.bits()],
+                )
+                .map_err(|_| NativeError::AuthorityUnavailable("source bearing domain"))?;
+                Ok(Some(Facts::SourceMotion(MotionFacts::Spatial(Box::new(
+                    motion::Reply {
+                        request: motion::Query::Bearing(bearing.clone()),
+                        fact: motion::Fact::Bearing(ai::Real::from_bits(angle)?),
+                    },
+                )))))
+            }
+            Query::SourceMotion(MotionQuery::Spatial(_)) => Err(NativeError::AuthorityUnavailable(
+                "resident first cold probe refuses unsupported spatial callbacks",
+            )),
+            _ => Ok(None),
+        },
+    };
+    let mut world = NativeWorld::synthetic_component_test_with_initialization(
+        p.clone(),
+        s.world,
+        f::player(),
+        1234,
+        None,
+        &mut authority,
+    )
+    .unwrap();
+    assert_initialized(&world);
+    for tick in 1..=12 {
+        let before = world.checkpoint().unwrap();
+        let records = world.records().to_vec();
+        let inputs = if tick == 1 {
+            (1..=2)
+                .map(|offset| OwnedInput {
+                    authenticated_owner: world.state().player.owner,
+                    input: Input {
+                        world: world.state().world,
+                        player: world.state().player,
+                        tick,
+                        sequence: world.state().next_sequence + offset - 1,
+                        command: Command::MovementPose {
+                            destination: ai::Point::new(
+                                p.player.start.x.as_f32(),
+                                p.player.start.y.as_f32() - offset as f32,
+                                p.player.start.z.as_f32(),
+                            )
+                            .unwrap(),
+                            orientation: Orientation::new(0.5).unwrap(),
+                            movement_flags: motion::GroundMovementFlags::STOPPED,
+                        },
+                    },
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        if let Err(error) = world.step_batch(tick, inputs, &mut authority) {
+            assert_eq!(world.checkpoint().unwrap(), before);
+            assert_eq!(world.records(), records);
+            return Err(error);
+        }
+        if world.last_tick().unwrap().replies.iter().any(|reply| {
+            matches!(
+                reply.request.query,
+                Query::SourceMotion(MotionQuery::Route(_))
+            )
+        }) {
+            return Ok(world);
+        }
+    }
+    panic!("genuine cold route was not requested")
 }

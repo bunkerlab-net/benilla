@@ -31,6 +31,7 @@ mod source_player_environment;
 mod source_route_chase_gate;
 mod source_route_filter;
 mod source_route_point_path;
+mod source_route_resident_local;
 mod source_route_same_polygon;
 mod source_route_same_polygon_local;
 mod source_route_smoothing;

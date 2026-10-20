@@ -206,6 +206,46 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             terminal,
         })
     }
+    /// Cache state comes from the owned native terminal, never its diagnostic copy.
+    pub(super) fn cold_cache(
+        &self,
+        dependency: &ResidentSamePolygonDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<motion::PathFinderCache, ResidentFilterError> {
+        self.terminal_for(dependency, context, deadline, cancelled)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::Binding.into());
+        };
+        let terminal = &dependency.terminal;
+        let native = terminal.compatibility();
+        let binding = self.query.binding();
+        let cache = motion::PathFinderCache {
+            binding: motion::PathFinderCacheBinding {
+                identity: route.request.binding.identity,
+                owner_generation: route.owner.npc().generation,
+                inventory: binding.inventory,
+                source_epoch: binding.source_epoch,
+                navigation_policy: self.session.geometry,
+            },
+            revision: 1,
+            source: motion::RouteSource::OwnerPathFinder,
+            poly_refs: native.storage().to_vec(),
+            active_len: u16::try_from(native.active_len()).map_err(|_| Failure::Invalid)?,
+            point_limit: motion::PATHFINDER_CACHE_POINT_LIMIT,
+            path_type: terminal.path_type(),
+            requested_end: super::super::super::source_near_point::exact_point(
+                terminal.actual_end(),
+            )?,
+            include_flags: native.filter().include_flags,
+            exclude_flags: native.filter().exclude_flags,
+        };
+        cache
+            .validate_for(route.request.binding.identity)
+            .map_err(|_| Failure::Binding)?;
+        Ok(cache)
+    }
     /// Revalidate exact live context, expiry and consumed sources before copying
     /// observations. No terminal, native storage, query or route evidence escapes.
     pub(crate) fn terminal_for(

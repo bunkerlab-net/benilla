@@ -64,3 +64,6 @@ mod staged_wander_tests;
 mod wander_reopen_component_tests;
 
 mod dual_reopen_component_tests;
+
+#[path = "../../benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local.rs"]
+mod source_route_resident_local;
