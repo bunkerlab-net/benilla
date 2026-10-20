@@ -9,7 +9,7 @@ Original Benilla files retain their MIT OR Apache-2.0 grants and copyright
 notices; `LICENSE-MIT` and `LICENSE-APACHE` remain applicable to those files.
 This notice does not replace or relicense individual third-party files. Dependency
 licenses and notices accompany their source in the matching source archive
-(see `SOURCE-DOWNLOAD.txt`, or the embedded `corresponding-source.tar.gz`).
+(see the player `README.md`, or `SOURCE-DOWNLOAD.txt` in a diagnostic download).
 The patched Kira and Lua source and notices are included there too.
 
 The simulation contains a partial Rust translation of CMaNGOS Classic XP, selected stat/armor, quest-reward and targeting helpers,
@@ -58,8 +58,9 @@ arithmetic prerequisite does not establish full fallback or pathfinding integrat
 
 The matching build source, locked dependency sources, license texts, build scripts,
 and build information are provided through the exact download and SHA-256 in
-`SOURCE-DOWNLOAD.txt`, or through an embedded `corresponding-source.tar.gz` in a
-self-contained package. Extract that archive and follow `docs/BUILDS.md`. When
+the player `README.md`, or `SOURCE-DOWNLOAD.txt` in a diagnostic download.
+A local player package has its source archive alongside it, not inside it;
+local diagnostic packages may embed `corresponding-source.tar.gz`. Extract that archive and follow `docs/BUILDS.md`. When
 redistributing, keep the source and notices with the binary or provide equivalent
 source access alongside its download and update the directions. A source repository
 URL alone is not this delivery mechanism. Do not offer a binary after its matching
@@ -67,7 +68,9 @@ source download expires or is removed.
 
 No Blizzard game-install files, extracted assets, original FrameXML, account
 credentials, or populated local configuration are part of this distribution.
-Players supply their own legally obtained game data separately. Retained upstream
+Players supply their own legally obtained game data separately. The player README
+consolidates distribution license and attribution notices without removing the
+original copies from the corresponding source. Retained upstream
 copyright commentary is attribution, not a legal determination or permission to
 redistribute third-party game content. This packaging process is not legal advice
 or a guarantee of compliance with every applicable right or dependency obligation.

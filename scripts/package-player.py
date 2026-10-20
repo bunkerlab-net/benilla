@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the player and terrain helper with their exact vendored build source."""
+"""Package a minimal player or separate diagnostics with exact vendored build source."""
 import argparse
 import hashlib
 import io
@@ -18,7 +18,9 @@ TARGETS = {
     "macos-arm64": "aarch64-apple-darwin",
     "windows-amd64": "x86_64-pc-windows-msvc",
 }
-EXECUTABLES = ("benilla", "benilla-native-terrain", "benilla-native-navigation")
+EXECUTABLES = ("benilla",)
+DIAGNOSTIC_EXECUTABLES = ("benilla-native-terrain", "benilla-native-navigation")
+# These documents remain in diagnostic/source downloads, never in player archives.
 DOCUMENTS = (
     "crates/benilla-native-nav-generator/PROTOCOL.md",
     "crates/benilla-native-nav-generator/README.md",
@@ -60,7 +62,27 @@ DOCUMENTS = (
     "crates/benilla-sim/licenses/LICENSE", "crates/benilla-sim/licenses/GPL-3.0.txt",
     "crates/benilla-sim/licenses/COPYRIGHT.md", "crates/benilla-sim/licenses/AUTHORS.md",
 )
-REQUIRED_SOURCE = (*DOCUMENTS, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml",
+# Preserve the previous distribution's notices in one README appendix. Additional
+# linked arithmetic/G3D notices stay with the binary as well as the full source.
+LEGAL_DOCUMENTS = tuple(path for path in DOCUMENTS if any(
+    word in PurePosixPath(path).name.upper()
+    for word in ("LICENSE", "NOTICE", "AUTHORS", "COPYRIGHT"))) + (
+    "crates/benilla-sim/src/facing/MIT-NOTICE.txt",
+    "crates/benilla-sim/src/source_trig/GLIBC-NOTICE.txt",
+    "crates/benilla-sim/src/source_trig/GLIBC-LICENSE.txt",
+    "crates/benilla-sim/src/source_atan/GLIBC-NOTICE.txt",
+    "crates/benilla-sim/src/source_atan/GLIBC-LICENSE.txt",
+    "crates/benilla-native-vmap-source/G3D-NOTICE.cpp.txt",
+    "crates/benilla-native-vmap-source/CMANGOS-NOTICE.txt",
+    "crates/benilla-native-vmap/CMANGOS-NOTICE.txt",
+    "crates/benilla-native-nav/native/DETOUR-LICENSE.txt",
+    "crates/benilla-app/src/net/p2p/world/native_geometry/products/CMANGOS-NOTICE.txt",
+    "crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/BIH-NOTICE.txt",
+)
+# This pinned upstream C++ notice uses a literal Latin-1 copyright symbol.
+# Transcode only its encoding for the UTF-8 README; preserve source bytes.
+LEGAL_ENCODINGS = {"crates/benilla-native-vmap-source/G3D-NOTICE.cpp.txt": "latin-1"}
+REQUIRED_SOURCE = (*dict.fromkeys((*DOCUMENTS, *LEGAL_DOCUMENTS)), "Cargo.toml", "Cargo.lock", "rust-toolchain.toml",
                    "scripts/package-player.py", "scripts/test-package-player.py",
                    "scripts/Test-BenillaTerrainDiagnostics.ps1",
                    ".github/workflows/build.yml", "crates/benilla/src/main.rs",
@@ -260,25 +282,81 @@ def package_source(root, platform, commit):
     return archive
 
 
-def package(root, platform, commit, source_url=None, *, helper_only=False):
+def player_config(source):
+    # The source example intentionally enables P2P. An installed config.toml must
+    # not activate its public placeholder PSK or override Data autodiscovery.
+    example = (source / "config.example.toml").read_text(encoding="utf-8")
+    lines = example.splitlines()[1:]
+    return (
+        "# Benilla example config.toml. All settings below are disabled by default.\n"
+        "# Uncomment a section header (for example [wow]) together with its settings.\n"
+        "# With no active settings, realm mode and Data/ or WoW/Data/ discovery apply.\n"
+        "# Never share this file after adding a private passphrase or personal paths.\n\n"
+        + "\n".join(line if not line.strip() or line.lstrip().startswith("#")
+                    else "# " + line for line in lines) + "\n")
+
+
+def player_readme(source, platform, commit, source_notice):
+    launch = ".\\benilla.exe" if platform == "windows-amd64" else "./benilla"
+    requirements = {
+        "linux-amd64": "Linux x64, Ubuntu 26.04 or a compatible newer glibc system; ALSA, udev and a Vulkan-capable graphics driver.",
+        "linux-arm64": "Linux arm64, Ubuntu 26.04 or a compatible newer glibc system; ALSA, udev and a Vulkan-capable graphics driver.",
+        "macos-arm64": "Apple silicon macOS; built on macOS 26. This unsigned command-line binary is not an app bundle.",
+        "windows-amd64": "Windows x64; the Microsoft Visual C++ x64 runtime may be required. This executable is unsigned.",
+    }
+    readme = (
+        "# Benilla player\n\n"
+        "1. Extract to a writable folder. Supply your own legally obtained English WoW 1.12.1 (build 5875) Data folder beside the executable, or uncomment [wow] and set data in config.toml. No game assets are included.\n"
+        f"2. Open a terminal in that folder and run `{launch}`. Realm mode needs a compatible server with Warden disabled; use the Realmlist button to set it.\n"
+        "3. config.toml is a commented example: unchanged, it preserves normal startup defaults. To enable experimental peer mode, uncomment [p2p] and its settings and replace the public PSK placeholder with a private random passphrase before launch. Never share a populated config.\n\n"
+        "Relative data paths are resolved beside the executable. WOW_DATA overrides config and discovery; an empty WOW_DATA disables discovery. Settings, saves, logs, screenshots and addons go in benilla-config/, never into your game installation.\n\n"
+        f"Platform: {requirements[platform]}\n\n"
+        "Only the player, this README and the example config are needed here. Native diagnostic helpers and scripts are separate downloads, not startup dependencies. The optional diagnose-collision navigation stage needs the matching diagnostic helper download. Full guides are in the source archive.\n\n"
+        "## Corresponding source\n\n" + source_notice
+        + "\n## License and attribution notices\n\n"
+        "The following notices are retained from the matching source. Paths and references identify files there. The legacy G3D notice is transcoded from Latin-1 to UTF-8 without changing its text; the source retains its original bytes.\n")
+    # Keep UTF-8 notices byte-for-byte, including their original line endings.
+    result = readme.encode("utf-8")
+    for path in LEGAL_DOCUMENTS:
+        result += f"\n### {path}\n\n````text\n".encode("utf-8")
+        notice = (source / path).read_bytes()
+        if path in LEGAL_ENCODINGS:
+            notice = notice.decode(LEGAL_ENCODINGS[path]).encode("utf-8")
+        result += notice + b"\n````\n"
+    return result
+
+
+def package(root, platform, commit, source_url=None, *, helper_only=False,
+            diagnostics_only=False):
     check_commit(commit)
+    if helper_only and diagnostics_only:
+        raise ValueError("select only one diagnostic package")
     source = source_dir(root, commit)
     validate_source(source, commit, root)
     suffix = ".exe" if platform == "windows-amd64" else ""
-    selected = ("benilla-native-terrain",) if helper_only else EXECUTABLES
+    selected = (("benilla-native-terrain",) if helper_only else
+                DIAGNOSTIC_EXECUTABLES if diagnostics_only else EXECUTABLES)
     executables = tuple(name + suffix for name in selected)
     files = [(root / "target" / TARGETS[platform] / "release" / name, name)
              for name in executables]
-    files.extend((source / path, path) for path in DOCUMENTS)
+    diagnostic = helper_only or diagnostics_only
+    if diagnostic:
+        files.extend((source / path, path) for path in DOCUMENTS)
     for path, _ in files:
         regular(path, root)
-    product = "benilla-native-terrain" if helper_only else "benilla"
+    product = ("benilla-native-terrain" if helper_only else
+               "benilla-diagnostics" if diagnostics_only else "benilla")
     name = f"{product}-{platform}-{commit}"
     dist = root / "dist"
     dist.mkdir(exist_ok=True)
     if source_url is None:
         source_archive = package_source(root, platform, commit)
-        files.append((source_archive, "corresponding-source.tar.gz"))
+        if diagnostic:
+            files.append((source_archive, "corresponding-source.tar.gz"))
+        source_notice = (
+            f"Source commit: {commit}\nPlatform: {platform}\n\n"
+            f"Archive: {source_archive.name}\nSHA-256: {digest(source_archive)}\n\n"
+            "The matching source archive and checksum are separate files beside the player archive in dist/. Distribute them alongside the player download with equivalent access; do not distribute the player alone. Extract the source and see docs/BUILDS.md for offline build instructions.\n")
     else:
         # CI passes upload-artifact's verified URL only after source upload succeeds.
         # Reject arbitrary hosts, credentials, queries and malformed artifact links.
@@ -294,9 +372,8 @@ def package(root, platform, commit, source_url=None, *, helper_only=False):
         expected = f"{digest(source_archive)}  {source_archive.name}\n"
         if source_checksum.read_text(encoding="utf-8") != expected:
             raise ValueError("prepared source archive checksum mismatch")
-        notice = dist / f"{name}-SOURCE-DOWNLOAD.txt"
-        subject = "benilla-native-terrain" if helper_only else "Benilla, benilla-native-terrain and benilla-native-navigation"
-        notice.write_text(
+        subject = "benilla-native-terrain" if helper_only else "Benilla and its native diagnostic helpers"
+        source_notice = (
             f"Corresponding Source for {subject}\nSource commit: {commit}\n"
             f"Platform: {platform}\n\nDownload: {source_url}\n"
             f"Archive: {source_archive.name}\nSHA-256: {digest(source_archive)}\n\n"
@@ -307,8 +384,17 @@ def package(root, platform, commit, source_url=None, *, helper_only=False):
             "Keep this source available with equivalent access for as long as the "
             "binary is offered. When mirroring or redistributing, include the source "
             "archive or host it alongside the binary and update these directions; "
-            "do not rely on an expired GitHub artifact.\n", encoding="utf-8")
-        files.append((notice, "SOURCE-DOWNLOAD.txt"))
+            "do not rely on an expired GitHub artifact.\n")
+        if diagnostic:
+            notice = dist / f"{name}-SOURCE-DOWNLOAD.txt"
+            notice.write_text(source_notice, encoding="utf-8")
+            files.append((notice, "SOURCE-DOWNLOAD.txt"))
+    if not diagnostic:
+        config = dist / f"{name}-config.toml"
+        config.write_text(player_config(source), encoding="utf-8")
+        readme = dist / f"{name}-README.md"
+        readme.write_bytes(player_readme(source, platform, commit, source_notice))
+        files.extend(((config, "config.toml"), (readme, "README.md")))
     if platform == "windows-amd64":
         archive = dist / f"{name}.zip"
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
@@ -329,14 +415,18 @@ if __name__ == "__main__":
     parser.add_argument("--source-only", action="store_true")
     parser.add_argument("--helper-only", action="store_true",
                         help="package only benilla-native-terrain with the full matching source and notices")
-    parser.add_argument("--source-url", help="already uploaded exact source artifact URL; omit to embed source")
+    parser.add_argument("--diagnostics-only", action="store_true",
+                        help="package native terrain/navigation helpers separately from the player")
+    parser.add_argument("--source-url", help="already uploaded exact source artifact URL; otherwise create adjacent source")
     args = parser.parse_args()
-    if args.prepare_source and (args.source_only or args.source_url or args.helper_only):
+    if args.prepare_source and (args.source_only or args.source_url or args.helper_only or args.diagnostics_only):
         parser.error("source preparation cannot be combined with packaging options")
     if args.source_only and args.source_url:
         parser.error("--source-only cannot be combined with --source-url")
-    if args.source_only and args.helper_only:
-        parser.error("--source-only cannot be combined with --helper-only")
+    if args.source_only and (args.helper_only or args.diagnostics_only):
+        parser.error("--source-only cannot be combined with diagnostic packaging")
+    if args.helper_only and args.diagnostics_only:
+        parser.error("--helper-only cannot be combined with --diagnostics-only")
     root = Path(__file__).resolve().parent.parent
     if args.prepare_source:
         print(prepare_source(root, args.commit))
@@ -345,6 +435,6 @@ if __name__ == "__main__":
             print(package_source(root, args.platform, args.commit))
         else:
             print(package(root, args.platform, args.commit, args.source_url,
-                          helper_only=args.helper_only))
+                          helper_only=args.helper_only, diagnostics_only=args.diagnostics_only))
     else:
         parser.error("--platform is required unless --prepare-source is used")

@@ -1,7 +1,7 @@
 # Build and run a player artifact
 
-This fork's `Build player` workflow builds the player and `benilla-native-terrain`
-helper for Linux amd64, Linux arm64, macOS arm64, and Windows amd64. It runs on
+This fork's `Build player` workflow builds the player and optional native diagnostic
+helpers for Linux amd64, Linux arm64, macOS arm64, and Windows amd64. It runs on
 pushes to `master`, temporarily on pushes to `feat/psk-p2p-foundation`, and through `workflow_dispatch`. Pull requests, other
 branch pushes, tags, and schedules do not start it. Remove the explicit feature-branch
 entry after this development cycle. It does not publish releases.
@@ -16,7 +16,7 @@ full-workspace, player, or real-install acceptance.
 Each full player job also runs the local profile-storage and terrain-helper
 regression suites before packaging. This exercises save/reopen, corruption handling,
 file replacement, and authored terrain inputs on the actual target OS. Packaging
-copies the helper without executing it or reading a player installation. Windows
+copies the selected executables without executing them or reading a player installation. Windows
 does not claim Unix permissions or portable directory-fsync guarantees.
 
 ## Start a build
@@ -36,7 +36,7 @@ steps. Creating the pull request does not produce downloadable binaries.
 
 Artifacts expire after 14 days, subject to repository retention settings. Each
 artifact contains a player archive and its SHA-256 checksum. The player archive
-includes `SOURCE-DOWNLOAD.txt`, with an exact link and SHA-256 for its separate
+includes `README.md`, with an exact link and SHA-256 for its separate
 `benilla-source-<platform>-<commit>` artifact in the same run. That source download
 contains the exact committed source, locked vendored dependencies, build scripts,
 and license/provenance notices. Source uploads happen before binary uploads and
@@ -45,8 +45,19 @@ source expiration is more than 15 days away before packaging the player; stricte
 repository limits fail closed. Never manually remove a source artifact while its
 binary is available.
 Names include the platform and full source commit. Extract the GitHub artifact ZIP first, then the archive
-inside it. Both executables are at the archive root, with `.exe` suffixes on
-Windows. Unix archives give both executables executable permission.
+inside it. The player archive has exactly three files at its root:
+`benilla` (`benilla.exe` on Windows), `config.toml`, and `README.md`. Unix archives
+mark the player executable. The README starts with launch/config instructions and
+ends with the retained license/attribution notices. No `Data/`, source tree,
+developer guides, diagnostic scripts, helper executables, or debug symbols are in
+that archive. System graphics/audio libraries remain platform prerequisites.
+
+Optional `benilla-diagnostics-<platform>-<commit>` downloads contain the terrain
+and navigation executables, diagnostic scripts and guides. They are not needed for
+normal startup. The player's explicit `diagnose-collision` command needs the matching
+navigation helper beside the player for its navigation stage; without it, that
+optional stage reports `failed` with code `navigation.helper_missing`. Keep diagnostic
+files separate unless using them.
 
 To verify the archive on Linux, run `sha256sum -c <archive>.sha256`. On macOS, run
 `shasum -a 256 -c <archive>.sha256`. On Windows, run
@@ -68,8 +79,12 @@ upload, with the same 90-day source and 14-day binary retention requests.
 
 You need your own legally obtained English WoW 1.12.1 installation, build 5875,
 and, for realm mode, a compatible 1.12.1 server with Warden disabled.
-For experimental peer mode, follow the included `docs/P2P-CONFIG.md`; only the
-safe `config.example.toml` is shipped, never a populated peer key/configuration. No game assets, MPQs,
+For experimental peer mode, read the player README and `docs/P2P-CONFIG.md` in the
+matching source. The shipped `config.toml` is a fully commented version of the
+source's `config.example.toml`: unchanged, it preserves realm mode and normal Data
+discovery. Uncomment a complete section and the settings you intend to use. Before
+enabling `[p2p]`, replace the public placeholder with a private random passphrase.
+No populated peer key/configuration is shipped. No game assets, MPQs,
 FrameXML, credentials, or user settings are included in the archive. The binary
 embeds benilla's own UI files and shaders. You do not need the source checkout.
 
@@ -100,8 +115,9 @@ WoW installation without changing it.
 
 ## Inspect selected terrain without publishing
 
-The packaged `benilla-native-terrain` command is a separate, headless helper. From
-the extracted archive folder, inspect a selected tile on Linux or macOS with:
+The optional diagnostics download (or fast Windows helper download) contains
+`benilla-native-terrain`, a separate headless tool. It is not in the player archive.
+From the extracted diagnostic archive folder, inspect a tile on Linux or macOS with:
 
 ```sh
 ./benilla-native-terrain --data "/path/to/WoW/Data" --map 0 --tile 48,32 --inspect
@@ -151,11 +167,12 @@ an artifact as a release.
 ## Build details
 
 Each job uses a native runner, the Rust version in `rust-toolchain.toml`, and the
-checked-in `Cargo.lock`. Mr Boxington wraps Cargo. Full player jobs use both build commands:
+checked-in `Cargo.lock`. Mr Boxington wraps Cargo. Full player jobs build the player and separate diagnostic helpers:
 
 ```sh
 mbx build --locked --release -p benilla --bin benilla --no-default-features --target <target>
 mbx build --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target <target>
+mbx build --locked --release -p benilla-native-nav-generator --bin benilla-native-navigation --no-default-features --target <target>
 ```
 
 The targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
@@ -177,8 +194,9 @@ The player links GPL-3.0-or-later `benilla-session` / `benilla-sim`. The combine
 player is GPL-covered; original client files retain MIT OR Apache-2.0 grants.
 The terrain helper is also GPL-3.0-or-later. Read `DISTRIBUTION-NOTICE.md`,
 `LICENSE-GPL-3.0`, the simulation provenance, and the included
-`crates/benilla-native-terrain/CMANGOS-NOTICE.txt`. Both executables use the same
-exact corresponding-source archive. All existing upstream copyright/license
+`crates/benilla-native-terrain/CMANGOS-NOTICE.txt`. The player and diagnostic executables use the same
+exact corresponding-source archive. The player README retains these notices in
+its appendix; their original files remain in the source. All existing upstream copyright/license
 notices remain intact.
 
 Each job first snapshots the selected full Git commit, runs `cargo vendor --locked
@@ -197,7 +215,7 @@ and known game-data/local-state paths. Only Git-tracked project files and Cargo'
 dependency sources enter the snapshot, never arbitrary checkout contents. This
 is not a general secret scanner: review tracked additions before building.
 
-To reproduce the build, download the source using `SOURCE-DOWNLOAD.txt`, verify
+To reproduce the build, download the source using the player `README.md` (or diagnostic `SOURCE-DOWNLOAD.txt`), verify
 its SHA-256, extract the artifact ZIP and its `*-source.tar.gz`, and change into its
 `benilla-source-<commit>` folder, install the repository Rust toolchain and the
 platform prerequisites above, then run:
@@ -205,6 +223,7 @@ platform prerequisites above, then run:
 ```sh
 cargo build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>
 cargo build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target <target>
+cargo build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-nav-generator --bin benilla-native-navigation --no-default-features --target <target>
 ```
 
 Cargo is the underlying builder; mbx is an optional cache wrapper. The archive
@@ -222,14 +241,20 @@ commit=$(git rev-parse HEAD)
 python3 scripts/package-player.py --prepare-source --commit "$commit"
 export CARGO_TARGET_DIR="$PWD/target"
 (cd .player-source/current && mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target <target>)
-(cd .player-source/current && mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target <target>)
 python3 scripts/package-player.py --platform <platform> --commit "$commit"
 ```
 
-Local packaging without `--source-url` still embeds `corresponding-source.tar.gz`
-for a self-contained distribution. CI uses `--source-only` to create and checksum
+Local player packaging without `--source-url` creates the corresponding-source
+archive and checksum alongside the player archive in `dist/`, never inside it.
+Distribute that matching source alongside the player with equivalent access; the
+README records its filename and SHA-256. Do not distribute the player alone. CI uses `--source-only` to create and checksum
 the source first, uploads it, then supplies the upload's exact artifact URL through
 `--source-url`. Do not supply an unverified URL or one pointing at different source.
+
+For a local diagnostic download, build both native helper executables and add
+`--diagnostics-only` to the packaging command. Its archive is named
+`benilla-diagnostics-<platform>-<commit>` and contains both tools, the diagnostic
+scripts and guides, and the source reference (or embedded source without a URL).
 
 For a helper-only local distribution, use the same clean-source preparation, run
 only the `benilla-native-terrain` build command, then add `--helper-only` to the
@@ -307,7 +332,7 @@ runner availability.
 
 ## Windows terrain diagnostic report
 
-The player and standalone terrain-helper archives include
+The separate diagnostic and standalone terrain-helper archives include
 `scripts/Collect-BenillaTerrainDiagnostics.ps1`. From the extracted archive, run
 in Windows PowerShell 5.1 or PowerShell 7 on Windows:
 

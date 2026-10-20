@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 import tarfile
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -25,7 +26,7 @@ SHA = "a" * 40
 
 def executables(platform):
     suffix = ".exe" if platform == "windows-amd64" else ""
-    return ("benilla" + suffix, "benilla-native-terrain" + suffix, "benilla-native-navigation" + suffix)
+    return tuple(name + suffix for name in packager.EXECUTABLES)
 
 
 _path_read_text = Path.read_text
@@ -162,7 +163,8 @@ class PackagingTests(unittest.TestCase):
     def fixture(self, root, platform="linux-amd64"):
         executable = executables(platform)[0]
         binaries = [root / "target" / packager.TARGETS[platform] / "release" / name
-                    for name in executables(platform)]
+                    for name in (*executables(platform), "benilla-native-terrain" + (".exe" if platform == "windows-amd64" else ""),
+                                 "benilla-native-navigation" + (".exe" if platform == "windows-amd64" else ""))]
         binary = binaries[0]
         source = packager.source_dir(root, SHA)
         for path in [*binaries, *(source / p for p in packager.REQUIRED_SOURCE),
@@ -194,25 +196,139 @@ class PackagingTests(unittest.TestCase):
                 with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
                     archive = packager.package(root, platform, SHA)
                 prefix = f"benilla-{platform}-{SHA}"
-                expected = {f"{prefix}/{p}" for p in [*executables(platform), *packager.DOCUMENTS, "corresponding-source.tar.gz"]}
+                expected = {f"{prefix}/{p}" for p in [*executables(platform), "config.toml", "README.md"]}
                 if platform == "windows-amd64":
                     with zipfile.ZipFile(archive) as output:
                         self.assertEqual(set(output.namelist()), expected)
                         for name in executables(platform):
                             self.assertEqual(output.read(f"{prefix}/{name}"), f"fixture:{name}".encode())
-                        data = output.read(f"{prefix}/corresponding-source.tar.gz")
+                        self.assertIn(SHA, output.read(f"{prefix}/README.md").decode())
                 else:
                     with tarfile.open(archive) as output:
                         self.assertEqual(set(output.getnames()), expected)
                         for name in executables(platform):
                             self.assertEqual(output.getmember(f"{prefix}/{name}").mode, 0o755)
                             self.assertEqual(output.extractfile(f"{prefix}/{name}").read(), f"fixture:{name}".encode())
-                        data = output.extractfile(f"{prefix}/corresponding-source.tar.gz").read()
-                with tarfile.open(fileobj=io.BytesIO(data)) as output:
+                        self.assertIn(SHA, output.extractfile(f"{prefix}/README.md").read().decode())
+                with tarfile.open(packager.source_archive_path(root, platform, SHA)) as output:
                     wanted = {f"benilla-source-{SHA}/{p.relative_to(source).as_posix()}" for p in source.rglob("*") if p.is_file()}
                     self.assertEqual(set(output.getnames()), wanted)
                 self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
                                  f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+
+    def test_player_does_not_require_diagnostic_helpers_or_copy_build_extras(self):
+        for platform in packager.TARGETS:
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                player, _, _ = self.fixture(root, platform)
+                for path in player.parent.iterdir():
+                    if path != player:
+                        path.unlink()
+                for name in ("debug.pdb", "unused.dll", "source.rs", "Data/asset.mpq"):
+                    extra = player.parent / name
+                    extra.parent.mkdir(exist_ok=True)
+                    extra.write_bytes(b"must not ship")
+                archive = packager.package(root, platform, SHA)
+                prefix = f"benilla-{platform}-{SHA}/"
+                if platform == "windows-amd64":
+                    with zipfile.ZipFile(archive) as output:
+                        names = output.namelist()
+                else:
+                    with tarfile.open(archive) as output:
+                        names = output.getnames()
+                self.assertEqual(set(names), {prefix + player.name, prefix + "config.toml", prefix + "README.md"})
+
+    def test_player_config_has_no_active_p2p_or_data_override(self):
+        root = Path(__file__).resolve().parents[1]
+        original = (root / "config.example.toml").read_bytes()
+        self.assertIn("p2p", tomllib.loads(original.decode()))
+        config = packager.player_config(root)
+        self.assertEqual(tomllib.loads(config), {})
+        for setting in ('# [p2p]', '# psk = "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE"',
+                        '# [wow]', '# data = "WoW/Data"', '# [ruleset]'):
+            self.assertIn(setting, config)
+        self.assertIn("section header (for example [wow]) together with its settings", config)
+        self.assertEqual((root / "config.example.toml").read_bytes(), original)
+
+    def test_player_readme_preserves_each_legal_notice_byte_for_byte(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, source = self.fixture(root)
+            for number, name in enumerate(packager.LEGAL_DOCUMENTS):
+                encoding = packager.LEGAL_ENCODINGS.get(name, "utf-8")
+                (source / name).write_bytes(f"Notice {number}: © attribution\r\nLicense terms\r\n".encode(encoding))
+            self.seal(source)
+            archive = packager.package(root, "linux-amd64", SHA)
+            with tarfile.open(archive) as output:
+                readme = output.extractfile(f"benilla-linux-amd64-{SHA}/README.md").read()
+            for name in packager.LEGAL_DOCUMENTS:
+                notice = (source / name).read_bytes()
+                if name in packager.LEGAL_ENCODINGS:
+                    notice = notice.decode(packager.LEGAL_ENCODINGS[name]).encode("utf-8")
+                self.assertIn(notice, readme)
+            self.assertIn(b"Source commit: " + SHA.encode(), readme)
+            self.assertIn(packager.digest(packager.source_archive_path(root, "linux-amd64", SHA)).encode(), readme)
+
+    def test_real_player_notices_form_readable_utf8_without_modifying_source(self):
+        root = Path(__file__).resolve().parents[1]
+        originals = {name: (root / name).read_bytes() for name in packager.LEGAL_DOCUMENTS}
+        readme = packager.player_readme(root, "windows-amd64", SHA, "source fixture")
+        text = readme.decode("utf-8")
+        self.assertIn("Copyright © 2000-2010", text)
+        self.assertIn("GNU GENERAL PUBLIC LICENSE", text)
+        for name, original in originals.items():
+            self.assertEqual((root / name).read_bytes(), original)
+            encoded = original.decode(packager.LEGAL_ENCODINGS.get(name, "utf-8")).encode("utf-8")
+            self.assertIn(encoded, readme)
+
+    def test_diagnostic_download_keeps_both_helpers_separate_on_every_platform(self):
+        url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
+        for platform in packager.TARGETS:
+            for separate in (False, True):
+                with self.subTest(platform=platform, separate=separate), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    player, _, _ = self.fixture(root, platform)
+                    player.unlink()
+                    if separate:
+                        packager.package_source(root, platform, SHA)
+                    with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
+                        archive = packager.package(root, platform, SHA, url if separate else None,
+                                                   diagnostics_only=True)
+                    prefix = f"benilla-diagnostics-{platform}-{SHA}/"
+                    suffix = ".exe" if platform == "windows-amd64" else ""
+                    source_name = "SOURCE-DOWNLOAD.txt" if separate else "corresponding-source.tar.gz"
+                    expected = {prefix + p for p in [*(n + suffix for n in packager.DIAGNOSTIC_EXECUTABLES),
+                                                     *packager.DOCUMENTS, source_name]}
+                    if platform == "windows-amd64":
+                        with zipfile.ZipFile(archive) as output:
+                            self.assertEqual(set(output.namelist()), expected)
+                    else:
+                        with tarfile.open(archive) as output:
+                            self.assertEqual(set(output.getnames()), expected)
+                            for helper in packager.DIAGNOSTIC_EXECUTABLES:
+                                self.assertEqual(output.getmember(prefix + helper).mode, 0o755)
+
+    def test_diagnostics_missing_helpers_fail_closed(self):
+        for platform in packager.TARGETS:
+            suffix = ".exe" if platform == "windows-amd64" else ""
+            for missing in packager.DIAGNOSTIC_EXECUTABLES:
+                with self.subTest(platform=platform, missing=missing), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    player, _, _ = self.fixture(root, platform)
+                    (player.parent / (missing + suffix)).unlink()
+                    with self.assertRaises(ValueError):
+                        packager.package(root, platform, SHA, diagnostics_only=True)
+                    self.assertFalse((root / "dist").exists())
+
+    def test_diagnostics_reject_source_operation_flags(self):
+        for option in ("--prepare-source", "--source-only", "--helper-only"):
+            with self.subTest(option=option):
+                result = subprocess.run([
+                    sys.executable, str(Path(packager.__file__)), "--diagnostics-only", option,
+                    "--commit", SHA, "--platform", "windows-amd64",
+                ], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("cannot be combined", result.stderr)
 
     def test_helper_only_needs_no_player_and_preserves_source_and_notices(self):
         url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
@@ -222,7 +338,7 @@ class PackagingTests(unittest.TestCase):
                     root = Path(directory)
                     player, _, source = self.fixture(root, platform)
                     player.unlink()
-                    helper = executables(platform)[1]
+                    helper = "benilla-native-terrain" + (".exe" if platform == "windows-amd64" else "")
                     (player.parent / helper).chmod(0o644)
                     source_archive = packager.package_source(root, platform, SHA) if separate else None
                     before = source_archive.read_bytes() if separate else None
@@ -322,7 +438,7 @@ class PackagingTests(unittest.TestCase):
                 self.assertFalse((root / "dist" / f"benilla-native-terrain-windows-amd64-{SHA}.zip").exists())
 
     def test_helper_only_rejects_source_operation_flags(self):
-        for option in ("--prepare-source", "--source-only"):
+        for option in ("--prepare-source", "--source-only", "--diagnostics-only"):
             with self.subTest(option=option):
                 result = subprocess.run([
                     sys.executable, str(Path(packager.__file__)), "--helper-only", option,
@@ -414,22 +530,22 @@ class PackagingTests(unittest.TestCase):
                 with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
                     archive = packager.package(root, platform, SHA, url)
                 prefix = f"benilla-{platform}-{SHA}"
-                expected = {f"{prefix}/{p}" for p in [*executables(platform), *packager.DOCUMENTS, "SOURCE-DOWNLOAD.txt"]}
+                expected = {f"{prefix}/{p}" for p in [*executables(platform), "config.toml", "README.md"]}
                 if platform == "windows-amd64":
                     with zipfile.ZipFile(archive) as output:
                         self.assertEqual(set(output.namelist()), expected)
                         for name in executables(platform):
                             self.assertEqual(output.read(f"{prefix}/{name}"), f"fixture:{name}".encode())
-                        notice = output.read(f"{prefix}/SOURCE-DOWNLOAD.txt").decode()
+                        notice = output.read(f"{prefix}/README.md").decode()
                 else:
                     with tarfile.open(archive) as output:
                         self.assertEqual(set(output.getnames()), expected)
                         for name in executables(platform):
                             self.assertEqual(output.getmember(f"{prefix}/{name}").mode, 0o755)
                             self.assertEqual(output.extractfile(f"{prefix}/{name}").read(), f"fixture:{name}".encode())
-                        notice = output.extractfile(f"{prefix}/SOURCE-DOWNLOAD.txt").read().decode()
+                        notice = output.extractfile(f"{prefix}/README.md").read().decode()
                 self.assertIn(url, notice)
-                self.assertIn("benilla-native-terrain", notice)
+                self.assertIn("native diagnostic helpers", notice)
                 self.assertIn(SHA, notice)
                 self.assertIn(hashlib.sha256(before).hexdigest(), notice)
                 self.assertEqual(source_archive.read_bytes(), before)
@@ -694,6 +810,24 @@ class PackagingTests(unittest.TestCase):
 
 class HelperWorkflowTests(unittest.TestCase):
     """Guard the fast lane without treating it as full-workspace acceptance."""
+
+    def test_player_docs_name_the_missing_navigation_helper_failure(self):
+        root = Path(__file__).resolve().parents[1]
+        builds = (root / "docs/BUILDS.md").read_text(encoding="utf-8")
+        self.assertIn("optional stage reports `failed` with code `navigation.helper_missing`", builds)
+        self.assertNotIn("optional stage reports unavailable", builds)
+
+    def test_player_and_diagnostics_are_distinct_downloads_with_source_first(self):
+        root = Path(__file__).resolve().parents[1]
+        player = (root / ".github/workflows/build.yml").read_text().split("\n  terrain-helper-windows:\n")[0]
+        source = player.index("id: source")
+        retention = player.index("python3 scripts/verify-source-retention.py")
+        for argument in ('--platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"',
+                         '--diagnostics-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"'):
+            self.assertLess(source, retention)
+            self.assertLess(retention, player.index("python3 scripts/package-player.py " + argument))
+        self.assertIn("name: benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}", player)
+        self.assertIn("dist/benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}.${{ matrix.archive }}", player)
 
     def test_independent_helper_uses_prepared_source_and_publishes_source_first(self):
         root = Path(__file__).resolve().parents[1]

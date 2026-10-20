@@ -176,6 +176,21 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+      - name: Package optional native diagnostic helpers separately
+        env:
+          SOURCE_URL: ${{ steps.source.outputs.artifact-url }}
+        run: python3 scripts/package-player.py --diagnostics-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"
+      - name: Upload optional native diagnostic helpers and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            dist/benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}.${{ matrix.archive }}
+            dist/benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}.${{ matrix.archive }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   terrain-helper-windows:
     name: windows-amd64 terrain helper
     runs-on: windows-2025
