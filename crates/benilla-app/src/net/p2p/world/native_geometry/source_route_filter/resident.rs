@@ -17,6 +17,8 @@ pub(crate) mod chase_los;
 pub(crate) mod cold;
 #[path = "dry_near_point.rs"]
 pub(crate) mod dry_near_point;
+#[path = "joined.rs"]
+pub(crate) mod joined;
 #[path = "near_point.rs"]
 pub(crate) mod near_point;
 
@@ -57,6 +59,77 @@ pub(crate) fn geometry_revision(
     ));
     hash.finalize().into()
 }
+/// Fixed policy selected before Profile/session/dispatch construction. The joined
+/// variant can only be derived from genuine consumed-source inventory evidence.
+#[derive(Clone, Debug)]
+pub(crate) struct ResidentGeometryPolicy {
+    installed: Option<InstalledGeometryPolicy>,
+    dry_primary: bool,
+}
+#[derive(Clone, Debug)]
+struct InstalledGeometryPolicy {
+    height: source_height::Binding,
+    epoch: [u8; 32],
+    revision: [u8; 32],
+    owner: benilla_formats::NativeInventorySource,
+}
+impl ResidentGeometryPolicy {
+    const PRIMARY: Self = Self {
+        installed: None,
+        dry_primary: false,
+    };
+    pub(crate) fn installed_corridor(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let (height, epoch) = inventory.source_binding();
+        Self {
+            installed: Some(InstalledGeometryPolicy {
+                height,
+                epoch,
+                revision: inventory.revision(),
+                owner: inventory.owner().clone(),
+            }),
+            dry_primary: false,
+        }
+    }
+    /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
+    pub(crate) fn installed_dry_corridor(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_corridor(inventory);
+        policy.dry_primary = true;
+        policy
+    }
+    pub(crate) fn revision(
+        &self,
+        height: source_height::Binding,
+        navigation: navigation::SnapshotBinding,
+    ) -> Result<[u8; 32], Failure> {
+        let primary = geometry_revision(height, navigation);
+        let Some(installed) = &self.installed else {
+            return Ok(primary);
+        };
+        if height != installed.height || navigation.source_epoch != installed.epoch {
+            return Err(Failure::Binding);
+        }
+        let mut hash = Sha256::new();
+        if self.dry_primary {
+            hash.update(b"benilla-resident-installed-dry-corridor-evidence-v1".as_slice());
+            hash.update(dry_near_point::geometry_revision(height));
+            hash.update(super::super::source_pathfinder_query::geometry_revision(
+                navigation,
+            ));
+        } else {
+            hash.update(b"benilla-resident-installed-corridor-evidence-v1".as_slice());
+            hash.update(primary);
+        }
+        hash.update(installed.revision);
+        hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
+        hash.update(b"exact-endpoints-live-raw-local-corridor-owner-height-segment-los-v1");
+        hash.update([0]); // Source segment LOS always includes M2 geometry.
+        Ok(hash.finalize().into())
+    }
+}
 #[derive(Debug)]
 pub(crate) enum ResidentFilterError {
     Context(Failure),
@@ -82,6 +155,7 @@ impl From<Failure> for ResidentFilterError {
 
 pub(crate) struct ResidentFilterProvider<'a, 'terrain, 'bundle, 'source> {
     identity: Rc<()>,
+    geometry_policy: ResidentGeometryPolicy,
     session: Session,
     profile: Profile,
     height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
@@ -90,6 +164,7 @@ pub(crate) struct ResidentFilterProvider<'a, 'terrain, 'bundle, 'source> {
 /// Move-only, exact-dispatch point observations. No public fields or Route conversion.
 pub(crate) struct ResidentFilterDependency {
     identity: Rc<()>,
+    observation_identity: Rc<()>,
     context: AuthorityRequest,
     expires: Instant,
     observations: [PointNoWaterReply; 2],
@@ -111,6 +186,21 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
         navigation: SourceMapQuerySnapshot,
     ) -> Result<Self, ResidentFilterError> {
+        Self::bind_with_policy(
+            session,
+            profile,
+            height,
+            navigation,
+            ResidentGeometryPolicy::PRIMARY,
+        )
+    }
+    pub(crate) fn bind_with_policy(
+        session: &Session,
+        profile: &Profile,
+        height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
+        navigation: SourceMapQuerySnapshot,
+        geometry_policy: ResidentGeometryPolicy,
+    ) -> Result<Self, ResidentFilterError> {
         if height.binding().map != navigation.binding().map
             || height.generated_query_source_epoch() != navigation.binding().source_epoch
         {
@@ -125,15 +215,68 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             profile,
             navigation,
             height.binding(),
+            &geometry_policy,
         )
         .map_err(ResidentFilterError::Query)?;
         Ok(Self {
             identity: Rc::new(()),
+            geometry_policy,
             session: session.clone(),
             profile: profile.clone(),
             height,
             query,
         })
+    }
+    /// The dry adapter borrows this exact installed policy and native query owner.
+    /// Compatibility is rechecked, never supplied as an arbitrary revision hash.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resolve_dry_primary_near_point(
+        &self,
+        session: &Session,
+        request: &AuthorityRequest,
+        player: benilla_world_runtime::PlayerId,
+        compatibility: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+        configuration: Option<source_height::ResidentInitializationConfiguration>,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<benilla_world_runtime::native::Facts, ResidentFilterError> {
+        if !self.geometry_policy.dry_primary {
+            return Err(Failure::Binding.into());
+        }
+        self.verify_installed_owner(compatibility, compatibility.owner(), deadline, &cancelled)?;
+        let dry = dry_near_point::ResidentDryNearPointProvider::bind_installed(
+            self,
+            player,
+            configuration,
+            deadline,
+            &cancelled,
+        )?;
+        dry.resolve(session, request, deadline, cancelled)
+    }
+
+    /// Re-enter the genuine registry on a live callback, including later use.
+    /// The checked original allocation is independent of joined's early refusal.
+    #[cfg(test)]
+    pub(crate) fn retained_constructor_for_test(
+        &mut self,
+        context: &AuthorityRequest,
+    ) -> Result<(usize, benilla_native_nav::SourceMapQuerySlot, usize), ResidentFilterError> {
+        let slot = self
+            .query
+            .retain_constructor(context)
+            .map_err(ResidentFilterError::Query)?
+            .slot();
+        let dispatch = context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let (identity, _, _) = self
+            .query
+            .registered_constructor_for(
+                context.binding.npc.ok_or(Failure::Binding)?,
+                dispatch.construction_binding(),
+            )
+            .ok_or(Failure::Binding)?;
+        Ok((identity, slot, self.query.constructor_count()))
     }
     pub(crate) fn observe(
         &mut self,
@@ -222,6 +365,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         self.check_context(context, deadline, &cancelled)?;
         Ok(ResidentFilterDependency {
             identity: Rc::clone(&self.identity),
+            observation_identity: Rc::new(()),
             context: context.clone(),
             expires: deadline,
             observations,

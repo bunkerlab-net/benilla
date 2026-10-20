@@ -62,6 +62,7 @@ pub(crate) struct ResidentDryNearPointProvider<'a, 'terrain, 'bundle, 'source> {
     profile: Profile,
     height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
     initialization: CreatureInitializationSnapshot,
+    installed: Option<(ResidentGeometryPolicy, navigation::SnapshotBinding)>,
 }
 impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 'bundle, 'source> {
     pub(crate) fn bind(
@@ -84,8 +85,43 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 
             profile: profile.clone(),
             height,
             initialization,
+            installed: None,
         };
         provider.check_session(session)?;
+        poll(deadline, &cancelled)?;
+        Ok(provider)
+    }
+    /// Only the enclosing installed provider can supply this composed binding.
+    pub(super) fn bind_installed(
+        resident: &ResidentFilterProvider<'a, 'terrain, 'bundle, 'source>,
+        player: benilla_world_runtime::PlayerId,
+        configuration: Option<ResidentInitializationConfiguration>,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, ResidentFilterError> {
+        poll(deadline, &cancelled)?;
+        if !resident.geometry_policy.dry_primary || resident.geometry_policy.installed.is_none() {
+            return Err(Failure::Binding.into());
+        }
+        resident.profile.validate().map_err(|_| Failure::Binding)?;
+        let initialization = resident
+            .height
+            .initialization_binding(
+                resident.profile.content_digest,
+                configuration,
+                deadline,
+                &cancelled,
+            )
+            .map_err(ResidentFilterError::Source)?;
+        let provider = Self {
+            session: resident.session.clone(),
+            player,
+            profile: resident.profile.clone(),
+            height: resident.height,
+            initialization,
+            installed: Some((resident.geometry_policy.clone(), resident.query.binding())),
+        };
+        provider.check_session(&resident.session)?;
         poll(deadline, &cancelled)?;
         Ok(provider)
     }
@@ -93,6 +129,18 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 
         session.check_participants()?;
         self.session.check_participants()?;
         let expected = PrimaryNearPointPolicy::from_profile(&self.profile)?;
+        let geometry = match &self.installed {
+            None => geometry_revision(self.height.binding()),
+            Some((policy, navigation)) => {
+                if !policy.dry_primary
+                    || policy.installed.is_none()
+                    || navigation.source_epoch != self.height.generated_query_source_epoch()
+                {
+                    return Err(Failure::Binding.into());
+                }
+                policy.revision(self.height.binding(), *navigation)?
+            }
+        };
         if self.player.owner == [0; 16]
             || self.player.character == [0; 16]
             || session.world == [0; 16]
@@ -101,7 +149,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentDryNearPointProvider<'a, 'terrain, 
             || session.policy != self.profile.authority_policy
             || session.content != self.profile.content_digest
             || session.geometry != self.profile.geometry_revision
-            || session.geometry != geometry_revision(self.height.binding())
+            || session.geometry != geometry
             || session.map != self.profile.map_id
             || session.map != self.height.binding().map
             || session.bodies != self.session.bodies
