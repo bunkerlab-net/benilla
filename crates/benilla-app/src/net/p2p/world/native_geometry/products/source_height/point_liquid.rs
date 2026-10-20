@@ -41,7 +41,17 @@ impl PreparedSourceHeight<'_, '_, '_> {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<PointNoWaterReply, CompositionError> {
-        self.point_no_water_inner(request, deadline, cancelled, |_| {})
+        let mut budget = vmap::QueryBudget::new(deadline);
+        self.point_no_water_with_budget(request, &mut budget, cancelled)
+    }
+    /// Retains the caller's remaining allowance and original absolute deadline.
+    pub(crate) fn point_no_water_with_budget(
+        &self,
+        request: PointNoWaterRequest,
+        budget: &mut vmap::QueryBudget,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<PointNoWaterReply, CompositionError> {
+        self.point_no_water_inner(request, budget, cancelled, |_, _| {})
     }
     #[cfg(test)]
     pub(crate) fn point_no_water_observed(
@@ -49,25 +59,34 @@ impl PreparedSourceHeight<'_, '_, '_> {
         request: PointNoWaterRequest,
         deadline: Instant,
         cancelled: impl Fn() -> bool,
-        observe: impl FnMut(u8),
+        mut observe: impl FnMut(u8),
     ) -> Result<PointNoWaterReply, CompositionError> {
-        self.point_no_water_inner(request, deadline, cancelled, observe)
+        let mut budget = vmap::QueryBudget::new(deadline);
+        self.point_no_water_inner(request, &mut budget, cancelled, |phase, _| observe(phase))
+    }
+    #[cfg(test)]
+    pub(crate) fn point_no_water_observed_with_budget(
+        &self,
+        request: PointNoWaterRequest,
+        budget: &mut vmap::QueryBudget,
+        cancelled: impl Fn() -> bool,
+        observe: impl FnMut(u8, &vmap::QueryBudget),
+    ) -> Result<PointNoWaterReply, CompositionError> {
+        self.point_no_water_inner(request, budget, cancelled, observe)
     }
     fn point_no_water_inner(
         &self,
         request: PointNoWaterRequest,
-        deadline: Instant,
+        budget: &mut vmap::QueryBudget,
         cancelled: impl Fn() -> bool,
-        mut observe: impl FnMut(u8),
+        mut observe: impl FnMut(u8, &vmap::QueryBudget),
     ) -> Result<PointNoWaterReply, CompositionError> {
-        let poll = || -> Result<(), CompositionError> {
+        let poll = |budget: &vmap::QueryBudget| -> Result<(), CompositionError> {
             check(&cancelled)?;
-            if Instant::now() >= deadline {
-                return Err(Error::Deadline.into());
-            }
+            budget.complete()?;
             Ok(())
         };
-        poll()?;
+        poll(budget)?;
         if request.binding != self.binding || request.ticket == 0 {
             return Err(Error::Identity.into());
         }
@@ -75,10 +94,9 @@ impl PreparedSourceHeight<'_, '_, '_> {
             return Err(Error::Unsupported.into());
         }
         self.verify_unchanged(&cancelled)?;
-        poll()?;
-        let mut budget = vmap::QueryBudget::new(deadline);
+        poll(budget)?;
         // TerrainInfo::getLiquidStatus always computes GetHeightStatic first.
-        observe(0);
+        observe(0, budget);
         let height = self.query_with_budget(
             HeightRequest {
                 binding: request.binding,
@@ -86,16 +104,17 @@ impl PreparedSourceHeight<'_, '_, '_> {
                 position: request.position,
                 max_search: 50.0f32.to_bits(),
             },
-            &mut budget,
+            budget,
         )?;
-        poll()?;
-        observe(1);
+        poll(budget)?;
+        observe(1, budget);
         let p = request.position.map(f32::from_bits);
-        let location = self.collision.no_liquid_with_budget(p, &mut budget)?;
-        poll()?;
+        let location = self.collision.no_liquid_with_budget(p, budget)?;
+        poll(budget)?;
         // False GetLiquidLevel falls through to GridMap. A liquid-bearing tile is
         // deliberately outside this proof, even if its rectangle misses this point.
-        observe(2);
+        observe(2, budget);
+        budget.take()?;
         let tile = self
             .tiles
             .get(&world_tile(p[0], p[1])?)
@@ -105,7 +124,7 @@ impl PreparedSourceHeight<'_, '_, '_> {
         }
         budget.complete()?;
         self.verify_unchanged(&cancelled)?;
-        poll()?;
+        poll(budget)?;
         Ok(PointNoWaterReply {
             request,
             ground_height: height.height,

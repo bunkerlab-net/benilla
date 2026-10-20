@@ -461,3 +461,220 @@ fn resident_liquid_source_mutation_before_or_during_observation_cannot_publish_r
         );
     }
 }
+
+#[test]
+fn resident_liquid_shared_budget_keeps_repeated_height_and_los_cumulative() {
+    use super::super::super::source_height::HeightRequest;
+    let install = Install::new(&shared_entries());
+    let terrain = terrain(&install);
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let view = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let outer = HeightRequest {
+        binding: view.binding(),
+        ticket: 701,
+        position: [HIT_XY[0], HIT_XY[1], 20.0f32.to_bits()],
+        max_search: 50.0f32.to_bits(),
+    };
+    let mut measured = QueryBudget::new(deadline());
+    let initial = measured.remaining_work_for_test();
+    let ground = view.query_with_budget(outer, &mut measured).unwrap();
+    let height_cost = initial - measured.remaining_work_for_test();
+    assert!(height_cost > 0);
+    let mut nested = request(&view, f32::from_bits(ground.height), 15);
+    nested.ticket = 702;
+    assert_ne!(outer.position, nested.position);
+    let mut phases = Vec::new();
+    let reply = view
+        .point_no_water_observed_with_budget(
+            nested,
+            &mut measured,
+            || false,
+            |phase, budget| phases.push((phase, initial - budget.remaining_work_for_test())),
+        )
+        .unwrap();
+    let point_cost = initial - measured.remaining_work_for_test() - height_cost;
+    assert_eq!(phases.iter().map(|p| p.0).collect::<Vec<_>>(), [0, 1, 2]);
+    assert_eq!(phases[0].1, height_cost);
+    assert!(
+        phases[1].1 > phases[0].1,
+        "nested static height executes again"
+    );
+    assert!(
+        phases[2].1 > phases[1].1,
+        "VMap selection consumes remaining work"
+    );
+    assert_eq!(
+        initial - measured.remaining_work_for_test(),
+        phases[2].1 + 1
+    );
+    assert_eq!(
+        view.point_no_water(nested, deadline(), || false).unwrap(),
+        reply
+    );
+    // Even a zero-length LOS is independently charged, not a free final phase.
+    view.source_ray_with_budget(703, nested.position, nested.position, &mut measured, || {
+        false
+    })
+    .unwrap();
+    let total = initial - measured.remaining_work_for_test();
+    assert!(total > height_cost + point_cost);
+    for limit in [total, total - 1, height_cost, phases[1].1, phases[2].1] {
+        let mut budget = QueryBudget::new(deadline());
+        budget.restrict_work_for_test(limit);
+        view.query_with_budget(outer, &mut budget).unwrap();
+        let mut trace = Vec::new();
+        let point = view.point_no_water_observed_with_budget(
+            nested,
+            &mut budget,
+            || false,
+            |phase, _| trace.push(phase),
+        );
+        if limit < height_cost + point_cost {
+            assert_validation(point, Error::Budget);
+            let last = if limit == height_cost {
+                0
+            } else if limit == phases[1].1 {
+                1
+            } else {
+                2
+            };
+            assert_eq!(trace, (0..=last).collect::<Vec<_>>());
+        } else {
+            assert_eq!(point.unwrap(), reply);
+            let ray = view.source_ray_with_budget(
+                703,
+                nested.position,
+                nested.position,
+                &mut budget,
+                || false,
+            );
+            if limit == total {
+                ray.unwrap();
+                budget.complete().unwrap();
+            } else {
+                assert!(matches!(
+                    ray,
+                    Err(CompositionError::Validation(Error::Budget))
+                ));
+            }
+        }
+        assert_eq!(budget.remaining_work_for_test(), 0);
+    }
+    // Each phase separately fits total-minus-one; only cumulative accounting refuses.
+    let mut separate = QueryBudget::new(deadline());
+    separate.restrict_work_for_test(total - 1);
+    view.point_no_water_with_budget(nested, &mut separate, || false)
+        .unwrap();
+    let mut separate = QueryBudget::new(deadline());
+    separate.restrict_work_for_test(total - 1);
+    view.source_ray_with_budget(703, nested.position, nested.position, &mut separate, || {
+        false
+    })
+    .unwrap();
+}
+
+#[test]
+fn resident_liquid_shared_budget_precedes_missing_terrain_and_wet_gridmap_when_exhausted() {
+    for wet in [false, true] {
+        let mut entries = shared_entries();
+        if wet {
+            replace(
+                &mut entries,
+                ADT,
+                placed_terrain("liquid_water_flat.adt.test-fixture"),
+            );
+        }
+        let install = Install::new(&entries);
+        let terrain = terrain(&install);
+        let capture = source::prepare(&install.0, 0, || false).unwrap();
+        let bundle = capture
+            .assemble_map_bundle(profile(), || false)
+            .unwrap()
+            .unwrap();
+        let view = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+        let mut query = request(&view, 20.0, 15);
+        if !wet {
+            query.position.swap(0, 1);
+        }
+        let mut budget = QueryBudget::new(deadline());
+        let initial = budget.remaining_work_for_test();
+        let mut grid_cost = 0;
+        assert_validation(
+            view.point_no_water_observed_with_budget(
+                query,
+                &mut budget,
+                || false,
+                |phase, budget| {
+                    if phase == 2 {
+                        grid_cost = initial - budget.remaining_work_for_test();
+                    }
+                },
+            ),
+            if wet {
+                Error::Unsupported
+            } else {
+                Error::Missing
+            },
+        );
+        let mut budget = QueryBudget::new(deadline());
+        budget.restrict_work_for_test(grid_cost);
+        assert_validation(
+            view.point_no_water_with_budget(query, &mut budget, || false),
+            Error::Budget,
+        );
+        assert_eq!(budget.remaining_work_for_test(), 0);
+    }
+}
+
+#[test]
+fn resident_liquid_borrowed_budget_never_renews_deadline_or_escapes_cancellation() {
+    let install = Install::new(&shared_entries());
+    let terrain = terrain(&install);
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let view = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    let query = request(&view, 8.0, 15);
+    for stop in 0..3 {
+        for expire in [false, true] {
+            let end = deadline();
+            let mut budget = QueryBudget::new(end);
+            let cancelled = Cell::new(false);
+            let mut trace = Vec::new();
+            let result = view.point_no_water_observed_with_budget(
+                query,
+                &mut budget,
+                || cancelled.get(),
+                |phase, _| {
+                    trace.push(phase);
+                    if phase == stop {
+                        if expire {
+                            std::thread::sleep(end.saturating_duration_since(Instant::now()));
+                        } else {
+                            cancelled.set(true);
+                        }
+                    }
+                },
+            );
+            if expire {
+                assert_validation(result, Error::Deadline);
+            } else {
+                assert!(matches!(result, Err(CompositionError::Cancelled)));
+            }
+            assert_eq!(trace, (0..=stop).collect::<Vec<_>>());
+        }
+    }
+    let mut budget = QueryBudget::new(Instant::now());
+    let initial = budget.remaining_work_for_test();
+    assert_validation(
+        view.point_no_water_with_budget(query, &mut budget, || false),
+        Error::Deadline,
+    );
+    assert_eq!(budget.remaining_work_for_test(), initial);
+}

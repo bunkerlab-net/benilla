@@ -739,3 +739,40 @@ fn source_height_recheck_rejects_mutation_but_queries_keep_the_captured_historic
         );
     }
 }
+
+#[test]
+fn source_height_shared_budget_charges_terrain_before_missing_lookup() {
+    let install = Install::new(&shared_entries());
+    let terrain = terrain(&install);
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let view = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    for missing in [false, true] {
+        let mut query = request(&view, 20.0, 50.0);
+        if missing {
+            query.position.swap(0, 1);
+        }
+        let mut budget = QueryBudget::new(deadline());
+        budget.restrict_work_for_test(0);
+        assert_eq!(
+            view.query_with_budget(query, &mut budget),
+            Err(Error::Budget)
+        );
+        assert_eq!(budget.remaining_work_for_test(), 0);
+        let ample = view.query(query, deadline());
+        if missing {
+            assert_eq!(ample, Err(Error::Missing));
+        } else {
+            ample.unwrap();
+        }
+        // Request validation still precedes the new terrain debit.
+        query.ticket = 0;
+        assert_eq!(
+            view.query_with_budget(query, &mut budget),
+            Err(Error::Identity)
+        );
+    }
+}

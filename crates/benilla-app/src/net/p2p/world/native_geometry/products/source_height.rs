@@ -215,6 +215,8 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
             return Err(Error::Unsupported);
         }
         budget.complete()?;
+        // Fixed terrain lookup/interpolation shares the traversal allowance.
+        budget.take()?;
         let tile = self
             .tiles
             .get(&world_tile(p[0], p[1])?)
