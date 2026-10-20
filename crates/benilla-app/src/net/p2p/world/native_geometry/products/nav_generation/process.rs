@@ -571,8 +571,32 @@ mod tests {
         #[test]
         fn drains_both_outputs_before_helper_reads_large_stdin() {
             let _serial = HELPER_TEST.lock().unwrap();
-            let helper = Helper::new("sys.stderr.buffer.write(bytes(65536))\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'BNAVOUT1' + struct.pack('<IIIIQ', 0, 28, 262144, 1, 0) + bytes(28 + 262144))\nsys.stdout.buffer.flush()\nassert len(sys.stdin.buffer.read()) == 1048576");
-            let result = helper.run(vec![42; 1_048_576]).unwrap();
+            let helper = Helper::new("directory = os.path.dirname(__file__)\ndef phase(value):\n    with open(os.path.join(directory, 'phase.pending'), 'w') as f:\n        f.write(value)\n    os.replace(os.path.join(directory, 'phase.pending'), os.path.join(directory, 'phase'))\nphase('ready')\nsys.stderr.buffer.write(bytes(65536))\nsys.stderr.buffer.flush()\nphase('stderr flushed')\nsys.stdout.buffer.write(b'BNAVOUT1' + struct.pack('<IIIIQ', 0, 28, 262144, 1, 0) + bytes(28 + 262144))\nsys.stdout.buffer.flush()\nphase('stdout flushed')\nassert sys.stdin.buffer.read() == bytes([42]) * 1048576\nphase('stdin consumed')");
+            let mut command = helper.command();
+            command.process_group(0);
+            let running = Running {
+                child: command.spawn().unwrap(),
+                reaped: false,
+                process_group: true,
+            };
+            // Interpreter startup is not pipe progress; keep the transfer deadline separate.
+            let phase = helper.0.parent().unwrap().join("phase");
+            let startup_deadline = Instant::now() + Duration::from_secs(30);
+            while !phase.is_file() && Instant::now() < startup_deadline {
+                pause(startup_deadline);
+            }
+            assert!(phase.is_file(), "output helper must become ready");
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let bytes = unix::run_spawned(running, vec![42; 1_048_576], deadline, &|| false);
+            assert!(
+                bytes.is_ok(),
+                "{bytes:?}; helper phase: {:?}",
+                fs::read_to_string(&phase)
+            );
+            check(deadline, &|| false).unwrap();
+            let result = GenerationResponse::decode(&bytes.unwrap()).unwrap();
+            check(deadline, &|| false).unwrap();
+            assert_eq!(fs::read_to_string(phase).unwrap(), "stdin consumed");
             assert_eq!(result.mmtile.len(), 262_144);
             assert_eq!(result.polygon_count, 1);
         }
