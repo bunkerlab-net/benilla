@@ -60,26 +60,6 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
-      - name: test
-        run: mbx test --locked --no-fail-fast --workspace
-      - name: Verify installed source corridor
-        shell: bash
-        run: |
-          set -o pipefail
-          log="$RUNNER_TEMP/native-installed-source-corridor.log"
-          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::installed_source_inventory_owner_certifies_concrete_corridor -- --exact --nocapture 2>&1 | tee "$log"
-          grep -Fxq "running 1 test" "$log"
-          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
-      - name: Verify joined resident installed corridor
-        shell: bash
-        run: |
-          set -euo pipefail
-          log="$RUNNER_TEMP/native-resident-joined-corridor.log"
-          # MBX progress uses stderr; never merge it into libtest's stdout proof.
-          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::joined:: -- --show-output --test-threads=1 --color never | tee "$log"
-          python3 scripts/verify-libtest-output.py "$log" \
-            real_corridor_fixture::installed_source::joined::resident_joined_actual_installed_owner_and_corridor \
-            real_corridor_fixture::installed_source::joined::resident_joined_rechecks_live_geometry_and_final_source_after_segment
       - name: Verify resident first cold Route feasibility
         shell: bash
         run: |
@@ -100,6 +80,26 @@ jobs:
             real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_decoded_and_foreign_prerequisites \
             real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_equal_bytes_new_live_seal \
             real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_observation_only_policy
+      - name: test
+        run: mbx test --locked --no-fail-fast --workspace
+      - name: Verify installed source corridor
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-installed-source-corridor.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::installed_source_inventory_owner_certifies_concrete_corridor -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+      - name: Verify joined resident installed corridor
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-joined-corridor.log"
+          # MBX progress uses stderr; never merge it into libtest's stdout proof.
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::joined:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::joined::resident_joined_actual_installed_owner_and_corridor \
+            real_corridor_fixture::installed_source::joined::resident_joined_rechecks_live_geometry_and_final_source_after_segment
       - name: Verify joined resident source geometry
         shell: bash
         run: |

@@ -115,10 +115,20 @@ fn resident_first_cold_real_route_feasibility() {
             assert_eq!(calculation.after_cache.path_type, 1);
             assert_eq!(calculation.after_cache.include_flags, 13);
             assert_eq!(calculation.after_cache.exclude_flags, 0);
+            // The cold source constructor reserves 74 zero slots. Its start lookup
+            // appends a polygon, then the same-polygon terminal installs that ref at
+            // slot 0 without deleting the appended tail (source_cold_same_polygon_tests).
+            // The point limit is not the backing storage length: preserve both.
+            let cache = &calculation.after_cache;
+            assert_eq!(cache.point_limit, 74);
             assert_eq!(
-                calculation.after_cache.poly_refs.len(),
-                usize::from(benilla_sim::creature_motion::PATHFINDER_CACHE_POINT_LIMIT)
+                cache.point_limit,
+                benilla_sim::creature_motion::PATHFINDER_CACHE_POINT_LIMIT
             );
+            assert_eq!(cache.poly_refs.len(), 75);
+            assert_ne!(cache.poly_refs[0], 0);
+            assert_eq!(&cache.poly_refs[1..74], &[0; 73]);
+            assert_eq!(cache.poly_refs[74], cache.poly_refs[0]);
             eprintln!(
                 "resident cold committed runtime tick={}",
                 world.state().tick
