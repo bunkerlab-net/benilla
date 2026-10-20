@@ -250,6 +250,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             query,
         })
     }
+    #[cfg(not(benilla_headless_geometry))]
     pub(crate) fn require_first_cold_route(&self) -> Result<(), ResidentFilterError> {
         if !self.geometry_policy.first_cold_route
             || !self.geometry_policy.dry_primary

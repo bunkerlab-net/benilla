@@ -142,6 +142,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         self.check_context(context, deadline, &cancelled)?;
         Ok(ResidentJoinedColdObservation { terminal, body })
     }
+    #[cfg(not(benilla_headless_geometry))]
     pub(crate) fn joined_cache(
         &self,
         dependency: &ResidentJoinedColdDependency,

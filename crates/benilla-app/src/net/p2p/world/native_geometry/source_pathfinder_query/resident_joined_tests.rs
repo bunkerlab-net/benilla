@@ -63,6 +63,7 @@ pub(crate) fn with_fixture<T>(
     // Start beyond melee reach so the real runtime must issue Chase/NearPoint.
     with_fixture_at((start, [start[0] - 8., start[1], start[2]]), false, test)
 }
+#[cfg(not(benilla_headless_geometry))]
 pub(crate) fn with_route_fixture<T>(
     test: impl FnOnce(
         &input::Install,
@@ -1206,6 +1207,7 @@ fn resident_joined_rejected_chase_prefix_never_calculates() {
 
 /// Genuine initialized runtime for concrete certification. Spatial replies use
 /// resident geometry/source numeric bearing; combat and visitor scaffolding is authored.
+#[cfg(not(benilla_headless_geometry))]
 pub(crate) fn complete_cold_probe(
     p: &Profile,
     s: &Session,

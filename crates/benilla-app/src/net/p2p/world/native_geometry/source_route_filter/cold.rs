@@ -207,6 +207,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         })
     }
     /// Cache state comes from the owned native terminal, never its diagnostic copy.
+    #[cfg(not(benilla_headless_geometry))]
     pub(super) fn cold_cache(
         &self,
         dependency: &ResidentSamePolygonDependency,
