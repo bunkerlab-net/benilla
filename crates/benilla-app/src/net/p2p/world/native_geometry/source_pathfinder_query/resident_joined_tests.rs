@@ -208,11 +208,50 @@ fn initialized_profile(
         CreatureCapabilityCatalog::validate_sources(CreatureCapabilityRows::Complete(vec![source]))
             .unwrap(),
     );
+    // Player height selection requires the real starter initializer's identity;
+    // the creature-generation fixture intentionally has no initialized player.
+    let starter = f::initialized_starter_input();
+    if let benilla_world_runtime::native::AbilityAdmission::Available(spec) =
+        &mut p.abilities[0].admission
+    {
+        spec.spell_rank = 1;
+    }
+    // Select the fixture's native melee component using its authored generation
+    // exemplar; runtime initialization still projects the actual selected stats.
+    let generation = p.creature_generations.as_ref().unwrap().source(2).unwrap();
+    let (selected, _) = benilla_sim::creature_init::prepare(&generation.input)
+        .unwrap()
+        .resolve_with_model_receipt(benilla_sim::creature_init::SelectionRolls {
+            model: Some(0),
+            gender: Some(0),
+            level: Some(1),
+        })
+        .unwrap();
+    p.npcs[0].combat = Some(benilla_world_runtime::native::CreatureCombatProfile {
+        minimum_damage: selected.stats.damage.minimum,
+        maximum_damage: selected.stats.damage.maximum,
+        no_crushing_blows: selected.no_crushing_blows,
+        creature_is_critter: selected.creature_is_critter,
+    });
+    p.initialize_player(&starter, f::float(100.0), 1).unwrap();
     p.initialize_player_collision_height(
         &player_models::catalog(),
         &models::catalog_with_model_heights(2.875, 4.125),
     )
     .unwrap();
+    let player_model = p.player_collision_height.as_ref().unwrap();
+    assert_eq!(
+        (
+            player_model.race(),
+            player_model.class(),
+            player_model.gender()
+        ),
+        (starter.race, starter.class, starter.gender),
+    );
+    assert_eq!(
+        p.player.start,
+        ai::Point::new(end[0], end[1], end[2]).unwrap()
+    );
     benilla_world_runtime::native::synthetic_combat_fixture::install(&mut p);
     p.validate().unwrap();
     p
