@@ -104,7 +104,11 @@ fn with_fixture_at<T>(
             || false,
         )
         .unwrap();
-    let mut p = initialized_profile(binding, start, end);
+    let maps = benilla_formats::load_map_catalog(
+        &mut benilla_formats::Chain::open(install.path()).unwrap(),
+    )
+    .unwrap();
+    let mut p = initialized_profile(binding, start, end, &maps);
     p.tick_ms = 25;
     p.source_motion.as_mut().unwrap().relocation_aggro_delay_ms = 125;
     let catalog = LiquidCatalog::from_wdbc(
@@ -186,12 +190,11 @@ fn initialized_profile(
     binding: CreatureInitializationSnapshot,
     start: [f32; 3],
     end: [f32; 3],
+    maps: &benilla_formats::MapCatalog,
 ) -> Profile {
-    let configured = super::tests::generated_profile(start, end);
     let mut p = initialization::profile_with_faction(binding, [77; 32], 2);
     p.npcs[0].ai.spawn = ai::Point::new(start[0], start[1], start[2]).unwrap();
     p.player.start = ai::Point::new(end[0], end[1], end[2]).unwrap();
-    p.pathfinder_configuration = configured.pathfinder_configuration;
     let mut source = p
         .creature_capabilities
         .as_ref()
@@ -253,6 +256,23 @@ fn initialized_profile(
         ai::Point::new(end[0], end[1], end[2]).unwrap()
     );
     benilla_world_runtime::native::synthetic_combat_fixture::install(&mut p);
+    // Retain configuration only after this profile's complete entry/capability
+    // and interaction owners exist; another fixture's retained source is invalid.
+    p.initialize_pathfinder_configuration(
+        benilla_world_runtime::native::SelectedMMapConfiguration {
+            enabled: true,
+            effective_disabled_maps:
+                benilla_world_runtime::native::EffectiveDisabledMMapSet::Complete(Default::default()),
+            source_instance_id: 0,
+        },
+        maps,
+    )
+    .unwrap();
+    p.pathfinder_configuration
+        .as_ref()
+        .unwrap()
+        .constructor_binding(&p, 2)
+        .unwrap();
     p.validate().unwrap();
     p
 }
