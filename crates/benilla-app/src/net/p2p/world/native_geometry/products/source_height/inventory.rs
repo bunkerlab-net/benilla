@@ -17,15 +17,6 @@ pub(crate) struct InventoryCompatibility<'view, 'terrain, 'bundle, 'source> {
     revision: Hash,
 }
 impl InventoryCompatibility<'_, '_, '_, '_> {
-    pub(crate) fn owner(&self) -> &NativeInventorySource {
-        &self.owner
-    }
-    pub(crate) fn source_binding(&self) -> (Binding, Hash) {
-        (
-            self.view.binding(),
-            self.view.generated_query_source_epoch(),
-        )
-    }
     pub(crate) fn revision(&self) -> Hash {
         self.revision
     }

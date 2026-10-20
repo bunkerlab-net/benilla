@@ -711,7 +711,3 @@ fn installed_source_rebuilt_exterior_overlap_has_no_live_coverage() {
     });
     assert_eq!(install.bytes(), before);
 }
-
-#[cfg(test)]
-#[path = "installed_source/joined.rs"]
-mod joined;

@@ -33,7 +33,7 @@ pub(crate) enum NearPointObservation {
 }
 impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundle, 'source> {
     /// Compose the narrower source-only responder with this already-validated
-    /// selected geometry/profile context. No caller may provide a replacement revision.
+    /// v2 geometry/profile context. No caller may provide a replacement revision.
     pub(crate) fn player_environment(
         &self,
         player: PlayerId,
@@ -44,10 +44,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         ResidentEnvironmentError,
     > {
         if self.profile.geometry_revision
-            != self
-                .geometry_policy
-                .revision(self.height.binding(), self.query.binding())
-                .map_err(ResidentEnvironmentError::Context)?
+            != geometry_revision(self.height.binding(), self.query.binding())
         {
             return Err(ResidentEnvironmentError::Context(Failure::Binding));
         }
@@ -121,10 +118,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             || self.session.primary_near_point.as_ref() != Some(&expected)
             || session.empty_selector_near_point.is_some()
             || self.session.empty_selector_near_point.is_some()
-            || session.geometry
-                != self
-                    .geometry_policy
-                    .revision(self.height.binding(), self.query.binding())?
+            || session.geometry != geometry_revision(self.height.binding(), self.query.binding())
         {
             return Err(Failure::Binding.into());
         }

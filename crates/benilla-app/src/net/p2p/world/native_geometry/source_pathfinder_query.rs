@@ -187,11 +187,9 @@ impl SourcePathfinderQueryProvider {
         profile: &Profile,
         navigation: SourceMapQuerySnapshot,
         height: super::products::source_height::Binding,
-        policy: &super::source_route_filter::resident::ResidentGeometryPolicy,
     ) -> Result<Self, ConstructorQueryError> {
-        let expected = policy
-            .revision(height, navigation.binding())
-            .map_err(|_| ConstructorQueryError::Binding)?;
+        let expected =
+            super::source_route_filter::resident::geometry_revision(height, navigation.binding());
         Self::bind_revision(session, profile, navigation, expected)
     }
     fn bind_revision(
@@ -1102,7 +1100,3 @@ pub(crate) mod resident_water_tests;
 #[cfg(test)]
 #[path = "source_pathfinder_query/resident_near_point_tests.rs"]
 pub(crate) mod resident_near_point_tests;
-
-#[cfg(test)]
-#[path = "source_pathfinder_query/resident_joined_tests.rs"]
-pub(crate) mod resident_joined_tests;

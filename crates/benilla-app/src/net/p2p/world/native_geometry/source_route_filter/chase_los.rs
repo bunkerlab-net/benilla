@@ -26,7 +26,6 @@ pub(crate) struct ResidentChaseLosObservation {
 #[derive(Clone)]
 pub(crate) struct ResidentChaseLosDependency {
     identity: Rc<()>,
-    filter_identity: Rc<()>,
     context: AuthorityRequest,
     player: PlayerId,
     model: ChaseGateModel,
@@ -137,7 +136,6 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         self.check_context(context, deadline, &cancelled)?;
         Ok(ResidentChaseLosDependency {
             identity: Rc::clone(&self.identity),
-            filter_identity: Rc::clone(&prior.observation_identity),
             context: context.clone(),
             player,
             model,
