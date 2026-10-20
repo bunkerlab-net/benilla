@@ -15,6 +15,8 @@ use std::rc::Rc;
 pub(crate) mod chase_los;
 #[path = "cold.rs"]
 pub(crate) mod cold;
+#[path = "dry_near_point.rs"]
+pub(crate) mod dry_near_point;
 #[path = "near_point.rs"]
 pub(crate) mod near_point;
 

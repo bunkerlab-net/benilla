@@ -776,3 +776,72 @@ fn source_height_shared_budget_charges_terrain_before_missing_lookup() {
         );
     }
 }
+
+#[test]
+fn resident_swimming_height50_distinguishes_ground10_on_actual_upward_retry() {
+    let mut entries = shared_entries();
+    let mut adt = placed_terrain("flat.adt.test-fixture");
+    // Authored flat terrain above the existing floor: the upward retry must use
+    // the caller's actual range, not Ground's ten-yard range.
+    let mut offset = 0;
+    let mut cells = 0;
+    while offset + 8 <= adt.len() {
+        let size = u32::from_le_bytes(adt[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        if &adt[offset..offset + 4] == b"KNCM" {
+            adt[offset + 8 + 0x70..offset + 8 + 0x74].copy_from_slice(&100.0f32.to_le_bytes());
+            cells += 1;
+        }
+        offset += 8 + size;
+    }
+    assert_eq!(cells, 256);
+    let original_adt = adt.clone();
+    *entries.iter_mut().find(|entry| entry.name == ADT).unwrap() = raw_entry(ADT, adt);
+    let install = Install::new(&entries);
+    let terrain = terrain(&install);
+    let capture = source::prepare(&install.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let view = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    assert_height(&view, -40.0, 50.0, 5.0);
+    assert_height(&view, -40.0, 10.0, 100.0);
+
+    // A second authored floor one yard above makes the nested observation differ
+    // from the initial upward hit. It cannot replace the caller's outer groundZ.
+    let mut adt = original_adt;
+    let modf = adt.len() - 64 - 8;
+    assert_eq!(&adt[modf..modf + 4], b"FDOM");
+    let mut second = adt[modf + 8..].to_vec();
+    let id = u32::from_le_bytes(second[4..8].try_into().unwrap());
+    second[4..8].copy_from_slice(&(id + 1).to_le_bytes());
+    for offset in [12, 36, 48] {
+        let value = f32::from_le_bytes(second[offset..offset + 4].try_into().unwrap());
+        second[offset..offset + 4].copy_from_slice(&(value + 1.0).to_le_bytes());
+    }
+    adt[modf + 4..modf + 8].copy_from_slice(&128u32.to_le_bytes());
+    adt.extend(second);
+    *entries.iter_mut().find(|entry| entry.name == ADT).unwrap() = raw_entry(ADT, adt);
+    let layered = Install::new(&entries);
+    let terrain = terrain_source::prepare(&layered.0, 0, &[SELECTED]).unwrap();
+    let capture = source::prepare(&layered.0, 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    let view = PreparedSourceHeight::from_source(&terrain, &bundle, || false).unwrap();
+    assert_height(&view, -40.0, 50.0, 5.0);
+    let liquid = view
+        .point_no_water(
+            super::super::super::source_height::PointNoWaterRequest {
+                binding: view.binding(),
+                ticket: 402,
+                position: [HIT_XY[0], HIT_XY[1], 5.0f32.to_bits()],
+                mask: 15,
+            },
+            deadline(),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(liquid.initial_static_height(), 6.0f32.to_bits());
+}

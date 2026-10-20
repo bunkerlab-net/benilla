@@ -504,3 +504,6 @@ fn resident_initialization_no_answer_escapes_late_cancel_deadline_or_source_muta
         }
     }
 }
+
+#[path = "resident_dry_near_point_tests.rs"]
+mod resident_dry_near_point;
