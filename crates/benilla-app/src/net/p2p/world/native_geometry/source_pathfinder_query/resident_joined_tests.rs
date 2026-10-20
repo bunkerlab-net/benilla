@@ -257,7 +257,8 @@ fn assert_initialized(world: &NativeWorld) {
         .find(|draw| {
             matches!(
                 draw.purpose,
-                benilla_world_runtime::native::DrawPurpose::CreatureLevel { npc: 2 }
+                benilla_world_runtime::native::DrawPurpose::CreatureLevel { npc }
+                    if Some(npc) == initialized.request.binding.npc
             )
         })
         .unwrap();
