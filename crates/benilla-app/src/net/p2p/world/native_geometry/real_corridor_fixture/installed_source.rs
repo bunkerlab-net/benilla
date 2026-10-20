@@ -719,3 +719,7 @@ mod joined;
 #[cfg(test)]
 #[path = "installed_source/cold_commit.rs"]
 mod cold_commit;
+
+#[cfg(test)]
+#[path = "installed_source/cold_refusals.rs"]
+mod cold_refusals;

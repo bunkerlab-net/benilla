@@ -88,6 +88,18 @@ jobs:
           mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_commit::resident_first_cold_real_route_feasibility -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" \
             real_corridor_fixture::installed_source::cold_commit::resident_first_cold_real_route_feasibility
+      - name: Verify resident cold Route refusals
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-cold-refusals.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_refusals:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_scene_and_owner_changes \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_rechecks_final_source_cancel_and_expiry \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_decoded_and_foreign_prerequisites \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_equal_bytes_new_live_seal \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_observation_only_policy
       - name: Verify joined resident source geometry
         shell: bash
         run: |
