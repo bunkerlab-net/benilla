@@ -95,6 +95,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         cancelled: impl Fn() -> bool,
         mut observe: impl FnMut(u8),
     ) -> Result<ResidentSamePolygonDependency, ResidentFilterError> {
+        let deadline = deadline.min(prior.expires);
         let retained = self.filter_for(prior, context, deadline, &cancelled)?;
         if first_ticket == 0
             || first_ticket.checked_add(1).is_none()
@@ -194,6 +195,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         Ok(ResidentSamePolygonDependency {
             observation: ResidentFilterDependency {
                 identity: Rc::clone(&self.identity),
+                observation_identity: Rc::new(()),
                 context: context.clone(),
                 expires: deadline,
                 observations,

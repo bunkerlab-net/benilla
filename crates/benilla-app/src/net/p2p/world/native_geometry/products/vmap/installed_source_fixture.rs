@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Test-only dual-parser input: nine canonical dry guards and one exterior WMO.
 //! Captured source products and the complete raw inventory are built independently.
+use super::super::{
+    nav_generation::{GeneratedNavigation, PreparedNavigationInput},
+    TileId,
+};
 use super::captured_map_tests::{self as captured, archive::raw_entry};
 use benilla_formats::{Chain, NativeM2MapInventory};
-use benilla_native_terrain::Tile;
-use benilla_native_vmap_source::DoodadProjectionProfile;
-use std::{collections::BTreeMap, path::Path};
+use benilla_native_terrain::{PreparedTerrain, Tile};
+use benilla_native_vmap_source::{AssembledSourceMap, DoodadProjectionProfile};
+use std::{
+    collections::BTreeMap,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 pub(crate) const MAP_DIRECTORY: &str = "Selected";
 pub(crate) const CENTER: (u32, u32) = (40, 40);
@@ -83,6 +91,109 @@ pub(crate) fn entries() -> Vec<(String, Vec<u8>)> {
     entries
 }
 
+/// A bounded steep terrain feature changes the genuine flat-tile Exact625 result.
+/// Its canonical fan vertices remain dry and far outside the support footprint.
+pub(crate) fn navigation_entries() -> Vec<(String, Vec<u8>)> {
+    let mut entries = entries();
+    let adt = &mut entries
+        .iter_mut()
+        .find(|(name, _)| name == "World\\Maps\\Selected\\Selected_40_40.adt")
+        .unwrap()
+        .1;
+    for slot in 0..256 {
+        let start = word(adt, 92 + slot * 16) as usize;
+        let header = start + 8;
+        let column = word(adt, header + 4);
+        let row = word(adt, header + 8);
+        let heights = start + word(adt, header + 0x14) as usize + 8;
+        assert_eq!(&adt[heights - 8..heights - 4], b"TVCM");
+        let value = |x: f32, y: f32| {
+            let distance = (x - 64.).abs().max((y - 64.).abs());
+            80. * (1. - distance / 6.).max(0.)
+        };
+        for local_y in 0..9 {
+            for local_x in 0..9 {
+                let height = value((column * 8 + local_x) as f32, (row * 8 + local_y) as f32);
+                put_word(
+                    adt,
+                    heights + (local_y * 17 + local_x) as usize * 4,
+                    height.to_bits(),
+                );
+            }
+            if local_y < 8 {
+                for local_x in 0..8 {
+                    let height = value(
+                        (column * 8 + local_x) as f32 + 0.5,
+                        (row * 8 + local_y) as f32 + 0.5,
+                    );
+                    put_word(
+                        adt,
+                        heights + (local_y * 17 + 9 + local_x) as usize * 4,
+                        height.to_bits(),
+                    );
+                }
+            }
+        }
+    }
+    entries
+}
+
+pub(crate) fn navigation_install() -> Install {
+    Install::new(&navigation_entries())
+}
+
+/// Generate against the caller's exact source owners, then prove loaded endpoints.
+pub(crate) fn with_navigation<T>(
+    terrain: &PreparedTerrain,
+    bundle: &AssembledSourceMap<'_>,
+    test: impl FnOnce(&PreparedNavigationInput<'_, '_, '_>, &GeneratedNavigation) -> T,
+) -> T {
+    let input = PreparedNavigationInput::from_source(
+        terrain,
+        bundle,
+        TileId {
+            x: CENTER.1 as u8,
+            y: CENTER.0 as u8,
+        },
+        || false,
+    )
+    .unwrap();
+    let mut helper = std::env::current_exe().unwrap();
+    helper.pop();
+    helper.pop();
+    helper.push(format!(
+        "benilla-native-navigation{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(
+        helper.is_file(),
+        "build benilla-native-nav-generator before scoped tests"
+    );
+    let output = input
+        .generate(&helper, Instant::now() + Duration::from_secs(60), || false)
+        .unwrap();
+    assert_eq!(
+        output.summary().status,
+        benilla_native_nav_generator::GenerationStatus::Generated
+    );
+    let (from, to) = support();
+    let route = output
+        .load()
+        .unwrap()
+        .route(
+            from.map(f32::to_bits),
+            to.map(f32::to_bits),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+    assert!(route.start.over && route.end.over);
+    assert_eq!(route.start.point[..2], from.map(f32::to_bits)[..2]);
+    assert_eq!(route.end.point[..2], to.map(f32::to_bits)[..2]);
+    assert_eq!(route.start.polygon, route.end.polygon);
+    assert_eq!(route.polygons, [route.start.polygon]);
+    test(&input, &output)
+}
+
 /// Move the genuine exterior placement and its declared source bounds into the guard.
 /// Its declaring ADT stays exterior; consumers must inspect transformed geometry.
 pub(crate) fn overlapping_entries() -> Vec<(String, Vec<u8>)> {
@@ -145,4 +256,75 @@ pub(crate) fn raw_inventory(install: &Install) -> NativeM2MapInventory {
 
 pub(crate) fn profile() -> DoodadProjectionProfile {
     captured::profile()
+}
+
+#[test]
+fn authored_navigation_guard_generates_and_preserves_complete_raw_sources() {
+    if !benilla_native_nav::SUPPORTED_ABI {
+        return;
+    }
+    let install = navigation_install();
+    let before = install.bytes();
+    let inventory = raw_inventory(&install);
+    assert_eq!(inventory.wmo_placements().count(), 1);
+    assert_eq!(inventory.placements().count(), 0);
+    let mut chain = Chain::open(install.path()).unwrap();
+    let mut raised = 0;
+    for (x, y) in guard_tiles() {
+        let bytes = chain
+            .read_file(&format!("World\\Maps\\Selected\\Selected_{x}_{y}.adt"))
+            .unwrap();
+        let raw = benilla_formats::adt_to_tile_mesh(&bytes).unwrap();
+        assert!(raw.native_static_coverage_safe && raw.native_coverage_safe);
+        assert_eq!(raw.chunks.len(), 256);
+        assert!(raw.doodads.is_empty() && raw.wmos.is_empty());
+        for chunk in raw.chunks {
+            assert_eq!(chunk.holes, 0);
+            assert!(chunk.liquids.is_empty());
+            for point in chunk.positions {
+                if point[2] != HEIGHT {
+                    assert_eq!((x, y), CENTER);
+                    assert!((HEIGHT..=HEIGHT + 80.).contains(&point[2]));
+                    assert!((0..2).all(|axis| (point[axis] - support().0[axis]).abs() > 200.));
+                    raised += 1;
+                }
+            }
+        }
+    }
+    assert!(raised > 0);
+    let terrain =
+        benilla_native_terrain::prepare(install.path(), 0, &guard_source_tiles()).unwrap();
+    let capture = benilla_native_vmap_source::prepare(install.path(), 0, || false).unwrap();
+    let bundle = capture
+        .assemble_map_bundle(profile(), || false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(terrain.tiles().count(), 9);
+    assert_eq!(bundle.models().len(), 1);
+    let height =
+        super::super::source_height::PreparedSourceHeight::from_source(&terrain, &bundle, || false)
+            .unwrap();
+    height
+        .match_raw_inventory(&inventory, Instant::now() + Duration::from_secs(30), || {
+            false
+        })
+        .unwrap();
+    for (index, point) in [support().0, support().1].into_iter().enumerate() {
+        let reply = height
+            .query(
+                super::super::source_height::HeightRequest {
+                    binding: height.binding(),
+                    ticket: index as u64 + 1,
+                    position: point.map(f32::to_bits),
+                    max_search: 10_f32.to_bits(),
+                },
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap();
+        assert_eq!(reply.height, HEIGHT.to_bits());
+    }
+    with_navigation(&terrain, &bundle, |input, _| {
+        input.verify_unchanged(|| false).unwrap()
+    });
+    assert_eq!(install.bytes(), before);
 }

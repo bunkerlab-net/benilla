@@ -170,3 +170,33 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         Ok(expected)
     }
 }
+
+impl ResidentChaseWaterDependency {
+    /// The private prefix retains the exact constructor observation identity;
+    /// equal flags, copied diagnostics and another observation are insufficient.
+    pub(crate) fn cold_prerequisites(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        prior: &ResidentFilterDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<(Instant, u64), ResidentFilterError> {
+        let deadline = deadline
+            .min(prior.expires)
+            .min(self.expires)
+            .min(self.prefix.expires);
+        provider.filter_for(prior, context, deadline, &cancelled)?;
+        if !Rc::ptr_eq(&self.prefix.filter_identity, &prior.observation_identity) {
+            return Err(Failure::Binding.into());
+        }
+        let observation = provider.water_for(self, context, deadline, cancelled)?;
+        if observation.decision != ResidentChaseWaterDecision::ClearConditional {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok((
+            deadline,
+            observation.owner.ok_or(Failure::Binding)?.request().ticket,
+        ))
+    }
+}

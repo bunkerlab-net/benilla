@@ -68,6 +68,27 @@ jobs:
           mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::installed_source_inventory_owner_certifies_concrete_corridor -- --exact --nocapture 2>&1 | tee "$log"
           grep -Fxq "running 1 test" "$log"
           grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+      - name: Verify joined resident installed corridor
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-joined-corridor.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::joined:: -- --show-output --test-threads=1 --color never 2>&1 | tee "$log"
+          grep -Fxq "running 2 tests" "$log"
+          grep -Fxq "test real_corridor_fixture::installed_source::joined::resident_joined_actual_installed_owner_and_corridor ... ok" "$log"
+          grep -Fxq "test real_corridor_fixture::installed_source::joined::resident_joined_rechecks_live_geometry_and_final_source_after_segment ... ok" "$log"
+          grep -Fq "test result: ok. 2 passed; 0 failed; 0 ignored;" "$log"
+      - name: Verify joined resident source geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-joined-geometry.log"
+          mbx test --locked -p benilla-native-geometry-tests --lib source_pathfinder_query::resident_joined_tests:: -- --show-output --test-threads=1 --color never 2>&1 | tee "$log"
+          grep -Fxq "running 3 tests" "$log"
+          grep -Fxq "test source_pathfinder_query::resident_joined_tests::resident_joined_cold_preserves_runtime_source_ancestry_and_expiry ... ok" "$log"
+          grep -Fxq "test source_pathfinder_query::resident_joined_tests::resident_joined_missing_generated_endpoint_refuses_calculation ... ok" "$log"
+          grep -Fxq "test source_pathfinder_query::resident_joined_tests::resident_joined_rejected_chase_prefix_never_calculates ... ok" "$log"
+          grep -Fq "test result: ok. 3 passed; 0 failed; 0 ignored;" "$log"
       - name: Record installed Service timing
         shell: bash
         run: |
