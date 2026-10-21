@@ -947,6 +947,18 @@ fn run(mode: Mode) {
                                             &wrong::substitute_dispatch(&notice, &attempts[1].0),
                                         );
                                     }
+                                    if retained_mode == retained::Mode::SourceChangeBeforeAck
+                                        && source_change.is_none()
+                                    {
+                                        assert!(!retained_accepted);
+                                        let (context, deadline) = attempts.last().unwrap();
+                                        source_change = Some(
+                                            super::source_route_resident_history::SourceChange::begin(
+                                                install, &ledger, &provider, context, *deadline,
+                                            ),
+                                        );
+                                        assert_eq!(ledger.diagnostic(), prior);
+                                    }
                                     ledger.acknowledge(&notice).unwrap();
                                     assert_eq!(ledger.counts(), (1, 1));
                                     if retained_accepted {
@@ -975,8 +987,11 @@ fn run(mode: Mode) {
                                         Err(Failure::UnsupportedQuery)
                                     );
                                     retained_accepted = true;
-                                    if retained_mode == retained::Mode::DropAfterApply
-                                        && !fault_delivered
+                                    if matches!(
+                                        retained_mode,
+                                        retained::Mode::DropAfterApply
+                                            | retained::Mode::SourceChangeBeforeAck
+                                    ) && !fault_delivered
                                     {
                                         fault_delivered = true;
                                         reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost warm ACK after resident ledger application"))).unwrap();
@@ -1133,7 +1148,10 @@ fn run(mode: Mode) {
                     ) {
                         2
                     } else if let Some(retained_mode) = mode.retained() {
-                        if retained_mode == retained::Mode::DropAfterApply {
+                        if matches!(
+                            retained_mode,
+                            retained::Mode::DropAfterApply | retained::Mode::SourceChangeBeforeAck
+                        ) {
                             3
                         } else {
                             2
@@ -1197,6 +1215,16 @@ fn run(mode: Mode) {
                         before,
                         "cache revision two closes retained certification before source work"
                     );
+                    if mode.retained() == Some(retained::Mode::SourceChangeBeforeAck) {
+                        source_change
+                            .as_ref()
+                            .expect("authored source remains changed through warm ACK retry")
+                            .refuse_fresh_retained_point_source(
+                                &ledger, &provider, height, context,
+                            );
+                    } else {
+                        assert!(source_change.is_none());
+                    }
                 } else if let Some(change) = &source_change {
                     assert_eq!(mode, Mode::SourceChangeBeforeAck);
                     change.refuse_fresh_source(&ledger, &mut provider, context);

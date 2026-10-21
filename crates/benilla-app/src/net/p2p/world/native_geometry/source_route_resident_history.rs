@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Historical ACK remains bookkeeping after a controlled authored source change.
 use super::{
-    products::{source_height::CompositionError, vmap::installed_source_fixture as input},
+    products::{
+        source_height::{CompositionError, PointNoWaterRequest, PreparedSourceHeight},
+        vmap::installed_source_fixture as input,
+    },
     source_pathfinder_query::resident_joined_tests as runtime,
     source_route_filter::resident::{ResidentFilterError, ResidentFilterProvider},
     source_route_resident_local::ledger::ResidentLedger,
 };
-use benilla_world_runtime::native::AuthorityRequest;
+use benilla_world_runtime::native::{AuthorityRequest, MotionQuery, Query};
 use std::{collections::BTreeMap, time::Instant};
 
 /// Restore this authored fixture only after the worker's no-replay measurements
@@ -54,6 +57,53 @@ impl<'a> SourceChange<'a> {
         result
     }
 
+    pub(super) fn refuse_fresh_retained_point_source(
+        &self,
+        ledger: &ResidentLedger,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        height: &PreparedSourceHeight<'_, '_, '_>,
+        context: &AuthorityRequest,
+    ) {
+        assert_ne!(self.install.bytes(), self.before);
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            panic!("fresh point-source refusal uses the actual warm request")
+        };
+        assert_eq!(
+            route.request.kind,
+            benilla_sim::creature_motion::RouteKind::ChaseReplan
+        );
+        assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
+        assert_eq!(ledger.counts(), (1, 1));
+        let before = ledger.diagnostic();
+        let constructors = provider.retained_constructor_count();
+        let deadline = runtime::until();
+        // Fresh direct point-source negatives at the actual warm owner position,
+        // NOT a third runtime dispatch, filter update or accepted retained query.
+        for (ticket, mask) in [(301, 15), (302, 10)] {
+            assert!(matches!(
+                height.point_no_water(
+                    PointNoWaterRequest {
+                        binding: height.binding(),
+                        ticket,
+                        position: [
+                            route.owner_position.x.bits(),
+                            route.owner_position.y.bits(),
+                            route.owner_position.z.bits(),
+                        ],
+                        mask,
+                    },
+                    deadline,
+                    || false,
+                ),
+                Err(CompositionError::TerrainSource)
+            ));
+        }
+        assert!(Instant::now() < deadline);
+        assert_eq!(provider.retained_constructor_count(), constructors);
+        assert_eq!(ledger.diagnostic(), before);
+        eprintln!("resident warm historical ACK: changed source refuses both fresh point predicates after actual lost-ACK retry; no third calculation");
+    }
+
     pub(super) fn refuse_fresh_source(
         &self,
         ledger: &ResidentLedger,
@@ -84,4 +134,11 @@ impl Drop for SourceChange<'_> {
 #[test]
 fn resident_controller_historical_ack_survives_changed_source_without_replay() {
     super::source_route_resident_controller::changed_source_ack_probe();
+}
+
+#[test]
+fn resident_controller_retained_historical_ack_survives_changed_source_without_replay() {
+    super::source_route_resident_controller::one_retained_probe(
+        super::source_route_resident_retained::Mode::SourceChangeBeforeAck,
+    );
 }

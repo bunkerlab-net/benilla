@@ -15,6 +15,7 @@ pub(super) enum Mode {
     Refusals,
     RollbackRetry,
     DropAfterApply,
+    SourceChangeBeforeAck,
 }
 
 pub(super) fn assert_request(
@@ -329,7 +330,7 @@ pub(super) fn after_cold_ack(
         let committed_records = driver.records().to_vec();
         let committed_generation = driver.store_generation();
         let count = callbacks.load(Ordering::SeqCst);
-        if mode == Mode::DropAfterApply {
+        if matches!(mode, Mode::DropAfterApply | Mode::SourceChangeBeforeAck) {
             assert_eq!(
                 out.pause.as_ref().map(|p| &p.kind),
                 Some(&PauseKind::CommittedAwaitingRouteAck)
