@@ -35,6 +35,7 @@ fn deadline() -> Instant {
 
 #[derive(Default)]
 struct Refusals {
+    first_ticket: u64,
     attempts: usize,
     emitted: usize,
 }
@@ -60,7 +61,7 @@ impl Refusals {
             compatibility,
             provider,
             request,
-            501,
+            self.first_ticket,
             until,
             cancelled,
             on_segment,
@@ -381,7 +382,10 @@ pub(super) fn probe(
     for pair in diagnostic.points.windows(2) {
         raw_coverage(geometry, map, pair, diagnostic.body, plane).unwrap();
     }
-    let mut refused = Refusals::default();
+    let mut refused = Refusals {
+        first_ticket: 501,
+        ..Refusals::default()
+    };
     let phases = RefCell::new(vec![]);
     let completed = Cell::new(0);
     let upper = diagnostic.points[1].z.as_f32();
@@ -777,11 +781,15 @@ pub(super) fn probe_endpoint_final(
     compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
     provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
     request: &AuthorityRequest,
+    first_ticket: u64,
 ) {
     assert!(provider.allows_endpoint_support());
     let original = ledger.diagnostic();
     let source = install.bytes();
-    let mut refused = Refusals::default();
+    let mut refused = Refusals {
+        first_ticket,
+        ..Refusals::default()
+    };
     final_support_refusals(
         &mut refused,
         ledger,

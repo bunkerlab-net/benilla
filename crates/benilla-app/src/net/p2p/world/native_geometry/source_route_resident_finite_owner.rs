@@ -289,6 +289,7 @@ impl<'a> Owner<'a> {
                 compatibility,
                 provider,
                 request,
+                ticket,
             );
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
             eprintln!("resident supplemental endpoint identity probes: epoch=6 decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-facts=true");
