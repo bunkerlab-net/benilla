@@ -9,6 +9,9 @@ use benilla_native_nav::{
     SourceStraightHeight, SourceStraightPathBudget, SourceWarmTrace,
 };
 
+#[path = "straight_retained/detail_provenance.rs"]
+mod detail_provenance;
+
 pub(crate) const MAX_SOURCE_REVISION: u64 = 8;
 /// Operational refusal, not a change to the original sampling algorithm or point limit 74.
 pub(crate) const STRAIGHT_MAX_POINTS: usize = 32;

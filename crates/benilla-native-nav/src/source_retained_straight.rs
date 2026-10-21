@@ -12,6 +12,10 @@ use crate::{
 };
 use std::{rc::Rc, time::Instant};
 
+#[path = "source_retained_straight_detail.rs"]
+mod detail;
+pub use detail::*;
+
 /// Explicit straight-calculation configuration. Source ignores optimize_path here;
 /// it is nevertheless bound across this lineage. Force destination is always false.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

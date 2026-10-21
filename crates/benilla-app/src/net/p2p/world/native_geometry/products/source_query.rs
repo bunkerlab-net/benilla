@@ -22,6 +22,8 @@ pub(crate) struct SourceMapQuerySnapshot {
     binding: SnapshotBinding,
     configuration: Hash,
     query: SourceMapQuery,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    generated_provenance: Option<super::nav_generation::GeneratedQueryReceipt>,
 }
 impl SourceMapQuerySnapshot {
     /// Genuine generated immutable query ownership. Profile/content are selected
@@ -35,12 +37,13 @@ impl SourceMapQuerySnapshot {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, super::nav_generation::GenerationError> {
-        let (binding, configuration, query) =
-            super::nav_generation::load_query_set(pairs, profile, deadline, cancelled)?;
+        let loaded = super::nav_generation::load_query_set(pairs, profile, deadline, cancelled)?;
         Ok(Self {
-            binding,
-            configuration,
-            query,
+            binding: loaded.binding,
+            configuration: loaded.configuration,
+            query: loaded.query,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            generated_provenance: Some(loaded.provenance),
         })
     }
 
@@ -52,6 +55,17 @@ impl SourceMapQuerySnapshot {
     }
     pub(crate) fn query(&self) -> &SourceMapQuery {
         &self.query
+    }
+    /// Immutable generation history, checked against this exact loaded allocation.
+    /// It is not fresh source verification, terrain support or Route permission.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn generated_provenance_for_test(
+        &self,
+    ) -> Result<Option<&super::nav_generation::GeneratedQueryProvenance>, Error> {
+        self.generated_provenance
+            .as_ref()
+            .map(|receipt| receipt.checked(&self.query, self.binding, self.configuration))
+            .transpose()
     }
 }
 
@@ -155,6 +169,8 @@ impl StagedSourceQueryProjection<'_> {
                 binding: self.geometry.navigation,
                 configuration: self.geometry.configuration,
                 query,
+                #[cfg(all(test, not(benilla_headless_geometry)))]
+                generated_provenance: None,
             },
             vmap: self.geometry.vmap,
         })
@@ -228,6 +244,8 @@ impl StagedSourceQueryProjection<'_> {
                 binding: self.geometry.navigation,
                 configuration: self.geometry.configuration,
                 query,
+                #[cfg(all(test, not(benilla_headless_geometry)))]
+                generated_provenance: None,
             },
             vmap: self.geometry.vmap,
         };
@@ -347,3 +365,114 @@ fn native_product_error(error: benilla_native_nav::Error) -> Error {
 #[cfg(test)]
 #[path = "source_query/tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod generated_provenance_tests {
+    use super::*;
+
+    #[test]
+    fn generated_receipt_rejects_equal_byte_foreign_query_and_changed_bindings() {
+        super::super::super::source_pathfinder_query::resident_joined_tests::with_fixture(
+            |_, _, _, _, _, _, mut original, mut foreign| {
+                let descriptor = original.generated_provenance_for_test().unwrap().unwrap();
+                assert_eq!(descriptor.binding(), original.binding());
+                assert_eq!(
+                    descriptor.configuration_binding(),
+                    original.configuration_binding()
+                );
+                assert_eq!(
+                    descriptor,
+                    foreign.generated_provenance_for_test().unwrap().unwrap()
+                );
+                assert!(!descriptor.terrain_source_epoch().is_empty());
+                assert_ne!(descriptor.collision_source_binding(), [0; 32]);
+                assert_eq!(descriptor.tiles().len(), 1);
+                let tile: &super::super::nav_generation::GeneratedTileProvenance =
+                    &descriptor.tiles()[0];
+                assert_eq!(tile.map_id(), original.binding().map);
+                let [x, y] = tile.source_grid();
+                assert_eq!(tile.request_tile(), [u32::from(y), u32::from(x)]);
+                assert_eq!(
+                    tile.ch_bits(),
+                    benilla_native_nav_generator::BASE_UNIT_DIM.to_bits()
+                );
+                assert_eq!(
+                    tile.status(),
+                    benilla_native_nav_generator::GenerationStatus::Generated
+                );
+                assert_ne!(tile.input_revision(), [0; 32]);
+                assert_ne!(tile.output_revision(), [0; 32]);
+                assert_ne!(tile.request_sha256(), [0; 32]);
+                assert_ne!(tile.response_sha256(), [0; 32]);
+                assert_ne!(tile.mmap_sha256(), [0; 32]);
+                assert_ne!(tile.mmtile_sha256(), [0; 32]);
+                assert_eq!(tile.expected_native_tile()[2], 0);
+                assert!(f32::from_bits(tile.bmin_bits()[1]).is_finite());
+                assert!(f32::from_bits(tile.bmax_bits()[1]).is_finite());
+                assert_eq!(
+                    tile.map_params().tile_width,
+                    benilla_native_nav_generator::GRID_SIZE
+                );
+                assert!(tile.source_config().walkable_height > 0);
+
+                let receipt = original.generated_provenance.as_ref().unwrap();
+                assert!(matches!(
+                    receipt.checked(foreign.query(), original.binding(), original.configuration),
+                    Err(Error::Identity)
+                ));
+                for field in 0..5 {
+                    let mut changed = original.binding();
+                    match field {
+                        0 => changed.map ^= 1,
+                        1 => changed.content[0] ^= 1,
+                        2 => changed.source_epoch[0] ^= 1,
+                        3 => changed.inventory[0] ^= 1,
+                        _ => changed.policy[0] ^= 1,
+                    }
+                    assert!(matches!(
+                        receipt.checked(original.query(), changed, original.configuration),
+                        Err(Error::Identity)
+                    ));
+                }
+                let mut changed = original.configuration;
+                changed[0] ^= 1;
+                assert!(matches!(
+                    receipt.checked(original.query(), original.binding(), changed),
+                    Err(Error::Identity)
+                ));
+                // Even a genuine receipt cannot be transplanted onto an equal-byte query.
+                foreign.generated_provenance = original.generated_provenance.take();
+                assert!(matches!(
+                    foreign.generated_provenance_for_test(),
+                    Err(Error::Identity)
+                ));
+            },
+        );
+    }
+
+    #[test]
+    fn nongenerated_source_query_has_no_generation_receipt() {
+        use super::super::{
+            dry_route::tests as fixtures,
+            same_polygon_fixture::{self, RawMap, TerrainKind},
+        };
+        use std::sync::Arc;
+        if !benilla_native_nav::SUPPORTED_ABI {
+            return;
+        }
+        let raw = RawMap::new(TerrainKind::Flat);
+        let (spec, files) = same_polygon_fixture::fixture(&raw);
+        let products = fixtures::load(spec, &files);
+        let environment = fixtures::environment(Arc::clone(&products));
+        let profile = super::super::super::source_route_same_polygon::tests::source_profile(
+            &environment,
+            &raw.maps(),
+        );
+        let projection = products.load_source_query_projection(&profile).unwrap();
+        assert!(projection
+            .navigation()
+            .generated_provenance_for_test()
+            .unwrap()
+            .is_none());
+    }
+}

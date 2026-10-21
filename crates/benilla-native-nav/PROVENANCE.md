@@ -946,3 +946,31 @@ raw-storage lifetime standards-defined. The oracle's scalar width and disabled
 normalization remain diagnostic inputs, not initialized creature-owner evidence.
 No Chase fallback, concrete polyline clearance, application transaction acceptance,
 source cancellation, retained-owner reopening or gameplay admission follows.
+
+## Retained straight detail-height attribution
+
+`LoadedSourceRetainedStraight::detail_height_witness` attributes only height calls
+already recorded by that exact opaque terminal. It retains its query allocation
+and terminal identity token, not a predecessor result object. The diagnostic
+boundary follows the pinned `dtNavMesh::getPolyHeight` ground containment and
+first-matching detail-triangle order, then repeats the actual attached query call
+and requires exact successful status and output bits. Selected endpoints, tile
+reference/header, polygon/triangle indexes and original polygon/detail vertex
+bits remain associated with that same loaded query. Decoded observations cannot
+construct a witness or a route terminal.
+
+Record and doubled triangle-scan budgets bound attribution and query replay;
+deadlines bracket each native operation. Off-mesh, outside-polygon, missing detail,
+edge fallback, malformed/nonfinite data or non-successful recorded heights do not
+become support evidence. Empty records mean no attribution, not an inferred
+ground plane. Native header agent metrics do not independently establish generator
+parameters, source terrain identity or continuous support between samples.
+
+Tests compare captured vertices with independently decoded existing fixture bytes,
+including the original generated ridge's extra detail vertices. A genuine longer
+ridge composition retains its exact INVALID_PARAM height-call refusal; a separately
+labeled fixed shorter calculation exercises successful attribution without removing
+records from the longer terminal. These are composition/attribution tests, not a new
+original-source sequence oracle. Application generation receipts and raw planar
+rectangle diagnostics remain separate, historical observations. No vertical support
+envelope, changed native points, geometry clearance or movement acceptance follows.

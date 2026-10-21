@@ -4,6 +4,23 @@ use super::super::navigation::SnapshotBinding;
 use super::*;
 use benilla_native_nav::{QueryProfile, SourceMapQuery, SourceMapQuerySlot, TileInput};
 use benilla_world_runtime::native::{MMapForcingStatus, Profile};
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "query_provider/provenance.rs"]
+mod provenance;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(in super::super) use provenance::GeneratedQueryReceipt;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(crate) use provenance::{GeneratedQueryProvenance, GeneratedTileProvenance};
+
+/// The generated loader alone attaches historical provenance to its actual query.
+pub(in super::super) struct LoadedQuerySet {
+    pub(in super::super) binding: SnapshotBinding,
+    pub(in super::super) configuration: Hash,
+    pub(in super::super) query: SourceMapQuery,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(in super::super) provenance: GeneratedQueryReceipt,
+}
+
 const POLICY: &[u8] = b"benilla-generated-resident-source-map-query-v1";
 const MAX_TILES: usize = 9;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
@@ -13,7 +30,7 @@ pub(in super::super) fn load_query_set(
     profile: &Profile,
     deadline: Instant,
     cancelled: impl Fn() -> bool,
-) -> Result<(SnapshotBinding, Hash, SourceMapQuery), GenerationError> {
+) -> Result<LoadedQuerySet, GenerationError> {
     load_query_set_inner(pairs, profile, deadline, cancelled, || {})
 }
 fn load_query_set_inner(
@@ -22,7 +39,7 @@ fn load_query_set_inner(
     deadline: Instant,
     cancelled: impl Fn() -> bool,
     after_load: impl FnOnce(),
-) -> Result<(SnapshotBinding, Hash, SourceMapQuery), GenerationError> {
+) -> Result<LoadedQuerySet, GenerationError> {
     let poll = || {
         check(&cancelled)?;
         if Instant::now() >= deadline {
@@ -151,17 +168,29 @@ fn load_query_set_inner(
             .node_capacity()
             .to_le_bytes(),
     );
-    Ok((
-        SnapshotBinding {
-            map,
-            content: profile.content_digest,
-            source_epoch,
-            inventory,
-            policy: policy.finalize().into(),
-        },
-        config.binding(),
+    let binding = SnapshotBinding {
+        map,
+        content: profile.content_digest,
+        source_epoch,
+        inventory,
+        policy: policy.finalize().into(),
+    };
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    let provenance =
+        GeneratedQueryReceipt::capture(&ordered, binding, config.binding(), &query, &poll)?;
+    // Diagnostic hashing adds bounded work; do not widen the final freshness gap.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    for (input, _) in &ordered {
+        input.verify_unchanged(|| cancelled() || Instant::now() >= deadline)?;
+        poll()?;
+    }
+    Ok(LoadedQuerySet {
+        binding,
+        configuration: config.binding(),
         query,
-    ))
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        provenance,
+    })
 }
 
 #[cfg(test)]

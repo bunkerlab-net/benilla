@@ -9,7 +9,11 @@ mod process;
 mod query_provider;
 #[cfg(test)]
 pub(crate) use query_provider::assert_source_change_after_query_load;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(super) use query_provider::GeneratedQueryReceipt;
 pub(super) use query_provider::{load_query_set, source_epoch as query_source_epoch};
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(crate) use query_provider::{GeneratedQueryProvenance, GeneratedTileProvenance};
 pub(super) mod terrain_mesh;
 use super::{
     source_height,

@@ -67,6 +67,21 @@ jobs:
           log="$RUNNER_TEMP/native-resident-navigation-helper.log"
           mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+      - name: Verify native retained detail provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-detail-provenance.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::detail::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_straight::detail::tests::allocation_endpoints_and_exact_terminal_token_are_independent_bindings \
+            source_cold_same_polygon::retained_straight::detail::tests::budgets_and_deadline_fail_without_changing_terminal_or_predecessor \
+            source_cold_same_polygon::retained_straight::detail::tests::empty_calls_are_empty_attribution_and_genuine_invalid_height_is_refused \
+            source_cold_same_polygon::retained_straight::detail::tests::existing_original_generated_ridge_preserves_genuine_invalid_height_refusal \
+            source_cold_same_polygon::retained_straight::detail::tests::fixed_shorter_genuine_ridge_calculation_attributes_extra_detail_vertices \
+            source_cold_same_polygon::retained_straight::detail::tests::genuine_recorded_calls_capture_first_triangle_and_exact_loaded_vertices \
+            source_cold_same_polygon::retained_straight::detail::tests::shared_detail_diagonal_keeps_original_first_matching_triangle \
+            source_cold_same_polygon::retained_straight::detail::tests::witness_retains_query_and_token_without_retaining_terminal_or_ancestors
       - name: Verify native retained straight bridge
         shell: bash
         run: |
@@ -223,6 +238,15 @@ jobs:
             net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::complete_straight_budget_counts_selection_cut_hit_and_samples \
             net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::cut_scans_are_both_charged_without_overlap \
             net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::operational_budgets_refuse_widening_without_clamping
+      - name: Verify generated source query receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-source-receipts.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::products::source_query::generated_provenance_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::products::source_query::generated_provenance_tests::generated_receipt_rejects_equal_byte_foreign_query_and_changed_bindings \
+            net::p2p::native_geometry::products::source_query::generated_provenance_tests::nongenerated_source_query_has_no_generation_receipt
       - name: Verify finite eight-epoch resident loop
         shell: bash
         run: |

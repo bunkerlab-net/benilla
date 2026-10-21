@@ -4,6 +4,7 @@
 #include "DetourNavMeshQuery.h"
 #include "DetourAlloc.h"
 #include "DetourNode.h"
+#include "DetourCommon.h"
 #include "source_smoothing.h"
 #include "source_direct.h"
 #include "source_warm_cache.h"
@@ -58,6 +59,22 @@ struct BenillaNav {
         for (unsigned i=0;i<count;++i) std::free(allocations[i]);
     }
 };
+// Read-only attribution only. All coordinates below remain in Detour YZX order.
+struct BenillaRetainedDetailHeight {
+    unsigned status, height, triangleIndex, triangleCount, triangleTests;
+    unsigned polygonIndex, polygonVertexCount;
+    unsigned char triangle[4];
+    unsigned vertexIndices[3], vertices[3][3];
+    int tileCoordinates[3];
+    unsigned boundsMin[3], boundsMax[3], agent[3];
+    dtTileRef tileReference;
+};
+static_assert(sizeof(BenillaRetainedDetailHeight) == 136 &&
+    alignof(BenillaRetainedDetailHeight) == 8 &&
+    offsetof(BenillaRetainedDetailHeight, triangle) == 28 &&
+    offsetof(BenillaRetainedDetailHeight, vertices) == 44 &&
+    offsetof(BenillaRetainedDetailHeight, agent) == 116 &&
+    offsetof(BenillaRetainedDetailHeight, tileReference) == 128, "detail witness ABI");
 static void* create_nav(const unsigned char* params, int nodes) {
     const unsigned short endian=1;
     if (*reinterpret_cast<const unsigned char*>(&endian)!=1) return nullptr;
@@ -199,6 +216,121 @@ BenillaSourceRay* benilla_nav_source_ray_create(void* raw, dtPolyRef start,
 unsigned benilla_nav_straight_height(void* raw, dtPolyRef reference,
     const float* point, float* height) {
     return static_cast<BenillaNav*>(raw)->query->getPolyHeight(reference, point, height);
+}
+
+// DetourNavMesh.cpp::getPolyHeight's exact ground containment and first matching
+// detail triangle, followed by the actual attached query call. This adds no
+// query or movement policy: absence of a triangle rejects rather than certifying
+// the source closest-detail-edge fallback. Rust supplies only genuine records.
+// Result: 1 success, 0 environment unavailable, 2 malformed, 3 offmesh,
+// 4 outside, 5 missing detail, 6 edge fallback, 7 budget, 8 query status,
+// 9 nonfinite, 10 differing height. No allocation or mesh/query mutation.
+unsigned benilla_nav_retained_detail_height(const void* raw, dtPolyRef reference,
+    const float* point, unsigned maxTriangleTests, BenillaRetainedDetailHeight* out) {
+    if (!raw || !point || !out) return 2;
+    if (std::fegetround() != FE_TONEAREST) return 0;
+#if defined(__x86_64__) || defined(_M_X64)
+    if ((_mm_getcsr() & 0xe040u) != 0) return 0;
+#elif defined(__aarch64__)
+    unsigned long long control = 0;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(control));
+    if ((control & ((3ull << 22) | (1ull << 24) | (1ull << 19) | 3ull)) != 0) return 0;
+#else
+    return 0;
+#endif
+    for (int axis = 0; axis != 3; ++axis)
+        if (!std::isfinite(point[axis])) return 9;
+    const auto* nav = static_cast<const BenillaNav*>(raw);
+    if (!nav->mesh || !nav->query || nav->query->getAttachedNavMesh() != nav->mesh)
+        return 2;
+    const dtMeshTile* tile = nullptr;
+    const dtPoly* poly = nullptr;
+    if (nav->mesh->getTileAndPolyByRef(reference, &tile, &poly) != DT_SUCCESS ||
+        !tile || !poly || !tile->header || !tile->verts || !tile->polys) return 2;
+    if (poly->getType() == DT_POLYTYPE_OFFMESH_CONNECTION) return 3;
+    if (poly->getType() != DT_POLYTYPE_GROUND) return 2;
+    const auto* header = tile->header;
+    const auto ip = static_cast<unsigned>(poly - tile->polys);
+    if (header->polyCount < 1 || ip >= static_cast<unsigned>(header->polyCount) ||
+        header->vertCount < 3 || poly->vertCount < 3 || poly->vertCount > DT_VERTS_PER_POLYGON)
+        return 2;
+    if (!tile->detailMeshes || !tile->detailTris || header->detailMeshCount < 1 ||
+        ip >= static_cast<unsigned>(header->detailMeshCount)) return 5;
+    const auto* pd = &tile->detailMeshes[ip];
+    if (pd->triCount == 0) return 5;
+    if (header->detailTriCount < 0 || header->detailVertCount < 0 ||
+        pd->triBase > static_cast<unsigned>(header->detailTriCount) ||
+        pd->triCount > static_cast<unsigned>(header->detailTriCount) - pd->triBase ||
+        pd->vertBase > static_cast<unsigned>(header->detailVertCount) ||
+        pd->vertCount > static_cast<unsigned>(header->detailVertCount) - pd->vertBase ||
+        (pd->vertCount && !tile->detailVerts)) return 2;
+    float vertices[DT_VERTS_PER_POLYGON * 3];
+    for (int i = 0; i < poly->vertCount; ++i) {
+        if (poly->verts[i] >= header->vertCount) return 2;
+        const float* v = &tile->verts[poly->verts[i] * 3];
+        for (int axis = 0; axis != 3; ++axis)
+            if (!std::isfinite(v[axis])) return 9;
+        dtVcopy(&vertices[i * 3], v);
+    }
+    if (!dtPointInPolygon(point, vertices, poly->vertCount)) return 4;
+    for (unsigned j = 0; j < pd->triCount; ++j) {
+        // Reserve the matching original query scan before inspecting any triangle.
+        // A failure consumes no published witness; never call unbudgeted fallback.
+        if (j + 1 > maxTriangleTests / 2) return 7;
+        const unsigned char* triangle = &tile->detailTris[(pd->triBase + j) * 4];
+        const float* v[3];
+        unsigned indices[3];
+        for (int k = 0; k != 3; ++k) {
+            if (triangle[k] < poly->vertCount) {
+                indices[k] = poly->verts[triangle[k]];
+                v[k] = &tile->verts[indices[k] * 3];
+            } else {
+                const unsigned local = triangle[k] - poly->vertCount;
+                if (local >= pd->vertCount) return 2;
+                indices[k] = pd->vertBase + local;
+                v[k] = &tile->detailVerts[indices[k] * 3];
+            }
+            for (int axis = 0; axis != 3; ++axis)
+                if (!std::isfinite(v[k][axis])) return 9;
+        }
+        float captured = 0;
+        if (!dtClosestHeightPointTriangle(point, v[0], v[1], v[2], captured)) continue;
+        if (!std::isfinite(captured)) return 9;
+        float height = point[1];
+        const dtStatus status = nav->query->getPolyHeight(reference, point, &height);
+        if (status != DT_SUCCESS) return 8;
+        if (!std::isfinite(height)) return 9;
+        if (std::bit_cast<unsigned>(height) != std::bit_cast<unsigned>(captured)) return 10;
+        out->status = status;
+        out->height = std::bit_cast<unsigned>(height);
+        out->triangleIndex = j;
+        out->triangleCount = pd->triCount;
+        out->triangleTests = 2 * (j + 1);
+        out->polygonIndex = ip;
+        out->polygonVertexCount = poly->vertCount;
+        std::memcpy(out->triangle, triangle, 4);
+        for (int k = 0; k != 3; ++k) {
+            out->vertexIndices[k] = indices[k];
+            for (int axis = 0; axis != 3; ++axis)
+                out->vertices[k][axis] = std::bit_cast<unsigned>(v[k][axis]);
+        }
+        out->tileCoordinates[0] = header->x;
+        out->tileCoordinates[1] = header->y;
+        out->tileCoordinates[2] = header->layer;
+        for (int axis = 0; axis != 3; ++axis) {
+            if (!std::isfinite(header->bmin[axis]) || !std::isfinite(header->bmax[axis])) return 9;
+            out->boundsMin[axis] = std::bit_cast<unsigned>(header->bmin[axis]);
+            out->boundsMax[axis] = std::bit_cast<unsigned>(header->bmax[axis]);
+        }
+        if (!std::isfinite(header->walkableHeight) || !std::isfinite(header->walkableRadius) ||
+            !std::isfinite(header->walkableClimb)) return 9;
+        out->agent[0] = std::bit_cast<unsigned>(header->walkableHeight);
+        out->agent[1] = std::bit_cast<unsigned>(header->walkableRadius);
+        out->agent[2] = std::bit_cast<unsigned>(header->walkableClimb);
+        out->tileReference = nav->mesh->getTileRef(tile);
+        return 1;
+    }
+    return 6;
 }
 
 }

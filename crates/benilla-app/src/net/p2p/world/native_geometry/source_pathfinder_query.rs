@@ -266,6 +266,18 @@ impl SourcePathfinderQueryProvider {
     pub(super) fn nav_query(&self) -> &benilla_native_nav::SourceMapQuery {
         self.navigation.query()
     }
+    /// Checked historical generation metadata only; no source or motion authority.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn generated_provenance_for_test(
+        &self,
+    ) -> Result<
+        Option<&super::products::nav_generation::GeneratedQueryProvenance>,
+        ConstructorQueryError,
+    > {
+        self.navigation
+            .generated_provenance_for_test()
+            .map_err(|_| ConstructorQueryError::Binding)
+    }
     #[cfg(all(test, not(benilla_headless_geometry)))]
     pub(super) fn shares_native_query(&self, other: &Self) -> bool {
         self.navigation

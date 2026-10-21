@@ -269,6 +269,8 @@ pub(crate) enum ResidentFilterError {
     Terminal(benilla_native_nav::SourceSamePolygonError),
     #[cfg(all(test, not(benilla_headless_geometry)))]
     StraightTerminal(benilla_native_nav::SourceRetainedStraightError),
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    StraightDetail(benilla_native_nav::SourceRetainedDetailError),
 }
 impl std::fmt::Display for ResidentFilterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -279,6 +281,8 @@ impl std::fmt::Display for ResidentFilterError {
             Self::Terminal(error) => write!(f, "resident conditional terminal: {error:?}"),
             #[cfg(all(test, not(benilla_headless_geometry)))]
             Self::StraightTerminal(error) => write!(f, "resident straight terminal: {error:?}"),
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            Self::StraightDetail(error) => write!(f, "resident straight detail: {error:?}"),
         }
     }
 }

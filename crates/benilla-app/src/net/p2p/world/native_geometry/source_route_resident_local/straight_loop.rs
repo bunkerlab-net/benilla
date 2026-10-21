@@ -10,6 +10,9 @@ use benilla_sim::creature_ai::Point;
 use benilla_world_runtime::PlayerId;
 use std::rc::Rc;
 
+#[path = "straight_loop/detail_diagnostic.rs"]
+mod detail_diagnostic;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum StraightSegmentPhase {
     Corridor,
@@ -127,6 +130,27 @@ pub(super) fn certify(
                     observation.body,
                     observation.points,
                 );
+                // Diagnostic only: inspect THIS failed terminal and exact loaded
+                // query, never calculate another route or alter the refusal.
+                match detail_diagnostic::inspect(
+                    &terrain,
+                    compatibility,
+                    owner,
+                    provider,
+                    &dependency,
+                    &origin,
+                    context,
+                    observation.points,
+                    observation.body,
+                    deadline,
+                    &cancelled,
+                ) {
+                    Ok(report) => eprintln!("{report}"),
+                    Err(detail_error) => eprintln!(
+                        "resident straight detail diagnostic unavailable: tick={} query={} error={detail_error:?}; original coverage refusal unchanged",
+                        context.binding.tick, route.request.binding.query_id,
+                    ),
+                }
                 Failure::MissingGeometry
             })?;
         if coverage.map != map
