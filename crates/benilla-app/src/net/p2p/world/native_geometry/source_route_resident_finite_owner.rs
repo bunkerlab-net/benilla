@@ -338,7 +338,7 @@ impl<'a> Owner<'a> {
             wrong::extra_head(notice),
             wrong::decoded_dispatch(notice),
             wrong::uncertified_reply(notice),
-            wrong::substitute_dispatch(notice, &previous.routes()[0].request),
+            wrong::substitute_earlier_dispatch(notice, previous),
         ] {
             refuse(ledger, &altered);
         }
@@ -387,7 +387,7 @@ impl<'a> Owner<'a> {
         assert_eq!(ledger.diagnostic(), accepted);
         refuse(
             ledger,
-            &wrong::substitute_dispatch(notice, &previous.routes()[0].request),
+            &wrong::substitute_earlier_dispatch(notice, previous),
         );
         if self.mode == Mode::Recovery && epoch == 4 {
             refuse(

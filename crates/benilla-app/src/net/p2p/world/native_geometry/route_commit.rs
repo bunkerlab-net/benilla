@@ -491,6 +491,84 @@ pub(crate) mod authored_conflicts {
         *original = request.clone();
         wrong
     }
+    /// Refusal-only splice of an earlier actual committed receipt. Unlike an
+    /// equal-input rollback retry, a different epoch cannot have equal operands.
+    /// Keep the current notice, request operands, Facts and final heads intact.
+    pub(crate) fn substitute_earlier_dispatch(
+        notice: &RouteCommitNotice,
+        earlier: &RouteCommitNotice,
+    ) -> RouteCommitNotice {
+        use benilla_world_runtime::native::{MotionQuery, Query};
+        assert_eq!(notice.routes.len(), 1);
+        assert_eq!(earlier.routes.len(), 1);
+        assert_eq!(notice.boundary.session, earlier.boundary.session);
+        assert_eq!(notice.boundary.world, earlier.boundary.world);
+        assert_eq!(notice.boundary.player, earlier.boundary.player);
+        assert_eq!(notice.boundary.profile, earlier.boundary.profile);
+        assert_eq!(notice.boundary.geometry, earlier.boundary.geometry);
+        assert_eq!(notice.boundary.authority, earlier.boundary.authority);
+        assert!(earlier.boundary.tick < notice.boundary.tick);
+        assert_eq!(notice.boundary.heads.len(), 1);
+        assert_eq!(earlier.boundary.heads.len(), 1);
+        assert_eq!(
+            notice.boundary.heads[0].npc(),
+            earlier.boundary.heads[0].npc()
+        );
+        assert_eq!(
+            earlier.boundary.heads[0]
+                .cache()
+                .unwrap()
+                .revision
+                .checked_add(1),
+            Some(notice.boundary.heads[0].cache().unwrap().revision),
+        );
+        let original = &notice.routes[0].request;
+        let previous = &earlier.routes[0].request;
+        assert_eq!(original.binding.world, previous.binding.world);
+        assert_eq!(original.binding.profile, previous.binding.profile);
+        assert_eq!(original.binding.geometry, previous.binding.geometry);
+        assert_eq!(
+            original.binding.authority_policy,
+            previous.binding.authority_policy
+        );
+        assert_eq!(original.binding.npc, previous.binding.npc);
+        assert!(previous.binding.tick < original.binding.tick);
+        let Query::SourceMotion(MotionQuery::Route(current)) = &original.query else {
+            panic!("actual current Route required for a refusal-only receipt splice")
+        };
+        let Query::SourceMotion(MotionQuery::Route(old)) = &previous.query else {
+            panic!("actual earlier committed Route required for receipt provenance")
+        };
+        assert_eq!(current.owner, old.owner);
+        assert!(old.request.binding.query_id < current.request.binding.query_id);
+        assert!(old.request.binding.now_ms < current.request.binding.now_ms);
+        let current_receipt = current.pathfinder_dispatch.as_ref().unwrap();
+        let old_receipt = old.pathfinder_dispatch.as_ref().unwrap();
+        assert!(!current_receipt.same_live_dispatch(old_receipt));
+        assert_eq!(
+            current_receipt.construction_binding(),
+            old_receipt.construction_binding()
+        );
+        assert_eq!(
+            current_receipt.configuration_binding(),
+            old_receipt.configuration_binding()
+        );
+        assert_eq!(
+            current_receipt.constructor_kind(),
+            old_receipt.constructor_kind()
+        );
+        assert!(old_receipt.dispatch_tick() < current_receipt.dispatch_tick());
+        let mut wrong = notice.clone();
+        let Query::SourceMotion(MotionQuery::Route(changed)) = &mut wrong.routes[0].request.query
+        else {
+            unreachable!()
+        };
+        changed.pathfinder_dispatch = old.pathfinder_dispatch.clone();
+        assert_eq!(changed.request, current.request);
+        assert_eq!(wrong.routes[0].facts, notice.routes[0].facts);
+        assert_eq!(wrong.boundary, notice.boundary);
+        wrong
+    }
     pub(crate) fn extra_head(notice: &RouteCommitNotice) -> RouteCommitNotice {
         let mut wrong = notice.clone();
         wrong
