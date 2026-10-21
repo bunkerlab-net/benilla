@@ -559,7 +559,13 @@ fn run(mode: Mode) {
                                                 .unwrap();
                                         }
                                         Err(error) => {
-                                            assert!(old_finite);
+                                            // Only the two explicit old-policy boundary modes
+                                            // return refusal sentinels; acceptance modes must not.
+                                            assert!(
+                                                old_finite
+                                                    || mode.finite_loop()
+                                                        == Some(super::source_route_resident_finite_loop::Mode::StrictStraightBoundary)
+                                            );
                                             reply.send(Err(error)).unwrap();
                                         }
                                     }
