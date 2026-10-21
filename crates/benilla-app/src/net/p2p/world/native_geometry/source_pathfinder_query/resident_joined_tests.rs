@@ -466,51 +466,6 @@ fn with_fixture_at_with_owners<T>(
             }
         }
         #[cfg(not(benilla_headless_geometry))]
-        if two_owner_first_retained {
-            // Independent cache-free negative profiles: no live session or owner is relabeled.
-            for old in [
-                ResidentGeometryPolicy::installed_one_retained_route(&compatibility),
-                ResidentGeometryPolicy::installed_finite_retained_routes(&compatibility),
-                ResidentGeometryPolicy::installed_finite_straight_routes(&compatibility),
-            ] {
-                let mut rejected_profile = p.clone();
-                rejected_profile.geometry_revision =
-                    old.revision(height.binding(), query.binding()).unwrap();
-                let rejected_session = session(&rejected_profile);
-                let rejected_query = SourceMapQuerySnapshot::from_generated(
-                    &[(prepared, generated)],
-                    &rejected_profile,
-                    until(),
-                    || false,
-                )
-                .unwrap();
-                let rejected_provider = ResidentFilterProvider::bind_with_policy(
-                    &rejected_session,
-                    &rejected_profile,
-                    &height,
-                    rejected_query,
-                    old,
-                )
-                .unwrap();
-                assert_eq!(rejected_provider.retained_constructor_count(), 0);
-                assert!(matches!(
-                    super::super::source_route_resident_local::ledger::ResidentLedger::bind(
-                        &rejected_session,
-                        &rejected_profile,
-                        f::player(),
-                        &rejected_provider,
-                        &compatibility,
-                        until(),
-                    ),
-                    Err(
-                        super::super::source_route_filter::resident::ResidentFilterError::Context(
-                            super::super::core::Failure::UnsupportedQuery
-                        )
-                    )
-                ));
-            }
-        }
-        #[cfg(not(benilla_headless_geometry))]
         if two_retained_routes {
             // Distinct policy selection precedes geometry binding and all live
             // sessions/receipts; no old profile is relabeled for continuation.
@@ -611,6 +566,51 @@ fn with_fixture_at_with_owners<T>(
             catalog,
         )
         .unwrap();
+        #[cfg(not(benilla_headless_geometry))]
+        if two_owner_first_retained {
+            // Independent cache-free negative profiles: no live session or owner is relabeled.
+            for old in [
+                ResidentGeometryPolicy::installed_one_retained_route(&compatibility),
+                ResidentGeometryPolicy::installed_finite_retained_routes(&compatibility),
+                ResidentGeometryPolicy::installed_finite_straight_routes(&compatibility),
+            ] {
+                let mut rejected_profile = p.clone();
+                rejected_profile.geometry_revision =
+                    old.revision(height.binding(), query.binding()).unwrap();
+                let rejected_session = session(&rejected_profile);
+                let rejected_query = SourceMapQuerySnapshot::from_generated(
+                    &[(prepared, generated)],
+                    &rejected_profile,
+                    until(),
+                    || false,
+                )
+                .unwrap();
+                let rejected_provider = ResidentFilterProvider::bind_with_policy(
+                    &rejected_session,
+                    &rejected_profile,
+                    &height,
+                    rejected_query,
+                    old,
+                )
+                .unwrap();
+                assert_eq!(rejected_provider.retained_constructor_count(), 0);
+                assert!(matches!(
+                    super::super::source_route_resident_local::ledger::ResidentLedger::bind(
+                        &rejected_session,
+                        &rejected_profile,
+                        f::player(),
+                        &rejected_provider,
+                        &compatibility,
+                        until(),
+                    ),
+                    Err(
+                        super::super::source_route_filter::resident::ResidentFilterError::Context(
+                            super::super::core::Failure::UnsupportedQuery
+                        )
+                    )
+                ));
+            }
+        }
         // Policy cross-binding is rejected before any session emits a receipt.
         let wrong_policy_query =
             SourceMapQuerySnapshot::from_generated(&[(prepared, generated)], &p, until(), || false)
