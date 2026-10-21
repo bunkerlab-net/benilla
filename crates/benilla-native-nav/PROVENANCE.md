@@ -974,3 +974,23 @@ records from the longer terminal. These are composition/attribution tests, not a
 original-source sequence oracle. Application generation receipts and raw planar
 rectangle diagnostics remain separate, historical observations. No vertical support
 envelope, changed native points, geometry clearance or movement acceptance follows.
+
+## Supplemental retained SamePolygon endpoint attribution
+
+`LoadedSourceRetainedStraight::endpoint_support_witness` is a separate read-only
+composition on the same selected source1024 query, not an original PathFinder
+height call. It requires a genuine NORMAL SamePolygon terminal with exactly two
+unchanged endpoints, one active selected polygon and no ray or original height
+records. Its two supplemental probes reuse the detail-triangle boundary above;
+queried heights remain separate from original endpoint Z. Original path points,
+cache, type and empty diagnostics are never rewritten.
+
+The sealed witness retains only current terminal identity and query allocation.
+Two probes share one maximum 4096 doubled triangle-test allowance, with deadlines
+around each native call. Revalidation checks identities without probing again.
+Native tests cover exact budgets, expiry, equal-valued foreign terminal/query
+refusal, genuine nearest-polygon selection with an outside endpoint, independently
+decoded triangle metadata and predecessor release. These authored composition tests
+are not an original-source sequence oracle. Endpoint attribution proves neither
+continuous ground support nor body clearance, generator settings, application
+acceptance or production gameplay authority; those require separate live proofs.

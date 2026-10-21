@@ -221,7 +221,8 @@ unsigned benilla_nav_straight_height(void* raw, dtPolyRef reference,
 // DetourNavMesh.cpp::getPolyHeight's exact ground containment and first matching
 // detail triangle, followed by the actual attached query call. This adds no
 // query or movement policy: absence of a triangle rejects rather than certifying
-// the source closest-detail-edge fallback. Rust supplies only genuine records.
+// the source closest-detail-edge fallback. Rust supplies genuine recorded calls or
+// explicitly separate supplemental endpoints from a sealed SamePolygon terminal.
 // Result: 1 success, 0 environment unavailable, 2 malformed, 3 offmesh,
 // 4 outside, 5 missing detail, 6 edge fallback, 7 budget, 8 query status,
 // 9 nonfinite, 10 differing height. No allocation or mesh/query mutation.

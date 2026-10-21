@@ -5,6 +5,10 @@ use super::LoadedSourceRetainedStraight;
 use crate::{Error, SelectedSourceQuery, SourceMapQuery, SourceStraightHeight};
 use std::{rc::Rc, time::Instant};
 
+#[path = "source_retained_endpoint_support.rs"]
+mod endpoint;
+pub use endpoint::*;
+
 /// Reuses the bounded straight producer's 1026-point operational domain, not
 /// source's equality-only limit 74. At most one clipped-hit plus one call per
 /// interior sample fits under this conservative record cap.
@@ -211,6 +215,106 @@ mod native {
             max_triangle_tests: u32,
             out: *mut Detail,
         ) -> u32;
+    }
+    pub(super) fn endpoint_witness(
+        terminal: &LoadedSourceRetainedStraight,
+        selected: &SelectedSourceQuery<'_>,
+        budget: SourceRetainedEndpointBudget,
+        until: Instant,
+    ) -> Result<LoadedSourceRetainedEndpointSupport, SourceRetainedDetailError> {
+        let mesh = selected.borrow_mesh()?;
+        if mesh.query_profile() != crate::QueryProfile::SourceMapInstance1024
+            || mesh.query_capacity() != 1024
+        {
+            return Err(Error::Identity.into());
+        }
+        let mut probes = Vec::with_capacity(2);
+        let mut tests = 0_usize;
+        for (index, position) in terminal.points().iter().copied().enumerate() {
+            crate::deadline(until)?;
+            let polygon = terminal.start_lookup().polygon;
+            let point = crate::detour(position)?;
+            let mut detail = Detail::default();
+            // SAFETY: exact terminal endpoint and selected polygon from this loaded mesh.
+            // This is a supplemental read-only query, never an original path height call.
+            let result = unsafe {
+                benilla_nav_retained_detail_height(
+                    mesh.raw.as_ptr(),
+                    polygon,
+                    point.as_ptr(),
+                    (budget.triangle_tests - tests) as u32,
+                    &mut detail,
+                )
+            };
+            crate::deadline(until)?;
+            let reason = match result {
+                1 => None,
+                0 => return Err(Error::Unavailable.into()),
+                2 => return Err(Error::Format.into()),
+                3 => Some(SourceRetainedDetailUnsupported::OffMesh),
+                4 => Some(SourceRetainedDetailUnsupported::OutsidePolygon),
+                5 => Some(SourceRetainedDetailUnsupported::MissingDetail),
+                6 => Some(SourceRetainedDetailUnsupported::EdgeFallback),
+                7 => return Err(Error::Budget.into()),
+                8 => Some(SourceRetainedDetailUnsupported::QueryStatus),
+                9 => Some(SourceRetainedDetailUnsupported::Nonfinite),
+                10 => return Err(SourceRetainedDetailError::HeightMismatch { record: index }),
+                _ => return Err(Error::Format.into()),
+            };
+            if let Some(reason) = reason {
+                return Err(SourceRetainedDetailError::Unsupported {
+                    record: index,
+                    reason,
+                });
+            }
+            let charged = detail.triangle_tests as usize;
+            let expected = (detail.triangle_index as usize)
+                .checked_add(1)
+                .and_then(|count| count.checked_mul(2))
+                .ok_or(Error::Budget)?;
+            if detail.status != crate::SUCCESS
+                || charged != expected
+                || detail.triangle_index >= detail.triangle_count
+                || charged > budget.triangle_tests - tests
+            {
+                return Err(Error::Format.into());
+            }
+            tests = tests.checked_add(charged).ok_or(Error::Budget)?;
+            probes.push(SourceRetainedEndpointHeight {
+                point: position,
+                polygon,
+                query_status: detail.status,
+                query_height_bits: detail.height,
+                tile_reference: detail.tile_reference,
+                tile_coordinates: detail.tile_coordinates,
+                tile_bounds_min: detail.bounds_min,
+                tile_bounds_max: detail.bounds_max,
+                tile_agent_bits: detail.agent,
+                polygon_index: detail.polygon_index,
+                polygon_vertex_count: detail.polygon_vertex_count,
+                detail_triangle_count: detail.triangle_count,
+                triangle_index: detail.triangle_index,
+                triangle: detail.triangle,
+                vertices: std::array::from_fn(|i| SourceDetailVertex {
+                    source: if u32::from(detail.triangle[i]) < detail.polygon_vertex_count {
+                        SourceDetailVertexSource::Polygon
+                    } else {
+                        SourceDetailVertexSource::Detail
+                    },
+                    tile_index: detail.vertex_indices[i],
+                    detour_bits: detail.vertices[i],
+                }),
+            });
+        }
+        crate::deadline(until)?;
+        Ok(LoadedSourceRetainedEndpointSupport {
+            query: selected.retain_allocation(),
+            terminal: Rc::clone(&terminal.identity),
+            from: terminal.from(),
+            to: terminal.requested_end(),
+            probes: probes.try_into().map_err(|_| Error::Format)?,
+            triangle_tests: tests,
+        })
     }
     pub(super) fn witness(
         terminal: &LoadedSourceRetainedStraight,
