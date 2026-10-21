@@ -356,3 +356,7 @@ fn validate_config(
 #[cfg(all(test, benilla_native_detour))]
 #[path = "source_retained_straight_tests.rs"]
 mod tests;
+
+#[cfg(all(test, benilla_native_detour))]
+#[path = "source_retained_straight_oracle_tests.rs"]
+mod oracle_tests;

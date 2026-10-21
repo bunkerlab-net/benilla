@@ -909,3 +909,40 @@ Composition tests cover genuine loaded origin/successor ownership and exact budg
 boundaries. They are distinct from an independent original-source cold-to-straight
 sequence oracle, and neither establishes application polyline clearance, transaction
 acceptance, persisted owner reopening or production gameplay admission.
+
+## Independent cold-origin straight sequence oracle
+
+`tools/retained_straight_origin_generate.py` and its separate diagnostic harness
+execute two simultaneous original PathFinder/source1024 query objects from the
+pinned CMaNGOS revision above. Each starts with the original constructor's cache
+initializer projection and the existing selected positive-zero cold-distance
+compatibility policy. The following straight calls reuse that same object's real
+cache and previous path type. Original undefined cold lookup and the complete
+owner constructor/Calculate entry are not invoked or claimed.
+
+The five source-executed rows and 32 primitive observations cover a genuine cold
+NORMAL result followed by a no-hit Replacement ray, and an independent cold result
+followed by a hit/INCOMPLETE result and a subsequent no-hit result that retains
+INCOMPLETE. The hit subtracts the full supplied collision width, not a radius.
+Complete backing storage evolves through 74, 75, 76 and 77 slots without discarding
+inactive tails. The fixtures retain original bit patterns for points, lookups,
+ray clipping and heights. Source spans, original packages, authored geometry,
+harness dependencies and output hashes are recorded in the separate provenance
+JSON. The diagnostic phase is classified from the actual pre-transition state.
+
+The opaque bridge replay constructs genuine cold terminals on two live source
+queries and compares the generated sequences without supplying fixture polygon
+references as cache seeds. It checks full before/after storage, actual inherited
+type, points, filter/configuration/width, predecessor identity and the exposed
+ordered lookup and height streams. Intermediate storage snapshots and lookup
+distances are explicitly derived diagnostics; the API does not expose one
+interleaved primitive stream, original closest-point coordinates or equivalent
+ray traversal counters. Those unavailable observations are not claimed as parity.
+
+Normal and UBSan executions reproduce identical products. A separately labeled
+run using the existing audited constructor-only dtMeshTile lifetime repair also
+reproduces them; this does not make the unchanged original header's C++20
+raw-storage lifetime standards-defined. The oracle's scalar width and disabled
+normalization remain diagnostic inputs, not initialized creature-owner evidence.
+No Chase fallback, concrete polyline clearance, application transaction acceptance,
+source cancellation, retained-owner reopening or gameplay admission follows.

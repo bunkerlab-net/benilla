@@ -79,6 +79,13 @@ jobs:
             source_cold_same_polygon::retained_straight::tests::genuine_cold_replacement_then_cut_and_same_preserve_complete_storage_and_policy \
             source_cold_same_polygon::retained_straight::tests::predecessor_tokens_reject_siblings_and_do_not_retain_prior_result_chains \
             source_cold_same_polygon::retained_straight::tests::raw_incomplete_and_nopath_are_not_promoted_or_silently_retried
+      - name: Verify original cold-origin retained straight oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-retained-straight-oracle.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::oracle_tests::original_cold_origin_sequences_match_retained_straight_storage_types_points_and_traces -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" source_cold_same_polygon::retained_straight::oracle_tests::original_cold_origin_sequences_match_retained_straight_storage_types_points_and_traces
       - name: Verify native retained primitive budgets
         shell: bash
         run: |
