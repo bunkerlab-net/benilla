@@ -2,7 +2,7 @@
 //! Component-only cold ACK plus exactly one genuine retained Chase calculation.
 //! The ordinary target-input schedule never edits NPC state or admits a third route.
 use super::route_commit::RouteCommitNotice;
-use crate::net::p2p::world::{resident_fixture::Driver, PauseKind};
+use crate::net::p2p::world::{resident_fixture::Driver, PauseKind, SavedBoundary};
 use benilla_sim::{creature_ai::Point, creature_motion as motion};
 use benilla_world_runtime::native::{
     AuthorityRequest, Command, Facts, MotionFacts, MotionQuery, Profile, Query,
@@ -172,6 +172,39 @@ pub(super) fn assert_source_order(
     eprintln!("resident retained source order: {phases:?}; cancellation prefixes=4; staged=0");
 }
 
+/// Immutable evidence from the actual persisted tick, after the store receipt
+/// intentionally retired the runtime's in-memory journal and before ACK retry.
+pub(super) struct CommittedTick {
+    before: benilla_world_runtime::native::CheckpointIdentity,
+    after: benilla_world_runtime::native::CheckpointIdentity,
+    saved: SavedBoundary,
+}
+pub(super) fn assert_commit_proof(proof: &CommittedTick, notice: &RouteCommitNotice) {
+    let boundary = notice.boundary();
+    assert_eq!(proof.before.tick.checked_add(1), Some(proof.after.tick));
+    assert_eq!(proof.saved.tick, proof.after.tick);
+    assert_eq!(notice.previous_record(), proof.before.history_tip);
+    assert_eq!(notice.before(), proof.before.state_digest);
+    assert_eq!(boundary.record(), proof.after.history_tip);
+    assert_eq!(boundary.state(), proof.after.state_digest);
+    assert_eq!(boundary.tick(), proof.after.tick);
+    assert_eq!(boundary.world(), proof.after.world);
+    assert_eq!(boundary.player(), proof.after.player);
+    assert_eq!(boundary.profile(), proof.after.profile);
+    assert_eq!(notice.routes().len(), 1);
+    assert_eq!(boundary.heads().len(), 1);
+    let Facts::SourceMotion(MotionFacts::Spatial(spatial)) = &notice.routes()[0].facts else {
+        panic!("accepted notice carries the genuine warm calculation")
+    };
+    let motion::Fact::RouteCalculation(calculation) = &spatial.fact else {
+        unreachable!()
+    };
+    assert_eq!(boundary.heads()[0].cache(), Some(&calculation.after_cache));
+    assert_eq!(calculation.after_cache.revision, 2);
+    eprintln!("resident retained durable proof: tick={} generation={} accepted-routes=1 live-journal-retired=true",
+        proof.saved.tick, proof.saved.generation);
+}
+
 pub(super) fn after_cold_ack(
     driver: &mut Driver,
     callbacks: &AtomicUsize,
@@ -179,7 +212,7 @@ pub(super) fn after_cold_ack(
     cold_tick: u64,
     cold_events: usize,
     mode: Mode,
-) -> (u64, usize, usize) {
+) -> (u64, usize, usize, CommittedTick) {
     assert_eq!(driver.tick(), cold_tick);
     assert_eq!(routes.load(Ordering::SeqCst), 1);
     assert!(!driver.route_pending());
@@ -268,26 +301,25 @@ pub(super) fn after_cold_ack(
         }
         assert_eq!(out.ticks, 1);
         assert_eq!(driver.tick(), tick + 1);
-        assert_eq!(driver.records().len(), records.len() + 1);
-        assert_eq!(&driver.records()[..records.len()], records);
-        let recorded_routes = |records: &[benilla_world_runtime::native::TickRecord]| {
-            records
-                .iter()
-                .flat_map(|record| &record.replies)
-                .filter(|reply| {
-                    matches!(
-                        reply.request.query,
-                        Query::SourceMotion(MotionQuery::Route(_))
-                    )
-                })
-                .count()
-        };
-        assert_eq!(recorded_routes(&driver.records()[records.len()..]), 1);
-        assert_eq!(
-            recorded_routes(driver.records()),
-            2,
-            "only cold and accepted warm receipts enter the committed journal"
+        // This controller persists pose/environment ticks before delivering ACK.
+        // The successful store receipt retires the in-memory journal, not history.
+        let saved = out
+            .saved
+            .clone()
+            .expect("warm tick saved before ACK delivery");
+        assert_eq!(saved.tick, tick + 1);
+        assert_eq!(Some(saved.generation), generation.checked_add(1));
+        assert_eq!(driver.store_generation(), saved.generation);
+        assert!(
+            driver.records().is_empty(),
+            "exact durable receipt retired the live journal"
         );
+        let committed = CommittedTick {
+            before: before.identity(),
+            after: driver.checkpoint().identity(),
+            saved,
+        };
+        assert_ne!(committed.after.history_tip, committed.before.history_tip);
         assert!(
             driver.pending_inputs().is_none(),
             "input retired before ACK delivery"
@@ -336,7 +368,7 @@ pub(super) fn after_cold_ack(
         assert_eq!(driver.tick(), tick + 1);
         events += out.events.len();
         eprintln!("resident retained ACK measurement: mode={mode:?} cold-tick={cold_tick} warm-tick={} input-step={step}", tick + 1);
-        return (tick + 1, events, count);
+        return (tick + 1, events, count, committed);
     }
     panic!("ordinary bounded player movement produced no retained Chase dispatch");
 }

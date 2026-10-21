@@ -351,16 +351,16 @@ fn run(mode: Mode) {
                         // Projection/checkpoint may have published once BEFORE the delivery fault.
                         // Do not claim a dropped ACK suppresses committed movement events.
                         if mode == Mode::RetainedDispatch {
-                            return super::source_route_resident_continuation::after_cold_ack(
+                            return (super::source_route_resident_continuation::after_cold_ack(
                                 &mut driver,
                                 &worker_callbacks,
                                 &worker_routes,
                                 tick,
                                 out.events.len(),
-                            );
+                            ), None);
                         }
                         if let Some(retained_mode) = mode.retained() {
-                            return retained::after_cold_ack(
+                            let (tick, events, count, committed) = retained::after_cold_ack(
                                 &mut driver,
                                 &worker_callbacks,
                                 &worker_routes,
@@ -368,8 +368,9 @@ fn run(mode: Mode) {
                                 out.events.len(),
                                 retained_mode,
                             );
+                            return ((tick, events, count), Some(committed));
                         }
-                        return (tick, out.events.len(), count);
+                        return ((tick, out.events.len(), count), None);
                     }
                     panic!("actual controller never requested its genuine first cold Route");
                 });
@@ -1109,7 +1110,18 @@ fn run(mode: Mode) {
                         }
                     }
                 }
-                let (tick, events, count) = worker.join().expect("bounded controller worker");
+                let ((tick, events, count), committed_warm) =
+                    worker.join().expect("bounded controller worker");
+                if mode.retained().is_some() {
+                    retained::assert_commit_proof(
+                        committed_warm.as_ref().expect("actual durable warm tick"),
+                        retained_notice
+                            .as_ref()
+                            .expect("actual accepted warm notice"),
+                    );
+                } else {
+                    assert!(committed_warm.is_none());
+                }
                 assert_eq!(ledger.counts(), (owner_count, owner_count));
                 assert_eq!(
                     deliveries,
