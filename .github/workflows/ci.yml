@@ -67,6 +67,15 @@ jobs:
           log="$RUNNER_TEMP/native-resident-navigation-helper.log"
           mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+      - name: Verify native retained primitive budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-retained-primitive-budgets.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_tests::retained_budget_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_tests::retained_budget_start_append_requires_nine_primitives_and_preserves_full_cache \
+            source_cold_same_polygon::retained_tests::retained_budget_non_same_selection_requires_tenth_cut_scan_and_preserves_prior
       - name: Verify resident first cold Route feasibility
         shell: bash
         run: |

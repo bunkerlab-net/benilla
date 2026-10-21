@@ -218,6 +218,172 @@ fn retained_nearest_append_changes_only_slot_zero_and_preserves_every_inactive_t
 }
 
 #[test]
+fn retained_budget_start_append_requires_nine_primitives_and_preserves_full_cache() {
+    let source = query(SLOT);
+    let mut owner = source.retain_default();
+    let selected = owner
+        .select_for_calculate(SLOT, point(5., 5., 0.), point(5., 6., 0.))
+        .unwrap();
+    let initial = cold(&selected);
+    let unchanged = cold(&selected);
+    let storage = initial.compatibility().storage().to_vec();
+    assert_eq!(storage.len(), 75);
+    let tail = storage
+        .len()
+        .checked_sub(initial.compatibility().point_limit())
+        .unwrap();
+    // One active slot, the full tail and two nearest calls per endpoint;
+    // the start append adds one scan to the end before the same-poly terminal.
+    let exact = tail.checked_mul(2).unwrap().checked_add(7).unwrap();
+    assert_eq!(exact, 9);
+    // The authored ground is at zero. Height seven excludes it from the
+    // quantized five-unit search, but is accepted by the strict >7 far test.
+    let selected = owner
+        .select_for_calculate(SLOT, point(5., 15., 7.), point(5., 16., 7.))
+        .unwrap();
+    let calculate = |lookup_primitives| {
+        selected.loaded_retained_same_polygon(
+            &initial,
+            CONFIG,
+            SourceSamePolygonBudget {
+                lookup_primitives,
+                terminal_primitives: 1,
+            },
+            until(),
+        )
+    };
+    assert_eq!(
+        calculate(exact - 1).unwrap_err(),
+        SourceSamePolygonError::Lookup(SourceWarmCacheError::Boundary(Error::Budget))
+    );
+    assert_same(&initial, &unchanged);
+    let result = calculate(exact).unwrap();
+    assert_continuation(&initial, &result);
+    assert_eq!(result.check_query(&selected), Ok(()));
+    let after = result.compatibility();
+    let old = storage[0];
+    let appended = after.start().polygon;
+    assert_ne!(appended, old);
+    assert_eq!(after.start().origin, SourceWarmLookupOrigin::Nearest10);
+    assert!(after.start().appended);
+    assert_eq!(after.end().origin, SourceWarmLookupOrigin::Nearest10);
+    assert_eq!(after.end().polygon, appended);
+    assert!(!after.end().appended);
+    assert_eq!(after.start().distance_bits, 7_f32.to_bits());
+    assert_eq!(after.end().distance_bits, 7_f32.to_bits());
+    use SourceWarmPrimitive::{Active, Nearest10, Nearest5, Tail};
+    assert_eq!(
+        after
+            .trace()
+            .iter()
+            .map(|event| (event.endpoint, event.primitive, event.polygon))
+            .collect::<Vec<_>>(),
+        [
+            (0, Active, old),
+            (0, Tail, old),
+            (0, Nearest5, 0),
+            (0, Nearest10, appended),
+            (1, Active, old),
+            (1, Tail, old),
+            (1, Tail, appended),
+            (1, Nearest5, 0),
+            (1, Nearest10, appended),
+        ]
+    );
+    assert_eq!(after.trace().len(), exact);
+    assert!(after
+        .trace()
+        .iter()
+        .all(|event| event.status == crate::SUCCESS));
+    assert_eq!(after.trace()[6].distance_bits, 7_f32.to_bits());
+    for index in [2, 7] {
+        assert_eq!(after.trace()[index].distance_bits, 0_f32.to_bits());
+    }
+    let mut expected = storage.clone();
+    expected.push(appended);
+    expected[0] = appended;
+    assert_eq!(after.storage(), expected);
+    assert_eq!(&after.storage()[1..storage.len()], &storage[1..]);
+    assert_eq!(after.storage().len(), storage.len() + 1);
+    assert_same(&initial, &unchanged);
+    assert_eq!(
+        calculate(exact - 1).unwrap_err(),
+        SourceSamePolygonError::Lookup(SourceWarmCacheError::Boundary(Error::Budget))
+    );
+    assert_same(&initial, &unchanged);
+    assert_same(&calculate(exact).unwrap(), &result);
+    assert_same(&initial, &unchanged);
+}
+
+#[test]
+fn retained_budget_non_same_selection_requires_tenth_cut_scan_and_preserves_prior() {
+    let source = query(SLOT);
+    let mut owner = source.retain_default();
+    let selected = owner
+        .select_for_calculate(SLOT, point(5., 5., 0.), point(5., 6., 0.))
+        .unwrap();
+    let initial = cold(&selected);
+    let unchanged = cold(&selected);
+    let native = initial.compatibility();
+    assert_eq!(native.storage().len(), 75);
+    assert_eq!(native.active_len(), 1);
+    let tail = native
+        .storage()
+        .len()
+        .checked_sub(native.point_limit())
+        .unwrap();
+    // The endpoint bound includes the start append; a differing end then
+    // requires the one active CutScan before non-same selection is rejected.
+    let exact = tail.checked_mul(2).unwrap().checked_add(8).unwrap();
+    assert_eq!(exact, 10);
+    let selected = owner
+        .select_for_calculate(SLOT, point(5., 15., 7.), point(25., 5., 7.))
+        .unwrap();
+    for _ in 0..2 {
+        for (lookup_primitives, error) in [
+            (
+                exact - 1,
+                SourceSamePolygonError::Lookup(SourceWarmCacheError::Boundary(Error::Budget)),
+            ),
+            (exact, SourceSamePolygonError::NonSamePolygonUnsupported),
+        ] {
+            assert_eq!(
+                selected
+                    .loaded_retained_same_polygon(
+                        &initial,
+                        CONFIG,
+                        SourceSamePolygonBudget {
+                            lookup_primitives,
+                            terminal_primitives: 1,
+                        },
+                        until(),
+                    )
+                    .unwrap_err(),
+                error
+            );
+            assert_same(&initial, &unchanged);
+        }
+    }
+    let selected = owner
+        .select_for_calculate(SLOT, point(5., 15., 7.), point(5., 16., 7.))
+        .unwrap();
+    let retry = selected
+        .loaded_retained_same_polygon(
+            &initial,
+            CONFIG,
+            SourceSamePolygonBudget {
+                lookup_primitives: exact - 1,
+                terminal_primitives: 1,
+            },
+            until(),
+        )
+        .unwrap();
+    assert_continuation(&initial, &retry);
+    assert_same(&initial, &unchanged);
+    assert_same(&retry, &retained(&selected, &unchanged));
+}
+
+#[test]
 fn retained_query_config_and_exclusive_borrow_fail_without_mutating_prior() {
     let source = query(SLOT);
     let mut owner = source.retain_default();
