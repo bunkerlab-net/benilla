@@ -875,6 +875,38 @@ mod analytic_tests {
     }
 
     #[test]
+    fn analytic_planar_actual_sixth_normalized_endpoint_below_plane_refuses() {
+        // Actual sixth callback operands. The rounded destination lies on H, but the
+        // unchanged normalized WorldCollision sweep ends strictly below the raw plane.
+        let from = [3_313_896_757, 3_313_872_078, 3_259_450_747].map(f32::from_bits);
+        let to = [3_313_918_466, 3_313_872_738, 3_259_498_496].map(f32::from_bits);
+        let feet = [wow_to_bevy(from), wow_to_bevy(to)];
+        let movement = feet[1] - feet[0];
+        let ray = checked_ray(movement).unwrap();
+        assert_eq!(
+            ray_bits(ray),
+            Some(([1_022_945_039, 3_163_336_370, 1_065_342_994], 1_093_252_216))
+        );
+        let height = body().height.as_f32();
+        let actual = Collider::cuboid(1.0, height, 1.0);
+        let center = feet[0] + Vec3::Y * (height * 0.5);
+        assert_eq!(center.y.to_bits(), 3_258_979_707);
+        assert_eq!((center + movement).y - height * 0.5, H);
+        let start = Bounds::cuboid(center, half_extents(&actual).unwrap()).unwrap();
+        let (direction, distance) = ray.unwrap();
+        let (low, high) =
+            outward_sum(start.min[1], f64::from(direction.y) * f64::from(distance)).unwrap();
+        let exact_gap = -299_191.0 / 35_184_372_088_832.0;
+        assert!(high < f64::from(H));
+        assert!(low - f64::from(H) <= exact_gap);
+        assert!(high - f64::from(H) >= exact_gap);
+        assert!(matches!(
+            Plan::new(from, to, body(), H, Q),
+            Err(Failure::UnsupportedPointRepresentation)
+        ));
+    }
+
+    #[test]
     fn analytic_planar_one_representable_endpoint_below_plane_refuses() {
         let mut plan = Plan::new([0.0, 0.0, H], [0.0, 0.0, H], body(), H, H).unwrap();
         let enclosure = checked_enclosure_bounds(plan.floor_points[0], plan.proof_body).unwrap();
