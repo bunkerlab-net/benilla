@@ -187,7 +187,9 @@ impl ResidentChaseWaterDependency {
             .min(self.expires)
             .min(self.prefix.expires);
         provider.filter_for(prior, context, deadline, &cancelled)?;
-        if !Rc::ptr_eq(&self.prefix.filter_identity, &prior.observation_identity) {
+        if !matches!(&self.prefix.root, ResidentChaseLosRoot::Filter(identity)
+            if Rc::ptr_eq(identity, &prior.observation_identity))
+        {
             return Err(Failure::Binding.into());
         }
         let observation = provider.water_for(self, context, deadline, cancelled)?;
@@ -198,5 +200,61 @@ impl ResidentChaseWaterDependency {
             deadline,
             observation.owner.ok_or(Failure::Binding)?.request().ticket,
         ))
+    }
+}
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+impl ResidentChaseWaterDependency {
+    pub(in super::super) fn retained_prerequisites(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        root: &super::super::retained::ResidentRetainedRoot,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<(Instant, u64), ResidentFilterError> {
+        let deadline = root
+            .check_current(provider, context, deadline, &cancelled)?
+            .min(self.expires)
+            .min(self.prefix.expires);
+        if !matches!(&self.prefix.root, ResidentChaseLosRoot::Retained(identity)
+            if Rc::ptr_eq(identity, root.identity()))
+        {
+            return Err(Failure::Binding.into());
+        }
+        let observation = provider.water_for(self, context, deadline, cancelled)?;
+        if observation.decision != ResidentChaseWaterDecision::ClearConditional {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok((
+            deadline,
+            observation.owner.ok_or(Failure::Binding)?.request().ticket,
+        ))
+    }
+    pub(in super::super) fn require_retained_model(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        player: PlayerId,
+    ) -> Result<(), ResidentFilterError> {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        if player != self.prefix.player
+            || gate_model(&provider.profile, provider.session.world, player, route)?
+                != self.prefix.model
+        {
+            return Err(Failure::Binding.into());
+        }
+        Ok(())
+    }
+    pub(in super::super) fn same_retained_model(
+        &self,
+        prefix: &ResidentChaseLosDependency,
+    ) -> bool {
+        self.prefix.player == prefix.player && self.prefix.model == prefix.model
+    }
+    pub(in super::super) fn same_water_model(&self, other: &Self) -> bool {
+        self.same_retained_model(&other.prefix)
     }
 }

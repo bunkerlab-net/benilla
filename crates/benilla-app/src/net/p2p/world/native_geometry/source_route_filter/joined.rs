@@ -25,6 +25,14 @@ pub(crate) struct ResidentJoinedColdObservation {
     pub(crate) body: Body,
 }
 impl ResidentJoinedColdDependency {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn retained_cold(&self) -> &ResidentSamePolygonDependency {
+        &self.cold
+    }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn retained_chase(&self) -> &ResidentChaseWaterDependency {
+        &self.chase
+    }
     pub(crate) fn deadline(&self, deadline: Instant) -> Instant {
         deadline.min(self.expires)
     }

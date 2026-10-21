@@ -13,6 +13,7 @@ use super::{
     source_pathfinder_query::resident_joined_tests as runtime,
     source_route_filter::resident::{ResidentFilterError, ResidentFilterProvider},
     source_route_resident_local::ledger::ResidentLedger,
+    source_route_resident_retained as retained,
 };
 use crate::net::p2p::world::{resident_fixture, PauseKind};
 use benilla_sim::{creature_ai as ai, creature_motion as motion};
@@ -42,6 +43,15 @@ enum Mode {
     RollbackRetry,
     TwoOwners,
     RetainedDispatch,
+    OneRetained(retained::Mode),
+}
+impl Mode {
+    fn retained(self) -> Option<retained::Mode> {
+        match self {
+            Self::OneRetained(mode) => Some(mode),
+            _ => None,
+        }
+    }
 }
 enum Message {
     Resolve(
@@ -122,8 +132,9 @@ fn refuse_unchanged(ledger: &mut ResidentLedger, notice: &RouteCommitNotice) {
 }
 
 fn run(mode: Mode) {
-    runtime::with_controller_fixture(
+    runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
+        mode.retained().is_some(),
         |install, height, compatibility, inventory, policy, p, query, other| {
             let fixture = resident_fixture::Fixture::new(p.clone(), [8; 16]);
             let player = fixture.player();
@@ -213,7 +224,7 @@ fn run(mode: Mode) {
             let mut geometry = InstalledFixture::new(install.path(), inventory);
             let mut visitors = runtime::TwoOwnerVisitors::default();
             let owner_count = p.npcs.len();
-            if mode == Mode::RetainedDispatch {
+            if mode == Mode::RetainedDispatch || mode.retained().is_some() {
                 assert_eq!(p.tick_ms, 25);
                 assert_eq!(owner_count, 1);
             }
@@ -233,6 +244,9 @@ fn run(mode: Mode) {
             let mut registry = None;
             let mut retained_witness = None;
             let mut source_change = None;
+            let mut retained_notice: Option<RouteCommitNotice> = None;
+            let mut retained_accepted = false;
+            let mut retained_root = None;
             let worker_callbacks = callbacks.clone();
             let worker_routes = routes.clone();
             std::thread::scope(|scope| {
@@ -345,6 +359,16 @@ fn run(mode: Mode) {
                                 out.events.len(),
                             );
                         }
+                        if let Some(retained_mode) = mode.retained() {
+                            return retained::after_cold_ack(
+                                &mut driver,
+                                &worker_callbacks,
+                                &worker_routes,
+                                tick,
+                                out.events.len(),
+                                retained_mode,
+                            );
+                        }
                         return (tick, out.events.len(), count);
                     }
                     panic!("actual controller never requested its genuine first cold Route");
@@ -418,6 +442,10 @@ fn run(mode: Mode) {
                                     provider.observe(&request, 401, runtime::until(), || false),
                                     Err(ResidentFilterError::Context(Failure::Binding))
                                 ));
+                                assert!(matches!(
+                                    provider.require_one_retained_route(),
+                                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                                ));
                                 assert_eq!(
                                     ledger.require_open_epoch(),
                                     Err(Failure::UnsupportedQuery)
@@ -444,6 +472,143 @@ fn run(mode: Mode) {
                                     )))
                                     .unwrap();
                                 continue;
+                            }
+                            if let Some(retained_mode) = mode.retained() {
+                                if matches!(
+                                    request.query,
+                                    Query::SourceMotion(MotionQuery::Route(_))
+                                ) && routes.load(Ordering::SeqCst) >= 1
+                                {
+                                    let attempt = routes.fetch_add(1, Ordering::SeqCst);
+                                    assert!(
+                                        attempt == 1
+                                            || retained_mode == retained::Mode::RollbackRetry && attempt == 2,
+                                        "only one retained calculation, or its identical-input retry, is supported"
+                                    );
+                                    assert_eq!(
+                                        ledger.require_open_epoch(),
+                                        Err(Failure::UnsupportedQuery)
+                                    );
+                                    retained::assert_request(
+                                        &p,
+                                        captured.as_ref().unwrap(),
+                                        &request,
+                                    );
+                                    assert_eq!(
+                                        provider.retained_constructor_for_test(&request).unwrap(),
+                                        registry.unwrap(),
+                                        "warm calculation retains the exact cold native allocation"
+                                    );
+                                    if attempt == 1 {
+                                        assert_eq!(ledger.counts(), (1, 1));
+                                        retained_root = Some(ledger.diagnostic());
+                                    } else {
+                                        let (failed, failed_deadline) = &attempts[1];
+                                        assert_eq!(
+                                            serde_json::to_vec(failed).unwrap(),
+                                            serde_json::to_vec(&request).unwrap()
+                                        );
+                                        assert!(!failed
+                                            .require_pathfinder_dispatch(&p)
+                                            .unwrap()
+                                            .same_live_dispatch(
+                                                request.require_pathfinder_dispatch(&p).unwrap()
+                                            ));
+                                        assert_eq!(late_failures, 1);
+                                        assert_eq!(ledger.counts(), (2, 1));
+                                        assert!(ledger
+                                            .diagnostic()
+                                            .same_committed_root(retained_root.as_ref().unwrap()));
+                                        ledger
+                                            .check_fresh_candidate(
+                                                &provider,
+                                                failed,
+                                                *failed_deadline,
+                                            )
+                                            .unwrap();
+                                        assert!(matches!(
+                                            ledger.check_fresh_candidate(&provider, &request, *failed_deadline),
+                                            Err(ResidentFilterError::Context(Failure::Binding))
+                                        ), "old warm dependency cannot answer the equal-byte new live dispatch");
+                                    }
+                                    if retained_mode == retained::Mode::Accept && attempt == 1 {
+                                        retained::assert_source_order(
+                                            &ledger,
+                                            &mut provider,
+                                            &request,
+                                        );
+                                    }
+                                    if retained_mode == retained::Mode::Refusals && attempt == 1 {
+                                        super::source_route_resident_retained_refusals::probe(
+                                            &mut ledger,
+                                            &mut geometry,
+                                            install,
+                                            height,
+                                            compatibility,
+                                            &mut provider,
+                                            &request,
+                                        );
+                                        assert!(Instant::now() >= attempts[0].1);
+                                        assert!(matches!(
+                                            ledger.check_fresh_candidate(
+                                                &provider, &attempts[0].0, runtime::until(),
+                                            ),
+                                            Err(ResidentFilterError::Context(Failure::Deadline))
+                                        ), "expired cold point/LOS evidence stays expired; only native/filter ancestry survives");
+                                    }
+                                    let deadline = Instant::now() + Duration::from_secs(30);
+                                    // New physics observation and source sequence for every attempt;
+                                    // neither the cold clearance nor the failed warm reply is reused.
+                                    geometry.advance_physics();
+                                    let facts = ledger
+                                        .certify_retained(
+                                            geometry.app.world_mut(),
+                                            compatibility,
+                                            &mut provider,
+                                            &request,
+                                            201,
+                                            deadline,
+                                            || false,
+                                        )
+                                        .unwrap();
+                                    retained::assert_facts(&request, &facts);
+                                    let staged = ledger.diagnostic();
+                                    assert!(
+                                        matches!(
+                                            ledger.certify_retained(
+                                                geometry.app.world_mut(),
+                                                compatibility,
+                                                &mut provider,
+                                                &request,
+                                                201,
+                                                deadline,
+                                                || false,
+                                            ),
+                                            Err(ResidentFilterError::Context(Failure::Binding))
+                                        ),
+                                        "the same live warm dispatch cannot stage twice"
+                                    );
+                                    assert_eq!(ledger.diagnostic(), staged);
+                                    assert_eq!(ledger.counts(), (attempt + 1, 1));
+                                    assert!(ledger
+                                        .diagnostic()
+                                        .same_committed_root(retained_root.as_ref().unwrap()));
+                                    ledger
+                                        .check_fresh_candidate(&provider, &request, deadline)
+                                        .unwrap();
+                                    assert_eq!(
+                                        provider.retained_constructor_for_test(&request).unwrap(),
+                                        registry.unwrap()
+                                    );
+                                    attempts.push((request.clone(), deadline));
+                                    if retained_mode == retained::Mode::RollbackRetry
+                                        && attempt == 1
+                                    {
+                                        late_failure_armed = true;
+                                    }
+                                    reply.send(Ok(AuthorityReply { request, facts })).unwrap();
+                                    continue;
+                                }
                             }
                             let facts = match &request.query {
                                 Query::PlayerEnvironment(_) => environment
@@ -681,13 +846,144 @@ fn run(mode: Mode) {
                             if notice.routes().is_empty() {
                                 assert!(
                                     routes.load(Ordering::SeqCst) == 0
-                                        || mode == Mode::RetainedDispatch
+                                        || (mode == Mode::RetainedDispatch
+                                            || mode.retained().is_some())
                                             && routes.load(Ordering::SeqCst) == 1
                                             && ledger.counts() == (1, 1)
                                 );
                                 binding_error(ledger.acknowledge(&notice)).unwrap();
                                 reply.send(Ok(())).unwrap();
                                 continue;
+                            }
+                            if let Some(retained_mode) = mode.retained() {
+                                if matches!(
+                                    &notice.routes()[0].request.query,
+                                    Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()
+                                ) {
+                                    deliveries += 1;
+                                    assert_eq!(notice.routes().len(), 1);
+                                    assert_eq!(notice.boundary().heads().len(), 1);
+                                    assert_eq!(
+                                        notice.boundary().heads()[0].cache().unwrap().revision,
+                                        2
+                                    );
+                                    let actual = &notice.routes()[0].request;
+                                    let latest = &attempts.last().unwrap().0;
+                                    assert_eq!(actual, latest);
+                                    assert!(actual
+                                        .require_pathfinder_dispatch(&p)
+                                        .unwrap()
+                                        .same_live_dispatch(
+                                            latest.require_pathfinder_dispatch(&p).unwrap()
+                                        ));
+                                    retained::assert_request(
+                                        &p,
+                                        captured.as_ref().unwrap(),
+                                        actual,
+                                    );
+                                    retained::assert_facts(actual, &notice.routes()[0].facts);
+                                    if let Some(old) = &retained_notice {
+                                        assert_eq!(&notice, old);
+                                        assert!(actual
+                                            .require_pathfinder_dispatch(&p)
+                                            .unwrap()
+                                            .same_live_dispatch(
+                                                old.routes()[0]
+                                                    .request
+                                                    .require_pathfinder_dispatch(&p)
+                                                    .unwrap()
+                                            ));
+                                    } else {
+                                        retained_notice = Some(notice.clone());
+                                    }
+                                    let prior = ledger.diagnostic();
+                                    if !retained_accepted {
+                                        assert_eq!(
+                                            ledger.counts(),
+                                            (
+                                                if retained_mode == retained::Mode::RollbackRetry {
+                                                    3
+                                                } else {
+                                                    2
+                                                },
+                                                1
+                                            )
+                                        );
+                                        assert!(prior
+                                            .same_committed_root(retained_root.as_ref().unwrap()));
+                                    }
+                                    for wrong in [
+                                        wrong::foreign_session(&notice, &foreign),
+                                        wrong::skipped_tick(&notice),
+                                        wrong::wrong_current_cache(&notice),
+                                        wrong::without_routes(&notice),
+                                        wrong::duplicate_route(&notice),
+                                        wrong::stale_generation(&notice),
+                                        wrong::omitted_head(&notice),
+                                        wrong::extra_head(&notice),
+                                        wrong::decoded_dispatch(&notice),
+                                        wrong::uncertified_reply(&notice),
+                                    ] {
+                                        refuse_unchanged(&mut ledger, &wrong);
+                                    }
+                                    let cold_notice = captured.as_ref().unwrap();
+                                    if !retained_accepted
+                                        && cold_notice.boundary().tick().checked_add(1)
+                                            == Some(actual.binding.tick)
+                                    {
+                                        // An immediately following replan leaves the exact
+                                        // cold notice current, so its duplicate is still valid.
+                                        let before = ledger.diagnostic();
+                                        ledger.acknowledge(cold_notice).unwrap();
+                                        assert_eq!(ledger.diagnostic(), before);
+                                    } else {
+                                        refuse_unchanged(&mut ledger, cold_notice);
+                                    }
+                                    if retained_mode == retained::Mode::RollbackRetry {
+                                        assert_eq!(late_failures, 1);
+                                        refuse_unchanged(
+                                            &mut ledger,
+                                            &wrong::substitute_dispatch(&notice, &attempts[1].0),
+                                        );
+                                    }
+                                    ledger.acknowledge(&notice).unwrap();
+                                    assert_eq!(ledger.counts(), (1, 1));
+                                    if retained_accepted {
+                                        assert_eq!(
+                                            ledger.diagnostic(),
+                                            prior,
+                                            "exact warm ACK retry is historical and idempotent"
+                                        );
+                                    }
+                                    let accepted = ledger.diagnostic();
+                                    ledger.acknowledge(&notice).unwrap();
+                                    assert_eq!(ledger.diagnostic(), accepted);
+                                    refuse_unchanged(
+                                        &mut ledger,
+                                        &wrong::decoded_dispatch(&notice),
+                                    );
+                                    refuse_unchanged(&mut ledger, captured.as_ref().unwrap());
+                                    if retained_mode == retained::Mode::RollbackRetry {
+                                        refuse_unchanged(
+                                            &mut ledger,
+                                            &wrong::substitute_dispatch(&notice, &attempts[1].0),
+                                        );
+                                    }
+                                    assert_eq!(
+                                        ledger.require_open_epoch(),
+                                        Err(Failure::UnsupportedQuery)
+                                    );
+                                    retained_accepted = true;
+                                    if retained_mode == retained::Mode::DropAfterApply
+                                        && !fault_delivered
+                                    {
+                                        fault_delivered = true;
+                                        reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost warm ACK after resident ledger application"))).unwrap();
+                                    } else {
+                                        reply.send(Ok(())).unwrap();
+                                    }
+                                    continue;
+                                }
                             }
                             deliveries += 1;
                             assert_eq!(notice.routes().len(), owner_count);
@@ -824,6 +1120,12 @@ fn run(mode: Mode) {
                             | Mode::SourceChangeBeforeAck
                     ) {
                         2
+                    } else if let Some(retained_mode) = mode.retained() {
+                        if retained_mode == retained::Mode::DropAfterApply {
+                            3
+                        } else {
+                            2
+                        }
                     } else {
                         1
                     }
@@ -832,11 +1134,25 @@ fn run(mode: Mode) {
                     routes.load(Ordering::SeqCst),
                     if matches!(mode, Mode::RollbackRetry | Mode::RetainedDispatch) {
                         2
+                    } else if let Some(retained_mode) = mode.retained() {
+                        if retained_mode == retained::Mode::RollbackRetry {
+                            3
+                        } else {
+                            2
+                        }
                     } else {
                         owner_count
                     }
                 );
-                assert_eq!(late_failures, usize::from(mode == Mode::RollbackRetry));
+                assert_eq!(
+                    late_failures,
+                    usize::from(
+                        mode == Mode::RollbackRetry
+                            || mode.retained() == Some(retained::Mode::RollbackRetry)
+                    )
+                );
+                assert_eq!(retained_accepted, mode.retained().is_some());
+                assert_eq!(retained_notice.is_some(), mode.retained().is_some());
                 assert!(captured.is_some());
                 assert_eq!(provider.retained_constructor_count(), owner_count);
                 if mode == Mode::RetainedDispatch {
@@ -850,7 +1166,26 @@ fn run(mode: Mode) {
                 // Direct negative source work occurs only after all controller
                 // retry measurements and worker shutdown, never during ACK retry.
                 let context = &attempts.last().unwrap().0;
-                if let Some(change) = &source_change {
+                if mode.retained().is_some() {
+                    let before = ledger.diagnostic();
+                    assert!(matches!(
+                        ledger.certify_retained(
+                            geometry.app.world_mut(),
+                            compatibility,
+                            &mut provider,
+                            context,
+                            301,
+                            runtime::until(),
+                            || false,
+                        ),
+                        Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                    ));
+                    assert_eq!(
+                        ledger.diagnostic(),
+                        before,
+                        "cache revision two closes retained certification before source work"
+                    );
+                } else if let Some(change) = &source_change {
                     assert_eq!(mode, Mode::SourceChangeBeforeAck);
                     change.refuse_fresh_source(&ledger, &mut provider, context);
                 } else {
@@ -890,6 +1225,9 @@ fn run(mode: Mode) {
         },
     );
 }
+pub(super) fn one_retained_probe(mode: retained::Mode) {
+    run(Mode::OneRetained(mode));
+}
 pub(super) fn changed_source_ack_probe() {
     run(Mode::SourceChangeBeforeAck);
 }
@@ -921,4 +1259,8 @@ fn resident_controller_retry_ack_selects_fresh_live_candidate_not_failed_ancesto
 #[test]
 fn resident_controller_two_owner_notice_is_atomic_before_publication() {
     run(Mode::TwoOwners);
+}
+
+pub(super) fn one_retained_refusals_probe() {
+    run(Mode::OneRetained(retained::Mode::Refusals));
 }

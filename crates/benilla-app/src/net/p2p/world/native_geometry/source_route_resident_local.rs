@@ -182,3 +182,7 @@ pub(super) fn certify(
 #[allow(dead_code, reason = "app-only resident controller component fixture")]
 #[path = "source_route_resident_local/ledger.rs"]
 pub(super) mod ledger;
+
+// A separate component-only retained certifier; no generic/headless conversion.
+#[path = "source_route_resident_local/retained.rs"]
+mod retained;

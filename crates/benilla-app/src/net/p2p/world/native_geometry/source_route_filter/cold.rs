@@ -14,6 +14,18 @@ pub(crate) struct ResidentSamePolygonDependency {
     tiles: LoadedSourceTilePresence,
     terminal: LoadedSourceSamePolygon,
 }
+#[cfg(all(test, not(benilla_headless_geometry)))]
+impl ResidentSamePolygonDependency {
+    pub(super) fn historical_observation(&self) -> &ResidentFilterDependency {
+        &self.observation
+    }
+    pub(super) fn native_terminal(&self) -> &LoadedSourceSamePolygon {
+        &self.terminal
+    }
+    pub(super) fn historical_calculate_ready(&self) -> bool {
+        !self.owner_ignore.ignore_pathfinding() && self.tiles.both_present()
+    }
+}
 /// Copied diagnostic observations, with no native query or cache reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResidentSamePolygonObservation {

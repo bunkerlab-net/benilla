@@ -24,9 +24,15 @@ pub(crate) struct ResidentChaseLosObservation {
     pub(crate) ray: Option<RayReply>,
 }
 #[derive(Clone)]
+enum ResidentChaseLosRoot {
+    Filter(Rc<()>),
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    Retained(Rc<()>),
+}
+#[derive(Clone)]
 pub(crate) struct ResidentChaseLosDependency {
     identity: Rc<()>,
-    filter_identity: Rc<()>,
+    root: ResidentChaseLosRoot,
     context: AuthorityRequest,
     player: PlayerId,
     model: ChaseGateModel,
@@ -69,13 +75,60 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         ticket: u64,
         deadline: Instant,
         cancelled: impl Fn() -> bool,
-        mut observe: impl FnMut(u8),
+        observe: impl FnMut(u8),
     ) -> Result<ResidentChaseLosDependency, ResidentFilterError> {
         self.filter_for(prior, context, deadline, &cancelled)?;
         let deadline = deadline.min(prior.expires);
         if ticket == 0 || ticket <= prior.observations[1].request().ticket {
             return Err(Failure::Binding.into());
         }
+        self.los_core(
+            ResidentChaseLosRoot::Filter(Rc::clone(&prior.observation_identity)),
+            context,
+            player,
+            ticket,
+            deadline,
+            cancelled,
+            observe,
+        )
+    }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn observe_retained_chase_los(
+        &self,
+        root: &super::retained::ResidentRetainedRoot,
+        context: &AuthorityRequest,
+        player: PlayerId,
+        ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        observe: impl FnMut(u8),
+    ) -> Result<ResidentChaseLosDependency, ResidentFilterError> {
+        let deadline = root.check_current(self, context, deadline, &cancelled)?;
+        if ticket == 0 {
+            return Err(Failure::Binding.into());
+        }
+        self.los_core(
+            ResidentChaseLosRoot::Retained(Rc::clone(root.identity())),
+            context,
+            player,
+            ticket,
+            deadline,
+            cancelled,
+            observe,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn los_core(
+        &self,
+        root: ResidentChaseLosRoot,
+        context: &AuthorityRequest,
+        player: PlayerId,
+        ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        mut observe: impl FnMut(u8),
+    ) -> Result<ResidentChaseLosDependency, ResidentFilterError> {
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::UnsupportedQuery.into());
         };
@@ -137,7 +190,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         self.check_context(context, deadline, &cancelled)?;
         Ok(ResidentChaseLosDependency {
             identity: Rc::clone(&self.identity),
-            filter_identity: Rc::clone(&prior.observation_identity),
+            root,
             context: context.clone(),
             player,
             model,

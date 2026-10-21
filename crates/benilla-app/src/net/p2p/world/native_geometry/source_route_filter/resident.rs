@@ -21,6 +21,9 @@ pub(crate) mod dry_near_point;
 pub(crate) mod joined;
 #[path = "near_point.rs"]
 pub(crate) mod near_point;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "retained.rs"]
+pub(crate) mod retained;
 
 const POLICY: &[u8] = b"benilla-resident-query-ground-primary-v2";
 pub(crate) fn geometry_revision(
@@ -66,6 +69,8 @@ pub(crate) struct ResidentGeometryPolicy {
     installed: Option<InstalledGeometryPolicy>,
     dry_primary: bool,
     first_cold_route: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    one_retained_route: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -79,6 +84,8 @@ impl ResidentGeometryPolicy {
         installed: None,
         dry_primary: false,
         first_cold_route: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        one_retained_route: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -93,6 +100,8 @@ impl ResidentGeometryPolicy {
             }),
             dry_primary: false,
             first_cold_route: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            one_retained_route: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -109,6 +118,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_dry_corridor(inventory);
         policy.first_cold_route = true;
+        policy
+    }
+    /// Component-only first cold plus exactly one ACK-selected retained calculation.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_one_retained_route(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_first_cold_route(inventory);
+        policy.one_retained_route = true;
         policy
     }
     pub(crate) fn revision(
@@ -145,6 +163,15 @@ impl ResidentGeometryPolicy {
         } else {
             hash.update(b"benilla-resident-installed-corridor-evidence-v1".as_slice());
             hash.update(primary);
+        }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.one_retained_route {
+            if !self.first_cold_route || !self.dry_primary {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-installed-one-retained-route-v1");
+            hash.update(b"ack-selected-cold-predecessor-exact-native-storage-revision2-v1");
+            hash.update(b"fresh-gate-before-selection-update-filter-native-retained-v1");
         }
         hash.update(installed.revision);
         hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
@@ -191,12 +218,16 @@ pub(crate) struct ResidentProviderIdentity {
     allocation: Rc<()>,
     inventory: [u8; 32],
     source_epoch: [u8; 32],
+    one_retained_route: bool,
 }
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[allow(dead_code, reason = "app-only resident controller component fixture")]
 impl ResidentProviderIdentity {
     pub(crate) fn matches(&self, provider: &ResidentFilterProvider<'_, '_, '_, '_>) -> bool {
         Rc::ptr_eq(&self.allocation, &provider.identity)
+    }
+    pub(crate) fn allows_one_retained_route(&self) -> bool {
+        self.one_retained_route
     }
     pub(crate) fn matches_cache(&self, cache: &motion::PathFinderCache) -> bool {
         cache.binding.inventory == self.inventory && cache.binding.source_epoch == self.source_epoch
@@ -280,6 +311,15 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
     }
 
     #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_one_retained_route(&self) -> Result<(), ResidentFilterError> {
+        self.require_first_cold_route()?;
+        if !self.geometry_policy.one_retained_route {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
     #[allow(dead_code, reason = "app-only resident controller component fixture")]
     pub(crate) fn ledger_identity(
         &self,
@@ -294,6 +334,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             allocation: Rc::clone(&self.identity),
             inventory: self.query.binding().inventory,
             source_epoch: self.query.binding().source_epoch,
+            one_retained_route: self.geometry_policy.one_retained_route,
         })
     }
 

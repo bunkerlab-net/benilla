@@ -132,6 +132,7 @@ pub(crate) fn with_two_owner_route_fixture<T>(
         (start, [start[0] - 40., start[1], start[2]]),
         true,
         true,
+        false,
         test,
     )
 }
@@ -156,6 +157,40 @@ pub(crate) fn with_controller_fixture<T>(
         with_route_fixture(test)
     }
 }
+/// Component-only selection made before the Profile or any live owner exists.
+#[cfg(not(benilla_headless_geometry))]
+#[allow(
+    dead_code,
+    reason = "one-retained actual-controller fixture is app-only"
+)]
+pub(crate) fn with_selected_controller_fixture<T>(
+    two_owners: bool,
+    one_retained_route: bool,
+    test: impl FnOnce(
+        &input::Install,
+        &PreparedSourceHeight<'_, '_, '_>,
+        &InventoryCompatibility<'_, '_, '_, '_>,
+        NativeM2MapInventory,
+        ResidentGeometryPolicy,
+        Profile,
+        SourceMapQuerySnapshot,
+        SourceMapQuerySnapshot,
+    ) -> T,
+) -> T {
+    if one_retained_route {
+        assert!(!two_owners);
+        let (start, _) = input::support();
+        with_fixture_at_with_owners(
+            (start, [start[0] - 8., start[1], start[2]]),
+            true,
+            false,
+            true,
+            test,
+        )
+    } else {
+        with_controller_fixture(two_owners, test)
+    }
+}
 fn with_fixture_at<T>(
     endpoints: ([f32; 3], [f32; 3]),
     first_cold_route: bool,
@@ -170,12 +205,13 @@ fn with_fixture_at<T>(
         SourceMapQuerySnapshot,
     ) -> T,
 ) -> T {
-    with_fixture_at_with_owners(endpoints, first_cold_route, false, test)
+    with_fixture_at_with_owners(endpoints, first_cold_route, false, false, test)
 }
 fn with_fixture_at_with_owners<T>(
     endpoints: ([f32; 3], [f32; 3]),
     first_cold_route: bool,
     two_owners: bool,
+    one_retained_route: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -210,6 +246,18 @@ fn with_fixture_at_with_owners<T>(
     } else {
         ResidentGeometryPolicy::installed_dry_corridor(&compatibility)
     };
+    #[cfg(not(benilla_headless_geometry))]
+    let policy = if one_retained_route {
+        assert!(first_cold_route && !two_owners);
+        ResidentGeometryPolicy::installed_one_retained_route(&compatibility)
+    } else {
+        policy
+    };
+    #[cfg(benilla_headless_geometry)]
+    assert!(
+        !one_retained_route,
+        "retained authority is concrete component-only"
+    );
     let (start, end) = endpoints;
     let binding = height
         .initialization_binding(

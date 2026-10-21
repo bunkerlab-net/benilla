@@ -122,6 +122,23 @@ jobs:
           log="$RUNNER_TEMP/native-resident-history.log"
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_history::resident_controller_historical_ack_survives_changed_source_without_replay -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_history::resident_controller_historical_ack_survives_changed_source_without_replay
+      - name: Verify resident one-retained controller transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-one-retained.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_retained:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_retained::resident_controller_one_retained_commits_exact_ack_selected_predecessor \
+            net::p2p::native_geometry::source_route_resident_retained::resident_controller_one_retained_later_failure_rolls_back_and_selects_fresh_retry \
+            net::p2p::native_geometry::source_route_resident_retained::resident_controller_one_retained_lost_ack_retries_without_replay
+      - name: Verify resident one-retained concrete refusals
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-one-retained-refusals.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_retained_refusals::resident_controller_one_retained_refuses_concrete_source_changes_before_fresh_success -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_retained_refusals::resident_controller_one_retained_refuses_concrete_source_changes_before_fresh_success
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor
