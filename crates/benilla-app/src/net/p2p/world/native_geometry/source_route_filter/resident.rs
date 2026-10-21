@@ -73,6 +73,8 @@ pub(crate) struct ResidentGeometryPolicy {
     one_retained_route: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     two_retained_routes: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    finite_retained_routes: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -90,6 +92,8 @@ impl ResidentGeometryPolicy {
         one_retained_route: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         two_retained_routes: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        finite_retained_routes: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -108,6 +112,8 @@ impl ResidentGeometryPolicy {
             one_retained_route: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
             two_retained_routes: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            finite_retained_routes: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -142,6 +148,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_one_retained_route(inventory);
         policy.two_retained_routes = true;
+        policy
+    }
+    /// Component-only finite calculation loop, distinct from the fixed-three policy.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_finite_retained_routes(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_one_retained_route(inventory);
+        policy.finite_retained_routes = true;
         policy
     }
     pub(crate) fn revision(
@@ -197,6 +212,15 @@ impl ResidentGeometryPolicy {
             hash.update(b"flat-ack-selected-native-revisions1-2-3-fourth-closed-v1");
             hash.update(b"bounded-full-storage4096-native-trace8050-v1");
         }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.finite_retained_routes {
+            if !self.one_retained_route || self.two_retained_routes {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-installed-finite-retained-routes-max8-v1");
+            hash.update(b"flat-ack-selected-first-or-repeated-native-revisions1-through8-v1");
+            hash.update(b"checked-source-revision-current-native-full-storage-trace8050-v1");
+        }
         hash.update(installed.revision);
         hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
         hash.update(b"exact-endpoints-live-raw-local-corridor-owner-height-segment-los-v1");
@@ -244,6 +268,7 @@ pub(crate) struct ResidentProviderIdentity {
     source_epoch: [u8; 32],
     one_retained_route: bool,
     two_retained_routes: bool,
+    finite_retained_routes: bool,
 }
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[allow(dead_code, reason = "app-only resident controller component fixture")]
@@ -256,6 +281,9 @@ impl ResidentProviderIdentity {
     }
     pub(crate) fn allows_two_retained_routes(&self) -> bool {
         self.two_retained_routes
+    }
+    pub(crate) fn allows_finite_retained_routes(&self) -> bool {
+        self.finite_retained_routes
     }
     pub(crate) fn matches_cache(&self, cache: &motion::PathFinderCache) -> bool {
         cache.binding.inventory == self.inventory && cache.binding.source_epoch == self.source_epoch
@@ -357,6 +385,16 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
     }
 
     #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_finite_retained_routes(&self) -> Result<(), ResidentFilterError> {
+        self.require_one_retained_route()?;
+        if !self.geometry_policy.finite_retained_routes || self.geometry_policy.two_retained_routes
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
     #[allow(dead_code, reason = "app-only resident controller component fixture")]
     pub(crate) fn ledger_identity(
         &self,
@@ -373,6 +411,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             source_epoch: self.query.binding().source_epoch,
             one_retained_route: self.geometry_policy.one_retained_route,
             two_retained_routes: self.geometry_policy.two_retained_routes,
+            finite_retained_routes: self.geometry_policy.finite_retained_routes,
         })
     }
 

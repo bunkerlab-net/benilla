@@ -45,12 +45,19 @@ enum Mode {
     RetainedDispatch,
     OneRetained(retained::Mode),
     ThreeEpoch(three_epoch::Mode),
+    FiniteLoop(super::source_route_resident_finite_loop::Mode),
 }
 impl Mode {
     fn retained(self) -> Option<retained::Mode> {
         match self {
             Self::OneRetained(mode) => Some(mode),
             Self::ThreeEpoch(_) => Some(retained::Mode::Accept),
+            _ => None,
+        }
+    }
+    fn finite_loop(self) -> Option<super::source_route_resident_finite_loop::Mode> {
+        match self {
+            Self::FiniteLoop(mode) => Some(mode),
             _ => None,
         }
     }
@@ -142,8 +149,9 @@ fn refuse_unchanged(ledger: &mut ResidentLedger, notice: &RouteCommitNotice) {
 fn run(mode: Mode) {
     runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
-        mode.retained().is_some(),
+        mode.retained().is_some() || mode.finite_loop().is_some(),
         mode.three_epoch().is_some(),
+        mode.finite_loop().is_some(),
         |install, height, compatibility, inventory, policy, p, query, other| {
             let fixture = resident_fixture::Fixture::new(p.clone(), [8; 16]);
             let player = fixture.player();
@@ -165,6 +173,14 @@ fn run(mode: Mode) {
             } else {
                 assert!(matches!(
                     provider.require_two_retained_routes(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            }
+            if mode.finite_loop().is_some() {
+                provider.require_finite_retained_routes().unwrap();
+            } else {
+                assert!(matches!(
+                    provider.require_finite_retained_routes(),
                     Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
                 ));
             }
@@ -241,7 +257,10 @@ fn run(mode: Mode) {
             let mut geometry = InstalledFixture::new(install.path(), inventory);
             let mut visitors = runtime::TwoOwnerVisitors::default();
             let owner_count = p.npcs.len();
-            if mode == Mode::RetainedDispatch || mode.retained().is_some() {
+            if mode == Mode::RetainedDispatch
+                || mode.retained().is_some()
+                || mode.finite_loop().is_some()
+            {
                 assert_eq!(p.tick_ms, 25);
                 assert_eq!(owner_count, 1);
             }
@@ -269,6 +288,9 @@ fn run(mode: Mode) {
             let mut third_root = None;
             let mut prior_warm_liveness = None;
             let mut third_proposals = vec![];
+            let mut finite = mode
+                .finite_loop()
+                .map(super::source_route_resident_finite_owner::Owner::new);
             let worker_callbacks = callbacks.clone();
             let worker_routes = routes.clone();
             std::thread::scope(|scope| {
@@ -379,7 +401,15 @@ fn run(mode: Mode) {
                                 &worker_routes,
                                 tick,
                                 out.events.len(),
-                            ), None, None);
+                            ), None, None, None);
+                        }
+                        if let Some(loop_mode) = mode.finite_loop() {
+                            let (tick, events, count, proofs) =
+                                super::source_route_resident_finite_loop::after_cold_ack(
+                                    &mut driver, &worker_callbacks, &worker_routes,
+                                    tick, out.events.len(), loop_mode,
+                                );
+                            return ((tick, events, count), None, None, Some(proofs));
                         }
                         if let Some(retained_mode) = mode.retained() {
                             let (tick, events, count, committed) = retained::after_cold_ack(
@@ -395,7 +425,7 @@ fn run(mode: Mode) {
                                     &mut driver, &worker_callbacks, &worker_routes,
                                     tick, events, third_mode,
                                 );
-                                return ((tick, events, count), Some(committed), Some(third));
+                                return ((tick, events, count), Some(committed), Some(third), None);
                             }
                             if retained_mode == retained::Mode::SecondRetainedDispatch {
                                 return (super::source_route_resident_repeated::after_warm_ack(
@@ -404,11 +434,11 @@ fn run(mode: Mode) {
                                     &worker_routes,
                                     tick,
                                     events,
-                                ), Some(committed), None);
+                                ), Some(committed), None, None);
                             }
-                            return ((tick, events, count), Some(committed), None);
+                            return ((tick, events, count), Some(committed), None, None);
                         }
-                        return ((tick, out.events.len(), count), None, None);
+                        return ((tick, out.events.len(), count), None, None, None);
                     }
                     panic!("actual controller never requested its genuine first cold Route");
                 });
@@ -441,13 +471,18 @@ fn run(mode: Mode) {
                                 );
                                 assert_eq!(
                                     request.binding.tick,
-                                    attempts.last().unwrap().0.binding.tick
+                                    finite.as_ref().map_or_else(
+                                        || attempts.last().unwrap().0.binding.tick,
+                                        |owner| owner.failure_tick()
+                                    )
                                 );
                                 late_failure_armed = false;
                                 late_failures += 1;
                                 reply
                                     .send(Err(NativeError::AuthorityUnavailable(
-                                        if mode.three_epoch().is_some() {
+                                        if mode.finite_loop().is_some() {
+                                            super::source_route_resident_finite_loop::LATER_FAILURE
+                                        } else if mode.three_epoch().is_some() {
                                             three_epoch::LATER_FAILURE
                                         } else {
                                             "resident controller deliberate later callback failure"
@@ -455,6 +490,39 @@ fn run(mode: Mode) {
                                     )))
                                     .unwrap();
                                 continue;
+                            }
+                            if let Some(owner) = finite.as_mut() {
+                                if matches!(
+                                    request.query,
+                                    Query::SourceMotion(MotionQuery::Route(_))
+                                ) && routes.load(Ordering::SeqCst) >= 1
+                                {
+                                    assert_eq!(
+                                        provider.retained_constructor_for_test(&request).unwrap(),
+                                        registry.unwrap()
+                                    );
+                                    routes.fetch_add(1, Ordering::SeqCst);
+                                    let (facts, arm) = owner.route(
+                                        &mut ledger,
+                                        &mut geometry,
+                                        install,
+                                        height,
+                                        compatibility,
+                                        &mut provider,
+                                        &p,
+                                        captured.as_ref().unwrap(),
+                                        attempts[0].1,
+                                        &request,
+                                        late_failures,
+                                    );
+                                    assert_eq!(
+                                        provider.retained_constructor_for_test(&request).unwrap(),
+                                        registry.unwrap()
+                                    );
+                                    late_failure_armed = arm;
+                                    reply.send(Ok(AuthorityReply { request, facts })).unwrap();
+                                    continue;
+                                }
                             }
                             if mode.retained() == Some(retained::Mode::SecondRetainedDispatch)
                                 && matches!(
@@ -1085,12 +1153,17 @@ fn run(mode: Mode) {
                                 ));
                                 assert_eq!(
                                     derived.request.binding.tick,
-                                    attempts.last().unwrap().0.binding.tick
+                                    finite.as_ref().map_or_else(
+                                        || attempts.last().unwrap().0.binding.tick,
+                                        |owner| owner.failure_tick()
+                                    )
                                 );
                                 late_failure_armed = false;
                                 late_failures += 1;
                                 reply.send(Err(NativeError::AuthorityUnavailable(
-                                    if mode.three_epoch().is_some() {
+                                    if mode.finite_loop().is_some() {
+                                        super::source_route_resident_finite_loop::LATER_FAILURE
+                                    } else if mode.three_epoch().is_some() {
                                         three_epoch::LATER_FAILURE
                                     } else {
                                         "resident controller deliberate later derived callback failure"
@@ -1105,6 +1178,10 @@ fn run(mode: Mode) {
                             if notice.routes().is_empty() {
                                 assert!(
                                     routes.load(Ordering::SeqCst) == 0
+                                        || finite
+                                            .as_ref()
+                                            .is_some_and(|owner| owner.accepted_epochs() <= 8)
+                                            && ledger.counts() == (1, 1)
                                         || (mode == Mode::RetainedDispatch
                                             || mode.retained().is_some())
                                             && routes.load(Ordering::SeqCst) == 1
@@ -1120,6 +1197,24 @@ fn run(mode: Mode) {
                                 binding_error(ledger.acknowledge(&notice)).unwrap();
                                 reply.send(Ok(())).unwrap();
                                 continue;
+                            }
+                            if let Some(owner) = finite.as_mut() {
+                                if matches!(&notice.routes()[0].request.query,
+                                    Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some())
+                                {
+                                    let result = owner.notice(
+                                        &mut ledger,
+                                        &provider,
+                                        install,
+                                        &p,
+                                        &foreign,
+                                        captured.as_ref().unwrap(),
+                                        &notice,
+                                        late_failures,
+                                    );
+                                    reply.send(result).unwrap();
+                                    continue;
+                                }
                             }
                             if let Some(third_mode) = mode.three_epoch() {
                                 if matches!(&notice.routes()[0].request.query,
@@ -1561,8 +1656,28 @@ fn run(mode: Mode) {
                         }
                     }
                 }
-                let ((tick, events, count), committed_warm, committed_third) =
+                let ((tick, events, count), committed_warm, committed_third, loop_proofs) =
                     worker.join().expect("bounded controller worker");
+                if let Some(owner) = &finite {
+                    assert!(committed_warm.is_none() && committed_third.is_none());
+                    assert_eq!(deliveries, 1, "cold actual notice handled once");
+                    assert_eq!(provider.retained_constructor_count(), 1);
+                    assert_eq!(ledger.counts(), (1, 1));
+                    assert_eq!(callbacks.load(Ordering::SeqCst), count);
+                    owner.finish(
+                        loop_proofs.as_ref().unwrap(),
+                        &mut ledger,
+                        &mut provider,
+                        &mut geometry,
+                        compatibility,
+                        height,
+                        routes.load(Ordering::SeqCst),
+                        late_failures,
+                    );
+                    eprintln!("resident finite actual controller: mode={mode:?} tick={tick} accepted=8 callbacks={count} cold-through-final-events={events} constructors=1");
+                    return;
+                }
+                assert!(loop_proofs.is_none());
                 if mode.retained().is_some() {
                     retained::assert_commit_proof(
                         committed_warm.as_ref().expect("actual durable warm tick"),
@@ -1839,4 +1954,8 @@ pub(super) fn second_retained_dispatch_probe() {
 
 pub(super) fn three_epoch_probe(mode: three_epoch::Mode) {
     run(Mode::ThreeEpoch(mode));
+}
+
+pub(super) fn run_finite_loop(mode: super::source_route_resident_finite_loop::Mode) {
+    run(Mode::FiniteLoop(mode));
 }

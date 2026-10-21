@@ -17,6 +17,8 @@ use benilla_native_nav::{
 };
 use benilla_world_runtime::{native::OwnerIgnorePathfindingReceipt, PlayerId};
 
+#[path = "repeated_retained.rs"]
+pub(crate) mod repeated_retained;
 #[path = "second_retained.rs"]
 pub(crate) mod second_retained;
 

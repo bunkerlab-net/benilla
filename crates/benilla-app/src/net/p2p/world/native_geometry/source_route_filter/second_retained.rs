@@ -652,7 +652,7 @@ fn second_retained_budget(
         terminal_primitives: 1,
     })
 }
-fn second_retained_lookup_budget(length: usize) -> Result<usize, ResidentFilterError> {
+pub(super) fn second_retained_lookup_budget(length: usize) -> Result<usize, ResidentFilterError> {
     let limit = usize::from(motion::PATHFINDER_CACHE_POINT_LIMIT);
     if !(limit + 1..motion::MAX_PATHFINDER_CACHE_REFS).contains(&length) {
         return Err(Failure::UnsupportedQuery.into());

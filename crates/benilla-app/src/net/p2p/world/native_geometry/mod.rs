@@ -37,6 +37,10 @@ mod source_route_resident_continuation;
 #[cfg(test)]
 mod source_route_resident_controller;
 #[cfg(test)]
+mod source_route_resident_finite_loop;
+#[cfg(test)]
+mod source_route_resident_finite_owner;
+#[cfg(test)]
 mod source_route_resident_history;
 #[cfg(test)]
 mod source_route_resident_local;

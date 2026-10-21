@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Fixed cold origin plus one owned warm terminal; only staging owns an old head.
 use super::super::source_route_filter::resident::retained::{
-    second_retained::ResidentJoinedSecondRetainedDependency, ResidentJoinedRetainedDependency,
+    repeated_retained::{ResidentCurrentNative, ResidentJoinedRepeatedRetainedDependency},
+    second_retained::ResidentJoinedSecondRetainedDependency,
+    ResidentJoinedRetainedDependency,
 };
 use super::*;
 use benilla_world_runtime::PlayerId;
@@ -11,12 +13,22 @@ use std::rc::Rc;
 pub(super) enum WarmDependency {
     First(Box<ResidentJoinedRetainedDependency>),
     Second(Box<ResidentJoinedSecondRetainedDependency>),
+    Repeated(Box<ResidentJoinedRepeatedRetainedDependency>),
 }
 impl WarmDependency {
+    /// Borrow the actual ledger-owned native terminal, never a copied cache.
+    pub(super) fn current_native(&self) -> Result<ResidentCurrentNative<'_>, Failure> {
+        match self {
+            Self::First(dependency) => Ok(dependency.current_native()),
+            Self::Repeated(dependency) => Ok(dependency.current_native()),
+            Self::Second(_) => Err(Failure::UnsupportedQuery),
+        }
+    }
     pub(super) fn check_cache(&self, cache: &motion::PathFinderCache) -> Result<(), Failure> {
         match self {
             Self::First(dependency) => dependency.check_historical_native_cache_for_test(cache),
             Self::Second(dependency) => dependency.check_historical_native_cache_for_test(cache),
+            Self::Repeated(dependency) => dependency.check_historical_native_cache_for_test(cache),
         }
         .map_err(|_| Failure::Binding)
     }
@@ -24,6 +36,7 @@ impl WarmDependency {
         match self {
             Self::First(dependency) => dependency.storage_footprint_for_test(),
             Self::Second(dependency) => dependency.storage_footprint_for_test(),
+            Self::Repeated(dependency) => dependency.storage_footprint_for_test(),
         }
     }
 }

@@ -190,3 +190,7 @@ mod retained;
 #[cfg(test)]
 #[path = "source_route_resident_local/three_epoch.rs"]
 mod three_epoch;
+
+#[cfg(test)]
+#[path = "source_route_resident_local/finite_loop.rs"]
+mod finite_loop;

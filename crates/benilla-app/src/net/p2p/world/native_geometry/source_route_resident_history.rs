@@ -79,6 +79,17 @@ impl<'a> SourceChange<'a> {
         eprintln!("resident third historical ACK: source remains changed through old warm/proposal release and actual lost-ACK retry; both fresh point predicates refuse at actual third owner position; no fourth dispatch or certification");
     }
 
+    pub(super) fn refuse_fresh_finite_point_source(
+        &self,
+        ledger: &ResidentLedger,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        height: &PreparedSourceHeight<'_, '_, '_>,
+        context: &AuthorityRequest,
+    ) {
+        self.refuse_retained_point_source(ledger, provider, height, context, 7);
+        eprintln!("resident finite historical ACK: both fresh point predicates refuse at actual eighth owner position after lost-ACK retry and prior-head release; no ninth dispatch or certification");
+    }
+
     fn refuse_retained_point_source(
         &self,
         ledger: &ResidentLedger,
@@ -95,7 +106,7 @@ impl<'a> SourceChange<'a> {
             route.request.kind,
             benilla_sim::creature_motion::RouteKind::ChaseReplan
         );
-        assert!(matches!(prior_revision, 1 | 2));
+        assert!(matches!(prior_revision, 1 | 2 | 7));
         assert_eq!(
             route.request.prior_cache.as_ref().unwrap().revision,
             prior_revision

@@ -30,7 +30,7 @@ fn deadline() -> Instant {
 
 #[derive(Default)]
 struct Refusals {
-    second: bool,
+    prior_revision: u64,
     attempts: usize,
     emitted: usize,
 }
@@ -50,7 +50,18 @@ impl Refusals {
         let before = ledger.diagnostic();
         let constructors = provider.retained_constructor_count();
         geometry.advance_physics();
-        let result = if self.second {
+        let result = if self.prior_revision >= 3 {
+            ledger.certify_repeated_observed(
+                geometry.app.world_mut(),
+                compatibility,
+                provider,
+                request,
+                (self.prior_revision + 1).checked_mul(100).unwrap() + 1,
+                deadline,
+                cancelled,
+                after,
+            )
+        } else if self.prior_revision == 2 {
             ledger.certify_second_retained_observed(
                 geometry.app.world_mut(),
                 compatibility,
@@ -130,7 +141,7 @@ impl Drop for RestoreSource<'_> {
 
 #[allow(clippy::too_many_arguments)]
 fn probe_inner(
-    second: bool,
+    prior_revision: u64,
     ledger: &mut ResidentLedger,
     geometry: &mut InstalledFixture,
     install: &input::Install,
@@ -144,14 +155,14 @@ fn probe_inner(
     };
     assert_eq!(
         route.request.prior_cache.as_ref().unwrap().revision,
-        if second { 2 } else { 1 }
+        prior_revision
     );
     assert_eq!(ledger.counts(), (1, 1));
     let original_ledger = ledger.diagnostic();
     let original_source = install.bytes();
     let reached = Cell::new(0);
     let mut refused = Refusals {
-        second,
+        prior_revision,
         ..Refusals::default()
     };
 
@@ -374,7 +385,9 @@ fn probe_inner(
     assert_eq!(ledger.diagnostic(), original_ledger);
     assert_eq!(ledger.counts(), (1, 1));
     assert_eq!(install.bytes(), original_source);
-    if second {
+    if prior_revision >= 3 {
+        eprintln!("resident repeated concrete refusals: prior-revision={prior_revision} attempts=6 emitted=0 post-segment-hooks=3 committed=1 staged=0");
+    } else if prior_revision == 2 {
         eprintln!("resident second retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cache2=1 staged-cache3=0");
     } else {
         eprintln!("resident retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cold=1 staged-warm=0");
@@ -397,7 +410,7 @@ pub(super) fn probe(
     request: &AuthorityRequest,
 ) {
     probe_inner(
-        false,
+        1,
         ledger,
         geometry,
         install,
@@ -419,7 +432,37 @@ pub(super) fn probe_second(
     request: &AuthorityRequest,
 ) {
     probe_inner(
-        true,
+        2,
+        ledger,
+        geometry,
+        install,
+        height,
+        compatibility,
+        provider,
+        request,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn probe_repeated(
+    ledger: &mut ResidentLedger,
+    geometry: &mut InstalledFixture,
+    install: &input::Install,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+) {
+    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+        unreachable!()
+    };
+    let prior_revision = route.request.prior_cache.as_ref().unwrap().revision;
+    assert_eq!(
+        prior_revision, 4,
+        "later repeated path refusal, not first retained"
+    );
+    probe_inner(
+        prior_revision,
         ledger,
         geometry,
         install,

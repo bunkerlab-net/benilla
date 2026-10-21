@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Cold-only by default; distinct component policies permit one or two retained epochs.
+//! Cold-only by default; distinct component policies bound retained route epochs.
 //! No policy here is a gameplay installation. This ledger
 //! never turns a historical reply back into fresh authority and never owns an ECS borrow.
 use super::super::{
@@ -114,6 +114,7 @@ pub(in super::super) struct ResidentLedger {
     one_retained: bool,
     retained_epoch_committed: bool,
     two_retained: bool,
+    finite_retained: bool,
     epochs_committed: u8,
 }
 /// Includes every mutable ledger field. Candidate addresses identify immutable
@@ -132,6 +133,7 @@ pub(in super::super) struct Diagnostic {
     one_retained: bool,
     retained_epoch_committed: bool,
     two_retained: bool,
+    finite_retained: bool,
     epochs_committed: u8,
 }
 impl PartialEq for Diagnostic {
@@ -147,6 +149,7 @@ impl PartialEq for Diagnostic {
             && self.one_retained == other.one_retained
             && self.retained_epoch_committed == other.retained_epoch_committed
             && self.two_retained == other.two_retained
+            && self.finite_retained == other.finite_retained
             && self.epochs_committed == other.epochs_committed
             && match (&self.last_notice, &other.last_notice) {
                 (Some(a), Some(b)) => same_notice(&self.profile, a, b),
@@ -165,6 +168,7 @@ impl Diagnostic {
             && self.one_retained == other.one_retained
             && self.retained_epoch_committed == other.retained_epoch_committed
             && self.two_retained == other.two_retained
+            && self.finite_retained == other.finite_retained
             && self.epochs_committed == other.epochs_committed
             && self
                 .candidates
@@ -193,6 +197,7 @@ impl ResidentLedger {
             .verify_installed_owner(compatibility, compatibility.owner(), deadline, || false)?;
         let one_retained = identity.allows_one_retained_route();
         let two_retained = identity.allows_two_retained_routes();
+        let finite_retained = identity.allows_finite_retained_routes();
         if one_retained && profile.npcs.len() != 1 {
             return Err(Failure::UnsupportedQuery.into());
         }
@@ -218,6 +223,7 @@ impl ResidentLedger {
             one_retained,
             retained_epoch_committed: false,
             two_retained,
+            finite_retained,
             epochs_committed: 0,
         })
     }
@@ -472,7 +478,7 @@ impl ResidentLedger {
             return Err(Failure::Binding.into());
         }
         self.validate_retained_candidate(&candidate)?;
-        let candidate = if self.two_retained {
+        let candidate = if self.two_retained || self.finite_retained {
             let proposal = StagedWarmProposal::first(candidate);
             self.validate_warm_proposal(&proposal)?;
             Candidate::WarmProposal(Rc::new(proposal))
@@ -581,6 +587,7 @@ impl ResidentLedger {
             || current.first_construction()
             || current.constructor_kind() != motion::PathfinderConstructorKind::ChaseLazy
             || current.construction_binding() != saved.construction_binding()
+            || current.configuration_binding() != saved.configuration_binding()
             || current.same_live_dispatch(saved)
         {
             return Err(Failure::Binding);
@@ -688,7 +695,9 @@ impl ResidentLedger {
             || boundary.record() == previous.record()
             || self.route_epoch_committed
                 && !notice.routes().is_empty()
-                && (if self.two_retained {
+                && (if self.finite_retained {
+                    self.epochs_committed >= 8
+                } else if self.two_retained {
                     self.epochs_committed >= 3
                 } else {
                     !self.one_retained || self.retained_epoch_committed
@@ -752,7 +761,7 @@ impl ResidentLedger {
                         return Err(Failure::Binding);
                     }
                 }
-                Candidate::WarmProposal(proposal) if self.two_retained => {
+                Candidate::WarmProposal(proposal) if self.two_retained || self.finite_retained => {
                     if notice.routes().len() != 1 {
                         return Err(Failure::Binding);
                     }
@@ -768,8 +777,11 @@ impl ResidentLedger {
                         }
                         WarmPredecessor::Warm(prior) => {
                             let committed = self.committed_warm()?;
-                            if self.epochs_committed != 2
-                                || !Rc::ptr_eq(committed, prior)
+                            if !(if self.finite_retained {
+                                (2..8).contains(&self.epochs_committed)
+                            } else {
+                                self.epochs_committed == 2
+                            }) || !Rc::ptr_eq(committed, prior)
                                 || old.cache() != Some(&calculation(&committed.reply)?.after_cache)
                             {
                                 return Err(Failure::Binding);
@@ -828,6 +840,13 @@ impl ResidentLedger {
                 Candidate::Retained(_) | Candidate::WarmProposal(_)
             )
         });
+        let next_epochs = if selected_ids.is_empty() {
+            self.epochs_committed
+        } else {
+            self.epochs_committed
+                .checked_add(1)
+                .ok_or(Failure::Binding)?
+        };
         // No failure or allocation follows this line. Staged rollback ancestors
         // survive earlier idle notices until their actual tick is acknowledged.
         for entry in &mut self.candidates {
@@ -844,11 +863,11 @@ impl ResidentLedger {
             }
         }
         self.candidates.retain(|entry| {
-            entry.committed || entry.candidate.reply().request.binding.tick > boundary.tick()
+            entry.committed
+                || (!self.finite_retained || selected_ids.is_empty())
+                    && entry.candidate.reply().request.binding.tick > boundary.tick()
         });
-        if !selected_ids.is_empty() {
-            self.epochs_committed += 1;
-        }
+        self.epochs_committed = next_epochs;
         self.route_epoch_committed |= !selected_ids.is_empty();
         self.retained_epoch_committed |= retained_selected;
         self.boundary = Some(next_boundary);
@@ -957,6 +976,7 @@ impl ResidentLedger {
             || current.first_construction()
             || current.constructor_kind() != motion::PathfinderConstructorKind::ChaseLazy
             || current.construction_binding() != saved.construction_binding()
+            || current.configuration_binding() != saved.configuration_binding()
             || current.same_live_dispatch(saved)
         {
             return Err(Failure::Binding);
@@ -1039,7 +1059,10 @@ impl ResidentLedger {
         Ok(())
     }
     fn committed_warm(&self) -> Result<&Rc<WarmHead>, Failure> {
-        if !self.two_retained || !(2..=3).contains(&self.epochs_committed) {
+        let limit = if self.finite_retained { 8 } else { 3 };
+        if !(self.two_retained || self.finite_retained)
+            || !(2..=limit).contains(&self.epochs_committed)
+        {
             return Err(Failure::Binding);
         }
         let mut committed = self.candidates.iter().filter(|entry| entry.committed);
@@ -1072,7 +1095,7 @@ impl ResidentLedger {
         Ok(head)
     }
     fn validate_warm_head(&self, head: &WarmHead) -> Result<(), Failure> {
-        if !self.two_retained || self.profile.npcs.len() != 1 {
+        if !(self.two_retained || self.finite_retained) || self.profile.npcs.len() != 1 {
             return Err(Failure::Binding);
         }
         self.validate_candidate(&head.origin)?;
@@ -1101,7 +1124,15 @@ impl ResidentLedger {
         let prior = calculation.prior_cache.as_deref().ok_or(Failure::Binding)?;
         let revision = match &head.dependency {
             WarmDependency::First(_) => 2,
-            WarmDependency::Second(_) => 3,
+            WarmDependency::Second(_) if self.two_retained && !self.finite_retained => 3,
+            WarmDependency::Repeated(dependency) if self.finite_retained => {
+                let revision = dependency.source_revision();
+                if !(3..=8).contains(&revision) {
+                    return Err(Failure::Binding);
+                }
+                revision
+            }
+            _ => return Err(Failure::Binding),
         };
         if !head.installed_owner.same_owner(&self.owner)
             || !head
@@ -1157,6 +1188,20 @@ impl ResidentLedger {
                 self.validate_warm_head(prior)?;
                 self.validate_retained_reply_context(&prior.reply, &proposal.head.reply.request)
             }
+            (WarmPredecessor::Warm(prior), WarmDependency::Repeated(dependency))
+                if self.finite_retained =>
+            {
+                if !Rc::ptr_eq(&prior.origin, &proposal.head.origin) {
+                    return Err(Failure::Binding);
+                }
+                self.validate_warm_head(prior)?;
+                self.validate_retained_reply_context(&prior.reply, &proposal.head.reply.request)?;
+                dependency
+                    .check_historical_native_predecessor_for_test(
+                        &prior.dependency.current_native()?,
+                    )
+                    .map_err(|_| Failure::Binding)
+            }
             _ => Err(Failure::Binding),
         }
     }
@@ -1185,6 +1230,21 @@ impl ResidentLedger {
                     &calculation(&head.reply)?.after_cache,
                 )?;
                 provider.second_retained_cache(
+                    dependency,
+                    &head.origin.dependency,
+                    context,
+                    deadline,
+                    || false,
+                )?
+            }
+            WarmDependency::Repeated(dependency) => {
+                provider.check_historical_repeated_cache_for_test(
+                    dependency,
+                    &head.origin.dependency,
+                    context,
+                    &calculation(&head.reply)?.after_cache,
+                )?;
+                provider.repeated_cache(
                     dependency,
                     &head.origin.dependency,
                     context,
@@ -1353,6 +1413,204 @@ impl ResidentLedger {
             )
             .map(|_| ())
     }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn certify_repeated(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Facts, ResidentFilterError> {
+        self.certify_repeated_observed(
+            world,
+            compatibility,
+            provider,
+            context,
+            first_ticket,
+            deadline,
+            cancelled,
+            || {},
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn certify_repeated_observed(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        after: impl FnOnce(),
+    ) -> Result<Facts, ResidentFilterError> {
+        // The ninth epoch is closed before source reads, scene borrows or allocation.
+        provider.require_finite_retained_routes()?;
+        if !self.finite_retained || !(2..8).contains(&self.epochs_committed) {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if !self.provider.matches(provider)
+            || !self.owner.same_owner(compatibility.owner())
+            || self
+                .boundary
+                .as_ref()
+                .and_then(|boundary| boundary.tick().checked_add(1))
+                != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let predecessor = Rc::clone(self.committed_warm()?);
+        self.validate_retained_reply_context(&predecessor.reply, context)?;
+        if self.candidates.iter().any(|entry| {
+            entry.candidate.reply().request.binding.npc == context.binding.npc
+                && entry.candidate.reply().request.binding.tick == context.binding.tick
+                && entry.candidate.reply().request != *context
+        }) {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if self.candidates.iter().any(|entry| {
+            same_reply_dispatch(&self.profile, &entry.candidate.reply().request, context)
+        }) {
+            return Err(Failure::Binding.into());
+        }
+        if self.candidates.len() == MAX_CANDIDATES {
+            return Err(Failure::QueueCapacity.into());
+        }
+        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
+        // Binding reserves the complete bounded staging capacity before certification.
+        if self.candidates.capacity() < MAX_CANDIDATES {
+            return Err(Failure::QueueCapacity.into());
+        }
+        let (proposal, facts) = super::finite_loop::certify(
+            world,
+            compatibility,
+            provider,
+            predecessor,
+            context,
+            self.player,
+            first_ticket,
+            deadline,
+            cancelled,
+            after,
+        )?;
+        let WarmPredecessor::Warm(prior) = &proposal.predecessor else {
+            return Err(Failure::Binding.into());
+        };
+        if !Rc::ptr_eq(self.committed_warm()?, prior)
+            || self.raw != Some(proposal.head.raw_revision)
+        {
+            return Err(Failure::Binding.into());
+        }
+        self.validate_warm_proposal(&proposal)?;
+        let WarmDependency::Repeated(dependency) = &proposal.head.dependency else {
+            return Err(Failure::Binding.into());
+        };
+        provider.check_historical_repeated_predecessor_for_test(
+            dependency,
+            &proposal.head.origin.dependency,
+            &prior.dependency.current_native()?,
+            context,
+        )?;
+        self.candidates.push(Entry {
+            id: self.next_id,
+            candidate: Candidate::WarmProposal(Rc::new(proposal)),
+            committed: false,
+        });
+        self.next_id = next;
+        Ok(facts)
+    }
+    /// Source diagnostics rooted at the actual ACK-selected current warm terminal.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn probe_repeated_source_for_test(
+        &self,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        observe: impl FnMut(
+            super::super::source_route_filter::resident::retained::ResidentRetainedPhase,
+        ),
+    ) -> Result<(), ResidentFilterError> {
+        provider.require_finite_retained_routes()?;
+        if !self.finite_retained || !(2..8).contains(&self.epochs_committed) {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if !self.provider.matches(provider)
+            || self
+                .boundary
+                .as_ref()
+                .and_then(|boundary| boundary.tick().checked_add(1))
+                != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let predecessor = self.committed_warm()?;
+        self.validate_retained_reply_context(&predecessor.reply, context)?;
+        let prior = predecessor.dependency.current_native()?;
+        provider
+            .observe_joined_repeated_observed(
+                &predecessor.origin.dependency,
+                &prior,
+                context,
+                self.player,
+                first_ticket,
+                deadline,
+                cancelled,
+                observe,
+            )
+            .map(|_| ())
+    }
+    /// Diagnostic selection remains valid at the final epoch, although no new
+    /// native work or Facts may be issued there. It always selects the actual ACK head.
+    pub(in super::super) fn check_repeated_dispatch_for_test(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        installed_owner: &benilla_formats::NativeInventorySource,
+        context: &AuthorityRequest,
+    ) -> Result<(), ResidentFilterError> {
+        provider.require_finite_retained_routes()?;
+        if !self.finite_retained
+            || !self.provider.matches(provider)
+            || !self.owner.same_owner(installed_owner)
+            || self
+                .boundary
+                .as_ref()
+                .and_then(|boundary| boundary.tick().checked_add(1))
+                != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let head = self.committed_warm()?;
+        if !head.installed_owner.same_owner(installed_owner) {
+            return Err(Failure::Binding.into());
+        }
+        self.validate_retained_reply_context(&head.reply, context)?;
+        let cache = &calculation(&head.reply)?.after_cache;
+        match &head.dependency {
+            WarmDependency::First(dependency) => {
+                provider.check_historical_retained_cache_for_test(
+                    dependency,
+                    &head.origin.dependency,
+                    &head.reply.request,
+                    cache,
+                )?;
+            }
+            WarmDependency::Repeated(dependency) => {
+                provider.check_historical_repeated_cache_for_test(
+                    dependency,
+                    &head.origin.dependency,
+                    &head.reply.request,
+                    cache,
+                )?;
+            }
+            WarmDependency::Second(_) => return Err(Failure::Binding.into()),
+        }
+        Ok(())
+    }
     pub(in super::super) fn committed_warm_liveness_for_test(
         &self,
     ) -> Result<WarmLiveness, Failure> {
@@ -1387,7 +1645,7 @@ impl ResidentLedger {
         self.committed_warm().map(|_| ())
     }
     pub(in super::super) fn flat_ownership_for_test(&self) -> Result<OwnershipDiagnostic, Failure> {
-        if !self.two_retained {
+        if !(self.two_retained || self.finite_retained) {
             return Err(Failure::UnsupportedQuery);
         }
         let mut cold = Vec::<&Rc<ResidentColdCandidate>>::new();
@@ -1499,6 +1757,7 @@ impl ResidentLedger {
             one_retained: self.one_retained,
             retained_epoch_committed: self.retained_epoch_committed,
             two_retained: self.two_retained,
+            finite_retained: self.finite_retained,
             epochs_committed: self.epochs_committed,
         }
     }
