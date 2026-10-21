@@ -274,7 +274,8 @@ pub(super) fn certify(
         };
         if let Some(support) = &support {
             support_prism::certify(&mut corridor, from, to, observation.body,
-                f32::from_bits(support.plane_bits()), f32::from_bits(support.ceiling_bits()))
+                f32::from_bits(support.plane_bits()), f32::from_bits(support.ceiling_bits()),
+                coverage.terrain_root)
                 .inspect_err(|error| {
                     eprintln!("resident generated-support prism refusal: tick={} query={} segment={index}/{} error={error:?} H={} Q={} body={:?} native-point-bits={:?}",
                         context.binding.tick, route.request.binding.query_id, observation.points.len()-1,

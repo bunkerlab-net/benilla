@@ -9,7 +9,7 @@ use avian3d::prelude::{Collider, ColliderAabb, SimpleCollider};
 use benilla_assets::coords::wow_to_bevy;
 use benilla_sim::creature_ai::Real;
 use benilla_world::collision::WorldCollision;
-use bevy::prelude::{Dir3, Quat, Vec3};
+use bevy::prelude::{Dir3, Entity, Quat, Vec3};
 
 /// Native points and initialized Body remain untouched. Only this private enclosure is
 /// projected to the proved raw plane. Source M2 LOS and final freshness remain the caller's.
@@ -20,32 +20,77 @@ pub(super) fn certify(
     body: Body,
     floor: f32,
     upper: f32,
+    diagnostic_coverage_root: Entity,
 ) -> Result<(), Failure> {
     let plan = Plan::new(from, to, body, floor, upper)?;
-    local.certify(plan.floor_points[0], plan.floor_points[1], plan.proof_body)?;
+    // Refusal-only diagnostics from this existing plan and these existing casts. The
+    // caller's already checked coverage entity is used for identity logging only.
+    let report_plan = |stage| {
+        let start_aabb = plan.actual.aabb(plan.center, Quat::IDENTITY);
+        let end_aabb = plan
+            .actual
+            .aabb(plan.center + plan.movement, Quat::IDENTITY);
+        let ray_bits = plan.ray.map(|(direction, length)| {
+            (
+                direction.as_vec3().to_array().map(f32::to_bits),
+                length.to_bits(),
+            )
+        });
+        eprintln!(
+            "resident generated-support clearance diagnostic: stage={stage} from-bits={:?} to-bits={:?} center-bits={:?} movement-bits={:?} head-bits={:?} normalized-ray-bits={ray_bits:?} actual-half-bits={:?} start-aabb-bits={:?}..{:?} end-aabb-bits={:?}..{:?} checked-prism-bits={:?}..{:?} checked-coverage-root={diagnostic_coverage_root:?}; refusal-only, not contact authorization",
+            from.map(f32::to_bits), to.map(f32::to_bits),
+            plan.center.to_array().map(f32::to_bits),
+            plan.movement.to_array().map(f32::to_bits),
+            plan.head.to_array().map(f32::to_bits),
+            half_extents(&plan.actual).map(|half| half.to_array().map(f32::to_bits)),
+            start_aabb.min.to_array().map(f32::to_bits),
+            start_aabb.max.to_array().map(f32::to_bits),
+            end_aabb.min.to_array().map(f32::to_bits),
+            end_aabb.max.to_array().map(f32::to_bits),
+            plan.bounds.0.to_array().map(f32::to_bits),
+            plan.bounds.1.to_array().map(f32::to_bits),
+        );
+    };
+    local
+        .certify(plan.floor_points[0], plan.floor_points[1], plan.proof_body)
+        .inspect_err(|error| {
+            report_plan("stationary-enclosure");
+            eprintln!("resident generated-support stationary enclosure refusal: error={error:?}");
+        })?;
     // The stationary enclosure cannot replace the native descending-facing law. In
     // particular this cast includes the supporting terrain, with no floor exception.
-    if local
+    if let Some(hit) = local
         .collision
         .cast_body(&plan.actual, plan.center, plan.movement, 0.0)
-        .is_some()
     {
+        report_plan("actual-body-cast");
+        eprintln!(
+            "resident generated-support actual body hit: entity={:?} checked_coverage_root_match={} distance-bits={} collision-distance-bits={} point1-bits={:?} point2-bits={:?} normal1-bits={:?} normal2-bits={:?}",
+            hit.entity, hit.entity == diagnostic_coverage_root,
+            hit.distance.to_bits(), hit.collision_distance.to_bits(),
+            hit.point1.to_array().map(f32::to_bits),
+            hit.point2.to_array().map(f32::to_bits),
+            hit.normal1.to_array().map(f32::to_bits),
+            hit.normal2.to_array().map(f32::to_bits),
+        );
         return Err(Failure::Obstacle);
     }
     if let Some((direction, distance)) = plan.ray {
         // The stationary proof has no top ray. The actual head-height LOS remains
         // mandatory, including camera-only WMO DETAIL faces (LocalCorridor's same union).
-        if local
-            .spatial
-            .cast_ray(
-                plan.head,
-                direction,
-                distance,
-                true,
-                &WorldCollision::conservative_los_filter(),
-            )
-            .is_some()
-        {
+        if let Some(hit) = local.spatial.cast_ray(
+            plan.head,
+            direction,
+            distance,
+            true,
+            &WorldCollision::conservative_los_filter(),
+        ) {
+            report_plan("actual-head-ray");
+            eprintln!(
+                "resident generated-support actual head hit: entity={:?} checked_coverage_root_match={} distance-bits={} normal-bits={:?}",
+                hit.entity, hit.entity == diagnostic_coverage_root,
+                hit.distance.to_bits(), hit.normal.to_array().map(f32::to_bits),
+            );
             return Err(Failure::Obstacle);
         }
     }
