@@ -117,7 +117,18 @@ pub(super) fn certify(
             .ok_or(Failure::Invalid)?;
         let coverage = terrain
             .prove(map, from, to, observation.body.radius.as_f32())
-            .map_err(|_| Failure::MissingGeometry)?;
+            .map_err(|error| {
+                eprintln!(
+                    "resident straight coverage refusal: tick={} query={} prior-revision={} map={map} segment={index}/{} error={error:?} body={:?} native-point-bits={:?}",
+                    context.binding.tick,
+                    route.request.binding.query_id,
+                    prior.source_revision(),
+                    observation.points.len() - 1,
+                    observation.body,
+                    observation.points,
+                );
+                Failure::MissingGeometry
+            })?;
         if coverage.map != map
             || coverage.inventory_digest != owner.inventory_digest()
             || core::geometry_revision(
