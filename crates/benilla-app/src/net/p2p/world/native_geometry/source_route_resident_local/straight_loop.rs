@@ -32,6 +32,24 @@ pub(in super::super) fn support_prism_bounds_for_test(
     support_prism::bounds_for_test(from, to, body, floor, ceiling)
 }
 
+/// Independent fixture observations only; neither tuple member authorizes Route facts.
+pub(in super::super) fn diagnose_support_prism_for_test(
+    local: &mut LocalCorridor<'_, '_, '_>,
+    from: [f32; 3],
+    to: [f32; 3],
+    body: core::Body,
+    floor: f32,
+    ceiling: f32,
+) -> Result<
+    (
+        Option<bevy::prelude::Entity>,
+        Result<bevy::prelude::Entity, Failure>,
+    ),
+    Failure,
+> {
+    support_prism::diagnose_for_test(local, from, to, body, floor, ceiling)
+}
+
 /// Hooks observe completed checks only; they cannot supply clearance or mutate this scene.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn certify(
@@ -273,10 +291,28 @@ pub(super) fn certify(
             revision: raw,
         };
         if let Some(support) = &support {
-            support_prism::certify(&mut corridor, from, to, observation.body,
-                f32::from_bits(support.plane_bits()), f32::from_bits(support.ceiling_bits()),
-                coverage.terrain_root)
-                .inspect_err(|error| {
+            let clearance = if provider.allows_planar_nonpenetration() {
+                provider.require_planar_nonpenetration()?;
+                support_prism::certify_planar_nonpenetration(
+                    &mut corridor,
+                    from,
+                    to,
+                    observation.body,
+                    f32::from_bits(support.plane_bits()),
+                    f32::from_bits(support.ceiling_bits()),
+                )
+            } else {
+                support_prism::certify(
+                    &mut corridor,
+                    from,
+                    to,
+                    observation.body,
+                    f32::from_bits(support.plane_bits()),
+                    f32::from_bits(support.ceiling_bits()),
+                    coverage.terrain_root,
+                )
+            };
+            clearance.inspect_err(|error| {
                     eprintln!("resident generated-support prism refusal: tick={} query={} segment={index}/{} error={error:?} H={} Q={} body={:?} native-point-bits={:?}",
                         context.binding.tick, route.request.binding.query_id, observation.points.len()-1,
                         support.plane_bits(), support.ceiling_bits(), observation.body, observation.points);

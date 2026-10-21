@@ -3,7 +3,7 @@
 //! capability for H/Q; these numbers cannot establish generation or ground authority here.
 use super::super::super::{
     core::{Body, Corridor, Failure},
-    local_corridor::LocalCorridor,
+    local_corridor::{CertifiedEnclosure, LocalCorridor},
 };
 use avian3d::prelude::{Collider, ColliderAabb, SimpleCollider};
 use benilla_assets::coords::wow_to_bevy;
@@ -38,7 +38,8 @@ pub(super) fn certify(
         });
         eprintln!(
             "resident generated-support clearance diagnostic: stage={stage} from-bits={:?} to-bits={:?} center-bits={:?} movement-bits={:?} head-bits={:?} normalized-ray-bits={ray_bits:?} actual-half-bits={:?} start-aabb-bits={:?}..{:?} end-aabb-bits={:?}..{:?} checked-prism-bits={:?}..{:?} checked-coverage-root={diagnostic_coverage_root:?}; refusal-only, not contact authorization",
-            from.map(f32::to_bits), to.map(f32::to_bits),
+            from.map(f32::to_bits),
+            to.map(f32::to_bits),
             plan.center.to_array().map(f32::to_bits),
             plan.movement.to_array().map(f32::to_bits),
             plan.head.to_array().map(f32::to_bits),
@@ -66,8 +67,10 @@ pub(super) fn certify(
         report_plan("actual-body-cast");
         eprintln!(
             "resident generated-support actual body hit: entity={:?} checked_coverage_root_match={} distance-bits={} collision-distance-bits={} point1-bits={:?} point2-bits={:?} normal1-bits={:?} normal2-bits={:?}",
-            hit.entity, hit.entity == diagnostic_coverage_root,
-            hit.distance.to_bits(), hit.collision_distance.to_bits(),
+            hit.entity,
+            hit.entity == diagnostic_coverage_root,
+            hit.distance.to_bits(),
+            hit.collision_distance.to_bits(),
             hit.point1.to_array().map(f32::to_bits),
             hit.point2.to_array().map(f32::to_bits),
             hit.normal1.to_array().map(f32::to_bits),
@@ -88,11 +91,185 @@ pub(super) fn certify(
             report_plan("actual-head-ray");
             eprintln!(
                 "resident generated-support actual head hit: entity={:?} checked_coverage_root_match={} distance-bits={} normal-bits={:?}",
-                hit.entity, hit.entity == diagnostic_coverage_root,
-                hit.distance.to_bits(), hit.normal.to_array().map(f32::to_bits),
+                hit.entity,
+                hit.entity == diagnostic_coverage_root,
+                hit.distance.to_bits(),
+                hit.normal.to_array().map(f32::to_bits),
             );
             return Err(Failure::Obstacle);
         }
+    }
+    Ok(())
+}
+
+/// Distinct component-only analytic domain. The caller must hold the sealed generated
+/// support capability; neither supplied heights nor a diagnostic entity grant clearance.
+pub(super) fn certify_planar_nonpenetration(
+    local: &mut LocalCorridor<'_, '_, '_>,
+    from: [f32; 3],
+    to: [f32; 3],
+    body: Body,
+    floor: f32,
+    upper: f32,
+) -> Result<(), Failure> {
+    let plan = Plan::new(from, to, body, floor, upper)?;
+    // One proof of the actual full stationary square. In particular, source-bound hollow
+    // hull exclusion and all two-sided nonterrain checks precede the native body cast.
+    let enclosure = local.certify_enclosure(plan.floor_points[0], plan.proof_body)?;
+    AnalyticCertificate::new(enclosure, plan, from, to, body)?.certify()
+}
+
+/// Owns the inspected body and consumes real same-scene enclosure evidence. No numeric-only
+/// constructor, copied CoverageProof, entity ID or caller-supplied boolean can create it.
+struct AnalyticCertificate<'local, 'scene, 'w, 's> {
+    enclosure: CertifiedEnclosure<'local, 'scene, 'w, 's>,
+    plan: Plan,
+}
+impl<'local, 'scene, 'w, 's> AnalyticCertificate<'local, 'scene, 'w, 's> {
+    fn new(
+        enclosure: CertifiedEnclosure<'local, 'scene, 'w, 's>,
+        plan: Plan,
+        from: [f32; 3],
+        to: [f32; 3],
+        body: Body,
+    ) -> Result<Self, Failure> {
+        check_motion_binding(&plan, from, to, body)?;
+        let (floor_point, proof_body) = enclosure.operands();
+        if plan.floor_points.map(|point| point.map(f32::to_bits))
+            != [floor_point.map(f32::to_bits); 2]
+            || plan.proof_body != proof_body
+        {
+            return Err(Failure::Binding);
+        }
+        let bounds = checked_enclosure_bounds(floor_point, proof_body)?;
+        check_planar_trajectory(&plan, bounds)?;
+        Ok(Self { enclosure, plan })
+    }
+
+    fn certify(self) -> Result<(), Failure> {
+        let local = self.enclosure.local();
+        let plan = &self.plan;
+        // Keep the original cast, including its descending-facing law and terrain root.
+        // The complete independent prism excludes any nonterrain obstacle that an earlier
+        // floor hit might otherwise mask. Hit distance, normals and witnesses are not evidence.
+        if let Some(hit) = local
+            .collision
+            .cast_body(&plan.actual, plan.center, plan.movement, 0.0)
+        {
+            if hit.entity != self.enclosure.terrain_root() {
+                return Err(Failure::Obstacle);
+            }
+            eprintln!(
+                "resident planar-nonpenetration terrain hit adjudicated: root={:?} exact-affine-enclosure=passed full-square-clearance=passed; no TOI or normal tolerance",
+                hit.entity,
+            );
+        }
+        if let Some((direction, distance)) = plan.ray {
+            if local
+                .spatial
+                .cast_ray(
+                    plan.head,
+                    direction,
+                    distance,
+                    true,
+                    &WorldCollision::conservative_los_filter(),
+                )
+                .is_some()
+            {
+                return Err(Failure::Obstacle);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Refusal-only scene diagnostics. Returns no capability, and evaluates the original body
+/// cast independently of whether the full stationary enclosure succeeds or refuses.
+#[cfg(test)]
+pub(super) fn diagnose_for_test(
+    local: &mut LocalCorridor<'_, '_, '_>,
+    from: [f32; 3],
+    to: [f32; 3],
+    body: Body,
+    floor: f32,
+    upper: f32,
+) -> Result<(Option<Entity>, Result<Entity, Failure>), Failure> {
+    let plan = Plan::new(from, to, body, floor, upper)?;
+    let actual_hit = local
+        .collision
+        .cast_body(&plan.actual, plan.center, plan.movement, 0.0)
+        .map(|hit| hit.entity);
+    let enclosure = local
+        .certify_enclosure(plan.floor_points[0], plan.proof_body)
+        .map(|proof| proof.terrain_root());
+    Ok((actual_hit, enclosure))
+}
+
+fn check_motion_binding(
+    plan: &Plan,
+    from: [f32; 3],
+    to: [f32; 3],
+    body: Body,
+) -> Result<(), Failure> {
+    let radius = body.radius.as_f32();
+    let height = body.height.as_f32();
+    let feet = wow_to_bevy(from);
+    let movement = wow_to_bevy(to) - feet;
+    let expected_half = Vec3::new(radius, height * 0.5, radius);
+    if vec_bits(half_extents(&plan.actual)?) != vec_bits(expected_half)
+        || vec_bits(plan.center) != vec_bits(feet + Vec3::Y * (height * 0.5))
+        || vec_bits(plan.movement) != vec_bits(movement)
+        || vec_bits(plan.head) != vec_bits(feet + Vec3::Y * height)
+        || ray_bits(plan.ray) != ray_bits(checked_ray(movement)?)
+    {
+        return Err(Failure::Binding);
+    }
+    Ok(())
+}
+
+fn vec_bits(value: Vec3) -> [u32; 3] {
+    value.to_array().map(f32::to_bits)
+}
+fn ray_bits(ray: Option<(Dir3, f32)>) -> Option<([u32; 3], u32)> {
+    ray.map(|(direction, distance)| (vec_bits(direction.as_vec3()), distance.to_bits()))
+}
+
+fn checked_enclosure_bounds(floor_point: [f32; 3], body: Body) -> Result<Bounds, Failure> {
+    let radius = body.radius.as_f32();
+    let height = body.height.as_f32();
+    let base = wow_to_bevy(floor_point);
+    // These are the exact collider/center expressions used by LocalCorridor, not an
+    // approximation reconstructed from the broad-phase AABB or reported hit point.
+    let shape = Collider::cuboid(radius * 2.0, height, radius * 2.0);
+    let half = half_extents(&shape)?;
+    if vec_bits(half) != vec_bits(Vec3::new(radius, height * 0.5, radius)) {
+        return Err(Failure::UnsupportedPointRepresentation);
+    }
+    let center = base + Vec3::Y * (height * 0.5);
+    let bounds = Bounds::cuboid(center, half)?;
+    if bounds.min[1] != f64::from(floor_point[2]) {
+        return Err(Failure::UnsupportedPointRepresentation);
+    }
+    // The raw proof covers this exact XY footprint (Bevy XZ), including its boundary.
+    for axis in [0, 2] {
+        if bounds.min[axis] != exact_sum(f64::from(base[axis]), -f64::from(radius))?
+            || bounds.max[axis] != exact_sum(f64::from(base[axis]), f64::from(radius))?
+        {
+            return Err(Failure::UnsupportedPointRepresentation);
+        }
+    }
+    checked_aabb(&shape, center, bounds)?;
+    Ok(bounds)
+}
+
+fn check_planar_trajectory(plan: &Plan, enclosure: Bounds) -> Result<(), Failure> {
+    let start = Bounds::cuboid(plan.center, half_extents(&plan.actual)?)?;
+    let end = start.ray_end(plan.ray)?;
+    // Each cuboid face is affine in t. Endpoint containment proves every real point for
+    // 0 <= t <= length, including bottom >= H. Directed rounding only tightens admission:
+    // uncertainty can refuse but never creates a tolerance below the proved plane.
+    if !enclosure.contains(start) || !enclosure.contains(end) {
+        return Err(Failure::UnsupportedPointRepresentation);
     }
     Ok(())
 }
@@ -641,5 +818,173 @@ mod tests {
             outward_sum(1.0, f64::from(f32::from_bits(1))).unwrap(),
             (1.0, 1.0_f64.next_up())
         );
+    }
+}
+
+#[cfg(test)]
+mod analytic_tests {
+    use super::*;
+
+    // Binary32 operand tests only; these values cannot construct a scene certificate.
+    const H: f32 = -50.0;
+    const Q: f32 = f32::from_bits(3_259_428_591);
+    const POINTS: [[u32; 3]; 4] = [
+        [3_313_891_166, 3_313_871_841, 3_259_498_496],
+        [3_313_899_351, 3_313_872_188, 3_259_428_591],
+        [3_313_907_536, 3_313_872_535, 3_259_428_591],
+        [3_313_910_789, 3_313_872_673, 3_259_498_496],
+    ];
+    fn body() -> Body {
+        Body {
+            radius: Real::new(0.5).unwrap(),
+            height: Real::new(3.59375).unwrap(),
+        }
+    }
+
+    #[test]
+    fn analytic_planar_exact_native_operands_have_positive_endpoint_separation() {
+        for pair in POINTS.windows(2) {
+            let from = pair[0].map(f32::from_bits);
+            let to = pair[1].map(f32::from_bits);
+            let plan = Plan::new(from, to, body(), H, Q).unwrap();
+            check_motion_binding(&plan, from, to, body()).unwrap();
+            let enclosure =
+                checked_enclosure_bounds(plan.floor_points[0], plan.proof_body).unwrap();
+            check_planar_trajectory(&plan, enclosure).unwrap();
+        }
+        let plan = Plan::new(
+            POINTS[2].map(f32::from_bits),
+            POINTS[3].map(f32::from_bits),
+            body(),
+            H,
+            Q,
+        )
+        .unwrap();
+        let (direction, distance) = plan.ray.unwrap();
+        assert_eq!(
+            ray_bits(plan.ray),
+            Some(([1_026_242_253, 3_190_383_853, 1_065_107_200], 1_070_487_187))
+        );
+        let start = Bounds::cuboid(plan.center, half_extents(&plan.actual).unwrap()).unwrap();
+        let (low, high) =
+            outward_sum(start.min[1], f64::from(direction.y) * f64::from(distance)).unwrap();
+        let exact_gap = 1_928_681.0 / 562_949_953_421_312.0;
+        assert!(low > f64::from(H));
+        assert!(low - f64::from(H) <= exact_gap);
+        assert!(high - f64::from(H) >= exact_gap);
+    }
+
+    #[test]
+    fn analytic_planar_one_representable_endpoint_below_plane_refuses() {
+        let mut plan = Plan::new([0.0, 0.0, H], [0.0, 0.0, H], body(), H, H).unwrap();
+        let enclosure = checked_enclosure_bounds(plan.floor_points[0], plan.proof_body).unwrap();
+        check_planar_trajectory(&plan, enclosure).unwrap();
+        let one_ulp = H - H.next_down();
+        plan.ray = Some((Dir3::NEG_Y, one_ulp));
+        let endpoint = Bounds::cuboid(plan.center, half_extents(&plan.actual).unwrap())
+            .unwrap()
+            .ray_end(plan.ray)
+            .unwrap();
+        assert_eq!(endpoint.min[1], f64::from(H.next_down()));
+        assert_eq!(
+            check_planar_trajectory(&plan, enclosure),
+            Err(Failure::UnsupportedPointRepresentation)
+        );
+        // The gate has no reported TOI, normal or witness input. Even the smallest
+        // representable excursion is refused, regardless of a near-contact report.
+        plan.ray = Some((Dir3::NEG_Y, f32::from_bits(1)));
+        assert_eq!(
+            check_planar_trajectory(&plan, enclosure),
+            Err(Failure::UnsupportedPointRepresentation)
+        );
+    }
+
+    #[test]
+    fn analytic_planar_actual_half_extent_mismatches_refuse() {
+        let from = POINTS[2].map(f32::from_bits);
+        let to = POINTS[3].map(f32::from_bits);
+        for shape in [
+            Collider::cuboid(1.0_f32.next_up(), 3.59375, 1.0),
+            Collider::cuboid(1.0, 3.59375_f32.next_up(), 1.0),
+            Collider::cuboid(1.0, 3.59375, 1.0_f32.next_up()),
+        ] {
+            let mut plan = Plan::new(from, to, body(), H, Q).unwrap();
+            plan.actual = shape;
+            assert_eq!(
+                check_motion_binding(&plan, from, to, body()),
+                Err(Failure::Binding)
+            );
+        }
+        let mut plan = Plan::new(from, to, body(), H, Q).unwrap();
+        plan.actual = Collider::sphere(0.5);
+        assert_eq!(
+            check_motion_binding(&plan, from, to, body()),
+            Err(Failure::UnsupportedPointRepresentation)
+        );
+    }
+
+    #[test]
+    fn analytic_planar_actual_center_movement_and_head_mismatches_refuse() {
+        let from = POINTS[2].map(f32::from_bits);
+        let to = POINTS[3].map(f32::from_bits);
+        for operand in 0..3 {
+            for axis in 0..3 {
+                let mut plan = Plan::new(from, to, body(), H, Q).unwrap();
+                let actual = match operand {
+                    0 => &mut plan.center,
+                    1 => &mut plan.movement,
+                    _ => &mut plan.head,
+                };
+                actual[axis] = actual[axis].next_up();
+                assert_eq!(
+                    check_motion_binding(&plan, from, to, body()),
+                    Err(Failure::Binding)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn analytic_planar_normalized_direction_and_length_mismatches_refuse() {
+        let from = POINTS[2].map(f32::from_bits);
+        let to = POINTS[3].map(f32::from_bits);
+        let mut plan = Plan::new(from, to, body(), H, Q).unwrap();
+        let (direction, distance) = plan.ray.unwrap();
+        for changed in [
+            None,
+            Some((Dir3::X, distance)),
+            Some((direction, distance.next_down())),
+            Some((direction, distance.next_up())),
+        ] {
+            plan.ray = changed;
+            assert_eq!(
+                check_motion_binding(&plan, from, to, body()),
+                Err(Failure::Binding)
+            );
+        }
+    }
+
+    #[test]
+    fn analytic_planar_xy_outside_actual_proof_square_refuses() {
+        let plan = Plan::new(
+            POINTS[2].map(f32::from_bits),
+            POINTS[3].map(f32::from_bits),
+            body(),
+            H,
+            Q,
+        )
+        .unwrap();
+        let enclosure = checked_enclosure_bounds(plan.floor_points[0], plan.proof_body).unwrap();
+        let start = Bounds::cuboid(plan.center, half_extents(&plan.actual).unwrap()).unwrap();
+        let end = start.ray_end(plan.ray).unwrap();
+        for axis in [0, 2] {
+            let mut shortened = enclosure;
+            shortened.max[axis] = end.max[axis].next_down();
+            assert!(shortened.contains(start));
+            assert_eq!(
+                check_planar_trajectory(&plan, shortened),
+                Err(Failure::UnsupportedPointRepresentation)
+            );
+        }
     }
 }

@@ -166,6 +166,19 @@ jobs:
             net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::proof_boxes_include_low_gap_and_true_upper_body_regions \
             net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::stationary_reverse_and_invalid_initialized_body_operands_are_explicit \
             net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::real_normalized_cast_endpoint_not_only_rounded_movement_is_enclosed
+      - name: Verify analytic planar nonpenetration arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/analytic-planar-arithmetic.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_exact_native_operands_have_positive_endpoint_separation \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_one_representable_endpoint_below_plane_refuses \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_actual_half_extent_mismatches_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_actual_center_movement_and_head_mismatches_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_normalized_direction_and_length_mismatches_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_xy_outside_actual_proof_square_refuses
       - name: Verify resident cold Route controller transactions
         shell: bash
         run: |
@@ -283,6 +296,13 @@ jobs:
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_supported_refusals::strict_straight_policy_refuses_actual_fifth_raised_path_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" \
             net::p2p::native_geometry::source_route_resident_supported_refusals::strict_straight_policy_refuses_actual_fifth_raised_path_without_tick_or_store_commit
+      - name: Verify generated support policy refuses fifth solver hit
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-support-fifth-solver-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_planar_refusals::generated_support_policy_refuses_actual_fifth_solver_hit_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_planar_refusals::generated_support_policy_refuses_actual_fifth_solver_hit_without_tick_or_store_commit
       - name: Verify finite eight-epoch resident loop
         shell: bash
         run: |

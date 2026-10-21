@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Actual fifth-callback negatives for the generated flat support policy. The
+//! Actual fifth-callback negatives for the analytic planar nonpenetration policy. The
 //! diagnostic points locate mutations only; every attempt reruns source/native work.
 use super::{
     core::{Body, Failure},
     products::{
-        source_height::{inventory::InventoryCompatibility, CompositionError},
+        source_height::{
+            inventory::InventoryCompatibility, CompositionError, PreparedSourceHeight,
+        },
         vmap::installed_source_fixture as input,
     },
     real_corridor_fixture::installed_source::InstalledFixture,
@@ -12,12 +14,13 @@ use super::{
     source_route_resident_local::ledger::{
         support_prism_bounds_for_test, ResidentLedger, StraightSegmentPhase,
     },
+    source_route_resident_planar_refusals::observe_actual_segment,
 };
 use avian3d::prelude::{Collider, CollisionLayers, RigidBody};
 use benilla_assets::{coords::wow_to_bevy, AdtTile};
 use benilla_formats::{ChunkMesh, LiquidKind, LiquidMesh};
 use benilla_sim::creature_ai::Point;
-use benilla_world::terrain_stream::{CoverageError, NativeTerrainCoverage};
+use benilla_world::terrain_stream::{CoverageError, NativeStaticMapIndex, NativeTerrainCoverage};
 use benilla_world_runtime::native::{AuthorityRequest, Facts, MotionQuery, Query};
 use bevy::{ecs::system::SystemState, prelude::*};
 use std::{
@@ -82,9 +85,9 @@ fn expect(
     match result {
         Err(error) => assert!(
             expected(&error),
-            "wrong generated-support refusal stage: {error:?}"
+            "wrong planar-nonpenetration refusal stage: {error:?}"
         ),
-        Ok(_) => panic!("a generated-support refusal emitted Facts"),
+        Ok(_) => panic!("a planar-nonpenetration refusal emitted Facts"),
     }
 }
 
@@ -264,6 +267,54 @@ fn obstacles(points: &[Point], body: Body, plane: f32) -> [(Vec3, Vec3); 2] {
     [(low, low_size), (high, high_size)]
 }
 
+/// Deliberately occupy the full proof square's lateral margin on the descending
+/// segment, outside the actual body's whole horizontal sweep. The original cast
+/// must still report terrain first while independent membership rejects each box.
+/// This proves coexistence, not a later body collision hidden by the first hit.
+fn enclosure_coexistence_obstacles(points: &[Point], body: Body, plane: f32) -> [(Vec3, Vec3); 2] {
+    assert_eq!(points.len(), 4);
+    let from = wow_to_bevy(xyz(points[2]));
+    let to = wow_to_bevy(xyz(points[3]));
+    let upper = from.y;
+    let gap = upper - plane;
+    assert!(gap > 0. && to.y == plane);
+    let (min, max) =
+        support_prism_bounds_for_test(xyz(points[2]), xyz(points[3]), body, plane, upper).unwrap();
+    let actual_max_x = from.x.max(to.x) + body.radius.as_f32();
+    let x = (actual_max_x + max.x) * 0.5;
+    let z = (from.z + to.z) * 0.5;
+    let low_size = Vec3::new(0.125, gap * 0.25, 0.125);
+    let low = Vec3::new(x, plane + gap * 0.5, z);
+    let high_size = Vec3::splat(0.125);
+    let high = Vec3::new(x, upper + body.height.as_f32() * 0.75, z);
+    for (center, size) in [(low, low_size), (high, high_size)] {
+        let obstacle_min = center - size * 0.5;
+        let obstacle_max = center + size * 0.5;
+        assert!(min.cmplt(obstacle_min).all() && max.cmpgt(obstacle_max).all());
+        assert!(
+            obstacle_min.x > actual_max_x,
+            "the enclosure control must not replace the original terrain-first body hit"
+        );
+        for pair in points[..3].windows(2) {
+            let (earlier_min, earlier_max) =
+                support_prism_bounds_for_test(xyz(pair[0]), xyz(pair[1]), body, plane, upper)
+                    .unwrap();
+            assert!(
+                obstacle_max.x < earlier_min.x
+                    || obstacle_min.x > earlier_max.x
+                    || obstacle_max.z < earlier_min.z
+                    || obstacle_min.z > earlier_max.z,
+                "enclosure-only geometry must leave both earlier complete enclosures clear"
+            );
+        }
+    }
+    assert!(low.y - low_size.y * 0.5 > plane && low.y + low_size.y * 0.5 < upper);
+    assert!(high.y - high_size.y * 0.5 > upper);
+    assert!(high.y + high_size.y * 0.5 < upper + body.height.as_f32());
+    eprintln!("resident planar enclosure-coexistence placement: checked-prism={min:?}..{max:?} actual-max-x={actual_max_x:?} low-gap={low:?} upper-body={high:?}");
+    [(low, low_size), (high, high_size)]
+}
+
 struct RestoreSource<'a> {
     install: &'a input::Install,
     original: Vec<(String, Vec<u8>)>,
@@ -300,6 +351,7 @@ pub(super) fn probe(
     ledger: &mut ResidentLedger,
     geometry: &mut InstalledFixture,
     install: &input::Install,
+    height: &PreparedSourceHeight<'_, '_, '_>,
     compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
     provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
     request: &AuthorityRequest,
@@ -332,6 +384,216 @@ pub(super) fn probe(
     let mut refused = Refusals::default();
     let phases = RefCell::new(vec![]);
     let completed = Cell::new(0);
+    let upper = diagnostic.points[1].z.as_f32();
+    geometry.advance_physics();
+    let (root, original_hit, original_enclosure) = observe_actual_segment(
+        geometry,
+        map,
+        &diagnostic.points[2..],
+        diagnostic.body,
+        plane,
+        upper,
+    );
+    assert_eq!(original_hit, Some(root));
+    assert_eq!(original_enclosure, Ok(root));
+
+    // Equal source bytes and content revisions cannot replace the exact installed owner.
+    let replacement = input::raw_inventory(install);
+    let replacement_compatibility = height
+        .match_raw_inventory(&replacement, deadline(), || false)
+        .unwrap();
+    assert_eq!(
+        replacement.source_digest(),
+        compatibility.owner().inventory_digest()
+    );
+    assert_eq!(
+        replacement_compatibility.revision(),
+        compatibility.revision()
+    );
+    assert_eq!(
+        replacement_compatibility.owner().receipt_digest(),
+        compatibility.owner().receipt_digest()
+    );
+    assert!(!replacement_compatibility
+        .owner()
+        .same_owner(compatibility.owner()));
+    let original_index = geometry
+        .app
+        .world_mut()
+        .remove_resource::<NativeStaticMapIndex>()
+        .unwrap();
+    geometry
+        .app
+        .insert_resource(NativeStaticMapIndex::from_inventory(replacement).unwrap());
+    let result = refused.attempt(
+        ledger,
+        geometry,
+        compatibility,
+        provider,
+        request,
+        deadline(),
+        || false,
+        |phase, index| phases.borrow_mut().push((phase, index)),
+        || completed.set(completed.get() + 1),
+    );
+    geometry.app.insert_resource(original_index);
+    geometry.advance_physics();
+    expect(result, |error| {
+        matches!(error, ResidentFilterError::Context(Failure::Binding))
+    });
+    assert!(phases.borrow().is_empty());
+    assert_eq!(completed.get(), 0);
+    eprintln!("resident planar owner refusal: equal-bytes-replacement=Binding segment=none emitted=0 restored=true");
+
+    let (asset, source_digest) = {
+        let assets = geometry.app.world().resource::<Assets<AdtTile>>();
+        let (id, tile) = assets.iter().next().unwrap();
+        (id, tile.native_source_digest)
+    };
+    geometry
+        .app
+        .world_mut()
+        .resource_mut::<Assets<AdtTile>>()
+        .get_mut(asset)
+        .unwrap()
+        .native_source_digest[31] ^= 1;
+    assert_eq!(
+        raw_coverage(
+            geometry,
+            map,
+            &diagnostic.points[..2],
+            diagnostic.body,
+            plane
+        ),
+        Err(CoverageError::UnsupportedSource)
+    );
+    let result = refused.attempt(
+        ledger,
+        geometry,
+        compatibility,
+        provider,
+        request,
+        deadline(),
+        || false,
+        |phase, index| phases.borrow_mut().push((phase, index)),
+        || completed.set(completed.get() + 1),
+    );
+    geometry
+        .app
+        .world_mut()
+        .resource_mut::<Assets<AdtTile>>()
+        .get_mut(asset)
+        .unwrap()
+        .native_source_digest = source_digest;
+    geometry.advance_physics();
+    expect(result, |error| {
+        matches!(
+            error,
+            ResidentFilterError::Context(Failure::MissingGeometry)
+        )
+    });
+    assert!(phases.borrow().is_empty());
+    assert_eq!(completed.get(), 0);
+    eprintln!("resident planar source refusal: raw=UnsupportedSource context=MissingGeometry segment=0 emitted=0 restored=true");
+
+    let collider = geometry.app.world().get::<Collider>(root).unwrap().clone();
+    let mesh = collider.shape_scaled().as_trimesh().unwrap();
+    let mut vertices: Vec<Vec3> = mesh
+        .vertices()
+        .iter()
+        .map(|vertex| Vec3::new(vertex.x, vertex.y, vertex.z))
+        .collect();
+    vertices.last_mut().unwrap().y += 0.25;
+    geometry
+        .app
+        .world_mut()
+        .entity_mut(root)
+        .insert(Collider::trimesh(vertices, mesh.indices().to_vec()));
+    geometry.advance_physics();
+    assert_eq!(
+        raw_coverage(
+            geometry,
+            map,
+            &diagnostic.points[..2],
+            diagnostic.body,
+            plane
+        ),
+        Err(CoverageError::ColliderUnavailable)
+    );
+    let result = refused.attempt(
+        ledger,
+        geometry,
+        compatibility,
+        provider,
+        request,
+        deadline(),
+        || false,
+        |phase, index| phases.borrow_mut().push((phase, index)),
+        || completed.set(completed.get() + 1),
+    );
+    geometry.app.world_mut().entity_mut(root).insert(collider);
+    geometry.advance_physics();
+    expect(result, |error| {
+        matches!(
+            error,
+            ResidentFilterError::Context(Failure::MissingGeometry)
+        )
+    });
+    assert!(phases.borrow().is_empty());
+    assert_eq!(completed.get(), 0);
+    eprintln!("resident planar collider refusal: raw=ColliderUnavailable context=MissingGeometry segment=0 emitted=0 restored=true");
+
+    let transform = *geometry.app.world().get::<Transform>(root).unwrap();
+    assert_eq!(transform, Transform::IDENTITY);
+    geometry
+        .app
+        .world_mut()
+        .entity_mut(root)
+        .insert(Transform::from_xyz(0., 0.125, 0.));
+    geometry.advance_physics();
+    assert_eq!(
+        raw_coverage(
+            geometry,
+            map,
+            &diagnostic.points[..2],
+            diagnostic.body,
+            plane
+        ),
+        Err(CoverageError::ColliderUnavailable)
+    );
+    let result = refused.attempt(
+        ledger,
+        geometry,
+        compatibility,
+        provider,
+        request,
+        deadline(),
+        || false,
+        |phase, index| phases.borrow_mut().push((phase, index)),
+        || completed.set(completed.get() + 1),
+    );
+    geometry.app.world_mut().entity_mut(root).insert(transform);
+    geometry.advance_physics();
+    expect(result, |error| {
+        matches!(
+            error,
+            ResidentFilterError::Context(Failure::MissingGeometry)
+        )
+    });
+    assert!(phases.borrow().is_empty());
+    assert_eq!(completed.get(), 0);
+    assert_eq!(
+        observe_actual_segment(
+            geometry,
+            map,
+            &diagnostic.points[2..],
+            diagnostic.body,
+            plane,
+            upper,
+        ),
+        (root, original_hit, original_enclosure)
+    );
+    eprintln!("resident planar transform refusal: raw=ColliderUnavailable context=MissingGeometry segment=0 emitted=0 restored=true");
     for kind in [Mutation::Hole, Mutation::Liquid, Mutation::Step] {
         let (id, index, original_chunk) =
             mutate_first_footprint(geometry, &diagnostic.points, kind);
@@ -417,6 +679,78 @@ pub(super) fn probe(
         phases.borrow_mut().clear();
         eprintln!("resident generated-support collider refusal: kind={kind} segment=1 earlier-corridor-and-source-los=passed unknown-collider-membership=UnsupportedNavigation emitted=0 removed=true");
     }
+    for (kind, (center, size)) in
+        ["low-gap", "upper-body"]
+            .into_iter()
+            .zip(enclosure_coexistence_obstacles(
+                &diagnostic.points,
+                diagnostic.body,
+                plane,
+            ))
+    {
+        let entity = geometry
+            .app
+            .world_mut()
+            .spawn((
+                Collider::cuboid(size.x, size.y, size.z),
+                RigidBody::Static,
+                CollisionLayers::DEFAULT,
+                Transform::from_translation(center),
+            ))
+            .id();
+        assert_ne!(entity, root);
+        geometry.advance_physics();
+        let (checked_root, actual_hit, enclosure) = observe_actual_segment(
+            geometry,
+            map,
+            &diagnostic.points[2..],
+            diagnostic.body,
+            plane,
+            upper,
+        );
+        assert_eq!(checked_root, root);
+        assert_eq!(actual_hit, Some(root),
+            "fixture blocker: authentic checked-terrain-first enclosure-coexistence setup was not reached");
+        assert_eq!(
+            enclosure,
+            Err(Failure::UnsupportedNavigation),
+            "independent full enclosure must reject the additional nonroot geometry"
+        );
+        let result = refused.attempt(
+            ledger,
+            geometry,
+            compatibility,
+            provider,
+            request,
+            deadline(),
+            || false,
+            |phase, index| phases.borrow_mut().push((phase, index)),
+            || completed.set(completed.get() + 1),
+        );
+        assert!(geometry.app.world_mut().despawn(entity));
+        geometry.advance_physics();
+        expect(result, |error| {
+            matches!(
+                error,
+                ResidentFilterError::Context(Failure::UnsupportedNavigation)
+            )
+        });
+        assert_eq!(*phases.borrow(), expected_prefix(2));
+        assert_eq!(completed.get(), 0);
+        phases.borrow_mut().clear();
+        assert_eq!(
+            observe_actual_segment(
+                geometry,
+                map,
+                &diagnostic.points[2..],
+                diagnostic.body,
+                plane,
+                upper,
+            ),
+            (root, original_hit, original_enclosure)
+        );
+        eprintln!("resident planar enclosure-coexistence refusal: kind={kind} segment=2 earlier-segments-and-source-los=2 actual-original-body-hit=checked-terrain-root independent-enclosure=UnsupportedNavigation emitted=0 removed=true");
+    }
     let segment_count = diagnostic.points.len() - 1;
     let cancelled = Cell::new(false);
     let result = refused.attempt(
@@ -495,8 +829,8 @@ pub(super) fn probe(
     });
     assert_eq!(*phases.borrow(), expected_prefix(segment_count));
     assert_eq!(completed.get(), 3);
-    assert_eq!((refused.attempts, refused.emitted), (8, 0));
+    assert_eq!((refused.attempts, refused.emitted), (14, 0));
     assert_eq!(ledger.diagnostic(), original);
     assert_eq!(install.bytes(), original_source);
-    eprintln!("resident generated-support fifth refusals: points=4 segments=3 attempts=8 emitted=0 raw-footprint=hole,liquid,step prism=low-gap,upper-body after-all-segments=cancel,source,expiry committed-cache4=1 staged-cache5=0; genuine-source-M2-hit=not-exercised; fresh actual certification follows");
+    eprintln!("resident planar-nonpenetration fifth refusals: points=4 segments=3 attempts=14 emitted=0 scene=owner,source,collider,transform raw-footprint=hole,liquid,step prism=low-gap,upper-body root-first-enclosure-coexistence=low-gap,upper-body after-all-segments=cancel,source,expiry committed-cache4=1 staged-cache5=0; genuine-source-M2-hit=not-exercised; later-real-body-hit-masking=not-proved; fresh actual certification follows");
 }

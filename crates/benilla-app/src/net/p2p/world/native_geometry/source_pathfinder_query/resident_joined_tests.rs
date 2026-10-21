@@ -136,7 +136,7 @@ pub(crate) fn with_two_owner_route_fixture<T>(
         false,
         false,
         false,
-        false,
+        GeneratedSupport::Disabled,
         test,
     )
 }
@@ -161,6 +161,16 @@ pub(crate) fn with_controller_fixture<T>(
         with_route_fixture(test)
     }
 }
+/// Authored fixture selection only, not a source or scene certificate.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeneratedSupport {
+    Disabled,
+    #[cfg(not(benilla_headless_geometry))]
+    Strict,
+    #[cfg(not(benilla_headless_geometry))]
+    PlanarNonpenetration,
+}
+
 /// Component-only selection made before the Profile or any live owner exists.
 #[cfg(not(benilla_headless_geometry))]
 #[allow(
@@ -173,7 +183,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
     two_retained_routes: bool,
     finite_retained_routes: bool,
     straight_retained_routes: bool,
-    generated_flat_support: bool,
+    generated_support: GeneratedSupport,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -185,7 +195,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
         SourceMapQuerySnapshot,
     ) -> T,
 ) -> T {
-    assert!(!generated_flat_support || straight_retained_routes);
+    assert!(generated_support == GeneratedSupport::Disabled || straight_retained_routes);
     assert!(
         !straight_retained_routes
             || (!one_retained_route && !two_retained_routes && !finite_retained_routes)
@@ -205,7 +215,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
             two_retained_routes,
             finite_retained_routes,
             straight_retained_routes,
-            generated_flat_support,
+            generated_support,
             test,
         )
     } else {
@@ -234,7 +244,7 @@ fn with_fixture_at<T>(
         false,
         false,
         false,
-        false,
+        GeneratedSupport::Disabled,
         test,
     )
 }
@@ -247,7 +257,7 @@ fn with_fixture_at_with_owners<T>(
     two_retained_routes: bool,
     finite_retained_routes: bool,
     straight_retained_routes: bool,
-    generated_flat_support: bool,
+    generated_support: GeneratedSupport,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -317,9 +327,19 @@ fn with_fixture_at_with_owners<T>(
         policy
     };
     #[cfg(not(benilla_headless_geometry))]
-    let policy = if generated_flat_support {
+    let policy = if generated_support != GeneratedSupport::Disabled {
         assert!(straight_retained_routes);
-        ResidentGeometryPolicy::installed_generated_flat_straight_routes(&compatibility)
+        match generated_support {
+            GeneratedSupport::Strict => {
+                ResidentGeometryPolicy::installed_generated_flat_straight_routes(&compatibility)
+            }
+            GeneratedSupport::PlanarNonpenetration => {
+                ResidentGeometryPolicy::installed_planar_nonpenetration_straight_routes(
+                    &compatibility,
+                )
+            }
+            GeneratedSupport::Disabled => unreachable!(),
+        }
     } else {
         policy
     };
@@ -329,7 +349,7 @@ fn with_fixture_at_with_owners<T>(
             && !two_retained_routes
             && !finite_retained_routes
             && !straight_retained_routes
-            && !generated_flat_support,
+            && generated_support == GeneratedSupport::Disabled,
         "retained authority is concrete component-only"
     );
     let (start, end) = endpoints;
@@ -401,13 +421,23 @@ fn with_fixture_at_with_owners<T>(
             }
         }
         #[cfg(not(benilla_headless_geometry))]
-        if generated_flat_support {
+        if generated_support != GeneratedSupport::Disabled {
             assert_ne!(
                 revision,
                 ResidentGeometryPolicy::installed_finite_straight_routes(&compatibility)
                     .revision(height.binding(), query.binding())
                     .unwrap(),
                 "supported-above-plane domain is selected before profile/session binding"
+            );
+        }
+        #[cfg(not(benilla_headless_geometry))]
+        if generated_support == GeneratedSupport::PlanarNonpenetration {
+            assert_ne!(
+                revision,
+                ResidentGeometryPolicy::installed_generated_flat_straight_routes(&compatibility)
+                    .revision(height.binding(), query.binding())
+                    .unwrap(),
+                "analytic nonpenetration is selected before profile/session binding"
             );
         }
         p.geometry_revision = revision;

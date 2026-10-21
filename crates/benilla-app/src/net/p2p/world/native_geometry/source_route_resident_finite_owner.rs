@@ -222,6 +222,19 @@ impl<'a> Owner<'a> {
             self.old_boundary_refused = true;
             return Err(error);
         }
+        if self.mode == Mode::StrictGeneratedSupportBoundary && epoch == 5 {
+            assert!(!retry && !self.old_boundary_refused);
+            let error = super::source_route_resident_planar_refusals::refuse_actual_fifth(
+                ledger,
+                geometry,
+                compatibility,
+                provider,
+                request,
+            );
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            self.old_boundary_refused = true;
+            return Err(error);
+        }
         if self.mode == Mode::RefusalsHistory && epoch == 5 && !retry {
             ledger
                 .probe_generated_flat_bindings_for_test(
@@ -239,6 +252,7 @@ impl<'a> Owner<'a> {
                 ledger,
                 geometry,
                 install,
+                height,
                 compatibility,
                 provider,
                 request,
@@ -518,7 +532,7 @@ impl<'a> Owner<'a> {
     ) {
         let expected_warm = match self.mode {
             Mode::OldPolicyBoundary => 2,
-            Mode::StrictStraightBoundary => 3,
+            Mode::StrictStraightBoundary | Mode::StrictGeneratedSupportBoundary => 3,
             Mode::Recovery | Mode::RefusalsHistory => 7,
         };
         assert_eq!(self.accepted.len(), expected_warm);
@@ -528,7 +542,9 @@ impl<'a> Owner<'a> {
         }
         if matches!(
             self.mode,
-            Mode::OldPolicyBoundary | Mode::StrictStraightBoundary
+            Mode::OldPolicyBoundary
+                | Mode::StrictStraightBoundary
+                | Mode::StrictGeneratedSupportBoundary
         ) {
             assert!(self.old_boundary_refused);
             assert_eq!(self.deliveries, expected_warm);
@@ -546,8 +562,10 @@ impl<'a> Owner<'a> {
             assert!(owned.storage_bytes <= owned.upper_bound_bytes);
             if self.mode == Mode::OldPolicyBoundary {
                 eprintln!("resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true");
-            } else {
+            } else if self.mode == Mode::StrictStraightBoundary {
                 eprintln!("resident strict-straight boundary: accepted=4 attempted=5 raw-coverage=UnsupportedTerrain context=MissingGeometry ledger-unchanged=true no-facts=true");
+            } else {
+                eprintln!("resident strict-generated-support boundary: accepted=4 attempted=5 segment=2 context=Obstacle ledger-unchanged=true no-facts=true");
             }
             return;
         }

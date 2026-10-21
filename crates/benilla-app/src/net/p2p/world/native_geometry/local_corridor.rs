@@ -4,11 +4,20 @@
 use super::{core, Body, Corridor, Failure};
 use avian3d::prelude::{Collider, ColliderAabb, ShapeCastConfig, SpatialQuery};
 use benilla_assets::coords::wow_to_bevy;
+#[cfg(test)]
+use benilla_world::terrain_stream::CoverageProof;
 use benilla_world::{
     collision::WorldCollision,
     terrain_stream::{CoverageError, NativeTerrainCoverage},
 };
 use bevy::prelude::*;
+
+// Production exposes only the existing unit result. Concrete proof retention is solely
+// for the component-only analytic domain; it does not extend the app's world API.
+#[cfg(not(test))]
+type CertificationOutput = ();
+#[cfg(test)]
+type CertificationOutput = CoverageProof;
 
 pub(super) struct LocalCorridor<'a, 'w, 's> {
     pub(super) terrain: &'a NativeTerrainCoverage<'w, 's>,
@@ -19,6 +28,16 @@ pub(super) struct LocalCorridor<'a, 'w, 's> {
 }
 impl Corridor for LocalCorridor<'_, '_, '_> {
     fn certify(&mut self, from: [f32; 3], to: [f32; 3], body: Body) -> Result<(), Failure> {
+        self.certify_inner(from, to, body).map(|_| ())
+    }
+}
+impl<'scene, 'w, 's> LocalCorridor<'scene, 'w, 's> {
+    fn certify_inner(
+        &self,
+        from: [f32; 3],
+        to: [f32; 3],
+        body: Body,
+    ) -> Result<CertificationOutput, Failure> {
         // Positive raw geometry proof precedes every no-hit interpretation. No endpoint ray
         // interpolation or floating-point tolerance is used as continuous ground evidence.
         let proof = self
@@ -58,7 +77,9 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
         }
         if !found_root {
             #[cfg(test)]
-            eprintln!("native geometry corridor failure: stage=terrain collider membership error=missing terrain root");
+            eprintln!(
+                "native geometry corridor failure: stage=terrain collider membership error=missing terrain root"
+            );
             return Err(Failure::MissingGeometry);
         }
         let radius = body.radius.as_f32();
@@ -139,9 +160,56 @@ impl Corridor for LocalCorridor<'_, '_, '_> {
                 return Err(Failure::Obstacle);
             }
         }
-        Ok(())
+        #[cfg(test)]
+        {
+            Ok(proof)
+        }
+        #[cfg(not(test))]
+        {
+            Ok(())
+        }
+    }
+
+    /// Component-only evidence for one stationary square, not a reusable corridor proof.
+    /// All source, membership and nonterrain checks above finish before this value exists.
+    #[cfg(test)]
+    pub(super) fn certify_enclosure(
+        &self,
+        floor_point: [f32; 3],
+        body: Body,
+    ) -> Result<CertifiedEnclosure<'_, 'scene, 'w, 's>, Failure> {
+        let proof = self.certify_inner(floor_point, floor_point, body)?;
+        Ok(CertifiedEnclosure {
+            local: self,
+            proof,
+            floor_point,
+            body,
+        })
     }
 }
+
+/// Opaque, non-Clone evidence tied to the exact immutable scene and stationary inputs.
+/// The only constructor performs the real raw-coverage and full-enclosure checks.
+#[cfg(test)]
+pub(super) struct CertifiedEnclosure<'local, 'scene, 'w, 's> {
+    local: &'local LocalCorridor<'scene, 'w, 's>,
+    proof: CoverageProof,
+    floor_point: [f32; 3],
+    body: Body,
+}
+#[cfg(test)]
+impl<'local, 'scene, 'w, 's> CertifiedEnclosure<'local, 'scene, 'w, 's> {
+    pub(super) fn local(&self) -> &LocalCorridor<'scene, 'w, 's> {
+        self.local
+    }
+    pub(super) fn operands(&self) -> ([f32; 3], Body) {
+        (self.floor_point, self.body)
+    }
+    pub(super) fn terrain_root(&self) -> Entity {
+        self.proof.terrain_root
+    }
+}
+
 fn coverage_failure(error: CoverageError) -> Failure {
     #[cfg(test)]
     eprintln!("native geometry corridor failure: stage=raw coverage error={error:?}");

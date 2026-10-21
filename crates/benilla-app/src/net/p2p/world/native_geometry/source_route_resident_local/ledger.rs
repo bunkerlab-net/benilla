@@ -28,6 +28,24 @@ pub(in super::super) fn support_prism_bounds_for_test(
     super::straight_loop::support_prism_bounds_for_test(from, to, body, floor, ceiling)
 }
 
+/// Independent fixture observations only; neither tuple member authorizes Route facts.
+pub(in super::super) fn diagnose_support_prism_for_test(
+    local: &mut LocalCorridor<'_, '_, '_>,
+    from: [f32; 3],
+    to: [f32; 3],
+    body: core::Body,
+    floor: f32,
+    ceiling: f32,
+) -> Result<
+    (
+        Option<bevy::prelude::Entity>,
+        Result<bevy::prelude::Entity, Failure>,
+    ),
+    Failure,
+> {
+    super::straight_loop::diagnose_support_prism_for_test(local, from, to, body, floor, ceiling)
+}
+
 const MAX_CANDIDATES: usize = 16;
 struct Entry {
     id: u64,

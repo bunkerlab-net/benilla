@@ -150,16 +150,26 @@ fn run(mode: Mode) {
     let old_finite = mode.finite_loop()
         == Some(super::source_route_resident_finite_loop::Mode::OldPolicyBoundary);
     let straight_finite = mode.finite_loop().is_some() && !old_finite;
-    let generated_flat_support = straight_finite
-        && mode.finite_loop()
-            != Some(super::source_route_resident_finite_loop::Mode::StrictStraightBoundary);
+    let generated_support = match mode.finite_loop() {
+        Some(super::source_route_resident_finite_loop::Mode::StrictGeneratedSupportBoundary) => {
+            runtime::GeneratedSupport::Strict
+        }
+        Some(
+            super::source_route_resident_finite_loop::Mode::Recovery
+            | super::source_route_resident_finite_loop::Mode::RefusalsHistory,
+        ) => runtime::GeneratedSupport::PlanarNonpenetration,
+        _ => runtime::GeneratedSupport::Disabled,
+    };
+    let generated_flat_support = generated_support != runtime::GeneratedSupport::Disabled;
+    let planar_nonpenetration =
+        generated_support == runtime::GeneratedSupport::PlanarNonpenetration;
     runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
         mode.retained().is_some() || old_finite,
         mode.three_epoch().is_some(),
         old_finite,
         straight_finite,
-        generated_flat_support,
+        generated_support,
         |install, height, compatibility, inventory, policy, p, query, other| {
             let fixture = resident_fixture::Fixture::new(p.clone(), [8; 16]);
             let player = fixture.player();
@@ -213,6 +223,18 @@ fn run(mode: Mode) {
             } else {
                 assert!(matches!(
                     provider.require_generated_flat_support(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            }
+            assert_eq!(
+                provider.allows_planar_nonpenetration(),
+                planar_nonpenetration
+            );
+            if planar_nonpenetration {
+                provider.require_planar_nonpenetration().unwrap();
+            } else {
+                assert!(matches!(
+                    provider.require_planar_nonpenetration(),
                     Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
                 ));
             }
@@ -559,12 +581,14 @@ fn run(mode: Mode) {
                                                 .unwrap();
                                         }
                                         Err(error) => {
-                                            // Only the two explicit old-policy boundary modes
-                                            // return refusal sentinels; acceptance modes must not.
+                                            // Only explicit old-policy boundary modes return
+                                            // refusal sentinels; acceptance modes must not.
                                             assert!(
                                                 old_finite
-                                                    || mode.finite_loop()
-                                                        == Some(super::source_route_resident_finite_loop::Mode::StrictStraightBoundary)
+                                                    || matches!(mode.finite_loop(), Some(
+                                                        super::source_route_resident_finite_loop::Mode::StrictStraightBoundary
+                                                        | super::source_route_resident_finite_loop::Mode::StrictGeneratedSupportBoundary
+                                                    ))
                                             );
                                             reply.send(Err(error)).unwrap();
                                         }
