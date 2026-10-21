@@ -180,6 +180,13 @@ jobs:
           log="$RUNNER_TEMP/native-second-retained-budget.log"
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::second_retained::tests::second_retained_budget_tracks_actual_backing_and_closes_outside_domain -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_filter::resident::retained::second_retained::tests::second_retained_budget_tracks_actual_backing_and_closes_outside_domain
+      - name: Verify resident third historical ACK and head release
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-third-history.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_third_history::resident_controller_third_historical_ack_releases_prior_head_after_source_change_without_replay -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_third_history::resident_controller_third_historical_ack_releases_prior_head_after_source_change_without_replay
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor

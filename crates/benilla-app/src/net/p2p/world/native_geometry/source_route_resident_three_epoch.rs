@@ -15,6 +15,7 @@ pub(super) enum Mode {
     Refusals,
     RollbackRetry,
     DropAfterApply,
+    SourceChangeBeforeAck,
 }
 
 /// The owner thread injects this once, only on a real callback after third Facts.
@@ -478,7 +479,7 @@ pub(super) fn after_warm_ack(
         let committed_records = driver.records().to_vec();
         let committed_generation = driver.store_generation();
         let count = callbacks.load(Ordering::SeqCst);
-        if mode == Mode::DropAfterApply {
+        if matches!(mode, Mode::DropAfterApply | Mode::SourceChangeBeforeAck) {
             assert_eq!(
                 out.pause.as_ref().map(|pause| &pause.kind),
                 Some(&PauseKind::CommittedAwaitingRouteAck)

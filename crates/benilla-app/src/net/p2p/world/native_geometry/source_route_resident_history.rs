@@ -64,6 +64,29 @@ impl<'a> SourceChange<'a> {
         height: &PreparedSourceHeight<'_, '_, '_>,
         context: &AuthorityRequest,
     ) {
+        self.refuse_retained_point_source(ledger, provider, height, context, 1);
+        eprintln!("resident warm historical ACK: changed source refuses both fresh point predicates after actual lost-ACK retry; no third calculation");
+    }
+
+    pub(super) fn refuse_fresh_second_retained_point_source(
+        &self,
+        ledger: &ResidentLedger,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        height: &PreparedSourceHeight<'_, '_, '_>,
+        context: &AuthorityRequest,
+    ) {
+        self.refuse_retained_point_source(ledger, provider, height, context, 2);
+        eprintln!("resident third historical ACK: source remains changed through old warm/proposal release and actual lost-ACK retry; both fresh point predicates refuse at actual third owner position; no fourth dispatch or certification");
+    }
+
+    fn refuse_retained_point_source(
+        &self,
+        ledger: &ResidentLedger,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        height: &PreparedSourceHeight<'_, '_, '_>,
+        context: &AuthorityRequest,
+        prior_revision: u64,
+    ) {
         assert_ne!(self.install.bytes(), self.before);
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             panic!("fresh point-source refusal uses the actual warm request")
@@ -72,13 +95,17 @@ impl<'a> SourceChange<'a> {
             route.request.kind,
             benilla_sim::creature_motion::RouteKind::ChaseReplan
         );
-        assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
+        assert!(matches!(prior_revision, 1 | 2));
+        assert_eq!(
+            route.request.prior_cache.as_ref().unwrap().revision,
+            prior_revision
+        );
         assert_eq!(ledger.counts(), (1, 1));
         let before = ledger.diagnostic();
         let constructors = provider.retained_constructor_count();
         let deadline = runtime::until();
         // Fresh direct point-source negatives at the actual warm owner position,
-        // NOT a third runtime dispatch, filter update or accepted retained query.
+        // NOT another runtime dispatch, filter update or accepted retained query.
         for (ticket, mask) in [(301, 15), (302, 10)] {
             assert!(matches!(
                 height.point_no_water(
@@ -101,7 +128,6 @@ impl<'a> SourceChange<'a> {
         assert!(Instant::now() < deadline);
         assert_eq!(provider.retained_constructor_count(), constructors);
         assert_eq!(ledger.diagnostic(), before);
-        eprintln!("resident warm historical ACK: changed source refuses both fresh point predicates after actual lost-ACK retry; no third calculation");
     }
 
     pub(super) fn refuse_fresh_source(

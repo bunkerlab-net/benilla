@@ -1215,6 +1215,18 @@ fn run(mode: Mode) {
                                             &wrong::substitute_dispatch(&notice, &attempts[2].0),
                                         );
                                     }
+                                    if third_mode == three_epoch::Mode::SourceChangeBeforeAck
+                                        && source_change.is_none()
+                                    {
+                                        assert!(!third_accepted);
+                                        let (context, deadline) = attempts.last().unwrap();
+                                        source_change = Some(
+                                            super::source_route_resident_history::SourceChange::begin(
+                                                install, &ledger, &provider, context, *deadline,
+                                            ),
+                                        );
+                                        assert_eq!(ledger.diagnostic(), prior);
+                                    }
                                     ledger.acknowledge(&notice).unwrap();
                                     assert_eq!(ledger.counts(), (1, 1));
                                     ledger.check_committed_warm_for_test().unwrap();
@@ -1254,8 +1266,11 @@ fn run(mode: Mode) {
                                         );
                                     }
                                     third_accepted = true;
-                                    if third_mode == three_epoch::Mode::DropAfterApply
-                                        && !fault_delivered
+                                    if matches!(
+                                        third_mode,
+                                        three_epoch::Mode::DropAfterApply
+                                            | three_epoch::Mode::SourceChangeBeforeAck
+                                    ) && !fault_delivered
                                     {
                                         fault_delivered = true;
                                         reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost third ACK after resident ledger application"))).unwrap();
@@ -1584,7 +1599,11 @@ fn run(mode: Mode) {
                     ) {
                         2
                     } else if let Some(third_mode) = mode.three_epoch() {
-                        if third_mode == three_epoch::Mode::DropAfterApply {
+                        if matches!(
+                            third_mode,
+                            three_epoch::Mode::DropAfterApply
+                                | three_epoch::Mode::SourceChangeBeforeAck
+                        ) {
                             4
                         } else {
                             3
@@ -1655,14 +1674,29 @@ fn run(mode: Mode) {
                     let (context, deadline) = attempts.last().unwrap();
                     assert!(Instant::now() < *deadline);
                     let before = ledger.diagnostic();
-                    ledger
-                        .check_fresh_candidate(&provider, context, *deadline)
-                        .unwrap();
+                    let source_check = ledger.check_fresh_candidate(&provider, context, *deadline);
+                    if mode.three_epoch() == Some(three_epoch::Mode::SourceChangeBeforeAck) {
+                        assert!(matches!(
+                            source_check,
+                            Err(ResidentFilterError::Source(
+                                super::products::source_height::CompositionError::TerrainSource
+                            ))
+                        ));
+                        assert!(Instant::now() < *deadline);
+                    } else {
+                        source_check.unwrap();
+                    }
                     assert_eq!(ledger.diagnostic(), before);
                     assert!(!prior_warm_liveness.as_ref().unwrap().is_alive());
                     assert!(third_proposals.iter().all(|proposal| !proposal.is_alive()));
                     let owned = ledger.flat_ownership_for_test().unwrap();
-                    eprintln!("resident third flat ownership: terminals={} staged={} logical-storage-bytes={} bound-bytes={} previous-warm-released=true proposal-wrappers-released={} original-source-check-after-release=ok", owned.terminal_count, owned.staged_count, owned.storage_bytes, owned.upper_bound_bytes, third_proposals.len());
+                    let source_result =
+                        if mode.three_epoch() == Some(three_epoch::Mode::SourceChangeBeforeAck) {
+                            "TerrainSource"
+                        } else {
+                            "ok"
+                        };
+                    eprintln!("resident third flat ownership: terminals={} staged={} logical-storage-bytes={} bound-bytes={} previous-warm-released=true proposal-wrappers-released={} original-source-check-after-release={source_result}", owned.terminal_count, owned.staged_count, owned.storage_bytes, owned.upper_bound_bytes, third_proposals.len());
                 }
                 // Direct negative source work occurs only after all controller
                 // retry measurements and worker shutdown, never during ACK retry.
@@ -1705,7 +1739,11 @@ fn run(mode: Mode) {
                         before,
                         "cache revision two closes retained certification before source work"
                     );
-                    if mode.retained() == Some(retained::Mode::SourceChangeBeforeAck) {
+                    if mode.three_epoch() == Some(three_epoch::Mode::SourceChangeBeforeAck) {
+                        source_change.as_ref()
+                            .expect("authored source remains changed through third ACK and old-head release")
+                            .refuse_fresh_second_retained_point_source(&ledger, &provider, height, context);
+                    } else if mode.retained() == Some(retained::Mode::SourceChangeBeforeAck) {
                         source_change
                             .as_ref()
                             .expect("authored source remains changed through warm ACK retry")
