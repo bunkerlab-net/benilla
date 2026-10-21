@@ -551,12 +551,21 @@ mod tests {
             };
             expect_failure(Plan::new(from, to, invalid, H, Q), Failure::UnresolvedBody);
         }
-        let subnormal = Body {
-            height: Real::new(f32::from_bits(1)).unwrap(),
+        // A subnormal never reaches the geometric enclosure: Real rejects it first.
+        assert!(matches!(
+            Real::new(f32::from_bits(1)),
+            Err(benilla_sim::creature_ai::AiError::Invalid(
+                "finite normal binary32"
+            ))
+        ));
+        // This normal height is a legal Real, but its half-height cannot be added
+        // exactly to the observed world-space center for a conservative enclosure.
+        let tiny_normal = Body {
+            height: Real::new(f32::MIN_POSITIVE).unwrap(),
             ..body()
         };
         expect_failure(
-            Plan::new(from, to, subnormal, H, Q),
+            Plan::new(from, to, tiny_normal, H, Q),
             Failure::UnsupportedPointRepresentation,
         );
     }
