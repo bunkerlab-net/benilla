@@ -31,6 +31,59 @@ pub(super) fn certify(
     after: impl FnOnce(),
 ) -> Result<(ResidentRetainedCandidate, Facts), ResidentFilterError> {
     provider.require_one_retained_route()?;
+    certify_inner(
+        world,
+        compatibility,
+        provider,
+        predecessor,
+        context,
+        player,
+        first_ticket,
+        deadline,
+        cancelled,
+        after,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn certify_two_owner(
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    predecessor: Rc<ResidentColdCandidate>,
+    context: &AuthorityRequest,
+    player: PlayerId,
+    first_ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+    after: impl FnOnce(),
+) -> Result<(ResidentRetainedCandidate, Facts), ResidentFilterError> {
+    provider.require_two_owner_first_retained()?;
+    certify_inner(
+        world,
+        compatibility,
+        provider,
+        predecessor,
+        context,
+        player,
+        first_ticket,
+        deadline,
+        cancelled,
+        after,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn certify_inner(
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    predecessor: Rc<ResidentColdCandidate>,
+    context: &AuthorityRequest,
+    player: PlayerId,
+    first_ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+    after: impl FnOnce(),
+) -> Result<(ResidentRetainedCandidate, Facts), ResidentFilterError> {
     let segment_ticket = first_ticket.checked_add(4).ok_or(Failure::Invalid)?;
     let mut state = SystemState::<(
         Option<Res<NativeStaticMapIndex>>,
@@ -47,20 +100,37 @@ pub(super) fn certify(
         return Err(Failure::Binding.into());
     }
     provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
-    let dependency = provider.observe_joined_retained(
-        &predecessor.dependency,
-        context,
-        player,
-        first_ticket,
-        SourceSamePolygonBudget {
-            // First retained lookup from full74+1 backing: per endpoint one
-            // active slot, one searchable tail and at most two nearest queries.
-            lookup_primitives: 8,
-            terminal_primitives: 1,
-        },
-        deadline,
-        &cancelled,
-    )?;
+    let dependency = if provider.require_two_owner_first_retained().is_ok() {
+        provider.observe_two_owner_first_retained(
+            &predecessor.dependency,
+            context,
+            player,
+            first_ticket,
+            SourceSamePolygonBudget {
+                // First retained lookup from full74+1 backing: per endpoint one
+                // active slot, one searchable tail and at most two nearest queries.
+                lookup_primitives: 8,
+                terminal_primitives: 1,
+            },
+            deadline,
+            &cancelled,
+        )?
+    } else {
+        provider.observe_joined_retained(
+            &predecessor.dependency,
+            context,
+            player,
+            first_ticket,
+            SourceSamePolygonBudget {
+                // First retained lookup from full74+1 backing: per endpoint one
+                // active slot, one searchable tail and at most two nearest queries.
+                lookup_primitives: 8,
+                terminal_primitives: 1,
+            },
+            deadline,
+            &cancelled,
+        )?
+    };
     let deadline = dependency.deadline(deadline);
     let observation = provider.retained_for(
         &dependency,
@@ -128,7 +198,12 @@ pub(super) fn certify(
         &cancelled,
     )?;
     let mut identity = Sha256::new();
-    identity.update(b"benilla-resident-installed-one-retained-chase-route-v1");
+    if provider.require_two_owner_first_retained().is_ok() {
+        identity.update(b"benilla-resident-installed-two-owner-first-retained-chase-route-v1");
+        identity.update(route.owner.npc().spawn.to_le_bytes());
+    } else {
+        identity.update(b"benilla-resident-installed-one-retained-chase-route-v1");
+    }
     identity.update(context.binding.world);
     identity.update(context.binding.profile);
     identity.update(context.binding.geometry);

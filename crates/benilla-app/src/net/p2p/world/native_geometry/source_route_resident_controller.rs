@@ -42,12 +42,24 @@ enum Mode {
     SourceChangeBeforeAck,
     RollbackRetry,
     TwoOwners,
+    TwoOwnerRetained(super::source_route_resident_pair::Mode),
     RetainedDispatch,
     OneRetained(retained::Mode),
     ThreeEpoch(three_epoch::Mode),
     FiniteLoop(super::source_route_resident_finite_loop::Mode),
 }
 impl Mode {
+    fn two_owners(self) -> bool {
+        matches!(self, Self::TwoOwners | Self::TwoOwnerRetained(_))
+    }
+    fn pair(self) -> Option<super::source_route_resident_pair::Mode> {
+        if let Self::TwoOwnerRetained(mode) = self {
+            Some(mode)
+        } else {
+            None
+        }
+    }
+
     fn retained(self) -> Option<retained::Mode> {
         match self {
             Self::OneRetained(mode) => Some(mode),
@@ -174,7 +186,13 @@ fn run(mode: Mode) {
             | runtime::GeneratedSupport::SourceSplineSupport
     );
     runtime::with_selected_controller_fixture(
-        mode == Mode::TwoOwners,
+        if mode.pair().is_some() {
+            runtime::ControllerOwners::FirstRetainedPair
+        } else if mode.two_owners() {
+            runtime::ControllerOwners::ColdPair
+        } else {
+            runtime::ControllerOwners::Single
+        },
         mode.retained().is_some() || old_finite,
         mode.three_epoch().is_some(),
         old_finite,
@@ -196,6 +214,18 @@ fn run(mode: Mode) {
                 policy.clone(),
             )
             .unwrap();
+            if mode.pair().is_some() {
+                provider.require_two_owner_first_retained().unwrap();
+                assert!(matches!(
+                    provider.require_one_retained_route(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            } else {
+                assert!(matches!(
+                    provider.require_two_owner_first_retained(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            }
             if mode.three_epoch().is_some() {
                 provider.require_two_retained_routes().unwrap();
             } else {
@@ -349,7 +379,7 @@ fn run(mode: Mode) {
                 assert_eq!(owner_count, 1);
             }
             let chase_destination =
-                (mode == Mode::TwoOwners).then(|| runtime::two_owner_chase_destination(&p));
+                (mode.two_owners()).then(|| runtime::two_owner_chase_destination(&p));
             let mut authored = n::synthetic_motion_fixture::SyntheticMotionAuthority::default();
             let callbacks = Arc::new(AtomicUsize::new(0));
             let routes = Arc::new(AtomicUsize::new(0));
@@ -375,6 +405,10 @@ fn run(mode: Mode) {
             let mut finite = mode
                 .finite_loop()
                 .map(super::source_route_resident_finite_owner::Owner::new);
+            let mut pair = mode
+                .pair()
+                .map(|mode| super::source_route_resident_pair::Owner::new(mode, &p));
+            let (pair_proof_send, pair_proof_receive) = bounded(1);
             let worker_callbacks = callbacks.clone();
             let worker_routes = routes.clone();
             std::thread::scope(|scope| {
@@ -478,6 +512,13 @@ fn run(mode: Mode) {
                         assert_eq!(driver.tick(), tick);
                         // Projection/checkpoint may have published once BEFORE the delivery fault.
                         // Do not claim a dropped ACK suppresses committed movement events.
+                        if let Some(pair_mode) = mode.pair() {
+                            let (tick, events, count, proof) = super::source_route_resident_pair::after_cold_ack(
+                                &mut driver, &worker_callbacks, &worker_routes, out.events.len(), pair_mode,
+                            );
+                            pair_proof_send.send(proof).unwrap();
+                            return ((tick, events, count), None, None, None);
+                        }
                         if mode == Mode::RetainedDispatch {
                             return (super::source_route_resident_continuation::after_cold_ack(
                                 &mut driver,
@@ -574,6 +615,23 @@ fn run(mode: Mode) {
                                     )))
                                     .unwrap();
                                 continue;
+                            }
+                            if let Some(owner) = pair.as_mut() {
+                                if matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some())
+                                {
+                                    routes.fetch_add(1, Ordering::SeqCst);
+                                    let result = owner
+                                        .route(
+                                            &mut ledger,
+                                            &mut geometry,
+                                            compatibility,
+                                            &mut provider,
+                                            &request,
+                                        )
+                                        .map(|facts| AuthorityReply { request, facts });
+                                    reply.send(result).unwrap();
+                                    continue;
+                                }
                             }
                             if let Some(owner) = finite.as_mut() {
                                 if matches!(
@@ -1237,7 +1295,7 @@ fn run(mode: Mode) {
                                     "Open must restore genuine initialization, not reinitialize"
                                 ),
                                 _ => {
-                                    if mode == Mode::TwoOwners {
+                                    if mode.two_owners() {
                                         visitors.resolve(&request).unwrap().unwrap_or_else(|| {
                                             authored.resolve(&request).unwrap().facts
                                         })
@@ -1282,6 +1340,7 @@ fn run(mode: Mode) {
                             if notice.routes().is_empty() {
                                 assert!(
                                     routes.load(Ordering::SeqCst) == 0
+                                        || pair.is_some() && ledger.counts() == (2, 2)
                                         || finite
                                             .as_ref()
                                             .is_some_and(|owner| owner.accepted_epochs() <= 8)
@@ -1301,6 +1360,13 @@ fn run(mode: Mode) {
                                 binding_error(ledger.acknowledge(&notice)).unwrap();
                                 reply.send(Ok(())).unwrap();
                                 continue;
+                            }
+                            if let Some(owner) = pair.as_mut() {
+                                if matches!(&notice.routes()[0].request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some())
+                                {
+                                    reply.send(owner.notice(&mut ledger, &notice)).unwrap();
+                                    continue;
+                                }
                             }
                             if let Some(owner) = finite.as_mut() {
                                 if matches!(&notice.routes()[0].request.query,
@@ -1663,7 +1729,7 @@ fn run(mode: Mode) {
                                 captured = Some(notice.clone());
                             }
                             let prior = ledger.diagnostic();
-                            if mode == Mode::TwoOwners {
+                            if mode.two_owners() {
                                 assert_ne!(
                                     notice.routes()[0].request.binding.npc,
                                     notice.routes()[1].request.binding.npc
@@ -1738,6 +1804,9 @@ fn run(mode: Mode) {
                             ledger.acknowledge(&notice).unwrap();
                             assert_eq!(ledger.diagnostic(), accepted);
                             refuse_unchanged(&mut ledger, &wrong::decoded_dispatch(&notice));
+                            if let Some(owner) = pair.as_mut() {
+                                owner.observe_cold(&notice, &ledger);
+                            }
                             assert_eq!(ledger.require_open_epoch(), Err(Failure::UnsupportedQuery));
                             if mode == Mode::RollbackRetry {
                                 refuse_unchanged(
@@ -1762,6 +1831,19 @@ fn run(mode: Mode) {
                 }
                 let ((tick, events, count), committed_warm, committed_third, loop_proofs) =
                     worker.join().expect("bounded controller worker");
+                if let Some(owner) = &pair {
+                    assert!(
+                        committed_warm.is_none()
+                            && committed_third.is_none()
+                            && loop_proofs.is_none()
+                    );
+                    assert_eq!(provider.retained_constructor_count(), 2);
+                    assert_eq!(ledger.counts(), (2, 2));
+                    assert_eq!(callbacks.load(Ordering::SeqCst), count);
+                    owner.finish(&pair_proof_receive.recv().unwrap(), &ledger);
+                    eprintln!("resident two-owner first retained: mode={mode:?} tick={tick} callbacks={count} events={events} constructors=2; co-located fixture only, no NPC avoidance claim");
+                    return;
+                }
                 if let Some(owner) = &finite {
                     assert!(committed_warm.is_none() && committed_third.is_none());
                     assert_eq!(deliveries, 1, "cold actual notice handled once");
@@ -2062,4 +2144,8 @@ pub(super) fn three_epoch_probe(mode: three_epoch::Mode) {
 
 pub(super) fn run_finite_loop(mode: super::source_route_resident_finite_loop::Mode) {
     run(Mode::FiniteLoop(mode));
+}
+
+pub(super) fn two_owner_retained_probe(mode: super::source_route_resident_pair::Mode) {
+    run(Mode::TwoOwnerRetained(mode));
 }

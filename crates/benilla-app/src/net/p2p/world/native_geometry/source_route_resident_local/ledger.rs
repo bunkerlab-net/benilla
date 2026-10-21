@@ -46,6 +46,9 @@ pub(in super::super) fn diagnose_support_prism_for_test(
     super::straight_loop::diagnose_support_prism_for_test(local, from, to, body, floor, ceiling)
 }
 
+#[path = "pair.rs"]
+mod pair;
+
 const MAX_CANDIDATES: usize = 16;
 struct Entry {
     id: u64,
@@ -150,6 +153,7 @@ pub(in super::super) struct ResidentLedger {
     next_id: u64,
     route_epoch_committed: bool,
     one_retained: bool,
+    two_owner_first_retained: bool,
     retained_epoch_committed: bool,
     two_retained: bool,
     finite_retained: bool,
@@ -170,6 +174,7 @@ pub(in super::super) struct Diagnostic {
     next_id: u64,
     route_epoch_committed: bool,
     one_retained: bool,
+    two_owner_first_retained: bool,
     retained_epoch_committed: bool,
     two_retained: bool,
     finite_retained: bool,
@@ -186,6 +191,7 @@ impl PartialEq for Diagnostic {
             && self.raw == other.raw
             && self.next_id == other.next_id
             && self.route_epoch_committed == other.route_epoch_committed
+            && self.two_owner_first_retained == other.two_owner_first_retained
             && self.one_retained == other.one_retained
             && self.retained_epoch_committed == other.retained_epoch_committed
             && self.two_retained == other.two_retained
@@ -206,6 +212,7 @@ impl Diagnostic {
             && self.boundary == other.boundary
             && self.raw == other.raw
             && self.route_epoch_committed == other.route_epoch_committed
+            && self.two_owner_first_retained == other.two_owner_first_retained
             && self.one_retained == other.one_retained
             && self.retained_epoch_committed == other.retained_epoch_committed
             && self.two_retained == other.two_retained
@@ -238,14 +245,24 @@ impl ResidentLedger {
         provider
             .verify_installed_owner(compatibility, compatibility.owner(), deadline, || false)?;
         let one_retained = identity.allows_one_retained_route();
+        let two_owner_first_retained = identity.allows_two_owner_first_retained();
         let two_retained = identity.allows_two_retained_routes();
         let finite_retained = identity.allows_finite_retained_routes();
         let finite_straight = identity.allows_finite_straight_routes();
         if (one_retained || finite_straight) && profile.npcs.len() != 1 {
             return Err(Failure::UnsupportedQuery.into());
         }
+        if two_owner_first_retained
+            && (profile.npcs.len() != 2
+                || one_retained
+                || two_retained
+                || finite_retained
+                || finite_straight)
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
         let mut candidates = vec![];
-        if one_retained || finite_straight {
+        if one_retained || finite_straight || two_owner_first_retained {
             // Failed fresh attempts cannot change even diagnostic reservation state.
             candidates
                 .try_reserve_exact(MAX_CANDIDATES)
@@ -264,6 +281,7 @@ impl ResidentLedger {
             next_id: 0,
             route_epoch_committed: false,
             one_retained,
+            two_owner_first_retained,
             retained_epoch_committed: false,
             two_retained,
             finite_retained,
@@ -586,7 +604,13 @@ impl ResidentLedger {
         match candidate {
             Candidate::Cold(candidate) => self.validate_candidate(candidate),
             Candidate::Retained(candidate) => self.validate_retained_candidate(candidate),
+            Candidate::WarmHead(head) if self.two_owner_first_retained => {
+                self.validate_pair_warm_head(head)
+            }
             Candidate::WarmHead(head) => self.validate_warm_head(head),
+            Candidate::WarmProposal(proposal) if self.two_owner_first_retained => {
+                self.validate_pair_proposal(proposal)
+            }
             Candidate::WarmProposal(proposal) => self.validate_warm_proposal(proposal),
         }
     }
@@ -741,6 +765,8 @@ impl ResidentLedger {
                 && !notice.routes().is_empty()
                 && (if self.finite_retained || self.finite_straight {
                     self.epochs_committed >= 8
+                } else if self.two_owner_first_retained {
+                    self.retained_epoch_committed
                 } else if self.two_retained {
                     self.epochs_committed >= 3
                 } else {
@@ -748,6 +774,9 @@ impl ResidentLedger {
                 })
         {
             return Err(Failure::Binding);
+        }
+        if self.two_owner_first_retained {
+            self.validate_pair_notice_owners(notice)?;
         }
         let mut selected: Vec<(NpcId, usize)> = vec![];
         let mut last_id = None;
@@ -800,6 +829,18 @@ impl ResidentLedger {
                     let committed = self.committed_cold()?;
                     if notice.routes().len() != 1
                         || !Rc::ptr_eq(committed, &candidate.predecessor)
+                        || old.cache() != Some(&calculation(&committed.reply)?.after_cache)
+                    {
+                        return Err(Failure::Binding);
+                    }
+                }
+                Candidate::WarmProposal(proposal) if self.two_owner_first_retained => {
+                    self.validate_pair_proposal(proposal)?;
+                    let committed = self.committed_pair_cold(npc)?;
+                    let WarmPredecessor::Cold(origin) = &proposal.predecessor else {
+                        return Err(Failure::Binding);
+                    };
+                    if !Rc::ptr_eq(committed, origin)
                         || old.cache() != Some(&calculation(&committed.reply)?.after_cache)
                     {
                         return Err(Failure::Binding);
@@ -1150,6 +1191,9 @@ impl ResidentLedger {
         {
             return Err(Failure::Binding);
         }
+        self.validate_warm_head_payload(head)
+    }
+    fn validate_warm_head_payload(&self, head: &WarmHead) -> Result<(), Failure> {
         self.validate_candidate(&head.origin)?;
         let Query::SourceMotion(MotionQuery::Route(origin)) = &head.origin.reply.request.query
         else {
@@ -1175,7 +1219,11 @@ impl ResidentLedger {
             .map_err(|_| Failure::Binding)?;
         let prior = calculation.prior_cache.as_deref().ok_or(Failure::Binding)?;
         let revision = match &head.dependency {
-            WarmDependency::First(_) if self.two_retained || self.finite_retained => 2,
+            WarmDependency::First(_)
+                if self.two_retained || self.finite_retained || self.two_owner_first_retained =>
+            {
+                2
+            }
             WarmDependency::Second(_) if self.two_retained && !self.finite_retained => 3,
             WarmDependency::Repeated(dependency) if self.finite_retained => {
                 let revision = dependency.source_revision();
@@ -2142,6 +2190,9 @@ impl ResidentLedger {
         if !(self.two_retained || self.finite_retained || self.finite_straight) {
             return Err(Failure::UnsupportedQuery);
         }
+        self.flat_ownership_inner(1)
+    }
+    fn flat_ownership_inner(&self, owners: usize) -> Result<OwnershipDiagnostic, Failure> {
         let mut cold = Vec::<&Rc<ResidentColdCandidate>>::new();
         let mut warm = Vec::<&Rc<WarmHead>>::new();
         let mut staged_count = 0;
@@ -2207,10 +2258,9 @@ impl ResidentLedger {
                 * (10 * cache_bound
                     + 8050 * std::mem::size_of::<benilla_native_nav::SourceWarmTrace>()
                     + points_and_checks)
-                + 6 * cache_bound
-                + points_and_checks
+                + owners * (6 * cache_bound + points_and_checks)
         };
-        if terminal_count > 2 + staged_count || storage_bytes > upper_bound_bytes {
+        if terminal_count > 2 * owners + staged_count || storage_bytes > upper_bound_bytes {
             return Err(Failure::Binding);
         }
         Ok(OwnershipDiagnostic {
@@ -2264,6 +2314,7 @@ impl ResidentLedger {
             next_id: self.next_id,
             route_epoch_committed: self.route_epoch_committed,
             one_retained: self.one_retained,
+            two_owner_first_retained: self.two_owner_first_retained,
             retained_epoch_committed: self.retained_epoch_committed,
             two_retained: self.two_retained,
             finite_retained: self.finite_retained,

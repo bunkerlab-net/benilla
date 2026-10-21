@@ -383,6 +383,16 @@ jobs:
           log="$RUNNER_TEMP/native-repeated-source-boundary.log"
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::repeated_retained::tests::repeated_source_revision_is_finite_checked_and_never_authorizes_a_ninth -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_filter::resident::retained::repeated_retained::tests::repeated_source_revision_is_finite_checked_and_never_authorizes_a_ninth
+      - name: Verify first retained atomic owner pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-pair.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_pair:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_pair::two_owner_first_retained_commits_one_atomic_pair \
+            net::p2p::native_geometry::source_route_resident_pair::two_owner_second_callback_rollback_and_lost_ack_do_not_publish_twice \
+            net::p2p::native_geometry::source_route_resident_pair::two_owner_third_revision_refuses_before_source_work
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor

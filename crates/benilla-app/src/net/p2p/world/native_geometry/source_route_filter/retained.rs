@@ -118,6 +118,14 @@ impl ResidentJoinedRetainedDependency {
 }
 
 impl ResidentFilterProvider<'_, '_, '_, '_> {
+    // Shared per-route mechanics do not make either public capability imply the other.
+    fn require_first_retained_calculation(&self) -> Result<(), ResidentFilterError> {
+        if self.require_two_owner_first_retained().is_ok() {
+            Ok(())
+        } else {
+            self.require_one_retained_route()
+        }
+    }
     /// No constructor/filter source work precedes the current straight Chase gate.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn observe_joined_retained(
@@ -143,6 +151,53 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
     }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn observe_joined_retained_observed(
+        &mut self,
+        prior: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        player: PlayerId,
+        first_ticket: u64,
+        budget: SourceSamePolygonBudget,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        observe: impl FnMut(ResidentRetainedPhase),
+    ) -> Result<ResidentJoinedRetainedDependency, ResidentFilterError> {
+        self.require_one_retained_route()?;
+        self.observe_first_retained_inner(
+            prior,
+            context,
+            player,
+            first_ticket,
+            budget,
+            deadline,
+            cancelled,
+            observe,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn observe_two_owner_first_retained(
+        &mut self,
+        prior: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        player: PlayerId,
+        first_ticket: u64,
+        budget: SourceSamePolygonBudget,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<ResidentJoinedRetainedDependency, ResidentFilterError> {
+        self.require_two_owner_first_retained()?;
+        self.observe_first_retained_inner(
+            prior,
+            context,
+            player,
+            first_ticket,
+            budget,
+            deadline,
+            cancelled,
+            |_| {},
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn observe_first_retained_inner(
         &mut self,
         prior: &ResidentJoinedColdDependency,
         context: &AuthorityRequest,
@@ -315,7 +370,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<(), ResidentFilterError> {
-        self.require_one_retained_route()?;
+        self.require_first_retained_calculation()?;
         self.check_context(context, deadline, &cancelled)?;
         let previous = prior.retained_cold().historical_observation();
         if !Rc::ptr_eq(&self.identity, &previous.identity) {
@@ -517,7 +572,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         context: &AuthorityRequest,
         expected: &motion::PathFinderCache,
     ) -> Result<(), ResidentFilterError> {
-        self.require_one_retained_route()?;
+        self.require_first_retained_calculation()?;
         let previous = prior.retained_cold().historical_observation();
         if !Rc::ptr_eq(&dependency.root.provider, &self.identity)
             || !Rc::ptr_eq(&previous.identity, &self.identity)

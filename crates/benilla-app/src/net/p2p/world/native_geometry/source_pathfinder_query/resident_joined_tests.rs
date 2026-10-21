@@ -136,6 +136,7 @@ pub(crate) fn with_two_owner_route_fixture<T>(
         false,
         false,
         false,
+        false,
         GeneratedSupport::Disabled,
         test,
     )
@@ -175,6 +176,14 @@ pub(crate) enum GeneratedSupport {
     SourceSplineSupport,
 }
 
+#[cfg(not(benilla_headless_geometry))]
+#[derive(Clone, Copy)]
+pub(crate) enum ControllerOwners {
+    Single,
+    ColdPair,
+    FirstRetainedPair,
+}
+
 /// Component-only selection made before the Profile or any live owner exists.
 #[cfg(not(benilla_headless_geometry))]
 #[allow(
@@ -182,7 +191,7 @@ pub(crate) enum GeneratedSupport {
     reason = "one-retained actual-controller fixture is app-only"
 )]
 pub(crate) fn with_selected_controller_fixture<T>(
-    two_owners: bool,
+    owners: ControllerOwners,
     one_retained_route: bool,
     two_retained_routes: bool,
     finite_retained_routes: bool,
@@ -199,6 +208,31 @@ pub(crate) fn with_selected_controller_fixture<T>(
         SourceMapQuerySnapshot,
     ) -> T,
 ) -> T {
+    let two_owners = !matches!(owners, ControllerOwners::Single);
+    let two_owner_first_retained = matches!(owners, ControllerOwners::FirstRetainedPair);
+    if two_owner_first_retained {
+        assert!(
+            two_owners
+                && !one_retained_route
+                && !two_retained_routes
+                && !finite_retained_routes
+                && !straight_retained_routes
+                && generated_support == GeneratedSupport::Disabled
+        );
+        let (start, _) = input::support();
+        return with_fixture_at_with_owners(
+            (start, [start[0] - 40., start[1], start[2]]),
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            GeneratedSupport::Disabled,
+            test,
+        );
+    }
     assert!(generated_support == GeneratedSupport::Disabled || straight_retained_routes);
     assert!(
         !straight_retained_routes
@@ -214,6 +248,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
         with_fixture_at_with_owners(
             (start, [start[0] - 8., start[1], start[2]]),
             true,
+            false,
             false,
             !straight_retained_routes,
             two_retained_routes,
@@ -248,6 +283,7 @@ fn with_fixture_at<T>(
         false,
         false,
         false,
+        false,
         GeneratedSupport::Disabled,
         test,
     )
@@ -257,6 +293,7 @@ fn with_fixture_at_with_owners<T>(
     endpoints: ([f32; 3], [f32; 3]),
     first_cold_route: bool,
     two_owners: bool,
+    two_owner_first_retained: bool,
     one_retained_route: bool,
     two_retained_routes: bool,
     finite_retained_routes: bool,
@@ -295,6 +332,20 @@ fn with_fixture_at_with_owners<T>(
         ResidentGeometryPolicy::installed_first_cold_route(&compatibility)
     } else {
         ResidentGeometryPolicy::installed_dry_corridor(&compatibility)
+    };
+    #[cfg(not(benilla_headless_geometry))]
+    let policy = if two_owner_first_retained {
+        assert!(
+            first_cold_route
+                && two_owners
+                && !one_retained_route
+                && !two_retained_routes
+                && !finite_retained_routes
+                && !straight_retained_routes
+        );
+        ResidentGeometryPolicy::installed_two_owner_first_retained(&compatibility)
+    } else {
+        policy
     };
     #[cfg(not(benilla_headless_geometry))]
     let policy = if one_retained_route {
@@ -357,7 +408,8 @@ fn with_fixture_at_with_owners<T>(
     };
     #[cfg(benilla_headless_geometry)]
     assert!(
-        !one_retained_route
+        !two_owner_first_retained
+            && !one_retained_route
             && !two_retained_routes
             && !finite_retained_routes
             && !straight_retained_routes
@@ -395,6 +447,69 @@ fn with_fixture_at_with_owners<T>(
             SourceMapQuerySnapshot::from_generated(&[(prepared, generated)], &p, until(), || false)
                 .unwrap();
         let revision = policy.revision(height.binding(), query.binding()).unwrap();
+        #[cfg(not(benilla_headless_geometry))]
+        if two_owner_first_retained {
+            for old in [
+                ResidentGeometryPolicy::installed_first_cold_route(&compatibility),
+                ResidentGeometryPolicy::installed_one_retained_route(&compatibility),
+                ResidentGeometryPolicy::installed_two_retained_routes(&compatibility),
+                ResidentGeometryPolicy::installed_finite_retained_routes(&compatibility),
+                ResidentGeometryPolicy::installed_finite_straight_routes(&compatibility),
+                ResidentGeometryPolicy::installed_source_spline_supported_straight_routes(
+                    &compatibility,
+                ),
+            ] {
+                assert_ne!(
+                    revision,
+                    old.revision(height.binding(), query.binding()).unwrap()
+                );
+            }
+        }
+        #[cfg(not(benilla_headless_geometry))]
+        if two_owner_first_retained {
+            // Independent cache-free negative profiles: no live session or owner is relabeled.
+            for old in [
+                ResidentGeometryPolicy::installed_one_retained_route(&compatibility),
+                ResidentGeometryPolicy::installed_finite_retained_routes(&compatibility),
+                ResidentGeometryPolicy::installed_finite_straight_routes(&compatibility),
+            ] {
+                let mut rejected_profile = p.clone();
+                rejected_profile.geometry_revision =
+                    old.revision(height.binding(), query.binding()).unwrap();
+                let rejected_session = session(&rejected_profile);
+                let rejected_query = SourceMapQuerySnapshot::from_generated(
+                    &[(prepared, generated)],
+                    &rejected_profile,
+                    until(),
+                    || false,
+                )
+                .unwrap();
+                let rejected_provider = ResidentFilterProvider::bind_with_policy(
+                    &rejected_session,
+                    &rejected_profile,
+                    &height,
+                    rejected_query,
+                    old,
+                )
+                .unwrap();
+                assert_eq!(rejected_provider.retained_constructor_count(), 0);
+                assert!(matches!(
+                    super::super::source_route_resident_local::ledger::ResidentLedger::bind(
+                        &rejected_session,
+                        &rejected_profile,
+                        f::player(),
+                        &rejected_provider,
+                        &compatibility,
+                        until(),
+                    ),
+                    Err(
+                        super::super::source_route_filter::resident::ResidentFilterError::Context(
+                            super::super::core::Failure::UnsupportedQuery
+                        )
+                    )
+                ));
+            }
+        }
         #[cfg(not(benilla_headless_geometry))]
         if two_retained_routes {
             // Distinct policy selection precedes geometry binding and all live

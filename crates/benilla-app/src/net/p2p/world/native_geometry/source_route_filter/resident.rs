@@ -70,6 +70,8 @@ pub(crate) struct ResidentGeometryPolicy {
     dry_primary: bool,
     first_cold_route: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
+    two_owner_first_retained: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
     one_retained_route: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     two_retained_routes: bool,
@@ -98,6 +100,8 @@ impl ResidentGeometryPolicy {
         installed: None,
         dry_primary: false,
         first_cold_route: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        two_owner_first_retained: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         one_retained_route: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
@@ -128,6 +132,8 @@ impl ResidentGeometryPolicy {
             }),
             dry_primary: false,
             first_cold_route: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            two_owner_first_retained: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
             one_retained_route: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
@@ -169,6 +175,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_first_cold_route(inventory);
         policy.one_retained_route = true;
+        policy
+    }
+    /// Separate component policy for exactly two ACK-selected cold owners, revision 1 to 2.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_two_owner_first_retained(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_first_cold_route(inventory);
+        policy.two_owner_first_retained = true;
         policy
     }
     /// Component-only cold plus two retained calculations, with flat ACK roots.
@@ -268,6 +283,21 @@ impl ResidentGeometryPolicy {
         } else {
             hash.update(b"benilla-resident-installed-corridor-evidence-v1".as_slice());
             hash.update(primary);
+        }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.two_owner_first_retained {
+            if !self.first_cold_route
+                || !self.dry_primary
+                || self.one_retained_route
+                || self.two_retained_routes
+                || self.finite_retained_routes
+                || self.finite_straight_routes
+            {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-two-owner-first-retained-revision2-v1");
+            hash.update(b"full-owner-key-exact-native-cold-predecessors-atomic-two-route-ack-v1");
+            hash.update(b"revision3-before-query-refusal-same-polygon-only-v1");
         }
         #[cfg(all(test, not(benilla_headless_geometry)))]
         if self.one_retained_route {
@@ -419,6 +449,7 @@ pub(crate) struct ResidentProviderIdentity {
     allocation: Rc<()>,
     inventory: [u8; 32],
     source_epoch: [u8; 32],
+    two_owner_first_retained: bool,
     one_retained_route: bool,
     two_retained_routes: bool,
     finite_retained_routes: bool,
@@ -429,6 +460,9 @@ pub(crate) struct ResidentProviderIdentity {
 impl ResidentProviderIdentity {
     pub(crate) fn matches(&self, provider: &ResidentFilterProvider<'_, '_, '_, '_>) -> bool {
         Rc::ptr_eq(&self.allocation, &provider.identity)
+    }
+    pub(crate) fn allows_two_owner_first_retained(&self) -> bool {
+        self.two_owner_first_retained
     }
     pub(crate) fn allows_one_retained_route(&self) -> bool {
         self.one_retained_route
@@ -518,6 +552,15 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             || !self.geometry_policy.dry_primary
             || self.geometry_policy.installed.is_none()
         {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_two_owner_first_retained(&self) -> Result<(), ResidentFilterError> {
+        self.require_first_cold_route()?;
+        if !self.geometry_policy.two_owner_first_retained || self.profile.npcs.len() != 2 {
             return Err(Failure::UnsupportedQuery.into());
         }
         Ok(())
@@ -635,6 +678,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             allocation: Rc::clone(&self.identity),
             inventory: self.query.binding().inventory,
             source_epoch: self.query.binding().source_epoch,
+            two_owner_first_retained: self.geometry_policy.two_owner_first_retained,
             one_retained_route: self.geometry_policy.one_retained_route,
             two_retained_routes: self.geometry_policy.two_retained_routes,
             finite_retained_routes: self.geometry_policy.finite_retained_routes,

@@ -46,6 +46,8 @@ mod source_route_resident_finite_owner;
 mod source_route_resident_history;
 #[cfg(test)]
 mod source_route_resident_local;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod source_route_resident_pair;
 #[cfg(test)]
 mod source_route_resident_planar_refusals;
 #[cfg(test)]
