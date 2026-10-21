@@ -10,6 +10,7 @@ use benilla_native_nav::{
     SourceRetainedDetailHeight,
 };
 use benilla_native_nav_generator::{GenerationStatus, BASE_UNIT_DIM};
+use std::fmt::Write;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FlatBand {
@@ -76,13 +77,31 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             detail
         };
         let generated = self.generated_flat_receipt()?;
-        let band = validate_generated_band(
+        let band = match validate_generated_band(
             &dependency.terminal,
             &detail,
             generated,
             deadline,
             &cancelled,
-        )?;
+        ) {
+            Ok(band) => band,
+            Err(error) => {
+                // Inspect only this already-created terminal/witness. The owned report
+                // stays private until the same attempt passes its original lease again.
+                let report = band_refusal_report(&dependency.terminal, &detail, generated);
+                match (report, self.straight_for(dependency, origin, context, deadline, &cancelled)) {
+                    (Ok(report), Ok(_)) => eprintln!(
+                        "resident generated-support source admission refusal: tick={} source-revision={} error={error:?}; {report}; fresh-source-observation=true concrete-support=not-established original-error-preserved=true",
+                        context.binding.tick, dependency.source_revision(),
+                    ),
+                    (report, freshness) => eprintln!(
+                        "resident generated-support source refusal diagnostic unavailable: tick={} report-error={:?} freshness-error={:?}; original-error={error:?} preserved",
+                        context.binding.tick, report.err(), freshness.err(),
+                    ),
+                }
+                return Err(error);
+            }
+        };
         let support = ResidentGeneratedFlatSupport {
             detail,
             candidate: Rc::clone(&dependency.root.identity),
@@ -222,6 +241,141 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         }
         Ok(generated)
     }
+}
+
+/// Refusal-only metadata, never a new detail query, support constructor or permission.
+/// Normal validation above remains the authority; these labels identify its first static
+/// predicate that rejects the already-created objects, with the same ordering.
+fn band_refusal_report(
+    terminal: &LoadedSourceRetainedStraight,
+    detail: &LoadedSourceRetainedStraightDetail,
+    generated: &GeneratedQueryProvenance,
+) -> Result<String, Failure> {
+    let diagnostics = terminal.diagnostics();
+    if terminal.points().len() > STRAIGHT_MAX_POINTS
+        || terminal.initial_storage().len() > STORAGE_LIMIT
+        || terminal.before_storage().len() > STORAGE_LIMIT
+        || terminal.storage().len() > STORAGE_LIMIT
+        || diagnostics.heights.len() > STRAIGHT_MAX_POINTS - 2
+        || detail.records().len() > STRAIGHT_MAX_POINTS - 2
+        || detail.triangle_tests() > 4096
+        || generated.tiles().len() > 9
+        || terminal
+            .ray()
+            .is_some_and(|ray| ray.polygons.len() > terminal.point_limit())
+    {
+        return Err(Failure::Invalid);
+    }
+    let (predicate, record) = band_refusal_predicate(terminal, detail, generated);
+    let mut report = String::new();
+    write!(report,
+        "predicate={predicate} record={record:?} native-phase={:?} previous-path-type={} path-type={} point-limit={} filter={:?} width-bits={} config={:?} from={:?} requested-end={:?} end={:?} actual-end={:?} full-native-point-bits={:?} initial-active={} full-initial-storage={:?} before-active={} full-before-storage={:?} after-active={} full-after-storage={:?} start-lookup={:?} end-lookup={:?} ray={:?} height-diagnostics={diagnostics:?} attribution-count={} triangle-tests={} attribution={:?} generated-binding={:?} generated-configuration={:?}",
+        terminal.phase(), terminal.previous_path_type(), terminal.path_type(), terminal.point_limit(), terminal.filter(), terminal.collision_width_bits(), terminal.config(), terminal.from(), terminal.requested_end(), terminal.end(), terminal.actual_end(), terminal.points(), terminal.initial_active_len(), terminal.initial_storage(), terminal.before_active_len(), terminal.before_storage(), terminal.active_len(), terminal.storage(), terminal.start_lookup(), terminal.end_lookup(), terminal.ray(), detail.records().len(), detail.triangle_tests(), detail.records(), generated.binding(), generated.configuration_binding(),
+    ).map_err(|_| Failure::Invalid)?;
+    for (index, tile) in generated.tiles().iter().enumerate() {
+        write!(report,
+            " generated-tile{index}={{source-grid:{:?},native-tile:{:?},bmin-bits:{:?},bmax-bits:{:?},ch-bits:{},status:{:?}}}",
+            tile.source_grid(), tile.expected_native_tile(), tile.bmin_bits(), tile.bmax_bits(), tile.ch_bits(), tile.status(),
+        ).map_err(|_| Failure::Invalid)?;
+    }
+    Ok(report)
+}
+
+fn band_refusal_predicate(
+    terminal: &LoadedSourceRetainedStraight,
+    detail: &LoadedSourceRetainedStraightDetail,
+    generated: &GeneratedQueryProvenance,
+) -> (&'static str, Option<usize>) {
+    let Some(first) = detail.records().first() else {
+        return ("no-current-height-attribution", None);
+    };
+    if generated.tiles().is_empty() || generated.tiles().len() > 9 {
+        return ("generated-tile-cardinality", None);
+    }
+    let Ok(band) = matched_band(first, generated) else {
+        return ("first-attribution-generated-band", Some(0));
+    };
+    let points = terminal.points();
+    let recorded = &terminal.diagnostics().heights;
+    if !(3..=STRAIGHT_MAX_POINTS).contains(&points.len()) {
+        return ("native-point-cardinality", None);
+    }
+    if recorded.len() != points.len() - 2 {
+        return ("recorded-height-cardinality", None);
+    }
+    if detail.records().len() != recorded.len() {
+        return ("attributed-height-cardinality", None);
+    }
+    let h = f32::from_bits(band.plane);
+    let q = f32::from_bits(band.ceiling);
+    for (index, point) in points.iter().enumerate() {
+        if point
+            .iter()
+            .any(|value| !f32::from_bits(*value).is_finite())
+        {
+            return ("nonfinite-native-point", Some(index));
+        }
+        if !(h..=q).contains(&f32::from_bits(point[2])) {
+            return ("native-point-outside-band", Some(index));
+        }
+    }
+    if points.iter().all(|point| point[2] == band.plane) {
+        return ("all-points-at-raw-plane", None);
+    }
+    for (index, (record, attribution)) in recorded.iter().zip(detail.records()).enumerate() {
+        let failed = if attribution.recorded != *record {
+            Some("record-attribution-identity")
+        } else if record.endpoint != 4 {
+            Some("height-call-not-interior-sample")
+        } else if record.polygon == 0 {
+            Some("height-call-zero-polygon")
+        } else if record.before[..2] != record.after[..2] {
+            Some("height-call-changed-xy")
+        } else if record.after != points[index + 1] {
+            Some("height-call-not-indexed-native-point")
+        } else if record.status != 1 << 30 {
+            Some("recorded-height-status")
+        } else if attribution.query_status != 1 << 30 {
+            Some("attributed-height-status")
+        } else if attribution.query_height_bits != record.after[2] {
+            Some("attributed-height-bits")
+        } else if attribution.triangle_index >= attribution.detail_triangle_count {
+            Some("detail-triangle-index")
+        } else {
+            attribution
+                .vertices
+                .iter()
+                .enumerate()
+                .find_map(|(vertex, value)| {
+                    if value.source != SourceDetailVertexSource::Polygon {
+                        Some("detail-vertex-not-polygon")
+                    } else if u32::from(attribution.triangle[vertex])
+                        >= attribution.polygon_vertex_count
+                    {
+                        Some("detail-vertex-index")
+                    } else if value.detour_bits[1] != band.ceiling {
+                        Some("detail-vertex-not-one-cell-height")
+                    } else if value
+                        .detour_bits
+                        .iter()
+                        .any(|bits| !f32::from_bits(*bits).is_finite())
+                    {
+                        Some("nonfinite-detail-vertex")
+                    } else {
+                        None
+                    }
+                })
+        };
+        if let Some(failed) = failed {
+            return (failed, Some(index));
+        }
+    }
+    for (index, record) in detail.records().iter().enumerate() {
+        if matched_band(record, generated) != Ok(band) {
+            return ("attribution-generated-band-mismatch", Some(index));
+        }
+    }
+    ("no-static-predicate-isolated", None)
 }
 
 fn validate_generated_band(
