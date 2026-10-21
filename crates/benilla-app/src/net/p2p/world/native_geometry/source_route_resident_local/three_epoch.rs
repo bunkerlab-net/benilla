@@ -3,6 +3,7 @@
 use super::super::source_route_filter::resident::retained::{
     repeated_retained::{ResidentCurrentNative, ResidentJoinedRepeatedRetainedDependency},
     second_retained::ResidentJoinedSecondRetainedDependency,
+    straight_retained::{ResidentCurrentStraightNative, ResidentJoinedStraightDependency},
     ResidentJoinedRetainedDependency,
 };
 use super::*;
@@ -14,6 +15,7 @@ pub(super) enum WarmDependency {
     First(Box<ResidentJoinedRetainedDependency>),
     Second(Box<ResidentJoinedSecondRetainedDependency>),
     Repeated(Box<ResidentJoinedRepeatedRetainedDependency>),
+    Straight(Box<ResidentJoinedStraightDependency>),
 }
 impl WarmDependency {
     /// Borrow the actual ledger-owned native terminal, never a copied cache.
@@ -21,7 +23,7 @@ impl WarmDependency {
         match self {
             Self::First(dependency) => Ok(dependency.current_native()),
             Self::Repeated(dependency) => Ok(dependency.current_native()),
-            Self::Second(_) => Err(Failure::UnsupportedQuery),
+            Self::Second(_) | Self::Straight(_) => Err(Failure::UnsupportedQuery),
         }
     }
     pub(super) fn check_cache(&self, cache: &motion::PathFinderCache) -> Result<(), Failure> {
@@ -29,6 +31,7 @@ impl WarmDependency {
             Self::First(dependency) => dependency.check_historical_native_cache_for_test(cache),
             Self::Second(dependency) => dependency.check_historical_native_cache_for_test(cache),
             Self::Repeated(dependency) => dependency.check_historical_native_cache_for_test(cache),
+            Self::Straight(dependency) => dependency.check_historical_native_cache_for_test(cache),
         }
         .map_err(|_| Failure::Binding)
     }
@@ -37,6 +40,7 @@ impl WarmDependency {
             Self::First(dependency) => dependency.storage_footprint_for_test(),
             Self::Second(dependency) => dependency.storage_footprint_for_test(),
             Self::Repeated(dependency) => dependency.storage_footprint_for_test(),
+            Self::Straight(dependency) => dependency.storage_footprint_for_test(),
         }
     }
 }
@@ -51,6 +55,31 @@ pub(super) struct WarmHead {
 pub(super) enum WarmPredecessor {
     Cold(Rc<ResidentColdCandidate>),
     Warm(Rc<WarmHead>),
+}
+impl WarmPredecessor {
+    pub(super) fn origin(&self) -> &Rc<ResidentColdCandidate> {
+        match self {
+            Self::Cold(origin) => origin,
+            Self::Warm(head) => &head.origin,
+        }
+    }
+    pub(super) fn reply(&self) -> &AuthorityReply {
+        match self {
+            Self::Cold(origin) => &origin.reply,
+            Self::Warm(head) => &head.reply,
+        }
+    }
+    pub(super) fn current_straight_native(
+        &self,
+    ) -> Result<ResidentCurrentStraightNative<'_>, Failure> {
+        match self {
+            Self::Cold(origin) => Ok(origin.dependency.current_straight_native()),
+            Self::Warm(head) => match &head.dependency {
+                WarmDependency::Straight(dependency) => Ok(dependency.current_straight_native()),
+                _ => Err(Failure::UnsupportedQuery),
+            },
+        }
+    }
 }
 pub(super) struct StagedWarmProposal {
     pub(super) head: Rc<WarmHead>,

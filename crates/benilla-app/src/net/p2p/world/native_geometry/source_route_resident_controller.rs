@@ -147,11 +147,15 @@ fn refuse_unchanged(ledger: &mut ResidentLedger, notice: &RouteCommitNotice) {
 }
 
 fn run(mode: Mode) {
+    let old_finite = mode.finite_loop()
+        == Some(super::source_route_resident_finite_loop::Mode::OldPolicyBoundary);
+    let straight_finite = mode.finite_loop().is_some() && !old_finite;
     runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
-        mode.retained().is_some() || mode.finite_loop().is_some(),
+        mode.retained().is_some() || old_finite,
         mode.three_epoch().is_some(),
-        mode.finite_loop().is_some(),
+        old_finite,
+        straight_finite,
         |install, height, compatibility, inventory, policy, p, query, other| {
             let fixture = resident_fixture::Fixture::new(p.clone(), [8; 16]);
             let player = fixture.player();
@@ -176,11 +180,23 @@ fn run(mode: Mode) {
                     Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
                 ));
             }
-            if mode.finite_loop().is_some() {
+            if old_finite {
                 provider.require_finite_retained_routes().unwrap();
             } else {
                 assert!(matches!(
                     provider.require_finite_retained_routes(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            }
+            if straight_finite {
+                provider.require_finite_straight_routes().unwrap();
+                assert!(matches!(
+                    provider.require_one_retained_route(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            } else {
+                assert!(matches!(
+                    provider.require_finite_straight_routes(),
                     Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
                 ));
             }
@@ -502,7 +518,7 @@ fn run(mode: Mode) {
                                         registry.unwrap()
                                     );
                                     routes.fetch_add(1, Ordering::SeqCst);
-                                    let (facts, arm) = owner.route(
+                                    let result = owner.route(
                                         &mut ledger,
                                         &mut geometry,
                                         install,
@@ -519,8 +535,18 @@ fn run(mode: Mode) {
                                         provider.retained_constructor_for_test(&request).unwrap(),
                                         registry.unwrap()
                                     );
-                                    late_failure_armed = arm;
-                                    reply.send(Ok(AuthorityReply { request, facts })).unwrap();
+                                    match result {
+                                        Ok((facts, arm)) => {
+                                            late_failure_armed = arm;
+                                            reply
+                                                .send(Ok(AuthorityReply { request, facts }))
+                                                .unwrap();
+                                        }
+                                        Err(error) => {
+                                            assert!(old_finite);
+                                            reply.send(Err(error)).unwrap();
+                                        }
+                                    }
                                     continue;
                                 }
                             }
@@ -1674,7 +1700,7 @@ fn run(mode: Mode) {
                         routes.load(Ordering::SeqCst),
                         late_failures,
                     );
-                    eprintln!("resident finite actual controller: mode={mode:?} tick={tick} accepted=8 callbacks={count} cold-through-final-events={events} constructors=1");
+                    eprintln!("resident finite actual controller: mode={mode:?} tick={tick} accepted={} callbacks={count} cold-through-final-events={events} constructors=1", owner.accepted_epochs());
                     return;
                 }
                 assert!(loop_proofs.is_none());

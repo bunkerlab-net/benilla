@@ -75,6 +75,8 @@ pub(crate) struct ResidentGeometryPolicy {
     two_retained_routes: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     finite_retained_routes: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    finite_straight_routes: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -94,6 +96,8 @@ impl ResidentGeometryPolicy {
         two_retained_routes: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         finite_retained_routes: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        finite_straight_routes: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -114,6 +118,8 @@ impl ResidentGeometryPolicy {
             two_retained_routes: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
             finite_retained_routes: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            finite_straight_routes: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -157,6 +163,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_one_retained_route(inventory);
         policy.finite_retained_routes = true;
+        policy
+    }
+    /// Separate component-only finite straight policy. Old retained resolvers stay closed.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_finite_straight_routes(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_first_cold_route(inventory);
+        policy.finite_straight_routes = true;
         policy
     }
     pub(crate) fn revision(
@@ -221,6 +236,24 @@ impl ResidentGeometryPolicy {
             hash.update(b"flat-ack-selected-first-or-repeated-native-revisions1-through8-v1");
             hash.update(b"checked-source-revision-current-native-full-storage-trace8050-v1");
         }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.finite_straight_routes {
+            if !self.first_cold_route
+                || self.one_retained_route
+                || self.two_retained_routes
+                || self.finite_retained_routes
+            {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-installed-finite-straight-routes-max8-v1");
+            hash.update(b"flat-ack-selected-cold-or-straight-source1024-full-storage-v1");
+            hash.update(b"fresh-source-chase-clear-dry-calculate-force0-straight1-v1");
+            hash.update(b"initialized-full-width-optimize0-normalize0-ignore-normalization0-v1");
+            hash.update(b"points32-segments31-storage4096-lookup8050-ray4096-native4096-v1");
+            hash.update(b"lookup-bound-3A-plus33T-plus2888-storage-growth33-v1");
+            hash.update(b"shared-source-segment-budget-v1");
+            hash.update(b"exact-success-unclipped-ray-complete-active-prefix-v1");
+        }
         hash.update(installed.revision);
         hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
         hash.update(b"exact-endpoints-live-raw-local-corridor-owner-height-segment-los-v1");
@@ -234,6 +267,8 @@ pub(crate) enum ResidentFilterError {
     Query(super::super::source_pathfinder_query::ConstructorQueryError),
     Source(source_height::CompositionError),
     Terminal(benilla_native_nav::SourceSamePolygonError),
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    StraightTerminal(benilla_native_nav::SourceRetainedStraightError),
 }
 impl std::fmt::Display for ResidentFilterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -242,6 +277,8 @@ impl std::fmt::Display for ResidentFilterError {
             Self::Query(error) => write!(f, "resident filter query: {error:?}"),
             Self::Source(error) => write!(f, "resident filter source: {error:?}"),
             Self::Terminal(error) => write!(f, "resident conditional terminal: {error:?}"),
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            Self::StraightTerminal(error) => write!(f, "resident straight terminal: {error:?}"),
         }
     }
 }
@@ -269,6 +306,7 @@ pub(crate) struct ResidentProviderIdentity {
     one_retained_route: bool,
     two_retained_routes: bool,
     finite_retained_routes: bool,
+    finite_straight_routes: bool,
 }
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[allow(dead_code, reason = "app-only resident controller component fixture")]
@@ -284,6 +322,9 @@ impl ResidentProviderIdentity {
     }
     pub(crate) fn allows_finite_retained_routes(&self) -> bool {
         self.finite_retained_routes
+    }
+    pub(crate) fn allows_finite_straight_routes(&self) -> bool {
+        self.finite_straight_routes
     }
     pub(crate) fn matches_cache(&self, cache: &motion::PathFinderCache) -> bool {
         cache.binding.inventory == self.inventory && cache.binding.source_epoch == self.source_epoch
@@ -395,6 +436,19 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
     }
 
     #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_finite_straight_routes(&self) -> Result<(), ResidentFilterError> {
+        self.require_first_cold_route()?;
+        if !self.geometry_policy.finite_straight_routes
+            || self.geometry_policy.one_retained_route
+            || self.geometry_policy.two_retained_routes
+            || self.geometry_policy.finite_retained_routes
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
     #[allow(dead_code, reason = "app-only resident controller component fixture")]
     pub(crate) fn ledger_identity(
         &self,
@@ -412,6 +466,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             one_retained_route: self.geometry_policy.one_retained_route,
             two_retained_routes: self.geometry_policy.two_retained_routes,
             finite_retained_routes: self.geometry_policy.finite_retained_routes,
+            finite_straight_routes: self.geometry_policy.finite_straight_routes,
         })
     }
 

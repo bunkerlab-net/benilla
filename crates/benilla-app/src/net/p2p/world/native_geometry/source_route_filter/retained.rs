@@ -21,6 +21,8 @@ use benilla_world_runtime::{native::OwnerIgnorePathfindingReceipt, PlayerId};
 pub(crate) mod repeated_retained;
 #[path = "second_retained.rs"]
 pub(crate) mod second_retained;
+#[path = "straight_retained.rs"]
+pub(crate) mod straight_retained;
 
 /// Read-only stage markers; an observer cannot supply evidence or bypass a refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

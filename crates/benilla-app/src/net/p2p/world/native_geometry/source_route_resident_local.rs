@@ -194,3 +194,7 @@ mod three_epoch;
 #[cfg(test)]
 #[path = "source_route_resident_local/finite_loop.rs"]
 mod finite_loop;
+
+#[cfg(test)]
+#[path = "source_route_resident_local/straight_loop.rs"]
+mod straight_loop;

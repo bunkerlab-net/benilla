@@ -206,6 +206,23 @@ jobs:
           log="$RUNNER_TEMP/native-resident-third-history.log"
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_third_history::resident_controller_third_historical_ack_releases_prior_head_after_source_change_without_replay -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_third_history::resident_controller_third_historical_ack_releases_prior_head_after_source_change_without_replay
+      - name: Verify old finite policy refuses fourth non-same route
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-old-policy-fourth-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_straight_refusals::finite_old_policy_refuses_actual_fourth_non_same_polygon_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_straight_refusals::finite_old_policy_refuses_actual_fourth_non_same_polygon_without_tick_or_store_commit
+      - name: Verify retained straight source budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-straight-source-budgets.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::complete_straight_budget_counts_selection_cut_hit_and_samples \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::cut_scans_are_both_charged_without_overlap \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::operational_budgets_refuse_widening_without_clamping
       - name: Verify finite eight-epoch resident loop
         shell: bash
         run: |

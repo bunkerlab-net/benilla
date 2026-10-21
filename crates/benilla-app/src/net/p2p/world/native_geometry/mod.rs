@@ -51,6 +51,10 @@ mod source_route_resident_retained;
 #[cfg(test)]
 mod source_route_resident_retained_refusals;
 #[cfg(test)]
+mod source_route_resident_straight_clearance;
+#[cfg(test)]
+mod source_route_resident_straight_refusals;
+#[cfg(test)]
 mod source_route_resident_third_history;
 #[cfg(test)]
 mod source_route_resident_three_epoch;

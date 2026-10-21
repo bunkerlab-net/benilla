@@ -2,12 +2,16 @@
 //! Cold-only by default; distinct component policies bound retained route epochs.
 //! No policy here is a gameplay installation. This ledger
 //! never turns a historical reply back into fresh authority and never owns an ECS borrow.
+use super::super::source_route_filter::resident::retained::straight_retained::{
+    straight_storage_upper_bound_for_test, MAX_SOURCE_REVISION, STRAIGHT_MAX_POINTS,
+};
 use super::super::{
     core::Session,
     route_commit::{RouteCommitBoundary, RouteCommitNotice},
     source_route_filter::resident::ResidentProviderIdentity,
 };
 use super::retained::ResidentRetainedCandidate;
+pub(in super::super) use super::straight_loop::StraightSegmentPhase;
 use super::three_epoch::{StagedWarmProposal, WarmDependency, WarmHead, WarmPredecessor};
 use super::*;
 use benilla_world_runtime::{native::Profile, NpcId, PlayerId};
@@ -99,6 +103,11 @@ pub(in super::super) struct OwnershipDiagnostic {
     pub(in super::super) storage_bytes: usize,
     pub(in super::super) upper_bound_bytes: usize,
 }
+pub(in super::super) struct StraightGeometryDiagnostic {
+    pub(in super::super) points: Vec<benilla_sim::creature_ai::Point>,
+    pub(in super::super) body: super::super::core::Body,
+    pub(in super::super) trace: Vec<benilla_native_nav::SourceWarmTrace>,
+}
 pub(in super::super) struct ResidentLedger {
     session: Session,
     profile: Profile,
@@ -115,6 +124,7 @@ pub(in super::super) struct ResidentLedger {
     retained_epoch_committed: bool,
     two_retained: bool,
     finite_retained: bool,
+    finite_straight: bool,
     epochs_committed: u8,
 }
 /// Includes every mutable ledger field. Candidate addresses identify immutable
@@ -134,6 +144,7 @@ pub(in super::super) struct Diagnostic {
     retained_epoch_committed: bool,
     two_retained: bool,
     finite_retained: bool,
+    finite_straight: bool,
     epochs_committed: u8,
 }
 impl PartialEq for Diagnostic {
@@ -150,6 +161,7 @@ impl PartialEq for Diagnostic {
             && self.retained_epoch_committed == other.retained_epoch_committed
             && self.two_retained == other.two_retained
             && self.finite_retained == other.finite_retained
+            && self.finite_straight == other.finite_straight
             && self.epochs_committed == other.epochs_committed
             && match (&self.last_notice, &other.last_notice) {
                 (Some(a), Some(b)) => same_notice(&self.profile, a, b),
@@ -169,6 +181,7 @@ impl Diagnostic {
             && self.retained_epoch_committed == other.retained_epoch_committed
             && self.two_retained == other.two_retained
             && self.finite_retained == other.finite_retained
+            && self.finite_straight == other.finite_straight
             && self.epochs_committed == other.epochs_committed
             && self
                 .candidates
@@ -198,11 +211,12 @@ impl ResidentLedger {
         let one_retained = identity.allows_one_retained_route();
         let two_retained = identity.allows_two_retained_routes();
         let finite_retained = identity.allows_finite_retained_routes();
-        if one_retained && profile.npcs.len() != 1 {
+        let finite_straight = identity.allows_finite_straight_routes();
+        if (one_retained || finite_straight) && profile.npcs.len() != 1 {
             return Err(Failure::UnsupportedQuery.into());
         }
         let mut candidates = vec![];
-        if one_retained {
+        if one_retained || finite_straight {
             // Failed fresh attempts cannot change even diagnostic reservation state.
             candidates
                 .try_reserve_exact(MAX_CANDIDATES)
@@ -224,6 +238,7 @@ impl ResidentLedger {
             retained_epoch_committed: false,
             two_retained,
             finite_retained,
+            finite_straight,
             epochs_committed: 0,
         })
     }
@@ -695,7 +710,7 @@ impl ResidentLedger {
             || boundary.record() == previous.record()
             || self.route_epoch_committed
                 && !notice.routes().is_empty()
-                && (if self.finite_retained {
+                && (if self.finite_retained || self.finite_straight {
                     self.epochs_committed >= 8
                 } else if self.two_retained {
                     self.epochs_committed >= 3
@@ -761,7 +776,9 @@ impl ResidentLedger {
                         return Err(Failure::Binding);
                     }
                 }
-                Candidate::WarmProposal(proposal) if self.two_retained || self.finite_retained => {
+                Candidate::WarmProposal(proposal)
+                    if self.two_retained || self.finite_retained || self.finite_straight =>
+                {
                     if notice.routes().len() != 1 {
                         return Err(Failure::Binding);
                     }
@@ -777,7 +794,7 @@ impl ResidentLedger {
                         }
                         WarmPredecessor::Warm(prior) => {
                             let committed = self.committed_warm()?;
-                            if !(if self.finite_retained {
+                            if !(if self.finite_retained || self.finite_straight {
                                 (2..8).contains(&self.epochs_committed)
                             } else {
                                 self.epochs_committed == 2
@@ -864,7 +881,7 @@ impl ResidentLedger {
         }
         self.candidates.retain(|entry| {
             entry.committed
-                || (!self.finite_retained || selected_ids.is_empty())
+                || (!(self.finite_retained || self.finite_straight) || selected_ids.is_empty())
                     && entry.candidate.reply().request.binding.tick > boundary.tick()
         });
         self.epochs_committed = next_epochs;
@@ -1059,8 +1076,12 @@ impl ResidentLedger {
         Ok(())
     }
     fn committed_warm(&self) -> Result<&Rc<WarmHead>, Failure> {
-        let limit = if self.finite_retained { 8 } else { 3 };
-        if !(self.two_retained || self.finite_retained)
+        let limit = if self.finite_retained || self.finite_straight {
+            8
+        } else {
+            3
+        };
+        if !(self.two_retained || self.finite_retained || self.finite_straight)
             || !(2..=limit).contains(&self.epochs_committed)
         {
             return Err(Failure::Binding);
@@ -1095,7 +1116,9 @@ impl ResidentLedger {
         Ok(head)
     }
     fn validate_warm_head(&self, head: &WarmHead) -> Result<(), Failure> {
-        if !(self.two_retained || self.finite_retained) || self.profile.npcs.len() != 1 {
+        if !(self.two_retained || self.finite_retained || self.finite_straight)
+            || self.profile.npcs.len() != 1
+        {
             return Err(Failure::Binding);
         }
         self.validate_candidate(&head.origin)?;
@@ -1123,13 +1146,26 @@ impl ResidentLedger {
             .map_err(|_| Failure::Binding)?;
         let prior = calculation.prior_cache.as_deref().ok_or(Failure::Binding)?;
         let revision = match &head.dependency {
-            WarmDependency::First(_) => 2,
+            WarmDependency::First(_) if self.two_retained || self.finite_retained => 2,
             WarmDependency::Second(_) if self.two_retained && !self.finite_retained => 3,
             WarmDependency::Repeated(dependency) if self.finite_retained => {
                 let revision = dependency.source_revision();
                 if !(3..=8).contains(&revision) {
                     return Err(Failure::Binding);
                 }
+                revision
+            }
+            WarmDependency::Straight(dependency) if self.finite_straight => {
+                let revision = dependency.source_revision();
+                if !(2..=MAX_SOURCE_REVISION).contains(&revision) {
+                    return Err(Failure::Binding);
+                }
+                let motion::RouteOutcome::Complete(complete) = &calculation.outcome else {
+                    return Err(Failure::Binding);
+                };
+                dependency
+                    .check_historical_native_points_for_test(&complete.points)
+                    .map_err(|_| Failure::Binding)?;
                 revision
             }
             _ => return Err(Failure::Binding),
@@ -1159,7 +1195,7 @@ impl ResidentLedger {
             || calculation.source != motion::RouteSource::OwnerPathFinder
             || prior.revision.checked_add(1) != Some(revision)
             || calculation.after_cache.revision != revision
-            || calculation.after_cache.active_len != 1
+            || (!self.finite_straight && calculation.after_cache.active_len != 1)
             || calculation.after_cache.path_type != 1
             || calculation.after_cache.binding != prior.binding
             || calculation.after_cache.binding
@@ -1199,6 +1235,36 @@ impl ResidentLedger {
                 dependency
                     .check_historical_native_predecessor_for_test(
                         &prior.dependency.current_native()?,
+                    )
+                    .map_err(|_| Failure::Binding)
+            }
+            (WarmPredecessor::Cold(origin), WarmDependency::Straight(dependency))
+                if self.finite_straight =>
+            {
+                if !Rc::ptr_eq(origin, &proposal.head.origin) {
+                    return Err(Failure::Binding);
+                }
+                self.validate_retained_context(origin, &proposal.head.reply.request)?;
+                dependency
+                    .check_historical_native_predecessor_for_test(
+                        &origin.dependency.current_straight_native(),
+                    )
+                    .map_err(|_| Failure::Binding)
+            }
+            (WarmPredecessor::Warm(prior), WarmDependency::Straight(dependency))
+                if self.finite_straight =>
+            {
+                let WarmDependency::Straight(previous) = &prior.dependency else {
+                    return Err(Failure::Binding);
+                };
+                if !Rc::ptr_eq(&prior.origin, &proposal.head.origin) {
+                    return Err(Failure::Binding);
+                }
+                self.validate_warm_head(prior)?;
+                self.validate_retained_reply_context(&prior.reply, &proposal.head.reply.request)?;
+                dependency
+                    .check_historical_native_predecessor_for_test(
+                        &previous.current_straight_native(),
                     )
                     .map_err(|_| Failure::Binding)
             }
@@ -1245,6 +1311,21 @@ impl ResidentLedger {
                     &calculation(&head.reply)?.after_cache,
                 )?;
                 provider.repeated_cache(
+                    dependency,
+                    &head.origin.dependency,
+                    context,
+                    deadline,
+                    || false,
+                )?
+            }
+            WarmDependency::Straight(dependency) => {
+                provider.check_historical_straight_cache_for_test(
+                    dependency,
+                    &head.origin.dependency,
+                    context,
+                    &calculation(&head.reply)?.after_cache,
+                )?;
+                provider.straight_cache_for(
                     dependency,
                     &head.origin.dependency,
                     context,
@@ -1607,9 +1688,339 @@ impl ResidentLedger {
                     cache,
                 )?;
             }
-            WarmDependency::Second(_) => return Err(Failure::Binding.into()),
+            WarmDependency::Second(_) | WarmDependency::Straight(_) => {
+                return Err(Failure::Binding.into())
+            }
         }
         Ok(())
+    }
+    /// Select only the actual ACK-owned cold or straight head, never a staged sibling.
+    fn committed_straight(&self) -> Result<WarmPredecessor, Failure> {
+        if !self.finite_straight {
+            return Err(Failure::UnsupportedQuery);
+        }
+        if self.epochs_committed == 1 {
+            Ok(WarmPredecessor::Cold(Rc::clone(self.committed_cold()?)))
+        } else {
+            let head = self.committed_warm()?;
+            if !matches!(&head.dependency, WarmDependency::Straight(_)) {
+                return Err(Failure::Binding);
+            }
+            Ok(WarmPredecessor::Warm(Rc::clone(head)))
+        }
+    }
+    fn same_committed_straight(&self, prior: &WarmPredecessor) -> Result<(), Failure> {
+        let same = match prior {
+            WarmPredecessor::Cold(origin) => Rc::ptr_eq(self.committed_cold()?, origin),
+            WarmPredecessor::Warm(head) => Rc::ptr_eq(self.committed_warm()?, head),
+        };
+        if same {
+            Ok(())
+        } else {
+            Err(Failure::Binding)
+        }
+    }
+    fn straight_predecessor_for(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+    ) -> Result<WarmPredecessor, ResidentFilterError> {
+        provider.require_finite_straight_routes()?;
+        if !self.finite_straight
+            || !self.provider.matches(provider)
+            || self
+                .boundary
+                .as_ref()
+                .and_then(|boundary| boundary.tick().checked_add(1))
+                != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let predecessor = self.committed_straight()?;
+        // Native full backing and immediate owned root precede current request validation.
+        provider.check_historical_straight_current_for_test(
+            &predecessor.origin().dependency,
+            &predecessor.current_straight_native()?,
+            &calculation(predecessor.reply())?.after_cache,
+        )?;
+        self.validate_retained_reply_context(predecessor.reply(), context)?;
+        Ok(predecessor)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn certify_straight(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Facts, ResidentFilterError> {
+        self.certify_straight_observed(
+            world,
+            compatibility,
+            provider,
+            context,
+            first_ticket,
+            deadline,
+            cancelled,
+            || {},
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn certify_straight_observed(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        after: impl FnOnce(),
+    ) -> Result<Facts, ResidentFilterError> {
+        self.certify_straight_segments_observed(
+            world,
+            compatibility,
+            provider,
+            context,
+            first_ticket,
+            deadline,
+            cancelled,
+            |_, _| {},
+            after,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn certify_straight_segments_observed(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        on_segment: impl FnMut(StraightSegmentPhase, usize),
+        after: impl FnOnce(),
+    ) -> Result<Facts, ResidentFilterError> {
+        provider.require_finite_straight_routes()?;
+        // No ninth source attempt, ECS borrow or dynamic work is allowed.
+        if !self.finite_straight
+            || !(1..MAX_SOURCE_REVISION).contains(&u64::from(self.epochs_committed))
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if !self.owner.same_owner(compatibility.owner()) {
+            return Err(Failure::Binding.into());
+        }
+        let predecessor = self.straight_predecessor_for(provider, context)?;
+        if self.candidates.iter().any(|entry| {
+            entry.candidate.reply().request.binding.npc == context.binding.npc
+                && entry.candidate.reply().request.binding.tick == context.binding.tick
+                && entry.candidate.reply().request != *context
+        }) {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if self.candidates.iter().any(|entry| {
+            same_reply_dispatch(&self.profile, &entry.candidate.reply().request, context)
+        }) {
+            return Err(Failure::Binding.into());
+        }
+        if self.candidates.len() == MAX_CANDIDATES || self.candidates.capacity() < MAX_CANDIDATES {
+            return Err(Failure::QueueCapacity.into());
+        }
+        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
+        let (proposal, facts) = super::straight_loop::certify(
+            world,
+            compatibility,
+            provider,
+            predecessor,
+            context,
+            self.player,
+            first_ticket,
+            deadline,
+            cancelled,
+            on_segment,
+            after,
+        )?;
+        self.same_committed_straight(&proposal.predecessor)?;
+        if self.raw != Some(proposal.head.raw_revision) {
+            return Err(Failure::Binding.into());
+        }
+        self.validate_warm_proposal(&proposal)?;
+        let WarmDependency::Straight(dependency) = &proposal.head.dependency else {
+            return Err(Failure::Binding.into());
+        };
+        provider.check_historical_straight_predecessor_for_test(
+            dependency,
+            &proposal.head.origin.dependency,
+            &proposal.predecessor.current_straight_native()?,
+            context,
+        )?;
+        self.candidates.push(Entry {
+            id: self.next_id,
+            candidate: Candidate::WarmProposal(Rc::new(proposal)),
+            committed: false,
+        });
+        self.next_id = next;
+        Ok(facts)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn probe_straight_source_for_test(
+        &self,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        observe: impl FnMut(
+            super::super::source_route_filter::resident::retained::ResidentRetainedPhase,
+        ),
+    ) -> Result<(), ResidentFilterError> {
+        provider.require_finite_straight_routes()?;
+        if !self.finite_straight
+            || !(1..MAX_SOURCE_REVISION).contains(&u64::from(self.epochs_committed))
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        let predecessor = self.straight_predecessor_for(provider, context)?;
+        let prior = predecessor.current_straight_native()?;
+        provider
+            .observe_joined_straight_observed(
+                &predecessor.origin().dependency,
+                &prior,
+                context,
+                self.player,
+                first_ticket,
+                prior.budget()?,
+                deadline,
+                cancelled,
+                observe,
+            )
+            .map(|_| ())
+    }
+    /// Bounded copied diagnostics only; the temporary native proposal is dropped here.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn probe_straight_geometry_for_test(
+        &self,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<StraightGeometryDiagnostic, ResidentFilterError> {
+        provider.require_finite_straight_routes()?;
+        if !self.finite_straight
+            || !(1..MAX_SOURCE_REVISION).contains(&u64::from(self.epochs_committed))
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        let predecessor = self.straight_predecessor_for(provider, context)?;
+        let prior = predecessor.current_straight_native()?;
+        let dependency = provider.observe_joined_straight(
+            &predecessor.origin().dependency,
+            &prior,
+            context,
+            self.player,
+            first_ticket,
+            deadline,
+            &cancelled,
+        )?;
+        let observation = provider.straight_for(
+            &dependency,
+            &predecessor.origin().dependency,
+            context,
+            dependency.deadline(deadline),
+            cancelled,
+        )?;
+        if observation.points.len() > STRAIGHT_MAX_POINTS || observation.trace.len() > 8050 {
+            return Err(Failure::Binding.into());
+        }
+        let mut points = Vec::new();
+        points
+            .try_reserve_exact(observation.points.len())
+            .map_err(|_| Failure::QueueCapacity)?;
+        for bits in observation.points {
+            let [x, y, z] = bits.map(f32::from_bits);
+            let point =
+                benilla_sim::creature_ai::Point::new(x, y, z).map_err(|_| Failure::Invalid)?;
+            if [point.x.bits(), point.y.bits(), point.z.bits()] != *bits {
+                return Err(Failure::UnsupportedQuery.into());
+            }
+            points.push(point);
+        }
+        let mut trace = Vec::new();
+        trace
+            .try_reserve_exact(observation.trace.len())
+            .map_err(|_| Failure::QueueCapacity)?;
+        trace.extend_from_slice(observation.trace);
+        Ok(StraightGeometryDiagnostic {
+            points,
+            body: observation.body,
+            trace,
+        })
+    }
+    /// Historical diagnostic selection remains available after epoch eight.
+    pub(in super::super) fn check_straight_dispatch_for_test(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        installed_owner: &benilla_formats::NativeInventorySource,
+        context: &AuthorityRequest,
+    ) -> Result<(), ResidentFilterError> {
+        if !self.owner.same_owner(installed_owner) {
+            return Err(Failure::Binding.into());
+        }
+        let predecessor = self.straight_predecessor_for(provider, context)?;
+        if !predecessor
+            .origin()
+            .installed_owner
+            .same_owner(installed_owner)
+        {
+            return Err(Failure::Binding.into());
+        }
+        Ok(())
+    }
+    /// Compare against the latest exact live dispatch and the actual native terminal.
+    pub(in super::super) fn check_straight_result_for_test(
+        &self,
+        context: &AuthorityRequest,
+        facts: &Facts,
+    ) -> Result<(), Failure> {
+        if !self.finite_straight {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let entry = self
+            .candidates
+            .iter()
+            .rev()
+            .find(|entry| {
+                same_reply_dispatch(&self.profile, &entry.candidate.reply().request, context)
+            })
+            .ok_or(Failure::Binding)?;
+        if &entry.candidate.reply().facts != facts
+            || self.candidates.iter().any(|later| {
+                later.id > entry.id
+                    && later.candidate.reply().request.binding.npc == context.binding.npc
+                    && later.candidate.reply().request.binding.tick == context.binding.tick
+            })
+        {
+            return Err(Failure::Binding);
+        }
+        match &entry.candidate {
+            Candidate::WarmHead(head)
+                if matches!(&head.dependency, WarmDependency::Straight(_)) =>
+            {
+                self.validate_warm_head(head)
+            }
+            Candidate::WarmProposal(proposal)
+                if matches!(&proposal.head.dependency, WarmDependency::Straight(_)) =>
+            {
+                self.validate_warm_proposal(proposal)
+            }
+            _ => Err(Failure::Binding),
+        }
     }
     pub(in super::super) fn committed_warm_liveness_for_test(
         &self,
@@ -1645,7 +2056,7 @@ impl ResidentLedger {
         self.committed_warm().map(|_| ())
     }
     pub(in super::super) fn flat_ownership_for_test(&self) -> Result<OwnershipDiagnostic, Failure> {
-        if !(self.two_retained || self.finite_retained) {
+        if !(self.two_retained || self.finite_retained || self.finite_straight) {
             return Err(Failure::UnsupportedQuery);
         }
         let mut cold = Vec::<&Rc<ResidentColdCandidate>>::new();
@@ -1690,17 +2101,32 @@ impl ResidentLedger {
         }
         // Each terminal has three native storage slices, at most three source-context
         // copies and four reply caches. The notice adds four copies plus two heads.
-        // All source scans are bounded by 2 * (4095 - 74) + 8 = 8050 primitives.
+        // The old same-polygon scan bound is 2 * (4095 - 74) + 8 = 8050;
+        // straight diagnostics use their separately checked complete work budget.
         let cache_bound = motion::MAX_PATHFINDER_CACHE_REFS * std::mem::size_of::<u64>();
         let points_and_checks = 2 * std::mem::size_of::<[u32; 3]>()
             + 2 * std::mem::size_of::<benilla_sim::creature_ai::Point>()
             + std::mem::size_of::<SegmentChecks>();
-        let upper_bound_bytes = terminal_count
-            * (10 * cache_bound
-                + 8050 * std::mem::size_of::<benilla_native_nav::SourceWarmTrace>()
-                + points_and_checks)
-            + 6 * cache_bound
-            + points_and_checks;
+        let upper_bound_bytes = if self.finite_straight {
+            let route_geometry = STRAIGHT_MAX_POINTS
+                * std::mem::size_of::<benilla_sim::creature_ai::Point>()
+                + (STRAIGHT_MAX_POINTS - 1) * std::mem::size_of::<SegmentChecks>();
+            // Ledger-owned slices, plus one bounded synchronous emitted Facts envelope.
+            // External diagnostic retention and allocator capacity are not measured here.
+            terminal_count
+                * (straight_storage_upper_bound_for_test() + 4 * cache_bound + route_geometry)
+                + 6 * cache_bound
+                + route_geometry
+                + 3 * cache_bound
+                + route_geometry
+        } else {
+            terminal_count
+                * (10 * cache_bound
+                    + 8050 * std::mem::size_of::<benilla_native_nav::SourceWarmTrace>()
+                    + points_and_checks)
+                + 6 * cache_bound
+                + points_and_checks
+        };
         if terminal_count > 2 + staged_count || storage_bytes > upper_bound_bytes {
             return Err(Failure::Binding);
         }
@@ -1758,6 +2184,7 @@ impl ResidentLedger {
             retained_epoch_committed: self.retained_epoch_committed,
             two_retained: self.two_retained,
             finite_retained: self.finite_retained,
+            finite_straight: self.finite_straight,
             epochs_committed: self.epochs_committed,
         }
     }

@@ -36,6 +36,7 @@ pub(super) struct Owner<'a> {
     deliveries: usize,
     expired: usize,
     lost: bool,
+    old_boundary_refused: bool,
     change: Option<SourceChange<'a>>,
 }
 impl<'a> Owner<'a> {
@@ -52,6 +53,7 @@ impl<'a> Owner<'a> {
             deliveries: 0,
             expired: 0,
             lost: false,
+            old_boundary_refused: false,
             change: None,
         }
     }
@@ -76,7 +78,7 @@ impl<'a> Owner<'a> {
         cold_deadline: Instant,
         request: &AuthorityRequest,
         late_failures: usize,
-    ) -> (Facts, bool) {
+    ) -> Result<(Facts, bool), NativeError> {
         let epoch = self.accepted_epochs() as u64 + 1;
         assert!(
             (2..=8).contains(&epoch),
@@ -164,7 +166,19 @@ impl<'a> Owner<'a> {
                 Err(ResidentFilterError::Context(Failure::Binding))
             ));
         }
-        if epoch == 2 {
+        if self.mode != Mode::OldPolicyBoundary {
+            let index = geometry
+                .app
+                .world()
+                .resource::<benilla_world::terrain_stream::NativeStaticMapIndex>();
+            ledger
+                .check_straight_dispatch_for_test(
+                    provider,
+                    index.source_provenance().unwrap(),
+                    request,
+                )
+                .unwrap();
+        } else if epoch == 2 {
             ledger
                 .check_retained_dispatch_for_test(provider, request)
                 .unwrap();
@@ -182,9 +196,25 @@ impl<'a> Owner<'a> {
                 .unwrap();
         }
         let ticket = epoch.checked_mul(100).unwrap().checked_add(1).unwrap();
+        if self.mode == Mode::OldPolicyBoundary && epoch == 4 {
+            assert!(!retry && !self.old_boundary_refused);
+            let error = super::source_route_resident_straight_refusals::refuse_actual_fourth(
+                ledger,
+                geometry,
+                compatibility,
+                provider,
+                request,
+            );
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            self.old_boundary_refused = true;
+            return Err(error);
+        }
         if self.mode == Mode::RefusalsHistory && epoch == 5 && !retry {
             fixture::assert_source_order(ledger, provider, request, ticket);
-            super::source_route_resident_retained_refusals::probe_repeated(
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+        }
+        if self.mode == Mode::RefusalsHistory && epoch == 4 && !retry {
+            super::source_route_resident_straight_clearance::probe(
                 ledger,
                 geometry,
                 install,
@@ -197,7 +227,17 @@ impl<'a> Owner<'a> {
         }
         let deadline = Instant::now() + Duration::from_secs(30);
         geometry.advance_physics();
-        let facts = if epoch == 2 {
+        let facts = if self.mode != Mode::OldPolicyBoundary {
+            ledger.certify_straight(
+                geometry.app.world_mut(),
+                compatibility,
+                provider,
+                request,
+                ticket,
+                deadline,
+                || false,
+            )
+        } else if epoch == 2 {
             ledger.certify_retained(
                 geometry.app.world_mut(),
                 compatibility,
@@ -219,9 +259,24 @@ impl<'a> Owner<'a> {
             )
         }
         .unwrap();
+        if self.mode != Mode::OldPolicyBoundary {
+            ledger
+                .check_straight_result_for_test(request, &facts)
+                .unwrap();
+        }
         fixture::assert_facts(request, &facts, epoch);
         let staged = ledger.diagnostic();
-        let repeated = if epoch == 2 {
+        let repeated = if self.mode != Mode::OldPolicyBoundary {
+            ledger.certify_straight(
+                geometry.app.world_mut(),
+                compatibility,
+                provider,
+                request,
+                ticket,
+                deadline,
+                || false,
+            )
+        } else if epoch == 2 {
             ledger.certify_retained(
                 geometry.app.world_mut(),
                 compatibility,
@@ -267,7 +322,7 @@ impl<'a> Owner<'a> {
         self.attempts.push((request.clone(), deadline));
         assert!(self.attempts.len() <= 2);
         eprintln!("resident finite staged: epoch={epoch} attempt={} terminals={} staged={} logical-storage-bytes={} bound-bytes={}", self.attempts.len(), owned.terminal_count, owned.staged_count, owned.storage_bytes, owned.upper_bound_bytes);
-        (facts, self.mode == Mode::Recovery && epoch == 4 && !retry)
+        Ok((facts, self.mode == Mode::Recovery && epoch == 4 && !retry))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -304,6 +359,11 @@ impl<'a> Owner<'a> {
             .unwrap()
             .same_live_dispatch(latest.require_pathfinder_dispatch(profile).unwrap()));
         fixture::assert_request(profile, previous, actual, epoch);
+        if self.mode != Mode::OldPolicyBoundary {
+            ledger
+                .check_straight_result_for_test(actual, &notice.routes()[0].facts)
+                .unwrap();
+        }
         fixture::assert_facts(actual, &notice.routes()[0].facts, epoch);
         if duplicate {
             let old = self.accepted.last().unwrap();
@@ -424,11 +484,35 @@ impl<'a> Owner<'a> {
         routes: usize,
         late_failures: usize,
     ) {
-        assert_eq!(self.accepted.len(), 7);
-        assert_eq!(proofs.len(), 7);
+        let expected_warm = if self.mode == Mode::OldPolicyBoundary {
+            2
+        } else {
+            7
+        };
+        assert_eq!(self.accepted.len(), expected_warm);
+        assert_eq!(proofs.len(), expected_warm);
         for (proof, notice) in proofs.iter().zip(&self.accepted) {
             fixture::assert_commit_proof(proof, notice);
         }
+        if self.mode == Mode::OldPolicyBoundary {
+            assert!(self.old_boundary_refused);
+            assert_eq!(self.deliveries, 2);
+            assert_eq!(routes, 4);
+            assert_eq!(late_failures, 0);
+            assert_eq!(self.expired, 0);
+            assert!(!self.lost && self.change.is_none());
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            ledger.check_committed_warm_for_test().unwrap();
+            let prior = self.prior.as_ref().unwrap();
+            assert!(prior.is_alive() && prior.cold_is_alive());
+            assert!(self.proposals.is_empty());
+            let owned = ledger.flat_ownership_for_test().unwrap();
+            assert_eq!((owned.terminal_count, owned.staged_count), (2, 0));
+            assert!(owned.storage_bytes <= owned.upper_bound_bytes);
+            eprintln!("resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true");
+            return;
+        }
+        assert!(!self.old_boundary_refused);
         assert_eq!(self.deliveries, 8);
         assert!(self.lost);
         assert_eq!(routes, if self.mode == Mode::Recovery { 9 } else { 8 });
@@ -459,7 +543,7 @@ impl<'a> Owner<'a> {
         // ninth runtime dispatch. The observer must not enter fresh scene work.
         let reached = std::cell::Cell::new(0);
         assert!(matches!(
-            ledger.certify_repeated_observed(
+            ledger.certify_straight_observed(
                 geometry.app.world_mut(),
                 compatibility,
                 provider,
@@ -474,7 +558,7 @@ impl<'a> Owner<'a> {
         assert_eq!(reached.get(), 0);
         let mut phases = vec![];
         assert!(matches!(
-            ledger.probe_repeated_source_for_test(
+            ledger.probe_straight_source_for_test(
                 provider,
                 context,
                 901,

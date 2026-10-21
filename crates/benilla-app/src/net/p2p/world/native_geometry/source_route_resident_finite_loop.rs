@@ -3,7 +3,13 @@
 //! authenticated target movement drives every actual callback and saved tick.
 use super::route_commit::RouteCommitNotice;
 use crate::net::p2p::world::{resident_fixture::Driver, PauseKind, SavedBoundary};
-use benilla_sim::{creature_ai::Point, creature_motion as motion};
+use benilla_sim::{
+    creature_ai::{
+        movement::{Check, SegmentChecks},
+        Point,
+    },
+    creature_motion as motion,
+};
 use benilla_world_runtime::native::{
     AuthorityRequest, CheckpointIdentity, Command, Facts, MotionFacts, MotionQuery, Profile, Query,
 };
@@ -13,6 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(super) enum Mode {
     Recovery,
     RefusalsHistory,
+    OldPolicyBoundary,
 }
 
 /// Injected once by the owner on a real non-Route callback after epoch-four Facts.
@@ -138,7 +145,6 @@ pub(super) fn assert_request(
     assert_eq!(cache, &calculation.after_cache);
     assert_eq!(cache.revision, expected_revision - 1);
     assert_eq!(cache.source, motion::RouteSource::OwnerPathFinder);
-    assert_eq!(cache.active_len, 1);
     assert_eq!(cache.point_limit, motion::PATHFINDER_CACHE_POINT_LIMIT);
     assert_eq!(cache.include_flags, 13);
     assert_eq!(cache.exclude_flags, 0);
@@ -184,14 +190,22 @@ pub(super) fn assert_facts(request: &AuthorityRequest, facts: &Facts, expected_r
     assert_eq!(after.binding, before.binding);
     assert_eq!(after.source, before.source);
     assert_eq!(after.point_limit, motion::PATHFINDER_CACHE_POINT_LIMIT);
-    assert_eq!(after.active_len, 1);
     assert_eq!(after.include_flags, 13);
     assert_eq!(after.exclude_flags, 0);
     assert_eq!(after.path_type, 1);
-    // Native certification checks the full backing, never a fixed 75-slot DTO.
-    assert!(after.poly_refs.len() >= before.poly_refs.len());
+    // The owner verifies every dynamic point and cache slot against its sealed
+    // native terminal, not a fixed two-point or 75-slot diagnostic shape.
+    assert_eq!(path.segments.len() + 1, path.points.len());
+    assert!(path.segments.iter().all(|segment| *segment
+        == SegmentChecks {
+            loaded_coverage: Check::Passed,
+            line_of_sight: Check::Passed,
+            body_sweep: Check::Passed,
+            continuous_ground_support: Check::Passed,
+            dry_ground: Check::Passed,
+        }));
     eprintln!(
-        "resident finite actual calculation: epoch={expected_revision} tick={} query={} now-ms={} prior-revision={} after-revision={} prior-storage={} storage={} active=1 filter=13 origin={:?} goal={:?}",
+        "resident finite actual calculation: epoch={expected_revision} tick={} query={} now-ms={} prior-revision={} after-revision={} prior-storage={} storage={} active={} points={} filter=13 origin={:?} goal={:?}",
         request.binding.tick,
         route.request.binding.query_id,
         route.request.binding.now_ms,
@@ -199,12 +213,22 @@ pub(super) fn assert_facts(request: &AuthorityRequest, facts: &Facts, expected_r
         after.revision,
         before.poly_refs.len(),
         after.poly_refs.len(),
+        after.active_len,
+        path.points.len(),
         route.request.origin,
         route.request.goal
     );
     if expected_revision == 4 {
         assert_eq!((before.revision, after.revision), (3, 4));
-        eprintln!("resident finite actual 3->4 calculation: complete genuine native facts");
+        assert!(
+            after.active_len > 1,
+            "actual fourth terminal crosses polygons"
+        );
+        assert!(
+            path.points.len() > 2,
+            "actual fourth terminal has native intermediate points"
+        );
+        eprintln!("resident finite actual 3->4 calculation: complete genuine native multi-polygon straight facts");
     }
 }
 
@@ -255,7 +279,7 @@ pub(super) fn assert_source_order(
         let mut phases = vec![];
         let deadline = Instant::now() + Duration::from_secs(30);
         assert!(matches!(
-            ledger.probe_repeated_source_for_test(
+            ledger.probe_straight_source_for_test(
                 provider,
                 request,
                 ticket,
@@ -286,7 +310,7 @@ pub(super) fn assert_source_order(
     }
     let mut phases = vec![];
     ledger
-        .probe_repeated_source_for_test(
+        .probe_straight_source_for_test(
             provider,
             request,
             ticket,
@@ -378,7 +402,12 @@ pub(super) fn after_cold_ack(
     let mut events = cold_events;
     let mut committed = Vec::with_capacity(7);
     let mut rolled_back = false;
-    for revision in 2..=8 {
+    let final_revision = if mode == Mode::OldPolicyBoundary {
+        4
+    } else {
+        8
+    };
+    for revision in 2..=final_revision {
         let start = driver.state().position;
         let attempts_before = routes.load(Ordering::SeqCst);
         assert_eq!(
@@ -404,6 +433,12 @@ pub(super) fn after_cold_ack(
             let tick = driver.tick();
             let now_ms = driver.state().now_ms;
             let sequence = driver.state().next_sequence;
+            let old_boundary = (mode == Mode::OldPolicyBoundary && revision == 4).then(|| {
+                super::source_route_resident_straight_refusals::RefusedTick::capture(
+                    driver,
+                    destination,
+                )
+            });
             let mut out = driver.pump_one();
             let route_attempted = routes.load(Ordering::SeqCst) != attempts_before;
             if route_attempted {
@@ -412,6 +447,21 @@ pub(super) fn after_cold_ack(
                     attempts_before + 1,
                     "exactly one genuine Route dispatch per finite-loop tick"
                 );
+                if mode == Mode::OldPolicyBoundary && revision == 4 {
+                    old_boundary
+                        .unwrap()
+                        .assert_refused(driver, callbacks, routes, &out);
+                    assert_eq!(committed.len(), 2);
+                    assert!(!rolled_back);
+                    assert_eq!(driver.tick(), 97);
+                    assert_eq!(driver.state().now_ms, 2425);
+                    return (
+                        driver.tick(),
+                        events,
+                        callbacks.load(Ordering::SeqCst),
+                        committed,
+                    );
+                }
                 if mode == Mode::Recovery && revision == 4 {
                     assert!(!rolled_back);
                     assert_eq!(

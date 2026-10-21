@@ -135,6 +135,7 @@ pub(crate) fn with_two_owner_route_fixture<T>(
         false,
         false,
         false,
+        false,
         test,
     )
 }
@@ -170,6 +171,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
     one_retained_route: bool,
     two_retained_routes: bool,
     finite_retained_routes: bool,
+    straight_retained_routes: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -181,16 +183,25 @@ pub(crate) fn with_selected_controller_fixture<T>(
         SourceMapQuerySnapshot,
     ) -> T,
 ) -> T {
-    if one_retained_route || two_retained_routes || finite_retained_routes {
+    assert!(
+        !straight_retained_routes
+            || (!one_retained_route && !two_retained_routes && !finite_retained_routes)
+    );
+    if one_retained_route
+        || two_retained_routes
+        || finite_retained_routes
+        || straight_retained_routes
+    {
         assert!(!two_owners);
         let (start, _) = input::support();
         with_fixture_at_with_owners(
             (start, [start[0] - 8., start[1], start[2]]),
             true,
             false,
-            true,
+            !straight_retained_routes,
             two_retained_routes,
             finite_retained_routes,
+            straight_retained_routes,
             test,
         )
     } else {
@@ -218,9 +229,11 @@ fn with_fixture_at<T>(
         false,
         false,
         false,
+        false,
         test,
     )
 }
+#[allow(clippy::too_many_arguments)]
 fn with_fixture_at_with_owners<T>(
     endpoints: ([f32; 3], [f32; 3]),
     first_cold_route: bool,
@@ -228,6 +241,7 @@ fn with_fixture_at_with_owners<T>(
     one_retained_route: bool,
     two_retained_routes: bool,
     finite_retained_routes: bool,
+    straight_retained_routes: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -283,9 +297,25 @@ fn with_fixture_at_with_owners<T>(
     } else {
         policy
     };
+    #[cfg(not(benilla_headless_geometry))]
+    let policy = if straight_retained_routes {
+        assert!(
+            first_cold_route
+                && !two_owners
+                && !one_retained_route
+                && !two_retained_routes
+                && !finite_retained_routes
+        );
+        ResidentGeometryPolicy::installed_finite_straight_routes(&compatibility)
+    } else {
+        policy
+    };
     #[cfg(benilla_headless_geometry)]
     assert!(
-        !one_retained_route && !two_retained_routes && !finite_retained_routes,
+        !one_retained_route
+            && !two_retained_routes
+            && !finite_retained_routes
+            && !straight_retained_routes,
         "retained authority is concrete component-only"
     );
     let (start, end) = endpoints;
@@ -335,6 +365,20 @@ fn with_fixture_at_with_owners<T>(
             for old in [
                 ResidentGeometryPolicy::installed_one_retained_route(&compatibility),
                 ResidentGeometryPolicy::installed_two_retained_routes(&compatibility),
+            ] {
+                assert_ne!(
+                    revision,
+                    old.revision(height.binding(), query.binding()).unwrap()
+                );
+            }
+        }
+        #[cfg(not(benilla_headless_geometry))]
+        if straight_retained_routes {
+            for old in [
+                ResidentGeometryPolicy::installed_first_cold_route(&compatibility),
+                ResidentGeometryPolicy::installed_one_retained_route(&compatibility),
+                ResidentGeometryPolicy::installed_two_retained_routes(&compatibility),
+                ResidentGeometryPolicy::installed_finite_retained_routes(&compatibility),
             ] {
                 assert_ne!(
                     revision,
