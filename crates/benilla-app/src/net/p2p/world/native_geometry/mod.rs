@@ -37,6 +37,8 @@ mod source_route_resident_continuation;
 #[cfg(test)]
 mod source_route_resident_controller;
 #[cfg(test)]
+mod source_route_resident_history;
+#[cfg(test)]
 mod source_route_resident_local;
 mod source_route_same_polygon;
 mod source_route_same_polygon_local;

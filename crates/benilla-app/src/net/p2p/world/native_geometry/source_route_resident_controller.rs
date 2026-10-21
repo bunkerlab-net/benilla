@@ -38,6 +38,7 @@ enum Mode {
     RejectBeforeApply,
     DropAfterApply,
     ExpireBeforeAck,
+    SourceChangeBeforeAck,
     RollbackRetry,
     TwoOwners,
     RetainedDispatch,
@@ -231,6 +232,7 @@ fn run(mode: Mode) {
             let mut late_failures = 0;
             let mut registry = None;
             let mut retained_witness = None;
+            let mut source_change = None;
             let worker_callbacks = callbacks.clone();
             let worker_routes = routes.clone();
             std::thread::scope(|scope| {
@@ -297,7 +299,7 @@ fn run(mode: Mode) {
                             "committed inputs retired BEFORE delivery"
                         );
                         assert_eq!(driver.queued_actions(), 0);
-                        if matches!(mode, Mode::RejectBeforeApply | Mode::DropAfterApply) {
+                        if matches!(mode, Mode::RejectBeforeApply | Mode::DropAfterApply | Mode::SourceChangeBeforeAck) {
                             assert_eq!(
                                 out.pause.as_ref().map(|p| &p.kind),
                                 Some(&PauseKind::CommittedAwaitingRouteAck)
@@ -766,6 +768,15 @@ fn run(mode: Mode) {
                                     Err(ResidentFilterError::Context(Failure::Deadline))
                                 ));
                             }
+                            if mode == Mode::SourceChangeBeforeAck && source_change.is_none() {
+                                let (context, deadline) = &attempts[0];
+                                source_change = Some(
+                                    super::source_route_resident_history::SourceChange::begin(
+                                        install, &ledger, &provider, context, *deadline,
+                                    ),
+                                );
+                                assert_eq!(ledger.diagnostic(), prior);
+                            }
                             let already = ledger.counts().1 == owner_count;
                             ledger.acknowledge(&notice).unwrap();
                             assert_eq!(ledger.counts(), (owner_count, owner_count));
@@ -787,7 +798,9 @@ fn run(mode: Mode) {
                                     &wrong::substitute_dispatch(&notice, &attempts[0].0),
                                 );
                             }
-                            if mode == Mode::DropAfterApply && !fault_delivered {
+                            if matches!(mode, Mode::DropAfterApply | Mode::SourceChangeBeforeAck)
+                                && !fault_delivered
+                            {
                                 fault_delivered = true;
                                 reply
                                     .send(Err(NativeError::AuthorityUnavailable(
@@ -804,7 +817,12 @@ fn run(mode: Mode) {
                 assert_eq!(ledger.counts(), (owner_count, owner_count));
                 assert_eq!(
                     deliveries,
-                    if matches!(mode, Mode::DropAfterApply | Mode::RejectBeforeApply) {
+                    if matches!(
+                        mode,
+                        Mode::DropAfterApply
+                            | Mode::RejectBeforeApply
+                            | Mode::SourceChangeBeforeAck
+                    ) {
                         2
                     } else {
                         1
@@ -832,39 +850,48 @@ fn run(mode: Mode) {
                 // Direct negative source work occurs only after all controller
                 // retry measurements and worker shutdown, never during ACK retry.
                 let context = &attempts.last().unwrap().0;
-                let deadline = runtime::until();
-                let (constructor, water) = runtime::prerequisites_for_player(
-                    &mut provider,
-                    context,
-                    player,
-                    101,
-                    deadline,
-                );
-                let before = ledger.diagnostic();
-                assert!(matches!(
-                    ledger.certify(
-                        geometry.app.world_mut(),
-                        compatibility,
+                if let Some(change) = &source_change {
+                    assert_eq!(mode, Mode::SourceChangeBeforeAck);
+                    change.refuse_fresh_source(&ledger, &mut provider, context);
+                } else {
+                    assert_ne!(mode, Mode::SourceChangeBeforeAck);
+                    let deadline = runtime::until();
+                    let (constructor, water) = runtime::prerequisites_for_player(
                         &mut provider,
                         context,
-                        constructor,
-                        water,
-                        105,
+                        player,
+                        101,
                         deadline,
-                        || false
-                    ),
-                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
-                ));
-                assert_eq!(
-                    ledger.diagnostic(),
-                    before,
-                    "post-ACK certification cannot emit another Route"
-                );
+                    );
+                    let before = ledger.diagnostic();
+                    assert!(matches!(
+                        ledger.certify(
+                            geometry.app.world_mut(),
+                            compatibility,
+                            &mut provider,
+                            context,
+                            constructor,
+                            water,
+                            105,
+                            deadline,
+                            || false
+                        ),
+                        Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                    ));
+                    assert_eq!(
+                        ledger.diagnostic(),
+                        before,
+                        "post-ACK certification cannot emit another Route"
+                    );
+                }
 
                 eprintln!("resident controller actual ACK: mode={mode:?} tick={tick} owners={owner_count} candidates={owner_count} committed={owner_count} deliveries={deliveries} callbacks={count} published-events={events}");
             });
         },
     );
+}
+pub(super) fn changed_source_ack_probe() {
+    run(Mode::SourceChangeBeforeAck);
 }
 pub(super) fn retained_dispatch_probe() {
     run(Mode::RetainedDispatch);
