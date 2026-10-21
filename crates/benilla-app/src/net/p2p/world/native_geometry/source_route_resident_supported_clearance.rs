@@ -790,6 +790,63 @@ pub(super) fn probe_endpoint_final(
         first_ticket,
         ..Refusals::default()
     };
+    assert!(provider.allows_source_spline_support());
+    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+        panic!("endpoint probe requires current Route")
+    };
+    let diagnostic = ledger
+        .probe_straight_geometry_for_test(provider, request, first_ticket, deadline(), || false)
+        .unwrap();
+    assert_eq!(diagnostic.points.len(), 2);
+    assert_eq!(diagnostic.points[0], route.request.launch_origin);
+    // Sample the source implementation only to place an obstacle. Unit speed is
+    // not a claim about the real actor's speed or timing; certification reruns the
+    // current request and must independently reject this occupied body envelope.
+    let mut spline = benilla_sim::creature_motion::LinearSpline::launch(
+        diagnostic.points.clone(),
+        route.request.launch_origin,
+        benilla_sim::creature_ai::Real::ONE,
+    )
+    .unwrap();
+    assert!(spline.duration_ms() > 1);
+    spline.advance(spline.duration_ms() / 2);
+    let sample = spline.position().unwrap();
+    let mut center = wow_to_bevy(xyz(sample));
+    center.y += diagnostic.body.height.as_f32() * 0.5;
+    let obstacle = geometry
+        .app
+        .world_mut()
+        .spawn((
+            Collider::cuboid(0.125, 0.125, 0.125),
+            RigidBody::Static,
+            CollisionLayers::DEFAULT,
+            Transform::from_translation(center),
+        ))
+        .id();
+    let phases = Cell::new(0);
+    let completed = Cell::new(0);
+    let result = refused.attempt(
+        ledger,
+        geometry,
+        compatibility,
+        provider,
+        request,
+        deadline(),
+        || false,
+        |_, _| phases.set(phases.get() + 1),
+        || completed.set(completed.get() + 1),
+    );
+    assert!(geometry.app.world_mut().despawn(obstacle));
+    geometry.advance_physics();
+    expect(result, |error| {
+        matches!(
+            error,
+            ResidentFilterError::Context(Failure::UnsupportedNavigation)
+        )
+    });
+    assert_eq!((phases.get(), completed.get()), (0, 0));
+    assert_eq!(ledger.diagnostic(), original);
+    eprintln!("resident source-spline sixth scene refusal: source-interpolated-body-center obstacle=unknown-nonterrain full-envelope=UnsupportedNavigation segment-callbacks=0 emitted=0 removed=true; first-terrain-hit-masking=not-claimed");
     final_support_refusals(
         &mut refused,
         ledger,
@@ -800,10 +857,10 @@ pub(super) fn probe_endpoint_final(
         request,
         1,
     );
-    assert_eq!((refused.attempts, refused.emitted), (3, 0));
+    assert_eq!((refused.attempts, refused.emitted), (4, 0));
     assert_eq!(ledger.diagnostic(), original);
     assert_eq!(install.bytes(), source);
-    eprintln!("resident supplemental endpoint final refusals: epoch=6 segments=1 cancel,source,expiry attempts=3 emitted=0 committed-cache5=1 staged-cache6=0; fresh actual certification follows");
+    eprintln!("resident supplemental endpoint final refusals: epoch=6 segments=1 source-body-obstacle,cancel,source,expiry attempts=4 emitted=0 committed-cache5=1 staged-cache6=0; fresh actual certification follows");
 }
 
 #[allow(clippy::too_many_arguments)]

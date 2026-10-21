@@ -248,6 +248,19 @@ impl<'a> Owner<'a> {
             self.old_boundary_refused = true;
             return Err(error);
         }
+        if self.mode == Mode::StrictSourceSplineBoundary && epoch == 6 {
+            assert!(!retry && !self.old_boundary_refused);
+            let error = super::source_route_resident_source_spline_refusals::refuse_actual_sixth(
+                ledger,
+                geometry,
+                compatibility,
+                provider,
+                request,
+            );
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            self.old_boundary_refused = true;
+            return Err(error);
+        }
         if self.mode == Mode::RefusalsHistory && epoch == 5 && !retry {
             ledger
                 .probe_generated_flat_bindings_for_test(
@@ -568,7 +581,7 @@ impl<'a> Owner<'a> {
         let expected_warm = match self.mode {
             Mode::OldPolicyBoundary => 2,
             Mode::StrictStraightBoundary | Mode::StrictGeneratedSupportBoundary => 3,
-            Mode::StrictEndpointSupportBoundary => 4,
+            Mode::StrictEndpointSupportBoundary | Mode::StrictSourceSplineBoundary => 4,
             Mode::Recovery | Mode::RefusalsHistory => 7,
         };
         assert_eq!(self.accepted.len(), expected_warm);
@@ -582,6 +595,7 @@ impl<'a> Owner<'a> {
                 | Mode::StrictStraightBoundary
                 | Mode::StrictGeneratedSupportBoundary
                 | Mode::StrictEndpointSupportBoundary
+                | Mode::StrictSourceSplineBoundary
         ) {
             assert!(self.old_boundary_refused);
             assert_eq!(self.deliveries, expected_warm);
@@ -601,6 +615,8 @@ impl<'a> Owner<'a> {
                 eprintln!("resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true");
             } else if self.mode == Mode::StrictStraightBoundary {
                 eprintln!("resident strict-straight boundary: accepted=4 attempted=5 raw-coverage=UnsupportedTerrain context=MissingGeometry ledger-unchanged=true no-facts=true");
+            } else if self.mode == Mode::StrictSourceSplineBoundary {
+                eprintln!("resident prior-endpoint boundary: accepted=5 attempted=6 normalized-bottom-below-H=true context=UnsupportedPointRepresentation ledger-unchanged=true no-facts=true");
             } else if self.mode == Mode::StrictEndpointSupportBoundary {
                 eprintln!("resident prior-planar boundary: accepted=5 attempted=6 original-height-calls=0 context=UnsupportedNavigation ledger-unchanged=true no-facts=true");
             } else {

@@ -67,6 +67,36 @@ pub(super) fn interpolate(a: Point, b: Point, u: Real) -> Result<Point, MotionEr
         z: a.z.add(b.z.sub(a.z)?.mul(u)?)?,
     })
 }
+/// Componentwise enclosure of every successful source-linear interpolation at a
+/// representable parameter in [0, 1]. For the fixed rounded delta, multiplication
+/// is monotone (possibly decreasing); addition and software-RNE rounding preserve
+/// that ordering. Exact reconstruction of both endpoints bounds the composition.
+/// This is numeric evidence only: it neither certifies geometry nor promises that
+/// every intermediate operation satisfies Real's restricted arithmetic domain.
+pub fn linear_segment_enclosure(a: Point, b: Point) -> Result<[Point; 2], MotionError> {
+    a.validate()?;
+    b.validate()?;
+    if interpolate(a, b, Real::ZERO)? != a || interpolate(a, b, Real::ONE)? != b {
+        return Err(MotionError::Unsupported("linear endpoint reconstruction"));
+    }
+    let ordered = |a: Real, b: Real| if a.less(b) { (a, b) } else { (b, a) };
+    let (x0, x1) = ordered(a.x, b.x);
+    let (y0, y1) = ordered(a.y, b.y);
+    let (z0, z1) = ordered(a.z, b.z);
+    Ok([
+        Point {
+            x: x0,
+            y: y0,
+            z: z0,
+        },
+        Point {
+            x: x1,
+            y: y1,
+            z: z1,
+        },
+    ])
+}
+
 /// Creature::IsSlowedInCombat and ChaseMovementGenerator::DispatchSplineToPosition.
 /// Inputs are current transactional Unit values, not an admission-time health claim.
 /// Source 1.67 is binary64; all health arithmetic before it is binary32.

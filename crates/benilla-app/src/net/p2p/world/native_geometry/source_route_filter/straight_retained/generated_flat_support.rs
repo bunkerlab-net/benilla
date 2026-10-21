@@ -57,6 +57,9 @@ pub(crate) struct ResidentGeneratedFlatSupport {
     band: FlatBand,
 }
 impl ResidentGeneratedFlatSupport {
+    pub(crate) fn is_endpoint_attribution(&self) -> bool {
+        matches!(&self.detail, SupportAttribution::Endpoints(_))
+    }
     pub(crate) fn plane_bits(&self) -> u32 {
         self.band.plane
     }

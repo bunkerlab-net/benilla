@@ -291,7 +291,27 @@ pub(super) fn certify(
             revision: raw,
         };
         if let Some(support) = &support {
-            let clearance = if provider.allows_planar_nonpenetration() {
+            let clearance = if provider.allows_source_spline_support()
+                && support.is_endpoint_attribution()
+            {
+                provider.require_source_spline_support()?;
+                if observation.points.len() != 2
+                    || index != 0
+                    || route.request.kind != benilla_sim::creature_motion::RouteKind::ChaseReplan
+                {
+                    return Err(Failure::UnsupportedQuery.into());
+                }
+                let launch = route.request.launch_origin;
+                support_prism::certify_source_spline(
+                    &mut corridor,
+                    from,
+                    to,
+                    [launch.x.as_f32(), launch.y.as_f32(), launch.z.as_f32()],
+                    observation.body,
+                    f32::from_bits(support.plane_bits()),
+                    f32::from_bits(support.ceiling_bits()),
+                )
+            } else if provider.allows_planar_nonpenetration() {
                 provider.require_planar_nonpenetration()?;
                 support_prism::certify_planar_nonpenetration(
                     &mut corridor,

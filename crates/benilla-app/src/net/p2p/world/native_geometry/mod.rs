@@ -54,6 +54,8 @@ mod source_route_resident_repeated;
 mod source_route_resident_retained;
 #[cfg(test)]
 mod source_route_resident_retained_refusals;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod source_route_resident_source_spline_refusals;
 #[cfg(test)]
 mod source_route_resident_straight_clearance;
 #[cfg(test)]

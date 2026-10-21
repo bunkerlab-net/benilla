@@ -83,6 +83,8 @@ pub(crate) struct ResidentGeometryPolicy {
     planar_nonpenetration: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     endpoint_support: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    source_spline_support: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -110,6 +112,8 @@ impl ResidentGeometryPolicy {
         planar_nonpenetration: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         endpoint_support: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        source_spline_support: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -138,6 +142,8 @@ impl ResidentGeometryPolicy {
             planar_nonpenetration: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
             endpoint_support: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            source_spline_support: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -217,6 +223,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_planar_nonpenetration_straight_routes(inventory);
         policy.endpoint_support = true;
+        policy
+    }
+    /// Separate source-interpolation envelope; never normalized solver-sweep parity.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_source_spline_supported_straight_routes(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_endpoint_supported_straight_routes(inventory);
+        policy.source_spline_support = true;
         policy
     }
     pub(crate) fn revision(
@@ -339,6 +354,17 @@ impl ResidentGeometryPolicy {
             );
             hash.update(b"exclusive-indexed-or-endpoint-attribution-shared-triangles4096-v1");
             hash.update(b"same-live-generated-HQ-full-prism-actual-trajectory-and-source-los-v1");
+        }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.source_spline_support {
+            if !self.endpoint_support {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-same-polygon-source-spline-envelope-max8-v1");
+            hash.update(b"sealed-two-points-current-launch-origin-body-owner-freshness-v1");
+            hash.update(b"software-RNE-exact-endpoint-reconstruction-monotone-successful-u01-v1");
+            hash.update(b"rounded-source-body-head-extrema-full-independent-clearance-v1");
+            hash.update(b"checked-terrain-hit-only-no-normalized-affine-or-solver-parity-v1");
         }
         hash.update(installed.revision);
         hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
@@ -575,6 +601,20 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
     pub(crate) fn require_endpoint_support(&self) -> Result<(), ResidentFilterError> {
         self.require_planar_nonpenetration()?;
         if !self.allows_endpoint_support() {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn allows_source_spline_support(&self) -> bool {
+        self.geometry_policy.source_spline_support
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_source_spline_support(&self) -> Result<(), ResidentFilterError> {
+        self.require_endpoint_support()?;
+        if !self.allows_source_spline_support() {
             return Err(Failure::UnsupportedQuery.into());
         }
         Ok(())

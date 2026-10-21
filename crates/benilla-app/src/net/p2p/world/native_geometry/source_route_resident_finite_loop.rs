@@ -23,6 +23,7 @@ pub(super) enum Mode {
     StrictStraightBoundary,
     StrictGeneratedSupportBoundary,
     StrictEndpointSupportBoundary,
+    StrictSourceSplineBoundary,
 }
 
 /// Injected once by the owner on a real non-Route callback after epoch-four Facts.
@@ -408,7 +409,7 @@ pub(super) fn after_cold_ack(
     let final_revision = match mode {
         Mode::OldPolicyBoundary => 4,
         Mode::StrictStraightBoundary | Mode::StrictGeneratedSupportBoundary => 5,
-        Mode::StrictEndpointSupportBoundary => 6,
+        Mode::StrictEndpointSupportBoundary | Mode::StrictSourceSplineBoundary => 6,
         Mode::Recovery | Mode::RefusalsHistory => 8,
     };
     for revision in 2..=final_revision {
@@ -460,6 +461,13 @@ pub(super) fn after_cold_ack(
             let endpoint_boundary = (mode == Mode::StrictEndpointSupportBoundary && revision == 6)
                 .then(|| {
                     super::source_route_resident_endpoint_refusals::RefusedTick::capture(
+                        driver,
+                        destination,
+                    )
+                });
+            let spline_boundary =
+                (mode == Mode::StrictSourceSplineBoundary && revision == 6).then(|| {
+                    super::source_route_resident_source_spline_refusals::RefusedTick::capture(
                         driver,
                         destination,
                     )
@@ -519,6 +527,21 @@ pub(super) fn after_cold_ack(
                 }
                 if mode == Mode::StrictEndpointSupportBoundary && revision == 6 {
                     endpoint_boundary
+                        .unwrap()
+                        .assert_refused(driver, callbacks, routes, &out);
+                    assert_eq!(committed.len(), 4);
+                    assert!(!rolled_back);
+                    assert_eq!(driver.tick(), 157);
+                    assert_eq!(driver.state().now_ms, 3925);
+                    return (
+                        driver.tick(),
+                        events,
+                        callbacks.load(Ordering::SeqCst),
+                        committed,
+                    );
+                }
+                if mode == Mode::StrictSourceSplineBoundary && revision == 6 {
+                    spline_boundary
                         .unwrap()
                         .assert_refused(driver, callbacks, routes, &out);
                     assert_eq!(committed.len(), 4);

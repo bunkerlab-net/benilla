@@ -11,6 +11,22 @@ use benilla_sim::creature_ai::Real;
 use benilla_world::collision::WorldCollision;
 use bevy::prelude::{Dir3, Entity, Quat, Vec3};
 
+#[path = "source_spline.rs"]
+mod source_spline;
+
+/// Separate source-interpolation domain, never a normalized-cast certificate.
+pub(super) fn certify_source_spline(
+    local: &mut LocalCorridor<'_, '_, '_>,
+    from: [f32; 3],
+    to: [f32; 3],
+    launch: [f32; 3],
+    body: Body,
+    floor: f32,
+    upper: f32,
+) -> Result<(), Failure> {
+    source_spline::certify(local, from, to, launch, body, floor, upper)
+}
+
 /// Native points and initialized Body remain untouched. Only this private enclosure is
 /// projected to the proved raw plane. Source M2 LOS and final freshness remain the caller's.
 pub(super) fn certify(

@@ -8,7 +8,7 @@
 use crate::creature_ai::{AiError, Point, Real};
 mod numeric;
 mod spline;
-pub use numeric::chase_speed;
+pub use numeric::{chase_speed, linear_segment_enclosure};
 pub use spline::{LinearSpline, SplineEvent, SplineSnapshot, MAX_PATH_POINTS};
 
 pub const CREATURE_MOTION_POLICY_ID: &str = "cmangos-8ec338a1-ground-linear-home-wander-v7";
@@ -58,3 +58,6 @@ pub use flags::GroundMovementFlags;
 
 #[cfg(test)]
 mod pathfinder_cache_tests;
+
+#[cfg(test)]
+mod linear_enclosure_tests;

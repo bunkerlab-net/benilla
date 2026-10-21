@@ -157,7 +157,10 @@ fn run(mode: Mode) {
         Some(
             super::source_route_resident_finite_loop::Mode::Recovery
             | super::source_route_resident_finite_loop::Mode::RefusalsHistory,
-        ) => runtime::GeneratedSupport::EndpointSupport,
+        ) => runtime::GeneratedSupport::SourceSplineSupport,
+        Some(super::source_route_resident_finite_loop::Mode::StrictSourceSplineBoundary) => {
+            runtime::GeneratedSupport::EndpointSupport
+        }
         Some(super::source_route_resident_finite_loop::Mode::StrictEndpointSupportBoundary) => {
             runtime::GeneratedSupport::PlanarNonpenetration
         }
@@ -168,6 +171,7 @@ fn run(mode: Mode) {
         generated_support,
         runtime::GeneratedSupport::PlanarNonpenetration
             | runtime::GeneratedSupport::EndpointSupport
+            | runtime::GeneratedSupport::SourceSplineSupport
     );
     runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
@@ -238,8 +242,24 @@ fn run(mode: Mode) {
             );
             assert_eq!(
                 provider.allows_endpoint_support(),
-                generated_support == runtime::GeneratedSupport::EndpointSupport
+                matches!(
+                    generated_support,
+                    runtime::GeneratedSupport::EndpointSupport
+                        | runtime::GeneratedSupport::SourceSplineSupport
+                )
             );
+            assert_eq!(
+                provider.allows_source_spline_support(),
+                generated_support == runtime::GeneratedSupport::SourceSplineSupport
+            );
+            if generated_support == runtime::GeneratedSupport::SourceSplineSupport {
+                provider.require_source_spline_support().unwrap();
+            } else {
+                assert!(matches!(
+                    provider.require_source_spline_support(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            }
             if planar_nonpenetration {
                 provider.require_planar_nonpenetration().unwrap();
             } else {
@@ -599,6 +619,7 @@ fn run(mode: Mode) {
                                                         super::source_route_resident_finite_loop::Mode::StrictStraightBoundary
                                                         | super::source_route_resident_finite_loop::Mode::StrictGeneratedSupportBoundary
                                                         | super::source_route_resident_finite_loop::Mode::StrictEndpointSupportBoundary
+                                                        | super::source_route_resident_finite_loop::Mode::StrictSourceSplineBoundary
                                                     ))
                                             );
                                             reply.send(Err(error)).unwrap();

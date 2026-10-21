@@ -171,6 +171,8 @@ pub(crate) enum GeneratedSupport {
     PlanarNonpenetration,
     #[cfg(not(benilla_headless_geometry))]
     EndpointSupport,
+    #[cfg(not(benilla_headless_geometry))]
+    SourceSplineSupport,
 }
 
 /// Component-only selection made before the Profile or any live owner exists.
@@ -343,6 +345,11 @@ fn with_fixture_at_with_owners<T>(
             GeneratedSupport::EndpointSupport => {
                 ResidentGeometryPolicy::installed_endpoint_supported_straight_routes(&compatibility)
             }
+            GeneratedSupport::SourceSplineSupport => {
+                ResidentGeometryPolicy::installed_source_spline_supported_straight_routes(
+                    &compatibility,
+                )
+            }
             GeneratedSupport::Disabled => unreachable!(),
         }
     } else {
@@ -455,6 +462,18 @@ fn with_fixture_at_with_owners<T>(
                 .revision(height.binding(), query.binding())
                 .unwrap(),
                 "supplemental endpoint probes are selected before profile/session binding"
+            );
+        }
+        #[cfg(not(benilla_headless_geometry))]
+        if generated_support == GeneratedSupport::SourceSplineSupport {
+            assert_ne!(
+                revision,
+                ResidentGeometryPolicy::installed_endpoint_supported_straight_routes(
+                    &compatibility
+                )
+                .revision(height.binding(), query.binding())
+                .unwrap(),
+                "source spline envelope is selected before profile/session binding"
             );
         }
         p.geometry_revision = revision;
