@@ -40,6 +40,7 @@ enum Mode {
     ExpireBeforeAck,
     RollbackRetry,
     TwoOwners,
+    RetainedDispatch,
 }
 enum Message {
     Resolve(
@@ -211,6 +212,10 @@ fn run(mode: Mode) {
             let mut geometry = InstalledFixture::new(install.path(), inventory);
             let mut visitors = runtime::TwoOwnerVisitors::default();
             let owner_count = p.npcs.len();
+            if mode == Mode::RetainedDispatch {
+                assert_eq!(p.tick_ms, 25);
+                assert_eq!(owner_count, 1);
+            }
             let chase_destination =
                 (mode == Mode::TwoOwners).then(|| runtime::two_owner_chase_destination(&p));
             let mut authored = n::synthetic_motion_fixture::SyntheticMotionAuthority::default();
@@ -225,6 +230,7 @@ fn run(mode: Mode) {
             let mut late_failure_armed = false;
             let mut late_failures = 0;
             let mut registry = None;
+            let mut retained_witness = None;
             let worker_callbacks = callbacks.clone();
             let worker_routes = routes.clone();
             std::thread::scope(|scope| {
@@ -328,6 +334,15 @@ fn run(mode: Mode) {
                         assert_eq!(driver.tick(), tick);
                         // Projection/checkpoint may have published once BEFORE the delivery fault.
                         // Do not claim a dropped ACK suppresses committed movement events.
+                        if mode == Mode::RetainedDispatch {
+                            return super::source_route_resident_continuation::after_cold_ack(
+                                &mut driver,
+                                &worker_callbacks,
+                                &worker_routes,
+                                tick,
+                                out.events.len(),
+                            );
+                        }
                         return (tick, out.events.len(), count);
                     }
                     panic!("actual controller never requested its genuine first cold Route");
@@ -368,6 +383,62 @@ fn run(mode: Mode) {
                                 reply
                                     .send(Err(NativeError::AuthorityUnavailable(
                                         "resident controller deliberate later callback failure",
+                                    )))
+                                    .unwrap();
+                                continue;
+                            }
+                            if mode == Mode::RetainedDispatch
+                                && matches!(
+                                    request.query,
+                                    Query::SourceMotion(MotionQuery::Route(_))
+                                )
+                                && routes.load(Ordering::SeqCst) == 1
+                            {
+                                assert!(retained_witness.is_none());
+                                let before = ledger.diagnostic();
+                                ledger
+                                    .check_retained_dispatch_for_test(&provider, &request)
+                                    .unwrap();
+                                provider
+                                    .verify_installed_owner(
+                                        compatibility,
+                                        compatibility.owner(),
+                                        runtime::until(),
+                                        || false,
+                                    )
+                                    .unwrap();
+                                assert_eq!(
+                                    provider.retained_constructor_for_test(&request).unwrap(),
+                                    registry.unwrap(),
+                                    "retained callback must re-enter the original native allocation"
+                                );
+                                assert!(matches!(
+                                    provider.observe(&request, 401, runtime::until(), || false),
+                                    Err(ResidentFilterError::Context(Failure::Binding))
+                                ));
+                                assert_eq!(
+                                    ledger.require_open_epoch(),
+                                    Err(Failure::UnsupportedQuery)
+                                );
+                                assert_eq!(ledger.diagnostic(), before);
+                                let Query::SourceMotion(MotionQuery::Route(route)) = &request.query
+                                else {
+                                    unreachable!()
+                                };
+                                let cache = route.request.prior_cache.as_ref().unwrap();
+                                assert_eq!(cache.revision, 1);
+                                assert_eq!(cache.point_limit, motion::PATHFINDER_CACHE_POINT_LIMIT);
+                                assert_eq!(cache.poly_refs.len(), 75);
+                                assert_eq!(cache.active_len, 1);
+                                assert_eq!(cache.include_flags, 13);
+                                assert_eq!(cache.exclude_flags, 0);
+                                assert_eq!(cache.path_type, 1);
+                                eprintln!("resident actual retained dispatch: tick={} query={} prior-revision={} storage={} active={} filter={} origin={:?} goal={:?}", request.binding.tick, route.request.binding.query_id, cache.revision, cache.poly_refs.len(), cache.active_len, cache.include_flags, route.request.origin, route.request.goal);
+                                retained_witness = Some((request.clone(), before));
+                                assert_eq!(routes.fetch_add(1, Ordering::SeqCst), 1);
+                                reply
+                                    .send(Err(NativeError::AuthorityUnavailable(
+                                        super::source_route_resident_continuation::REFUSAL,
                                     )))
                                     .unwrap();
                                 continue;
@@ -606,7 +677,12 @@ fn run(mode: Mode) {
                         }
                         Message::Notice(notice, reply) => {
                             if notice.routes().is_empty() {
-                                assert_eq!(routes.load(Ordering::SeqCst), 0);
+                                assert!(
+                                    routes.load(Ordering::SeqCst) == 0
+                                        || mode == Mode::RetainedDispatch
+                                            && routes.load(Ordering::SeqCst) == 1
+                                            && ledger.counts() == (1, 1)
+                                );
                                 binding_error(ledger.acknowledge(&notice)).unwrap();
                                 reply.send(Ok(())).unwrap();
                                 continue;
@@ -736,7 +812,7 @@ fn run(mode: Mode) {
                 );
                 assert_eq!(
                     routes.load(Ordering::SeqCst),
-                    if mode == Mode::RollbackRetry {
+                    if matches!(mode, Mode::RollbackRetry | Mode::RetainedDispatch) {
                         2
                     } else {
                         owner_count
@@ -745,6 +821,14 @@ fn run(mode: Mode) {
                 assert_eq!(late_failures, usize::from(mode == Mode::RollbackRetry));
                 assert!(captured.is_some());
                 assert_eq!(provider.retained_constructor_count(), owner_count);
+                if mode == Mode::RetainedDispatch {
+                    let (context, before) =
+                        retained_witness.as_ref().expect("actual retained callback");
+                    assert_eq!(context.binding.tick, tick + 1);
+                    assert_eq!(ledger.diagnostic(), *before);
+                } else {
+                    assert!(retained_witness.is_none());
+                }
                 // Direct negative source work occurs only after all controller
                 // retry measurements and worker shutdown, never during ACK retry.
                 let context = &attempts.last().unwrap().0;
@@ -781,6 +865,9 @@ fn run(mode: Mode) {
             });
         },
     );
+}
+pub(super) fn retained_dispatch_probe() {
+    run(Mode::RetainedDispatch);
 }
 #[test]
 fn resident_controller_commits_exact_first_cold_candidate() {

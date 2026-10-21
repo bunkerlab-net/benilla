@@ -405,6 +405,65 @@ impl ResidentLedger {
             Ok(())
         }
     }
+    /// Read-only component probe, not retained calculation authority. Its root is
+    /// the ACK-selected opaque candidate, never a copied prior-cache descriptor.
+    pub(in super::super) fn check_retained_dispatch_for_test(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+    ) -> Result<(), Failure> {
+        let boundary = self.boundary.as_ref().ok_or(Failure::Binding)?;
+        if !self.route_epoch_committed
+            || !self.provider.matches(provider)
+            || self.counts() != (1, 1)
+            || boundary.tick().checked_add(1) != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding);
+        }
+        let candidate = &self.candidates[0].candidate;
+        self.validate_candidate(candidate)?;
+        let Query::SourceMotion(MotionQuery::Route(old)) = &candidate.reply.request.query else {
+            return Err(Failure::Binding);
+        };
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::Binding);
+        };
+        let saved = candidate
+            .reply
+            .request
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let current = context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let cache = &calculation(&candidate.reply)?.after_cache;
+        let head = boundary.heads().first().ok_or(Failure::Binding)?;
+        if boundary.heads().len() != 1
+            || head.npc() != route.owner.npc()
+            || head.construction() != Some(saved.construction_binding())
+            || head.cache() != Some(cache)
+            || route.request.prior_cache.as_deref() != Some(cache)
+            || route.owner != old.owner
+            || route.collision_width != old.collision_width
+            || route.collision_height != old.collision_height
+            || route.request.kind != motion::RouteKind::ChaseReplan
+            || route.request.binding.query_id <= old.request.binding.query_id
+            || route.request.binding.now_ms <= old.request.binding.now_ms
+            || context.binding.tick <= candidate.reply.request.binding.tick
+            || context.binding.world != candidate.reply.request.binding.world
+            || context.binding.profile != candidate.reply.request.binding.profile
+            || context.binding.geometry != candidate.reply.request.binding.geometry
+            || context.binding.authority_policy != candidate.reply.request.binding.authority_policy
+            || context.binding.npc != candidate.reply.request.binding.npc
+            || current.first_construction()
+            || current.constructor_kind() != motion::PathfinderConstructorKind::ChaseLazy
+            || current.construction_binding() != saved.construction_binding()
+            || current.same_live_dispatch(saved)
+        {
+            return Err(Failure::Binding);
+        }
+        Ok(())
+    }
     pub(in super::super) fn diagnostic(&self) -> Diagnostic {
         Diagnostic {
             profile: self.profile.clone(),

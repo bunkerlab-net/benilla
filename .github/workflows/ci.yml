@@ -108,6 +108,13 @@ jobs:
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_historical_ack_survives_original_source_expiry \
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_retry_ack_selects_fresh_live_candidate_not_failed_ancestor \
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_two_owner_notice_is_atomic_before_publication
+      - name: Verify resident retained dispatch refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-retained-dispatch.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_continuation::resident_controller_retained_dispatch_refuses_without_disturbing_committed_owner -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_continuation::resident_controller_retained_dispatch_refuses_without_disturbing_committed_owner
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor
