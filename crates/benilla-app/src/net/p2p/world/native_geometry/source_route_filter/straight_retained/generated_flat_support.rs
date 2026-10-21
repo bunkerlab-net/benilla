@@ -18,7 +18,7 @@ use benilla_native_nav::{LoadedSourceRetainedEndpointSupport, SourceRetainedEndp
 
 enum SupportAttribution {
     Indexed(LoadedSourceRetainedStraightDetail),
-    Endpoints(LoadedSourceRetainedEndpointSupport),
+    Endpoints(Box<LoadedSourceRetainedEndpointSupport>),
 }
 impl SupportAttribution {
     fn check_terminal(
@@ -94,7 +94,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                 && dependency.terminal.phase()
                     == benilla_native_nav::SourceWarmPolyPhase::SamePolygon
             {
-                SupportAttribution::Endpoints(
+                SupportAttribution::Endpoints(Box::new(
                     dependency
                         .terminal
                         .endpoint_support_witness(
@@ -106,7 +106,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                             deadline,
                         )
                         .map_err(ResidentFilterError::StraightDetail)?,
-                )
+                ))
             } else {
                 SupportAttribution::Indexed(
                     dependency
