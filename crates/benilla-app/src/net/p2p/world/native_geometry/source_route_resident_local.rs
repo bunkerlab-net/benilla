@@ -186,3 +186,7 @@ pub(super) mod ledger;
 // A separate component-only retained certifier; no generic/headless conversion.
 #[path = "source_route_resident_local/retained.rs"]
 mod retained;
+
+#[cfg(test)]
+#[path = "source_route_resident_local/three_epoch.rs"]
+mod three_epoch;

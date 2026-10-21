@@ -17,6 +17,9 @@ use benilla_native_nav::{
 };
 use benilla_world_runtime::{native::OwnerIgnorePathfindingReceipt, PlayerId};
 
+#[path = "second_retained.rs"]
+pub(crate) mod second_retained;
+
 /// Read-only stage markers; an observer cannot supply evidence or bypass a refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResidentRetainedPhase {
@@ -96,6 +99,17 @@ pub(crate) struct ResidentJoinedRetainedObservation {
 impl ResidentJoinedRetainedDependency {
     pub(crate) fn deadline(&self, deadline: Instant) -> Instant {
         deadline.min(self.root.expires)
+    }
+    /// Historical native equality only, without renewing any source observation.
+    pub(crate) fn check_historical_native_cache_for_test(
+        &self,
+        expected: &motion::PathFinderCache,
+    ) -> Result<(), ResidentFilterError> {
+        check_historical_native_cache(&self.terminal, &self.root.context, 2, expected)
+    }
+    /// Logical owned backing/trace bytes, excluding shared query/source allocations.
+    pub(crate) fn storage_footprint_for_test(&self) -> usize {
+        native_storage_footprint(&self.terminal) + 2 * context_cache_bytes(&self.root.context)
     }
 }
 
@@ -692,4 +706,66 @@ fn check_time(deadline: Instant, cancelled: &impl Fn() -> bool) -> Result<(), Re
         return Err(Failure::Deadline.into());
     }
     Ok(())
+}
+
+/// Compare an owned result to a diagnostic cache; this never constructs a dependency.
+fn check_historical_native_cache(
+    terminal: &LoadedSourceSamePolygon,
+    context: &AuthorityRequest,
+    revision: u64,
+    expected: &motion::PathFinderCache,
+) -> Result<(), ResidentFilterError> {
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return Err(Failure::Binding.into());
+    };
+    let prior = route.request.prior_cache.as_ref().ok_or(Failure::Binding)?;
+    let native = terminal.compatibility();
+    let bits = |point: Point| [point.x.bits(), point.y.bits(), point.z.bits()];
+    expected
+        .validate_for(route.request.binding.identity)
+        .map_err(|_| Failure::Binding)?;
+    if expected.binding != prior.binding
+        || expected.revision != revision
+        || prior.revision.checked_add(1) != Some(revision)
+        || expected.source != motion::RouteSource::OwnerPathFinder
+        || expected.poly_refs != native.storage()
+        || usize::from(expected.active_len) != native.active_len()
+        || usize::from(expected.point_limit) != native.point_limit()
+        || expected.path_type != terminal.path_type()
+        || bits(expected.requested_end) != terminal.actual_end()
+        || expected.include_flags != native.filter().include_flags
+        || expected.exclude_flags != native.filter().exclude_flags
+        || native.before_storage() != prior.poly_refs
+        || native.before_active_len() != usize::from(prior.active_len)
+        || terminal.points() != [bits(route.request.origin), bits(route.request.goal)]
+        || terminal.actual_end() != bits(route.request.goal)
+        || !native.is_retained()
+    {
+        return Err(Failure::Binding.into());
+    }
+    Ok(())
+}
+fn context_cache_bytes(context: &AuthorityRequest) -> usize {
+    let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        return 0;
+    };
+    route
+        .request
+        .prior_cache
+        .as_ref()
+        .map_or(0, |cache| std::mem::size_of_val(cache.poly_refs.as_slice()))
+}
+fn native_storage_footprint(terminal: &LoadedSourceSamePolygon) -> usize {
+    let native = terminal.compatibility();
+    std::mem::size_of_val(native.initial_storage())
+        + std::mem::size_of_val(native.before_storage())
+        + std::mem::size_of_val(native.storage())
+        + std::mem::size_of_val(native.trace())
+        + std::mem::size_of_val(terminal.points())
+}
+
+/// Conservative logical cold backing/trace bytes; no native handle leaves its owner.
+pub(crate) fn cold_storage_footprint_for_test(origin: &ResidentJoinedColdDependency) -> usize {
+    native_storage_footprint(origin.retained_cold().native_terminal())
+        + 3 * context_cache_bytes(&origin.retained_cold().historical_observation().context)
 }

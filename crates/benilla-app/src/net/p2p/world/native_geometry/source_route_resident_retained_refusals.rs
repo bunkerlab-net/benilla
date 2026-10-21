@@ -30,6 +30,7 @@ fn deadline() -> Instant {
 
 #[derive(Default)]
 struct Refusals {
+    second: bool,
     attempts: usize,
     emitted: usize,
 }
@@ -49,16 +50,29 @@ impl Refusals {
         let before = ledger.diagnostic();
         let constructors = provider.retained_constructor_count();
         geometry.advance_physics();
-        let result = ledger.certify_retained_observed(
-            geometry.app.world_mut(),
-            compatibility,
-            provider,
-            request,
-            201,
-            deadline,
-            cancelled,
-            after,
-        );
+        let result = if self.second {
+            ledger.certify_second_retained_observed(
+                geometry.app.world_mut(),
+                compatibility,
+                provider,
+                request,
+                401,
+                deadline,
+                cancelled,
+                after,
+            )
+        } else {
+            ledger.certify_retained_observed(
+                geometry.app.world_mut(),
+                compatibility,
+                provider,
+                request,
+                201,
+                deadline,
+                cancelled,
+                after,
+            )
+        };
         self.attempts += 1;
         self.emitted += usize::from(result.is_ok());
         assert_eq!(
@@ -115,7 +129,8 @@ impl Drop for RestoreSource<'_> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn probe(
+fn probe_inner(
+    second: bool,
     ledger: &mut ResidentLedger,
     geometry: &mut InstalledFixture,
     install: &input::Install,
@@ -127,12 +142,18 @@ pub(super) fn probe(
     let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
         panic!("refusal probe requires the actual retained Route callback")
     };
-    assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
+    assert_eq!(
+        route.request.prior_cache.as_ref().unwrap().revision,
+        if second { 2 } else { 1 }
+    );
     assert_eq!(ledger.counts(), (1, 1));
     let original_ledger = ledger.diagnostic();
     let original_source = install.bytes();
     let reached = Cell::new(0);
-    let mut refused = Refusals::default();
+    let mut refused = Refusals {
+        second,
+        ..Refusals::default()
+    };
 
     // Public asset IDs suffice; no fixture-private tile handles or visibility change.
     let removed: Vec<_> = {
@@ -353,10 +374,58 @@ pub(super) fn probe(
     assert_eq!(ledger.diagnostic(), original_ledger);
     assert_eq!(ledger.counts(), (1, 1));
     assert_eq!(install.bytes(), original_source);
-    eprintln!("resident retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cold=1 staged-warm=0");
+    if second {
+        eprintln!("resident second retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cache2=1 staged-cache3=0");
+    } else {
+        eprintln!("resident retained concrete refusals: attempts=6 emitted=0 post-segment-hooks=3 committed-cold=1 staged-warm=0");
+    }
 }
 
 #[test]
 fn resident_controller_one_retained_refuses_concrete_source_changes_before_fresh_success() {
     super::source_route_resident_controller::one_retained_refusals_probe();
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn probe(
+    ledger: &mut ResidentLedger,
+    geometry: &mut InstalledFixture,
+    install: &input::Install,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+) {
+    probe_inner(
+        false,
+        ledger,
+        geometry,
+        install,
+        height,
+        compatibility,
+        provider,
+        request,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn probe_second(
+    ledger: &mut ResidentLedger,
+    geometry: &mut InstalledFixture,
+    install: &input::Install,
+    height: &PreparedSourceHeight<'_, '_, '_>,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+) {
+    probe_inner(
+        true,
+        ledger,
+        geometry,
+        install,
+        height,
+        compatibility,
+        provider,
+        request,
+    );
 }

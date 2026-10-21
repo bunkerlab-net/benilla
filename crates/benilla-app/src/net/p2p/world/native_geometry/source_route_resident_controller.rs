@@ -13,7 +13,7 @@ use super::{
     source_pathfinder_query::resident_joined_tests as runtime,
     source_route_filter::resident::{ResidentFilterError, ResidentFilterProvider},
     source_route_resident_local::ledger::ResidentLedger,
-    source_route_resident_retained as retained,
+    source_route_resident_retained as retained, source_route_resident_three_epoch as three_epoch,
 };
 use crate::net::p2p::world::{resident_fixture, PauseKind};
 use benilla_sim::{creature_ai as ai, creature_motion as motion};
@@ -44,11 +44,19 @@ enum Mode {
     TwoOwners,
     RetainedDispatch,
     OneRetained(retained::Mode),
+    ThreeEpoch(three_epoch::Mode),
 }
 impl Mode {
     fn retained(self) -> Option<retained::Mode> {
         match self {
             Self::OneRetained(mode) => Some(mode),
+            Self::ThreeEpoch(_) => Some(retained::Mode::Accept),
+            _ => None,
+        }
+    }
+    fn three_epoch(self) -> Option<three_epoch::Mode> {
+        match self {
+            Self::ThreeEpoch(mode) => Some(mode),
             _ => None,
         }
     }
@@ -135,6 +143,7 @@ fn run(mode: Mode) {
     runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
         mode.retained().is_some(),
+        mode.three_epoch().is_some(),
         |install, height, compatibility, inventory, policy, p, query, other| {
             let fixture = resident_fixture::Fixture::new(p.clone(), [8; 16]);
             let player = fixture.player();
@@ -151,6 +160,14 @@ fn run(mode: Mode) {
                 policy.clone(),
             )
             .unwrap();
+            if mode.three_epoch().is_some() {
+                provider.require_two_retained_routes().unwrap();
+            } else {
+                assert!(matches!(
+                    provider.require_two_retained_routes(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            }
             let mut other_provider =
                 ResidentFilterProvider::bind_with_policy(&session, &p, height, other, policy)
                     .unwrap();
@@ -247,6 +264,11 @@ fn run(mode: Mode) {
             let mut retained_notice: Option<RouteCommitNotice> = None;
             let mut retained_accepted = false;
             let mut retained_root = None;
+            let mut third_notice: Option<RouteCommitNotice> = None;
+            let mut third_accepted = false;
+            let mut third_root = None;
+            let mut prior_warm_liveness = None;
+            let mut third_proposals = vec![];
             let worker_callbacks = callbacks.clone();
             let worker_routes = routes.clone();
             std::thread::scope(|scope| {
@@ -357,7 +379,7 @@ fn run(mode: Mode) {
                                 &worker_routes,
                                 tick,
                                 out.events.len(),
-                            ), None);
+                            ), None, None);
                         }
                         if let Some(retained_mode) = mode.retained() {
                             let (tick, events, count, committed) = retained::after_cold_ack(
@@ -368,6 +390,13 @@ fn run(mode: Mode) {
                                 out.events.len(),
                                 retained_mode,
                             );
+                            if let Some(third_mode) = mode.three_epoch() {
+                                let (tick, events, count, third) = three_epoch::after_warm_ack(
+                                    &mut driver, &worker_callbacks, &worker_routes,
+                                    tick, events, third_mode,
+                                );
+                                return ((tick, events, count), Some(committed), Some(third));
+                            }
                             if retained_mode == retained::Mode::SecondRetainedDispatch {
                                 return (super::source_route_resident_repeated::after_warm_ack(
                                     &mut driver,
@@ -375,11 +404,11 @@ fn run(mode: Mode) {
                                     &worker_routes,
                                     tick,
                                     events,
-                                ), Some(committed));
+                                ), Some(committed), None);
                             }
-                            return ((tick, events, count), Some(committed));
+                            return ((tick, events, count), Some(committed), None);
                         }
-                        return ((tick, out.events.len(), count), None);
+                        return ((tick, out.events.len(), count), None, None);
                     }
                     panic!("actual controller never requested its genuine first cold Route");
                 });
@@ -418,7 +447,11 @@ fn run(mode: Mode) {
                                 late_failures += 1;
                                 reply
                                     .send(Err(NativeError::AuthorityUnavailable(
-                                        "resident controller deliberate later callback failure",
+                                        if mode.three_epoch().is_some() {
+                                            three_epoch::LATER_FAILURE
+                                        } else {
+                                            "resident controller deliberate later callback failure"
+                                        },
                                     )))
                                     .unwrap();
                                 continue;
@@ -553,6 +586,145 @@ fn run(mode: Mode) {
                                     )))
                                     .unwrap();
                                 continue;
+                            }
+                            if let Some(third_mode) = mode.three_epoch() {
+                                if matches!(
+                                    request.query,
+                                    Query::SourceMotion(MotionQuery::Route(_))
+                                ) && routes.load(Ordering::SeqCst) >= 2
+                                {
+                                    let attempt = routes.fetch_add(1, Ordering::SeqCst);
+                                    assert!(attempt == 2 || third_mode == three_epoch::Mode::RollbackRetry && attempt == 3,
+                                        "only the actual third calculation or its equal-input retry is supported");
+                                    assert!(retained_accepted);
+                                    three_epoch::assert_request(
+                                        &p,
+                                        retained_notice.as_ref().unwrap(),
+                                        &request,
+                                    );
+                                    assert_eq!(
+                                        provider.retained_constructor_for_test(&request).unwrap(),
+                                        registry.unwrap()
+                                    );
+                                    if attempt == 2 {
+                                        assert_eq!(ledger.counts(), (1, 1));
+                                        third_root = Some(ledger.diagnostic());
+                                        prior_warm_liveness = Some(
+                                            ledger.committed_warm_liveness_for_test().unwrap(),
+                                        );
+                                        assert!(prior_warm_liveness.as_ref().unwrap().is_alive());
+                                    } else {
+                                        let (failed, old_deadline) = &attempts[2];
+                                        assert_eq!(
+                                            serde_json::to_vec(failed).unwrap(),
+                                            serde_json::to_vec(&request).unwrap()
+                                        );
+                                        assert!(!failed
+                                            .require_pathfinder_dispatch(&p)
+                                            .unwrap()
+                                            .same_live_dispatch(
+                                                request.require_pathfinder_dispatch(&p).unwrap()
+                                            ));
+                                        assert_eq!(late_failures, 1);
+                                        assert_eq!(ledger.counts(), (2, 1));
+                                        assert!(prior_warm_liveness.as_ref().unwrap().is_alive());
+                                        assert!(ledger
+                                            .diagnostic()
+                                            .same_committed_root(third_root.as_ref().unwrap()));
+                                        ledger
+                                            .check_fresh_candidate(&provider, failed, *old_deadline)
+                                            .unwrap();
+                                        assert!(matches!(
+                                            ledger.check_fresh_candidate(
+                                                &provider,
+                                                &request,
+                                                *old_deadline
+                                            ),
+                                            Err(ResidentFilterError::Context(Failure::Binding))
+                                        ));
+                                    }
+                                    if third_mode == three_epoch::Mode::Accept && attempt == 2 {
+                                        three_epoch::assert_source_order(
+                                            &ledger,
+                                            &mut provider,
+                                            &request,
+                                        );
+                                    }
+                                    if third_mode == three_epoch::Mode::Refusals && attempt == 2 {
+                                        super::source_route_resident_retained_refusals::probe_second(
+                                            &mut ledger, &mut geometry, install, height, compatibility,
+                                            &mut provider, &request,
+                                        );
+                                        assert!(Instant::now() >= attempts[0].1);
+                                        assert!(Instant::now() >= attempts[1].1);
+                                        assert!(matches!(ledger.check_fresh_candidate(&provider, &attempts[1].0, runtime::until()),
+                                            Err(ResidentFilterError::Context(Failure::Deadline))),
+                                            "expired predecessor source observations never become fresh third authority");
+                                    }
+                                    let deadline = Instant::now() + Duration::from_secs(30);
+                                    geometry.advance_physics();
+                                    let facts = ledger
+                                        .certify_second_retained(
+                                            geometry.app.world_mut(),
+                                            compatibility,
+                                            &mut provider,
+                                            &request,
+                                            401,
+                                            deadline,
+                                            || false,
+                                        )
+                                        .unwrap();
+                                    three_epoch::assert_facts(&request, &facts);
+                                    let staged = ledger.diagnostic();
+                                    assert!(matches!(
+                                        ledger.certify_second_retained(
+                                            geometry.app.world_mut(),
+                                            compatibility,
+                                            &mut provider,
+                                            &request,
+                                            401,
+                                            deadline,
+                                            || false,
+                                        ),
+                                        Err(ResidentFilterError::Context(Failure::Binding))
+                                    ));
+                                    assert_eq!(ledger.diagnostic(), staged);
+                                    assert_eq!(ledger.counts(), (attempt, 1));
+                                    assert!(ledger
+                                        .diagnostic()
+                                        .same_committed_root(third_root.as_ref().unwrap()));
+                                    assert!(prior_warm_liveness.as_ref().unwrap().is_alive());
+                                    ledger
+                                        .check_fresh_candidate(&provider, &request, deadline)
+                                        .unwrap();
+                                    third_proposals.push(
+                                        ledger.staged_warm_liveness_for_test(&request).unwrap(),
+                                    );
+                                    assert!(third_proposals
+                                        .iter()
+                                        .all(|proposal| proposal.is_alive()));
+                                    let ownership = ledger.flat_ownership_for_test().unwrap();
+                                    assert_eq!(ownership.staged_count, attempt - 1);
+                                    assert_eq!(
+                                        ownership.terminal_count,
+                                        2 + ownership.staged_count
+                                    );
+                                    assert!(ownership.storage_bytes <= ownership.upper_bound_bytes);
+                                    eprintln!("resident third staging: attempt={attempt} terminals={} staged={} logical-storage-bytes={} bound-bytes={}", ownership.terminal_count, ownership.staged_count, ownership.storage_bytes, ownership.upper_bound_bytes);
+
+                                    assert_eq!(
+                                        provider.retained_constructor_for_test(&request).unwrap(),
+                                        registry.unwrap()
+                                    );
+                                    attempts.push((request.clone(), deadline));
+                                    if third_mode == three_epoch::Mode::RollbackRetry
+                                        && attempt == 2
+                                    {
+                                        late_failure_armed = true;
+                                    }
+                                    reply.send(Ok(AuthorityReply { request, facts })).unwrap();
+                                    continue;
+                                }
                             }
                             if let Some(retained_mode) = mode.retained() {
                                 if matches!(
@@ -917,7 +1089,13 @@ fn run(mode: Mode) {
                                 );
                                 late_failure_armed = false;
                                 late_failures += 1;
-                                reply.send(Err(NativeError::AuthorityUnavailable("resident controller deliberate later derived callback failure"))).unwrap();
+                                reply.send(Err(NativeError::AuthorityUnavailable(
+                                    if mode.three_epoch().is_some() {
+                                        three_epoch::LATER_FAILURE
+                                    } else {
+                                        "resident controller deliberate later derived callback failure"
+                                    }
+                                ))).unwrap();
                                 continue;
                             }
                             authored.observe_derived(&derived).unwrap();
@@ -935,10 +1113,157 @@ fn run(mode: Mode) {
                                             == Some(retained::Mode::SecondRetainedDispatch)
                                             && routes.load(Ordering::SeqCst) == 2
                                             && ledger.counts() == (1, 1)
+                                        || mode.three_epoch().is_some()
+                                            && routes.load(Ordering::SeqCst) == 2
+                                            && ledger.counts() == (1, 1)
                                 );
                                 binding_error(ledger.acknowledge(&notice)).unwrap();
                                 reply.send(Ok(())).unwrap();
                                 continue;
+                            }
+                            if let Some(third_mode) = mode.three_epoch() {
+                                if matches!(&notice.routes()[0].request.query,
+                                    Query::SourceMotion(MotionQuery::Route(route))
+                                        if route.request.prior_cache.as_ref().is_some_and(|cache| cache.revision == 2))
+                                {
+                                    deliveries += 1;
+                                    assert_eq!(notice.routes().len(), 1);
+                                    assert_eq!(notice.boundary().heads().len(), 1);
+                                    assert_eq!(
+                                        notice.boundary().heads()[0].cache().unwrap().revision,
+                                        3
+                                    );
+                                    let actual = &notice.routes()[0].request;
+                                    let latest = &attempts.last().unwrap().0;
+                                    assert_eq!(actual, latest);
+                                    assert!(actual
+                                        .require_pathfinder_dispatch(&p)
+                                        .unwrap()
+                                        .same_live_dispatch(
+                                            latest.require_pathfinder_dispatch(&p).unwrap()
+                                        ));
+                                    three_epoch::assert_request(
+                                        &p,
+                                        retained_notice.as_ref().unwrap(),
+                                        actual,
+                                    );
+                                    three_epoch::assert_facts(actual, &notice.routes()[0].facts);
+                                    if let Some(old) = &third_notice {
+                                        assert_eq!(&notice, old);
+                                        assert!(actual
+                                            .require_pathfinder_dispatch(&p)
+                                            .unwrap()
+                                            .same_live_dispatch(
+                                                old.routes()[0]
+                                                    .request
+                                                    .require_pathfinder_dispatch(&p)
+                                                    .unwrap()
+                                            ));
+                                    } else {
+                                        third_notice = Some(notice.clone());
+                                    }
+                                    let prior = ledger.diagnostic();
+                                    if !third_accepted {
+                                        assert_eq!(
+                                            ledger.counts(),
+                                            (
+                                                if third_mode == three_epoch::Mode::RollbackRetry {
+                                                    3
+                                                } else {
+                                                    2
+                                                },
+                                                1
+                                            )
+                                        );
+                                        assert!(
+                                            prior.same_committed_root(third_root.as_ref().unwrap())
+                                        );
+                                        assert!(prior_warm_liveness.as_ref().unwrap().is_alive());
+                                        assert!(third_proposals
+                                            .iter()
+                                            .all(|proposal| proposal.is_alive()
+                                                && proposal.head_is_alive()));
+                                    }
+                                    for wrong in [
+                                        wrong::foreign_session(&notice, &foreign),
+                                        wrong::skipped_tick(&notice),
+                                        wrong::wrong_current_cache(&notice),
+                                        wrong::without_routes(&notice),
+                                        wrong::duplicate_route(&notice),
+                                        wrong::stale_generation(&notice),
+                                        wrong::omitted_head(&notice),
+                                        wrong::extra_head(&notice),
+                                        wrong::decoded_dispatch(&notice),
+                                        wrong::uncertified_reply(&notice),
+                                    ] {
+                                        refuse_unchanged(&mut ledger, &wrong);
+                                    }
+                                    let old_warm = retained_notice.as_ref().unwrap();
+                                    if !third_accepted
+                                        && old_warm.boundary().tick().checked_add(1)
+                                            == Some(actual.binding.tick)
+                                    {
+                                        ledger.acknowledge(old_warm).unwrap();
+                                        assert_eq!(ledger.diagnostic(), prior);
+                                    } else {
+                                        refuse_unchanged(&mut ledger, old_warm);
+                                    }
+                                    if third_mode == three_epoch::Mode::RollbackRetry {
+                                        assert_eq!(late_failures, 1);
+                                        refuse_unchanged(
+                                            &mut ledger,
+                                            &wrong::substitute_dispatch(&notice, &attempts[2].0),
+                                        );
+                                    }
+                                    ledger.acknowledge(&notice).unwrap();
+                                    assert_eq!(ledger.counts(), (1, 1));
+                                    ledger.check_committed_warm_for_test().unwrap();
+                                    assert!(
+                                        !prior_warm_liveness.as_ref().unwrap().is_alive(),
+                                        "committed third head never retains the previous warm head"
+                                    );
+                                    assert!(prior_warm_liveness.as_ref().unwrap().cold_is_alive());
+                                    assert!(third_proposals
+                                        .iter()
+                                        .all(|proposal| !proposal.is_alive()
+                                            && proposal.cold_is_alive()));
+                                    assert!(third_proposals.last().unwrap().head_is_alive());
+                                    assert!(third_proposals[..third_proposals.len()-1].iter().all(|proposal| !proposal.head_is_alive()),
+                                        "failed warm proposals are released only after exact successful ACK");
+                                    let ownership = ledger.flat_ownership_for_test().unwrap();
+                                    assert_eq!(ownership.terminal_count, 2);
+                                    assert_eq!(ownership.staged_count, 0);
+                                    assert!(ownership.storage_bytes <= ownership.upper_bound_bytes);
+                                    if third_accepted {
+                                        assert_eq!(ledger.diagnostic(), prior,
+                                            "third ACK retry is exact historical bookkeeping, not source reauthorization");
+                                    }
+                                    let accepted = ledger.diagnostic();
+                                    ledger.acknowledge(&notice).unwrap();
+                                    assert_eq!(ledger.diagnostic(), accepted);
+                                    refuse_unchanged(
+                                        &mut ledger,
+                                        &wrong::decoded_dispatch(&notice),
+                                    );
+                                    refuse_unchanged(&mut ledger, old_warm);
+                                    refuse_unchanged(&mut ledger, captured.as_ref().unwrap());
+                                    if third_mode == three_epoch::Mode::RollbackRetry {
+                                        refuse_unchanged(
+                                            &mut ledger,
+                                            &wrong::substitute_dispatch(&notice, &attempts[2].0),
+                                        );
+                                    }
+                                    third_accepted = true;
+                                    if third_mode == three_epoch::Mode::DropAfterApply
+                                        && !fault_delivered
+                                    {
+                                        fault_delivered = true;
+                                        reply.send(Err(NativeError::AuthorityUnavailable("deliberately lost third ACK after resident ledger application"))).unwrap();
+                                    } else {
+                                        reply.send(Ok(())).unwrap();
+                                    }
+                                    continue;
+                                }
                             }
                             if let Some(retained_mode) = mode.retained() {
                                 if matches!(
@@ -1045,6 +1370,18 @@ fn run(mode: Mode) {
                                     }
                                     ledger.acknowledge(&notice).unwrap();
                                     assert_eq!(ledger.counts(), (1, 1));
+                                    if mode.three_epoch().is_some() {
+                                        // This policy is flat from its FIRST warm promotion,
+                                        // not converted from a recursive head at revision three.
+                                        ledger.check_committed_warm_for_test().unwrap();
+                                        let live =
+                                            ledger.committed_warm_liveness_for_test().unwrap();
+                                        assert!(live.is_alive() && live.cold_is_alive());
+                                        let owned = ledger.flat_ownership_for_test().unwrap();
+                                        assert_eq!(owned.terminal_count, 2);
+                                        assert_eq!(owned.staged_count, 0);
+                                        assert!(owned.storage_bytes <= owned.upper_bound_bytes);
+                                    }
                                     if retained_accepted {
                                         assert_eq!(
                                             ledger.diagnostic(),
@@ -1209,7 +1546,7 @@ fn run(mode: Mode) {
                         }
                     }
                 }
-                let ((tick, events, count), committed_warm) =
+                let ((tick, events, count), committed_warm, committed_third) =
                     worker.join().expect("bounded controller worker");
                 if mode.retained().is_some() {
                     retained::assert_commit_proof(
@@ -1221,6 +1558,21 @@ fn run(mode: Mode) {
                 } else {
                     assert!(committed_warm.is_none());
                 }
+                if mode.three_epoch().is_some() {
+                    three_epoch::assert_commit_proof(
+                        committed_third.as_ref().expect("actual durable third tick"),
+                        third_notice.as_ref().expect("actual accepted third notice"),
+                    );
+                    assert!(third_accepted);
+                    assert!(!prior_warm_liveness.as_ref().unwrap().is_alive());
+                    assert!(third_proposals.iter().all(|proposal| !proposal.is_alive()));
+                    assert!(ledger
+                        .committed_warm_liveness_for_test()
+                        .unwrap()
+                        .is_alive());
+                } else {
+                    assert!(committed_third.is_none());
+                }
                 assert_eq!(ledger.counts(), (owner_count, owner_count));
                 assert_eq!(
                     deliveries,
@@ -1231,6 +1583,12 @@ fn run(mode: Mode) {
                             | Mode::SourceChangeBeforeAck
                     ) {
                         2
+                    } else if let Some(third_mode) = mode.three_epoch() {
+                        if third_mode == three_epoch::Mode::DropAfterApply {
+                            4
+                        } else {
+                            3
+                        }
                     } else if let Some(retained_mode) = mode.retained() {
                         if matches!(
                             retained_mode,
@@ -1248,6 +1606,12 @@ fn run(mode: Mode) {
                     routes.load(Ordering::SeqCst),
                     if matches!(mode, Mode::RollbackRetry | Mode::RetainedDispatch) {
                         2
+                    } else if let Some(third_mode) = mode.three_epoch() {
+                        if third_mode == three_epoch::Mode::RollbackRetry {
+                            4
+                        } else {
+                            3
+                        }
                     } else if let Some(retained_mode) = mode.retained() {
                         if matches!(
                             retained_mode,
@@ -1266,6 +1630,7 @@ fn run(mode: Mode) {
                     usize::from(
                         mode == Mode::RollbackRetry
                             || mode.retained() == Some(retained::Mode::RollbackRetry)
+                            || mode.three_epoch() == Some(three_epoch::Mode::RollbackRetry)
                     )
                 );
                 assert_eq!(retained_accepted, mode.retained().is_some());
@@ -1282,11 +1647,47 @@ fn run(mode: Mode) {
                 } else {
                     assert!(retained_witness.is_none());
                 }
+                // This source-only diagnostic is outside historical ACK and after
+                // worker/no-replay measurements. It proves the committed Second
+                // dependency still operates after every old warm/proposal owner
+                // has been released. It is NOT another dispatch or clearance.
+                if mode.three_epoch().is_some() {
+                    let (context, deadline) = attempts.last().unwrap();
+                    assert!(Instant::now() < *deadline);
+                    let before = ledger.diagnostic();
+                    ledger
+                        .check_fresh_candidate(&provider, context, *deadline)
+                        .unwrap();
+                    assert_eq!(ledger.diagnostic(), before);
+                    assert!(!prior_warm_liveness.as_ref().unwrap().is_alive());
+                    assert!(third_proposals.iter().all(|proposal| !proposal.is_alive()));
+                    let owned = ledger.flat_ownership_for_test().unwrap();
+                    eprintln!("resident third flat ownership: terminals={} staged={} logical-storage-bytes={} bound-bytes={} previous-warm-released=true proposal-wrappers-released={} original-source-check-after-release=ok", owned.terminal_count, owned.staged_count, owned.storage_bytes, owned.upper_bound_bytes, third_proposals.len());
+                }
                 // Direct negative source work occurs only after all controller
                 // retry measurements and worker shutdown, never during ACK retry.
                 let context = &attempts.last().unwrap().0;
                 if mode.retained().is_some() {
                     let before = ledger.diagnostic();
+                    if mode.three_epoch().is_some() {
+                        assert!(matches!(
+                            ledger.certify_second_retained(
+                                geometry.app.world_mut(),
+                                compatibility,
+                                &mut provider,
+                                context,
+                                601,
+                                runtime::until(),
+                                || false,
+                            ),
+                            Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                        ));
+                        assert_eq!(
+                            ledger.diagnostic(),
+                            before,
+                            "revision three closes before fourth source or scene work"
+                        );
+                    }
                     assert!(matches!(
                         ledger.certify_retained(
                             geometry.app.world_mut(),
@@ -1396,4 +1797,8 @@ pub(super) fn one_retained_refusals_probe() {
 
 pub(super) fn second_retained_dispatch_probe() {
     run(Mode::OneRetained(retained::Mode::SecondRetainedDispatch));
+}
+
+pub(super) fn three_epoch_probe(mode: three_epoch::Mode) {
+    run(Mode::ThreeEpoch(mode));
 }

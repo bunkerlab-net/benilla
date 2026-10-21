@@ -133,6 +133,7 @@ pub(crate) fn with_two_owner_route_fixture<T>(
         true,
         true,
         false,
+        false,
         test,
     )
 }
@@ -166,6 +167,7 @@ pub(crate) fn with_controller_fixture<T>(
 pub(crate) fn with_selected_controller_fixture<T>(
     two_owners: bool,
     one_retained_route: bool,
+    two_retained_routes: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -177,7 +179,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
         SourceMapQuerySnapshot,
     ) -> T,
 ) -> T {
-    if one_retained_route {
+    if one_retained_route || two_retained_routes {
         assert!(!two_owners);
         let (start, _) = input::support();
         with_fixture_at_with_owners(
@@ -185,6 +187,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
             true,
             false,
             true,
+            two_retained_routes,
             test,
         )
     } else {
@@ -205,13 +208,14 @@ fn with_fixture_at<T>(
         SourceMapQuerySnapshot,
     ) -> T,
 ) -> T {
-    with_fixture_at_with_owners(endpoints, first_cold_route, false, false, test)
+    with_fixture_at_with_owners(endpoints, first_cold_route, false, false, false, test)
 }
 fn with_fixture_at_with_owners<T>(
     endpoints: ([f32; 3], [f32; 3]),
     first_cold_route: bool,
     two_owners: bool,
     one_retained_route: bool,
+    two_retained_routes: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -253,9 +257,16 @@ fn with_fixture_at_with_owners<T>(
     } else {
         policy
     };
+    #[cfg(not(benilla_headless_geometry))]
+    let policy = if two_retained_routes {
+        assert!(first_cold_route && one_retained_route && !two_owners);
+        ResidentGeometryPolicy::installed_two_retained_routes(&compatibility)
+    } else {
+        policy
+    };
     #[cfg(benilla_headless_geometry)]
     assert!(
-        !one_retained_route,
+        !one_retained_route && !two_retained_routes,
         "retained authority is concrete component-only"
     );
     let (start, end) = endpoints;
@@ -288,7 +299,19 @@ fn with_fixture_at_with_owners<T>(
         let other =
             SourceMapQuerySnapshot::from_generated(&[(prepared, generated)], &p, until(), || false)
                 .unwrap();
-        p.geometry_revision = policy.revision(height.binding(), query.binding()).unwrap();
+        let revision = policy.revision(height.binding(), query.binding()).unwrap();
+        #[cfg(not(benilla_headless_geometry))]
+        if two_retained_routes {
+            // Distinct policy selection precedes geometry binding and all live
+            // sessions/receipts; no old profile is relabeled for continuation.
+            assert_ne!(
+                revision,
+                ResidentGeometryPolicy::installed_one_retained_route(&compatibility)
+                    .revision(height.binding(), query.binding())
+                    .unwrap()
+            );
+        }
+        p.geometry_revision = revision;
         assert_ne!(
             p.geometry_revision,
             super::super::source_route_filter::resident::dry_near_point::geometry_revision(

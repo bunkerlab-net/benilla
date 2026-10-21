@@ -162,6 +162,24 @@ jobs:
           log="$RUNNER_TEMP/native-resident-second-retained.log"
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_repeated::resident_controller_second_retained_dispatch_refuses_with_revision_two_owner_intact -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_repeated::resident_controller_second_retained_dispatch_refuses_with_revision_two_owner_intact
+      - name: Verify resident three-epoch controller transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-three-epoch.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_three_epoch:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_commits_exact_ack_selected_predecessor \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_later_failure_rolls_back_and_selects_fresh_retry \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_lost_ack_retries_without_replay \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_refusals_preserve_predecessor_before_fresh_success
+      - name: Verify second-retained source budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-second-retained-budget.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::second_retained::tests::second_retained_budget_tracks_actual_backing_and_closes_outside_domain -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_filter::resident::retained::second_retained::tests::second_retained_budget_tracks_actual_backing_and_closes_outside_domain
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor

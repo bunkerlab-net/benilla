@@ -71,6 +71,8 @@ pub(crate) struct ResidentGeometryPolicy {
     first_cold_route: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     one_retained_route: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    two_retained_routes: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -86,6 +88,8 @@ impl ResidentGeometryPolicy {
         first_cold_route: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         one_retained_route: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        two_retained_routes: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -102,6 +106,8 @@ impl ResidentGeometryPolicy {
             first_cold_route: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
             one_retained_route: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            two_retained_routes: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -127,6 +133,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_first_cold_route(inventory);
         policy.one_retained_route = true;
+        policy
+    }
+    /// Component-only cold plus two retained calculations, with flat ACK roots.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_two_retained_routes(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_one_retained_route(inventory);
+        policy.two_retained_routes = true;
         policy
     }
     pub(crate) fn revision(
@@ -172,6 +187,15 @@ impl ResidentGeometryPolicy {
             hash.update(b"benilla-resident-installed-one-retained-route-v1");
             hash.update(b"ack-selected-cold-predecessor-exact-native-storage-revision2-v1");
             hash.update(b"fresh-gate-before-selection-update-filter-native-retained-v1");
+        }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.two_retained_routes {
+            if !self.one_retained_route {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-installed-two-retained-routes-v1");
+            hash.update(b"flat-ack-selected-native-revisions1-2-3-fourth-closed-v1");
+            hash.update(b"bounded-full-storage4096-native-trace8050-v1");
         }
         hash.update(installed.revision);
         hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
@@ -219,6 +243,7 @@ pub(crate) struct ResidentProviderIdentity {
     inventory: [u8; 32],
     source_epoch: [u8; 32],
     one_retained_route: bool,
+    two_retained_routes: bool,
 }
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[allow(dead_code, reason = "app-only resident controller component fixture")]
@@ -228,6 +253,9 @@ impl ResidentProviderIdentity {
     }
     pub(crate) fn allows_one_retained_route(&self) -> bool {
         self.one_retained_route
+    }
+    pub(crate) fn allows_two_retained_routes(&self) -> bool {
+        self.two_retained_routes
     }
     pub(crate) fn matches_cache(&self, cache: &motion::PathFinderCache) -> bool {
         cache.binding.inventory == self.inventory && cache.binding.source_epoch == self.source_epoch
@@ -320,6 +348,15 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
     }
 
     #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_two_retained_routes(&self) -> Result<(), ResidentFilterError> {
+        self.require_one_retained_route()?;
+        if !self.geometry_policy.two_retained_routes {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
     #[allow(dead_code, reason = "app-only resident controller component fixture")]
     pub(crate) fn ledger_identity(
         &self,
@@ -335,6 +372,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             inventory: self.query.binding().inventory,
             source_epoch: self.query.binding().source_epoch,
             one_retained_route: self.geometry_policy.one_retained_route,
+            two_retained_routes: self.geometry_policy.two_retained_routes,
         })
     }
 

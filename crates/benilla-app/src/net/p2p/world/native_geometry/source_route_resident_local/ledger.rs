@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Cold-only by default; a separate component policy permits one singleton retained epoch.
-//! Neither policy is a gameplay installation. This ledger
+//! Cold-only by default; distinct component policies permit one or two retained epochs.
+//! No policy here is a gameplay installation. This ledger
 //! never turns a historical reply back into fresh authority and never owns an ECS borrow.
 use super::super::{
     core::Session,
@@ -8,9 +8,10 @@ use super::super::{
     source_route_filter::resident::ResidentProviderIdentity,
 };
 use super::retained::ResidentRetainedCandidate;
+use super::three_epoch::{StagedWarmProposal, WarmDependency, WarmHead, WarmPredecessor};
 use super::*;
 use benilla_world_runtime::{native::Profile, NpcId, PlayerId};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 const MAX_CANDIDATES: usize = 16;
 struct Entry {
@@ -21,6 +22,8 @@ struct Entry {
 enum Candidate {
     Cold(Rc<ResidentColdCandidate>),
     Retained(Box<ResidentRetainedCandidate>),
+    WarmHead(Rc<WarmHead>),
+    WarmProposal(Rc<StagedWarmProposal>),
 }
 impl Candidate {
     // Historical ledger access only; no reply accessor escapes this module.
@@ -28,12 +31,16 @@ impl Candidate {
         match self {
             Self::Cold(candidate) => &candidate.reply,
             Self::Retained(candidate) => &candidate.reply,
+            Self::WarmHead(head) => &head.reply,
+            Self::WarmProposal(proposal) => &proposal.head.reply,
         }
     }
     fn raw_revision(&self) -> [u8; 32] {
         match self {
             Self::Cold(candidate) => candidate.raw_revision,
             Self::Retained(candidate) => candidate.raw_revision,
+            Self::WarmHead(head) => head.raw_revision,
+            Self::WarmProposal(proposal) => proposal.head.raw_revision,
         }
     }
     fn identity(&self) -> (usize, Option<usize>) {
@@ -43,8 +50,54 @@ impl Candidate {
                 (&**candidate as *const ResidentRetainedCandidate) as usize,
                 Some(Rc::as_ptr(&candidate.predecessor) as usize),
             ),
+            Self::WarmHead(head) => (
+                Rc::as_ptr(head) as usize,
+                Some(Rc::as_ptr(&head.origin) as usize),
+            ),
+            Self::WarmProposal(proposal) => (
+                Rc::as_ptr(proposal) as usize,
+                Some(Rc::as_ptr(&proposal.head) as usize),
+            ),
         }
     }
+}
+/// Weak witnesses name the actual owned head/proposal, never its native identity token.
+pub(in super::super) struct WarmLiveness {
+    head: Weak<WarmHead>,
+    cold: Weak<ResidentColdCandidate>,
+}
+impl WarmLiveness {
+    pub(in super::super) fn is_alive(&self) -> bool {
+        self.head.strong_count() != 0
+    }
+    pub(in super::super) fn cold_is_alive(&self) -> bool {
+        self.cold.strong_count() != 0
+    }
+}
+pub(in super::super) struct ProposalLiveness {
+    proposal: Weak<StagedWarmProposal>,
+    head: Weak<WarmHead>,
+    cold: Weak<ResidentColdCandidate>,
+}
+impl ProposalLiveness {
+    pub(in super::super) fn is_alive(&self) -> bool {
+        self.proposal.strong_count() != 0
+    }
+    pub(in super::super) fn head_is_alive(&self) -> bool {
+        self.head.strong_count() != 0
+    }
+    pub(in super::super) fn cold_is_alive(&self) -> bool {
+        self.cold.strong_count() != 0
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in super::super) struct OwnershipDiagnostic {
+    pub(in super::super) terminal_count: usize,
+    pub(in super::super) staged_count: usize,
+    /// Logical slice lengths for owned backing/trace/cache bytes, not allocator capacity,
+    /// fixed bookkeeping, or shared source/query allocations.
+    pub(in super::super) storage_bytes: usize,
+    pub(in super::super) upper_bound_bytes: usize,
 }
 pub(in super::super) struct ResidentLedger {
     session: Session,
@@ -60,6 +113,8 @@ pub(in super::super) struct ResidentLedger {
     route_epoch_committed: bool,
     one_retained: bool,
     retained_epoch_committed: bool,
+    two_retained: bool,
+    epochs_committed: u8,
 }
 /// Includes every mutable ledger field. Candidate addresses identify immutable
 /// opaque objects, including their private live seals, rather than serialized DTOs.
@@ -70,11 +125,14 @@ pub(in super::super) struct Diagnostic {
     last_notice: Option<RouteCommitNotice>,
     candidates: Vec<(u64, usize, Option<usize>, bool)>,
     capacity: usize,
+    flat_candidates: Vec<(u8, usize, usize, usize)>,
     raw: Option<[u8; 32]>,
     next_id: u64,
     route_epoch_committed: bool,
     one_retained: bool,
     retained_epoch_committed: bool,
+    two_retained: bool,
+    epochs_committed: u8,
 }
 impl PartialEq for Diagnostic {
     fn eq(&self, other: &Self) -> bool {
@@ -82,11 +140,14 @@ impl PartialEq for Diagnostic {
             && self.boundary == other.boundary
             && self.candidates == other.candidates
             && self.capacity == other.capacity
+            && self.flat_candidates == other.flat_candidates
             && self.raw == other.raw
             && self.next_id == other.next_id
             && self.route_epoch_committed == other.route_epoch_committed
             && self.one_retained == other.one_retained
             && self.retained_epoch_committed == other.retained_epoch_committed
+            && self.two_retained == other.two_retained
+            && self.epochs_committed == other.epochs_committed
             && match (&self.last_notice, &other.last_notice) {
                 (Some(a), Some(b)) => same_notice(&self.profile, a, b),
                 (None, None) => true,
@@ -103,6 +164,8 @@ impl Diagnostic {
             && self.route_epoch_committed == other.route_epoch_committed
             && self.one_retained == other.one_retained
             && self.retained_epoch_committed == other.retained_epoch_committed
+            && self.two_retained == other.two_retained
+            && self.epochs_committed == other.epochs_committed
             && self
                 .candidates
                 .iter()
@@ -129,6 +192,7 @@ impl ResidentLedger {
         provider
             .verify_installed_owner(compatibility, compatibility.owner(), deadline, || false)?;
         let one_retained = identity.allows_one_retained_route();
+        let two_retained = identity.allows_two_retained_routes();
         if one_retained && profile.npcs.len() != 1 {
             return Err(Failure::UnsupportedQuery.into());
         }
@@ -153,6 +217,8 @@ impl ResidentLedger {
             route_epoch_committed: false,
             one_retained,
             retained_epoch_committed: false,
+            two_retained,
+            epochs_committed: 0,
         })
     }
     fn binding(&self, boundary: &RouteCommitBoundary) -> Result<(), Failure> {
@@ -406,9 +472,16 @@ impl ResidentLedger {
             return Err(Failure::Binding.into());
         }
         self.validate_retained_candidate(&candidate)?;
+        let candidate = if self.two_retained {
+            let proposal = StagedWarmProposal::first(candidate);
+            self.validate_warm_proposal(&proposal)?;
+            Candidate::WarmProposal(Rc::new(proposal))
+        } else {
+            Candidate::Retained(Box::new(candidate))
+        };
         self.candidates.push(Entry {
             id: self.next_id,
-            candidate: Candidate::Retained(Box::new(candidate)),
+            candidate,
             committed: false,
         });
         self.next_id = next;
@@ -463,6 +536,8 @@ impl ResidentLedger {
         match candidate {
             Candidate::Cold(candidate) => self.validate_candidate(candidate),
             Candidate::Retained(candidate) => self.validate_retained_candidate(candidate),
+            Candidate::WarmHead(head) => self.validate_warm_head(head),
+            Candidate::WarmProposal(proposal) => self.validate_warm_proposal(proposal),
         }
     }
     fn validate_retained_context(
@@ -470,35 +545,39 @@ impl ResidentLedger {
         predecessor: &ResidentColdCandidate,
         context: &AuthorityRequest,
     ) -> Result<(), Failure> {
-        let Query::SourceMotion(MotionQuery::Route(old)) = &predecessor.reply.request.query else {
+        self.validate_retained_reply_context(&predecessor.reply, context)
+    }
+    fn validate_retained_reply_context(
+        &self,
+        predecessor: &AuthorityReply,
+        context: &AuthorityRequest,
+    ) -> Result<(), Failure> {
+        let Query::SourceMotion(MotionQuery::Route(old)) = &predecessor.request.query else {
             return Err(Failure::Binding);
         };
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::Binding);
         };
         let saved = predecessor
-            .reply
             .request
             .require_pathfinder_dispatch(&self.profile)
             .map_err(|_| Failure::Binding)?;
         let current = context
             .require_pathfinder_dispatch(&self.profile)
             .map_err(|_| Failure::Binding)?;
-        if route.request.prior_cache.as_deref()
-            != Some(&calculation(&predecessor.reply)?.after_cache)
+        if route.request.prior_cache.as_deref() != Some(&calculation(predecessor)?.after_cache)
             || route.owner != old.owner
             || route.collision_width != old.collision_width
             || route.collision_height != old.collision_height
             || route.request.kind != motion::RouteKind::ChaseReplan
             || route.request.binding.query_id <= old.request.binding.query_id
             || route.request.binding.now_ms <= old.request.binding.now_ms
-            || context.binding.tick <= predecessor.reply.request.binding.tick
-            || context.binding.world != predecessor.reply.request.binding.world
-            || context.binding.profile != predecessor.reply.request.binding.profile
-            || context.binding.geometry != predecessor.reply.request.binding.geometry
-            || context.binding.authority_policy
-                != predecessor.reply.request.binding.authority_policy
-            || context.binding.npc != predecessor.reply.request.binding.npc
+            || context.binding.tick <= predecessor.request.binding.tick
+            || context.binding.world != predecessor.request.binding.world
+            || context.binding.profile != predecessor.request.binding.profile
+            || context.binding.geometry != predecessor.request.binding.geometry
+            || context.binding.authority_policy != predecessor.request.binding.authority_policy
+            || context.binding.npc != predecessor.request.binding.npc
             || current.first_construction()
             || current.constructor_kind() != motion::PathfinderConstructorKind::ChaseLazy
             || current.construction_binding() != saved.construction_binding()
@@ -609,7 +688,11 @@ impl ResidentLedger {
             || boundary.record() == previous.record()
             || self.route_epoch_committed
                 && !notice.routes().is_empty()
-                && (!self.one_retained || self.retained_epoch_committed)
+                && (if self.two_retained {
+                    self.epochs_committed >= 3
+                } else {
+                    !self.one_retained || self.retained_epoch_committed
+                })
         {
             return Err(Failure::Binding);
         }
@@ -669,6 +752,31 @@ impl ResidentLedger {
                         return Err(Failure::Binding);
                     }
                 }
+                Candidate::WarmProposal(proposal) if self.two_retained => {
+                    if notice.routes().len() != 1 {
+                        return Err(Failure::Binding);
+                    }
+                    match &proposal.predecessor {
+                        WarmPredecessor::Cold(origin) => {
+                            let committed = self.committed_cold()?;
+                            if self.epochs_committed != 1
+                                || !Rc::ptr_eq(committed, origin)
+                                || old.cache() != Some(&calculation(&committed.reply)?.after_cache)
+                            {
+                                return Err(Failure::Binding);
+                            }
+                        }
+                        WarmPredecessor::Warm(prior) => {
+                            let committed = self.committed_warm()?;
+                            if self.epochs_committed != 2
+                                || !Rc::ptr_eq(committed, prior)
+                                || old.cache() != Some(&calculation(&committed.reply)?.after_cache)
+                            {
+                                return Err(Failure::Binding);
+                            }
+                        }
+                    }
+                }
                 _ => return Err(Failure::Binding),
             }
             selected.push((npc, index));
@@ -705,17 +813,28 @@ impl ResidentLedger {
                 }
             }
         }
-        // No failure path follows this line. Staged rollback ancestors survive
-        // earlier idle notices; they retire only once their tick is acknowledged.
+        // Prepare bounded bookkeeping before the first mutation. This is not a
+        // recoverable allocator-OOM contract; promotion itself only moves/clones
+        // Rc handles and retires already-owned entries after semantic validation.
+        let next_boundary = boundary.clone();
+        let next_notice = notice.clone();
         let selected_ids: Vec<_> = selected
             .iter()
             .map(|(_, index)| self.candidates[*index].id)
             .collect();
-        let retained_selected = selected
-            .iter()
-            .any(|(_, index)| matches!(&self.candidates[*index].candidate, Candidate::Retained(_)));
+        let retained_selected = selected.iter().any(|(_, index)| {
+            matches!(
+                &self.candidates[*index].candidate,
+                Candidate::Retained(_) | Candidate::WarmProposal(_)
+            )
+        });
+        // No failure or allocation follows this line. Staged rollback ancestors
+        // survive earlier idle notices until their actual tick is acknowledged.
         for entry in &mut self.candidates {
             if selected_ids.contains(&entry.id) {
+                if let Candidate::WarmProposal(proposal) = &entry.candidate {
+                    entry.candidate = Candidate::WarmHead(Rc::clone(&proposal.head));
+                }
                 entry.committed = true;
             } else if selected
                 .iter()
@@ -727,10 +846,13 @@ impl ResidentLedger {
         self.candidates.retain(|entry| {
             entry.committed || entry.candidate.reply().request.binding.tick > boundary.tick()
         });
+        if !selected_ids.is_empty() {
+            self.epochs_committed += 1;
+        }
         self.route_epoch_committed |= !selected_ids.is_empty();
         self.retained_epoch_committed |= retained_selected;
-        self.boundary = Some(boundary.clone());
-        self.last_notice = Some(notice.clone());
+        self.boundary = Some(next_boundary);
+        self.last_notice = Some(next_notice);
         Ok(())
     }
     /// Source-only diagnostic check, never a reply re-emitter or physics certificate.
@@ -768,6 +890,10 @@ impl ResidentLedger {
                     return Err(Failure::Binding.into());
                 }
                 Ok(())
+            }
+            Candidate::WarmHead(head) => self.check_fresh_warm(provider, head, context, deadline),
+            Candidate::WarmProposal(proposal) => {
+                self.check_fresh_warm(provider, &proposal.head, context, deadline)
             }
         }
     }
@@ -912,6 +1038,421 @@ impl ResidentLedger {
         }
         Ok(())
     }
+    fn committed_warm(&self) -> Result<&Rc<WarmHead>, Failure> {
+        if !self.two_retained || !(2..=3).contains(&self.epochs_committed) {
+            return Err(Failure::Binding);
+        }
+        let mut committed = self.candidates.iter().filter(|entry| entry.committed);
+        let entry = committed.next().ok_or(Failure::Binding)?;
+        if committed.next().is_some() {
+            return Err(Failure::Binding);
+        }
+        let Candidate::WarmHead(head) = &entry.candidate else {
+            return Err(Failure::Binding);
+        };
+        self.validate_warm_head(head)?;
+        let boundary = self.boundary.as_ref().ok_or(Failure::Binding)?;
+        let owner = boundary.heads().first().ok_or(Failure::Binding)?;
+        let dispatch = head
+            .reply
+            .request
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let cache = &calculation(&head.reply)?.after_cache;
+        if boundary.heads().len() != 1
+            || Some(owner.npc()) != head.reply.request.binding.npc
+            || owner.constructor_kind() != Some(motion::PathfinderConstructorKind::ChaseLazy)
+            || owner.construction() != Some(dispatch.construction_binding())
+            || owner.cache() != Some(cache)
+            || cache.revision != u64::from(self.epochs_committed)
+            || self.raw != Some(head.raw_revision)
+        {
+            return Err(Failure::Binding);
+        }
+        Ok(head)
+    }
+    fn validate_warm_head(&self, head: &WarmHead) -> Result<(), Failure> {
+        if !self.two_retained || self.profile.npcs.len() != 1 {
+            return Err(Failure::Binding);
+        }
+        self.validate_candidate(&head.origin)?;
+        let Query::SourceMotion(MotionQuery::Route(origin)) = &head.origin.reply.request.query
+        else {
+            return Err(Failure::Binding);
+        };
+        let Query::SourceMotion(MotionQuery::Route(route)) = &head.reply.request.query else {
+            return Err(Failure::Binding);
+        };
+        let current = head
+            .reply
+            .request
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let cold = head
+            .origin
+            .reply
+            .request
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let calculation = calculation(&head.reply)?;
+        calculation
+            .validate_for(&route.request)
+            .map_err(|_| Failure::Binding)?;
+        let prior = calculation.prior_cache.as_deref().ok_or(Failure::Binding)?;
+        let revision = match &head.dependency {
+            WarmDependency::First(_) => 2,
+            WarmDependency::Second(_) => 3,
+        };
+        if !head.installed_owner.same_owner(&self.owner)
+            || !head
+                .installed_owner
+                .same_owner(&head.origin.installed_owner)
+            || head.raw_revision != head.origin.raw_revision
+            || !self.provider.matches_cache(&calculation.after_cache)
+            || route.owner != origin.owner
+            || route.collision_width != origin.collision_width
+            || route.collision_height != origin.collision_height
+            || route.request.kind != motion::RouteKind::ChaseReplan
+            || current.first_construction()
+            || current.constructor_kind() != motion::PathfinderConstructorKind::ChaseLazy
+            || current.construction_binding() != cold.construction_binding()
+            || current.configuration_binding() != cold.configuration_binding()
+            || current.same_live_dispatch(cold)
+            || head.reply.request.binding.tick <= head.origin.reply.request.binding.tick
+            || head.reply.request.binding.world != self.session.world
+            || head.reply.request.binding.profile != self.session.profile
+            || head.reply.request.binding.geometry != self.session.geometry
+            || head.reply.request.binding.authority_policy != self.session.policy
+            || head.reply.request.binding.npc != Some(route.owner.npc())
+            || route.request.prior_cache.as_deref() != Some(prior)
+            || calculation.source != motion::RouteSource::OwnerPathFinder
+            || prior.revision.checked_add(1) != Some(revision)
+            || calculation.after_cache.revision != revision
+            || calculation.after_cache.active_len != 1
+            || calculation.after_cache.path_type != 1
+            || calculation.after_cache.binding != prior.binding
+            || calculation.after_cache.binding
+                != self::calculation(&head.origin.reply)?.after_cache.binding
+            || !matches!(calculation.outcome, motion::RouteOutcome::Complete(_))
+        {
+            return Err(Failure::Binding);
+        }
+        head.dependency.check_cache(&calculation.after_cache)
+    }
+    fn validate_warm_proposal(&self, proposal: &StagedWarmProposal) -> Result<(), Failure> {
+        self.validate_warm_head(&proposal.head)?;
+        match (&proposal.predecessor, &proposal.head.dependency) {
+            (WarmPredecessor::Cold(origin), WarmDependency::First(_)) => {
+                if !Rc::ptr_eq(origin, &proposal.head.origin) {
+                    return Err(Failure::Binding);
+                }
+                self.validate_retained_context(origin, &proposal.head.reply.request)
+            }
+            (WarmPredecessor::Warm(prior), WarmDependency::Second(_)) => {
+                if !matches!(&prior.dependency, WarmDependency::First(_))
+                    || !Rc::ptr_eq(&prior.origin, &proposal.head.origin)
+                {
+                    return Err(Failure::Binding);
+                }
+                self.validate_warm_head(prior)?;
+                self.validate_retained_reply_context(&prior.reply, &proposal.head.reply.request)
+            }
+            _ => Err(Failure::Binding),
+        }
+    }
+    fn check_fresh_warm(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        head: &WarmHead,
+        context: &AuthorityRequest,
+        deadline: Instant,
+    ) -> Result<(), ResidentFilterError> {
+        let cache = match &head.dependency {
+            WarmDependency::First(dependency) => provider.retained_cache(
+                dependency,
+                &head.origin.dependency,
+                context,
+                deadline,
+                || false,
+            )?,
+            WarmDependency::Second(dependency) => {
+                // The previous warm head may already be gone: only bounded native
+                // ancestry, its fixed cold origin and this current dispatch remain.
+                provider.check_historical_second_retained_cache_for_test(
+                    dependency,
+                    &head.origin.dependency,
+                    context,
+                    &calculation(&head.reply)?.after_cache,
+                )?;
+                provider.second_retained_cache(
+                    dependency,
+                    &head.origin.dependency,
+                    context,
+                    deadline,
+                    || false,
+                )?
+            }
+        };
+        if cache != calculation(&head.reply)?.after_cache {
+            return Err(Failure::Binding.into());
+        }
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn certify_second_retained(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Facts, ResidentFilterError> {
+        self.certify_second_retained_observed(
+            world,
+            compatibility,
+            provider,
+            context,
+            first_ticket,
+            deadline,
+            cancelled,
+            || {},
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn certify_second_retained_observed(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        after: impl FnOnce(),
+    ) -> Result<Facts, ResidentFilterError> {
+        // The fourth epoch is closed before source reads, scene borrows or allocation.
+        provider.require_two_retained_routes()?;
+        if !self.two_retained || self.epochs_committed != 2 {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if !self.provider.matches(provider)
+            || !self.owner.same_owner(compatibility.owner())
+            || self
+                .boundary
+                .as_ref()
+                .and_then(|boundary| boundary.tick().checked_add(1))
+                != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let predecessor = Rc::clone(self.committed_warm()?);
+        self.validate_retained_reply_context(&predecessor.reply, context)?;
+        if self.candidates.iter().any(|entry| {
+            entry.candidate.reply().request.binding.npc == context.binding.npc
+                && entry.candidate.reply().request.binding.tick == context.binding.tick
+                && entry.candidate.reply().request != *context
+        }) {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if self.candidates.iter().any(|entry| {
+            same_reply_dispatch(&self.profile, &entry.candidate.reply().request, context)
+        }) {
+            return Err(Failure::Binding.into());
+        }
+        if self.candidates.len() == MAX_CANDIDATES {
+            return Err(Failure::QueueCapacity.into());
+        }
+        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
+        // Binding reserves the complete bounded staging capacity before certification.
+        if self.candidates.capacity() < MAX_CANDIDATES {
+            return Err(Failure::QueueCapacity.into());
+        }
+        let (proposal, facts) = super::three_epoch::certify(
+            world,
+            compatibility,
+            provider,
+            predecessor,
+            context,
+            self.player,
+            first_ticket,
+            deadline,
+            cancelled,
+            after,
+        )?;
+        let WarmPredecessor::Warm(prior) = &proposal.predecessor else {
+            return Err(Failure::Binding.into());
+        };
+        if !Rc::ptr_eq(self.committed_warm()?, prior)
+            || self.raw != Some(proposal.head.raw_revision)
+        {
+            return Err(Failure::Binding.into());
+        }
+        self.validate_warm_proposal(&proposal)?;
+        let (WarmDependency::Second(dependency), WarmDependency::First(previous)) =
+            (&proposal.head.dependency, &prior.dependency)
+        else {
+            return Err(Failure::Binding.into());
+        };
+        provider.check_historical_second_retained_predecessor_for_test(
+            dependency,
+            &proposal.head.origin.dependency,
+            previous,
+            context,
+        )?;
+        self.candidates.push(Entry {
+            id: self.next_id,
+            candidate: Candidate::WarmProposal(Rc::new(proposal)),
+            committed: false,
+        });
+        self.next_id = next;
+        Ok(facts)
+    }
+    /// Source diagnostics rooted at the current ACK-selected first warm terminal.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn probe_second_retained_source_for_test(
+        &self,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        observe: impl FnMut(
+            super::super::source_route_filter::resident::retained::ResidentRetainedPhase,
+        ),
+    ) -> Result<(), ResidentFilterError> {
+        provider.require_two_retained_routes()?;
+        if !self.two_retained || self.epochs_committed != 2 {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if !self.provider.matches(provider)
+            || self
+                .boundary
+                .as_ref()
+                .and_then(|boundary| boundary.tick().checked_add(1))
+                != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let predecessor = self.committed_warm()?;
+        self.validate_retained_reply_context(&predecessor.reply, context)?;
+        let WarmDependency::First(prior) = &predecessor.dependency else {
+            return Err(Failure::Binding.into());
+        };
+        provider
+            .observe_joined_second_retained_observed(
+                &predecessor.origin.dependency,
+                prior,
+                context,
+                self.player,
+                first_ticket,
+                deadline,
+                cancelled,
+                observe,
+            )
+            .map(|_| ())
+    }
+    pub(in super::super) fn committed_warm_liveness_for_test(
+        &self,
+    ) -> Result<WarmLiveness, Failure> {
+        let head = self.committed_warm()?;
+        Ok(WarmLiveness {
+            head: Rc::downgrade(head),
+            cold: Rc::downgrade(&head.origin),
+        })
+    }
+    pub(in super::super) fn staged_warm_liveness_for_test(
+        &self,
+        context: &AuthorityRequest,
+    ) -> Result<ProposalLiveness, Failure> {
+        let entry = self
+            .candidates
+            .iter()
+            .find(|entry| {
+                !entry.committed
+                    && same_reply_dispatch(&self.profile, &entry.candidate.reply().request, context)
+            })
+            .ok_or(Failure::Binding)?;
+        let Candidate::WarmProposal(proposal) = &entry.candidate else {
+            return Err(Failure::Binding);
+        };
+        Ok(ProposalLiveness {
+            proposal: Rc::downgrade(proposal),
+            head: Rc::downgrade(&proposal.head),
+            cold: Rc::downgrade(&proposal.head.origin),
+        })
+    }
+    pub(in super::super) fn check_committed_warm_for_test(&self) -> Result<(), Failure> {
+        self.committed_warm().map(|_| ())
+    }
+    pub(in super::super) fn flat_ownership_for_test(&self) -> Result<OwnershipDiagnostic, Failure> {
+        if !self.two_retained {
+            return Err(Failure::UnsupportedQuery);
+        }
+        let mut cold = Vec::<&Rc<ResidentColdCandidate>>::new();
+        let mut warm = Vec::<&Rc<WarmHead>>::new();
+        let mut staged_count = 0;
+        for entry in &self.candidates {
+            match &entry.candidate {
+                Candidate::Cold(origin) => push_unique(&mut cold, origin),
+                Candidate::WarmHead(head) => push_unique(&mut warm, head),
+                Candidate::WarmProposal(proposal) => {
+                    staged_count += 1;
+                    push_unique(&mut warm, &proposal.head);
+                    match &proposal.predecessor {
+                        WarmPredecessor::Cold(origin) => push_unique(&mut cold, origin),
+                        WarmPredecessor::Warm(head) => push_unique(&mut warm, head),
+                    }
+                }
+                Candidate::Retained(_) => return Err(Failure::Binding),
+            }
+        }
+        for head in &warm {
+            push_unique(&mut cold, &head.origin);
+        }
+        let terminal_count = cold.len() + warm.len();
+        let mut storage_bytes = 0;
+        for origin in &cold {
+            storage_bytes += super::super::source_route_filter::resident::retained::cold_storage_footprint_for_test(&origin.dependency);
+            storage_bytes += reply_storage_bytes(&origin.reply)?;
+        }
+        for head in &warm {
+            storage_bytes += head.dependency.storage_bytes();
+            storage_bytes += reply_storage_bytes(&head.reply)?;
+        }
+        if let Some(boundary) = &self.boundary {
+            storage_bytes += boundary_storage_bytes(boundary);
+        }
+        if let Some(notice) = &self.last_notice {
+            storage_bytes += boundary_storage_bytes(notice.boundary());
+            for reply in notice.routes() {
+                storage_bytes += reply_storage_bytes(reply)?;
+            }
+        }
+        // Each terminal has three native storage slices, at most three source-context
+        // copies and four reply caches. The notice adds four copies plus two heads.
+        // All source scans are bounded by 2 * (4095 - 74) + 8 = 8050 primitives.
+        let cache_bound = motion::MAX_PATHFINDER_CACHE_REFS * std::mem::size_of::<u64>();
+        let points_and_checks = 2 * std::mem::size_of::<[u32; 3]>()
+            + 2 * std::mem::size_of::<motion::Point>()
+            + std::mem::size_of::<SegmentChecks>();
+        let upper_bound_bytes = terminal_count
+            * (10 * cache_bound
+                + 8050 * std::mem::size_of::<benilla_native_nav::SourceWarmTrace>()
+                + points_and_checks)
+            + 6 * cache_bound
+            + points_and_checks;
+        if terminal_count > 2 + staged_count || storage_bytes > upper_bound_bytes {
+            return Err(Failure::Binding);
+        }
+        Ok(OwnershipDiagnostic {
+            terminal_count,
+            staged_count,
+            storage_bytes,
+            upper_bound_bytes,
+        })
+    }
     pub(in super::super) fn diagnostic(&self) -> Diagnostic {
         Diagnostic {
             profile: self.profile.clone(),
@@ -930,11 +1471,35 @@ impl ResidentLedger {
                 })
                 .collect(),
             capacity: self.candidates.capacity(),
+            flat_candidates: self
+                .candidates
+                .iter()
+                .map(|entry| match &entry.candidate {
+                    Candidate::WarmHead(head) => (
+                        1,
+                        Rc::as_ptr(head) as usize,
+                        Rc::as_ptr(&head.origin) as usize,
+                        0,
+                    ),
+                    Candidate::WarmProposal(proposal) => (
+                        2,
+                        Rc::as_ptr(&proposal.head) as usize,
+                        Rc::as_ptr(&proposal.head.origin) as usize,
+                        match &proposal.predecessor {
+                            WarmPredecessor::Cold(origin) => Rc::as_ptr(origin) as usize,
+                            WarmPredecessor::Warm(prior) => Rc::as_ptr(prior) as usize,
+                        },
+                    ),
+                    _ => (0, 0, 0, 0),
+                })
+                .collect(),
             raw: self.raw,
             next_id: self.next_id,
             route_epoch_committed: self.route_epoch_committed,
             one_retained: self.one_retained,
             retained_epoch_committed: self.retained_epoch_committed,
+            two_retained: self.two_retained,
+            epochs_committed: self.epochs_committed,
         }
     }
     pub(in super::super) fn counts(&self) -> (usize, usize) {
@@ -975,4 +1540,39 @@ fn same_notice(profile: &Profile, a: &RouteCommitNotice, b: &RouteCommitNotice) 
             .iter()
             .zip(b.routes())
             .all(|(a, b)| same_reply_dispatch(profile, &a.request, &b.request))
+}
+fn push_unique<'a, T>(values: &mut Vec<&'a Rc<T>>, value: &'a Rc<T>) {
+    if !values.iter().any(|old| Rc::ptr_eq(old, value)) {
+        values.push(value);
+    }
+}
+fn boundary_storage_bytes(boundary: &RouteCommitBoundary) -> usize {
+    boundary
+        .owner_heads()
+        .filter_map(|(_, head)| head.cache())
+        .map(|cache| std::mem::size_of_val(cache.poly_refs.as_slice()))
+        .sum()
+}
+fn request_storage_bytes(request: &motion::RouteRequest) -> usize {
+    request
+        .prior_cache
+        .as_ref()
+        .map_or(0, |cache| std::mem::size_of_val(cache.poly_refs.as_slice()))
+}
+fn reply_storage_bytes(reply: &AuthorityReply) -> Result<usize, Failure> {
+    let Query::SourceMotion(MotionQuery::Route(route)) = &reply.request.query else {
+        return Err(Failure::Binding);
+    };
+    let calculation = calculation(reply)?;
+    let mut bytes = 2 * request_storage_bytes(&route.request)
+        + calculation
+            .prior_cache
+            .as_ref()
+            .map_or(0, |cache| std::mem::size_of_val(cache.poly_refs.as_slice()))
+        + std::mem::size_of_val(calculation.after_cache.poly_refs.as_slice());
+    if let motion::RouteOutcome::Complete(complete) = &calculation.outcome {
+        bytes += std::mem::size_of_val(complete.points.as_slice())
+            + std::mem::size_of_val(complete.segments.as_slice());
+    }
+    Ok(bytes)
 }

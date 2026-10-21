@@ -46,6 +46,8 @@ mod source_route_resident_repeated;
 mod source_route_resident_retained;
 #[cfg(test)]
 mod source_route_resident_retained_refusals;
+#[cfg(test)]
+mod source_route_resident_three_epoch;
 mod source_route_same_polygon;
 mod source_route_same_polygon_local;
 mod source_route_smoothing;
