@@ -17,6 +17,17 @@ use super::*;
 use benilla_world_runtime::{native::Profile, NpcId, PlayerId};
 use std::rc::{Rc, Weak};
 
+/// Copied proof bounds for adversarial fixture placement, never Route authority.
+pub(in super::super) fn support_prism_bounds_for_test(
+    from: [f32; 3],
+    to: [f32; 3],
+    body: core::Body,
+    floor: f32,
+    ceiling: f32,
+) -> Result<(bevy::prelude::Vec3, bevy::prelude::Vec3), Failure> {
+    super::straight_loop::support_prism_bounds_for_test(from, to, body, floor, ceiling)
+}
+
 const MAX_CANDIDATES: usize = 16;
 struct Entry {
     id: u64,
@@ -1900,6 +1911,60 @@ impl ResidentLedger {
                 observe,
             )
             .map(|_| ())
+    }
+    /// Source-only identity controls from the actual committed root. Neither
+    /// fresh diagnostic attempt can stage a candidate or escape as Route Facts.
+    pub(in super::super) fn probe_generated_flat_bindings_for_test(
+        &self,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+    ) -> Result<(), ResidentFilterError> {
+        provider.require_generated_flat_support()?;
+        if !self.finite_straight
+            || !(1..MAX_SOURCE_REVISION).contains(&u64::from(self.epochs_committed))
+        {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        let before = self.diagnostic();
+        let constructors = provider.retained_constructor_count();
+        let predecessor = self.straight_predecessor_for(provider, context)?;
+        let prior = predecessor.current_straight_native()?;
+        let first = provider.observe_joined_straight(
+            &predecessor.origin().dependency,
+            &prior,
+            context,
+            self.player,
+            first_ticket,
+            deadline,
+            || false,
+        )?;
+        let other = provider.observe_joined_straight(
+            &predecessor.origin().dependency,
+            &prior,
+            context,
+            self.player,
+            first_ticket,
+            deadline,
+            || false,
+        )?;
+        let result = provider.assert_generated_flat_support_bindings_for_test(
+            &first,
+            &other,
+            &predecessor.origin().dependency,
+            context,
+            deadline,
+            || false,
+        );
+        self.same_committed_straight(&predecessor)?;
+        assert_eq!(
+            self.diagnostic(),
+            before,
+            "source-only support controls cannot publish"
+        );
+        assert_eq!(provider.retained_constructor_count(), constructors);
+        result
     }
     /// Bounded copied diagnostics only; the temporary native proposal is dropped here.
     #[allow(clippy::too_many_arguments)]

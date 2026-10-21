@@ -11,6 +11,8 @@ use benilla_native_nav::{
 
 #[path = "straight_retained/detail_provenance.rs"]
 mod detail_provenance;
+#[path = "straight_retained/generated_flat_support.rs"]
+pub(crate) mod generated_flat_support;
 
 pub(crate) const MAX_SOURCE_REVISION: u64 = 8;
 /// Operational refusal, not a change to the original sampling algorithm or point limit 74.

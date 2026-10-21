@@ -136,6 +136,7 @@ pub(crate) fn with_two_owner_route_fixture<T>(
         false,
         false,
         false,
+        false,
         test,
     )
 }
@@ -172,6 +173,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
     two_retained_routes: bool,
     finite_retained_routes: bool,
     straight_retained_routes: bool,
+    generated_flat_support: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -183,6 +185,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
         SourceMapQuerySnapshot,
     ) -> T,
 ) -> T {
+    assert!(!generated_flat_support || straight_retained_routes);
     assert!(
         !straight_retained_routes
             || (!one_retained_route && !two_retained_routes && !finite_retained_routes)
@@ -202,6 +205,7 @@ pub(crate) fn with_selected_controller_fixture<T>(
             two_retained_routes,
             finite_retained_routes,
             straight_retained_routes,
+            generated_flat_support,
             test,
         )
     } else {
@@ -230,6 +234,7 @@ fn with_fixture_at<T>(
         false,
         false,
         false,
+        false,
         test,
     )
 }
@@ -242,6 +247,7 @@ fn with_fixture_at_with_owners<T>(
     two_retained_routes: bool,
     finite_retained_routes: bool,
     straight_retained_routes: bool,
+    generated_flat_support: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -310,12 +316,20 @@ fn with_fixture_at_with_owners<T>(
     } else {
         policy
     };
+    #[cfg(not(benilla_headless_geometry))]
+    let policy = if generated_flat_support {
+        assert!(straight_retained_routes);
+        ResidentGeometryPolicy::installed_generated_flat_straight_routes(&compatibility)
+    } else {
+        policy
+    };
     #[cfg(benilla_headless_geometry)]
     assert!(
         !one_retained_route
             && !two_retained_routes
             && !finite_retained_routes
-            && !straight_retained_routes,
+            && !straight_retained_routes
+            && !generated_flat_support,
         "retained authority is concrete component-only"
     );
     let (start, end) = endpoints;
@@ -385,6 +399,16 @@ fn with_fixture_at_with_owners<T>(
                     old.revision(height.binding(), query.binding()).unwrap()
                 );
             }
+        }
+        #[cfg(not(benilla_headless_geometry))]
+        if generated_flat_support {
+            assert_ne!(
+                revision,
+                ResidentGeometryPolicy::installed_finite_straight_routes(&compatibility)
+                    .revision(height.binding(), query.binding())
+                    .unwrap(),
+                "supported-above-plane domain is selected before profile/session binding"
+            );
         }
         p.geometry_revision = revision;
         assert_ne!(

@@ -77,6 +77,8 @@ pub(crate) struct ResidentGeometryPolicy {
     finite_retained_routes: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     finite_straight_routes: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    generated_flat_support: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -98,6 +100,8 @@ impl ResidentGeometryPolicy {
         finite_retained_routes: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         finite_straight_routes: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        generated_flat_support: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -120,6 +124,8 @@ impl ResidentGeometryPolicy {
             finite_retained_routes: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
             finite_straight_routes: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            generated_flat_support: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -172,6 +178,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_first_cold_route(inventory);
         policy.finite_straight_routes = true;
+        policy
+    }
+    /// Distinct component-only one-cell generated Polygon family. Native points stay exact.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_generated_flat_straight_routes(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_finite_straight_routes(inventory);
+        policy.generated_flat_support = true;
         policy
     }
     pub(crate) fn revision(
@@ -253,6 +268,23 @@ impl ResidentGeometryPolicy {
             hash.update(b"lookup-bound-3A-plus33T-plus2888-storage-growth33-v1");
             hash.update(b"shared-source-segment-budget-v1");
             hash.update(b"exact-success-unclipped-ray-complete-active-prefix-v1");
+        }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.generated_flat_support {
+            if !self.finite_straight_routes {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-generated-flat-supported-straight-max8-v1");
+            hash.update(b"sealed-current-detail-success-indexed-interior-polygon-vertices-v1");
+            hash.update(b"generated-receipt-H-plus-one-cell-Q-unchanged-native-points-in-HQ-v1");
+            hash.update(
+                b"raw-full-footprint-exact-H-gap-body-prism-actual-varying-Z-cast-head-los-v1",
+            );
+            hash.update(b"checked-f32-shape-centers-and-full-outward-containment-no-epsilon-v1");
+            hash.update(b"stationary-full-segment-square-directed-normalized-cast-enclosure-v1");
+            hash.update(
+                b"bounded-raw-rectangles93-detail-records30-triangles4096-shared-source-ray-v1",
+            );
         }
         hash.update(installed.revision);
         hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
@@ -447,6 +479,20 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             || self.geometry_policy.two_retained_routes
             || self.geometry_policy.finite_retained_routes
         {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn allows_generated_flat_support(&self) -> bool {
+        self.geometry_policy.generated_flat_support
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_generated_flat_support(&self) -> Result<(), ResidentFilterError> {
+        self.require_finite_straight_routes()?;
+        if !self.geometry_policy.generated_flat_support {
             return Err(Failure::UnsupportedQuery.into());
         }
         Ok(())

@@ -209,8 +209,40 @@ impl<'a> Owner<'a> {
             self.old_boundary_refused = true;
             return Err(error);
         }
+        if self.mode == Mode::StrictStraightBoundary && epoch == 5 {
+            assert!(!retry && !self.old_boundary_refused);
+            let error = super::source_route_resident_supported_refusals::refuse_actual_fifth(
+                ledger,
+                geometry,
+                compatibility,
+                provider,
+                request,
+            );
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            self.old_boundary_refused = true;
+            return Err(error);
+        }
         if self.mode == Mode::RefusalsHistory && epoch == 5 && !retry {
+            ledger
+                .probe_generated_flat_bindings_for_test(
+                    provider,
+                    request,
+                    ticket,
+                    Instant::now() + Duration::from_secs(30),
+                )
+                .unwrap();
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            eprintln!("resident generated-support source-only identity probes: decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-candidate=true no-scene=true");
             fixture::assert_source_order(ledger, provider, request, ticket);
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            super::source_route_resident_supported_clearance::probe(
+                ledger,
+                geometry,
+                install,
+                compatibility,
+                provider,
+                request,
+            );
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
         }
         if self.mode == Mode::RefusalsHistory && epoch == 4 && !retry {
@@ -484,20 +516,23 @@ impl<'a> Owner<'a> {
         routes: usize,
         late_failures: usize,
     ) {
-        let expected_warm = if self.mode == Mode::OldPolicyBoundary {
-            2
-        } else {
-            7
+        let expected_warm = match self.mode {
+            Mode::OldPolicyBoundary => 2,
+            Mode::StrictStraightBoundary => 3,
+            Mode::Recovery | Mode::RefusalsHistory => 7,
         };
         assert_eq!(self.accepted.len(), expected_warm);
         assert_eq!(proofs.len(), expected_warm);
         for (proof, notice) in proofs.iter().zip(&self.accepted) {
             fixture::assert_commit_proof(proof, notice);
         }
-        if self.mode == Mode::OldPolicyBoundary {
+        if matches!(
+            self.mode,
+            Mode::OldPolicyBoundary | Mode::StrictStraightBoundary
+        ) {
             assert!(self.old_boundary_refused);
-            assert_eq!(self.deliveries, 2);
-            assert_eq!(routes, 4);
+            assert_eq!(self.deliveries, expected_warm);
+            assert_eq!(routes, expected_warm + 2);
             assert_eq!(late_failures, 0);
             assert_eq!(self.expired, 0);
             assert!(!self.lost && self.change.is_none());
@@ -509,7 +544,11 @@ impl<'a> Owner<'a> {
             let owned = ledger.flat_ownership_for_test().unwrap();
             assert_eq!((owned.terminal_count, owned.staged_count), (2, 0));
             assert!(owned.storage_bytes <= owned.upper_bound_bytes);
-            eprintln!("resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true");
+            if self.mode == Mode::OldPolicyBoundary {
+                eprintln!("resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true");
+            } else {
+                eprintln!("resident strict-straight boundary: accepted=4 attempted=5 raw-coverage=UnsupportedTerrain context=MissingGeometry ledger-unchanged=true no-facts=true");
+            }
             return;
         }
         assert!(!self.old_boundary_refused);

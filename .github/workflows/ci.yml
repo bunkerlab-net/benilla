@@ -138,6 +138,34 @@ jobs:
           mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" \
             real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation
+      - name: Verify generated flat support predicates
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-flat-predicates.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::polygon_one_cell_expression_is_exact_not_a_height_tolerance \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::bounded_native_endpoints_are_not_claimed_as_sampled_heights \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::indexed_interior_height_cannot_leave_the_exact_band \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::every_sample_is_indexed_not_found_by_numeric_membership \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::detail_vertices_wrong_planes_and_unsuccessful_attribution_refuse \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::all_plane_paths_are_not_minted_as_detail_supported
+      - name: Verify generated support prism arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-support-prism.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::actual_native_operands_have_checked_floor_prisms_without_changing_points \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::exact_envelope_bounds_accept_and_adjacent_outside_values_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::nonfinite_invalid_and_overflow_operands_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::one_candidate_is_checked_not_adjusted_until_floor_contact_appears \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::rounded_manual_boxes_cannot_hide_undercontainment \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::proof_boxes_include_low_gap_and_true_upper_body_regions \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::stationary_reverse_and_invalid_initialized_body_operands_are_explicit \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::real_normalized_cast_endpoint_not_only_rounded_movement_is_enclosed
       - name: Verify resident cold Route controller transactions
         shell: bash
         run: |
@@ -247,6 +275,14 @@ jobs:
           python3 scripts/verify-libtest-output.py "$log" \
             net::p2p::native_geometry::products::source_query::generated_provenance_tests::generated_receipt_rejects_equal_byte_foreign_query_and_changed_bindings \
             net::p2p::native_geometry::products::source_query::generated_provenance_tests::nongenerated_source_query_has_no_generation_receipt
+      - name: Verify strict straight policy refuses raised fifth path
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/strict-straight-fifth-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_supported_refusals::strict_straight_policy_refuses_actual_fifth_raised_path_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_supported_refusals::strict_straight_policy_refuses_actual_fifth_raised_path_without_tick_or_store_commit
       - name: Verify finite eight-epoch resident loop
         shell: bash
         run: |

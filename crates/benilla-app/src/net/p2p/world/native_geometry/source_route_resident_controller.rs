@@ -150,12 +150,16 @@ fn run(mode: Mode) {
     let old_finite = mode.finite_loop()
         == Some(super::source_route_resident_finite_loop::Mode::OldPolicyBoundary);
     let straight_finite = mode.finite_loop().is_some() && !old_finite;
+    let generated_flat_support = straight_finite
+        && mode.finite_loop()
+            != Some(super::source_route_resident_finite_loop::Mode::StrictStraightBoundary);
     runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
         mode.retained().is_some() || old_finite,
         mode.three_epoch().is_some(),
         old_finite,
         straight_finite,
+        generated_flat_support,
         |install, height, compatibility, inventory, policy, p, query, other| {
             let fixture = resident_fixture::Fixture::new(p.clone(), [8; 16]);
             let player = fixture.player();
@@ -197,6 +201,18 @@ fn run(mode: Mode) {
             } else {
                 assert!(matches!(
                     provider.require_finite_straight_routes(),
+                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                ));
+            }
+            assert_eq!(
+                provider.allows_generated_flat_support(),
+                generated_flat_support
+            );
+            if generated_flat_support {
+                provider.require_generated_flat_support().unwrap();
+            } else {
+                assert!(matches!(
+                    provider.require_generated_flat_support(),
                     Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
                 ));
             }

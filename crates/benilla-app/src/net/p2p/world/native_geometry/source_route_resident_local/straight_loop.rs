@@ -12,11 +12,24 @@ use std::rc::Rc;
 
 #[path = "straight_loop/detail_diagnostic.rs"]
 mod detail_diagnostic;
+#[path = "straight_loop/support_prism.rs"]
+mod support_prism;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum StraightSegmentPhase {
     Corridor,
     SourceLos,
+}
+
+/// Copied operand bounds for placing adversarial colliders only, never clearance.
+pub(in super::super) fn support_prism_bounds_for_test(
+    from: [f32; 3],
+    to: [f32; 3],
+    body: core::Body,
+    floor: f32,
+    ceiling: f32,
+) -> Result<(bevy::prelude::Vec3, bevy::prelude::Vec3), Failure> {
+    support_prism::bounds_for_test(from, to, body, floor, ceiling)
 }
 
 /// Hooks observe completed checks only; they cannot supply clearance or mutate this scene.
@@ -102,6 +115,79 @@ pub(super) fn certify(
     }
     let map = compatibility.source_binding().0.map;
     let raw = origin.raw_revision;
+    // A constant-Z polyline is not automatically raw-ground evidence. The new
+    // policy first checks every strict rectangle; only the unsupported-terrain
+    // class may attempt the separate, complete generated support proof. Missing
+    // or malformed data cannot be masked by the alternative certificate.
+    let support = if provider.allows_generated_flat_support() {
+        let constant_z = observation
+            .points
+            .iter()
+            .all(|point| point[2] == observation.points[0][2]);
+        let mut strict = constant_z;
+        if constant_z {
+            for pair in observation.points.windows(2) {
+                provider.straight_for(
+                    &dependency,
+                    &origin.dependency,
+                    context,
+                    deadline,
+                    &cancelled,
+                )?;
+                match terrain.prove(
+                    map,
+                    pair[0].map(f32::from_bits),
+                    pair[1].map(f32::from_bits),
+                    observation.body.radius.as_f32(),
+                ) {
+                    Ok(coverage) => {
+                        if coverage.map != map
+                            || coverage.inventory_digest != owner.inventory_digest()
+                            || core::geometry_revision(
+                                coverage.map,
+                                coverage.wdt_source_digest,
+                                &coverage.tiles,
+                                &coverage.models,
+                                coverage.inventory_digest,
+                            ) != raw
+                        {
+                            return Err(Failure::Binding.into());
+                        }
+                    }
+                    Err(benilla_world::terrain_stream::CoverageError::UnsupportedTerrain) => {
+                        strict = false;
+                        break;
+                    }
+                    Err(_) => return Err(Failure::MissingGeometry.into()),
+                }
+            }
+        }
+        if strict {
+            None
+        } else {
+            Some(provider.observe_generated_flat_support(
+                &dependency,
+                &origin.dependency,
+                context,
+                deadline,
+                &cancelled,
+            )?)
+        }
+    } else {
+        None
+    };
+    if let Some(support) = &support {
+        provider.check_generated_flat_support(
+            support,
+            &dependency,
+            &origin.dependency,
+            context,
+            deadline,
+            &cancelled,
+        )?;
+    }
+    // At most31 prechecks plus31 explicit final rectangles plus31 unchanged
+    // LocalCorridor raw proofs. The additional detail witness has its own bound.
     // The whole polyline shares one source-ray ceiling, never one allowance per segment.
     let mut segment_budget = QueryBudget::new(deadline);
     for (index, pair) in observation.points.windows(2).enumerate() {
@@ -118,8 +204,22 @@ pub(super) fn certify(
         let ticket = first_segment_ticket
             .checked_add(u64::try_from(index).map_err(|_| Failure::Invalid)?)
             .ok_or(Failure::Invalid)?;
+        let (ground_from, ground_to) = if let Some(support) = &support {
+            provider.check_generated_flat_support(
+                support,
+                &dependency,
+                &origin.dependency,
+                context,
+                deadline,
+                &cancelled,
+            )?;
+            let floor = f32::from_bits(support.plane_bits());
+            ([from[0], from[1], floor], [to[0], to[1], floor])
+        } else {
+            (from, to)
+        };
         let coverage = terrain
-            .prove(map, from, to, observation.body.radius.as_f32())
+            .prove(map, ground_from, ground_to, observation.body.radius.as_f32())
             .map_err(|error| {
                 eprintln!(
                     "resident straight coverage refusal: tick={} query={} prior-revision={} map={map} segment={index}/{} error={error:?} body={:?} native-point-bits={:?}",
@@ -165,14 +265,25 @@ pub(super) fn certify(
         {
             return Err(Failure::Binding.into());
         }
-        LocalCorridor {
+        let mut corridor = LocalCorridor {
             terrain: &terrain,
             collision: &collision,
             spatial: &spatial,
             map,
             revision: raw,
+        };
+        if let Some(support) = &support {
+            support_prism::certify(&mut corridor, from, to, observation.body,
+                f32::from_bits(support.plane_bits()), f32::from_bits(support.ceiling_bits()))
+                .map_err(|error| {
+                    eprintln!("resident generated-support prism refusal: tick={} query={} segment={index}/{} error={error:?} H={} Q={} body={:?} native-point-bits={:?}",
+                        context.binding.tick, route.request.binding.query_id, observation.points.len()-1,
+                        support.plane_bits(), support.ceiling_bits(), observation.body, observation.points);
+                    error
+                })?;
+        } else {
+            corridor.certify(from, to, observation.body)?;
         }
-        .certify(from, to, observation.body)?;
         on_segment(StraightSegmentPhase::Corridor, index);
         provider.straight_segment_los(
             &dependency,
@@ -194,6 +305,16 @@ pub(super) fn certify(
         });
     }
     after();
+    if let Some(support) = &support {
+        provider.check_generated_flat_support(
+            support,
+            &dependency,
+            &origin.dependency,
+            context,
+            deadline,
+            &cancelled,
+        )?;
+    }
     provider.straight_for(
         &dependency,
         &origin.dependency,
@@ -202,6 +323,10 @@ pub(super) fn certify(
         &cancelled,
     )?;
     provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
+    if let Some(support) = &support {
+        eprintln!("resident generated-support complete observation: tick={} query={} native-segments={} H={} Q={} all-segments-and-final-source-owner-checks=passed native-points-unchanged=true uncommitted=true",
+            context.binding.tick, route.request.binding.query_id, segments.len(), support.plane_bits(), support.ceiling_bits());
+    }
     let cache = provider.straight_cache_for(
         &dependency,
         &origin.dependency,
@@ -211,6 +336,11 @@ pub(super) fn certify(
     )?;
     let mut identity = Sha256::new();
     identity.update(b"benilla-resident-installed-finite-straight-chase-route-v1");
+    if let Some(support) = &support {
+        identity.update(b"generated-one-cell-supported-above-plane-no-native-point-change-v1");
+        identity.update(support.plane_bits().to_le_bytes());
+        identity.update(support.ceiling_bits().to_le_bytes());
+    }
     identity.update(context.binding.world);
     identity.update(context.binding.profile);
     identity.update(context.binding.geometry);
@@ -259,6 +389,9 @@ pub(super) fn certify(
         request: motion::Query::Route(route.request.clone()),
         fact: motion::Fact::RouteCalculation(Box::new(calculation)),
     })));
+    // Historical ACK retains the actual native terminal and query through the
+    // dependency, not a reusable clearance witness or any additional owner chain.
+    drop(support);
     Ok((
         StagedWarmProposal {
             head: Rc::new(WarmHead {
