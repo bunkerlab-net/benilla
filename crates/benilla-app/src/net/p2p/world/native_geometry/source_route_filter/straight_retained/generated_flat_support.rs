@@ -12,6 +12,35 @@ use benilla_native_nav::{
 use benilla_native_nav_generator::{GenerationStatus, BASE_UNIT_DIM};
 use std::fmt::Write;
 
+#[path = "generated_endpoint_support.rs"]
+mod endpoint;
+use benilla_native_nav::{LoadedSourceRetainedEndpointSupport, SourceRetainedEndpointBudget};
+
+enum SupportAttribution {
+    Indexed(LoadedSourceRetainedStraightDetail),
+    Endpoints(LoadedSourceRetainedEndpointSupport),
+}
+impl SupportAttribution {
+    fn check_terminal(
+        &self,
+        terminal: &LoadedSourceRetainedStraight,
+    ) -> Result<(), benilla_native_nav::Error> {
+        match self {
+            Self::Indexed(value) => value.check_terminal(terminal),
+            Self::Endpoints(value) => value.check_terminal(terminal),
+        }
+    }
+    fn check_query(
+        &self,
+        query: &benilla_native_nav::SelectedSourceQuery<'_>,
+    ) -> Result<(), benilla_native_nav::Error> {
+        match self {
+            Self::Indexed(value) => value.check_query(query),
+            Self::Endpoints(value) => value.check_query(query),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FlatBand {
     plane: u32,
@@ -22,7 +51,7 @@ struct FlatBand {
 /// native terminal/query tokens, not copied observations or a previous owner chain.
 /// Keep it inside synchronous certification, never in a staged or committed reply.
 pub(crate) struct ResidentGeneratedFlatSupport {
-    detail: LoadedSourceRetainedStraightDetail,
+    detail: SupportAttribution,
     candidate: Rc<()>,
     expires: Instant,
     band: FlatBand,
@@ -37,8 +66,8 @@ impl ResidentGeneratedFlatSupport {
 }
 
 impl ResidentFilterProvider<'_, '_, '_, '_> {
-    /// Raised interior samples require genuine indexed native attribution. Exact
-    /// runtime/native endpoints are only bounded, never claimed to be height calls.
+    /// Raised paths require indexed original-call attribution or the separately
+    /// enabled supplemental endpoint witness. Neither rewrites original height calls.
     /// The separate all-H strict-plane arm must not invoke this constructor.
     pub(crate) fn observe_generated_flat_support(
         &mut self,
@@ -59,17 +88,40 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             let selected = constructor
                 .select_for_calculate(deadline)
                 .map_err(ResidentFilterError::Query)?;
-            let detail = dependency
-                .terminal
-                .detail_height_witness(
-                    &selected,
-                    SourceRetainedDetailBudget {
-                        height_records: STRAIGHT_MAX_POINTS - 2,
-                        triangle_tests: 4096,
-                    },
-                    deadline,
+            // These arms are exclusive: the one 4096-triangle allowance is not
+            // renewed by falling back from failed indexed attribution to endpoints.
+            let detail = if self.geometry_policy.endpoint_support
+                && dependency.terminal.phase()
+                    == benilla_native_nav::SourceWarmPolyPhase::SamePolygon
+            {
+                SupportAttribution::Endpoints(
+                    dependency
+                        .terminal
+                        .endpoint_support_witness(
+                            &selected,
+                            SourceRetainedEndpointBudget {
+                                endpoints: 2,
+                                triangle_tests: 4096,
+                            },
+                            deadline,
+                        )
+                        .map_err(ResidentFilterError::StraightDetail)?,
                 )
-                .map_err(ResidentFilterError::StraightDetail)?;
+            } else {
+                SupportAttribution::Indexed(
+                    dependency
+                        .terminal
+                        .detail_height_witness(
+                            &selected,
+                            SourceRetainedDetailBudget {
+                                height_records: STRAIGHT_MAX_POINTS - 2,
+                                triangle_tests: 4096,
+                            },
+                            deadline,
+                        )
+                        .map_err(ResidentFilterError::StraightDetail)?,
+                )
+            };
             detail
                 .check_terminal(&dependency.terminal)
                 .map_err(native_error)?;
@@ -77,7 +129,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             detail
         };
         let generated = self.generated_flat_receipt()?;
-        let band = match validate_generated_band(
+        let band = match validate_support(
             &dependency.terminal,
             &detail,
             generated,
@@ -88,7 +140,10 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             Err(error) => {
                 // Inspect only this already-created terminal/witness. The owned report
                 // stays private until the same attempt passes its original lease again.
-                let report = band_refusal_report(&dependency.terminal, &detail, generated);
+                let report = match &detail {
+                    SupportAttribution::Indexed(detail) => band_refusal_report(&dependency.terminal, detail, generated),
+                    SupportAttribution::Endpoints(detail) => Ok(format!("supplemental-endpoint-support-refused probes={:?} triangle-tests={} original-height-calls=0", detail.probes(), detail.triangle_tests())),
+                };
                 match (report, self.straight_for(dependency, origin, context, deadline, &cancelled)) {
                     (Ok(report), Ok(_)) => eprintln!(
                         "resident generated-support source admission refusal: tick={} source-revision={} error={error:?}; {report}; fresh-source-observation=true concrete-support=not-established original-error-preserved=true",
@@ -127,6 +182,9 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         cancelled: impl Fn() -> bool,
     ) -> Result<(), ResidentFilterError> {
         self.require_generated_flat_support()?;
+        if matches!(support.detail, SupportAttribution::Endpoints(_)) {
+            self.require_endpoint_support()?;
+        }
         let deadline = dependency.deadline(deadline).min(support.expires);
         self.straight_for(dependency, origin, context, deadline, &cancelled)?;
         if !Rc::ptr_eq(&support.candidate, &dependency.root.identity) {
@@ -150,7 +208,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                 .map_err(native_error)?;
         }
         let generated = self.generated_flat_receipt()?;
-        if validate_generated_band(
+        if validate_support(
             &dependency.terminal,
             &support.detail,
             generated,
@@ -376,6 +434,23 @@ fn band_refusal_predicate(
         }
     }
     ("no-static-predicate-isolated", None)
+}
+
+fn validate_support(
+    terminal: &LoadedSourceRetainedStraight,
+    detail: &SupportAttribution,
+    generated: &GeneratedQueryProvenance,
+    deadline: Instant,
+    cancelled: &impl Fn() -> bool,
+) -> Result<FlatBand, ResidentFilterError> {
+    match detail {
+        SupportAttribution::Indexed(detail) => {
+            validate_generated_band(terminal, detail, generated, deadline, cancelled)
+        }
+        SupportAttribution::Endpoints(detail) => {
+            endpoint::validate(terminal, detail, generated, deadline, cancelled)
+        }
+    }
 }
 
 fn validate_generated_band(

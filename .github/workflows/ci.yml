@@ -82,6 +82,19 @@ jobs:
             source_cold_same_polygon::retained_straight::detail::tests::genuine_recorded_calls_capture_first_triangle_and_exact_loaded_vertices \
             source_cold_same_polygon::retained_straight::detail::tests::shared_detail_diagonal_keeps_original_first_matching_triangle \
             source_cold_same_polygon::retained_straight::detail::tests::witness_retains_query_and_token_without_retaining_terminal_or_ancestors
+      - name: Verify supplemental retained endpoint provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-endpoint-provenance.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::detail::endpoint::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::supplemental_heights_leave_native_endpoints_and_empty_original_calls_unchanged \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::two_probes_share_one_exact_triangle_budget_and_expiry \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::equal_terminal_or_foreign_query_cannot_replace_actual_tokens \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::genuine_non_same_polygon_path_is_not_relabelled_endpoint_support \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::support_retains_only_query_and_current_identity_not_terminal_chain \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::nearest_same_polygon_does_not_authorize_an_outside_endpoint
       - name: Verify native retained straight bridge
         shell: bash
         run: |
@@ -303,6 +316,24 @@ jobs:
           log="$RUNNER_TEMP/generated-support-fifth-solver-refusal.log"
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_planar_refusals::generated_support_policy_refuses_actual_fifth_solver_hit_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_planar_refusals::generated_support_policy_refuses_actual_fifth_solver_hit_without_tick_or_store_commit
+      - name: Verify generated endpoint support predicates
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-endpoint-predicates.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests::supplemental_height_is_distinct_from_unchanged_endpoint_z \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests::endpoint_order_and_exact_band_are_required \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests::supplemental_success_polygon_and_triangle_must_match_exact_receipt_band
+      - name: Verify prior planar policy refuses unattributed sixth path
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/prior-planar-sixth-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_endpoint_refusals:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_endpoint_refusals::prior_planar_policy_refuses_actual_sixth_without_original_height_attribution
       - name: Verify finite eight-epoch resident loop
         shell: bash
         run: |

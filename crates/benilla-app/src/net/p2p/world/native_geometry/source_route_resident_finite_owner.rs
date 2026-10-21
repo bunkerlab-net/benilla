@@ -235,6 +235,19 @@ impl<'a> Owner<'a> {
             self.old_boundary_refused = true;
             return Err(error);
         }
+        if self.mode == Mode::StrictEndpointSupportBoundary && epoch == 6 {
+            assert!(!retry && !self.old_boundary_refused);
+            let error = super::source_route_resident_endpoint_refusals::refuse_actual_sixth(
+                ledger,
+                geometry,
+                compatibility,
+                provider,
+                request,
+            );
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            self.old_boundary_refused = true;
+            return Err(error);
+        }
         if self.mode == Mode::RefusalsHistory && epoch == 5 && !retry {
             ledger
                 .probe_generated_flat_bindings_for_test(
@@ -258,6 +271,27 @@ impl<'a> Owner<'a> {
                 request,
             );
             assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+        }
+        if self.mode == Mode::RefusalsHistory && epoch == 6 && !retry {
+            ledger
+                .probe_generated_flat_bindings_for_test(
+                    provider,
+                    request,
+                    ticket,
+                    Instant::now() + Duration::from_secs(30),
+                )
+                .unwrap();
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            super::source_route_resident_supported_clearance::probe_endpoint_final(
+                ledger,
+                geometry,
+                install,
+                compatibility,
+                provider,
+                request,
+            );
+            assert_eq!(ledger.diagnostic(), *self.root.as_ref().unwrap());
+            eprintln!("resident supplemental endpoint identity probes: epoch=6 decoded-context=Binding distinct-attempt-root=Binding native-terminal-mismatch=refused no-facts=true");
         }
         if self.mode == Mode::RefusalsHistory && epoch == 4 && !retry {
             super::source_route_resident_straight_clearance::probe(
@@ -533,6 +567,7 @@ impl<'a> Owner<'a> {
         let expected_warm = match self.mode {
             Mode::OldPolicyBoundary => 2,
             Mode::StrictStraightBoundary | Mode::StrictGeneratedSupportBoundary => 3,
+            Mode::StrictEndpointSupportBoundary => 4,
             Mode::Recovery | Mode::RefusalsHistory => 7,
         };
         assert_eq!(self.accepted.len(), expected_warm);
@@ -545,6 +580,7 @@ impl<'a> Owner<'a> {
             Mode::OldPolicyBoundary
                 | Mode::StrictStraightBoundary
                 | Mode::StrictGeneratedSupportBoundary
+                | Mode::StrictEndpointSupportBoundary
         ) {
             assert!(self.old_boundary_refused);
             assert_eq!(self.deliveries, expected_warm);
@@ -564,6 +600,8 @@ impl<'a> Owner<'a> {
                 eprintln!("resident old-policy boundary: accepted=3 attempted=4 exact-terminal=NonSamePolygonUnsupported ledger-unchanged=true no-facts=true");
             } else if self.mode == Mode::StrictStraightBoundary {
                 eprintln!("resident strict-straight boundary: accepted=4 attempted=5 raw-coverage=UnsupportedTerrain context=MissingGeometry ledger-unchanged=true no-facts=true");
+            } else if self.mode == Mode::StrictEndpointSupportBoundary {
+                eprintln!("resident prior-planar boundary: accepted=5 attempted=6 original-height-calls=0 context=UnsupportedNavigation ledger-unchanged=true no-facts=true");
             } else {
                 eprintln!("resident strict-generated-support boundary: accepted=4 attempted=5 segment=2 context=Obstacle ledger-unchanged=true no-facts=true");
             }

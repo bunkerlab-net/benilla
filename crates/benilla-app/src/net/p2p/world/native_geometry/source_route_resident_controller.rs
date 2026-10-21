@@ -157,12 +157,18 @@ fn run(mode: Mode) {
         Some(
             super::source_route_resident_finite_loop::Mode::Recovery
             | super::source_route_resident_finite_loop::Mode::RefusalsHistory,
-        ) => runtime::GeneratedSupport::PlanarNonpenetration,
+        ) => runtime::GeneratedSupport::EndpointSupport,
+        Some(super::source_route_resident_finite_loop::Mode::StrictEndpointSupportBoundary) => {
+            runtime::GeneratedSupport::PlanarNonpenetration
+        }
         _ => runtime::GeneratedSupport::Disabled,
     };
     let generated_flat_support = generated_support != runtime::GeneratedSupport::Disabled;
-    let planar_nonpenetration =
-        generated_support == runtime::GeneratedSupport::PlanarNonpenetration;
+    let planar_nonpenetration = matches!(
+        generated_support,
+        runtime::GeneratedSupport::PlanarNonpenetration
+            | runtime::GeneratedSupport::EndpointSupport
+    );
     runtime::with_selected_controller_fixture(
         mode == Mode::TwoOwners,
         mode.retained().is_some() || old_finite,
@@ -229,6 +235,10 @@ fn run(mode: Mode) {
             assert_eq!(
                 provider.allows_planar_nonpenetration(),
                 planar_nonpenetration
+            );
+            assert_eq!(
+                provider.allows_endpoint_support(),
+                generated_support == runtime::GeneratedSupport::EndpointSupport
             );
             if planar_nonpenetration {
                 provider.require_planar_nonpenetration().unwrap();
@@ -588,6 +598,7 @@ fn run(mode: Mode) {
                                                     || matches!(mode.finite_loop(), Some(
                                                         super::source_route_resident_finite_loop::Mode::StrictStraightBoundary
                                                         | super::source_route_resident_finite_loop::Mode::StrictGeneratedSupportBoundary
+                                                        | super::source_route_resident_finite_loop::Mode::StrictEndpointSupportBoundary
                                                     ))
                                             );
                                             reply.send(Err(error)).unwrap();

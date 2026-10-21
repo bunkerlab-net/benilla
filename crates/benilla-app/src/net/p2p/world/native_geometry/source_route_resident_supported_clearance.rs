@@ -751,7 +751,66 @@ pub(super) fn probe(
         );
         eprintln!("resident planar enclosure-coexistence refusal: kind={kind} segment=2 earlier-segments-and-source-los=2 actual-original-body-hit=checked-terrain-root independent-enclosure=UnsupportedNavigation emitted=0 removed=true");
     }
-    let segment_count = diagnostic.points.len() - 1;
+    final_support_refusals(
+        &mut refused,
+        ledger,
+        geometry,
+        install,
+        compatibility,
+        provider,
+        request,
+        diagnostic.points.len() - 1,
+    );
+    assert_eq!((refused.attempts, refused.emitted), (14, 0));
+    assert_eq!(ledger.diagnostic(), original);
+    assert_eq!(install.bytes(), original_source);
+    eprintln!("resident planar-nonpenetration fifth refusals: points=4 segments=3 attempts=14 emitted=0 scene=owner,source,collider,transform raw-footprint=hole,liquid,step prism=low-gap,upper-body root-first-enclosure-coexistence=low-gap,upper-body after-all-segments=cancel,source,expiry committed-cache4=1 staged-cache5=0; genuine-source-M2-hit=not-exercised; later-real-body-hit-masking=not-proved; fresh actual certification follows");
+}
+
+/// Fresh endpoint arm must refuse cancellation, changed source and expiry after
+/// every real segment has passed, without staging Facts or renewing its lease.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn probe_endpoint_final(
+    ledger: &mut ResidentLedger,
+    geometry: &mut InstalledFixture,
+    install: &input::Install,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+) {
+    assert!(provider.allows_endpoint_support());
+    let original = ledger.diagnostic();
+    let source = install.bytes();
+    let mut refused = Refusals::default();
+    final_support_refusals(
+        &mut refused,
+        ledger,
+        geometry,
+        install,
+        compatibility,
+        provider,
+        request,
+        1,
+    );
+    assert_eq!((refused.attempts, refused.emitted), (3, 0));
+    assert_eq!(ledger.diagnostic(), original);
+    assert_eq!(install.bytes(), source);
+    eprintln!("resident supplemental endpoint final refusals: epoch=6 segments=1 cancel,source,expiry attempts=3 emitted=0 committed-cache5=1 staged-cache6=0; fresh actual certification follows");
+}
+
+#[allow(clippy::too_many_arguments)]
+fn final_support_refusals(
+    refused: &mut Refusals,
+    ledger: &mut ResidentLedger,
+    geometry: &mut InstalledFixture,
+    install: &input::Install,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+    segment_count: usize,
+) {
+    let phases = RefCell::new(Vec::new());
+    let completed = Cell::new(0);
     let cancelled = Cell::new(false);
     let result = refused.attempt(
         ledger,
@@ -829,8 +888,4 @@ pub(super) fn probe(
     });
     assert_eq!(*phases.borrow(), expected_prefix(segment_count));
     assert_eq!(completed.get(), 3);
-    assert_eq!((refused.attempts, refused.emitted), (14, 0));
-    assert_eq!(ledger.diagnostic(), original);
-    assert_eq!(install.bytes(), original_source);
-    eprintln!("resident planar-nonpenetration fifth refusals: points=4 segments=3 attempts=14 emitted=0 scene=owner,source,collider,transform raw-footprint=hole,liquid,step prism=low-gap,upper-body root-first-enclosure-coexistence=low-gap,upper-body after-all-segments=cancel,source,expiry committed-cache4=1 staged-cache5=0; genuine-source-M2-hit=not-exercised; later-real-body-hit-masking=not-proved; fresh actual certification follows");
 }

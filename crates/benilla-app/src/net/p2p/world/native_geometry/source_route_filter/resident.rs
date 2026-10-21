@@ -81,6 +81,8 @@ pub(crate) struct ResidentGeometryPolicy {
     generated_flat_support: bool,
     #[cfg(all(test, not(benilla_headless_geometry)))]
     planar_nonpenetration: bool,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    endpoint_support: bool,
 }
 #[derive(Clone, Debug)]
 struct InstalledGeometryPolicy {
@@ -106,6 +108,8 @@ impl ResidentGeometryPolicy {
         generated_flat_support: false,
         #[cfg(all(test, not(benilla_headless_geometry)))]
         planar_nonpenetration: false,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        endpoint_support: false,
     };
     pub(crate) fn installed_corridor(
         inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
@@ -132,6 +136,8 @@ impl ResidentGeometryPolicy {
             generated_flat_support: false,
             #[cfg(all(test, not(benilla_headless_geometry)))]
             planar_nonpenetration: false,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            endpoint_support: false,
         }
     }
     /// Distinct typed composition; neither Ground nor standalone dry policy is relaxed.
@@ -202,6 +208,15 @@ impl ResidentGeometryPolicy {
     ) -> Self {
         let mut policy = Self::installed_generated_flat_straight_routes(inventory);
         policy.planar_nonpenetration = true;
+        policy
+    }
+    /// Separate current-query endpoint probes, never original path height calls.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn installed_endpoint_supported_straight_routes(
+        inventory: &source_height::inventory::InventoryCompatibility<'_, '_, '_, '_>,
+    ) -> Self {
+        let mut policy = Self::installed_planar_nonpenetration_straight_routes(inventory);
+        policy.endpoint_support = true;
         policy
     }
     pub(crate) fn revision(
@@ -312,6 +327,18 @@ impl ResidentGeometryPolicy {
             hash.update(b"all-nonterrain-full-enclosure-clear-before-root-hit-adjudication-v1");
             hash.update(b"actual-body-cast-head-los-source-los-final-freshness-preserved-v1");
             hash.update(b"no-solver-parity-toi-threshold-witness-or-normal-permission-v1");
+        }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self.endpoint_support {
+            if !self.planar_nonpenetration {
+                return Err(Failure::Binding);
+            }
+            hash.update(b"benilla-resident-supplemental-same-polygon-endpoints-max8-v1");
+            hash.update(
+                b"two-current-query-probes-not-original-height-calls-unchanged-native-points-v1",
+            );
+            hash.update(b"exclusive-indexed-or-endpoint-attribution-shared-triangles4096-v1");
+            hash.update(b"same-live-generated-HQ-full-prism-actual-trajectory-and-source-los-v1");
         }
         hash.update(installed.revision);
         hash.update(b"cold-chase-clear-then-calculate-no-normalization-v1");
@@ -534,6 +561,20 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
     pub(crate) fn require_planar_nonpenetration(&self) -> Result<(), ResidentFilterError> {
         self.require_generated_flat_support()?;
         if !self.geometry_policy.planar_nonpenetration {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn allows_endpoint_support(&self) -> bool {
+        self.geometry_policy.endpoint_support
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn require_endpoint_support(&self) -> Result<(), ResidentFilterError> {
+        self.require_planar_nonpenetration()?;
+        if !self.allows_endpoint_support() {
             return Err(Failure::UnsupportedQuery.into());
         }
         Ok(())

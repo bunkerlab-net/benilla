@@ -169,6 +169,8 @@ pub(crate) enum GeneratedSupport {
     Strict,
     #[cfg(not(benilla_headless_geometry))]
     PlanarNonpenetration,
+    #[cfg(not(benilla_headless_geometry))]
+    EndpointSupport,
 }
 
 /// Component-only selection made before the Profile or any live owner exists.
@@ -338,6 +340,9 @@ fn with_fixture_at_with_owners<T>(
                     &compatibility,
                 )
             }
+            GeneratedSupport::EndpointSupport => {
+                ResidentGeometryPolicy::installed_endpoint_supported_straight_routes(&compatibility)
+            }
             GeneratedSupport::Disabled => unreachable!(),
         }
     } else {
@@ -438,6 +443,18 @@ fn with_fixture_at_with_owners<T>(
                     .revision(height.binding(), query.binding())
                     .unwrap(),
                 "analytic nonpenetration is selected before profile/session binding"
+            );
+        }
+        #[cfg(not(benilla_headless_geometry))]
+        if generated_support == GeneratedSupport::EndpointSupport {
+            assert_ne!(
+                revision,
+                ResidentGeometryPolicy::installed_planar_nonpenetration_straight_routes(
+                    &compatibility
+                )
+                .revision(height.binding(), query.binding())
+                .unwrap(),
+                "supplemental endpoint probes are selected before profile/session binding"
             );
         }
         p.geometry_revision = revision;

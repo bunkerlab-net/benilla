@@ -22,6 +22,7 @@ pub(super) enum Mode {
     OldPolicyBoundary,
     StrictStraightBoundary,
     StrictGeneratedSupportBoundary,
+    StrictEndpointSupportBoundary,
 }
 
 /// Injected once by the owner on a real non-Route callback after epoch-four Facts.
@@ -407,6 +408,7 @@ pub(super) fn after_cold_ack(
     let final_revision = match mode {
         Mode::OldPolicyBoundary => 4,
         Mode::StrictStraightBoundary | Mode::StrictGeneratedSupportBoundary => 5,
+        Mode::StrictEndpointSupportBoundary => 6,
         Mode::Recovery | Mode::RefusalsHistory => 8,
     };
     for revision in 2..=final_revision {
@@ -451,6 +453,13 @@ pub(super) fn after_cold_ack(
             let generated_boundary =
                 (mode == Mode::StrictGeneratedSupportBoundary && revision == 5).then(|| {
                     super::source_route_resident_planar_refusals::RefusedTick::capture(
+                        driver,
+                        destination,
+                    )
+                });
+            let endpoint_boundary = (mode == Mode::StrictEndpointSupportBoundary && revision == 6)
+                .then(|| {
+                    super::source_route_resident_endpoint_refusals::RefusedTick::capture(
                         driver,
                         destination,
                     )
@@ -501,6 +510,21 @@ pub(super) fn after_cold_ack(
                     assert!(!rolled_back);
                     assert_eq!(driver.tick(), 127);
                     assert_eq!(driver.state().now_ms, 3175);
+                    return (
+                        driver.tick(),
+                        events,
+                        callbacks.load(Ordering::SeqCst),
+                        committed,
+                    );
+                }
+                if mode == Mode::StrictEndpointSupportBoundary && revision == 6 {
+                    endpoint_boundary
+                        .unwrap()
+                        .assert_refused(driver, callbacks, routes, &out);
+                    assert_eq!(committed.len(), 4);
+                    assert!(!rolled_back);
+                    assert_eq!(driver.tick(), 157);
+                    assert_eq!(driver.state().now_ms, 3925);
                     return (
                         driver.tick(),
                         events,

@@ -36,6 +36,8 @@ mod source_route_point_path;
 mod source_route_resident_continuation;
 #[cfg(test)]
 mod source_route_resident_controller;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod source_route_resident_endpoint_refusals;
 #[cfg(test)]
 mod source_route_resident_finite_loop;
 #[cfg(test)]
