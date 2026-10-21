@@ -46,7 +46,7 @@ enum Message {
         AuthorityRequest,
         Sender<Result<AuthorityReply, NativeError>>,
     ),
-    Derived(AuthorityReply, Sender<Result<(), NativeError>>),
+    Derived(Box<AuthorityReply>, Sender<Result<(), NativeError>>),
     Initialize(RouteCommitBoundary, Sender<Result<(), NativeError>>),
     Notice(RouteCommitNotice, Sender<Result<(), NativeError>>),
 }
@@ -71,7 +71,7 @@ impl Authority for Bridge {
         self.exchange(|reply| Message::Resolve(request.clone(), reply))
     }
     fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
-        self.exchange(|answer| Message::Derived(reply.clone(), answer))
+        self.exchange(|answer| Message::Derived(Box::new(reply.clone()), answer))
     }
 }
 impl RouteCommitSink for Bridge {
