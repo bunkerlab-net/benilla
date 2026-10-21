@@ -184,6 +184,24 @@ pub(crate) struct ResidentFilterProvider<'a, 'terrain, 'bundle, 'source> {
     height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
     query: SourcePathfinderQueryProvider,
 }
+/// Allocation identity only: it cannot emit facts or construct source evidence.
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[derive(Clone)]
+pub(crate) struct ResidentProviderIdentity {
+    allocation: Rc<()>,
+    inventory: [u8; 32],
+    source_epoch: [u8; 32],
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[allow(dead_code, reason = "app-only resident controller component fixture")]
+impl ResidentProviderIdentity {
+    pub(crate) fn matches(&self, provider: &ResidentFilterProvider<'_, '_, '_, '_>) -> bool {
+        Rc::ptr_eq(&self.allocation, &provider.identity)
+    }
+    pub(crate) fn matches_cache(&self, cache: &motion::PathFinderCache) -> bool {
+        cache.binding.inventory == self.inventory && cache.binding.source_epoch == self.source_epoch
+    }
+}
 /// Move-only, exact-dispatch point observations. No public fields or Route conversion.
 pub(crate) struct ResidentFilterDependency {
     identity: Rc<()>,
@@ -259,6 +277,24 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             return Err(Failure::UnsupportedQuery.into());
         }
         Ok(())
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    #[allow(dead_code, reason = "app-only resident controller component fixture")]
+    pub(crate) fn ledger_identity(
+        &self,
+        session: &Session,
+        profile: &Profile,
+    ) -> Result<ResidentProviderIdentity, ResidentFilterError> {
+        self.require_first_cold_route()?;
+        if self.profile != *profile || self.session != *session {
+            return Err(Failure::Binding.into());
+        }
+        Ok(ResidentProviderIdentity {
+            allocation: Rc::clone(&self.identity),
+            inventory: self.query.binding().inventory,
+            source_epoch: self.query.binding().source_epoch,
+        })
     }
 
     /// The dry adapter borrows this exact installed policy and native query owner.

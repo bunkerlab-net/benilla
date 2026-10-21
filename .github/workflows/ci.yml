@@ -95,6 +95,19 @@ jobs:
           mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" \
             real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation
+      - name: Verify resident cold Route controller transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-cold-controller.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_controller:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_commits_exact_first_cold_candidate \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_rejected_notice_recovers_without_replay \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_lost_ack_retries_historical_notice_without_replay \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_historical_ack_survives_original_source_expiry \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_retry_ack_selects_fresh_live_candidate_not_failed_ancestor \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_two_owner_notice_is_atomic_before_publication
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor

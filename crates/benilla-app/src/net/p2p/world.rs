@@ -30,6 +30,8 @@ pub(super) use entry::{dispatch, Request};
 #[allow(unused_imports)]
 // The actual Service fixture is intentionally absent from the headless harness.
 pub(crate) use native_controller::tests::distinct_quest_loop_tests::loaded;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(crate) use native_controller::tests::resident_fixture;
 
 const CHECKPOINT_PERIOD: Duration = Duration::from_secs(10);
 const MAX_ACTIONS: usize = 64;

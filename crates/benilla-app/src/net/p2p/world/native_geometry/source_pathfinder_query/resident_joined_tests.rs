@@ -2,7 +2,7 @@
 //! Same-install source/Generated navigation and genuine runtime Chase inputs.
 //! Observation-only cases refuse Route; concrete probes are explicit component tests.
 use super::super::{
-    core::{PlayerEnvironmentPolicy, PrimaryNearPointPolicy, Session},
+    core::{Body, PlayerEnvironmentPolicy, PrimaryNearPointPolicy, Session},
     products::{
         source_height::{
             inventory::InventoryCompatibility, PreparedSourceHeight,
@@ -32,6 +32,18 @@ use benilla_world_runtime::native::{
 };
 use std::time::{Duration, Instant};
 
+#[allow(dead_code, reason = "two-owner actual-controller fixture is app-only")]
+#[path = "resident_two_owner_fixture.rs"]
+mod two_owner_fixture;
+#[cfg(not(benilla_headless_geometry))]
+#[allow(
+    unused_imports,
+    reason = "two-owner actual-controller fixture is app-only"
+)]
+pub(crate) use two_owner_fixture::{
+    two_owner_chase_destination, TwoOwnerVisitors, TWO_OWNER_MOVE_TICK,
+};
+
 const INITIALIZATION_CONFIG: Option<ResidentInitializationConfiguration> =
     Some(ResidentInitializationConfiguration::VmapHeightEnabled);
 
@@ -43,6 +55,24 @@ pub(crate) fn bits(point: ai::Point) -> [u32; 3] {
 }
 pub(crate) fn session(p: &Profile) -> Session {
     let mut s = los::session(p);
+    s.bodies = p
+        .npcs
+        .iter()
+        .map(|npc| {
+            (
+                npc.ai.creature_id,
+                Body {
+                    radius: npc.ai.bounding_radius,
+                    height: p
+                        .npc_motion(npc.ai.creature_id)
+                        .unwrap()
+                        .npc_policy
+                        .settings
+                        .collision_height,
+                },
+            )
+        })
+        .collect();
     s.primary_near_point = Some(PrimaryNearPointPolicy::from_profile(p).unwrap());
     s.player_environment = Some(PlayerEnvironmentPolicy::from_profile(p, f::player()).unwrap());
     s
@@ -80,9 +110,72 @@ pub(crate) fn with_route_fixture<T>(
     // Start beyond melee reach so the real runtime must issue Chase/NearPoint.
     with_fixture_at((start, [start[0] - 8., start[1], start[2]]), true, test)
 }
+/// A separate complete two-owner scene starts outside both genuine aggro ranges.
+/// Ordinary authenticated movement, not timer/target mutation, can later expose
+/// both owners to the same player-owned visitor and real first-cold Chase tick.
+#[cfg(not(benilla_headless_geometry))]
+#[allow(dead_code, reason = "two-owner actual-controller fixture is app-only")]
+pub(crate) fn with_two_owner_route_fixture<T>(
+    test: impl FnOnce(
+        &input::Install,
+        &PreparedSourceHeight<'_, '_, '_>,
+        &InventoryCompatibility<'_, '_, '_, '_>,
+        NativeM2MapInventory,
+        ResidentGeometryPolicy,
+        Profile,
+        SourceMapQuerySnapshot,
+        SourceMapQuerySnapshot,
+    ) -> T,
+) -> T {
+    let (start, _) = input::support();
+    with_fixture_at_with_owners(
+        (start, [start[0] - 40., start[1], start[2]]),
+        true,
+        true,
+        test,
+    )
+}
+#[cfg(not(benilla_headless_geometry))]
+#[allow(dead_code, reason = "actual-controller fixture is app-only")]
+pub(crate) fn with_controller_fixture<T>(
+    two_owners: bool,
+    test: impl FnOnce(
+        &input::Install,
+        &PreparedSourceHeight<'_, '_, '_>,
+        &InventoryCompatibility<'_, '_, '_, '_>,
+        NativeM2MapInventory,
+        ResidentGeometryPolicy,
+        Profile,
+        SourceMapQuerySnapshot,
+        SourceMapQuerySnapshot,
+    ) -> T,
+) -> T {
+    if two_owners {
+        with_two_owner_route_fixture(test)
+    } else {
+        with_route_fixture(test)
+    }
+}
 fn with_fixture_at<T>(
     endpoints: ([f32; 3], [f32; 3]),
     first_cold_route: bool,
+    test: impl FnOnce(
+        &input::Install,
+        &PreparedSourceHeight<'_, '_, '_>,
+        &InventoryCompatibility<'_, '_, '_, '_>,
+        NativeM2MapInventory,
+        ResidentGeometryPolicy,
+        Profile,
+        SourceMapQuerySnapshot,
+        SourceMapQuerySnapshot,
+    ) -> T,
+) -> T {
+    with_fixture_at_with_owners(endpoints, first_cold_route, false, test)
+}
+fn with_fixture_at_with_owners<T>(
+    endpoints: ([f32; 3], [f32; 3]),
+    first_cold_route: bool,
+    two_owners: bool,
     test: impl FnOnce(
         &input::Install,
         &PreparedSourceHeight<'_, '_, '_>,
@@ -130,7 +223,7 @@ fn with_fixture_at<T>(
         &mut benilla_formats::Chain::open(install.path()).unwrap(),
     )
     .unwrap();
-    let mut p = initialized_profile(binding, start, end, &maps);
+    let mut p = initialized_profile(binding, start, end, &maps, two_owners);
     p.tick_ms = 25;
     p.source_motion.as_mut().unwrap().relocation_aggro_delay_ms = 125;
     let catalog = LiquidCatalog::from_wdbc(
@@ -225,6 +318,7 @@ fn initialized_profile(
     start: [f32; 3],
     end: [f32; 3],
     maps: &benilla_formats::MapCatalog,
+    two_owners: bool,
 ) -> Profile {
     let mut p = initialization::profile_with_faction(binding, [77; 32], 2);
     p.npcs[0].ai.spawn = ai::Point::new(start[0], start[1], start[2]).unwrap();
@@ -290,6 +384,9 @@ fn initialized_profile(
         ai::Point::new(end[0], end[1], end[2]).unwrap()
     );
     benilla_world_runtime::native::synthetic_combat_fixture::install(&mut p);
+    if two_owners {
+        two_owner_fixture::extend_profile(&mut p);
+    }
     // Retain configuration only after this profile's complete entry/capability
     // and interaction owners exist; another fixture's retained source is invalid.
     p.initialize_pathfinder_configuration(
@@ -302,11 +399,13 @@ fn initialized_profile(
         maps,
     )
     .unwrap();
-    p.pathfinder_configuration
-        .as_ref()
-        .unwrap()
-        .constructor_binding(&p, 2)
-        .unwrap();
+    for npc in &p.npcs {
+        p.pathfinder_configuration
+            .as_ref()
+            .unwrap()
+            .constructor_binding(&p, npc.ai.creature_id)
+            .unwrap();
+    }
     p.validate().unwrap();
     p
 }

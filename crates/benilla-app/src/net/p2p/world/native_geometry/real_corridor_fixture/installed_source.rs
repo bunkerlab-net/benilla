@@ -95,13 +95,13 @@ fn exterior_intersects_sweep(inventory: &NativeM2MapInventory) -> bool {
     })
 }
 
-struct InstalledFixture {
-    app: App,
+pub(in super::super) struct InstalledFixture {
+    pub(in super::super) app: App,
     tiles: BTreeMap<(i32, i32), Handle<AdtTile>>,
     roots: BTreeMap<(i32, i32), Entity>,
 }
 impl InstalledFixture {
-    fn new(path: &Path, inventory: NativeM2MapInventory) -> Self {
+    pub(in super::super) fn new(path: &Path, inventory: NativeM2MapInventory) -> Self {
         let mut app = App::new();
         benilla_assets::register_mpq_source(&mut app, path).unwrap();
         app.add_plugins((
@@ -185,7 +185,7 @@ impl InstalledFixture {
         Self { app, tiles, roots }
     }
 
-    fn advance_physics(&mut self) {
+    pub(in super::super) fn advance_physics(&mut self) {
         let before = self.app.world().resource::<PhysicsObserved>().0;
         self.app.update();
         self.app.update();

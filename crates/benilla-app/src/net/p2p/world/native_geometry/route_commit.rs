@@ -402,4 +402,101 @@ pub(crate) mod authored_conflicts {
         wrong.routes.push(route);
         wrong
     }
+    pub(crate) fn foreign_session(
+        notice: &RouteCommitNotice,
+        initial: &super::RouteCommitBoundary,
+    ) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        wrong.boundary.session = initial.session.clone();
+        wrong
+    }
+    pub(crate) fn skipped_tick(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        wrong.boundary.tick += 1;
+        wrong
+    }
+    pub(crate) fn stale_generation(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        wrong.boundary.heads.last_mut().unwrap().npc.generation += 1;
+        wrong
+    }
+    pub(crate) fn omitted_head(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        wrong.boundary.heads.pop().unwrap();
+        wrong
+    }
+    pub(crate) fn decoded_dispatch(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        for reply in &mut wrong.routes {
+            reply.request =
+                serde_json::from_slice(&serde_json::to_vec(&reply.request).unwrap()).unwrap();
+        }
+        assert_eq!(
+            wrong, *notice,
+            "serialization erases the live seal, not request values"
+        );
+        wrong
+    }
+    pub(crate) fn uncertified_reply(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        use benilla_sim::creature_motion::{Fact, RouteOutcome};
+        use benilla_world_runtime::native::{Facts, MotionFacts};
+        let mut wrong = notice.clone();
+        let Facts::SourceMotion(MotionFacts::Spatial(reply)) =
+            &mut wrong.routes.last_mut().unwrap().facts
+        else {
+            panic!("actual spatial Route");
+        };
+        let Fact::RouteCalculation(calculation) = &mut reply.fact else {
+            panic!("actual calculation");
+        };
+        let RouteOutcome::Complete(path) = &mut calculation.outcome else {
+            panic!("actual Complete route");
+        };
+        path.path_identity[0] ^= 1;
+        wrong
+    }
+    pub(crate) fn reordered_routes(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        assert!(
+            notice.routes.len() >= 2,
+            "two actual owner calculations required"
+        );
+        let mut wrong = notice.clone();
+        wrong.routes.reverse();
+        wrong
+    }
+    pub(crate) fn wrong_last_cache(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        let cache = wrong
+            .boundary
+            .heads
+            .last_mut()
+            .unwrap()
+            .current
+            .cache
+            .as_mut()
+            .unwrap();
+        cache.revision += 1;
+        wrong
+    }
+    pub(crate) fn substitute_dispatch(
+        notice: &RouteCommitNotice,
+        request: &benilla_world_runtime::native::AuthorityRequest,
+    ) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        let original = &mut wrong.routes.first_mut().unwrap().request;
+        assert_eq!(
+            *original, *request,
+            "distinct genuine receipt must have equal serialized request"
+        );
+        *original = request.clone();
+        wrong
+    }
+    pub(crate) fn extra_head(notice: &RouteCommitNotice) -> RouteCommitNotice {
+        let mut wrong = notice.clone();
+        wrong
+            .boundary
+            .heads
+            .push(wrong.boundary.heads.last().unwrap().clone());
+        wrong
+    }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Synchronous resident cold Chase conversion. Only the concrete installed scene
-//! can certify an uncommitted historical candidate. Commit/ACK is not supplied here.
+//! can certify an uncommitted historical candidate. The component-only ledger
+//! promotes it solely against an ordered actual controller commit notice.
 use super::{
     core::{self, Corridor, Failure},
     local_corridor::LocalCorridor,
@@ -176,3 +177,8 @@ pub(super) fn certify(
         facts,
     ))
 }
+
+#[cfg(test)]
+#[allow(dead_code, reason = "app-only resident controller component fixture")]
+#[path = "source_route_resident_local/ledger.rs"]
+pub(super) mod ledger;

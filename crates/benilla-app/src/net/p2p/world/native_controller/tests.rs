@@ -1139,3 +1139,7 @@ pub(crate) mod distinct_quest_loop_tests;
 
 #[path = "event_ai_tests.rs"]
 mod event_ai_tests;
+
+#[cfg(not(benilla_headless_geometry))]
+#[path = "resident_fixture.rs"]
+pub(crate) mod resident_fixture;
