@@ -490,6 +490,116 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         self.retained_for(dependency, prior, context, deadline, cancelled)?;
         Ok(cache)
     }
+    /// Compare only owned historical ancestry/cache; neither renews source evidence
+    /// nor authorizes another calculation. `context` is the retained calculation.
+    pub(crate) fn check_historical_retained_cache_for_test(
+        &self,
+        dependency: &ResidentJoinedRetainedDependency,
+        prior: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        expected: &motion::PathFinderCache,
+    ) -> Result<(), ResidentFilterError> {
+        self.require_one_retained_route()?;
+        let previous = prior.retained_cold().historical_observation();
+        if !Rc::ptr_eq(&dependency.root.provider, &self.identity)
+            || !Rc::ptr_eq(&previous.identity, &self.identity)
+            || dependency.root.context != *context
+            || !Rc::ptr_eq(&dependency.root.predecessor, &previous.observation_identity)
+            || !prior.retained_chase().same_water_model(&dependency.chase)
+        {
+            return Err(Failure::Binding.into());
+        }
+        validate_route_context(&self.session, &self.profile, context)?;
+        validate_route_context(&self.session, &self.profile, &previous.context)?;
+        let saved = dependency
+            .root
+            .context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let current = context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let old = previous
+            .context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::Binding.into());
+        };
+        let Query::SourceMotion(MotionQuery::Route(old_route)) = &previous.context.query else {
+            return Err(Failure::Binding.into());
+        };
+        if !saved.same_live_dispatch(current)
+            || !old.first_construction()
+            || current.first_construction()
+            || old.constructor_kind() != motion::PathfinderConstructorKind::ChaseLazy
+            || current.constructor_kind() != old.constructor_kind()
+            || current.construction_binding() != old.construction_binding()
+            || current.configuration_binding() != old.configuration_binding()
+            || current.npc() != old.npc()
+            || route.owner != old_route.owner
+            || route.request.binding.query_id <= old_route.request.binding.query_id
+            || route.request.binding.now_ms <= old_route.request.binding.now_ms
+            || route.request.kind != motion::RouteKind::ChaseReplan
+            || route.request.point_limit != motion::PATHFINDER_CACHE_POINT_LIMIT
+            || old_route.request.prior_cache.is_some()
+            || !prior.retained_cold().historical_calculate_ready()
+        {
+            return Err(Failure::Binding.into());
+        }
+        let terminal = &dependency.terminal;
+        let native = terminal.compatibility();
+        let prior_terminal = prior.retained_cold().native_terminal();
+        let prior_native = prior_terminal.compatibility();
+        let bits = |point: Point| [point.x.bits(), point.y.bits(), point.z.bits()];
+        if prior_native.is_retained()
+            || prior_native.storage().len() != usize::from(motion::PATHFINDER_CACHE_POINT_LIMIT) + 1
+            || prior_native.point_limit() != usize::from(motion::PATHFINDER_CACHE_POINT_LIMIT)
+            || prior_native.before_active_len() != 0
+            || prior_native.before_storage() != [0; motion::PATHFINDER_CACHE_POINT_LIMIT as usize]
+            || prior_native.filter() != previous.filter
+            || prior_terminal.path_type() != 1
+            || prior_native.active_len() != 1
+            || prior_terminal.config()
+                != (SourceSamePolygonConfig {
+                    normalize_z: false,
+                    ignore_normalization: false,
+                })
+            || prior_terminal.points()
+                != [bits(old_route.request.origin), bits(old_route.request.goal)]
+            || prior_terminal.actual_end() != bits(old_route.request.goal)
+            || &dependency.owner_ignore
+                != route
+                    .require_owner_ignore_pathfinding(&self.profile)
+                    .map_err(|_| Failure::Binding)?
+            || dependency.owner_ignore.ignore_pathfinding()
+            || !dependency.tiles.both_present()
+            || !native.is_retained()
+            || native.before_storage() != prior_native.storage()
+            || native.before_active_len() != prior_native.active_len()
+            || native.filter() != prior_native.filter()
+            || native.initial_storage() != prior_native.initial_storage()
+            || native.initial_active_len() != prior_native.initial_active_len()
+            || terminal.slot() != prior_terminal.slot()
+            || terminal.query_capacity() != prior_terminal.query_capacity()
+            || terminal.query_capacity() != 1024
+            || terminal.config() != prior_terminal.config()
+            || terminal.points() != [bits(route.request.origin), bits(route.request.goal)]
+            || terminal.actual_end() != bits(route.request.goal)
+            || terminal.path_type() != 1
+            || native.active_len() != 1
+            || native.point_limit() != usize::from(motion::PATHFINDER_CACHE_POINT_LIMIT)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let prior_cache = self.retained_native_cache(prior_terminal, &previous.context, 1)?;
+        if route.request.prior_cache.as_deref() != Some(&prior_cache)
+            || self.retained_native_cache(terminal, context, 2)? != *expected
+        {
+            return Err(Failure::Binding.into());
+        }
+        Ok(())
+    }
     fn retained_native_cache(
         &self,
         terminal: &LoadedSourceSamePolygon,

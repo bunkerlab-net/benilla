@@ -16,6 +16,7 @@ pub(super) enum Mode {
     RollbackRetry,
     DropAfterApply,
     SourceChangeBeforeAck,
+    SecondRetainedDispatch,
 }
 
 pub(super) fn assert_request(

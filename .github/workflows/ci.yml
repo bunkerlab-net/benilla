@@ -146,6 +146,13 @@ jobs:
           log="$RUNNER_TEMP/native-resident-retained-history.log"
           mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_history::resident_controller_retained_historical_ack_survives_changed_source_without_replay -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_history::resident_controller_retained_historical_ack_survives_changed_source_without_replay
+      - name: Verify resident second-retained dispatch refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-second-retained.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_repeated::resident_controller_second_retained_dispatch_refuses_with_revision_two_owner_intact -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_repeated::resident_controller_second_retained_dispatch_refuses_with_revision_two_owner_intact
       - name: test
         run: mbx test --locked --no-fail-fast --workspace
       - name: Verify installed source corridor

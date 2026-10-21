@@ -837,6 +837,81 @@ impl ResidentLedger {
         }
         Ok(())
     }
+    /// A post-revision-two witness only: no source freshness, terminal calculation,
+    /// scene clearance or Route emission. The two-epoch certification stop is unchanged.
+    pub(in super::super) fn check_second_retained_dispatch_for_test(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        installed_owner: &benilla_formats::NativeInventorySource,
+        context: &AuthorityRequest,
+    ) -> Result<(), ResidentFilterError> {
+        let boundary = self.boundary.as_ref().ok_or(Failure::Binding)?;
+        if !self.one_retained
+            || !self.route_epoch_committed
+            || !self.retained_epoch_committed
+            || !self.provider.matches(provider)
+            || !self.owner.same_owner(installed_owner)
+            || self.counts() != (1, 1)
+            || boundary.tick().checked_add(1) != Some(context.binding.tick)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let Candidate::Retained(candidate) = &self.candidates[0].candidate else {
+            return Err(Failure::Binding.into());
+        };
+        self.validate_retained_candidate(candidate)?;
+        let saved_context = &candidate.reply.request;
+        let cache = &calculation(&candidate.reply)?.after_cache;
+        provider.check_historical_retained_cache_for_test(
+            &candidate.dependency,
+            &candidate.predecessor.dependency,
+            saved_context,
+            cache,
+        )?;
+        let Query::SourceMotion(MotionQuery::Route(old)) = &saved_context.query else {
+            return Err(Failure::Binding.into());
+        };
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::Binding.into());
+        };
+        let saved = saved_context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let current = context
+            .require_pathfinder_dispatch(&self.profile)
+            .map_err(|_| Failure::Binding)?;
+        let head = boundary.heads().first().ok_or(Failure::Binding)?;
+        if boundary.heads().len() != 1
+            || head.npc() != route.owner.npc()
+            || head.constructor_kind() != Some(motion::PathfinderConstructorKind::ChaseLazy)
+            || head.construction() != Some(saved.construction_binding())
+            || head.cache() != Some(cache)
+            || route.request.prior_cache.as_deref() != Some(cache)
+            || !candidate.installed_owner.same_owner(installed_owner)
+            || self.raw != Some(candidate.raw_revision)
+            || cache.revision != 2
+            || route.owner != old.owner
+            || route.collision_width != old.collision_width
+            || route.collision_height != old.collision_height
+            || route.request.kind != motion::RouteKind::ChaseReplan
+            || route.request.binding.query_id <= old.request.binding.query_id
+            || route.request.binding.now_ms <= old.request.binding.now_ms
+            || context.binding.tick <= saved_context.binding.tick
+            || context.binding.world != saved_context.binding.world
+            || context.binding.profile != saved_context.binding.profile
+            || context.binding.geometry != saved_context.binding.geometry
+            || context.binding.authority_policy != saved_context.binding.authority_policy
+            || context.binding.npc != saved_context.binding.npc
+            || current.first_construction()
+            || current.constructor_kind() != motion::PathfinderConstructorKind::ChaseLazy
+            || current.construction_binding() != saved.construction_binding()
+            || current.configuration_binding() != saved.configuration_binding()
+            || current.same_live_dispatch(saved)
+        {
+            return Err(Failure::Binding.into());
+        }
+        Ok(())
+    }
     pub(in super::super) fn diagnostic(&self) -> Diagnostic {
         Diagnostic {
             profile: self.profile.clone(),

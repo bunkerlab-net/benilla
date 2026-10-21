@@ -368,6 +368,15 @@ fn run(mode: Mode) {
                                 out.events.len(),
                                 retained_mode,
                             );
+                            if retained_mode == retained::Mode::SecondRetainedDispatch {
+                                return (super::source_route_resident_repeated::after_warm_ack(
+                                    &mut driver,
+                                    &worker_callbacks,
+                                    &worker_routes,
+                                    tick,
+                                    events,
+                                ), Some(committed));
+                            }
                             return ((tick, events, count), Some(committed));
                         }
                         return ((tick, out.events.len(), count), None);
@@ -410,6 +419,77 @@ fn run(mode: Mode) {
                                 reply
                                     .send(Err(NativeError::AuthorityUnavailable(
                                         "resident controller deliberate later callback failure",
+                                    )))
+                                    .unwrap();
+                                continue;
+                            }
+                            if mode.retained() == Some(retained::Mode::SecondRetainedDispatch)
+                                && matches!(
+                                    request.query,
+                                    Query::SourceMotion(MotionQuery::Route(_))
+                                )
+                                && routes.load(Ordering::SeqCst) == 2
+                            {
+                                assert!(retained_accepted);
+                                assert!(retained_witness.is_none());
+                                let before = ledger.diagnostic();
+                                let installed = geometry.app.world()
+                                    .resource::<benilla_world::terrain_stream::NativeStaticMapIndex>();
+                                let installed_owner = installed.source_provenance().unwrap();
+                                ledger
+                                    .check_second_retained_dispatch_for_test(
+                                        &provider,
+                                        installed_owner,
+                                        &request,
+                                    )
+                                    .unwrap();
+                                provider
+                                    .verify_installed_owner(
+                                        compatibility,
+                                        installed_owner,
+                                        runtime::until(),
+                                        || false,
+                                    )
+                                    .unwrap();
+                                assert_eq!(
+                                    provider.retained_constructor_for_test(&request).unwrap(),
+                                    registry.unwrap(),
+                                    "third callback still owns the original native constructor"
+                                );
+                                assert!(matches!(
+                                    ledger.certify_retained(
+                                        geometry.app.world_mut(),
+                                        compatibility,
+                                        &mut provider,
+                                        &request,
+                                        401,
+                                        runtime::until(),
+                                        || false,
+                                    ),
+                                    Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+                                ));
+                                assert_eq!(ledger.diagnostic(), before);
+                                let Query::SourceMotion(MotionQuery::Route(route)) = &request.query
+                                else {
+                                    unreachable!()
+                                };
+                                let cache = route.request.prior_cache.as_ref().unwrap();
+                                assert_eq!(cache.revision, 2);
+                                assert_eq!(cache.point_limit, motion::PATHFINDER_CACHE_POINT_LIMIT);
+                                assert_eq!(cache.active_len, 1);
+                                assert_eq!(cache.include_flags, 13);
+                                assert_eq!(cache.exclude_flags, 0);
+                                assert_eq!(cache.path_type, 1);
+                                assert_eq!(
+                                    Some(cache.as_ref()),
+                                    retained_notice.as_ref().unwrap().boundary().heads()[0].cache()
+                                );
+                                eprintln!("resident actual second retained dispatch: tick={} query={} prior-revision={} storage={} active={} filter={} origin={:?} goal={:?}", request.binding.tick, route.request.binding.query_id, cache.revision, cache.poly_refs.len(), cache.active_len, cache.include_flags, route.request.origin, route.request.goal);
+                                retained_witness = Some((request.clone(), before));
+                                assert_eq!(routes.fetch_add(1, Ordering::SeqCst), 2);
+                                reply
+                                    .send(Err(NativeError::AuthorityUnavailable(
+                                        super::source_route_resident_repeated::REFUSAL,
                                     )))
                                     .unwrap();
                                 continue;
@@ -851,6 +931,10 @@ fn run(mode: Mode) {
                                             || mode.retained().is_some())
                                             && routes.load(Ordering::SeqCst) == 1
                                             && ledger.counts() == (1, 1)
+                                        || mode.retained()
+                                            == Some(retained::Mode::SecondRetainedDispatch)
+                                            && routes.load(Ordering::SeqCst) == 2
+                                            && ledger.counts() == (1, 1)
                                 );
                                 binding_error(ledger.acknowledge(&notice)).unwrap();
                                 reply.send(Ok(())).unwrap();
@@ -1165,7 +1249,10 @@ fn run(mode: Mode) {
                     if matches!(mode, Mode::RollbackRetry | Mode::RetainedDispatch) {
                         2
                     } else if let Some(retained_mode) = mode.retained() {
-                        if retained_mode == retained::Mode::RollbackRetry {
+                        if matches!(
+                            retained_mode,
+                            retained::Mode::RollbackRetry | retained::Mode::SecondRetainedDispatch
+                        ) {
                             3
                         } else {
                             2
@@ -1185,7 +1272,9 @@ fn run(mode: Mode) {
                 assert_eq!(retained_notice.is_some(), mode.retained().is_some());
                 assert!(captured.is_some());
                 assert_eq!(provider.retained_constructor_count(), owner_count);
-                if mode == Mode::RetainedDispatch {
+                if mode == Mode::RetainedDispatch
+                    || mode.retained() == Some(retained::Mode::SecondRetainedDispatch)
+                {
                     let (context, before) =
                         retained_witness.as_ref().expect("actual retained callback");
                     assert_eq!(context.binding.tick, tick + 1);
@@ -1303,4 +1392,8 @@ fn resident_controller_two_owner_notice_is_atomic_before_publication() {
 
 pub(super) fn one_retained_refusals_probe() {
     run(Mode::OneRetained(retained::Mode::Refusals));
+}
+
+pub(super) fn second_retained_dispatch_probe() {
+    run(Mode::OneRetained(retained::Mode::SecondRetainedDispatch));
 }

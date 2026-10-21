@@ -41,6 +41,8 @@ mod source_route_resident_history;
 #[cfg(test)]
 mod source_route_resident_local;
 #[cfg(test)]
+mod source_route_resident_repeated;
+#[cfg(test)]
 mod source_route_resident_retained;
 #[cfg(test)]
 mod source_route_resident_retained_refusals;
