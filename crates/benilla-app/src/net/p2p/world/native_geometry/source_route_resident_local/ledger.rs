@@ -1435,7 +1435,7 @@ impl ResidentLedger {
         // All source scans are bounded by 2 * (4095 - 74) + 8 = 8050 primitives.
         let cache_bound = motion::MAX_PATHFINDER_CACHE_REFS * std::mem::size_of::<u64>();
         let points_and_checks = 2 * std::mem::size_of::<[u32; 3]>()
-            + 2 * std::mem::size_of::<motion::Point>()
+            + 2 * std::mem::size_of::<benilla_sim::creature_ai::Point>()
             + std::mem::size_of::<SegmentChecks>();
         let upper_bound_bytes = terminal_count
             * (10 * cache_bound
