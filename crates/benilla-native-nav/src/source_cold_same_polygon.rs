@@ -11,6 +11,10 @@ use std::{rc::Rc, time::Instant};
 mod chase_fixed_cache;
 pub use chase_fixed_cache::*;
 
+#[path = "source_retained_straight.rs"]
+mod retained_straight;
+pub use retained_straight::*;
+
 /// Explicit NormalizePath state. There is deliberately no server-default constructor.
 /// Only false/false is supported, without a terrain callback or ignore-state bypass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

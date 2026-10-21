@@ -874,3 +874,38 @@ The seam uses the source slab rule rather than exact endpoint equality. An indep
 original-function corpus covers 25 bounded finite cases; three zero-span/overflow
 cases explicitly remain outside the supported arithmetic envelope. This evidence
 concerns generated geometry queries, not normal game-session movement admission.
+
+## Cold-origin retained straight composition
+
+`SelectedSourceQuery::loaded_retained_straight_from_same_polygon` borrows an actual
+`LoadedSourceSamePolygon`; `loaded_retained_straight` borrows the actual preceding
+`LoadedSourceRetainedStraight`. Neither entry point accepts serialized polygon
+references or exports an original-warm cache. The new opaque proposal keeps the
+source1024 allocation, original zero-distance compatibility version and constructor
+storage, complete immediate before-cache, and the unchanged loaded straight
+algorithm's terminal result. Immediate predecessor identity tokens do not retain
+prior result objects. Public observations are not owner, dispatch or Route evidence.
+
+Both entry points use original defined warm lookup semantics, never another cold
+initialization. Lookups and height queries use the selected allocation's query;
+ray traversal borrows that same allocation's immutable mesh without creating a
+replacement query. Replacement runs the existing source raycast and sampled straight
+BuildPointPath, not direct findPath or smoothing. SamePolygon and Cut retain their
+source bypasses. Full inactive storage and appended tail references remain intact.
+
+The previous path type is taken from the actual opaque predecessor. The caller
+explicitly supplies optimization and full collision-width bits; both are fixed for
+subsequent straight proposals. Force destination is false, and normalization must
+match the supported false/false cold origin. These scalar bindings establish no
+creature model or owner-width provenance. The source result may be NORMAL, NOPATH,
+INCOMPLETE or another supported raw terminal type; no automatic Chase fallback or
+promotion to a complete route occurs. Existing same-polygon entry points continue
+to reject non-same selections.
+
+The unchanged lookup, ray-polygon, sampled-point and native-primitive budgets are
+separate finite work limits. Failure or deadline expiry publishes no proposal and
+leaves prior storage/type unchanged; native query scratch is not rolled back.
+Composition tests cover genuine loaded origin/successor ownership and exact budget
+boundaries. They are distinct from an independent original-source cold-to-straight
+sequence oracle, and neither establishes application polyline clearance, transaction
+acceptance, persisted owner reopening or production gameplay admission.

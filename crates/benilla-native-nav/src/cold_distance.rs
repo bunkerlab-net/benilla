@@ -31,6 +31,15 @@ pub struct LoadedSourceColdDistanceCompatibility {
     observed: LoadedSourceWarmCache,
 }
 impl LoadedSourceColdDistanceCompatibility {
+    /// Private loaded composition only; observations cannot recreate these handles.
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn initial_cache(&self) -> &WarmCache {
+        &self.initial
+    }
+    #[cfg(benilla_native_detour)]
+    pub(crate) fn retained_cache(&self) -> &WarmCache {
+        self.observed.after()
+    }
     /// Private same-query composition keeps the selected compatibility policy attached.
     /// No direct replacement is invoked or public original-warm handle returned.
     #[cfg(benilla_native_detour)]

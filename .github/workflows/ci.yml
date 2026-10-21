@@ -67,6 +67,18 @@ jobs:
           log="$RUNNER_TEMP/native-resident-navigation-helper.log"
           mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+      - name: Verify native retained straight bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-retained-straight-bridge.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_straight::tests::allocation_endpoints_configuration_width_and_cap_errors_do_not_mutate_priors \
+            source_cold_same_polygon::retained_straight::tests::exact_and_one_short_budgets_discard_candidates_and_preserve_both_prior_kinds \
+            source_cold_same_polygon::retained_straight::tests::genuine_cold_replacement_then_cut_and_same_preserve_complete_storage_and_policy \
+            source_cold_same_polygon::retained_straight::tests::predecessor_tokens_reject_siblings_and_do_not_retain_prior_result_chains \
+            source_cold_same_polygon::retained_straight::tests::raw_incomplete_and_nopath_are_not_promoted_or_silently_retried
       - name: Verify native retained primitive budgets
         shell: bash
         run: |
