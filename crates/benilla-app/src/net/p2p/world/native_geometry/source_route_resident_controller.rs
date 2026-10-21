@@ -125,6 +125,7 @@ fn run(mode: Mode) {
         |install, height, compatibility, inventory, policy, p, query, other| {
             let fixture = resident_fixture::Fixture::new(p.clone(), [8; 16]);
             let player = fixture.player();
+            assert_ne!(player, n::synthetic_fixture::player());
             let mut session = runtime::session(&p);
             session.world = fixture.world_id();
             session.player_environment =
@@ -424,14 +425,29 @@ fn run(mode: Mode) {
                                     assert!(route.request.prior_cache.is_none());
                                     ledger.require_open_epoch().unwrap();
                                     let deadline = Instant::now() + Duration::from_secs(30);
-                                    let (constructor, water) = runtime::prerequisites(
+                                    let (constructor, water) = runtime::prerequisites_for_player(
                                         &mut provider,
                                         &request,
+                                        player,
                                         101,
                                         deadline,
                                     );
                                     if attempt == 0 {
                                         let before = ledger.diagnostic();
+                                        // Fixed fixture identity is refusal-only evidence; the
+                                        // positive chain above uses the real profile selection.
+                                        assert!(matches!(
+                                            provider.observe_chase_los(
+                                                &constructor,
+                                                &request,
+                                                n::synthetic_fixture::player(),
+                                                103,
+                                                deadline,
+                                                || false,
+                                            ),
+                                            Err(ResidentFilterError::Context(Failure::Binding))
+                                        ));
+                                        assert_eq!(ledger.diagnostic(), before);
                                         assert!(matches!(
                                             ledger.certify(
                                                 geometry.app.world_mut(),
@@ -450,9 +466,10 @@ fn run(mode: Mode) {
                                     } else {
                                         drop((constructor, water));
                                     }
-                                    let (constructor, water) = runtime::prerequisites(
+                                    let (constructor, water) = runtime::prerequisites_for_player(
                                         &mut provider,
                                         &request,
+                                        player,
                                         101,
                                         deadline,
                                     );
@@ -481,12 +498,14 @@ fn run(mode: Mode) {
                                     // Refusal-only metadata probes. Neither a repeated live
                                     // dispatch nor a fabricated changed request can emit again.
                                     for changed in [false, true] {
-                                        let (constructor, water) = runtime::prerequisites(
-                                            &mut provider,
-                                            &request,
-                                            101,
-                                            deadline,
-                                        );
+                                        let (constructor, water) =
+                                            runtime::prerequisites_for_player(
+                                                &mut provider,
+                                                &request,
+                                                player,
+                                                101,
+                                                deadline,
+                                            );
                                         let mut unsupported = request.clone();
                                         if changed {
                                             let Query::SourceMotion(MotionQuery::Route(route)) =
@@ -730,8 +749,13 @@ fn run(mode: Mode) {
                 // retry measurements and worker shutdown, never during ACK retry.
                 let context = &attempts.last().unwrap().0;
                 let deadline = runtime::until();
-                let (constructor, water) =
-                    runtime::prerequisites(&mut provider, context, 101, deadline);
+                let (constructor, water) = runtime::prerequisites_for_player(
+                    &mut provider,
+                    context,
+                    player,
+                    101,
+                    deadline,
+                );
                 let before = ledger.diagnostic();
                 assert!(matches!(
                     ledger.certify(

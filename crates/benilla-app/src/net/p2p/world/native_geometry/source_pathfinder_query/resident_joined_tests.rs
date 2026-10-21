@@ -693,18 +693,23 @@ pub(crate) fn prerequisites(
     ticket: u64,
     deadline: Instant,
 ) -> (ResidentFilterDependency, ResidentChaseWaterDependency) {
+    prerequisites_for_player(provider, context, f::player(), ticket, deadline)
+}
+/// Actual controller selections must bind their own starter target-height owner.
+pub(crate) fn prerequisites_for_player(
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    player: benilla_world_runtime::PlayerId,
+    ticket: u64,
+    deadline: Instant,
+) -> (ResidentFilterDependency, ResidentChaseWaterDependency) {
     let constructor = provider
         .observe(context, ticket, deadline, || false)
         .unwrap();
     let los = provider
-        .observe_chase_los(
-            &constructor,
-            context,
-            f::player(),
-            ticket + 2,
-            deadline,
-            || false,
-        )
+        .observe_chase_los(&constructor, context, player, ticket + 2, deadline, || {
+            false
+        })
         .unwrap();
     let water = provider
         .observe_chase_water(&los, context, ticket + 3, deadline, || false)
