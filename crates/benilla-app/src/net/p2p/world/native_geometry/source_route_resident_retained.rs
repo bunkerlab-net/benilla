@@ -126,7 +126,7 @@ pub(super) fn assert_source_order(
         let cancelled = Cell::new(false);
         let mut phases = vec![];
         let deadline = Instant::now() + Duration::from_secs(30);
-        assert_eq!(
+        assert!(matches!(
             ledger.probe_retained_source_for_test(
                 provider,
                 request,
@@ -141,7 +141,7 @@ pub(super) fn assert_source_order(
                 },
             ),
             Err(ResidentFilterError::Source(CompositionError::Cancelled))
-        );
+        ));
         assert_eq!(
             phases,
             ORDER[..=ORDER.iter().position(|phase| *phase == stop).unwrap()]
