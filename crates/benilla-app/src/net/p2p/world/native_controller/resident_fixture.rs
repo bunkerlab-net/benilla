@@ -3,6 +3,7 @@
 //! exclusively from the supplied channels, never from this presentation catalog.
 use super::*;
 use benilla_sim::creature_init as init;
+use benilla_world_store::native::reconstruction::RecipeStore;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Fixture {
@@ -28,6 +29,29 @@ impl Fixture {
     }
     pub(crate) fn world_id(&self) -> WorldId {
         self.world
+    }
+    /// Capture through the actual controller save barrier, never a second shadow save.
+    /// Only a just-opened, cache-free genesis can enter this component-only path.
+    pub(crate) fn open_recipe_initialized(
+        self,
+        world: n::NativeWorld,
+        authority: impl n::Authority + Send + 'static,
+    ) -> Result<Driver, Error> {
+        let mut driver = self.open_initialized(world, authority)?;
+        let controller = &mut driver.controller;
+        assert_eq!(controller.world.state().tick, 0);
+        assert!(controller.world.records().is_empty());
+        assert!(controller.route_commit.is_none());
+        controller.world.validate_saved_session_reopen()?;
+        let checkpoint = controller.world.checkpoint()?;
+        let path = world_path(&driver._harness.root, controller.world.state().world)?
+            .with_extension("recipe");
+        let (recipe, receipt) = RecipeStore::create(path, &controller.world)?;
+        assert_eq!(recipe.identity(), &Identity::of(&checkpoint));
+        assert_eq!(recipe.recipe().expected_checkpoint(), &checkpoint);
+        receipt.acknowledge(&mut controller.world)?;
+        controller.store = store::Store::Recipe(Box::new(recipe));
+        Ok(driver)
     }
     /// The source owner initializes this world using the already-selected player.
     /// Persisting that genesis allows Open to avoid a synthetic initialization path.
@@ -72,6 +96,71 @@ pub(crate) struct Driver {
     _harness: Harness,
 }
 impl Driver {
+    /// Receipt-only readback proves durable capture, not a reconstructed live owner.
+    pub(crate) fn assert_recipe_readback(self) {
+        let Self {
+            controller,
+            _harness: harness,
+        } = self;
+        assert!(controller.pause.is_none());
+        assert!(controller.pending.is_none());
+        assert!(controller.outbox.is_none());
+        assert!(controller.actions.is_empty());
+        assert!(controller
+            .route_commit
+            .as_ref()
+            .is_some_and(|commit| commit.initialized && commit.pending.is_none()));
+        assert!(controller.world.records().is_empty());
+        let checkpoint = controller.world.checkpoint().unwrap();
+        let profile = controller.world.profile().clone();
+        let identity = Identity::of(&checkpoint);
+        let store::Store::Recipe(recipe) = &controller.store else {
+            panic!("recipe capture required")
+        };
+        assert_eq!(recipe.recipe().expected_checkpoint(), &checkpoint);
+        assert_eq!(
+            recipe.recipe().records().len() as u64,
+            controller.world.state().tick
+        );
+        assert_eq!(
+            recipe
+                .recipe()
+                .records()
+                .iter()
+                .flat_map(|record| &record.replies)
+                .filter(|reply| matches!(
+                    &reply.request.query,
+                    n::Query::SourceMotion(n::MotionQuery::Route(_))
+                ))
+                .count(),
+            2
+        );
+        let expected = recipe.recipe().clone();
+        let generation = recipe.generation();
+        let path = world_path(&harness.root, controller.world.state().world)
+            .unwrap()
+            .with_extension("recipe");
+        let bytes = fs::read(path.join("world.checkpoint")).unwrap();
+        assert!(
+            RecipeStore::open(&path, identity.clone(), |anchor| {
+                n::NativeWorld::restore_synthetic_component_test(profile.clone(), anchor)
+            })
+            .is_err(),
+            "controller retains exclusive recipe lease"
+        );
+        assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), bytes);
+        drop(controller);
+        let (reopened, actual) = RecipeStore::open(&path, identity, |anchor| {
+            n::NativeWorld::restore_synthetic_component_test(profile.clone(), anchor)
+        })
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(actual.expected_checkpoint(), &checkpoint);
+        assert_eq!(reopened.generation(), generation);
+        assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), bytes);
+        drop(reopened);
+        drop(harness);
+    }
     pub(crate) fn initial_events(&mut self) -> Result<Vec<SessionEvent>, Error> {
         self.controller.initial_events()
     }

@@ -11,13 +11,14 @@ use benilla_sim::creature_ai::Point;
 use benilla_world_client::native::{NativeMovementOrders, NativeProjection};
 use benilla_world_runtime::native as n;
 #[cfg(test)]
-use benilla_world_store::native::Identity;
-use benilla_world_store::native::NativeStore;
+use benilla_world_store::native::{Identity, NativeStore};
 const _: () = assert!(MAX_ACTIONS <= n::MAX_INPUTS_PER_TICK);
 // At most one projected tick is retained. The runtime bounds records and catalog text;
 // this additional event-count cap prevents an expanding projection from growing the outbox.
 #[path = "native_controller/admin.rs"]
 mod admin;
+#[path = "native_controller/store.rs"]
+mod store;
 const MAX_PENDING_EVENTS: usize = 65_536;
 struct PendingEvents {
     admin_rejections: Vec<(n::AdminRequest, n::AdminRejection)>,
@@ -203,7 +204,7 @@ pub(crate) struct NativeController {
     admin_bridge: Option<admin::ControllerBridge>,
     world: n::NativeWorld,
     projection: NativeProjection,
-    store: NativeStore,
+    store: store::Store,
     selected: Selection,
     published_pose: PublishedPose,
     authority: LocalAuthority,
@@ -307,7 +308,7 @@ impl NativeController {
             admin_bridge: None,
             world,
             projection,
-            store,
+            store: store.into(),
             selected,
             published_pose,
             authority: LocalAuthority(Box::new(authority)),

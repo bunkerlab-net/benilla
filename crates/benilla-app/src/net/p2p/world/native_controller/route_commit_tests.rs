@@ -612,3 +612,91 @@ fn complete_unreachable_replan_notice_uses_new_chase_cache_and_keeps_old_spline(
         break;
     }
 }
+
+#[test]
+fn recipe_controller_save_failure_and_lost_ack_preserve_once_only_publication() {
+    use benilla_world_store::native::reconstruction::RecipeStore;
+    let h = Harness::new();
+    let data = stationary();
+    let mut c = h.start(data.clone());
+    c.initial_events().unwrap();
+    let path = h.root.join("authored-recipe-capture");
+    let (recipe, receipt) = RecipeStore::create(&path, &c.world).unwrap();
+    assert_eq!(
+        recipe.recipe().expected_checkpoint(),
+        &c.world.checkpoint().unwrap()
+    );
+    receipt.acknowledge(&mut c.world).unwrap();
+    c.store = store::Store::Recipe(Box::new(recipe));
+    assert!(matches!(
+        c.store.committed_admin_snapshot(c.selected.player.owner),
+        Err(n::AdminRejection::Disabled)
+    ));
+    let observed = attach(&mut c);
+    observed.lock().unwrap().lose_response = true;
+    let bytes = fs::read(path.join("world.checkpoint")).unwrap();
+    let generation = c.store.generation();
+    c.receive(move_to([0.125, 0.0, 0.0])).unwrap();
+    let blocker = path.join(".world-checkpoint.pending");
+    fs::write(&blocker, b"authored recipe save fault").unwrap();
+    let failed = c.pump(c.tick_duration());
+    assert_eq!(failed.ticks, 1);
+    assert!(failed.events.is_empty());
+    assert!(matches!(
+        failed.pause.unwrap().kind,
+        PauseKind::Checkpoint {
+            requires_reopen: false
+        }
+    ));
+    assert_eq!(c.store.generation(), generation);
+    assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), bytes);
+    assert_eq!(c.position_xyz(), [0.0; 3]);
+    assert!(c.outbox.as_ref().unwrap().saved.is_none());
+    assert!(observed.lock().unwrap().attempts.is_empty());
+    let committed = c.world.checkpoint().unwrap();
+    assert!(!c.world.records().is_empty());
+    assert!(c.retry_tick().is_err());
+    fs::remove_file(blocker).unwrap(); // Remove only this test's authored save-fault marker.
+    c.retry_checkpoint().unwrap();
+    assert_eq!(c.world.checkpoint().unwrap(), committed);
+    assert!(c.world.records().is_empty());
+    assert_eq!(c.store.generation(), generation + 1);
+    assert!(observed.lock().unwrap().attempts.is_empty());
+    assert_eq!(c.position_xyz(), [0.0; 3]);
+    let published = c.pump(Duration::ZERO);
+    assert_eq!(published.ticks, 0);
+    assert!(!published.events.is_empty());
+    assert_eq!(c.position_xyz(), [0.125, 0.0, 0.0]);
+    assert!(matches!(
+        published.pause.unwrap().kind,
+        PauseKind::CommittedAwaitingRouteAck
+    ));
+    let saved = fs::read(path.join("world.checkpoint")).unwrap();
+    let notice = pending(&c);
+    c.retry_route_commit().unwrap();
+    assert_eq!(c.world.checkpoint().unwrap(), committed);
+    assert_eq!(c.store.generation(), generation + 1);
+    assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), saved);
+    assert!(c.pump(Duration::ZERO).events.is_empty());
+    let observed = observed.lock().unwrap();
+    assert_eq!(observed.attempts, vec![notice.clone(), notice]);
+    assert_eq!(observed.applied.len(), 1);
+    drop(observed);
+    let identity = Identity::of(&committed);
+    drop(c);
+    let (reopened, recipe) = RecipeStore::open(&path, identity.clone(), |anchor| {
+        n::NativeWorld::restore_synthetic_component_test(data.clone(), anchor)
+    })
+    .unwrap();
+    assert_eq!(recipe.expected_checkpoint(), &committed);
+    assert_eq!(recipe.records().len(), 1);
+    drop(reopened);
+    let mut tampered = saved;
+    *tampered.last_mut().unwrap() ^= 1;
+    fs::write(path.join("world.checkpoint"), &tampered).unwrap();
+    assert!(RecipeStore::open(&path, identity, |anchor| {
+        n::NativeWorld::restore_synthetic_component_test(data.clone(), anchor)
+    })
+    .is_err());
+    assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), tampered);
+}

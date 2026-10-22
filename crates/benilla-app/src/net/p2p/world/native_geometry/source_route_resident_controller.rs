@@ -36,6 +36,7 @@ const CONFIG: Option<ResidentInitializationConfiguration> =
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Accept,
+    RecipeCapture,
     RejectBeforeApply,
     DropAfterApply,
     ExpireBeforeAck,
@@ -63,6 +64,7 @@ impl Mode {
     fn retained(self) -> Option<retained::Mode> {
         match self {
             Self::OneRetained(mode) => Some(mode),
+            Self::RecipeCapture => Some(retained::Mode::Accept),
             Self::ThreeEpoch(_) => Some(retained::Mode::Accept),
             _ => None,
         }
@@ -414,7 +416,11 @@ fn run(mode: Mode) {
             std::thread::scope(|scope| {
                 let worker = scope.spawn(move || {
                     let bridge = Bridge(send);
-                    let mut driver = fixture.open_initialized(world, bridge.clone()).unwrap();
+                    let mut driver = if mode == Mode::RecipeCapture {
+                        fixture.open_recipe_initialized(world, bridge.clone()).unwrap()
+                    } else {
+                        fixture.open_initialized(world, bridge.clone()).unwrap()
+                    };
                     let initial = driver.initial_events().unwrap();
                     assert!(!initial.is_empty());
                     driver.attach_route_commit_sink(bridge).unwrap();
@@ -560,6 +566,9 @@ fn run(mode: Mode) {
                                     tick,
                                     events,
                                 ), Some(committed), None, None);
+                            }
+                            if mode == Mode::RecipeCapture {
+                                driver.assert_recipe_readback();
                             }
                             return ((tick, events, count), Some(committed), None, None);
                         }
@@ -2148,4 +2157,9 @@ pub(super) fn run_finite_loop(mode: super::source_route_resident_finite_loop::Mo
 
 pub(super) fn two_owner_retained_probe(mode: super::source_route_resident_pair::Mode) {
     run(Mode::TwoOwnerRetained(mode));
+}
+
+#[test]
+fn resident_controller_recipe_captures_cold_and_first_retained_through_real_save_barrier() {
+    run(Mode::RecipeCapture);
 }

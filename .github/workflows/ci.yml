@@ -132,6 +132,21 @@ jobs:
           mbx test --locked -p benilla-native-corridor-tests --lib suspended_owner_component_tests::complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" \
             suspended_owner_component_tests::complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers
+      - name: Verify controller recipe capture and save barrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_recipe_captures_cold_and_first_retained_through_real_save_barrier
+            net::p2p::world::native_controller::tests::route_commit_tests::recipe_controller_save_failure_and_lost_ack_preserve_once_only_publication
+            net::p2p::world::native_controller::tests::route_commit_tests::checkpoint_failure_retains_notice_and_retry_publishes_before_ack_failure
+            net::p2p::world::native_controller::tests::route_commit_tests::actual_driver_routes_ack_retry_without_replaying_the_committed_tick
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify native retained detail provenance
         shell: bash
         run: |
@@ -270,7 +285,8 @@ jobs:
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_lost_ack_retries_historical_notice_without_replay \
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_historical_ack_survives_original_source_expiry \
             net::p2p::native_geometry::source_route_resident_controller::resident_controller_retry_ack_selects_fresh_live_candidate_not_failed_ancestor \
-            net::p2p::native_geometry::source_route_resident_controller::resident_controller_two_owner_notice_is_atomic_before_publication
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_two_owner_notice_is_atomic_before_publication \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_recipe_captures_cold_and_first_retained_through_real_save_barrier
       - name: Verify resident retained dispatch refusal
         shell: bash
         run: |
