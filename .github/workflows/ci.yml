@@ -276,6 +276,19 @@ jobs:
             mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" "$test"
           done
+      - name: Verify bounded post-reward quest restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::rewarded_loaded_quest_fresh_replay_rejects_duplicate_rewards_and_exhausted_loot
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::rewarded_loaded_quest_late_replay_after_loot_preserves_bytes_and_releases_owners
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify native retained detail provenance
         shell: bash
         run: |

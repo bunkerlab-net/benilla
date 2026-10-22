@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Inert accepted-quest capture and sealed source-reconstruction controller admission.
+//! Inert quest-boundary captures and sealed source-reconstruction controller admission.
 use super::*;
 
 struct Archive {
@@ -13,7 +13,9 @@ pub(crate) struct Capture {
     archive: Archive,
     profile: n::Profile,
     final_recipe: Recipe,
-    accepted_progress: n::QuestProgressionState,
+    captured_progress: n::QuestProgressionState,
+    post_reward: bool,
+    loot_prefix_tick: u64,
     final_progress: n::QuestProgressionState,
     harness: Harness,
 }
@@ -26,12 +28,31 @@ impl Fixture {
         observed: Observed,
         inspect: impl Fn(&RouteCommitBoundary, &[n::AuthorityReply], bool) -> Heads,
     ) -> Capture {
+        self.capture_at(authority, sink, observed, inspect, false)
+    }
+    /// Capture the successful reward itself, not the later duplicate-reward tick.
+    pub(crate) fn capture_rewarded_recipe(
+        self,
+        authority: impl n::Authority + Send + 'static,
+        sink: impl RouteCommitSink + 'static,
+        observed: Observed,
+        inspect: impl Fn(&RouteCommitBoundary, &[n::AuthorityReply], bool) -> Heads,
+    ) -> Capture {
+        self.capture_at(authority, sink, observed, inspect, true)
+    }
+    fn capture_at(
+        self,
+        authority: impl n::Authority + Send + 'static,
+        sink: impl RouteCommitSink + 'static,
+        observed: Observed,
+        inspect: impl Fn(&RouteCommitBoundary, &[n::AuthorityReply], bool) -> Heads,
+        post_reward: bool,
+    ) -> Capture {
         let mut driver =
-            self.open_accepted(authority, sink, observed.clone(), inspect, false, true);
-        let archive = driver.snapshot_recipe();
+            self.open_accepted(authority, sink, observed.clone(), &inspect, false, true);
+        let accepted_archive = driver.checked_archive();
         let c = &driver.controller;
         let profile = c.world.profile().clone();
-        let accepted_progress = progress(c).clone();
         let (hostile, giver) = role_ids(&profile);
         assert!(c.world.state().npcs[&hostile].health > 0);
         assert!(c.world.state().npcs[&giver].health > 0);
@@ -44,7 +65,7 @@ impl Fixture {
         assert!(
             n::NativeWorld::restore_synthetic_component_test(
                 profile.clone(),
-                archive.recipe.expected_checkpoint().clone()
+                accepted_archive.recipe.expected_checkpoint().clone()
             )
             .is_err(),
             "ordinary runtime restore cannot admit the accepted cached checkpoint"
@@ -64,14 +85,14 @@ impl Fixture {
         // the positive source reconstruction or a controller admission path.
         let before = n::NativeWorld::restore_synthetic_component_test(
             profile.clone(),
-            archive.recipe.anchor().clone(),
+            accepted_archive.recipe.anchor().clone(),
         )
         .unwrap();
         let mut after = before.clone();
-        after.replay(archive.recipe.records()).unwrap();
+        after.replay(accepted_archive.recipe.records()).unwrap();
         assert_eq!(
             &after.checkpoint().unwrap(),
-            archive.recipe.expected_checkpoint()
+            accepted_archive.recipe.expected_checkpoint()
         );
         let negative_path = driver.harness.root.join("accepted-recipe-native-refusal");
         let (mut negative, _) = NativeStore::create(&negative_path, &before).unwrap();
@@ -84,7 +105,23 @@ impl Fixture {
             true,
         );
         drop((before, after));
-        driver.finish(&observed, FinishMode::Uninterrupted);
+        let loot_prefix_tick =
+            post_reward.then(|| driver.reward_success(&observed, FinishMode::Uninterrupted));
+        let archive = driver.snapshot_recipe();
+        let captured_progress = progress(&driver.controller).clone();
+        let loot_prefix_tick = if let Some(tick) = loot_prefix_tick {
+            assert_eq!(
+                archive.recipe.expected_checkpoint().identity().tick,
+                tick + 1
+            );
+            assert_rewarded(&driver.controller);
+            let boundary = &driver.controller.route_commit.as_ref().unwrap().boundary;
+            assert!(inspect(boundary, &[], true).committed.is_empty());
+            driver.finish_rewarded(&observed, FinishMode::Uninterrupted, true);
+            tick
+        } else {
+            driver.finish(&observed, FinishMode::Uninterrupted)
+        };
         let final_archive = driver.checked_archive();
         let final_progress = progress(&driver.controller).clone();
         let final_recipe = final_archive.recipe.clone();
@@ -116,7 +153,9 @@ impl Fixture {
             archive,
             profile,
             final_recipe,
-            accepted_progress,
+            captured_progress,
+            post_reward,
+            loot_prefix_tick,
             final_progress,
             harness,
         }
@@ -159,7 +198,7 @@ impl Driver {
         let mut archive = self.checked_archive();
         assert!(!archive.path.join(".world-checkpoint.pending").exists());
         let path = archive.path.with_extension(format!(
-            "quest-accepted-{}",
+            "quest-captured-{}",
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         #[allow(unused_mut)] // Unix requests private creation; never repair an existing path.
@@ -183,7 +222,7 @@ impl Driver {
             assert_eq!(
                 fs::read(archive.path.join(file)).unwrap(),
                 fs::read(path.join(file)).unwrap(),
-                "the accepted archive must preserve exact {file} bytes"
+                "the captured archive must preserve exact {file} bytes"
             );
         }
         assert!(!path.join("world.lock").exists());
@@ -203,6 +242,12 @@ fn open_archive(
     )
 }
 impl Capture {
+    pub(crate) fn is_post_reward(&self) -> bool {
+        self.post_reward
+    }
+    pub(crate) fn loot_prefix_tick(&self) -> u64 {
+        self.loot_prefix_tick
+    }
     pub(crate) fn path(&self) -> &Path {
         &self.archive.path
     }
@@ -268,14 +313,28 @@ impl Capture {
             initialized: true,
             pending: None,
         });
-        assert_eq!(progress(&c), &self.accepted_progress);
-        assert_initial_once(&mut c, &observed);
+        assert_eq!(progress(&c), &self.captured_progress);
+        if self.post_reward {
+            assert_rewarded(&c);
+        }
+        assert_initial_once(&mut c, &observed, self.post_reward);
         let mut driver = Driver {
             controller: c,
             path: self.archive.path,
             harness: self.harness,
         };
-        driver.finish(&observed, FinishMode::Reconstructed { retry_faults });
+        if self.post_reward {
+            assert!(
+                !retry_faults,
+                "post-reward tests do not inject new continuation faults"
+            );
+            driver.finish_rewarded(&observed, FinishMode::Reconstructed { retry_faults }, true);
+        } else {
+            assert_eq!(
+                driver.finish(&observed, FinishMode::Reconstructed { retry_faults }),
+                self.loot_prefix_tick
+            );
+        }
         let actual = driver.checked_archive();
         assert_eq!(actual.recipe, self.final_recipe);
         assert_eq!(
@@ -309,13 +368,20 @@ impl Capture {
     }
 }
 #[cfg(not(benilla_headless_geometry))]
-fn assert_initial_once(c: &mut NativeController, observed: &Observed) {
+fn assert_initial_once(c: &mut NativeController, observed: &Observed, post_reward: bool) {
     let checkpoint = c.world.checkpoint().unwrap();
     let generation = c.store.generation();
     let calls = observed.controls.calls.load(Ordering::SeqCst);
     let committed = observed.committed.lock().unwrap().len();
     let initial = c.initial_events().unwrap();
     no_transient_progress(&initial);
+    if post_reward {
+        assert!(!initial.iter().any(|event| matches!(event,
+            SessionEvent::ItemCreate { fields, .. }
+                if fields.object_entry() == Some(loop_fixture::ITEM)
+        )));
+        assert!(c.loot_window.is_none());
+    }
     assert!(!initial.iter().any(|event| matches!(
         event,
         SessionEvent::SpellStart { .. }

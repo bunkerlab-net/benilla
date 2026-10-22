@@ -393,7 +393,13 @@ enum FinishMode {
     Reconstructed { retry_faults: bool },
 }
 impl Driver {
-    fn finish(&mut self, observed: &Observed, mode: FinishMode) {
+    fn finish(&mut self, observed: &Observed, mode: FinishMode) -> u64 {
+        let loot_prefix_tick = self.reward_success(observed, mode);
+        self.finish_rewarded(observed, mode, false);
+        loot_prefix_tick
+    }
+    /// Stop at the acknowledged reward save barrier, before attempting a duplicate.
+    fn reward_success(&mut self, observed: &Observed, mode: FinishMode) -> u64 {
         let path = &self.path;
         let c = &mut self.controller;
         let (hostile, giver) = role_ids(c.world.profile());
@@ -553,6 +559,14 @@ impl Driver {
                 .status,
             q::Status::Complete
         );
+        let loot_prefix_tick = c.tick();
+        assert_eq!(c.saved_tick, loot_prefix_tick);
+        assert!(c.world.records().is_empty());
+        assert!(c.pending.is_none() && c.outbox.is_none() && c.actions.is_empty());
+        assert_eq!(
+            c.route_commit.as_ref().unwrap().boundary.tick(),
+            loot_prefix_tick
+        );
         choose_reward(c, giver);
         let reward = progress_tick(path, c, observed, mode);
         assert_eq!(
@@ -591,11 +605,75 @@ impl Driver {
         assert_eq!(inventory(c).item_count(loop_fixture::ITEM).unwrap(), 0);
         assert_eq!(progress(c).money, 21);
         assert_giver(c, giver, b, b_guid);
-        choose_reward(c, giver);
-        no_transient_progress(&step(c).events);
-        assert_eq!(progress(c).money, 21);
+        assert_rewarded(c);
         assert_source_hosts(&observed.controls);
+        loot_prefix_tick
+    }
+    fn finish_rewarded(&mut self, observed: &Observed, mode: FinishMode, post_reward: bool) {
+        let c = &mut self.controller;
+        let (hostile, giver) = role_ids(c.world.profile());
+        let a = c.world.state().npcs[&hostile].id;
+        let b = c.world.state().npcs[&giver].id;
+        let b_guid = guid(c, giver);
+        assert_rewarded(c);
+        let rewarded_progress = progress(c).clone();
+        choose_reward(c, giver);
+        no_repeat_reward(&step(c).events);
+        assert_no_repeat_progress(c, &rewarded_progress);
+        if post_reward {
+            let a_guid = guid(c, hostile);
+            let corpse_loot = c.world.state().npcs[&hostile].corpse_loot.clone();
+            let exhausted = open_loot(c, hostile);
+            no_repeat_reward(&exhausted.events);
+            assert!(exhausted.events.iter().any(|event| matches!(event,
+                SessionEvent::LootReleaseResponse { guid, .. } if *guid == a_guid)));
+            assert!(!exhausted
+                .events
+                .iter()
+                .any(|event| matches!(event, SessionEvent::LootResponse { .. })));
+            assert!(c.loot_window.is_none());
+            assert!(c
+                .receive(ClientCommand::AutostoreLootItem { slot: 0 })
+                .is_err());
+            assert!(c.receive(ClientCommand::LootMoney).is_err());
+            assert_no_repeat_progress(c, &rewarded_progress);
+            assert_eq!(c.world.state().npcs[&hostile].corpse_loot, corpse_loot);
+            assert_giver(c, giver, b, b_guid);
+            let hello = c
+                .receive(ClientCommand::QuestgiverHello { npc: b_guid })
+                .unwrap();
+            assert!(
+                hello.events.is_empty(),
+                "the rewarded quest is not offered again"
+            );
+            let status = c
+                .receive(ClientCommand::QuestgiverStatusQuery { npc: b_guid })
+                .unwrap();
+            assert!(
+                matches!(&status.events[..], [SessionEvent::QuestGiverStatus { npc, status }]
+                if *npc == b_guid && *status == benilla_protocol::messages::dialog_status::NONE)
+            );
+            assert_no_repeat_progress(c, &rewarded_progress);
+        }
+        assert_rewarded(c);
         let queries = observed.controls.queries.lock().unwrap();
+        assert!(!queries.iter().any(|request| matches!(
+            request.query,
+            n::Query::QuestStatus { .. }
+                | n::Query::QuestInteraction { .. }
+                | n::Query::LootInteraction { .. }
+                | n::Query::Npc { .. }
+                | n::Query::NativeMelee { .. }
+                | n::Query::Spell { .. }
+        )));
+        let derived = observed.controls.derived.lock().unwrap();
+        assert!(derived
+            .iter()
+            .any(|reply| matches!(reply.request.query, n::Query::QuestInteraction { .. })));
+        assert!(derived
+            .iter()
+            .any(|reply| matches!(reply.request.query, n::Query::LootInteraction { .. })));
+        drop(derived);
         assert!(
             queries.iter().any(|r| matches!(&r.query,
             n::Query::SourceMotion(n::MotionQuery::SceneVisitor(scene))
@@ -641,6 +719,65 @@ impl Driver {
             "neutral B was never removed or attacked to obtain quest access"
         );
         drop(loaded);
+    }
+}
+
+fn no_repeat_reward(events: &[SessionEvent]) {
+    no_transient_progress(events);
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        SessionEvent::ItemCreate { .. } | SessionEvent::ObjectDestroyed(_)
+    )));
+}
+fn assert_no_repeat_progress(c: &NativeController, before: &n::QuestProgressionState) {
+    let after = progress(c);
+    assert_eq!(after.quests, before.quests);
+    assert_eq!(after.inventory, before.inventory);
+    assert_eq!(after.inventory_receipts, before.inventory_receipts);
+    assert_eq!(after.money, before.money);
+    assert_eq!(after.player.view().xp, before.player.view().xp);
+    assert_eq!(after.player.view().level, before.player.view().level);
+    assert_eq!(after.credited_generations, before.credited_generations);
+    assert_eq!(after.next_death_event, before.next_death_event);
+}
+fn assert_rewarded(c: &NativeController) {
+    let (hostile, giver) = role_ids(c.world.profile());
+    let dead = &c.world.state().npcs[&hostile];
+    let neutral = &c.world.state().npcs[&giver];
+    assert_eq!(dead.health, 0);
+    assert_eq!(
+        progress(c).credited_generations.get(&hostile),
+        Some(&dead.id.generation)
+    );
+    assert!(
+        progress(c)
+            .quests
+            .progress(loop_fixture::QUEST)
+            .unwrap()
+            .rewarded
+    );
+    assert_eq!(progress(c).player.view().level, 3);
+    assert_eq!(inventory(c).item_count(loop_fixture::ITEM).unwrap(), 0);
+    assert_eq!(progress(c).money, 21);
+    assert!(progress(c).loot_target.is_none());
+    assert_giver(c, giver, neutral.id, guid(c, giver));
+    let boundary = &c.route_commit.as_ref().unwrap().boundary;
+    assert_eq!(boundary.tick(), c.tick());
+    assert_eq!(boundary.state(), c.world.state_digest());
+    assert_eq!(boundary.heads().len(), 2);
+    for npc in [dead.id, neutral.id] {
+        let head = boundary
+            .heads()
+            .iter()
+            .find(|head| head.npc() == npc)
+            .unwrap();
+        assert!(head.constructor_kind().is_none());
+        assert!(head.construction().is_none());
+        assert!(
+            head.cache().is_none(),
+            "death must retire A's retained cache"
+        );
+        assert!(head.suspended_wander().is_none());
     }
 }
 

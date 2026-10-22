@@ -98,6 +98,7 @@ struct Consumer {
     other: n::synthetic_distinct_quest_fixture::CompleteAuthority,
     last_notice: Option<RouteCommitNotice>,
     fail_after_prefix: bool,
+    fail_at_prefix: Option<u64>,
     replayed_prefix: Arc<AtomicU64>,
 }
 impl Consumer {
@@ -130,6 +131,7 @@ impl Consumer {
             other: Default::default(),
             last_notice: None,
             fail_after_prefix: false,
+            fail_at_prefix: None,
             replayed_prefix: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -260,12 +262,14 @@ impl Authority for Consumer {
     fn observe_derived(&mut self, reply: &AuthorityReply) -> Result<(), NativeError> {
         self.other.observe_derived(reply)?;
         // Fail during a later live tick, not before replay begins. The preceding
-        // cold tick must already have been compared and acknowledged by replay.
-        if self.fail_after_prefix
-            && self.boundary.as_ref().is_some_and(|boundary| {
-                boundary.tick() > 0 && boundary.heads().iter().any(|head| head.cache().is_some())
-            })
-            && matches!(&reply.request.query, Query::SourceMotion(MotionQuery::Combat(n::CombatQuery::NpcSemantics(request))) if request.phase == n::CombatPhase::UnitPrelude)
+        // cold tick, or exact completed-loot boundary, must already have been
+        // compared and acknowledged by replay.
+        if self.boundary.as_ref().is_some_and(|boundary| {
+            (self.fail_after_prefix
+                && boundary.tick() > 0
+                && boundary.heads().iter().any(|head| head.cache().is_some()))
+                || self.fail_at_prefix == Some(boundary.tick())
+        }) && matches!(&reply.request.query, Query::SourceMotion(MotionQuery::Combat(n::CombatQuery::NpcSemantics(request))) if request.phase == n::CombatPhase::UnitPrelude)
             && reply.request.binding.npc.is_some_and(|npc| npc.spawn == 3)
         {
             self.replayed_prefix
@@ -349,7 +353,19 @@ fn released(witness: &(std::sync::Weak<()>, std::rc::Weak<()>)) {
         "old native query owner still lives"
     );
 }
+fn assert_retired(consumer: &Consumer) {
+    let boundary = consumer.boundary.as_ref().unwrap();
+    assert!(boundary
+        .owner_heads()
+        .all(|(_, head)| head.cache().is_none()));
+    assert_eq!(consumer.providers.route.retained_candidate_count(), 0);
+    assert_eq!(consumer.providers.route.certified_candidate_count(), 0);
+    assert!(consumer.inspect(boundary, &[], true).committed.is_empty());
+}
 fn run(late_failure: bool, retry_faults: bool) {
+    run_stage(late_failure, retry_faults, false);
+}
+fn run_stage(late_failure: bool, retry_faults: bool, post_reward: bool) {
     let (capture, witness) = {
         let (geometry, profile, session, products) = scene();
         let fixture = loaded::Fixture::new(profile.clone());
@@ -364,17 +380,31 @@ fn run(late_failure: bool, retry_faults: bool) {
         let worker_observed = observed.clone();
         let worker = std::thread::spawn(move || {
             let authority = loaded::Authority::new(bridge.clone(), worker_observed.clone());
-            fixture.capture_recipe(
-                authority,
-                bridge.clone(),
-                worker_observed,
-                |boundary, routes, acknowledged| bridge.inspect(boundary, routes, acknowledged),
-            )
+            if post_reward {
+                fixture.capture_rewarded_recipe(
+                    authority,
+                    bridge.clone(),
+                    worker_observed,
+                    |boundary, routes, acknowledged| bridge.inspect(boundary, routes, acknowledged),
+                )
+            } else {
+                fixture.capture_recipe(
+                    authority,
+                    bridge.clone(),
+                    worker_observed,
+                    |boundary, routes, acknowledged| bridge.inspect(boundary, routes, acknowledged),
+                )
+            }
         });
         serve(receive, &mut consumer, &observed);
-        (worker.join().unwrap(), witness)
+        let capture = worker.join().unwrap();
+        if post_reward {
+            assert_retired(&consumer);
+        }
+        (capture, witness)
     };
     released(&witness);
+    assert_eq!(capture.is_post_reward(), post_reward);
     let (geometry, profile, session, products) = scene();
     assert_eq!(&profile, capture.profile());
     let mut consumer = Consumer::new(geometry, &profile, session, products, capture.player());
@@ -392,7 +422,12 @@ fn run(late_failure: bool, retry_faults: bool) {
         n::NativeWorld::restore_synthetic_component_test(profile.clone(), recipe.anchor().clone())
             .unwrap();
     consumer.boundary = Some(RouteCommitBoundary::capture_initial(&world).unwrap());
-    consumer.fail_after_prefix = late_failure;
+    consumer.fail_after_prefix = late_failure && !post_reward;
+    if late_failure && post_reward {
+        assert!(capture.loot_prefix_tick() > recipe.anchor().identity().tick);
+        assert!(capture.loot_prefix_tick() < recipe.expected_checkpoint().identity().tick);
+        consumer.fail_at_prefix = Some(capture.loot_prefix_tick());
+    }
     let prefix = Arc::clone(&consumer.replayed_prefix);
     let result = reconstruction::reconstruct_completed(store, &recipe, world, consumer);
     assert_eq!(
@@ -410,7 +445,11 @@ fn run(late_failure: bool, retry_faults: bool) {
                 "authored quest replay late giver failure"
             ))
         ));
-        assert!(prefix.load(Ordering::SeqCst) > recipe.anchor().identity().tick);
+        if post_reward {
+            assert_eq!(prefix.load(Ordering::SeqCst), capture.loot_prefix_tick());
+        } else {
+            assert!(prefix.load(Ordering::SeqCst) > recipe.anchor().identity().tick);
+        }
         released(&fresh_witness);
         let (store, unchanged) = RecipeStore::open(
             capture.path(),
@@ -429,6 +468,9 @@ fn run(late_failure: bool, retry_faults: bool) {
         capture.checkpoint().identity().tick
     );
     consumer.inspect(consumer.boundary.as_ref().unwrap(), &[], true);
+    if post_reward {
+        assert_retired(&consumer);
+    }
     let observed = loaded::Observed::default();
     let (send, receive) = bounded(1);
     let bridge = Bridge {
@@ -442,6 +484,9 @@ fn run(late_failure: bool, retry_faults: bool) {
     });
     serve(receive, &mut consumer, &observed);
     worker.join().unwrap();
+    if post_reward {
+        assert_retired(&consumer);
+    }
     drop(consumer);
     drop(observed);
     released(&fresh_witness);
@@ -457,4 +502,13 @@ fn accepted_loaded_quest_late_replay_failure_releases_owners_and_preserves_bytes
 #[test]
 fn accepted_loaded_quest_resumed_save_and_lost_ack_retry_publish_once() {
     run(false, true);
+}
+
+#[test]
+fn rewarded_loaded_quest_fresh_replay_rejects_duplicate_rewards_and_exhausted_loot() {
+    run_stage(false, false, true);
+}
+#[test]
+fn rewarded_loaded_quest_late_replay_after_loot_preserves_bytes_and_releases_owners() {
+    run_stage(true, false, true);
 }
