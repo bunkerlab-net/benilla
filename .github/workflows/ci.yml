@@ -511,6 +511,10 @@ jobs:
           # Same-repository PR writes stay in that PR's cache scope; forks never save.
           save-on-pull-request: true
           save-on-workflow-dispatch: true
+      # Scoped library tests execute this sibling binary; a library dependency
+      # alone does not build it in a clean player-only job.
+      - name: Build native navigation test helper
+        run: mbx build --locked -p benilla-native-nav-generator --bin benilla-native-navigation
       - name: Record player Route timing
         shell: bash
         run: |
