@@ -277,31 +277,31 @@ fn run(fault: Fault) {
                 .unwrap();
                 let owner = ResidentReconstructionOwner::new(provider, ledger);
                 assert_eq!(owner.constructor_count(), 0);
-                let source = ResidentCreatureInitializationProvider::bind(
-                    world_id,
-                    &profile,
-                    height,
-                    Some(ResidentInitializationConfiguration::VmapHeightEnabled),
-                    runtime::until(),
-                    || false,
-                )
-                .unwrap();
-                let mut initializer = Initializer(|request: &AuthorityRequest| {
-                    source
-                        .resolve(request, runtime::until(), || false)
-                        .map_err(|_| NativeError::AuthorityBinding)
-                });
-                let world = n::NativeWorld::synthetic_component_test_with_initialization(
-                    profile.clone(),
-                    world_id,
-                    player,
-                    1234,
-                    None,
-                    &mut initializer,
-                )
-                .unwrap();
-                drop(initializer);
-                drop(source);
+                let world = {
+                    let source = ResidentCreatureInitializationProvider::bind(
+                        world_id,
+                        &profile,
+                        height,
+                        Some(ResidentInitializationConfiguration::VmapHeightEnabled),
+                        runtime::until(),
+                        || false,
+                    )
+                    .unwrap();
+                    let mut initializer = Initializer(|request: &AuthorityRequest| {
+                        source
+                            .resolve(request, runtime::until(), || false)
+                            .map_err(|_| NativeError::AuthorityBinding)
+                    });
+                    n::NativeWorld::synthetic_component_test_with_initialization(
+                        profile.clone(),
+                        world_id,
+                        player,
+                        1234,
+                        None,
+                        &mut initializer,
+                    )
+                    .unwrap()
+                };
                 let boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
                 let mut geometry = InstalledFixture::new(install.path(), inventory);
                 geometry.advance_physics();
