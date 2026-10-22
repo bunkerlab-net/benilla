@@ -611,6 +611,11 @@ impl Driver {
     }
     fn finish_rewarded(&mut self, observed: &Observed, mode: FinishMode, post_reward: bool) {
         let c = &mut self.controller;
+        let stationary_suffix = post_reward && matches!(mode, FinishMode::Reconstructed { .. });
+        let player_pose = (c.world.state().position, c.world.state().orientation);
+        if stationary_suffix {
+            assert_no_pending_relocation(c);
+        }
         let (hostile, giver) = role_ids(c.world.profile());
         let a = c.world.state().npcs[&hostile].id;
         let b = c.world.state().npcs[&giver].id;
@@ -674,15 +679,34 @@ impl Driver {
             .iter()
             .any(|reply| matches!(reply.request.query, n::Query::LootInteraction { .. })));
         drop(derived);
-        assert!(
-            queries.iter().any(|r| matches!(&r.query,
-            n::Query::SourceMotion(n::MotionQuery::SceneVisitor(scene))
-                if scene.creatures.len() == 2 && scene.creatures.iter().any(|npc| npc.id == b)
-                    && scene.owner_order.contains(&hostile) && scene.owner_order.contains(&giver)))
-        );
+        if stationary_suffix {
+            // SceneVisitor belongs to relocation notifications. The full earlier
+            // traversal was replayed, not redelivered into this fresh observer.
+            assert!(!queries.iter().any(|r| matches!(
+                r.query,
+                n::Query::SourceMotion(n::MotionQuery::SceneVisitor(_))
+            )));
+            assert_no_pending_relocation(c);
+            assert_eq!(
+                (c.world.state().position, c.world.state().orientation),
+                player_pose
+            );
+        } else {
+            assert!(
+                queries.iter().any(|r| matches!(&r.query,
+                n::Query::SourceMotion(n::MotionQuery::SceneVisitor(scene))
+                    if scene.creatures.len() == 2 && scene.creatures.iter().any(|npc| npc.id == b)
+                        && scene.owner_order.contains(&hostile) && scene.owner_order.contains(&giver)))
+            );
+        }
         drop(queries);
         let loaded = observed.loaded.lock().unwrap();
-        let required = if matches!(mode, FinishMode::Reconstructed { .. }) {
+        let required = if stationary_suffix {
+            // PlayerEnvironment is queried on player pose input; duplicate reward
+            // and exhausted-loot commands must not manufacture a geometry query.
+            assert!(loaded.is_empty());
+            0
+        } else if matches!(mode, FinishMode::Reconstructed { .. }) {
             1
         } else {
             3
@@ -719,6 +743,23 @@ impl Driver {
             "neutral B was never removed or attacked to obtain quest access"
         );
         drop(loaded);
+    }
+}
+
+fn assert_no_pending_relocation(c: &NativeController) {
+    let no_notify = |queue: benilla_sim::event_processor::EventProcessorSnapshot| {
+        assert!(!queue.queued.iter().chain(&queue.detached).any(|event| {
+            matches!(
+                event.kind,
+                benilla_sim::event_processor::EventKind::AiNotify
+            )
+        }));
+    };
+    no_notify(c.world.state().player_events.queue_snapshot());
+    for npc in c.world.state().npcs.values() {
+        assert!(npc.events.notify_handle().is_none());
+        no_notify(npc.events.queue_snapshot());
+        assert!(!npc.source_motion.as_ref().unwrap().motion.is_moving());
     }
 }
 
