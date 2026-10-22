@@ -226,3 +226,6 @@ fn installed_loaded_quest_loop_completes_stock_commands_in_both_orders_and_role_
 fn installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication() {
     installed(2, 3, [2, 3], true);
 }
+
+#[path = "quest_loop_tests/restart.rs"]
+mod restart;

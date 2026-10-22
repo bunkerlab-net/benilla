@@ -3,13 +3,19 @@
 //! supplies no geometry answers: the app passes its actual authority and commit sink.
 use super::*;
 use benilla_sim::creature_motion as motion;
+use benilla_world_store::native::reconstruction::{Recipe, RecipeStore};
 use std::collections::BTreeMap;
+
+#[path = "loaded_quest_loop_fixture/restart.rs"]
+mod restart;
 
 #[derive(Clone, Default)]
 pub(crate) struct Observed {
     controls: Controls,
     pub(crate) loaded: Arc<Mutex<Vec<n::AuthorityReply>>>,
     pub(crate) committed: Arc<Mutex<Vec<RouteCommitNotice>>>,
+    pub(crate) attempted: Arc<Mutex<Vec<RouteCommitNotice>>>,
+    pub(crate) lose_ack: Arc<AtomicBool>,
     fail_after_route: Arc<AtomicBool>,
 }
 
@@ -131,22 +137,30 @@ impl Fixture {
         inspect: impl Fn(&RouteCommitBoundary, &[n::AuthorityReply], bool) -> Heads,
         faults: bool,
     ) {
+        let mut driver =
+            self.open_accepted(authority, sink, observed.clone(), inspect, faults, false);
+        let mode = if faults {
+            FinishMode::AuthorityAndSave
+        } else {
+            FinishMode::Uninterrupted
+        };
+        driver.finish(&observed, mode);
+        // A's death can clear its cache; the legacy path still never reopens it.
+        driver.controller.shutdown().unwrap();
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn open_accepted(
+        self,
+        authority: impl n::Authority + Send + 'static,
+        sink: impl RouteCommitSink + 'static,
+        observed: Observed,
+        inspect: impl Fn(&RouteCommitBoundary, &[n::AuthorityReply], bool) -> Heads,
+        faults: bool,
+        recipe_capture: bool,
+    ) -> Driver {
         let h = self.harness;
         let profile = self.profile;
-        let hostile = profile
-            .npcs
-            .iter()
-            .find(|npc| npc.entry == loop_fixture::HOSTILE_ENTRY)
-            .unwrap()
-            .ai
-            .creature_id;
-        let giver = profile
-            .npcs
-            .iter()
-            .find(|npc| npc.entry == loop_fixture::GIVER_ENTRY)
-            .unwrap()
-            .ai
-            .creature_id;
+        let (hostile, giver) = role_ids(&profile);
         let catalog = LoopCatalog::new(&profile);
         let mut c = NativeController::enter_component_test(
             &h.root,
@@ -161,6 +175,18 @@ impl Fixture {
             authority,
         )
         .unwrap();
+        let path = if recipe_capture {
+            assert_eq!(c.tick(), 0);
+            assert!(c.world.records().is_empty());
+            c.world.validate_saved_session_reopen().unwrap();
+            let path = h.path().with_extension("quest-recipe");
+            let (recipe, receipt) = RecipeStore::create(&path, &c.world).unwrap();
+            receipt.acknowledge(&mut c.world).unwrap();
+            c.store = store::Store::Recipe(Box::new(recipe));
+            path
+        } else {
+            h.path()
+        };
         c.initial_events().unwrap();
         c.attach_route_commit_sink(sink).unwrap();
         let b = c.world.state().npcs[&giver].id;
@@ -219,7 +245,7 @@ impl Fixture {
                 observed.controls.fail_owner.store(0, Ordering::SeqCst);
                 observed.fail_after_route.store(false, Ordering::SeqCst);
                 // Also withhold durable publication on the exact successful retry.
-                inject(&h);
+                inject(&path);
                 c.retry_tick().unwrap();
                 assert_eq!(c.pending.as_ref().unwrap().inputs, pending);
                 let retry_first = observed.loaded.lock().unwrap().len();
@@ -255,9 +281,10 @@ impl Fixture {
                 assert_eq!(replay.state().rng_counter, c.world.state().rng_counter);
                 assert_eq!(c.store.generation(), generation);
                 assert_eq!(observed.committed.lock().unwrap().len(), count);
+                assert!(!recipe_capture);
                 reject_journal_reopen(&h, &before, &c.world);
                 journal_refusal = true;
-                flush(&h, &mut c, &observed, out);
+                flush(&path, &mut c, &observed, out, false);
                 rolled_back = true;
             } else {
                 assert_eq!(out.ticks, 1);
@@ -275,7 +302,9 @@ impl Fixture {
         assert!(progress(&c).quests.progress(loop_fixture::QUEST).is_none());
         assert!(progress(&c).credited_generations.is_empty());
         assert_giver(&c, giver, b, b_guid);
-        reject_checkpoint_reopen(&h, &c.world, "before-accept", true);
+        if !recipe_capture {
+            reject_checkpoint_reopen(&h, &c.world, "before-accept", true);
+        }
         assert!(matches!(
             &c.receive(ClientCommand::QuestgiverHello { npc: b_guid })
                 .unwrap()
@@ -316,7 +345,7 @@ impl Fixture {
             let inputs = c.pending.as_ref().unwrap().inputs.clone();
             assert_eq!(inputs.len(), 1);
             observed.controls.fail_owner.store(0, Ordering::SeqCst);
-            inject(&h);
+            inject(&path);
             c.retry_tick().unwrap();
             assert_eq!(c.pending.as_ref().unwrap().inputs, inputs);
             let out = c.pump(Duration::ZERO);
@@ -326,7 +355,7 @@ impl Fixture {
                 .unwrap();
             assert_eq!(replay.state(), c.world.state());
             assert!(progress(&c).quests.progress(loop_fixture::QUEST).is_some());
-            flush(&h, &mut c, &observed, out);
+            flush(&path, &mut c, &observed, out, false);
         } else {
             accept(&mut c, giver);
         }
@@ -338,8 +367,49 @@ impl Fixture {
                 .status,
             q::Status::Incomplete
         );
-        reject_checkpoint_reopen(&h, &c.world, "accepted", false);
+        if !recipe_capture {
+            reject_checkpoint_reopen(&h, &c.world, "accepted", false);
+        }
         assert_giver(&c, giver, b, b_guid);
+        Driver {
+            controller: c,
+            path,
+            harness: h,
+        }
+    }
+}
+
+struct Driver {
+    // Drop the controller's exclusive store lease before deleting fixture files.
+    controller: NativeController,
+    path: PathBuf,
+    harness: Harness,
+}
+
+#[derive(Clone, Copy)]
+enum FinishMode {
+    Uninterrupted,
+    AuthorityAndSave,
+    Reconstructed { retry_faults: bool },
+}
+impl Driver {
+    fn finish(&mut self, observed: &Observed, mode: FinishMode) {
+        let path = &self.path;
+        let c = &mut self.controller;
+        let (hostile, giver) = role_ids(c.world.profile());
+        let a = c.world.state().npcs[&hostile].id;
+        let b = c.world.state().npcs[&giver].id;
+        let b_guid = guid(c, giver);
+        let mut first_tick = true;
+        let mut settle_tick = |c: &mut NativeController| {
+            if std::mem::take(&mut first_tick)
+                && matches!(mode, FinishMode::Reconstructed { retry_faults: true })
+            {
+                progress_tick(path, c, observed, mode);
+            } else {
+                step(c);
+            }
+        };
         // Finish the source spline before aiming. The only authored pose input is
         // an in-place player turn, not a replacement NPC path or collision result.
         while c.world.state().npcs[&hostile]
@@ -350,7 +420,7 @@ impl Fixture {
             .is_moving()
         {
             assert!(c.tick() < 50);
-            step(&mut c);
+            settle_tick(c);
         }
         let player = c.world.state().position;
         let target = c.world.state().npcs[&hostile].ai.position();
@@ -368,19 +438,35 @@ impl Fixture {
             transport: None,
         })
         .unwrap();
-        step(&mut c);
-        let mut killed = begin_cast(&mut c, hostile).events;
+        settle_tick(c);
+        let mut killed = begin_cast(c, hostile).events;
         while c.world.state().npcs[&hostile].health > 0 {
             assert!(c.tick() < 100, "selected spell133 must kill A");
             if c.world.state().casts.is_empty() {
                 c.receive(ClientCommand::CastSpell {
                     spell_id: loop_fixture::SPELL,
-                    target: Some(guid(&c, hostile)),
+                    target: Some(guid(c, hostile)),
                 })
                 .unwrap();
             }
-            killed.extend(progress_tick(&h, &mut c, &observed, faults));
+            killed.extend(progress_tick(path, c, observed, mode));
         }
+        assert_eq!(
+            killed
+                .iter()
+                .filter(|event| matches!(event,
+                    SessionEvent::XpGain(gain) if gain.kill
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            killed
+                .iter()
+                .filter(|event| matches!(event, SessionEvent::QuestObjectiveKill { count: 1, .. }))
+                .count(),
+            1
+        );
         let position =
             |predicate: fn(&SessionEvent) -> bool| killed.iter().position(predicate).unwrap();
         assert!(
@@ -400,26 +486,46 @@ impl Fixture {
             Some(c.world.state().player)
         );
         assert_eq!(
-            progress(&c).credited_generations.get(&hostile),
+            progress(c).credited_generations.get(&hostile),
             Some(&a.generation)
         );
         assert_eq!(
-            progress(&c)
+            progress(c)
                 .quests
                 .progress(loop_fixture::QUEST)
                 .unwrap()
                 .status,
             q::Status::Incomplete
         );
-        assert_eq!(inventory(&c).item_count(loop_fixture::ITEM).unwrap(), 0);
-        assert_eq!(progress(&c).money, 11);
-        assert_giver(&c, giver, b, b_guid);
-        let loot = open_loot(&mut c, hostile);
+        assert_eq!(inventory(c).item_count(loop_fixture::ITEM).unwrap(), 0);
+        assert_eq!(progress(c).money, 11);
+        assert_giver(c, giver, b, b_guid);
+        let loot = open_loot(c, hostile);
         assert!(loot.events.iter().any(|e| matches!(e, SessionEvent::LootResponse { gold: 3, items, .. } if items.len() == 1 && items[0].item_id == loop_fixture::ITEM)));
         c.receive(ClientCommand::LootMoney).unwrap();
         c.receive(ClientCommand::AutostoreLootItem { slot: 0 })
             .unwrap();
-        let collected = progress_tick(&h, &mut c, &observed, faults);
+        let collected = progress_tick(path, c, observed, mode);
+        assert_eq!(
+            collected
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    SessionEvent::QuestObjectiveItem {
+                        item_id: 70001,
+                        count: 1
+                    }
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            collected
+                .iter()
+                .filter(|event| matches!(event, SessionEvent::ItemCreate { .. }))
+                .count(),
+            1
+        );
         let credit = collected
             .iter()
             .position(|e| {
@@ -437,18 +543,34 @@ impl Fixture {
             .position(|e| matches!(e, SessionEvent::ItemCreate { .. }))
             .unwrap();
         assert!(credit < stored);
-        assert_eq!(inventory(&c).item_count(loop_fixture::ITEM).unwrap(), 1);
-        assert_eq!(progress(&c).money, 14);
+        assert_eq!(inventory(c).item_count(loop_fixture::ITEM).unwrap(), 1);
+        assert_eq!(progress(c).money, 14);
         assert_eq!(
-            progress(&c)
+            progress(c)
                 .quests
                 .progress(loop_fixture::QUEST)
                 .unwrap()
                 .status,
             q::Status::Complete
         );
-        choose_reward(&mut c, giver);
-        let reward = progress_tick(&h, &mut c, &observed, faults);
+        choose_reward(c, giver);
+        let reward = progress_tick(path, c, observed, mode);
+        assert_eq!(
+            reward
+                .iter()
+                .filter(|event| matches!(event, SessionEvent::QuestComplete(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            reward
+                .iter()
+                .filter(|event| matches!(event,
+                    SessionEvent::XpGain(gain) if !gain.kill
+                ))
+                .count(),
+            1
+        );
         let destroyed = reward
             .iter()
             .position(|e| matches!(e, SessionEvent::ObjectDestroyed(_)))
@@ -459,19 +581,19 @@ impl Fixture {
             .unwrap();
         assert!(destroyed < rewarded);
         assert!(
-            progress(&c)
+            progress(c)
                 .quests
                 .progress(loop_fixture::QUEST)
                 .unwrap()
                 .rewarded
         );
-        assert_eq!(progress(&c).player.view().level, 3);
-        assert_eq!(inventory(&c).item_count(loop_fixture::ITEM).unwrap(), 0);
-        assert_eq!(progress(&c).money, 21);
-        assert_giver(&c, giver, b, b_guid);
-        choose_reward(&mut c, giver);
-        no_transient_progress(&step(&mut c).events);
-        assert_eq!(progress(&c).money, 21);
+        assert_eq!(progress(c).player.view().level, 3);
+        assert_eq!(inventory(c).item_count(loop_fixture::ITEM).unwrap(), 0);
+        assert_eq!(progress(c).money, 21);
+        assert_giver(c, giver, b, b_guid);
+        choose_reward(c, giver);
+        no_transient_progress(&step(c).events);
+        assert_eq!(progress(c).money, 21);
         assert_source_hosts(&observed.controls);
         let queries = observed.controls.queries.lock().unwrap();
         assert!(
@@ -482,7 +604,12 @@ impl Fixture {
         );
         drop(queries);
         let loaded = observed.loaded.lock().unwrap();
-        for kind in 0..3 {
+        let required = if matches!(mode, FinishMode::Reconstructed { .. }) {
+            1
+        } else {
+            3
+        };
+        for kind in 0..required {
             assert!(loaded.iter().any(|r| matches!(
                 (kind, &r.request.query),
                 (0, n::Query::PlayerEnvironment(_))
@@ -514,11 +641,27 @@ impl Fixture {
             "neutral B was never removed or attacked to obtain quest access"
         );
         drop(loaded);
-        // A's death can clear its cache. No positive loaded-cache reopen is inferred
-        // from that cache-free endpoint, and this test never reopens it.
-        c.shutdown().unwrap();
     }
 }
+
+fn role_ids(profile: &n::Profile) -> (u64, u64) {
+    let hostile = profile
+        .npcs
+        .iter()
+        .find(|npc| npc.entry == loop_fixture::HOSTILE_ENTRY)
+        .unwrap()
+        .ai
+        .creature_id;
+    let giver = profile
+        .npcs
+        .iter()
+        .find(|npc| npc.entry == loop_fixture::GIVER_ENTRY)
+        .unwrap()
+        .ai
+        .creature_id;
+    (hostile, giver)
+}
+
 fn assert_giver(c: &NativeController, giver: u64, id: runtime::NpcId, guid: u64) {
     let npc = &c.world.state().npcs[&giver];
     assert_eq!(npc.id, id);
@@ -532,20 +675,23 @@ fn assert_giver(c: &NativeController, giver: u64, id: runtime::NpcId, guid: u64)
         motion::Generator::Idle
     ));
 }
-fn inject(h: &Harness) {
+fn inject(path: &Path) {
     fs::write(
-        h.path().join(".world-checkpoint.pending"),
+        path.join(".world-checkpoint.pending"),
         b"authored loaded-loop fault",
     )
     .unwrap();
 }
 fn progress_tick(
-    h: &Harness,
+    path: &Path,
     c: &mut NativeController,
     observed: &Observed,
-    faults: bool,
+    mode: FinishMode,
 ) -> Vec<SessionEvent> {
-    if faults {
+    if matches!(
+        mode,
+        FinishMode::AuthorityAndSave | FinishMode::Reconstructed { retry_faults: true }
+    ) {
         let giver = c
             .world
             .profile()
@@ -560,6 +706,7 @@ fn progress_tick(
         let records = c.world.records().to_vec();
         let generation = c.store.generation();
         let committed = observed.committed.lock().unwrap().len();
+        let bytes = fs::read(path.join("world.checkpoint")).unwrap();
         observed.controls.fail_owner.store(giver, Ordering::SeqCst);
         let out = c.pump(c.tick_duration());
         assert_eq!(out.ticks, 0);
@@ -570,28 +717,38 @@ fn progress_tick(
         assert_eq!(c.world.records(), records);
         assert_eq!(c.store.generation(), generation);
         assert_eq!(observed.committed.lock().unwrap().len(), committed);
+        assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), bytes);
         let inputs = c.pending.as_ref().unwrap().inputs.clone();
         observed.controls.fail_owner.store(0, Ordering::SeqCst);
-        inject(h);
+        inject(path);
         c.retry_tick().unwrap();
         assert_eq!(c.pending.as_ref().unwrap().inputs, inputs);
         let out = c.pump(Duration::ZERO);
+        assert_eq!(fs::read(path.join("world.checkpoint")).unwrap(), bytes);
+        assert_eq!(c.store.generation(), generation);
         let mut replay = before;
         replay
             .replay(&[c.world.last_tick().unwrap().clone()])
             .unwrap();
         assert_eq!(replay.state(), c.world.state());
         assert_eq!(replay.state().rng_counter, c.world.state().rng_counter);
-        flush(h, c, observed, out)
+        flush(
+            path,
+            c,
+            observed,
+            out,
+            matches!(mode, FinishMode::Reconstructed { .. }),
+        )
     } else {
         step(c).events
     }
 }
 fn flush(
-    h: &Harness,
+    path: &Path,
     c: &mut NativeController,
     observed: &Observed,
     out: Pump,
+    lose_ack: bool,
 ) -> Vec<SessionEvent> {
     assert_eq!(out.ticks, 1);
     assert!(out.events.is_empty());
@@ -621,15 +778,20 @@ fn flush(
         .as_ref()
         .unwrap()
         .clone();
+    let unsaved_bytes = fs::read(path.join("world.checkpoint")).unwrap();
     assert!(c.outbox.as_ref().unwrap().saved.is_none());
     assert!(c.retry_tick().is_err());
     assert!(c.retry_route_commit().is_err());
     assert!(c.retry_checkpoint().is_err());
+    assert_eq!(
+        fs::read(path.join("world.checkpoint")).unwrap(),
+        unsaved_bytes
+    );
     assert_eq!(c.world.records(), records);
     assert_eq!(c.world.last_tick(), Some(&record));
     assert!(c.pump(Duration::from_secs(600)).events.is_empty());
     assert_eq!(observed.committed.lock().unwrap().len(), committed);
-    fs::remove_file(h.path().join(".world-checkpoint.pending")).unwrap();
+    fs::remove_file(path.join(".world-checkpoint.pending")).unwrap();
     c.retry_checkpoint().unwrap();
     assert_eq!(c.store.generation(), generation + 1);
     assert_eq!(c.world.checkpoint().unwrap(), checkpoint);
@@ -647,8 +809,20 @@ fn flush(
         &notice
     );
     assert_eq!(observed.committed.lock().unwrap().len(), committed);
+    let attempts = observed.attempted.lock().unwrap().len();
+    if lose_ack {
+        observed.lose_ack.store(true, Ordering::SeqCst);
+    }
     let published = c.pump(Duration::ZERO);
-    assert!(published.pause.is_none(), "{:?}", published.pause);
+    if lose_ack {
+        assert_eq!(
+            published.pause.as_ref().unwrap().kind,
+            PauseKind::CommittedAwaitingRouteAck
+        );
+        restart::assert_ack_retry(path, c, observed, &notice, attempts);
+    } else {
+        assert!(published.pause.is_none(), "{:?}", published.pause);
+    }
     assert_eq!(published.ticks, 0);
     assert_eq!(published.events.len(), events);
     assert_eq!(format!("{:?}", published.events), projected);

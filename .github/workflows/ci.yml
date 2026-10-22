@@ -259,6 +259,23 @@ jobs:
             net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_full_record_mismatch_rejects_before_publication \
             net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_changed_consumed_source_after_cold_prefix_refuses_replay \
             net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_tampered_envelope_refuses_before_publication
+      - name: Verify bounded accepted quest restart and durable fixture regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::accepted_loaded_quest_fresh_replay_finishes_combat_loot_and_reward_exactly
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::accepted_loaded_quest_late_replay_failure_releases_owners_and_preserves_bytes
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::accepted_loaded_quest_resumed_save_and_lost_ack_retry_publish_once
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_completes_stock_commands_in_both_orders_and_role_ids
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication
+            net::p2p::world::native_controller::tests::distinct_quest_loop_tests::loaded::copied_durable_fixture_reopens_exact_published_bytes
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify native retained detail provenance
         shell: bash
         run: |

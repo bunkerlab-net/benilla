@@ -978,6 +978,14 @@ impl SourceSamePolygonRouteProvider {
     pub(super) fn shares_native_query(&self, other: &Self) -> bool {
         self.queries.shares_native_query(&other.queries)
     }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(super) fn reconstruction_liveness(&self) -> (std::sync::Weak<()>, std::rc::Weak<()>) {
+        (
+            Arc::downgrade(&self.identity),
+            self.queries.reconstruction_liveness(),
+        )
+    }
+
     pub(super) fn raw_geometry(&self) -> [u8; 32] {
         self.binding.raw_geometry
     }
