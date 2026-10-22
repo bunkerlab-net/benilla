@@ -145,6 +145,19 @@ jobs:
             mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" "$test"
           done
+      - name: Verify rock crossing and terrain separation fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            player::mover::rock_tests::walking_over_a_closed_rock_never_crosses_the_separate_terrain
+            player::mover::rock_tests::walking_off_a_closed_rock_without_terrain_still_falls
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify moving character voice emitters
         shell: bash
         run: |

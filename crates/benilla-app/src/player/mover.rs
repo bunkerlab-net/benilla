@@ -829,6 +829,9 @@ pub(crate) fn step_up(
 }
 
 #[cfg(test)]
+mod rock_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::player::state::STEP_UP_ADVANCE;
