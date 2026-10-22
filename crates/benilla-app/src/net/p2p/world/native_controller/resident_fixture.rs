@@ -242,7 +242,23 @@ impl Driver {
             "recipe-archive-{}",
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::create_dir(&path).unwrap();
+        // Match the secure test-store directory pattern; never repair an existing path.
+        #[allow(unused_mut)] // Unix configures the private creation mode below.
+        let mut builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
         fs::copy(
             archive.path.join("world.checkpoint"),
             path.join("world.checkpoint"),

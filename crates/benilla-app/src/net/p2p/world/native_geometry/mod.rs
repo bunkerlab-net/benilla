@@ -54,6 +54,8 @@ mod source_route_resident_pair;
 mod source_route_resident_planar_refusals;
 #[cfg(test)]
 mod source_route_resident_repeated;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod source_route_resident_restart;
 #[cfg(test)]
 mod source_route_resident_retained;
 #[cfg(test)]
@@ -626,6 +628,3 @@ mod tests {
         assert_eq!(app.world().resource::<Order>().0, [1, 2, 3]);
     }
 }
-
-#[cfg(all(test, not(benilla_headless_geometry)))]
-mod source_route_resident_restart;
