@@ -340,6 +340,29 @@ impl ResidentLedger {
         self.boundary = Some(boundary.clone());
         Ok(())
     }
+    /// Reconstruction cannot adopt a previously attached or attempted owner.
+    pub(in super::super) fn initialize_reconstruction(
+        &mut self,
+        session: &Session,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        boundary: &RouteCommitBoundary,
+    ) -> Result<(), Failure> {
+        if self.session != *session
+            || !self.provider.matches(provider)
+            || provider.retained_constructor_count() != 0
+            || self.boundary.is_some()
+            || self.last_notice.is_some()
+            || self.raw.is_some()
+            || !self.candidates.is_empty()
+            || self.next_id != 0
+            || self.route_epoch_committed
+            || self.retained_epoch_committed
+            || self.epochs_committed != 0
+        {
+            return Err(Failure::Binding);
+        }
+        self.initialize(boundary)
+    }
     /// Reserve before any source/concrete work. Successful emission and staging
     /// are one synchronous operation; failed attempts do not consume ledger slots.
     #[allow(clippy::too_many_arguments)]

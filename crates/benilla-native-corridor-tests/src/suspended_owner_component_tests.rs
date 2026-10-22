@@ -1119,7 +1119,7 @@ impl super::source_cache_reconstruction::ReconstructionAuthority for HistoryAuth
         &mut self,
     ) -> (
         &super::Session,
-        &mut super::source_route_same_polygon::SourceSamePolygonRouteProvider,
+        &mut dyn super::source_cache_reconstruction::ReconstructionRouteOwner,
         &mut RouteCommitBoundary,
     ) {
         (

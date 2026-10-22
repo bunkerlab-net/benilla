@@ -108,6 +108,30 @@ jobs:
           log="$RUNNER_TEMP/native-resident-navigation-helper.log"
           mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+      - name: Verify private resident reconstruction adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-reconstruction.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib resident_reconstruction_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cache_reconstruction::resident::tests::resident_reconstruction_requires_exact_fresh_owner_and_single_attachment \
+            source_cache_reconstruction::resident::tests::resident_reconstruction_rejects_used_query_even_with_new_empty_ledger
+          log="$RUNNER_TEMP/reconstruction-components.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib reconstruction_component_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            reconstruction_component_tests::fresh_mesh_reconstructs_no_path_then_mid_wander_arrival_next_leg_and_second_save \
+            reconstruction_component_tests::failure_after_reconstructed_no_path_and_normal_leg_discards_the_whole_fresh_session \
+            reconstruction_component_tests::receipt_only_replay_cannot_reconstruct_and_failure_keeps_saved_bytes_and_lock_reusable \
+            reconstruction_component_tests::changed_genesis_geometry_binding_and_late_failure_publish_no_reconstructed_session \
+            reconstruction_component_tests::rolled_back_first_calculation_cannot_supply_reconstruction_candidates \
+            reconstruction_component_tests::blocked_store_cannot_publish_a_session_from_its_old_recipe \
+            reconstruction_component_tests::natural_death_reanchors_then_fresh_respawn_crosses_the_old_total_tick_limit \
+            reconstruction_component_tests::natural_home_reset_reanchors_without_changing_generation_or_next_wander
+          log="$RUNNER_TEMP/suspended-owner-reconstruction.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib suspended_owner_component_tests::complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            suspended_owner_component_tests::complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers
       - name: Verify native retained detail provenance
         shell: bash
         run: |

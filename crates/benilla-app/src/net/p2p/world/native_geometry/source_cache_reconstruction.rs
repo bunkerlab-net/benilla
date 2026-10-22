@@ -2,12 +2,43 @@
 //! Bounded reconstruction by actual source execution from a checked cache-free anchor.
 //! Serialized replies are comparison outputs, never answers to a live query.
 use super::{
-    core::Session,
+    core::{Failure, Session},
     route_commit::{RouteCommitBoundary, RouteCommitNotice},
     source_route_same_polygon::SourceSamePolygonRouteProvider,
 };
 use benilla_world_runtime::native::{Authority, NativeError, NativeWorld, OwnedInput};
 use benilla_world_store::native::reconstruction::{Recipe, RecipeStore};
+
+/// Private owner seam, not a provider extension or saved-reply resolver.
+pub(super) trait ReconstructionRouteOwner {
+    fn initialize_reconstruction(
+        &mut self,
+        session: &Session,
+        boundary: &RouteCommitBoundary,
+    ) -> Result<(), Failure>;
+    fn acknowledge(&mut self, session: &Session, notice: &RouteCommitNotice)
+        -> Result<(), Failure>;
+}
+impl ReconstructionRouteOwner for SourceSamePolygonRouteProvider {
+    fn initialize_reconstruction(
+        &mut self,
+        session: &Session,
+        boundary: &RouteCommitBoundary,
+    ) -> Result<(), Failure> {
+        SourceSamePolygonRouteProvider::initialize_reconstruction(self, session, boundary)
+    }
+    fn acknowledge(
+        &mut self,
+        session: &Session,
+        notice: &RouteCommitNotice,
+    ) -> Result<(), Failure> {
+        SourceSamePolygonRouteProvider::acknowledge(self, session, notice)
+    }
+}
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "source_cache_reconstruction/resident.rs"]
+pub(super) mod resident;
 
 /// Implemented only by the local owner of the concrete loaded providers. It does
 /// not grant raw-content admission or create a native cache from stored refs.
@@ -16,7 +47,7 @@ pub(super) trait ReconstructionAuthority: Authority {
         &mut self,
     ) -> (
         &Session,
-        &mut SourceSamePolygonRouteProvider,
+        &mut dyn ReconstructionRouteOwner,
         &mut RouteCommitBoundary,
     );
 }

@@ -4,7 +4,6 @@ use super::{
     core::Session,
     route_commit::RouteCommitBoundary,
     source_cache_reconstruction::{self, ReconstructionAuthority},
-    source_route_same_polygon::SourceSamePolygonRouteProvider,
     wander_component_tests::{self as wander, Consumer},
 };
 use benilla_world_runtime::native::{
@@ -22,7 +21,7 @@ impl ReconstructionAuthority for Consumer {
         &mut self,
     ) -> (
         &Session,
-        &mut SourceSamePolygonRouteProvider,
+        &mut dyn super::source_cache_reconstruction::ReconstructionRouteOwner,
         &mut RouteCommitBoundary,
     ) {
         (&self.session, &mut self.providers.route, &mut self.boundary)
@@ -197,7 +196,7 @@ impl ReconstructionAuthority for FailAfterPrefixAuthority {
         &mut self,
     ) -> (
         &Session,
-        &mut SourceSamePolygonRouteProvider,
+        &mut dyn super::source_cache_reconstruction::ReconstructionRouteOwner,
         &mut RouteCommitBoundary,
     ) {
         self.inner.route_state()
@@ -271,7 +270,7 @@ impl ReconstructionAuthority for ReceiptOnlyAuthority {
         &mut self,
     ) -> (
         &Session,
-        &mut SourceSamePolygonRouteProvider,
+        &mut dyn super::source_cache_reconstruction::ReconstructionRouteOwner,
         &mut RouteCommitBoundary,
     ) {
         self.inner.route_state()
