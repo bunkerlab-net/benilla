@@ -159,7 +159,7 @@ impl<F: FnMut(&AuthorityRequest) -> Result<Facts, NativeError>> Authority for In
                     MotionQuery::Route(_) | MotionQuery::NearPoint(_) | MotionQuery::Spatial(_)
                 )
             ));
-            n::synthetic_motion_fixture::SyntheticMotionAuthority.resolve(request)
+            n::synthetic_motion_fixture::SyntheticMotionAuthority::default().resolve(request)
         }
     }
 }
@@ -306,7 +306,7 @@ fn run(fault: Fault) {
                 let mut geometry = InstalledFixture::new(install.path(), inventory);
                 geometry.advance_physics();
                 let source_session = session.clone();
-                let mut authored = n::synthetic_motion_fixture::SyntheticMotionAuthority;
+                let mut authored = n::synthetic_motion_fixture::SyntheticMotionAuthority::default();
                 let route_calls = Rc::new(Cell::new(0_usize));
                 let observed_routes = route_calls.clone();
                 let active_fault = if resumed { fault } else { Fault::None };
