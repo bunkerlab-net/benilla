@@ -262,7 +262,7 @@ class ExactProofTests(unittest.TestCase):
             self.assertTrue(compilation)
             self.assertLess(gates[0], min(compilation))
 
-        for name in ("workspace-gates", "player-gates"):
+        for name in ("workspace-gates", "workspace-tests", "player-gates"):
             with self.subTest(job=name):
                 jobs = re.findall(
                     rf"^  {re.escape(name)}:\n(.*?)(?=^  \S|\Z)",
@@ -283,6 +283,60 @@ class ExactProofTests(unittest.TestCase):
                 ):
                     with self.assertRaises(AssertionError):
                         assert_wired(bad)
+
+
+    def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = re.findall(
+            r"^  workspace-tests:\n(.*?)(?=^  \S|\Z)", workflow,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        self.assertEqual(len(jobs), 1)
+        job = jobs[0]
+        self.assertNotRegex(job, r"(?m)^    (?:if|needs|continue-on-error):")
+        self.assertIn("    timeout-minutes: 150\n", job)
+        command = "        run: mbx test --locked --no-fail-fast --workspace\n"
+        self.assertEqual(workflow.count(command), 1)
+        steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
+        self.assertIn("      - name: test\n" + command, steps)
+
+    def test_aggregate_requires_every_job_and_rejects_non_success(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        aggregate = workflow.split("\n  gates:\n", 1)[1]
+        self.assertIn("    if: always()\n", aggregate)
+        self.assertIn(
+            "    needs: [workspace-gates, workspace-tests, player-gates]\n", aggregate
+        )
+        self.assertNotIn("continue-on-error:", aggregate)
+        self.assertEqual(re.findall(r"(?m)^\s+if:.*$", aggregate), ["    if: always()"])
+        variables = {
+            "WORKSPACE_RESULT": "workspace-gates",
+            "WORKSPACE_TESTS_RESULT": "workspace-tests",
+            "PLAYER_RESULT": "player-gates",
+        }
+        for variable, job in variables.items():
+            self.assertIn(
+                f"          {variable}: ${{{{ needs.{job}.result }}}}\n", aggregate
+            )
+        shell = workflow_gate("Require every gate job to succeed")
+        success = dict(os.environ, **dict.fromkeys(variables, "success"))
+
+        def run(env):
+            return subprocess.run(
+                ["bash", "-c", shell], env=env, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
+            ).returncode
+
+        self.assertEqual(run(success), 0)
+        for variable in variables:
+            for status in ("failure", "cancelled", "skipped", "", None):
+                with self.subTest(job=variables[variable], status=status):
+                    env = success.copy()
+                    if status is None:
+                        del env[variable]
+                    else:
+                        env[variable] = status
+                    self.assertNotEqual(run(env), 0)
 
 
 if __name__ == "__main__":
