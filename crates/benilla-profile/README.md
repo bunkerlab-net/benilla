@@ -32,8 +32,8 @@ serialized secrets and complete secret-containing file buffers use `Zeroizing`.
   character bytes are version-one compact, field-ordered serde JSON, not an RFC 8785 claim.
 
 The Classic race/class matrix uses the 1.12 IDs and 40 permitted combinations. Cosmetic
-integers are conservatively bounded to 0–15 (facial hair 0–8); **bounds do not prove a cosmetic
-row exists**. The app must validate actual options against the player's own `CharSections`,
+identifiers are bounded by their `u8` wire/storage representation, not guessed global option
+counts; **byte bounds do not prove a cosmetic row exists**. The app must validate actual options against the player's own `CharSections`,
 `CharHairGeosets`, and `CharacterFacialHairStyles` data before rendering/accepting a character.
 No client data is redistributed here. Names/IDs are ordinary clean-room protocol facts; the
 numeric IDs already appear throughout `benilla-formats` and `benilla-app`.

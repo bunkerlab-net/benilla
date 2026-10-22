@@ -172,9 +172,7 @@ fn invalid_creation_and_position_do_not_change_valid_save() {
     let mut candidate = input("Beryl");
     candidate.gender = 2;
     assert!(profile.create_character(candidate).is_err());
-    let mut candidate = input("Beryl");
-    candidate.appearance.skin = 16;
-    assert!(profile.create_character(candidate).is_err());
+    // Cosmetic row existence is checked by the app catalog, not this install-free store.
     let original = profile.character(id).unwrap().position;
     for invalid in [f32::NAN, f32::INFINITY, -20_001.0] {
         let mut position = original;
@@ -906,4 +904,40 @@ fn unchanged_position_cannot_hide_uncertain_checkpoint() {
         profile.save_position(id, position),
         Err(Error::CommitUncertain)
     ));
+}
+
+#[test]
+fn appearance_bytes_preserve_catalog_choices_and_reject_malformed_json() {
+    let (_temp, path) = directory();
+    let mut profile = ProfileStore::create(&path).unwrap();
+    let mut dwarf = input("Dwarflook");
+    dwarf.race = 3;
+    dwarf.appearance.facial_hair = 9;
+    let dwarf_id = profile.create_character(dwarf.clone()).unwrap();
+    let mut human = input("Humanlook");
+    human.gender = 1;
+    human.appearance.hair_style = 18;
+    let human_id = profile.create_character(human.clone()).unwrap();
+    drop(profile);
+    let profile = ProfileStore::open(&path).unwrap();
+    assert_eq!(
+        profile.character(dwarf_id).unwrap().appearance,
+        dwarf.appearance
+    );
+    assert_eq!(
+        profile.character(human_id).unwrap().appearance,
+        human.appearance
+    );
+    for field in ["skin", "face", "hair_style", "hair_color", "facial_hair"] {
+        for invalid in [
+            serde_json::json!(-1),
+            serde_json::json!(256),
+            serde_json::json!(1.5),
+            serde_json::json!("9"),
+        ] {
+            let mut value = serde_json::to_value(Appearance::default()).unwrap();
+            value[field] = invalid;
+            assert!(serde_json::from_value::<Appearance>(value).is_err());
+        }
+    }
 }

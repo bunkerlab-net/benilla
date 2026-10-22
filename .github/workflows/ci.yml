@@ -60,6 +60,71 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
+      - name: Verify profile persistence and Dwarf character creation
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/profile-lib.log"
+          mbx test --locked -p benilla-profile --lib -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            tests::create_select_save_reopen_preserves_identity_and_characters \
+            tests::signatures_bind_owner_domain_and_challenge \
+            tests::invalid_creation_and_position_do_not_change_valid_save \
+            tests::classic_race_class_matrix_and_limits \
+            tests::opening_missing_never_creates_and_create_never_replaces \
+            tests::exclusive_session_lock_released_on_drop \
+            tests::corruption_fails_closed_retains_previous_and_never_regenerates \
+            tests::schema_size_checksum_and_owner_checks_fail_closed \
+            tests::externally_modified_file_is_not_overwritten \
+            tests::failed_save_retains_memory_and_current \
+            tests::public_canonical_character_contains_no_secret_and_roundtrips \
+            tests::unix_private_modes_symlinks_and_hardlinks \
+            tests::replaced_lock_and_symlink_backup_fail_without_overwrite \
+            tests::pre_commit_io_failures_preserve_current_backup_and_memory \
+            tests::post_rename_failure_preserves_backup_and_requires_reopen \
+            tests::closing_profile_unlocks_even_with_an_inherited_file_description \
+            tests::archive_and_restore_after_restart_preserve_identity_other_characters_and_world_bytes \
+            tests::wrong_owner_stale_duplicate_and_conflicting_restore_never_mutate \
+            tests::archive_and_active_limits_never_evict_records \
+            tests::archive_and_restore_precommit_failures_preserve_current_and_memory \
+            tests::archive_and_restore_uncertain_commit_require_reopen_and_never_duplicate \
+            tests::version_one_checksum_verified_before_lossless_read_only_open_and_explicit_mutation \
+            tests::failed_version_one_migration_keeps_original_bytes_and_uncertain_migration_can_reopen \
+            tests::archive_validation_covers_owner_id_name_and_selected_character \
+            tests::unchanged_position_checkpoint_verifies_disk_without_rewriting \
+            tests::unchanged_position_cannot_hide_uncertain_checkpoint \
+            tests::appearance_bytes_preserve_catalog_choices_and_reject_malformed_json \
+            world_setup::tests::separate_sidecar_preserves_profile_bytes_and_reopens_signed_selection \
+            world_setup::tests::exact_replay_returns_same_world_and_conflicts_stale_or_foreign_requests_fail \
+            world_setup::tests::declaration_tampering_wrong_owner_and_transport_domain_fail \
+            world_setup::tests::sidecar_cannot_be_copied_to_another_profile_or_silently_recovered \
+            world_setup::tests::invalid_and_oversize_inputs_do_not_create_setup_state \
+            world_setup::tests::world_limit_and_selection_validation_preserve_prior_declarations \
+            world_setup::tests::uncertain_commit_latches_both_setup_and_profile_until_reopen \
+            world_setup::tests::failed_precommit_preserves_previous_selection_and_cas_rejects_changed_sidecar \
+            world_setup::tests::changed_profile_identity_prevents_setup_signing \
+            world_setup::tests::symlink_hardlink_and_permissions_are_rejected_without_touching_targets \
+            world_setup::tests::tampered_signed_selection_and_oversize_sidecar_are_preserved_and_rejected \
+            world_setup::tests::full_replay_history_is_never_evicted_and_exact_replay_still_succeeds \
+            starting_location::tests::all_forty_combinations_create_persist_move_reopen_and_recover_without_reset \
+            starting_location::tests::mismatched_and_invalid_combinations_never_write_or_fall_back \
+            starting_location::tests::legacy_positions_and_policy_are_unchanged_by_new_source_support \
+            starting_location::tests::malformed_missing_duplicate_wrong_revision_and_unsupported_rows_fail_closed \
+            starting_location::tests::only_canonical_finite_decimal_strings_are_accepted \
+            starting_location::tests::captured_table_hash_matches_existing_python_canonicalizer \
+            recovery::tests::help_and_bad_arguments_never_open_or_create_a_profile \
+            recovery::tests::player_commands_list_and_restore_exact_id_after_restart \
+            storage::schema_tests::semantic_validation_survives_recomputed_checksums \
+            storage::schema_tests::valid_encoding_is_stable_and_checksum_detects_valid_json_corruption
+          tests=(
+            net::p2p::tests::dwarf_catalog_beard_creates_reopens_and_invalid_options_never_write
+            net::p2p::tests::peer_intro_requires_authenticated_owner_valid_traits_and_unique_game_identity
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify moving character voice emitters
         shell: bash
         run: |

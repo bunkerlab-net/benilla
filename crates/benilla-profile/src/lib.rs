@@ -114,6 +114,7 @@ pub fn verify_transport_challenge(
     })
 }
 
+/// Wire-sized cosmetic identifiers; only the app's install catalog can validate their meaning.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Appearance {
@@ -122,21 +123,6 @@ pub struct Appearance {
     pub hair_style: u8,
     pub hair_color: u8,
     pub facial_hair: u8,
-}
-impl Appearance {
-    /// Safety bounds only; the app must resolve actual options from the player's client DBCs.
-    pub fn validate(&self) -> Result<(), Error> {
-        if [self.skin, self.face, self.hair_style, self.hair_color]
-            .iter()
-            .any(|v| *v > 15)
-            || self.facial_hair > 8
-        {
-            return Err(Error::Invalid(
-                "appearance is outside the supported exploration range",
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,7 +196,7 @@ impl NewCharacter {
         if self.gender > 1 {
             return Err(Error::Invalid("gender must be 0 or 1"));
         }
-        self.appearance.validate()
+        Ok(())
     }
 }
 

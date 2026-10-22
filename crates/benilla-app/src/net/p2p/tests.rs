@@ -548,6 +548,12 @@ fn peer_intro_requires_authenticated_owner_valid_traits_and_unique_game_identity
     let other = fixture(2, 2, "Otherchar");
     let cat = AvatarCatalog::fixture();
     assert!(validate_peer_character([3; 16], &other, &own, &BTreeMap::new(), &cat).is_err());
+    let mut dwarf = other.clone();
+    dwarf.race = 3;
+    dwarf.appearance.facial_hair = 9;
+    assert!(validate_peer_character([2; 16], &dwarf, &own, &BTreeMap::new(), &cat).is_ok());
+    dwarf.appearance.facial_hair = 10;
+    assert!(validate_peer_character([2; 16], &dwarf, &own, &BTreeMap::new(), &cat).is_err());
     let peers = [([2; 16], Some(other.clone()))].into();
     assert!(validate_peer_character([2; 16], &other, &own, &peers, &cat).is_err());
     for change in [0, 1, 2, 3, 4] {
@@ -1418,4 +1424,126 @@ fn three_exploration_peers_whisper_and_reply_without_bystander_delivery() {
         }
     }
     drop((sa, sb, sc));
+}
+
+#[test]
+fn dwarf_catalog_beard_creates_reopens_and_invalid_options_never_write() {
+    let dir = Temp::new();
+    let (handles, mut start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    assert!(listed(&handles).is_empty());
+    let request = benilla_protocol::CharCreateReq {
+        name: "Dwarflook".into(),
+        race: 3,
+        class: 1,
+        gender: 0,
+        skin: 0,
+        face: 0,
+        hair_style: 0,
+        hair_color: 0,
+        facial_hair: 9,
+    };
+    handles.pick.send(CharRequest::Create(request)).unwrap();
+    let characters = listed(&handles);
+    assert_eq!(characters.len(), 1);
+    assert_eq!(characters[0].facial_hair, 9);
+    let guid = characters[0].guid;
+    next_matching(&handles, |event| {
+        matches!(
+            event,
+            SessionEvent::CharActionResult {
+                action: benilla_protocol::CharAction::Create,
+                code: benilla_protocol::messages::CHAR_CREATE_SUCCESS
+            }
+        )
+    });
+    let before = std::fs::read(dir.profile().join("profile.json")).unwrap();
+    // Both the former profile-level skin rejection and the next beard outside this
+    // synthetic catalog must still fail at the actual app acceptance boundary.
+    for (skin, facial_hair) in [(16, 9), (0, 10)] {
+        handles
+            .pick
+            .send(CharRequest::Create(benilla_protocol::CharCreateReq {
+                name: "Invalidlook".into(),
+                race: 3,
+                class: 1,
+                gender: 0,
+                skin,
+                face: 0,
+                hair_style: 0,
+                hair_color: 0,
+                facial_hair,
+            }))
+            .unwrap();
+        next_matching(&handles, |event| {
+            matches!(
+                event,
+                SessionEvent::CharActionResult {
+                    action: benilla_protocol::CharAction::Create,
+                    code: 0x30
+                }
+            )
+        });
+        assert_eq!(
+            std::fs::read(dir.profile().join("profile.json")).unwrap(),
+            before
+        );
+    }
+    retire(&mut start).unwrap();
+    let (handles, mut start) = open(&dir.profile(), settings(free_endpoint(), &[]));
+    let reopened = listed(&handles);
+    assert_eq!(reopened.len(), 1);
+    assert_eq!(reopened[0].guid, guid);
+    assert_eq!(reopened[0].facial_hair, 9);
+    retire(&mut start).unwrap();
+}
+
+#[test]
+fn installed_creation_dials_fit_profile_and_avatar_validation() {
+    let data = benilla_formats::wow_data_or_skip!();
+    let mut chain = benilla_formats::open_chain(&data).expect("open chain");
+    let catalog = benilla_formats::CharCreateCatalog::load(&mut chain).expect("creation catalog");
+    let avatars = AvatarCatalog::from_client(&catalog, None);
+    for race in 1..=8 {
+        for gender in [0, 1] {
+            let ranges = catalog.ranges(race, gender).expect("playable body");
+            let counts = [
+                ranges.skin,
+                ranges.face,
+                ranges.hair_style,
+                ranges.hair_color,
+                ranges.facial_hair,
+            ];
+            for class in catalog.classes_for_race(race) {
+                for (axis, count) in counts.into_iter().enumerate() {
+                    for value in 0..count {
+                        let mut dials = [0; 5];
+                        dials[axis] = value;
+                        // Colours are style-dependent just as on the stock create screen.
+                        if dials[3] >= catalog.hair_colors(race, gender, dials[2]) {
+                            continue;
+                        }
+                        let input = NewCharacter {
+                            name: "Cataloglook".into(),
+                            race,
+                            class,
+                            gender,
+                            appearance: Appearance {
+                                skin: dials[0],
+                                face: dials[1],
+                                hair_style: dials[2],
+                                hair_color: dials[3],
+                                facial_hair: dials[4],
+                            },
+                        };
+                        input
+                            .validate()
+                            .expect("catalog choice must fit profile schema");
+                        avatars
+                            .validate(race, class, gender, input.appearance)
+                            .expect("catalog choice must fit avatar");
+                    }
+                }
+            }
+        }
+    }
 }

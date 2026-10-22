@@ -123,6 +123,17 @@ impl AvatarCatalog {
                         hair_colors: vec![4; 4],
                     },
                 ),
+                (
+                    (3, 0),
+                    Body {
+                        display: 53,
+                        faction: 3,
+                        classes: vec![1, 2, 3, 4, 5],
+                        // Synthetic catalog envelope, not a bundled client-data table.
+                        ranges: [4, 4, 4, 4, 10],
+                        hair_colors: vec![4; 4],
+                    },
+                ),
             ]
             .into(),
             Default::default(),
@@ -249,11 +260,25 @@ pub(super) fn browse(
                 }
                 super::super::CharRequest::Create(req) => {
                     let input = create_input(req);
-                    let code = if input.validate().is_err()
-                        || catalog
-                            .validate(input.race, input.class, input.gender, input.appearance)
-                            .is_err()
-                    {
+                    let validation = input
+                        .validate()
+                        .map_err(anyhow::Error::from)
+                        .and_then(|()| {
+                            catalog.validate(
+                                input.race,
+                                input.class,
+                                input.gender,
+                                input.appearance,
+                            )
+                        });
+                    let code = if let Err(error) = validation {
+                        bevy::log::warn!(
+                            "p2p: character creation rejected: race={} class={} gender={} appearance={:?}: {error}",
+                            input.race,
+                            input.class,
+                            input.gender,
+                            input.appearance
+                        );
                         0x30 // CHAR_CREATE_FAILED; no write or network action occurred.
                     } else if store
                         .characters()
