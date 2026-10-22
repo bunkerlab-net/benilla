@@ -633,15 +633,42 @@ mod tests {
                 ("stderr", MAX_STDERR_BYTES + 1, false),
             ] {
                 // No normal exit can satisfy this fixture; rejection must kill and reap it.
-                let helper = Helper::new(&format!("with open(os.path.join(os.path.dirname(__file__), 'pid'), 'w') as f:\n    f.write(str(os.getpid()))\nsys.{stream}.buffer.write(bytes({count}))\nsys.{stream}.buffer.flush()\nwhile True:\n    time.sleep(10)"));
-                let result = helper.run(vec![]);
+                let helper = Helper::new(&format!(
+                    "directory = os.path.dirname(__file__)\ndef phase(value):\n    with open(os.path.join(directory, 'phase.pending'), 'w') as f:\n        f.write(value)\n    os.replace(os.path.join(directory, 'phase.pending'), os.path.join(directory, 'phase'))\npayload = bytes({count})\nwith open(os.path.join(directory, 'pid.pending'), 'w') as f:\n    f.write(str(os.getpid()))\nos.replace(os.path.join(directory, 'pid.pending'), os.path.join(directory, 'pid'))\nphase('ready after allocation')\nfor offset in range(0, len(payload), 1048576):\n    chunk = payload[offset:offset + 1048576]\n    sys.{stream}.buffer.write(chunk)\n    sys.{stream}.buffer.flush()\n    phase('flushed ' + str(offset + len(chunk)))\nwhile True:\n    time.sleep(10)"
+                ));
+                let mut command = helper.command();
+                command.process_group(0);
+                let running = Running {
+                    child: command.spawn().unwrap(),
+                    reaped: false,
+                    process_group: true,
+                };
+                let phase = helper.0.parent().unwrap().join("phase");
+                let startup_deadline = Instant::now() + Duration::from_secs(30);
+                while !phase.is_file() && Instant::now() < startup_deadline {
+                    pause(startup_deadline);
+                }
+                assert!(phase.is_file(), "overflow helper must finish allocation");
+                // This exercises the production post-spawn pipe loop and its original byte caps.
+                // The original five-second transfer bound starts only after interpreter/allocation readiness.
+                let result = unix::run_spawned(
+                    running,
+                    vec![],
+                    Instant::now() + Duration::from_secs(5),
+                    &|| false,
+                );
                 if protocol {
                     assert!(
                         matches!(result, Err(GenerationError::Protocol)),
-                        "{result:?}"
+                        "{result:?}; helper phase: {:?}",
+                        fs::read_to_string(&phase)
                     );
                 } else {
-                    assert!(matches!(result, Err(GenerationError::Helper)), "{result:?}");
+                    assert!(
+                        matches!(result, Err(GenerationError::Helper)),
+                        "{result:?}; helper phase: {:?}",
+                        fs::read_to_string(&phase)
+                    );
                 }
                 helper.assert_reaped();
             }
