@@ -44,7 +44,9 @@ use benilla_assets::{AssetSet, LockRecover, WorldAssets};
 use benilla_world::schedule::WorldStage;
 use benilla_world::view::WorldCamera;
 
-use super::kit::{self, play_kit_ext, KitRef, Latch, PlayExtras, SoundCategory, SoundKits};
+use super::kit::{
+    self, play_kit_ext, FollowSource, KitRef, Latch, PlayExtras, SoundCategory, SoundKits,
+};
 use super::{SoundConfig, SoundOutput};
 
 /// Hello takes before the select greeter steps into the pissed kit (`0x62394a: cmp ebx,5`).
@@ -231,6 +233,7 @@ fn play_line(
         PlayExtras {
             variant,
             source: Some(npc),
+            follow: Some(FollowSource::Origin),
             // The one play that takes `[unit+0xb1c]`; the unit's other sounds do not.
             latch: Latch::Greeting,
             ..default()

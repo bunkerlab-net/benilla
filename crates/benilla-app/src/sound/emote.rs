@@ -16,7 +16,8 @@ use benilla_assets::{AssetSet, LockRecover, WorldAssets};
 use benilla_world::schedule::WorldStage;
 
 use super::kit::{
-    play_kit_ext, stop_older_emote_voices, KitRef, Latch, PlayExtras, SoundCategory, SoundKits,
+    play_kit_ext, stop_older_emote_voices, FollowSource, KitRef, Latch, PlayExtras, SoundCategory,
+    SoundKits,
 };
 use super::{AudioListener, SoundConfig, SoundOutput};
 
@@ -126,6 +127,7 @@ pub(super) fn play_emote_voice(
 ) -> anyhow::Result<bool> {
     let extras = PlayExtras {
         source: Some(unit),
+        follow: Some(FollowSource::Attachment(VOICE_ATTACH)),
         latch: Latch::EmoteVoice,
         ..PlayExtras::default()
     };

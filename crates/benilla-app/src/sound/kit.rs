@@ -83,8 +83,8 @@ pub(crate) struct ActiveChannel {
     /// The entity this channel belongs to; [`Latch`] says whether it also holds a latch, which
     /// the pump's reap releases when the sound stops.
     source: Option<Entity>,
-    /// A source-tagged loop follows its unit (the tracked play `0x61fec0`); one-shots stay put.
-    tracked: bool,
+    /// Explicit source positioning, independent of playback lifetime and per-unit latches.
+    follow: Option<FollowSource>,
     handle: mixer::StaticSoundHandle,
     /// The spatial track keeping the 3D voice alive; `None` = 2D (main track).
     track: Option<mixer::SpatialTrackHandle>,
@@ -338,6 +338,8 @@ pub(super) struct PlayExtras {
     pub(super) variant: Option<usize>,
     /// The entity the channel belongs to ([`ActiveChannel`]'s `source`).
     pub(super) source: Option<Entity>,
+    /// Follow a live emitter even for a one-shot. None preserves the ordinary loop-only policy.
+    pub(super) follow: Option<FollowSource>,
     /// Loop regardless of the kit's 0x200 flag, for drivers whose column is the loop authority:
     /// every `CreatureSoundData` column-23 kit is named `*Loop*` yet half lack 0x200. The
     /// reference's loop start `0x461d80` is untraced.
@@ -414,6 +416,7 @@ pub(super) fn play_kit_ext(
     let PlayExtras {
         variant,
         source,
+        follow,
         force_loop,
         dedupe_exempt,
         latch,
@@ -549,7 +552,7 @@ pub(super) fn play_kit_ext(
     out.channels.push(ActiveChannel {
         kit: id,
         source,
-        tracked: looping && source.is_some(),
+        follow: source_follow(looping, source, pos, follow),
         handle,
         track,
         pos,
@@ -728,7 +731,7 @@ pub(crate) fn play_file(
     out.channels.push(ActiveChannel {
         kit: 0,
         source: None,
-        tracked: false,
+        follow: None,
         handle,
         track: None,
         pos: None,
@@ -862,6 +865,52 @@ pub(super) fn load_sound_kits(mut commands: Commands, assets: Option<Res<WorldAs
     }
 }
 
+/// How an explicitly attached sound follows its emitter. This is not a voice bus or a latch:
+/// unlatched grunts also follow, while fixed event sounds retain their initial position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FollowSource {
+    /// The current Transform origin of a world-root unit (also the existing loop policy).
+    Origin,
+    /// A model child, such as a mount, whose local Transform is not a world position.
+    WorldOrigin,
+    /// A live model attachment, with the resolver's usual fallback offset.
+    Attachment(u16),
+}
+
+fn source_follow(
+    looping: bool,
+    source: Option<Entity>,
+    pos: Option<Vec3>,
+    follow: Option<FollowSource>,
+) -> Option<FollowSource> {
+    // A source tag cannot turn a 2D channel into an attenuated, track-less pseudo-3D channel.
+    if source.is_none() || pos.is_none() {
+        return None;
+    }
+    follow.or_else(|| looping.then_some(FollowSource::Origin))
+}
+
+/// Resolve the live emitter before distance culling and attenuation. Missing sources retain
+/// their last position until the existing source-despawn reaper stops their channels.
+fn tracked_position(
+    follow: Option<FollowSource>,
+    source: Option<Entity>,
+    transforms: &Query<&Transform, Without<Camera3d>>,
+    globals: &Query<&GlobalTransform>,
+    attach: &crate::entities::AttachPoints,
+) -> Option<Vec3> {
+    let follow = follow?;
+    let source = source?;
+    if follow == FollowSource::WorldOrigin {
+        return globals.get(source).ok().map(GlobalTransform::translation);
+    }
+    let origin = transforms.get(source).ok()?.translation;
+    Some(match follow {
+        FollowSource::Attachment(id) => attach.point(source, id, origin),
+        _ => origin,
+    })
+}
+
 /// The per-frame channel pump (`0x7a4ad0`): reap finished channels, follow tracked sources, cull
 /// positional ones beyond cutoff, recompute each volume.
 pub(super) fn pump_channels(
@@ -869,25 +918,19 @@ pub(super) fn pump_channels(
     config: Res<SoundConfig>,
     listener: Res<AudioListener>,
     transforms: Query<&Transform, Without<Camera3d>>,
+    globals: Query<&GlobalTransform>,
+    attach: crate::entities::AttachPoints,
 ) {
     let listener = listener.pos;
     out.channels.retain_mut(|ch| {
         if ch.handle.state() == PlaybackState::Stopped {
             return false;
         }
-        // A tracked loop follows its unit (`0x61fec0`); a despawned source keeps its last
-        // position until the despawn reaper stops the channel.
-        if ch.tracked {
-            if let Some(p) = ch
-                .source
-                .and_then(|s| transforms.get(s).ok())
-                .map(|t| t.translation)
-            {
-                if ch.pos != Some(p) {
-                    ch.pos = Some(p);
-                    if let Some(track) = ch.track.as_mut() {
-                        mixer::set_track_position(track, p);
-                    }
+        if let Some(p) = tracked_position(ch.follow, ch.source, &transforms, &globals, &attach) {
+            if ch.pos != Some(p) {
+                ch.pos = Some(p);
+                if let Some(track) = ch.track.as_mut() {
+                    mixer::set_track_position(track, p);
                 }
             }
         }
@@ -1039,6 +1082,199 @@ pub(super) fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attached_one_shots_follow_without_changing_fixed_sounds_loops_or_2d_audio() {
+        let unit = Some(Entity::from_raw_u32(1).expect("valid entity id"));
+        let pos = Some(Vec3::ZERO);
+        for mode in [
+            FollowSource::Origin,
+            FollowSource::WorldOrigin,
+            FollowSource::Attachment(17),
+        ] {
+            assert_eq!(source_follow(false, unit, pos, Some(mode)), Some(mode));
+            assert_eq!(source_follow(true, unit, pos, Some(mode)), Some(mode));
+            assert_eq!(source_follow(false, None, pos, Some(mode)), None);
+            assert_eq!(source_follow(false, unit, None, Some(mode)), None);
+            assert_eq!(source_follow(true, unit, None, Some(mode)), None);
+        }
+        assert_eq!(source_follow(false, unit, pos, None), None);
+        assert_eq!(
+            source_follow(true, unit, pos, None),
+            Some(FollowSource::Origin)
+        );
+        assert_eq!(source_follow(true, None, pos, None), None);
+    }
+
+    #[test]
+    fn emote_emitter_follows_each_speaker_and_preserves_voice_attachment_fallback() {
+        use bevy::ecs::system::SystemState;
+        type Params<'w, 's> = (
+            Query<'w, 's, &'static Transform, Without<Camera3d>>,
+            Query<'w, 's, &'static GlobalTransform>,
+            crate::entities::AttachPoints<'w, 's>,
+        );
+        let mut world = World::new();
+        let local = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
+        let peer = world.spawn(Transform::from_xyz(20.0, 4.0, 6.0)).id();
+        let mut state = SystemState::<Params>::new(&mut world);
+        for step in 0..3 {
+            let local_pos = Vec3::new(step as f32 * 10.0, 2.0, 3.0);
+            let peer_pos = Vec3::new(20.0, 4.0, step as f32 * -7.0);
+            world.get_mut::<Transform>(local).unwrap().translation = local_pos;
+            world.get_mut::<Transform>(peer).unwrap().translation = peer_pos;
+            let (transforms, globals, attach) = state.get(&world);
+            for (speaker, origin) in [(local, local_pos), (peer, peer_pos)] {
+                assert_eq!(
+                    tracked_position(
+                        Some(FollowSource::Attachment(17)),
+                        Some(speaker),
+                        &transforms,
+                        &globals,
+                        &attach
+                    ),
+                    Some(origin + Vec3::Y * 2.0)
+                );
+                assert_eq!(
+                    tracked_position(
+                        Some(FollowSource::Origin),
+                        Some(speaker),
+                        &transforms,
+                        &globals,
+                        &attach
+                    ),
+                    Some(origin)
+                );
+                assert_eq!(
+                    tracked_position(None, Some(speaker), &transforms, &globals, &attach),
+                    None
+                );
+            }
+        }
+        world.despawn(local);
+        let (transforms, globals, attach) = state.get(&world);
+        assert_eq!(
+            tracked_position(
+                Some(FollowSource::Attachment(17)),
+                Some(local),
+                &transforms,
+                &globals,
+                &attach
+            ),
+            None
+        );
+        assert!(tracked_position(
+            Some(FollowSource::Attachment(17)),
+            Some(peer),
+            &transforms,
+            &globals,
+            &attach
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn emote_emitter_uses_live_model_attachment_instead_of_origin_or_fallback() {
+        use bevy::ecs::system::SystemState;
+        type Params<'w, 's> = (
+            Query<'w, 's, &'static Transform, Without<Camera3d>>,
+            Query<'w, 's, &'static GlobalTransform>,
+            crate::entities::AttachPoints<'w, 's>,
+        );
+        let mut world = World::new();
+        let speaker = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
+        // A separate model root also covers a rider/conform frame: never substitute the
+        // speaker's local transform for the model's propagated world transform.
+        let root = world
+            .spawn(GlobalTransform::from_xyz(10.0, 20.0, 30.0))
+            .id();
+        let mut pose =
+            benilla_world::rig_anim::RigPose::new(root, &benilla_assets::ModelSkeleton::default());
+        pose.model.push(bevy::math::Affine3A::IDENTITY);
+        world.entity_mut(speaker).insert((
+            pose,
+            crate::entities::BoneAttach {
+                points: [(super::super::emote::VOICE_ATTACH, (0, Vec3::Y * 3.0))]
+                    .into_iter()
+                    .collect(),
+                markers: HashMap::new(),
+            },
+        ));
+        let mut state = SystemState::<Params>::new(&mut world);
+        for x in [10.0, 15.0, 25.0] {
+            *world.get_mut::<GlobalTransform>(root).unwrap() =
+                GlobalTransform::from_xyz(x, 20.0, 30.0);
+            let (transforms, globals, attach) = state.get(&world);
+            assert_eq!(
+                tracked_position(
+                    Some(FollowSource::Attachment(17)),
+                    Some(speaker),
+                    &transforms,
+                    &globals,
+                    &attach
+                ),
+                Some(Vec3::new(x, 23.0, 30.0))
+            );
+        }
+    }
+
+    #[test]
+    fn model_child_voice_follows_world_origin_not_its_local_seat_offset() {
+        use bevy::ecs::system::SystemState;
+        type Params<'w, 's> = (
+            Query<'w, 's, &'static Transform, Without<Camera3d>>,
+            Query<'w, 's, &'static GlobalTransform>,
+            crate::entities::AttachPoints<'w, 's>,
+        );
+        let mut world = World::new();
+        let parent = world.spawn_empty().id();
+        let child = world
+            .spawn((
+                Transform::from_xyz(0.0, 1.0, 0.0),
+                GlobalTransform::from_xyz(10.0, 2.0, 30.0),
+                ChildOf(parent),
+            ))
+            .id();
+        let mut state = SystemState::<Params>::new(&mut world);
+        for x in [10.0, 20.0, 30.0] {
+            *world.get_mut::<GlobalTransform>(child).unwrap() =
+                GlobalTransform::from_xyz(x, 2.0, 30.0);
+            let (transforms, globals, attach) = state.get(&world);
+            assert_eq!(
+                tracked_position(
+                    Some(FollowSource::WorldOrigin),
+                    Some(child),
+                    &transforms,
+                    &globals,
+                    &attach
+                ),
+                Some(Vec3::new(x, 2.0, 30.0))
+            );
+            // The legacy loop policy still reads its original local-origin lane.
+            assert_eq!(
+                tracked_position(
+                    Some(FollowSource::Origin),
+                    Some(child),
+                    &transforms,
+                    &globals,
+                    &attach
+                ),
+                Some(Vec3::Y)
+            );
+        }
+        world.despawn(child);
+        let (transforms, globals, attach) = state.get(&world);
+        assert_eq!(
+            tracked_position(
+                Some(FollowSource::WorldOrigin),
+                Some(child),
+                &transforms,
+                &globals,
+                &attach
+            ),
+            None
+        );
+    }
 
     /// Pinned as the 13 dwords at `.data` `0x87ce60`.
     #[test]

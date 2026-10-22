@@ -60,6 +60,22 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: mbx clippy --locked --workspace --all-targets -- -D warnings
+      - name: Verify moving character voice emitters
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            sound::kit::tests::attached_one_shots_follow_without_changing_fixed_sounds_loops_or_2d_audio
+            sound::kit::tests::emote_emitter_follows_each_speaker_and_preserves_voice_attachment_fallback
+            sound::kit::tests::emote_emitter_uses_live_model_attachment_instead_of_origin_or_fallback
+            sound::kit::tests::model_child_voice_follows_world_origin_not_its_local_seat_offset
+            sound::creature::tests::creature_vocals_follow_but_wing_and_unknown_events_stay_fixed
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify navigation helper prerequisite
         shell: bash
         run: |
