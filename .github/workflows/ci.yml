@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gates:
+  workspace-gates:
     runs-on: ubuntu-26.04
     timeout-minutes: 150
     env:
@@ -442,21 +442,6 @@ jobs:
         run: scripts/doc-links.py
       - name: pass-span-lint
         run: scripts/pass-span-lint.py
-      - name: Record player Route timing
-        shell: bash
-        run: |
-          set -o pipefail
-          log="$RUNNER_TEMP/native-player-route-timing.log"
-          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon::two_owner_tests::loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_certificate -- --exact --nocapture 2>&1 | tee "$log"
-          grep -Fxq "running 1 test" "$log"
-          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
-          retry_log="$RUNNER_TEMP/native-player-route-retry-timing.log"
-          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication -- --exact --nocapture 2>&1 | tee "$retry_log"
-          grep -Fxq "running 1 test" "$retry_log"
-          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$retry_log"
-      - name: player-tests
-        run: mbx test --locked --no-fail-fast -p benilla-formats -p benilla-app --no-default-features --lib
-
       - name: classic-export-tests
         run: python3 scripts/test-classic-export.py
       - name: native-starter-tests
@@ -484,3 +469,86 @@ jobs:
             echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
             sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  player-gates:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      # Bound peak memory while preserving the complete workspace and player test suites.
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
+      # No debuginfo: it is most of target/, and a runner's disk is small.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      # Set and empty: no install, as the gates' test-no-install runs.
+      WOW_DATA: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Track unavailable data checks
+        run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
+      - name: Report available disk space
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+      - name: Test exact libtest proof gates
+        run: python3 scripts/test-verify-libtest-output.py
+      - name: System libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev libwayland-dev
+          # Standalone corridor tests link Wayland without the app clipboard's dlopen feature.
+          pkg-config --exists wayland-client
+      - name: Toolchain
+        run: rustup toolchain install && rustc -V
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-player-ubuntu26-v1
+          # Same-repository PR writes stay in that PR's cache scope; forks never save.
+          save-on-pull-request: true
+          save-on-workflow-dispatch: true
+      - name: Record player Route timing
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-player-route-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon::two_owner_tests::loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_certificate -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+          retry_log="$RUNNER_TEMP/native-player-route-retry-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication -- --exact --nocapture 2>&1 | tee "$retry_log"
+          grep -Fxq "running 1 test" "$retry_log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$retry_log"
+      - name: player-tests
+        run: mbx test --locked --no-fail-fast -p benilla-formats -p benilla-app --no-default-features --lib
+
+      - name: Report unavailable data checks
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s "$BENILLA_SKIP_LOG" ]]; then
+            echo "### Data-dependent test coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
+            sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Preserve the existing required check: neither feature graph may be skipped or fail.
+  gates:
+    if: always()
+    needs: [workspace-gates, player-gates]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every gate job to succeed
+        env:
+          WORKSPACE_RESULT: ${{ needs.workspace-gates.result }}
+          PLAYER_RESULT: ${{ needs.player-gates.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$WORKSPACE_RESULT" = success
+          test "$PLAYER_RESULT" = success
