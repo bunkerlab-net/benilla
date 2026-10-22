@@ -4,6 +4,7 @@
 import importlib.util
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -245,9 +246,45 @@ class ExactProofTests(unittest.TestCase):
 
     def test_fixture_gate_is_wired_before_compilation(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        self.assertEqual(workflow.count("run: python3 scripts/test-verify-libtest-output.py"), 1)
-        self.assertLess(workflow.index("- name: Test exact libtest proof gates"), workflow.index("- name: clippy"))
+        command = "run: python3 scripts/test-verify-libtest-output.py"
+        fixture_step = "- name: Test exact libtest proof gates\n        " + command
+
+        def assert_wired(job):
+            steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
+            self.assertEqual(job.count(command), 1)
+            # Exact step shape also rejects conditional or continue-on-error gates.
+            gates = [i for i, step in enumerate(steps) if step.strip() == fixture_step]
+            self.assertEqual(len(gates), 1)
+            compilation = [
+                i for i, step in enumerate(steps)
+                if re.search(r"\b(?:mbx|cargo)\s+(?:build|check|clippy|test|rustc|doc)\b", step)
+            ]
+            self.assertTrue(compilation)
+            self.assertLess(gates[0], min(compilation))
+
+        for name in ("workspace-gates", "player-gates"):
+            with self.subTest(job=name):
+                jobs = re.findall(
+                    rf"^  {re.escape(name)}:\n(.*?)(?=^  \S|\Z)",
+                    workflow, flags=re.MULTILINE | re.DOTALL,
+                )
+                self.assertEqual(len(jobs), 1)
+                job = jobs[0]
+                assert_wired(job)
+                gate = "      " + fixture_step + "\n"
+                # Mutation checks prevent accepting two gates in one job while
+                # the other job has none, or a gate after compilation.
+                for bad in (
+                    job.replace(gate, ""),
+                    job.replace(gate, gate + gate),
+                    job.replace(gate, "") + gate,
+                    job.replace(gate, gate + "        if: false\n"),
+                    job.replace(gate, gate + "        continue-on-error: true\n"),
+                ):
+                    with self.assertRaises(AssertionError):
+                        assert_wired(bad)
 
 
 if __name__ == "__main__":
     unittest.main()
+
