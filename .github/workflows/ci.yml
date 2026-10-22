@@ -91,6 +91,16 @@ jobs:
             mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" "$test"
           done
+      - name: Verify world API boundary and public camera presentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/world-api-doorway.log"
+          mbx test --locked -p benilla-app --test world_api_wall the_world_api_doorway_stays_shut -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" the_world_api_doorway_stays_shut
+          log="$RUNNER_TEMP/world-camera-presentation.log"
+          mbx test --locked -p benilla-world --lib view::tests::a_reader_in_present_sees_this_frames_camera -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" view::tests::a_reader_in_present_sees_this_frames_camera
       - name: Verify navigation helper prerequisite
         shell: bash
         run: |

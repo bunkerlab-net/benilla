@@ -1069,12 +1069,11 @@ pub(super) fn plugin(app: &mut App) {
             Update,
             (
                 // Attachment readers run after this frame's rig construction/reseating and
-                // on-demand quest-marker anchors, and after Update's camera-global publisher.
+                // on-demand quest-marker anchors. Present supplies the engine's camera pose.
                 pump_channels
                     .in_set(benilla_world::schedule::WorldStage::Present)
                     .after(crate::entities::EntityVisualsSet)
-                    .after(crate::quest_markers::QuestMarkerBuildSet)
-                    .after(benilla_world::view::CameraPoseSet),
+                    .after(crate::quest_markers::QuestMarkerBuildSet),
                 apply_kit_debug,
                 evict_kit_cache,
             ),
