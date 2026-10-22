@@ -20,6 +20,8 @@ use local_corridor::LocalCorridor;
 pub(crate) mod real_corridor_fixture;
 pub(crate) mod route_commit;
 mod source_cache_reconstruction;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(crate) use source_cache_reconstruction::CompletedReconstruction;
 mod source_creature_initialization;
 mod source_ground_height;
 mod source_location;
@@ -624,3 +626,6 @@ mod tests {
         assert_eq!(app.world().resource::<Order>().0, [1, 2, 3]);
     }
 }
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod source_route_resident_restart;

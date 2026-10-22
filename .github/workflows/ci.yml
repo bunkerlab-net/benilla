@@ -147,6 +147,20 @@ jobs:
             mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" "$test"
           done
+      - name: Verify bounded fresh resident recipe restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-recipe-restart.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_restart:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_fresh_recipe_replay_then_third_epoch_matches_uninterrupted \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_cancelled_replay_releases_all_owners_without_publication \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_expired_replay_releases_all_owners_without_publication \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_late_failure_after_cold_prefix_preserves_committed_bytes \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_full_record_mismatch_rejects_before_publication \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_changed_consumed_source_after_cold_prefix_refuses_replay \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_tampered_envelope_refuses_before_publication
       - name: Verify native retained detail provenance
         shell: bash
         run: |

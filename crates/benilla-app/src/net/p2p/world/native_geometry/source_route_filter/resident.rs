@@ -664,6 +664,16 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
     }
 
     #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn liveness_for_reconstruction_test(
+        &self,
+    ) -> (std::rc::Weak<()>, std::rc::Weak<()>) {
+        (
+            Rc::downgrade(&self.identity),
+            self.query.reconstruction_liveness(),
+        )
+    }
+
+    #[cfg(all(test, not(benilla_headless_geometry)))]
     #[allow(dead_code, reason = "app-only resident controller component fixture")]
     pub(crate) fn ledger_identity(
         &self,

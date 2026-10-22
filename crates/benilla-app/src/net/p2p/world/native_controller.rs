@@ -286,6 +286,18 @@ impl NativeController {
                 (store, world, projection)
             }
         };
+        Self::from_component_parts(world, projection, store.into(), selected, authority)
+    }
+
+    /// Assemble only an already-validated test world; production entry remains uninhabited.
+    #[cfg(test)]
+    fn from_component_parts(
+        world: n::NativeWorld,
+        projection: NativeProjection,
+        store: store::Store,
+        selected: Selection,
+        authority: impl n::Authority + Send + 'static,
+    ) -> Result<Self, Error> {
         let mut orders = MovementOrders::new_session();
         let initial =
             projection.initial_events_with_movement_orders(&world, &mut orders.counter)?;
@@ -308,7 +320,7 @@ impl NativeController {
             admin_bridge: None,
             world,
             projection,
-            store: store.into(),
+            store,
             selected,
             published_pose,
             authority: LocalAuthority(Box::new(authority)),

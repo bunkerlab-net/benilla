@@ -158,6 +158,11 @@ pub(crate) fn geometry_revision(binding: SnapshotBinding) -> [u8; 32] {
     hash.finalize().into()
 }
 impl SourcePathfinderQueryProvider {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn reconstruction_liveness(&self) -> std::rc::Weak<()> {
+        Rc::downgrade(&self.identity)
+    }
+
     pub(crate) fn bind(
         session: &Session,
         profile: &Profile,

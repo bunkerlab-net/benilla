@@ -107,3 +107,47 @@ pub(super) fn reconstruct<A: ReconstructionAuthority>(
     world.checkpoint_committed(&checkpoint)?;
     Ok((store, world, authority))
 }
+
+/// Single-use component handoff, constructible only after complete fresh replay.
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(crate) struct CompletedReconstruction<A> {
+    store: RecipeStore,
+    world: NativeWorld,
+    authority: A,
+    boundary: RouteCommitBoundary,
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+impl<A> CompletedReconstruction<A> {
+    pub(super) fn detach_authority(self) -> (CompletedReconstruction<()>, A) {
+        (
+            CompletedReconstruction {
+                store: self.store,
+                world: self.world,
+                authority: (),
+                boundary: self.boundary,
+            },
+            self.authority,
+        )
+    }
+
+    pub(crate) fn into_parts(self) -> (RecipeStore, NativeWorld, A, RouteCommitBoundary) {
+        (self.store, self.world, self.authority, self.boundary)
+    }
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(super) fn reconstruct_completed<A: ReconstructionAuthority>(
+    store: RecipeStore,
+    recipe: &Recipe,
+    world: NativeWorld,
+    authority: A,
+) -> Result<CompletedReconstruction<A>, NativeError> {
+    let (store, world, mut authority) = reconstruct(store, recipe, world, authority)?;
+    let boundary = authority.route_state().2.clone();
+    boundary.validate_world(&world)?;
+    Ok(CompletedReconstruction {
+        store,
+        world,
+        authority,
+        boundary,
+    })
+}

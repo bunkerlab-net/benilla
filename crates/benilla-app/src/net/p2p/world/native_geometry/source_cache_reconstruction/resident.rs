@@ -51,6 +51,9 @@ impl ReconstructionRouteOwner for ResidentReconstructionOwner<'_, '_, '_, '_> {
     }
 }
 
+#[path = "resident/live.rs"]
+mod live;
+
 #[cfg(test)]
 #[path = "resident/tests.rs"]
 mod tests;

@@ -3,7 +3,7 @@
 //! exclusively from the supplied channels, never from this presentation catalog.
 use super::*;
 use benilla_sim::creature_init as init;
-use benilla_world_store::native::reconstruction::RecipeStore;
+use benilla_world_store::native::reconstruction::{Recipe, RecipeStore};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Fixture {
@@ -46,11 +46,12 @@ impl Fixture {
         let checkpoint = controller.world.checkpoint()?;
         let path = world_path(&driver._harness.root, controller.world.state().world)?
             .with_extension("recipe");
-        let (recipe, receipt) = RecipeStore::create(path, &controller.world)?;
+        let (recipe, receipt) = RecipeStore::create(&path, &controller.world)?;
         assert_eq!(recipe.identity(), &Identity::of(&checkpoint));
         assert_eq!(recipe.recipe().expected_checkpoint(), &checkpoint);
         receipt.acknowledge(&mut controller.world)?;
         controller.store = store::Store::Recipe(Box::new(recipe));
+        driver.recipe_path = Some(path);
         Ok(driver)
     }
     /// The source owner initializes this world using the already-selected player.
@@ -85,22 +86,219 @@ impl Fixture {
         assert_eq!(controller.world.checkpoint()?, checkpoint);
         Ok(Driver {
             controller,
+            recipe_path: None,
             _harness: self.harness,
         })
+    }
+}
+
+/// Inert persisted recipe bytes, never a retained runtime or loaded route owner.
+pub(crate) struct RecipeArchive {
+    root: PathBuf,
+    path: PathBuf,
+    profile: n::Profile,
+    player: PlayerId,
+    world: WorldId,
+    recipe: Recipe,
+    generation: u64,
+}
+
+impl RecipeArchive {
+    pub(crate) fn checkpoint(&self) -> &n::Checkpoint {
+        self.recipe.expected_checkpoint()
+    }
+    pub(crate) fn recipe(&self) -> &Recipe {
+        &self.recipe
+    }
+}
+
+/// Keeps the selected identity and directory alive after the actual controller is dropped.
+pub(crate) struct Capture {
+    archive: RecipeArchive,
+    harness: Harness,
+}
+impl Capture {
+    pub(crate) fn path(&self) -> &Path {
+        &self.archive.path
+    }
+    pub(crate) fn profile(&self) -> &n::Profile {
+        &self.archive.profile
+    }
+    pub(crate) fn player(&self) -> PlayerId {
+        self.archive.player
+    }
+    pub(crate) fn world_id(&self) -> WorldId {
+        self.archive.world
+    }
+    pub(crate) fn checkpoint(&self) -> &n::Checkpoint {
+        self.archive.recipe.expected_checkpoint()
+    }
+    pub(crate) fn expected_checkpoint(&self) -> &n::Checkpoint {
+        self.checkpoint()
+    }
+    pub(crate) fn recipe(&self) -> &Recipe {
+        &self.archive.recipe
+    }
+    pub(crate) fn select_archive(mut self, archive: RecipeArchive) -> Self {
+        assert_eq!(archive.root, self.harness.root);
+        assert_eq!(archive.profile, self.archive.profile);
+        assert_eq!(archive.player, self.archive.player);
+        assert_eq!(archive.world, self.archive.world);
+        assert!(
+            archive.recipe.expected_checkpoint().identity().tick
+                <= self.checkpoint().identity().tick
+        );
+        self.archive = archive;
+        self
+    }
+    /// Only successful, sealed source reconstruction can provide these live parts.
+    /// The paired channel sink continues its already-acknowledged fresh session.
+    pub(crate) fn resume<A>(
+        self,
+        completed: crate::net::p2p::native_geometry::CompletedReconstruction<A>,
+        authority: impl n::Authority + Send + 'static,
+        sink: impl RouteCommitSink + 'static,
+    ) -> Result<(Driver, A), Error> {
+        let (recipe, world, owner, boundary) = completed.into_parts();
+        let selected = Selection::from_profile(&self.harness.profile, &self.harness.character)?;
+        assert_eq!(selected.player, self.player());
+        assert_eq!(world.state().player, self.player());
+        assert_eq!(world.state().world, self.world_id());
+        assert_eq!(world.profile(), self.profile());
+        assert!(world.records().is_empty());
+        assert_eq!(&world.checkpoint()?, self.checkpoint());
+        assert_eq!(recipe.identity(), &Identity::of(self.checkpoint()));
+        assert_eq!(recipe.recipe(), &self.archive.recipe);
+        assert_eq!(recipe.generation(), self.archive.generation);
+        assert!(!recipe.requires_reopen());
+        let catalog = ResidentCatalog::new(&world);
+        let projection = NativeProjection::new(&world, selected.player, &catalog)?;
+        let mut controller = NativeController::from_component_parts(
+            world,
+            projection,
+            store::Store::Recipe(Box::new(recipe)),
+            selected,
+            authority,
+        )?;
+        controller.route_commit = Some(RouteCommitState {
+            sink: Box::new(sink),
+            boundary,
+            initialized: true,
+            pending: None,
+        });
+        Ok((
+            Driver {
+                controller,
+                recipe_path: Some(self.archive.path),
+                _harness: self.harness,
+            },
+            owner,
+        ))
     }
 }
 
 pub(crate) struct Driver {
     // Drop the exclusive world lock before the harness removes its test directory.
     controller: NativeController,
+    recipe_path: Option<PathBuf>,
     _harness: Harness,
 }
 impl Driver {
+    fn checked_recipe_archive(&self) -> RecipeArchive {
+        let controller = &self.controller;
+        assert!(controller.pause.is_none());
+        assert!(controller.pending.is_none());
+        assert!(controller.outbox.is_none());
+        assert!(controller.actions.is_empty());
+        assert!(!controller.closed && !controller.closing);
+        assert!(controller
+            .route_commit
+            .as_ref()
+            .is_some_and(|commit| commit.initialized && commit.pending.is_none()));
+        assert!(controller.world.records().is_empty());
+        assert_eq!(controller.saved_tick, controller.world.state().tick);
+        let checkpoint = controller.world.checkpoint().unwrap();
+        let store::Store::Recipe(recipe) = &controller.store else {
+            panic!("recipe capture required")
+        };
+        assert!(!recipe.requires_reopen());
+        assert_eq!(recipe.identity(), &Identity::of(&checkpoint));
+        assert_eq!(recipe.recipe().expected_checkpoint(), &checkpoint);
+        RecipeArchive {
+            root: self._harness.root.clone(),
+            path: self.recipe_path.clone().expect("recipe directory"),
+            profile: controller.world.profile().clone(),
+            player: controller.selected.player,
+            world: controller.world.state().world,
+            recipe: recipe.recipe().clone(),
+            generation: recipe.generation(),
+        }
+    }
+    /// Snapshot only committed disk bytes while the baseline controller continues.
+    pub(crate) fn snapshot_recipe_for_restart(&self) -> RecipeArchive {
+        let mut archive = self.checked_recipe_archive();
+        assert!(!archive.path.join(".world-checkpoint.pending").exists());
+        let path = archive.path.with_extension(format!(
+            "recipe-archive-{}",
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&path).unwrap();
+        fs::copy(
+            archive.path.join("world.checkpoint"),
+            path.join("world.checkpoint"),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(archive.path.join("world.checkpoint")).unwrap(),
+            fs::read(path.join("world.checkpoint")).unwrap(),
+        );
+        let previous = archive.path.join("world.previous");
+        if previous.exists() {
+            fs::copy(&previous, path.join("world.previous")).unwrap();
+            assert_eq!(
+                fs::read(previous).unwrap(),
+                fs::read(path.join("world.previous")).unwrap()
+            );
+        }
+        assert!(!path.join("world.lock").exists());
+        assert!(!path.join(".world-checkpoint.pending").exists());
+        archive.path = path;
+        archive
+    }
+    /// Retire the actual controller and exclusive store lease, retaining only saved inputs.
+    pub(crate) fn into_recipe_capture(self) -> Capture {
+        let archive = self.checked_recipe_archive();
+        let Self {
+            controller,
+            _harness: harness,
+            ..
+        } = self;
+        drop(controller);
+        // Prove release of the original controller's lease, not only access to a copy.
+        let bytes = fs::read(archive.path.join("world.checkpoint")).unwrap();
+        let (reopened, actual) = RecipeStore::open(
+            &archive.path,
+            Identity::of(archive.checkpoint()),
+            |anchor| {
+                n::NativeWorld::restore_synthetic_component_test(archive.profile.clone(), anchor)
+            },
+        )
+        .unwrap();
+        assert_eq!(actual, archive.recipe);
+        assert_eq!(reopened.generation(), archive.generation);
+        assert_eq!(
+            fs::read(archive.path.join("world.checkpoint")).unwrap(),
+            bytes
+        );
+        drop(reopened);
+        Capture { archive, harness }
+    }
     /// Receipt-only readback proves durable capture, not a reconstructed live owner.
     pub(crate) fn assert_recipe_readback(self) {
         let Self {
             controller,
             _harness: harness,
+            recipe_path,
         } = self;
         assert!(controller.pause.is_none());
         assert!(controller.pending.is_none());
@@ -137,9 +335,7 @@ impl Driver {
         );
         let expected = recipe.recipe().clone();
         let generation = recipe.generation();
-        let path = world_path(&harness.root, controller.world.state().world)
-            .unwrap()
-            .with_extension("recipe");
+        let path = recipe_path.expect("recipe directory");
         let bytes = fs::read(path.join("world.checkpoint")).unwrap();
         assert!(
             RecipeStore::open(&path, identity.clone(), |anchor| {
