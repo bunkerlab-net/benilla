@@ -970,6 +970,49 @@ pub(crate) mod schedule_tests {
         }
     }
 
+    #[test]
+    fn attached_audio_reads_after_rig_anchor_and_camera_pose_writers() {
+        let mut app = headless_client();
+        let graph = census(&mut app, Update, SyncPoints::Declared);
+        if !type_names_available(&graph) {
+            return; // The separate ID-based ambiguity ratchet also runs in player builds.
+        }
+        let key = |suffix: &str| {
+            graph
+                .systems
+                .iter()
+                .find_map(|(key, system)| system.name.ends_with(suffix).then_some(*key))
+                .unwrap_or_else(|| panic!("missing system {suffix}"))
+        };
+        let pump = key("::sound::kit::pump_channels");
+        for producer in [
+            "::entities::attach::attach_entity_visuals",
+            "::entities::equipment::spawn::attach_held_items",
+            "::entities::spell_fx::attach_spell_fx",
+            "::entities::attach::redress::redress_player_looks",
+            "::entities::mount::reseat_mounts",
+            "::quest_markers::build_markers",
+            "::view::publish_camera_pose",
+        ] {
+            let mut seen = HashSet::new();
+            let mut pending = vec![key(producer)];
+            while let Some(system) = pending.pop() {
+                if seen.insert(system) {
+                    pending.extend(
+                        graph
+                            .dependencies
+                            .iter()
+                            .filter_map(|(from, to)| (*from == system).then_some(*to)),
+                    );
+                }
+            }
+            assert!(
+                seen.contains(&pump),
+                "{producer} must precede attached audio"
+            );
+        }
+    }
+
     /// Recovery uses the shared glue art and this frame's window snapshot, like the settings
     /// painter: after screen preparation and input, before pending video changes are committed.
     #[test]

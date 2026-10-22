@@ -76,6 +76,21 @@ jobs:
             mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" "$test"
           done
+      - name: Verify attached audio ordering and schedule ambiguity
+        shell: bash
+        env:
+          WOW_AMBIGUITY_DUMP: '1'
+        run: |
+          set -euo pipefail
+          tests=(
+            game_plugins::schedule_tests::attached_audio_reads_after_rig_anchor_and_camera_pose_writers
+            game_plugins::schedule_tests::the_schedules_have_no_more_undeclared_orders_than_the_ceilings_say
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify navigation helper prerequisite
         shell: bash
         run: |

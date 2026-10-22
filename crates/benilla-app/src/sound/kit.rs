@@ -1068,7 +1068,13 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                pump_channels.in_set(benilla_world::schedule::WorldStage::Present),
+                // Attachment readers run after this frame's rig construction/reseating and
+                // on-demand quest-marker anchors, and after Update's camera-global publisher.
+                pump_channels
+                    .in_set(benilla_world::schedule::WorldStage::Present)
+                    .after(crate::entities::EntityVisualsSet)
+                    .after(crate::quest_markers::QuestMarkerBuildSet)
+                    .after(benilla_world::view::CameraPoseSet),
                 apply_kit_debug,
                 evict_kit_cache,
             ),
