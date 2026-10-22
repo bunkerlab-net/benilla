@@ -2,12 +2,13 @@
 //! driving the `"create"` preview booth, with art, captions and sounds read from the player's
 //! install. This file holds the selection state, input and the wire.
 
+#[cfg(test)]
+#[path = "tests.rs"]
+mod appearance_tests;
 mod panels;
 mod parts;
 mod refresh;
 mod screen;
-#[cfg(test)]
-mod tests;
 
 use benilla_protocol::{CharAction, CharCreateReq};
 use benilla_ui::widget::EditBoxState;

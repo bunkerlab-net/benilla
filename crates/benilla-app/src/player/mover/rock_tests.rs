@@ -112,7 +112,7 @@ fn walk(mut app: App, start: Vec3, direction: Vec3, hz: u32) -> Vec<Vec3> {
                     );
                     player.pos
                 })
-                .collect()
+                .collect::<Vec<_>>()
         })
         .unwrap()
 }

@@ -135,10 +135,10 @@ jobs:
           tests=(
             net::p2p::profile::appearance_tests::stock_random_cycle_and_body_switches_reach_profile_for_all_classic_bodies
             net::p2p::profile::appearance_tests::zero_or_missing_catalog_choices_are_not_synthesized_as_zero
-            char_create::tests::hair_style_changes_clamp_color_and_color_cycles_use_current_style
-            char_create::tests::race_or_gender_change_clamps_style_before_color
-            char_create::tests::repeated_randomization_uses_the_new_style_color_range
-            char_create::tests::missing_catalog_has_single_zero_choice_after_all_operations
+            char_create::appearance_tests::hair_style_changes_clamp_color_and_color_cycles_use_current_style
+            char_create::appearance_tests::race_or_gender_change_clamps_style_before_color
+            char_create::appearance_tests::repeated_randomization_uses_the_new_style_color_range
+            char_create::appearance_tests::missing_catalog_has_single_zero_choice_after_all_operations
           )
           for test in "${tests[@]}"; do
             log="$RUNNER_TEMP/${test//::/-}.log"
