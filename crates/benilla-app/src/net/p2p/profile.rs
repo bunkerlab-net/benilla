@@ -72,18 +72,18 @@ impl AvatarCatalog {
             look.hair_color,
             look.facial_hair,
         ];
+        // The source catalog rejects zero dial counts; a style with no colours has no row.
         if !body.classes.contains(&class)
             || values
                 .iter()
                 .zip(body.ranges)
-                .any(|(&value, count)| value >= count.max(1))
+                .any(|(&value, count)| value >= count)
             || look.hair_color
                 >= body
                     .hair_colors
                     .get(usize::from(look.hair_style))
                     .copied()
                     .unwrap_or(0)
-                    .max(1)
         {
             bail!("character appearance is unavailable in this client install");
         }
@@ -407,3 +407,7 @@ pub(super) fn browse(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "profile_appearance_tests.rs"]
+mod appearance_tests;

@@ -125,6 +125,26 @@ jobs:
             mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" "$test"
           done
+      - name: Verify all-race appearance choices and Random paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/glue-hair-color-counts.log"
+          mbx test --locked -p benilla-ui --lib script::glue_create::tests::a_hair_colour_counts_its_styles_colours -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" script::glue_create::tests::a_hair_colour_counts_its_styles_colours
+          tests=(
+            net::p2p::profile::appearance_tests::stock_random_cycle_and_body_switches_reach_profile_for_all_classic_bodies
+            net::p2p::profile::appearance_tests::zero_or_missing_catalog_choices_are_not_synthesized_as_zero
+            char_create::tests::hair_style_changes_clamp_color_and_color_cycles_use_current_style
+            char_create::tests::race_or_gender_change_clamps_style_before_color
+            char_create::tests::repeated_randomization_uses_the_new_style_color_range
+            char_create::tests::missing_catalog_has_single_zero_choice_after_all_operations
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
       - name: Verify moving character voice emitters
         shell: bash
         run: |
