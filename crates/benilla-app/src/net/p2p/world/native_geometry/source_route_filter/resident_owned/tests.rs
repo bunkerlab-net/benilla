@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Actual component runtime commits across source-view scopes, not durable controller saves.
 use super::super::super::super::{
-    core::{mailbox, SourceObservationTestWork},
+    core::{mailbox, resident_dispatch::ResidentDispatchWork},
     products::{
         source_height::{
             owned::freshness::{CaptureFreshnessWorker, FreshnessObservation, FreshnessPoll},
@@ -315,7 +315,7 @@ impl Authority for Consumer {
 struct ReadySources {
     _worker: CaptureFreshnessWorker,
     _mailbox: super::super::super::super::core::Mailbox,
-    work: SourceObservationTestWork,
+    work: ResidentDispatchWork,
     observation: FreshnessObservation,
 }
 impl ReadySources {
@@ -328,14 +328,8 @@ impl ReadySources {
     ) -> Result<Facts, ResidentFilterError> {
         // Physics is advanced after polling, not inferred fresh from a new borrow.
         geometry.advance_physics();
-        owner.certify_observed(
-            self.observation,
-            &self.work.lease(),
-            geometry.app.world_mut(),
-            installed,
-            f::player(),
-            deadline,
-        )
+        let job = self.work.job(&self._mailbox, owner, deadline)?;
+        owner.certify_observed(self.observation, job, geometry.app.world_mut(), installed)
     }
 }
 
@@ -347,14 +341,20 @@ fn observe_sources(
 ) -> ReadySources {
     let (_client, mailbox) = mailbox(session.clone()).unwrap();
     let deadline = fixture::until();
-    let work = mailbox
-        .capture_source_observation_test_work(profile, 701, request.clone(), deadline)
-        .unwrap();
-    let lease = work.lease();
+    let work = ResidentDispatchWork::capture(
+        &mailbox,
+        owner,
+        profile,
+        f::player(),
+        701,
+        request.clone(),
+        deadline,
+    )
+    .unwrap();
+    let job = work.job(&mailbox, owner, deadline).unwrap();
+    let lease = job.lease();
     let mut worker = CaptureFreshnessWorker::new().unwrap();
-    worker
-        .try_enqueue(Arc::clone(&owner.products), lease.clone())
-        .unwrap();
+    owner.enqueue_observation(job, &mut worker).unwrap();
     loop {
         match worker.try_poll() {
             FreshnessPoll::Pending => {

@@ -3132,3 +3132,7 @@ pub(crate) use route_body_tests::assert_loaded_quest_body_real_slice_progress;
 #[cfg(test)]
 #[path = "source_location_mailbox_tests.rs"]
 mod source_location_mailbox_tests;
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "resident_dispatch.rs"]
+pub(crate) mod resident_dispatch;

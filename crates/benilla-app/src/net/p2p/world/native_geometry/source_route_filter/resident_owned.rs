@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Component-only retained query owner. No Service, publication callback or replacement API.
 use super::super::super::{
-    core::JobLease,
+    core::resident_dispatch::ResidentDispatchJob,
     products::source_height::{
         inventory::{InventoryCompatibility, OwnedInventoryCompatibility},
-        owned::{freshness::FreshnessObservation, OwnedSourceProducts},
+        owned::{
+            freshness::{CaptureFreshnessWorker, EnqueueError, FreshnessObservation},
+            OwnedSourceProducts,
+        },
     },
     route_commit::{RouteCommitBoundary, RouteCommitNotice},
     source_route_resident_local::ledger::ResidentLedger,
@@ -20,6 +23,8 @@ pub(crate) struct OwnedResident {
     inventory: OwnedInventoryCompatibility,
     state: ResidentFilterState,
     ledger: ResidentLedger,
+    identity: ResidentProviderIdentity,
+    player: PlayerId,
 }
 impl OwnedResident {
     #[allow(clippy::too_many_arguments)]
@@ -35,7 +40,7 @@ impl OwnedResident {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, ResidentFilterError> {
-        let (state, ledger) = products
+        let (state, ledger, identity) = products
             .with_height(
                 || cancelled() || Instant::now() >= deadline,
                 |height| {
@@ -60,10 +65,11 @@ impl OwnedResident {
                             &compatibility,
                             deadline,
                         )?;
+                        let identity = provider.ledger_identity(session, profile)?;
                         let ResidentStateStorage::Owned(state, _) = provider.state else {
                             unreachable!("bind creates owned state")
                         };
-                        Ok((state, ledger))
+                        Ok((state, ledger, identity))
                     })();
                     Ok(result)
                 },
@@ -74,6 +80,8 @@ impl OwnedResident {
             inventory,
             state,
             ledger,
+            identity,
+            player,
         })
     }
 
@@ -115,6 +123,7 @@ impl OwnedResident {
             inventory,
             state,
             ledger,
+            ..
         } = self;
         products
             .with_height(
@@ -237,19 +246,23 @@ impl OwnedResident {
     pub(crate) fn certify_observed(
         &mut self,
         observation: FreshnessObservation,
-        lease: &JobLease,
+        job: ResidentDispatchJob<'_>,
         world: &mut World,
         installed: &NativeInventorySource,
-        player: PlayerId,
-        invocation_deadline: Instant,
     ) -> Result<Facts, ResidentFilterError> {
+        job.require_resident(self)?;
+        let player = job.player();
         // bind creates this unique allocation; moving the resident preserves it.
         let products = Arc::clone(&self.products);
         observation.with_current(
             &products,
-            lease,
-            invocation_deadline,
+            &job.lease(),
+            job.deadline(),
             |context, deadline, cancelled| {
+                job.require_resident(self)?;
+                if !std::ptr::eq(context, job.request()) || job.profile() != &self.state.profile {
+                    return Err(Failure::Binding.into());
+                }
                 let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
                     return Err(Failure::Binding.into());
                 };
@@ -260,6 +273,37 @@ impl OwnedResident {
                 }
             },
         )
+    }
+
+    /// Only the provider minted this identity during bind; no source I/O or
+    /// synthetic allocation token is introduced when capturing a dispatch.
+    pub(crate) fn dispatch_selection(
+        &self,
+    ) -> (&ResidentProviderIdentity, &Session, &Profile, PlayerId) {
+        (
+            &self.identity,
+            &self.state.session,
+            &self.state.profile,
+            self.player,
+        )
+    }
+
+    pub(crate) fn enqueue_observation(
+        &self,
+        job: ResidentDispatchJob<'_>,
+        worker: &mut CaptureFreshnessWorker,
+    ) -> Result<(), ResidentFilterError> {
+        job.require_resident(self)?;
+        worker
+            .try_enqueue(Arc::clone(&self.products), job.lease())
+            .map_err(|error| {
+                match error {
+                    EnqueueError::Busy => Failure::QueueCapacity,
+                    EnqueueError::Inactive => Failure::Deadline,
+                    EnqueueError::Stopped => Failure::Binding,
+                }
+                .into()
+            })
     }
 
     pub(crate) fn initialize(&mut self, boundary: &RouteCommitBoundary) -> Result<(), Failure> {

@@ -508,6 +508,9 @@ pub(crate) struct ResidentProviderIdentity {
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[allow(dead_code, reason = "app-only resident controller component fixture")]
 impl ResidentProviderIdentity {
+    pub(crate) fn same_allocation(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.allocation, &other.allocation)
+    }
     pub(crate) fn matches(&self, provider: &ResidentFilterProvider<'_, '_, '_, '_>) -> bool {
         Rc::ptr_eq(&self.allocation, &provider.identity)
     }
