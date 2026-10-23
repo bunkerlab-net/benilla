@@ -83,7 +83,9 @@ jobs:
           python3 scripts/verify-libtest-output.py "$log" \
             products::source_height::owned::tests::owned_sources_move_outlive_borrowed_views_and_preserve_exact_height \
             products::source_height::owned::tests::owned_sources_recheck_after_reader_and_preserve_cancellation \
-            products::source_height::owned::tests::owned_sources_refuse_changed_or_missing_sources_before_reader
+            products::source_height::owned::tests::owned_sources_refuse_changed_or_missing_sources_before_reader \
+            products::source_height::owned::tests::owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves \
+            products::source_height::owned::tests::owned_sources_construction_refuses_cancellation_changed_and_deleted_sources
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy

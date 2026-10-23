@@ -43,6 +43,8 @@ SUITES = {
             "owned_sources_move_outlive_borrowed_views_and_preserve_exact_height",
             "owned_sources_recheck_after_reader_and_preserve_cancellation",
             "owned_sources_refuse_changed_or_missing_sources_before_reader",
+            "owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves",
+            "owned_sources_construction_refuses_cancellation_changed_and_deleted_sources",
         ),
     ),
     "Verify joined resident installed corridor": (
