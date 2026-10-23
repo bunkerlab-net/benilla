@@ -1828,18 +1828,22 @@ impl Mailbox {
         ticket: u64,
         request: AuthorityRequest,
     ) -> Result<(JobLease, ServiceTestReply), Failure> {
+        self.enqueue_service_test_request_until(ticket, request, Instant::now() + WAIT)
+    }
+    /// Test-only initial absolute deadline, not a replacement or renewal of a lease.
+    #[cfg(test)]
+    pub(super) fn enqueue_service_test_request_until(
+        &self,
+        ticket: u64,
+        request: AuthorityRequest,
+        deadline: Instant,
+    ) -> Result<(JobLease, ServiceTestReply), Failure> {
         self.session.body(&request)?;
         if !self.active.load(Ordering::Acquire) {
             return Err(Failure::Binding);
         }
         let (reply, receive) = bounded(1);
-        let work = Work::new(
-            ticket,
-            request,
-            Instant::now() + WAIT,
-            reply,
-            self.active.clone(),
-        );
+        let work = Work::new(ticket, request, deadline, reply, self.active.clone());
         let lease = work.lease();
         self.retry
             .try_send(work)

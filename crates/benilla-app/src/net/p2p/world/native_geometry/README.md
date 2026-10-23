@@ -54,6 +54,17 @@ Terrain freshness cooperatively polls cancellation between resolver operations, 
 both app and independent fixed-five archive checks; an individual open/read/decompression
 remains blocking. Typed cancellation rejects the scope without changing source evidence.
 
+A separate test-only worker shares only the immutable source-product allocation through
+`Arc`. It performs the same source freshness operation off the caller thread, retaining
+the original job lease and absolute deadline. Enqueue/poll use bounded nonblocking
+channels; cancellation never frees a still-running slot or starts a replacement thread.
+That bound is per constructed worker, not a process-wide worker admission policy.
+Dropping the worker signals retirement without joining a blocked source read. Its
+single-use result is only a historical observation, bound to the exact allocation and
+job, not a freshness capability or permission to certify. Native queries, scoped views,
+ECS state and ledgers never cross the thread boundary. All existing synchronous
+certification checks still run, so this is not a nonblocking gameplay integration.
+
 Short-lived views never rebind or replace the resident native query. Read-only scopes
 and bounded cold/retained calculations cannot publish a ledger head. A failed operation
 may retain constructor work or an uncommitted candidate; it is not a transaction rollback.

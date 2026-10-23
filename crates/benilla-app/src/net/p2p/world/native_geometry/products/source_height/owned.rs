@@ -6,6 +6,8 @@ use benilla_native_terrain::PreparedTerrain;
 use benilla_native_vmap_source::AssembledSourceMap;
 use std::collections::BTreeMap;
 
+pub(crate) mod freshness;
+
 pub(crate) struct OwnedSourceProducts {
     terrain: PreparedTerrain,
     collision: OwnedTileCollision,
@@ -47,16 +49,25 @@ impl OwnedSourceProducts {
             &PreparedSourceHeight<'view, 'view, 'static>,
         ) -> Result<T, CompositionError>,
     ) -> Result<T, CompositionError> {
-        let height = PreparedSourceHeight {
-            terrain: &self.terrain,
-            collision: self.collision.view(),
-            tiles: TerrainStorage::Borrowed(&self.tiles),
-            binding: self.binding,
-        };
+        let height = self.view();
         height.verify_unchanged(&cancelled)?;
         let result = read(&height)?;
         height.verify_unchanged(&cancelled)?;
         Ok(result)
+    }
+
+    /// Source observation only; the scoped view never survives this call.
+    fn verify_sources(&self, cancelled: impl Fn() -> bool) -> Result<(), CompositionError> {
+        self.view().verify_unchanged(cancelled)
+    }
+
+    fn view(&self) -> PreparedSourceHeight<'_, '_, 'static> {
+        PreparedSourceHeight {
+            terrain: &self.terrain,
+            collision: self.collision.view(),
+            tiles: TerrainStorage::Borrowed(&self.tiles),
+            binding: self.binding,
+        }
     }
 }
 

@@ -12,9 +12,10 @@ use super::*;
 use benilla_formats::NativeInventorySource;
 use benilla_world_runtime::{native::Facts, PlayerId};
 use bevy::prelude::World;
+use std::sync::Arc;
 
 pub(crate) struct OwnedResident {
-    products: OwnedSourceProducts,
+    products: Arc<OwnedSourceProducts>,
     inventory: OwnedInventoryCompatibility,
     state: ResidentFilterState,
     ledger: ResidentLedger,
@@ -68,7 +69,7 @@ impl OwnedResident {
             )
             .map_err(ResidentFilterError::Source)??;
         Ok(Self {
-            products,
+            products: Arc::new(products),
             inventory,
             state,
             ledger,

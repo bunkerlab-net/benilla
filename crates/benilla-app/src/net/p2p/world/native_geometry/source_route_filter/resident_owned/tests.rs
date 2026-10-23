@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Actual component runtime commits across source-view scopes, not durable controller saves.
 use super::super::super::super::{
+    core::mailbox,
     products::{
         source_height::{
+            owned::freshness::{CaptureFreshnessWorker, FreshnessPoll},
             preparation_counts::{measure, Counts},
             CompositionError, ResidentInitializationConfiguration,
         },
@@ -88,6 +90,7 @@ struct Consumer {
     authored: SyntheticMotionAuthority,
     routes: Vec<AuthorityRequest>,
     constructor: Option<(usize, benilla_native_nav::SourceMapQuerySlot, usize)>,
+    foreign_index: Option<NativeStaticMapIndex>,
 }
 impl Consumer {
     fn installed(&self) -> NativeInventorySource {
@@ -160,6 +163,39 @@ impl Authority for Consumer {
                         .unwrap()
                         .first_construction());
                     assert!(route.request.prior_cache.is_none());
+                    observe_sources(&self.owner, &self.session, request);
+                    assert_eq!(self.owner.ledger.diagnostic(), before);
+                    let foreign = self.foreign_index.take().unwrap();
+                    let foreign_owner = foreign.source_provenance().unwrap();
+                    assert_eq!(
+                        installed.inventory_digest(),
+                        foreign_owner.inventory_digest()
+                    );
+                    assert!(!installed.same_owner(foreign_owner));
+                    let original = self
+                        .geometry
+                        .app
+                        .world_mut()
+                        .remove_resource::<NativeStaticMapIndex>()
+                        .unwrap();
+                    self.geometry.app.insert_resource(foreign);
+                    // Pass the retained original provenance deliberately: certification
+                    // must independently reject the actual replaced scene index.
+                    let refused = self.owner.certify_cold(
+                        self.geometry.app.world_mut(),
+                        &installed,
+                        request,
+                        f::player(),
+                        deadline,
+                        || false,
+                    );
+                    self.geometry.app.insert_resource(original);
+                    self.geometry.advance_physics();
+                    assert!(matches!(
+                        refused,
+                        Err(ResidentFilterError::Context(Failure::Binding))
+                    ));
+                    assert_eq!(self.owner.ledger.diagnostic(), before);
                     self.owner.certify_cold(
                         self.geometry.app.world_mut(),
                         &installed,
@@ -260,6 +296,34 @@ impl Authority for Consumer {
     }
 }
 
+// Historical worker observation is consumed here and never reaches certification.
+// All original synchronous source and actual installed-owner checks still run below.
+fn observe_sources(owner: &OwnedResident, session: &Session, request: &AuthorityRequest) {
+    let (_client, mailbox) = mailbox(session.clone()).unwrap();
+    let deadline = fixture::until();
+    let (lease, _reply) = mailbox
+        .enqueue_service_test_request_until(701, request.clone(), deadline)
+        .unwrap();
+    let mut worker = CaptureFreshnessWorker::new().unwrap();
+    worker
+        .try_enqueue(Arc::clone(&owner.products), lease.clone())
+        .unwrap();
+    loop {
+        match worker.try_poll() {
+            FreshnessPoll::Pending => {
+                assert!(Instant::now() < deadline, "source worker did not complete");
+                std::thread::yield_now();
+            }
+            FreshnessPoll::Ready(result) => {
+                result.unwrap().consume(&owner.products, &lease).unwrap();
+                assert_eq!(lease.deadline(), deadline);
+                break;
+            }
+            FreshnessPoll::Idle | FreshnessPoll::Stopped => panic!("source job disappeared"),
+        }
+    }
+}
+
 fn movement(world: &NativeWorld, sequence: u64, destination: ai::Point) -> OwnedInput {
     OwnedInput {
         authenticated_owner: world.state().player.owner,
@@ -310,6 +374,9 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                 authored: Default::default(),
                 routes: vec![],
                 constructor: None,
+                foreign_index: Some(
+                    NativeStaticMapIndex::from_inventory(input::raw_inventory(install)).unwrap(),
+                ),
             };
             let mut world = NativeWorld::synthetic_component_test_with_initialization(
                 consumer.profile.clone(),
@@ -393,8 +460,35 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                         assert!(cold_liveness.as_ref().unwrap().is_alive());
                     }
                 }
-                // The genuine runtime has committed, and all calculation source views have ended.
+                // A successful off-thread observation cannot substitute for current
+                // installation or source validation, and it cannot promote the ledger.
+                let restore = if !notice.routes().is_empty() && consumer.routes.len() == 1 {
+                    let request = consumer.routes.last().unwrap().clone();
+                    let before = consumer.owner.ledger.diagnostic();
+                    observe_sources(&consumer.owner, &consumer.session, &request);
+                    assert_eq!(consumer.owner.ledger.diagnostic(), before);
+                    let restore = RestoreInstall::new(install);
+                    install.write(&input::overlapping_entries());
+                    assert!(matches!(
+                        consumer.owner.certify_cold(
+                            consumer.geometry.app.world_mut(),
+                            &installed,
+                            &request,
+                            f::player(),
+                            fixture::until(),
+                            || false,
+                        ),
+                        Err(ResidentFilterError::Source(_))
+                    ));
+                    assert_eq!(consumer.owner.ledger.diagnostic(), before);
+                    Some(restore)
+                } else {
+                    None
+                };
+                // The genuine runtime already committed. ACK stays atomic and succeeds
+                // even while source files have changed; no trailing freshness can undo it.
                 consumer.owner.acknowledge(&notice).unwrap();
+                drop(restore);
                 boundary = notice.boundary().clone();
                 let acknowledged = consumer.owner.ledger.diagnostic();
                 consumer.owner.acknowledge(&notice).unwrap();
