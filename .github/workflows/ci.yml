@@ -100,31 +100,6 @@ jobs:
             products::source_height::owned::tests::owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves \
             products::source_height::owned::tests::owned_sources_construction_refuses_cancellation_changed_and_deleted_sources \
             products::source_height::owned::tests::owned_sources_preserve_typed_terrain_cancellation_and_genuine_source_failure
-      - name: Verify resident FIFO selection
-        shell: bash
-        run: |
-          set -euo pipefail
-          log="$RUNNER_TEMP/resident-fifo-selection.log"
-          mbx test --locked -p benilla-native-corridor-tests --lib core::resident_dispatch::fifo::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
-          python3 scripts/verify-libtest-output.py "$log" \
-            core::resident_dispatch::fifo::tests::resident_fifo_preserves_original_identity_capacity_and_attempt_accounting \
-            core::resident_dispatch::fifo::tests::resident_fifo_tail_fill_retires_exact_work_without_releasing_busy_worker \
-            core::resident_dispatch::fifo::tests::resident_fifo_cancellation_holds_slot_until_drain_and_reuses_one_worker \
-            core::resident_dispatch::fifo::tests::resident_fifo_expiry_foreign_owner_and_attachment_never_resume \
-            core::resident_dispatch::fifo::tests::resident_fifo_disconnect_stays_terminal_and_drop_revokes_without_joining \
-            core::resident_dispatch::fifo::tests::resident_fifo_ready_rechecks_foreign_source_owner_and_changed_source_without_ack
-      - name: Verify resident dispatch receipt identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          log="$RUNNER_TEMP/resident-dispatch-receipt.log"
-          mbx test --locked -p benilla-native-corridor-tests --lib core::resident_dispatch::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
-          python3 scripts/verify-libtest-output.py "$log" \
-            core::resident_dispatch::tests::resident_dispatch_preserves_original_work_selection_without_queue_admission \
-            core::resident_dispatch::tests::resident_dispatch_refuses_changed_context_body_player_and_branch_tampering \
-            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_work_attachment_dispatch_and_resident_allocation \
-            core::resident_dispatch::tests::resident_dispatch_revocation_and_original_expiry_prevent_certification \
-            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume
       - name: Verify resident observation without transport admission
         shell: bash
         run: |
@@ -306,6 +281,31 @@ jobs:
           log="$RUNNER_TEMP/native-resident-navigation-helper.log"
           mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+      - name: Verify resident FIFO selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-fifo-selection.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib core::resident_dispatch::fifo::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            core::resident_dispatch::fifo::tests::resident_fifo_preserves_original_identity_capacity_and_attempt_accounting \
+            core::resident_dispatch::fifo::tests::resident_fifo_tail_fill_retires_exact_work_without_releasing_busy_worker \
+            core::resident_dispatch::fifo::tests::resident_fifo_cancellation_holds_slot_until_drain_and_reuses_one_worker \
+            core::resident_dispatch::fifo::tests::resident_fifo_expiry_foreign_owner_and_attachment_never_resume \
+            core::resident_dispatch::fifo::tests::resident_fifo_disconnect_stays_terminal_and_drop_revokes_without_joining \
+            core::resident_dispatch::fifo::tests::resident_fifo_ready_rechecks_foreign_source_owner_and_changed_source_without_ack
+      - name: Verify resident dispatch receipt identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-dispatch-receipt.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib core::resident_dispatch::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            core::resident_dispatch::tests::resident_dispatch_preserves_original_work_selection_without_queue_admission \
+            core::resident_dispatch::tests::resident_dispatch_refuses_changed_context_body_player_and_branch_tampering \
+            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_work_attachment_dispatch_and_resident_allocation \
+            core::resident_dispatch::tests::resident_dispatch_revocation_and_original_expiry_prevent_certification \
+            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume
       - name: Verify scoped resident source ownership
         shell: bash
         run: |

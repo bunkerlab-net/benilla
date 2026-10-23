@@ -388,23 +388,49 @@ class ExactProofTests(unittest.TestCase):
                         assert_wired(bad)
 
 
-    def test_scoped_resident_proof_requires_navigation_helper_first(self):
+    def test_native_resident_proofs_require_navigation_helper_first(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         job = workflow.split("  workspace-gates:\n", 1)[1].split("\n  workspace-tests:", 1)[0]
-        steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
-        titles = ["Verify navigation helper prerequisite", "Verify scoped resident source ownership"]
-        indexes = []
-        for title in titles:
-            matching = [i for i, step in enumerate(steps) if step.startswith(f"      - name: {title}\n")]
-            self.assertEqual(len(matching), 1)
-            index = matching[0]
-            self.assertNotRegex(steps[index], r"(?m)^        (?:if|continue-on-error):")
-            indexes.append(index)
-        self.assertLess(*indexes)
-        self.assertIn(
-            "mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact",
-            steps[indexes[0]],
+        helper = "Verify navigation helper prerequisite"
+        consumers = (
+            "Verify resident FIFO selection",
+            "Verify resident dispatch receipt identity",
+            "Verify scoped resident source ownership",
         )
+
+        def assert_order(candidate):
+            steps = re.split(r"(?=^      - )", candidate, flags=re.MULTILINE)
+            indexes = {}
+            for title in (helper, *consumers):
+                matching = [i for i, step in enumerate(steps) if step.startswith(f"      - name: {title}\n")]
+                self.assertEqual(len(matching), 1)
+                index = matching[0]
+                self.assertNotRegex(steps[index], r"(?m)^        (?:if|continue-on-error):")
+                indexes[title] = index
+            self.assertIn(
+                "mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact",
+                steps[indexes[helper]],
+            )
+            for title in consumers:
+                self.assertLess(indexes[helper], indexes[title])
+
+        assert_order(job)
+        steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
+        helper_step = next(step for step in steps if step.startswith(f"      - name: {helper}\n"))
+        for title in consumers:
+            consumer = next(step for step in steps if step.startswith(f"      - name: {title}\n"))
+            with self.subTest(consumer=title):
+                reordered = job.replace(consumer, "").replace(helper_step, consumer + helper_step)
+                with self.assertRaises(AssertionError):
+                    assert_order(reordered)
+        for bad in (
+            job.replace(helper_step, ""),
+            job.replace(helper_step, helper_step + helper_step),
+            job.replace(helper_step, helper_step.replace("        shell: bash\n", "        if: false\n        shell: bash\n")),
+            job.replace(helper_step, helper_step.replace("        shell: bash\n", "        continue-on-error: true\n        shell: bash\n")),
+        ):
+            with self.assertRaises(AssertionError):
+                assert_order(bad)
 
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
