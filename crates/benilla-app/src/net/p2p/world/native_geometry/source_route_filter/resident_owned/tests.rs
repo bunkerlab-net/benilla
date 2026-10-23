@@ -163,7 +163,7 @@ impl Authority for Consumer {
                         .unwrap()
                         .first_construction());
                     assert!(route.request.prior_cache.is_none());
-                    observe_sources(&self.owner, &self.session, request);
+                    observe_sources(&self.owner, &self.session, &self.profile, request);
                     assert_eq!(self.owner.ledger.diagnostic(), before);
                     let foreign = self.foreign_index.take().unwrap();
                     let foreign_owner = foreign.source_provenance().unwrap();
@@ -298,12 +298,18 @@ impl Authority for Consumer {
 
 // Historical worker observation is consumed here and never reaches certification.
 // All original synchronous source and actual installed-owner checks still run below.
-fn observe_sources(owner: &OwnedResident, session: &Session, request: &AuthorityRequest) {
+fn observe_sources(
+    owner: &OwnedResident,
+    session: &Session,
+    profile: &Profile,
+    request: &AuthorityRequest,
+) {
     let (_client, mailbox) = mailbox(session.clone()).unwrap();
     let deadline = fixture::until();
-    let (lease, _reply) = mailbox
-        .enqueue_service_test_request_until(701, request.clone(), deadline)
+    let work = mailbox
+        .capture_source_observation_test_work(profile, 701, request.clone(), deadline)
         .unwrap();
+    let lease = work.lease();
     let mut worker = CaptureFreshnessWorker::new().unwrap();
     worker
         .try_enqueue(Arc::clone(&owner.products), lease.clone())
@@ -465,7 +471,12 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                 let restore = if !notice.routes().is_empty() && consumer.routes.len() == 1 {
                     let request = consumer.routes.last().unwrap().clone();
                     let before = consumer.owner.ledger.diagnostic();
-                    observe_sources(&consumer.owner, &consumer.session, &request);
+                    observe_sources(
+                        &consumer.owner,
+                        &consumer.session,
+                        &consumer.profile,
+                        &request,
+                    );
                     assert_eq!(consumer.owner.ledger.diagnostic(), before);
                     let restore = RestoreInstall::new(install);
                     install.write(&input::overlapping_entries());

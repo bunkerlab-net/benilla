@@ -595,3 +595,51 @@ fn owned_route_fact_validation_rejects_wrong_shapes_and_revoked_original_lease()
     assert!(service.rx.is_empty());
     assert!(reply.try_recv().is_err());
 }
+
+#[test]
+fn source_observation_work_retains_exact_resident_request_without_transport_admission() {
+    let (mut session, request) = captured_route_request();
+    let profile = Arc::clone(
+        &session
+            .same_polygon_route
+            .as_ref()
+            .unwrap()
+            .environment
+            .profile,
+    );
+    session.same_polygon_route = None;
+    let (_, service) = mailbox(session).unwrap();
+    let deadline = Instant::now() + WAIT;
+    assert!(matches!(
+        service.enqueue_service_test_request_until(701, request.clone(), deadline),
+        Err(Failure::UnsupportedQuery)
+    ));
+    let work = service
+        .capture_source_observation_test_work(&profile, 701, request.clone(), deadline)
+        .unwrap();
+    let lease = work.lease();
+    assert!(lease.is_active());
+    assert_eq!(lease.request(), &request);
+    assert_eq!(lease.ticket(), 701);
+    assert_eq!(lease.deadline(), deadline);
+    assert!(service.rx.is_empty() && service.retry.is_empty());
+    assert!(matches!(
+        service.enqueue_service_test_request_until(701, request.clone(), deadline),
+        Err(Failure::UnsupportedQuery)
+    ));
+    let mut foreign = request.clone();
+    foreign.binding.geometry[0] ^= 1;
+    assert!(service
+        .capture_source_observation_test_work(&profile, 701, foreign, deadline)
+        .is_err());
+    drop(work);
+    assert!(!lease.is_active());
+    assert!(service.rx.is_empty() && service.retry.is_empty());
+    let work = service
+        .capture_source_observation_test_work(&profile, 701, request, deadline)
+        .unwrap();
+    let attached = work.lease();
+    assert!(!lease.same_job(&attached));
+    drop(service);
+    assert!(!attached.is_active());
+}

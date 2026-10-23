@@ -1370,6 +1370,16 @@ impl std::ops::Deref for Work {
         &self.owner.0
     }
 }
+/// Component fixture holding the original Work lifetime for source observation only.
+/// It is never queued, cannot execute a query, and grants no transport admission.
+#[cfg(test)]
+pub(super) struct SourceObservationTestWork(Work);
+#[cfg(test)]
+impl SourceObservationTestWork {
+    pub(super) fn lease(&self) -> JobLease {
+        self.0.lease()
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QueryDisposition {
     Deferred,
@@ -1821,6 +1831,34 @@ impl Mailbox {
             Instant::now() + Duration::from_millis(2),
             geometry,
         )
+    }
+    /// A direct resident component may validate a Route without selecting the
+    /// separate same-polygon mailbox transport. Retain its genuine request/Work
+    /// lifetime for source observation, without queueing or authorizing execution.
+    #[cfg(test)]
+    pub(super) fn capture_source_observation_test_work(
+        &self,
+        profile: &Profile,
+        ticket: u64,
+        request: AuthorityRequest,
+        deadline: Instant,
+    ) -> Result<SourceObservationTestWork, Failure> {
+        self.session.check_request_binding(&request)?;
+        super::source_route_filter::validate_route_context(&self.session, profile, &request)?;
+        request
+            .require_pathfinder_dispatch(profile)
+            .map_err(|_| Failure::Binding)?;
+        if !self.active.load(Ordering::Acquire) {
+            return Err(Failure::Binding);
+        }
+        let (reply, _) = bounded(1);
+        Ok(SourceObservationTestWork(Work::new(
+            ticket,
+            request,
+            deadline,
+            reply,
+            self.active.clone(),
+        )))
     }
     #[cfg(test)]
     pub(super) fn enqueue_service_test_request(
