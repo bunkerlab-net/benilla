@@ -18,6 +18,11 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 SUITES = {
+    "Verify resident observation without transport admission": (
+        "benilla-native-geometry-tests",
+        "core::staged_job_tests::source_observation_work_retains_exact_resident_request_without_transport_admission",
+        ("",),
+    ),
     "Verify bounded capture freshness worker": (
         "benilla-native-geometry-tests",
         "products::source_height::owned::freshness::tests::",
@@ -101,10 +106,14 @@ PROGRESS = (
 )
 
 
+def test_header(count):
+    return f"running {count} test{'s' if count != 1 else ''}\n"
+
+
 def fixture(names):
     count = len(names)
     return (
-        f"\nrunning {count} tests\n"
+        "\n" + test_header(count)
         + "".join(f"test {name} ... ok\n" for name in names)
         + f"\nsuccesses:\n\n---- {names[0]} stdout ----\nfixture diagnostics\n"
         + "\nsuccesses:\n"
@@ -152,7 +161,11 @@ class ExactProofTests(unittest.TestCase):
 
     def test_rejects_duplicate_replacing_required_result(self):
         self.assert_rejected(
-            lambda out, names: out.replace(f"test {names[1]}", f"test {names[0]}")
+            lambda out, names: (
+                out.replace(f"test {names[1]}", f"test {names[0]}")
+                if len(names) > 1 else
+                out.replace(f"test {names[0]} ... ok\n", f"test {names[0]} ... ok\n" * 2, 1)
+            )
         )
 
     def test_rejects_extra_duplicate_or_unexpected_result(self):
@@ -166,9 +179,9 @@ class ExactProofTests(unittest.TestCase):
         for replacement in ("", "running 0 tests\n", "running 9 tests\n"):
             with self.subTest(replacement=replacement):
                 self.assert_rejected(
-                    lambda out, names: out.replace(f"running {len(names)} tests\n", replacement)
+                    lambda out, names: out.replace(test_header(len(names)), replacement)
                 )
-        self.assert_rejected(lambda out, names: f"running {len(names)} tests\n" + out)
+        self.assert_rejected(lambda out, names: test_header(len(names)) + out)
 
     def test_rejects_missing_and_duplicate_summary(self):
         self.assert_rejected(lambda out, names: out[:out.index("test result:")])
@@ -222,6 +235,7 @@ class ExactProofTests(unittest.TestCase):
                 "expected = ['test', '--locked', '-p', os.environ['EXPECTED_PACKAGE'], "
                 "'--lib', os.environ['EXPECTED_PREFIX'], '--', '--show-output', "
                 "'--test-threads=1', '--color', 'never']\n"
+                "if os.environ['EXPECTED_EXACT'] == '1': expected.insert(expected.index('--') + 1, '--exact')\n"
                 "assert sys.argv[1:] == expected, sys.argv[1:]\n"
                 "data = os.environ['FAKE_OUTPUT'].encode()\n"
                 "cut = data.find(b' ... ') + len(b' ... ')\n"
@@ -241,6 +255,7 @@ class ExactProofTests(unittest.TestCase):
                 RUNNER_TEMP=str(temp),
                 EXPECTED_PACKAGE=package,
                 EXPECTED_PREFIX=prefix,
+                EXPECTED_EXACT="1" if title == "Verify resident observation without transport admission" else "0",
                 FAKE_OUTPUT=output,
                 FAKE_PROGRESS=PROGRESS,
                 FAKE_EXIT=str(exit_code),

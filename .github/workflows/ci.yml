@@ -100,6 +100,14 @@ jobs:
             products::source_height::owned::tests::owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves \
             products::source_height::owned::tests::owned_sources_construction_refuses_cancellation_changed_and_deleted_sources \
             products::source_height::owned::tests::owned_sources_preserve_typed_terrain_cancellation_and_genuine_source_failure
+      - name: Verify resident observation without transport admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-observation-without-transport.log"
+          mbx test --locked -p benilla-native-geometry-tests --lib core::staged_job_tests::source_observation_work_retains_exact_resident_request_without_transport_admission -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            core::staged_job_tests::source_observation_work_retains_exact_resident_request_without_transport_admission
       - name: Verify bounded capture freshness worker
         shell: bash
         run: |
