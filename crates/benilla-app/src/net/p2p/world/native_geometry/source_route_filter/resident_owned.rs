@@ -239,4 +239,5 @@ impl OwnedResident {
 }
 
 #[path = "resident_owned/tests.rs"]
+#[cfg(test)]
 mod tests;
