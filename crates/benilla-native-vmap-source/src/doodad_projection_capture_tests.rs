@@ -702,3 +702,138 @@ fn completed_bundle_recheck_detects_later_source_change() {
         Err(crate::MapBundleError::Source(SourceError::Changed))
     ));
 }
+
+#[test]
+fn owned_bundle_moves_outlives_borrowed_capture_and_preserves_products() {
+    fn move_static<T: 'static>(value: T) -> T {
+        value
+    }
+    let temp = Temp::new();
+    let data = temp.data();
+    save(&data, "wmo.MPQ", &dp_entries("portable_mdx", true));
+    let borrowed_capture = prepare(&data, 7, || false).unwrap();
+    let borrowed = borrowed_capture
+        .assemble_map_bundle(dp_profile(), || false)
+        .unwrap()
+        .unwrap();
+    let owned = move_static(
+        prepare(&data, 7, || false)
+            .unwrap()
+            .into_map_bundle(dp_profile(), || false)
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(owned.source_policy(), borrowed.source_policy());
+    assert!(owned.source_receipts().eq(borrowed.source_receipts()));
+    assert_eq!(
+        owned.map().source_binding(),
+        borrowed.map().source_binding()
+    );
+    assert_eq!(owned.map().tree_bytes(), borrowed.map().tree_bytes());
+    assert!(owned
+        .map()
+        .tiles()
+        .iter()
+        .map(|t| (t.coordinates(), t.bytes()))
+        .eq(borrowed
+            .map()
+            .tiles()
+            .iter()
+            .map(|t| (t.coordinates(), t.bytes()))));
+    assert!(owned
+        .models()
+        .iter()
+        .map(|m| (m.source_name(), m.effective_source_basename(), m.bytes()))
+        .eq(borrowed.models().iter().map(|m| (
+            m.source_name(),
+            m.effective_source_basename(),
+            m.bytes()
+        ))));
+    drop(borrowed);
+    drop(borrowed_capture);
+    let moved = move_static(owned);
+    moved.verify_unchanged(|| false).unwrap();
+    assert!(matches!(
+        moved.verify_unchanged(|| true),
+        Err(MapBundleError::Source(SourceError::Cancelled) | MapBundleError::Cancelled)
+    ));
+    drop(moved);
+    prepare(&data, 7, || false).unwrap();
+}
+
+#[test]
+fn owned_bundle_recheck_rejects_source_change_during_and_after_assembly() {
+    for during in [false, true] {
+        let temp = Temp::new();
+        let data = temp.data();
+        let mut entries = dp_entries("portable_mdx", true);
+        save(&data, "wmo.MPQ", &entries);
+        let prepared = prepare(&data, 7, || false).unwrap();
+        let record_polls = std::cell::Cell::new(0);
+        prepared
+            .map_products(dp_profile(), || {
+                record_polls.set(record_polls.get() + 1);
+                false
+            })
+            .unwrap();
+        entries
+            .iter_mut()
+            .find(|e| e.name == DP_MODEL)
+            .unwrap()
+            .bytes[8] ^= 1;
+        let polls = std::cell::Cell::new(0);
+        let changed = std::cell::Cell::new(false);
+        let result = prepared.into_map_bundle(dp_profile(), || {
+            let n = polls.get();
+            polls.set(n + 1);
+            if during && n == record_polls.get() {
+                save(&data, "wmo.MPQ", &entries);
+                changed.set(true);
+            }
+            false
+        });
+        if during {
+            assert!(changed.get());
+            assert!(matches!(
+                result,
+                Err(MapBundleError::Source(SourceError::Changed))
+            ));
+        } else {
+            let bundle = result.unwrap().unwrap();
+            bundle.verify_unchanged(|| false).unwrap();
+            save(&data, "wmo.MPQ", &entries);
+            assert!(matches!(
+                bundle.verify_unchanged(|| false),
+                Err(MapBundleError::Source(SourceError::Changed))
+            ));
+        }
+    }
+}
+
+#[test]
+fn owned_bundle_cancellation_before_and_at_final_assembly_check_returns_no_bundle() {
+    let temp = Temp::new();
+    let data = temp.data();
+    save(&data, "wmo.MPQ", &dp_entries("portable_mdx", true));
+    assert!(prepare(&data, 7, || false)
+        .unwrap()
+        .into_map_bundle(dp_profile(), || true)
+        .is_err());
+    let prepared = prepare(&data, 7, || false).unwrap();
+    let polls = std::cell::Cell::new(0);
+    prepared
+        .assemble_map_bundle(dp_profile(), || {
+            polls.set(polls.get() + 1);
+            false
+        })
+        .unwrap()
+        .unwrap();
+    assert!(polls.get() > 0);
+    let count = std::cell::Cell::new(0);
+    let result = prepared.into_map_bundle(dp_profile(), || {
+        count.set(count.get() + 1);
+        count.get() == polls.get()
+    });
+    assert_eq!(count.get(), polls.get());
+    assert!(matches!(result, Err(MapBundleError::Cancelled)));
+}

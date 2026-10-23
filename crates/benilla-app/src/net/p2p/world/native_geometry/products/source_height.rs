@@ -14,6 +14,8 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, time::Instant};
 mod environment;
 mod initialization;
+#[cfg(test)]
+pub(crate) mod owned;
 pub(crate) use initialization::ResidentInitializationConfiguration;
 pub(crate) mod inventory;
 mod point_liquid;

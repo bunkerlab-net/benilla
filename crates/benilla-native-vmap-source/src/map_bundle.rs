@@ -68,9 +68,31 @@ impl AssembledModelProduct {
     }
 }
 pub struct AssembledSourceMap<'a> {
-    source: &'a PreparedDiscovery,
+    source: DiscoveryStorage<'a>,
     map: MapProducts,
     models: Vec<AssembledModelProduct>,
+}
+// Both forms retain the exact capture; ownership changes no source-check policy.
+#[cfg_attr(
+    any(test, feature = "synthetic-map-tests"),
+    allow(
+        clippy::large_enum_variant,
+        reason = "test-only ownership retains the exact capture without an extra allocation"
+    )
+)]
+enum DiscoveryStorage<'a> {
+    Borrowed(&'a PreparedDiscovery),
+    #[cfg(any(test, feature = "synthetic-map-tests"))]
+    Owned(PreparedDiscovery),
+}
+impl DiscoveryStorage<'_> {
+    fn get(&self) -> &PreparedDiscovery {
+        match self {
+            Self::Borrowed(source) => source,
+            #[cfg(any(test, feature = "synthetic-map-tests"))]
+            Self::Owned(source) => source,
+        }
+    }
 }
 impl fmt::Debug for AssembledSourceMap<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -82,10 +104,10 @@ impl fmt::Debug for AssembledSourceMap<'_> {
 }
 impl AssembledSourceMap<'_> {
     pub fn source_receipts(&self) -> impl Iterator<Item = crate::SourceReceipt<'_>> {
-        self.source.source_receipts()
+        self.source.get().source_receipts()
     }
     pub fn source_policy(&self) -> &'static str {
-        self.source.source_policy()
+        self.source.get().source_policy()
     }
 
     pub fn map(&self) -> &MapProducts {
@@ -96,6 +118,7 @@ impl AssembledSourceMap<'_> {
     }
     pub fn verify_unchanged(&self, cancelled: impl Fn() -> bool) -> Result<(), MapBundleError> {
         self.source
+            .get()
             .source
             .verify_unchanged(&cancelled)
             .map_err(MapBundleError::Source)?;
@@ -103,6 +126,25 @@ impl AssembledSourceMap<'_> {
     }
 }
 impl PreparedDiscovery {
+    /// Consume the exact discovery into immutable products for scoped test readers.
+    /// This changes ownership only, not freshness, assembly limits or admission.
+    #[cfg(any(test, feature = "synthetic-map-tests"))]
+    pub fn into_map_bundle(
+        self,
+        profile: DoodadProjectionProfile,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Option<AssembledSourceMap<'static>>, MapBundleError> {
+        let Some(AssembledSourceMap { map, models, .. }) =
+            self.assemble_map_bundle(profile, cancelled)?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(AssembledSourceMap {
+            source: DiscoveryStorage::Owned(self),
+            map,
+            models,
+        }))
+    }
     pub fn assemble_map_bundle(
         &self,
         profile: DoodadProjectionProfile,
@@ -141,7 +183,7 @@ impl PreparedDiscovery {
             .map_err(MapBundleError::Source)?;
         check(&cancelled)?;
         Ok(Some(AssembledSourceMap {
-            source: self,
+            source: DiscoveryStorage::Borrowed(self),
             map,
             models,
         }))
