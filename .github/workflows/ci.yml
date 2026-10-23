@@ -57,6 +57,33 @@ jobs:
           # Same-repository PR writes stay in that PR's cache scope; forks never save.
           save-on-pull-request: true
           save-on-workflow-dispatch: true
+      - name: Check isolated source feature boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Select only this library: workspace consumers enable synthetic-map-tests.
+          mbx clippy --locked -p benilla-native-vmap-source --lib --no-default-features -- -D warnings
+          mbx clippy --locked -p benilla-native-vmap-source --lib --no-default-features --features synthetic-map-tests -- -D warnings
+      - name: Verify owned source bundle prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/owned-source-bundle.log"
+          mbx test --locked -p benilla-native-vmap-source --lib tests::doodad_projection_capture_tests::owned_bundle_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            tests::doodad_projection_capture_tests::owned_bundle_cancellation_before_and_at_final_assembly_check_returns_no_bundle \
+            tests::doodad_projection_capture_tests::owned_bundle_moves_outlives_borrowed_capture_and_preserves_products \
+            tests::doodad_projection_capture_tests::owned_bundle_recheck_rejects_source_change_during_and_after_assembly
+      - name: Verify owned height reader prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/owned-height-reader.log"
+          mbx test --locked -p benilla-native-geometry-tests --lib products::source_height::owned::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            products::source_height::owned::tests::owned_sources_move_outlive_borrowed_views_and_preserve_exact_height \
+            products::source_height::owned::tests::owned_sources_recheck_after_reader_and_preserve_cancellation \
+            products::source_height::owned::tests::owned_sources_refuse_changed_or_missing_sources_before_reader
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy

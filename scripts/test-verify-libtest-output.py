@@ -18,6 +18,24 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 SUITES = {
+    "Verify owned source bundle prerequisite": (
+        "benilla-native-vmap-source",
+        "tests::doodad_projection_capture_tests::owned_bundle_",
+        (
+            "cancellation_before_and_at_final_assembly_check_returns_no_bundle",
+            "moves_outlives_borrowed_capture_and_preserves_products",
+            "recheck_rejects_source_change_during_and_after_assembly",
+        ),
+    ),
+    "Verify owned height reader prerequisite": (
+        "benilla-native-geometry-tests",
+        "products::source_height::owned::tests::",
+        (
+            "owned_sources_move_outlive_borrowed_views_and_preserve_exact_height",
+            "owned_sources_recheck_after_reader_and_preserve_cancellation",
+            "owned_sources_refuse_changed_or_missing_sources_before_reader",
+        ),
+    ),
     "Verify joined resident installed corridor": (
         "benilla-native-corridor-tests",
         "real_corridor_fixture::installed_source::joined::",
