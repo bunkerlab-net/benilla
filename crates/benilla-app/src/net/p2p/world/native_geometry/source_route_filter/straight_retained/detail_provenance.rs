@@ -28,6 +28,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             // its exact query/endpoints neither allocates a constructor nor calculates
             // another terminal or changes the original native path/backing storage.
             let mut constructor = self
+                .state
                 .query
                 .retain_constructor(context)
                 .map_err(ResidentFilterError::Query)?;

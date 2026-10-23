@@ -83,8 +83,10 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         self.require_generated_flat_support()?;
         let deadline = dependency.deadline(deadline);
         self.straight_for(dependency, origin, context, deadline, &cancelled)?;
+        let endpoint_support = self.geometry_policy.endpoint_support;
         let detail = {
             let mut constructor = self
+                .state
                 .query
                 .retain_constructor(context)
                 .map_err(ResidentFilterError::Query)?;
@@ -93,7 +95,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                 .map_err(ResidentFilterError::Query)?;
             // These arms are exclusive: the one 4096-triangle allowance is not
             // renewed by falling back from failed indexed attribution to endpoints.
-            let detail = if self.geometry_policy.endpoint_support
+            let detail = if endpoint_support
                 && dependency.terminal.phase()
                     == benilla_native_nav::SourceWarmPolyPhase::SamePolygon
             {
@@ -199,6 +201,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             .map_err(native_error)?;
         {
             let mut constructor = self
+                .state
                 .query
                 .retain_constructor(context)
                 .map_err(ResidentFilterError::Query)?;

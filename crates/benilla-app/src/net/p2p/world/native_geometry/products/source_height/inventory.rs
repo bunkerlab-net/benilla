@@ -16,6 +16,47 @@ pub(crate) struct InventoryCompatibility<'view, 'terrain, 'bundle, 'source> {
     owner: NativeInventorySource,
     revision: Hash,
 }
+/// Retained genuine provenance only, never proof of current scene installation.
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(crate) struct OwnedInventoryCompatibility {
+    owner: NativeInventorySource,
+    revision: Hash,
+    height: Binding,
+    epoch: Hash,
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+impl OwnedInventoryCompatibility {
+    pub(crate) fn capture(
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, CompositionError> {
+        fresh(compatibility.view, deadline, &cancelled)?;
+        let (height, epoch) = compatibility.source_binding();
+        Ok(Self {
+            owner: compatibility.owner.clone(),
+            revision: compatibility.revision,
+            height,
+            epoch,
+        })
+    }
+    pub(crate) fn reborrow<'view, 'terrain, 'bundle, 'source>(
+        &self,
+        view: &'view PreparedSourceHeight<'terrain, 'bundle, 'source>,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<InventoryCompatibility<'view, 'terrain, 'bundle, 'source>, CompositionError> {
+        fresh(view, deadline, &cancelled)?;
+        if (view.binding(), view.generated_query_source_epoch()) != (self.height, self.epoch) {
+            return Err(Error::Identity.into());
+        }
+        Ok(InventoryCompatibility {
+            view,
+            owner: self.owner.clone(),
+            revision: self.revision,
+        })
+    }
+}
 impl InventoryCompatibility<'_, '_, '_, '_> {
     pub(crate) fn owner(&self) -> &NativeInventorySource {
         &self.owner

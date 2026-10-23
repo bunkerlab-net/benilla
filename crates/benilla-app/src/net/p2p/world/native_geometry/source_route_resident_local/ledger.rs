@@ -97,6 +97,15 @@ impl Candidate {
         }
     }
 }
+/// Non-owning witness for the actual cold terminal, not its identity token.
+pub(in super::super) struct ColdLiveness {
+    cold: Weak<ResidentColdCandidate>,
+}
+impl ColdLiveness {
+    pub(in super::super) fn is_alive(&self) -> bool {
+        self.cold.strong_count() != 0
+    }
+}
 /// Weak witnesses name the actual owned head/proposal, never its native identity token.
 pub(in super::super) struct WarmLiveness {
     head: Weak<WarmHead>,
@@ -2176,6 +2185,21 @@ impl ResidentLedger {
             _ => Err(Failure::Binding),
         }
     }
+    pub(in super::super) fn cold_liveness_for_test(&self) -> Result<ColdLiveness, Failure> {
+        self.candidates
+            .iter()
+            .find_map(|entry| match &entry.candidate {
+                Candidate::Cold(cold) => Some(ColdLiveness {
+                    cold: Rc::downgrade(cold),
+                }),
+                Candidate::Retained(retained) => Some(ColdLiveness {
+                    cold: Rc::downgrade(&retained.predecessor),
+                }),
+                _ => None,
+            })
+            .ok_or(Failure::Binding)
+    }
+
     pub(in super::super) fn committed_warm_liveness_for_test(
         &self,
     ) -> Result<WarmLiveness, Failure> {

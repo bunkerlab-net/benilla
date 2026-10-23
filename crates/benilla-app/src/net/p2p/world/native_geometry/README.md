@@ -36,6 +36,23 @@ source epoch, invalidate the session/index on source replacement, and reverify a
 newly loaded assets against it. Digests alone do not keep a mutable installation fixed.
 That entry/lifecycle contract is not bypassed here.
 
+## Component-only scoped resident ownership
+
+`source_route_filter::resident::owned` retains immutable captured source products,
+one original native query/provider identity and its paired ledger. It exists only in
+non-headless component tests. Scoped readers recheck source freshness and the exact
+loader-minted inventory owner; retained compatibility records are provenance, never
+proof that an inventory is currently installed. Concrete certification still reads
+and verifies the actual scene index. Equal-byte independently loaded owners do not match.
+
+Short-lived views never rebind or replace the resident native query. Read-only scopes
+and bounded cold/retained calculations cannot publish a ledger head. A failed operation
+may retain constructor work or an uncommitted candidate; it is not a transaction rollback.
+The existing ordered historical ACK is a separate atomic promotion, with no trailing
+freshness check that could report failure after successful publication. This ownership
+prerequisite does not install a Service, extend route caps, change gameplay admission,
+or establish the controller's durable save barrier.
+
 ## Positive geometry domain
 
 Each certified segment requires all of the following:

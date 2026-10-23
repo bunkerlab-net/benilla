@@ -135,7 +135,8 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         }
         // select_for_calculate preserves original destination/start coordinate
         // checks and the retained source1024 allocation.
-        let mut constructor = self
+        let state = &mut *self.state;
+        let mut constructor = state
             .query
             .retain_constructor(context)
             .map_err(ResidentFilterError::Query)?;
@@ -145,7 +146,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         observe(0);
         check_time(deadline, &cancelled)?;
         let owner_ignore = route
-            .require_owner_ignore_pathfinding(&self.profile)
+            .require_owner_ignore_pathfinding(&state.profile)
             .map_err(|_| Failure::Binding)?
             .clone();
         if owner_ignore.ignore_pathfinding() {

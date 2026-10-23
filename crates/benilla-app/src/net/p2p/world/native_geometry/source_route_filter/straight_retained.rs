@@ -389,7 +389,8 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             .map_err(|_| Failure::Binding)?
             .width()
             .bits();
-        let mut constructor = self
+        let state = &mut *self.state;
+        let mut constructor = state
             .query
             .retain_constructor(context)
             .map_err(ResidentFilterError::Query)?;
@@ -399,7 +400,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         observe(ResidentRetainedPhase::Selected);
         check_time(deadline, &cancelled)?;
         let owner_ignore = route
-            .require_owner_ignore_pathfinding(&self.profile)
+            .require_owner_ignore_pathfinding(&state.profile)
             .map_err(|_| Failure::Binding)?
             .clone();
         if owner_ignore.ignore_pathfinding() {

@@ -435,13 +435,57 @@ impl From<Failure> for ResidentFilterError {
 }
 
 pub(crate) struct ResidentFilterProvider<'a, 'terrain, 'bundle, 'source> {
+    state: ResidentStateStorage<'a>,
+    height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
+}
+/// Private fields retain one allocation identity and its original native query.
+/// Visibility is only for the provider's crate-private Deref target.
+pub(crate) struct ResidentFilterState {
     identity: Rc<()>,
     geometry_policy: ResidentGeometryPolicy,
     session: Session,
     profile: Profile,
-    height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
     query: SourcePathfinderQueryProvider,
 }
+// Keep the pre-existing inline query storage: boxing would add an allocation to
+// every production bind solely for the component-only borrowed adapter.
+#[cfg_attr(
+    all(test, not(benilla_headless_geometry)),
+    allow(clippy::large_enum_variant)
+)]
+enum ResidentStateStorage<'a> {
+    Owned(ResidentFilterState, std::marker::PhantomData<&'a mut ()>),
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    Borrowed(&'a mut ResidentFilterState),
+}
+impl std::ops::Deref for ResidentStateStorage<'_> {
+    type Target = ResidentFilterState;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(state, _) => state,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            Self::Borrowed(state) => state,
+        }
+    }
+}
+impl std::ops::DerefMut for ResidentStateStorage<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Owned(state, _) => state,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            Self::Borrowed(state) => state,
+        }
+    }
+}
+impl std::ops::Deref for ResidentFilterProvider<'_, '_, '_, '_> {
+    type Target = ResidentFilterState;
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "resident_owned.rs"]
+pub(crate) mod owned;
 /// Allocation identity only: it cannot emit facts or construct source evidence.
 #[cfg(all(test, not(benilla_headless_geometry)))]
 #[derive(Clone)]
@@ -538,12 +582,17 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         )
         .map_err(ResidentFilterError::Query)?;
         Ok(Self {
-            identity: Rc::new(()),
-            geometry_policy,
-            session: session.clone(),
-            profile: profile.clone(),
+            state: ResidentStateStorage::Owned(
+                ResidentFilterState {
+                    identity: Rc::new(()),
+                    geometry_policy,
+                    session: session.clone(),
+                    profile: profile.clone(),
+                    query,
+                },
+                std::marker::PhantomData,
+            ),
             height,
-            query,
         })
     }
     #[cfg(not(benilla_headless_geometry))]
@@ -731,6 +780,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         context: &AuthorityRequest,
     ) -> Result<(usize, benilla_native_nav::SourceMapQuerySlot, usize), ResidentFilterError> {
         let slot = self
+            .state
             .query
             .retain_constructor(context)
             .map_err(ResidentFilterError::Query)?
@@ -815,7 +865,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             return Err(Failure::Invalid.into());
         }
         // Consumes the real live constructor event, retaining its original query.
-        self.query
+        self.state
+            .query
             .retain_constructor(context)
             .map_err(ResidentFilterError::Query)?;
         let (observations, filter) = point_observations(
