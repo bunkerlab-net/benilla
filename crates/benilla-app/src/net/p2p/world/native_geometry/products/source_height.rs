@@ -16,6 +16,8 @@ mod environment;
 mod initialization;
 #[cfg(test)]
 pub(crate) mod owned;
+#[cfg(test)]
+pub(crate) mod preparation_counts;
 pub(crate) use initialization::ResidentInitializationConfiguration;
 pub(crate) mod inventory;
 mod point_liquid;
@@ -57,8 +59,26 @@ pub(crate) struct HeightReply {
 pub(crate) struct PreparedSourceHeight<'terrain, 'bundle, 'source> {
     terrain: &'terrain PreparedTerrain,
     collision: PreparedTileCollision<'bundle, 'source>,
-    tiles: BTreeMap<TileId, TerrainTile>,
+    tiles: TerrainStorage<'terrain>,
     binding: Binding,
+}
+enum TerrainStorage<'terrain> {
+    Owned(
+        BTreeMap<TileId, TerrainTile>,
+        std::marker::PhantomData<&'terrain ()>,
+    ),
+    #[cfg(test)]
+    Borrowed(&'terrain BTreeMap<TileId, TerrainTile>),
+}
+impl std::ops::Deref for TerrainStorage<'_> {
+    type Target = BTreeMap<TileId, TerrainTile>;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(tiles, _) => tiles,
+            #[cfg(test)]
+            Self::Borrowed(tiles) => tiles,
+        }
+    }
 }
 impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source> {
     /// Fixed source Chase LOS geometry primitive. It carries no model-height or
@@ -111,56 +131,26 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         source: &'bundle AssembledSourceMap<'source>,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, CompositionError> {
-        check(&cancelled)?;
-        terrain
-            .verify_unchanged()
-            .map_err(|_| CompositionError::TerrainSource)?;
-        source
-            .verify_unchanged(&cancelled)
-            .map_err(|e| CompositionError::Collision(PrepareError::Source(e)))?;
-        if terrain.map_id() != source.map().map_id() {
-            return Err(Error::Identity.into());
-        }
-        compatible_receipts(terrain, source, &cancelled)?;
-        let mut tiles = BTreeMap::new();
-        let mut selected = Vec::new();
-        selected.try_reserve_exact(9).map_err(|_| Error::Budget)?;
-        let mut digest = Sha256::new();
-        digest.update(POLICY);
-        digest.update(terrain.map_id().to_le_bytes());
-        digest.update(terrain.source_epoch().as_bytes());
-        for (tile, bytes) in terrain.tiles() {
-            check(&cancelled)?;
-            if selected.len() >= 9 {
-                return Err(Error::Budget.into());
-            }
-            let id = TileId {
-                x: tile.x,
-                y: tile.y,
-            };
-            let decoded = TerrainTile::decode(id, bytes)?;
-            if tiles.insert(id, decoded).is_some() {
-                return Err(Error::Duplicate.into());
-            }
-            selected.push(id);
-            digest.update([id.x, id.y]);
-            digest.update((bytes.len() as u64).to_le_bytes());
-            for chunk in bytes.chunks(64 * 1024) {
-                check(&cancelled)?;
-                digest.update(chunk);
-            }
-        }
-        if selected.is_empty() {
-            return Err(Error::Missing.into());
-        }
-        let collision = PreparedTileCollision::from_source(source, &selected, &cancelled)
+        let decoded = prepare_terrain(terrain, source, &cancelled)?;
+        let collision = PreparedTileCollision::from_source(source, &decoded.selected, &cancelled)
             .map_err(CompositionError::Collision)?;
+        Self::finish(terrain, collision, decoded, cancelled)
+    }
+    fn finish(
+        terrain: &'terrain PreparedTerrain,
+        collision: PreparedTileCollision<'bundle, 'source>,
+        decoded: DecodedTerrain,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, CompositionError> {
+        let DecodedTerrain {
+            tiles, mut digest, ..
+        } = decoded;
         digest.update(collision.binding().inventory);
         digest.update(collision.source_version());
         let result = Self {
             terrain,
             collision,
-            tiles,
+            tiles: TerrainStorage::Owned(tiles, std::marker::PhantomData),
             binding: Binding {
                 map: terrain.map_id(),
                 revision: digest.finalize().into(),
@@ -237,6 +227,70 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
             height: value.to_bits(),
         })
     }
+}
+struct DecodedTerrain {
+    tiles: BTreeMap<TileId, TerrainTile>,
+    selected: Vec<TileId>,
+    digest: Sha256,
+}
+/// Unchanged compatibility validation and terrain decoding shared by borrowed and
+/// component-owned construction. The captures remain the only source authority.
+fn prepare_terrain(
+    terrain: &PreparedTerrain,
+    source: &AssembledSourceMap<'_>,
+    cancelled: impl Fn() -> bool,
+) -> Result<DecodedTerrain, CompositionError> {
+    #[cfg(test)]
+    preparation_counts::height();
+    check(&cancelled)?;
+    terrain
+        .verify_unchanged()
+        .map_err(|_| CompositionError::TerrainSource)?;
+    source
+        .verify_unchanged(&cancelled)
+        .map_err(|e| CompositionError::Collision(PrepareError::Source(e)))?;
+    if terrain.map_id() != source.map().map_id() {
+        return Err(Error::Identity.into());
+    }
+    compatible_receipts(terrain, source, &cancelled)?;
+    let mut tiles = BTreeMap::new();
+    let mut selected = Vec::new();
+    selected.try_reserve_exact(9).map_err(|_| Error::Budget)?;
+    let mut digest = Sha256::new();
+    digest.update(POLICY);
+    digest.update(terrain.map_id().to_le_bytes());
+    digest.update(terrain.source_epoch().as_bytes());
+    for (tile, bytes) in terrain.tiles() {
+        check(&cancelled)?;
+        if selected.len() >= 9 {
+            return Err(Error::Budget.into());
+        }
+        let id = TileId {
+            x: tile.x,
+            y: tile.y,
+        };
+        #[cfg(test)]
+        preparation_counts::terrain_tile();
+        let decoded = TerrainTile::decode(id, bytes)?;
+        if tiles.insert(id, decoded).is_some() {
+            return Err(Error::Duplicate.into());
+        }
+        selected.push(id);
+        digest.update([id.x, id.y]);
+        digest.update((bytes.len() as u64).to_le_bytes());
+        for chunk in bytes.chunks(64 * 1024) {
+            check(&cancelled)?;
+            digest.update(chunk);
+        }
+    }
+    if selected.is_empty() {
+        return Err(Error::Missing.into());
+    }
+    Ok(DecodedTerrain {
+        tiles,
+        selected,
+        digest,
+    })
 }
 fn check(cancelled: &impl Fn() -> bool) -> Result<(), CompositionError> {
     if cancelled() {

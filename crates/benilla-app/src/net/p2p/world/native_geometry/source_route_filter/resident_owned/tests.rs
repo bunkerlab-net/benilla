@@ -2,7 +2,10 @@
 //! Actual component runtime commits across source-view scopes, not durable controller saves.
 use super::super::super::super::{
     products::{
-        source_height::{CompositionError, ResidentInitializationConfiguration},
+        source_height::{
+            preparation_counts::{measure, Counts},
+            CompositionError, ResidentInitializationConfiguration,
+        },
         vmap::installed_source_fixture as input,
     },
     real_corridor_fixture::installed_source::InstalledFixture,
@@ -30,7 +33,7 @@ fn products(install: &input::Install) -> OwnedSourceProducts {
         .into_map_bundle(input::profile(), || false)
         .unwrap()
         .unwrap();
-    OwnedSourceProducts::new(terrain, collision)
+    OwnedSourceProducts::new(terrain, collision, || false).unwrap()
 }
 
 fn moved_static<T: 'static>(value: T) -> T {
@@ -277,180 +280,184 @@ fn movement(world: &NativeWorld, sequence: u64, destination: ai::Point) -> Owned
 #[test]
 fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
     with_owned(|install, mut owner, geometry, session, profile| {
-        let bytes = install.bytes();
-        let installed = geometry
-            .app
-            .world()
-            .resource::<NativeStaticMapIndex>()
-            .source_provenance()
-            .unwrap()
-            .clone();
-        let native = owner.state.query.nav_query().retain_default();
-        let witnesses = owner
-            .inspect(
-                &installed,
-                fixture::until(),
-                || false,
-                |provider, _, ledger| {
-                    assert_eq!(ledger.counts(), (0, 0));
-                    assert_eq!(provider.retained_constructor_count(), 0);
-                    Ok(provider.liveness_for_reconstruction_test())
-                },
+        let ((), preparations) = measure(|| {
+            let bytes = install.bytes();
+            let installed = geometry
+                .app
+                .world()
+                .resource::<NativeStaticMapIndex>()
+                .source_provenance()
+                .unwrap()
+                .clone();
+            let native = owner.state.query.nav_query().retain_default();
+            let witnesses = owner
+                .inspect(
+                    &installed,
+                    fixture::until(),
+                    || false,
+                    |provider, _, ledger| {
+                        assert_eq!(ledger.counts(), (0, 0));
+                        assert_eq!(provider.retained_constructor_count(), 0);
+                        Ok(provider.liveness_for_reconstruction_test())
+                    },
+                )
+                .unwrap();
+            let mut consumer = Consumer {
+                owner: moved_static(owner),
+                geometry,
+                session,
+                profile,
+                authored: Default::default(),
+                routes: vec![],
+                constructor: None,
+            };
+            let mut world = NativeWorld::synthetic_component_test_with_initialization(
+                consumer.profile.clone(),
+                consumer.session.world,
+                f::player(),
+                1234,
+                None,
+                &mut consumer,
             )
             .unwrap();
-        let mut consumer = Consumer {
-            owner: moved_static(owner),
-            geometry,
-            session,
-            profile,
-            authored: Default::default(),
-            routes: vec![],
-            constructor: None,
-        };
-        let mut world = NativeWorld::synthetic_component_test_with_initialization(
-            consumer.profile.clone(),
-            consumer.session.world,
-            f::player(),
-            1234,
-            None,
-            &mut consumer,
-        )
-        .unwrap();
-        let mut boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
-        consumer.owner.initialize(&boundary).unwrap();
-        let mut cold_liveness = None;
-        let mut cold_notice = None;
-        for _ in 0..76 {
-            let tick = world.state().tick + 1;
-            let position = world.state().position;
-            let inputs = if tick == 1 {
-                (1..=2)
-                    .map(|offset| {
-                        movement(
-                            &world,
-                            world.state().next_sequence + offset - 1,
-                            ai::Point::new(
-                                position.x.as_f32(),
-                                position.y.as_f32() - offset as f32,
-                                position.z.as_f32(),
+            let mut boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
+            consumer.owner.initialize(&boundary).unwrap();
+            let mut cold_liveness = None;
+            let mut cold_notice = None;
+            for _ in 0..76 {
+                let tick = world.state().tick + 1;
+                let position = world.state().position;
+                let inputs = if tick == 1 {
+                    (1..=2)
+                        .map(|offset| {
+                            movement(
+                                &world,
+                                world.state().next_sequence + offset - 1,
+                                ai::Point::new(
+                                    position.x.as_f32(),
+                                    position.y.as_f32() - offset as f32,
+                                    position.z.as_f32(),
+                                )
+                                .unwrap(),
                             )
-                            .unwrap(),
+                        })
+                        .collect()
+                } else if !consumer.routes.is_empty() {
+                    vec![movement(
+                        &world,
+                        world.state().next_sequence,
+                        ai::Point::new(
+                            position.x.as_f32() - 0.125,
+                            position.y.as_f32(),
+                            position.z.as_f32(),
                         )
-                    })
-                    .collect()
-            } else if !consumer.routes.is_empty() {
-                vec![movement(
-                    &world,
-                    world.state().next_sequence,
-                    ai::Point::new(
-                        position.x.as_f32() - 0.125,
-                        position.y.as_f32(),
-                        position.z.as_f32(),
-                    )
-                    .unwrap(),
-                )]
-            } else {
-                vec![]
-            };
-            world.step_batch(tick, inputs, &mut consumer).unwrap();
-            let notice = RouteCommitNotice::capture(&world, &boundary).unwrap();
-            let installed = consumer.installed();
-            if !notice.routes().is_empty() {
-                let before = consumer.owner.ledger.diagnostic();
-                consumer
-                    .owner
-                    .inspect(
-                        &installed,
-                        fixture::until(),
-                        || false,
-                        |provider, _, ledger| {
-                            native.check_query(provider.query.nav_query()).unwrap();
-                            assert_eq!(ledger.diagnostic(), before);
-                            assert_eq!(provider.retained_constructor_count(), 1);
-                            assert!(std::rc::Weak::ptr_eq(
-                                &witnesses.0,
-                                &provider.liveness_for_reconstruction_test().0
-                            ));
-                            assert!(std::rc::Weak::ptr_eq(
-                                &witnesses.1,
-                                &provider.liveness_for_reconstruction_test().1
-                            ));
-                            Ok(())
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(
-                    consumer.owner.ledger.counts(),
-                    (consumer.routes.len(), consumer.routes.len() - 1)
-                );
-                if consumer.routes.len() == 1 {
-                    cold_liveness = Some(consumer.owner.ledger.cold_liveness_for_test().unwrap());
+                        .unwrap(),
+                    )]
+                } else {
+                    vec![]
+                };
+                world.step_batch(tick, inputs, &mut consumer).unwrap();
+                let notice = RouteCommitNotice::capture(&world, &boundary).unwrap();
+                let installed = consumer.installed();
+                if !notice.routes().is_empty() {
+                    let before = consumer.owner.ledger.diagnostic();
+                    consumer
+                        .owner
+                        .inspect(
+                            &installed,
+                            fixture::until(),
+                            || false,
+                            |provider, _, ledger| {
+                                native.check_query(provider.query.nav_query()).unwrap();
+                                assert_eq!(ledger.diagnostic(), before);
+                                assert_eq!(provider.retained_constructor_count(), 1);
+                                assert!(std::rc::Weak::ptr_eq(
+                                    &witnesses.0,
+                                    &provider.liveness_for_reconstruction_test().0
+                                ));
+                                assert!(std::rc::Weak::ptr_eq(
+                                    &witnesses.1,
+                                    &provider.liveness_for_reconstruction_test().1
+                                ));
+                                Ok(())
+                            },
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        consumer.owner.ledger.counts(),
+                        (consumer.routes.len(), consumer.routes.len() - 1)
+                    );
+                    if consumer.routes.len() == 1 {
+                        cold_liveness =
+                            Some(consumer.owner.ledger.cold_liveness_for_test().unwrap());
+                        assert!(cold_liveness.as_ref().unwrap().is_alive());
+                    }
+                }
+                // The genuine runtime has committed, and all calculation source views have ended.
+                consumer.owner.acknowledge(&notice).unwrap();
+                boundary = notice.boundary().clone();
+                let acknowledged = consumer.owner.ledger.diagnostic();
+                consumer.owner.acknowledge(&notice).unwrap();
+                assert_eq!(consumer.owner.ledger.diagnostic(), acknowledged);
+                if !notice.routes().is_empty() && consumer.routes.len() == 1 {
+                    assert_eq!(consumer.owner.ledger.counts(), (1, 1));
                     assert!(cold_liveness.as_ref().unwrap().is_alive());
+                    cold_notice = Some(notice);
+                    consumer.owner = moved_static(consumer.owner);
+                    let root = consumer.owner.ledger.diagnostic();
+                    let restore = RestoreInstall::new(install);
+                    assert!(consumer
+                        .owner
+                        .inspect(
+                            &installed,
+                            fixture::until(),
+                            || false,
+                            |_, _, _| {
+                                install.write(&input::overlapping_entries());
+                                Ok(())
+                            }
+                        )
+                        .is_err());
+                    assert_eq!(consumer.owner.ledger.diagnostic(), root);
+                    assert!(cold_liveness.as_ref().unwrap().is_alive());
+                    restore.restore();
+                    assert!(consumer
+                        .owner
+                        .inspect::<()>(
+                            &installed,
+                            fixture::until(),
+                            || true,
+                            |_, _, _| {
+                                panic!("cancelled scope must not inspect the retained ledger")
+                            }
+                        )
+                        .is_err());
+                    assert_eq!(consumer.owner.ledger.diagnostic(), root);
+                }
+                if consumer.routes.len() == 2 {
+                    assert_eq!(consumer.owner.ledger.counts(), (1, 1));
+                    let cold = cold_notice.as_ref().unwrap();
+                    assert_eq!(cold.boundary().heads()[0].cache().unwrap().revision, 1);
+                    assert_eq!(boundary.heads()[0].cache().unwrap().revision, 2);
+                    assert!(cold_liveness.as_ref().unwrap().is_alive());
+                    break;
                 }
             }
-            // The genuine runtime has committed, and all calculation source views have ended.
-            consumer.owner.acknowledge(&notice).unwrap();
-            boundary = notice.boundary().clone();
-            let acknowledged = consumer.owner.ledger.diagnostic();
-            consumer.owner.acknowledge(&notice).unwrap();
-            assert_eq!(consumer.owner.ledger.diagnostic(), acknowledged);
-            if !notice.routes().is_empty() && consumer.routes.len() == 1 {
-                assert_eq!(consumer.owner.ledger.counts(), (1, 1));
-                assert!(cold_liveness.as_ref().unwrap().is_alive());
-                cold_notice = Some(notice);
-                consumer.owner = moved_static(consumer.owner);
-                let root = consumer.owner.ledger.diagnostic();
-                let restore = RestoreInstall::new(install);
-                assert!(consumer
-                    .owner
-                    .inspect(
-                        &installed,
-                        fixture::until(),
-                        || false,
-                        |_, _, _| {
-                            install.write(&input::overlapping_entries());
-                            Ok(())
-                        }
-                    )
-                    .is_err());
-                assert_eq!(consumer.owner.ledger.diagnostic(), root);
-                assert!(cold_liveness.as_ref().unwrap().is_alive());
-                restore.restore();
-                assert!(consumer
-                    .owner
-                    .inspect::<()>(
-                        &installed,
-                        fixture::until(),
-                        || true,
-                        |_, _, _| {
-                            panic!("cancelled scope must not inspect the retained ledger")
-                        }
-                    )
-                    .is_err());
-                assert_eq!(consumer.owner.ledger.diagnostic(), root);
-            }
-            if consumer.routes.len() == 2 {
-                assert_eq!(consumer.owner.ledger.counts(), (1, 1));
-                let cold = cold_notice.as_ref().unwrap();
-                assert_eq!(cold.boundary().heads()[0].cache().unwrap().revision, 1);
-                assert_eq!(boundary.heads()[0].cache().unwrap().revision, 2);
-                assert!(cold_liveness.as_ref().unwrap().is_alive());
-                break;
-            }
-        }
-        assert_eq!(
-            consumer.routes.len(),
-            2,
-            "genuine retained dispatch reached"
-        );
-        assert_eq!(install.bytes(), bytes);
-        assert!(witnesses.0.strong_count() > 0 && witnesses.1.strong_count() > 0);
-        drop(native); // This diagnostic lease must not keep native storage alive.
-        drop(consumer);
-        assert_eq!(witnesses.0.strong_count(), 0);
-        assert_eq!(witnesses.1.strong_count(), 0);
-        assert!(!cold_liveness.unwrap().is_alive());
-        assert_eq!(install.bytes(), bytes);
+            assert_eq!(
+                consumer.routes.len(),
+                2,
+                "genuine retained dispatch reached"
+            );
+            assert_eq!(install.bytes(), bytes);
+            assert!(witnesses.0.strong_count() > 0 && witnesses.1.strong_count() > 0);
+            drop(native); // This diagnostic lease must not keep native storage alive.
+            drop(consumer);
+            assert_eq!(witnesses.0.strong_count(), 0);
+            assert_eq!(witnesses.1.strong_count(), 0);
+            assert!(!cold_liveness.unwrap().is_alive());
+            assert_eq!(install.bytes(), bytes);
+        });
+        assert_eq!(preparations, Counts::default());
     });
 }
 

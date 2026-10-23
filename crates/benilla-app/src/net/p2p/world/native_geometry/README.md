@@ -45,6 +45,13 @@ loader-minted inventory owner; retained compatibility records are provenance, ne
 proof that an inventory is currently installed. Concrete certification still reads
 and verifies the actual scene index. Equal-byte independently loaded owners do not match.
 
+Decoded terrain and resident collision are prepared once beside their exact original
+captures and borrowed by later scopes. Instrumented component tests count preparation
+and tile decoding directly; height, no-water and ray results remain equal to fresh
+borrowed preparation. Existing borrowed callers still own their inline decoded products.
+This is not nonblocking Service integration: freshness still synchronously reads MPQs,
+and terrain verification has no cancellation parameter.
+
 Short-lived views never rebind or replace the resident native query. Read-only scopes
 and bounded cold/retained calculations cannot publish a ledger head. A failed operation
 may retain constructor work or an uncommitted candidate; it is not a transaction rollback.

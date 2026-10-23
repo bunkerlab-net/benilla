@@ -27,8 +27,57 @@ const MAX_RESIDENT_TILES: usize = 64;
 #[derive(Debug)]
 pub(crate) struct PreparedTileCollision<'bundle, 'source> {
     source: &'bundle AssembledSourceMap<'source>,
+    decoded: CollisionStorage<'bundle>,
+}
+/// Non-cloneable decoded payload, with no source authority of its own.
+#[derive(Debug)]
+struct DecodedTileCollision {
     tiles: Vec<TileId>,
     geometry: VmapSnapshot,
+}
+// Preserve the existing inline production allocation; only test views borrow.
+#[cfg_attr(test, allow(clippy::large_enum_variant))]
+#[derive(Debug)]
+enum CollisionStorage<'bundle> {
+    Owned(DecodedTileCollision, std::marker::PhantomData<&'bundle ()>),
+    #[cfg(test)]
+    Borrowed(&'bundle DecodedTileCollision),
+}
+impl std::ops::Deref for CollisionStorage<'_> {
+    type Target = DecodedTileCollision;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(decoded, _) => decoded,
+            #[cfg(test)]
+            Self::Borrowed(decoded) => decoded,
+        }
+    }
+}
+/// Exact immutable capture paired inseparably with its once-decoded resident geometry.
+#[cfg(test)]
+pub(in super::super) struct OwnedTileCollision {
+    source: AssembledSourceMap<'static>,
+    decoded: DecodedTileCollision,
+}
+#[cfg(test)]
+impl OwnedTileCollision {
+    pub(in super::super) fn from_source(
+        source: AssembledSourceMap<'static>,
+        tiles: &[TileId],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, PrepareError> {
+        let prepared = PreparedTileCollision::from_source(&source, tiles, cancelled)?;
+        let CollisionStorage::Owned(decoded, _) = prepared.decoded else {
+            unreachable!("from_source owns its decoded collision")
+        };
+        Ok(Self { source, decoded })
+    }
+    pub(in super::super) fn view(&self) -> PreparedTileCollision<'_, 'static> {
+        PreparedTileCollision {
+            source: &self.source,
+            decoded: CollisionStorage::Borrowed(&self.decoded),
+        }
+    }
 }
 impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
     pub(crate) fn from_source(
@@ -36,6 +85,8 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         tiles: &[TileId],
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, PrepareError> {
+        #[cfg(test)]
+        super::super::source_height::preparation_counts::collision();
         check(&cancelled)?;
         source
             .verify_unchanged(&cancelled)
@@ -55,8 +106,10 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         check(&cancelled)?;
         Ok(Self {
             source,
-            tiles,
-            geometry,
+            decoded: CollisionStorage::Owned(
+                DecodedTileCollision { tiles, geometry },
+                std::marker::PhantomData,
+            ),
         })
     }
     pub(in super::super) fn append_navigation_mesh(
@@ -64,10 +117,10 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         mesh: &mut super::super::nav_generation::terrain_mesh::Mesh,
         cancelled: &impl Fn() -> bool,
     ) -> Result<(), Error> {
-        super::nav_mesh::append(&self.geometry, mesh, cancelled)
+        super::nav_mesh::append(&self.decoded.geometry, mesh, cancelled)
     }
     pub(crate) fn binding(&self) -> SnapshotBinding {
-        self.geometry.binding()
+        self.decoded.geometry.binding()
     }
     /// Metadata from the actual borrowed capture; no raw member bytes are exposed.
     pub(in super::super) fn source_receipts(
@@ -79,7 +132,7 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         *self.source.map().source_binding()
     }
     pub(crate) fn resident_tiles(&self) -> &[TileId] {
-        &self.tiles
+        &self.decoded.tiles
     }
     pub(crate) fn verify_unchanged(
         &self,
@@ -98,7 +151,7 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         search: f32,
         budget: &mut super::QueryBudget,
     ) -> Result<f32, Error> {
-        self.geometry.height(position, search, budget)
+        self.decoded.geometry.height(position, search, budget)
     }
     /// Exact selected group absence only; a wet group remains unsupported here.
     /// Traversal uses the complete index and refuses any required unloaded slot.
@@ -107,14 +160,18 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         position: [f32; 3],
         budget: &mut super::QueryBudget,
     ) -> Result<Option<super::LocationFloor>, Error> {
-        let Some(selected) = self.geometry.select_resident_location(position, budget)? else {
+        let Some(selected) = self
+            .decoded
+            .geometry
+            .select_resident_location(position, budget)?
+        else {
             return Ok(None);
         };
         budget.take()?;
-        let spawn = self.geometry.spawns[selected.spawn]
+        let spawn = self.decoded.geometry.spawns[selected.spawn]
             .as_ref()
             .ok_or(Error::Missing)?;
-        let group = &self.geometry.models[spawn.model].groups[selected.group];
+        let group = &self.decoded.geometry.models[spawn.model].groups[selected.group];
         if group.liquid.is_some() {
             return Err(Error::Unsupported);
         }
@@ -126,17 +183,17 @@ impl<'bundle, 'source> PreparedTileCollision<'bundle, 'source> {
         request: RayRequest,
         budget: &mut super::QueryBudget,
     ) -> Result<RayReply, Error> {
-        self.geometry.query_with_budget(request, budget)
+        self.decoded.geometry.query_with_budget(request, budget)
     }
     pub(crate) fn query(&self, request: RayRequest, deadline: Instant) -> Result<RayReply, Error> {
-        self.geometry.query(request, deadline)
+        self.decoded.geometry.query(request, deadline)
     }
     pub(crate) fn query_height(
         &self,
         request: HeightRequest,
         deadline: Instant,
     ) -> Result<HeightReply, Error> {
-        self.geometry.query_height(request, deadline)
+        self.decoded.geometry.query_height(request, deadline)
     }
 }
 fn check(cancelled: &impl Fn() -> bool) -> Result<(), PrepareError> {
