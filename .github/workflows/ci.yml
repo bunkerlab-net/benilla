@@ -100,6 +100,24 @@ jobs:
             products::source_height::owned::tests::owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves \
             products::source_height::owned::tests::owned_sources_construction_refuses_cancellation_changed_and_deleted_sources \
             products::source_height::owned::tests::owned_sources_preserve_typed_terrain_cancellation_and_genuine_source_failure
+      - name: Verify bounded capture freshness worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/capture-freshness-worker.log"
+          mbx test --locked -p benilla-native-geometry-tests --lib products::source_height::owned::freshness::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            products::source_height::owned::freshness::tests::captures_are_send_sync_and_caller_operations_finish_while_worker_is_held \
+            products::source_height::owned::freshness::tests::one_slot_includes_completed_undrained_work_and_reuses_the_same_worker \
+            products::source_height::owned::freshness::tests::cancellation_retirement_and_original_expiry_do_not_release_a_held_slot \
+            products::source_height::owned::freshness::tests::cancellation_after_success_and_after_publication_cannot_escape_the_token \
+            products::source_height::owned::freshness::tests::completed_source_errors_keep_their_provenance_after_cancellation_or_retirement \
+            products::source_height::owned::freshness::tests::observations_reject_equal_byte_foreign_captures_and_replacement_work \
+            products::source_height::owned::freshness::tests::drained_observations_still_reject_retired_expired_and_stopped_owners \
+            products::source_height::owned::freshness::tests::already_expired_original_lease_is_refused_without_occupying_the_worker \
+            products::source_height::owned::freshness::tests::drained_observation_is_revoked_by_explicit_cancel_or_a_new_accepted_request \
+            products::source_height::owned::freshness::tests::dropped_worker_never_joins_a_held_verification_and_releases_owned_captures \
+            products::source_height::owned::freshness::tests::disconnected_worker_stays_stopped_instead_of_spawning_a_replacement
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy

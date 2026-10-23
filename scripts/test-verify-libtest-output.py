@@ -18,6 +18,23 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 SUITES = {
+    "Verify bounded capture freshness worker": (
+        "benilla-native-geometry-tests",
+        "products::source_height::owned::freshness::tests::",
+        (
+            "captures_are_send_sync_and_caller_operations_finish_while_worker_is_held",
+            "one_slot_includes_completed_undrained_work_and_reuses_the_same_worker",
+            "cancellation_retirement_and_original_expiry_do_not_release_a_held_slot",
+            "cancellation_after_success_and_after_publication_cannot_escape_the_token",
+            "completed_source_errors_keep_their_provenance_after_cancellation_or_retirement",
+            "observations_reject_equal_byte_foreign_captures_and_replacement_work",
+            "drained_observations_still_reject_retired_expired_and_stopped_owners",
+            "already_expired_original_lease_is_refused_without_occupying_the_worker",
+            "drained_observation_is_revoked_by_explicit_cancel_or_a_new_accepted_request",
+            "dropped_worker_never_joins_a_held_verification_and_releases_owned_captures",
+            "disconnected_worker_stays_stopped_instead_of_spawning_a_replacement",
+        ),
+    ),
     "Verify cooperative terrain freshness cancellation": (
         "benilla-native-terrain",
         "source::tests::cancellation::",
