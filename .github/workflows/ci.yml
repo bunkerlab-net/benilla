@@ -100,6 +100,18 @@ jobs:
             products::source_height::owned::tests::owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves \
             products::source_height::owned::tests::owned_sources_construction_refuses_cancellation_changed_and_deleted_sources \
             products::source_height::owned::tests::owned_sources_preserve_typed_terrain_cancellation_and_genuine_source_failure
+      - name: Verify resident dispatch receipt identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-dispatch-receipt.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib core::resident_dispatch::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            core::resident_dispatch::tests::resident_dispatch_preserves_original_work_selection_without_queue_admission \
+            core::resident_dispatch::tests::resident_dispatch_refuses_changed_context_body_player_and_branch_tampering \
+            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_work_attachment_dispatch_and_resident_allocation \
+            core::resident_dispatch::tests::resident_dispatch_revocation_and_original_expiry_prevent_certification \
+            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume
       - name: Verify resident observation without transport admission
         shell: bash
         run: |

@@ -18,6 +18,17 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 SUITES = {
+    "Verify resident dispatch receipt identity": (
+        "benilla-native-corridor-tests",
+        "core::resident_dispatch::tests::",
+        (
+            "resident_dispatch_preserves_original_work_selection_without_queue_admission",
+            "resident_dispatch_refuses_changed_context_body_player_and_branch_tampering",
+            "resident_dispatch_refuses_foreign_work_attachment_dispatch_and_resident_allocation",
+            "resident_dispatch_revocation_and_original_expiry_prevent_certification",
+            "resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume",
+        ),
+    ),
     "Verify resident observation without transport admission": (
         "benilla-native-geometry-tests",
         "core::staged_job_tests::source_observation_work_retains_exact_resident_request_without_transport_admission",
