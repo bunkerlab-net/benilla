@@ -61,6 +61,31 @@ struct Manifest<'a> {
     absent_members: &'a [source::AbsentSourceMember],
     products: &'a [Product],
 }
+/// A cooperative freshness cancellation is distinct from a failed source proof.
+#[derive(Debug)]
+pub enum TerrainFreshnessError {
+    Cancelled,
+    Source(anyhow::Error),
+}
+
+impl std::fmt::Display for TerrainFreshnessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => f.write_str("terrain source freshness check cancelled"),
+            Self::Source(error) => std::fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for TerrainFreshnessError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Cancelled => None,
+            Self::Source(error) => Some(error.as_ref()),
+        }
+    }
+}
+
 /// Owns the exact consumed raw bytes and their generated products. No serialized
 /// manifest can construct this value. Terrain output alone grants no geometry authority.
 pub struct PreparedTerrain {
@@ -95,7 +120,21 @@ impl PreparedTerrain {
             .map(|(p, bytes)| (p.tile, bytes.as_slice()))
     }
     pub fn verify_unchanged(&self) -> Result<()> {
-        self.source.verify_unchanged()
+        self.verify_unchanged_cancellable(|| false)
+            .map_err(|error| match error {
+                TerrainFreshnessError::Source(error) => error,
+                TerrainFreshnessError::Cancelled => error.into(),
+            })
+    }
+    /// Recheck exact winners and bytes, polling before and after bounded source
+    /// operations and before returning success. Cancellation cannot interrupt an
+    /// individual synchronous operation; it leaves this capture available to retry.
+    /// Neither success nor cancellation provides a live-install lease.
+    pub fn verify_unchanged_cancellable(
+        &self,
+        cancelled: impl Fn() -> bool,
+    ) -> std::result::Result<(), TerrainFreshnessError> {
+        self.source.verify_unchanged_cancellable(cancelled)
     }
     /// Publish a fresh private directory, manifest last. Failure never replaces an
     /// earlier export. A crash may leave an incomplete directory without a manifest.

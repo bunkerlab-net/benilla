@@ -418,13 +418,13 @@ fn source_profile_accepts_bounded_512_scan_and_normalized_legacy_header_size() {
             fs::write(&path, &prefixed).unwrap();
             let expected = (prefix as u64, original[..32].try_into().unwrap());
             assert_eq!(
-                verify_ad_archive_header(&path).unwrap(),
+                verify_ad_archive_header(&path, &SourceCheck::new(&|| false)).unwrap(),
                 AdHeaderSnapshot {
                     base: expected,
                     extension: None
                 }
             );
-            let chain = open_chain(&data).unwrap();
+            let chain = open_chain(&data, &SourceCheck::new(&|| false)).unwrap();
             assert_eq!(chain.archive_for(MAP).unwrap().header_snapshot(), expected);
             let capture = CapturedSource::capture(&data, &[MAP]).unwrap();
             assert_eq!(capture.bytes(MAP).unwrap(), entry(MAP, 1).bytes);
@@ -445,13 +445,13 @@ fn version_one_accepts_normalized_sizes_and_retains_complete_decoder_snapshot() 
             original[4..8].copy_from_slice(&size.to_le_bytes());
             let prefixed = prefixed_archive(prefix, &original);
             fs::write(&path, &prefixed).unwrap();
-            let expected = verify_ad_archive_header(&path).unwrap();
+            let expected = verify_ad_archive_header(&path, &SourceCheck::new(&|| false)).unwrap();
             assert_eq!(
                 expected.base,
                 (prefix as u64, original[..32].try_into().unwrap())
             );
             assert_eq!(expected.extension, Some([0; 12]));
-            let chain = open_chain(&data).unwrap();
+            let chain = open_chain(&data, &SourceCheck::new(&|| false)).unwrap();
             let decoded = chain.archive_for(MAP).unwrap();
             assert_eq!(decoded.header_snapshot(), expected.base);
             assert_eq!(decoded.header_extension_snapshot(), expected.extension);
@@ -485,7 +485,7 @@ fn mixed_raw_versions_accept_the_reported_patch_header_shapes_and_lengths() {
             .unwrap()
             .set_len(u64::from(len))
             .unwrap();
-        let snapshot = verify_ad_archive_header(&path).unwrap();
+        let snapshot = verify_ad_archive_header(&path, &SourceCheck::new(&|| false)).unwrap();
         assert_eq!(snapshot.base.0, 0);
         assert_eq!(
             u32::from_le_bytes(snapshot.base.1[4..8].try_into().unwrap()),
@@ -526,7 +526,7 @@ fn version_one_refuses_each_truncated_or_nonzero_extension_and_table_start() {
         for present in 0..12 {
             fs::write(&path, prefixed_archive(prefix, &original[..32 + present])).unwrap();
             assert_error(
-                verify_ad_archive_header(&path),
+                verify_ad_archive_header(&path, &SourceCheck::new(&|| false)),
                 "source.ad_header_truncated",
             );
             assert_error(
@@ -540,7 +540,7 @@ fn version_one_refuses_each_truncated_or_nonzero_extension_and_table_start() {
             changed[at] = 1;
             fs::write(&path, prefixed_archive(prefix, &changed)).unwrap();
             assert_error(
-                verify_ad_archive_header(&path),
+                verify_ad_archive_header(&path, &SourceCheck::new(&|| false)),
                 "source.ad_header_extension",
             );
             assert_error(
@@ -553,7 +553,10 @@ fn version_one_refuses_each_truncated_or_nonzero_extension_and_table_start() {
                 let mut changed = original.clone();
                 changed[field..field + 4].copy_from_slice(&start.to_le_bytes());
                 fs::write(&path, prefixed_archive(prefix, &changed)).unwrap();
-                assert_error(verify_ad_archive_header(&path), "source.ad_index_spans");
+                assert_error(
+                    verify_ad_archive_header(&path, &SourceCheck::new(&|| false)),
+                    "source.ad_index_spans",
+                );
                 assert_error(
                     CapturedSource::capture(&data, &[MAP]),
                     "source.ad_index_spans",
@@ -571,9 +574,9 @@ fn version_one_capture_and_fresh_reopen_refuse_extension_only_source_change() {
     let original = archive_version(&[entry(MAP, 1)], 1);
     fs::write(&path, &original).unwrap();
     let capture = CapturedSource::capture(&data, &[MAP]).unwrap();
-    let chain = open_chain(&data).unwrap();
+    let chain = open_chain(&data, &SourceCheck::new(&|| false)).unwrap();
     let decoded = chain.archive_for(MAP).unwrap();
-    let expected = verify_ad_archive_header(&path).unwrap();
+    let expected = verify_ad_archive_header(&path, &SourceCheck::new(&|| false)).unwrap();
     for at in 32..44 {
         let mut changed = original.clone();
         changed[at] = 1;
@@ -613,7 +616,10 @@ fn source_profile_preserves_version_size_sector_and_index_bounds_after_prefix() 
                 let mut changed = original.clone();
                 changed[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
                 fs::write(&path, prefixed_archive(prefix, &changed)).unwrap();
-                assert_error(verify_ad_archive_header(&path), error);
+                assert_error(
+                    verify_ad_archive_header(&path, &SourceCheck::new(&|| false)),
+                    error,
+                );
                 assert_error(CapturedSource::capture(&data, &[MAP]), error);
             }
         }
@@ -637,7 +643,10 @@ fn source_profile_reports_missing_truncated_and_out_of_budget_headers() {
         ),
     ] {
         fs::write(&path, bytes).unwrap();
-        assert_error(verify_ad_archive_header(&path), error);
+        assert_error(
+            verify_ad_archive_header(&path, &SourceCheck::new(&|| false)),
+            error,
+        );
         assert_error(CapturedSource::capture(&data, &[MAP]), error);
     }
 }
@@ -653,7 +662,10 @@ fn source_profile_does_not_skip_first_unsupported_header_for_later_valid_one() {
     bytes.resize(2048, 0);
     bytes.extend(archive(&[entry(MAP, 1)]));
     fs::write(&path, bytes).unwrap();
-    assert_error(verify_ad_archive_header(&path), "source.ad_header_version");
+    assert_error(
+        verify_ad_archive_header(&path, &SourceCheck::new(&|| false)),
+        "source.ad_header_version",
+    );
     assert_error(
         CapturedSource::capture(&data, &[MAP]),
         "source.ad_header_version",
@@ -696,7 +708,13 @@ fn source_profile_requires_reader_and_extractor_to_select_the_same_header() {
     let source_size = (aligned.len() - 512) as u32;
     aligned[520..524].copy_from_slice(&source_size.to_le_bytes());
     fs::write(&path, aligned).unwrap();
-    assert_eq!(verify_ad_archive_header(&path).unwrap().base.0, 512);
+    assert_eq!(
+        verify_ad_archive_header(&path, &SourceCheck::new(&|| false))
+            .unwrap()
+            .base
+            .0,
+        512
+    );
     assert_eq!(
         Chain::open(&data)
             .unwrap()
@@ -739,7 +757,7 @@ fn compatibility_check_distinguishes_absence_from_hidden_malformed_or_deleted_hi
     let temp = Temp::new();
     let data = temp.data();
     fs::write(data.join("dbc.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
-    let chain = open_chain(&data).unwrap();
+    let chain = open_chain(&data, &SourceCheck::new(&|| false)).unwrap();
     assert!(chain.verify_classic_ad_member(MAP).unwrap());
     assert!(!chain.verify_classic_ad_member(AREA).unwrap());
     let mut malformed = archive(&[entry(MAP, 2)]);
@@ -758,7 +776,7 @@ fn compatibility_check_distinguishes_absence_from_hidden_malformed_or_deleted_hi
         malformed[32 + index * 4..36 + index * 4].copy_from_slice(&word.to_le_bytes());
     }
     fs::write(data.join("patch.MPQ"), malformed).unwrap();
-    let chain = open_chain(&data).unwrap();
+    let chain = open_chain(&data, &SourceCheck::new(&|| false)).unwrap();
     assert_eq!(chain.read(MAP).unwrap(), entry(MAP, 1).bytes);
     assert_error(
         chain.verify_classic_ad_member(MAP),
@@ -772,7 +790,9 @@ fn compatibility_check_distinguishes_absence_from_hidden_malformed_or_deleted_hi
     deleted.flags = 0x8200_0000;
     fs::write(data.join("patch.MPQ"), archive(&[deleted])).unwrap();
     assert_error(
-        open_chain(&data).unwrap().verify_classic_ad_member(MAP),
+        open_chain(&data, &SourceCheck::new(&|| false))
+            .unwrap()
+            .verify_classic_ad_member(MAP),
         "unsupported member flags",
     );
 }
@@ -1501,4 +1521,258 @@ fn competing_marker_is_never_overwritten() {
         fs::read(output.join("terrain.json")).unwrap(),
         b"other owner's marker"
     );
+}
+
+mod cancellation {
+    use super::*;
+    use crate::TerrainFreshnessError;
+    use std::cell::{Cell, RefCell};
+
+    fn captured_fixture(data: &Path) -> CapturedSource {
+        fs::write(
+            data.join("terrain.MPQ"),
+            archive(&[entry(MAP, 1), entry(WDT, 2), entry(HISTORY_WDT, 3)]),
+        )
+        .unwrap();
+        let mut source = CapturedSource::capture(data, &[MAP, WDT]).unwrap();
+        assert!(source.capture_history_member(HISTORY_WDT).unwrap());
+        assert!(!source.capture_history_member(HISTORY_ADT).unwrap());
+        source
+    }
+
+    #[test]
+    fn cancellation_before_any_access_wins_even_when_directory_has_disappeared() {
+        let temp = Temp::new();
+        let data = temp.data();
+        let source = captured_fixture(&data);
+        let receipts = source_receipts(&source);
+        fs::remove_dir_all(&data).unwrap();
+        let stages = RefCell::new(Vec::new());
+        let polls = Cell::new(0);
+        let cancelled = || {
+            polls.set(polls.get() + 1);
+            true
+        };
+        let observe = |stage| stages.borrow_mut().push(stage);
+        let check = SourceCheck {
+            cancelled: &cancelled,
+            observe: Some(&observe),
+        };
+        assert!(matches!(
+            freshness_result(source.verify_unchanged_checked(&check)),
+            Err(TerrainFreshnessError::Cancelled)
+        ));
+        assert_eq!(polls.get(), 1);
+        assert_eq!(*stages.borrow(), [SourceStage::Start]);
+        assert_eq!(source_receipts(&source), receipts);
+    }
+
+    #[test]
+    fn every_app_independent_and_final_checkpoint_stops_then_allows_retry() {
+        let temp = Temp::new();
+        let data = temp.data();
+        let source = captured_fixture(&data);
+        let receipts = source_receipts(&source);
+        let history = source.history_names.clone();
+        let payloads = source.payloads.clone();
+        let stages = RefCell::new(Vec::new());
+        let observe = |stage| stages.borrow_mut().push(stage);
+        source
+            .verify_unchanged_checked(&SourceCheck {
+                cancelled: &|| false,
+                observe: Some(&observe),
+            })
+            .unwrap();
+        let stages = stages.into_inner();
+        let independent = stages
+            .iter()
+            .position(|stage| *stage == SourceStage::Independent)
+            .unwrap();
+        for operation in [
+            SourceOperation::ChainOpen,
+            SourceOperation::HeaderRead,
+            SourceOperation::MemberProfile,
+            SourceOperation::MemberLookup,
+            SourceOperation::MemberRead,
+            SourceOperation::MemberCompare,
+        ] {
+            for boundary in [
+                SourceStage::Before(operation),
+                SourceStage::After(operation),
+            ] {
+                assert!(stages[..independent].contains(&boundary), "{boundary:?}");
+                assert!(stages[independent..].contains(&boundary), "{boundary:?}");
+            }
+        }
+        assert!(stages.contains(&SourceStage::Before(SourceOperation::DirectoryEntry)));
+        assert!(stages.contains(&SourceStage::After(SourceOperation::DirectoryEntry)));
+        assert_eq!(stages.last(), Some(&SourceStage::Complete));
+
+        // An ordinal comes from the observed successful traversal, not timing or
+        // a guessed number of I/O operations. No checkpoint follows cancellation.
+        for stop in 0..stages.len() {
+            let seen = RefCell::new(Vec::new());
+            let cancelled = Cell::new(false);
+            let polls = Cell::new(0);
+            let observe = |stage| {
+                let mut seen = seen.borrow_mut();
+                seen.push(stage);
+                cancelled.set(seen.len() == stop + 1);
+            };
+            let poll = || {
+                polls.set(polls.get() + 1);
+                cancelled.get()
+            };
+            let result = freshness_result(source.verify_unchanged_checked(&SourceCheck {
+                cancelled: &poll,
+                observe: Some(&observe),
+            }));
+            assert!(
+                matches!(result, Err(TerrainFreshnessError::Cancelled)),
+                "checkpoint {stop}: {:?}",
+                stages[stop]
+            );
+            assert_eq!(*seen.borrow(), stages[..=stop]);
+            assert_eq!(polls.get(), stop + 1);
+            assert_eq!(source_receipts(&source), receipts);
+            assert_eq!(source.history_names, history);
+            assert_eq!(source.payloads, payloads);
+            source.verify_unchanged_cancellable(|| false).unwrap();
+        }
+        source.verify_unchanged().unwrap();
+    }
+
+    #[test]
+    fn source_failure_is_not_repolled_or_reclassified_as_cancellation() {
+        let armed = Cell::new(false);
+        let polls = Cell::new(0);
+        let cancelled = || {
+            polls.set(polls.get() + 1);
+            armed.get()
+        };
+        let check = SourceCheck::new(&cancelled);
+        let result = check
+            .run(SourceOperation::HeaderRead, || -> Result<()> {
+                armed.set(true);
+                Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into())
+            })
+            .context("source.ad_header_read")
+            .context("source.recheck_open");
+        let Err(TerrainFreshnessError::Source(error)) = freshness_result(result) else {
+            panic!("a failed read must remain a source failure");
+        };
+        assert_eq!(polls.get(), 1);
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
+        assert!(format!("{error:#}").contains("source.ad_header_read"));
+    }
+
+    #[test]
+    fn only_the_private_marker_classifies_cancellation_through_contexts() {
+        let result: Result<()> = Err(Cancelled.into());
+        let result = result
+            .context("source.ad_read")
+            .context("source.recheck_ad_profile");
+        assert!(matches!(
+            freshness_result(result),
+            Err(TerrainFreshnessError::Cancelled)
+        ));
+        let result = Err(anyhow::anyhow!("terrain source freshness check cancelled"))
+            .context("source.recheck_open");
+        assert!(matches!(
+            freshness_result(result),
+            Err(TerrainFreshnessError::Source(_))
+        ));
+    }
+
+    #[test]
+    fn prepared_public_api_cancels_retries_and_preserves_evidence_and_diagnostics() {
+        let temp = Temp::new();
+        let data = temp.data();
+        install_oracle(&data);
+        let prepared = crate::prepare(&data, 1, &[ORACLE_TILE]).unwrap();
+        let receipts: Vec<_> = prepared.source_receipts().collect();
+        let epoch = prepared.source_epoch().to_owned();
+        let products: Vec<_> = prepared
+            .tiles()
+            .map(|(tile, bytes)| (tile, bytes.to_vec()))
+            .collect();
+        assert!(matches!(
+            prepared.verify_unchanged_cancellable(|| true),
+            Err(TerrainFreshnessError::Cancelled)
+        ));
+        prepared.verify_unchanged_cancellable(|| false).unwrap();
+        prepared.verify_unchanged().unwrap();
+        assert_eq!(prepared.source_receipts().collect::<Vec<_>>(), receipts);
+        assert_eq!(prepared.source_epoch(), epoch);
+        assert_eq!(
+            prepared
+                .tiles()
+                .map(|(tile, bytes)| (tile, bytes.to_vec()))
+                .collect::<Vec<_>>(),
+            products
+        );
+
+        change_oracle_source(&data);
+        let legacy = prepared.verify_unchanged().unwrap_err();
+        let Err(TerrainFreshnessError::Source(error)) =
+            prepared.verify_unchanged_cancellable(|| false)
+        else {
+            panic!("changed source must remain a source failure");
+        };
+        assert_eq!(format!("{legacy:#}"), format!("{error:#}"));
+        assert_eq!(crate::diagnostic_id(&legacy), crate::diagnostic_id(&error));
+        assert_eq!(prepared.source_receipts().collect::<Vec<_>>(), receipts);
+        assert_eq!(prepared.source_epoch(), epoch);
+
+        fs::remove_dir_all(&data).unwrap();
+        let polls = Cell::new(0);
+        assert!(matches!(
+            prepared.verify_unchanged_cancellable(|| {
+                polls.set(polls.get() + 1);
+                true
+            }),
+            Err(TerrainFreshnessError::Cancelled)
+        ));
+        assert_eq!(polls.get(), 1);
+    }
+
+    #[test]
+    fn uncancelled_api_keeps_corruption_winner_and_absence_fail_closed() {
+        for case in 0..3 {
+            let temp = Temp::new();
+            let data = temp.data();
+            let source = captured_fixture(&data);
+            let receipts = source_receipts(&source);
+            let expected = match case {
+                0 => {
+                    let mut corrupt = entry(MAP, 1);
+                    corrupt.declared += 1;
+                    fs::write(
+                        data.join("terrain.MPQ"),
+                        archive(&[corrupt, entry(WDT, 2), entry(HISTORY_WDT, 3)]),
+                    )
+                    .unwrap();
+                    "source.bytes_changed"
+                }
+                1 => {
+                    fs::write(data.join("patch.MPQ"), archive(&[entry(MAP, 1)])).unwrap();
+                    "source.winner_changed"
+                }
+                _ => {
+                    fs::write(data.join("patch.MPQ"), archive(&[entry(HISTORY_ADT, 4)])).unwrap();
+                    "source.absence_changed"
+                }
+            };
+            let Err(TerrainFreshnessError::Source(error)) =
+                source.verify_unchanged_cancellable(|| false)
+            else {
+                panic!("negative source proof must not succeed or become cancellation");
+            };
+            assert!(format!("{error:#}").contains(expected), "{error:#}");
+            assert_eq!(source_receipts(&source), receipts);
+        }
+    }
 }

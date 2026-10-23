@@ -40,6 +40,96 @@ const DBC_MEMBERS: &[&str] = &[
     "DBFilesClient\\LiquidType.dbc",
 ];
 
+/// Only a checkpoint can mint cancellation. Anyhow contexts preserve the marker;
+/// an unrelated source error is never reclassified by polling after it fails.
+#[derive(Debug)]
+struct Cancelled;
+
+impl fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("terrain source freshness check cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceOperation {
+    PathKind,
+    DirectoryOpen,
+    DirectoryEntry,
+    ArchiveMetadata,
+    HeaderOpen,
+    HeaderMetadata,
+    HeaderSeek,
+    HeaderRead,
+    ChainOpen,
+    HeaderSelection,
+    MemberLookup,
+    MemberSize,
+    MemberProfile,
+    MemberRead,
+    MemberCompare,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceStage {
+    Start,
+    App,
+    Independent,
+    Before(SourceOperation),
+    After(SourceOperation),
+    Complete,
+}
+
+struct SourceCheck<'a> {
+    cancelled: &'a dyn Fn() -> bool,
+    #[cfg(test)]
+    observe: Option<&'a dyn Fn(SourceStage)>,
+}
+
+impl<'a> SourceCheck<'a> {
+    fn new(cancelled: &'a dyn Fn() -> bool) -> Self {
+        Self {
+            cancelled,
+            #[cfg(test)]
+            observe: None,
+        }
+    }
+
+    fn checkpoint(&self, stage: SourceStage) -> Result<()> {
+        #[cfg(not(test))]
+        let _ = stage;
+        #[cfg(test)]
+        if let Some(observe) = self.observe {
+            observe(stage);
+        }
+        if (self.cancelled)() {
+            return Err(Cancelled.into());
+        }
+        Ok(())
+    }
+
+    /// A bounded synchronous operation cannot be interrupted while running.
+    /// Preserve its failure without a second poll; poll again only on success.
+    fn run<T>(&self, operation: SourceOperation, action: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.checkpoint(SourceStage::Before(operation))?;
+        let value = action()?;
+        self.checkpoint(SourceStage::After(operation))?;
+        Ok(value)
+    }
+}
+
+fn freshness_result(result: Result<()>) -> std::result::Result<(), crate::TerrainFreshnessError> {
+    result.map_err(|error| {
+        if error.downcast_ref::<Cancelled>().is_some() {
+            crate::TerrainFreshnessError::Cancelled
+        } else {
+            crate::TerrainFreshnessError::Source(error)
+        }
+    })
+}
+
 /// Informational provenance derived only from a successfully read member.
 /// This is not a deserializable snapshot, admission token, or parser result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -86,16 +176,17 @@ impl CapturedSource {
     /// Smaller subsets support discovery, but cannot themselves establish a complete
     /// terrain product. Names use canonical `DBFilesClient\\` / `World\\Maps\\` paths.
     pub(crate) fn capture(data: &Path, names: &[impl AsRef<str>]) -> Result<Self> {
+        let check = SourceCheck::new(&|| false);
         let names = selected_names(names)?;
         ensure!(data.is_dir(), "source.data_directory_required");
         let data = data.canonicalize().context("source.data_directory")?;
-        let chain = open_chain(&data)?;
+        let chain = open_chain(&data, &check)?;
         // Inspect all winning sizes before any member read/decompression.
-        let plans = plan_members(&chain, &names)?;
+        let plans = plan_members(&chain, &names, &check)?;
         let mut members = Vec::with_capacity(plans.len());
         let mut payloads = Vec::with_capacity(plans.len());
         for plan in plans {
-            let bytes = read_member(&chain, &plan)?;
+            let bytes = read_member(&chain, &plan, &check)?;
             members.push(SourceMember {
                 name: plan.name,
                 winning_archive: plan.winning_archive,
@@ -112,7 +203,7 @@ impl CapturedSource {
             history_names: BTreeSet::new(),
             binding_digest: String::new(),
         };
-        captured.verify_ad_compatible()?;
+        captured.verify_ad_compatible(&check)?;
         captured.refresh_binding_digest();
         Ok(captured)
     }
@@ -144,6 +235,7 @@ impl CapturedSource {
     /// absence, never a failed load. Repeated names reuse their exact receipt.
     /// Every failure leaves both evidence and epoch unchanged.
     pub(crate) fn capture_history_member(&mut self, name: &str) -> Result<bool> {
+        let check = SourceCheck::new(&|| false);
         history_name(name)?;
         if self.history_names.contains(name) {
             return Ok(self.bytes(name).is_ok());
@@ -166,7 +258,7 @@ impl CapturedSource {
             self.history_names.insert(name.to_owned());
             return Ok(true);
         }
-        let chain = open_chain(&self.data).context("source.history_open")?;
+        let chain = open_chain(&self.data, &check).context("source.history_open")?;
         let mut candidate = Self {
             data: self.data.clone(),
             members: Vec::new(),
@@ -178,7 +270,7 @@ impl CapturedSource {
         // Plan and budget a readable app winner before any member decompression.
         // find_file_archive includes tombstones, which plan_members rejects.
         if chain.find_file_archive(name).is_some() {
-            let plan = plan_members(&chain, &[name.to_owned()])?
+            let plan = plan_members(&chain, &[name.to_owned()], &check)?
                 .pop()
                 .expect("one planned history member");
             check_history_byte_budget(&self.members, plan.bytes)?;
@@ -188,7 +280,7 @@ impl CapturedSource {
                     .with_context(|| format!("source.history_member_profile:{name}"))?,
                 "source.history_resolver_mismatch:{name}"
             );
-            let bytes = read_member(&chain, &plan)?;
+            let bytes = read_member(&chain, &plan, &check)?;
             candidate.members.push(SourceMember {
                 name: plan.name,
                 winning_archive: plan.winning_archive,
@@ -197,12 +289,12 @@ impl CapturedSource {
             });
             candidate.payloads.push(bytes.into_boxed_slice());
         } else {
-            verify_app_absence(&chain, name)?;
+            verify_app_absence(&chain, name, &check)?;
             candidate.absent_members.push(AbsentSourceMember {
                 name: name.to_owned(),
             });
         }
-        candidate.verify_ad_compatible()?;
+        candidate.verify_ad_compatible(&check)?;
         let present = !candidate.members.is_empty();
         if let Some(member) = candidate.members.pop() {
             let index = self
@@ -297,13 +389,26 @@ impl CapturedSource {
     /// This is an observation, not a filesystem lock or atomic snapshot guarantee.
     /// The writer must call it immediately before publishing its completion marker.
     pub(crate) fn verify_unchanged(&self) -> Result<()> {
-        let chain = open_chain(&self.data).context("source.recheck_open")?;
+        self.verify_unchanged_checked(&SourceCheck::new(&|| false))
+    }
+
+    pub(crate) fn verify_unchanged_cancellable(
+        &self,
+        cancelled: impl Fn() -> bool,
+    ) -> std::result::Result<(), crate::TerrainFreshnessError> {
+        freshness_result(self.verify_unchanged_checked(&SourceCheck::new(&cancelled)))
+    }
+
+    fn verify_unchanged_checked(&self, check: &SourceCheck<'_>) -> Result<()> {
+        check.checkpoint(SourceStage::Start)?;
+        check.checkpoint(SourceStage::App)?;
+        let chain = open_chain(&self.data, check).context("source.recheck_open")?;
         let names: Vec<_> = self
             .members
             .iter()
             .map(|member| member.name.clone())
             .collect();
-        let plans = plan_members(&chain, &names).context("source.recheck_members")?;
+        let plans = plan_members(&chain, &names, check).context("source.recheck_members")?;
         for ((member, captured), plan) in self.members.iter().zip(&self.payloads).zip(plans) {
             ensure!(
                 member.winning_archive == plan.winning_archive,
@@ -317,8 +422,10 @@ impl CapturedSource {
             );
             if self.history_names.contains(&member.name) {
                 ensure!(
-                    chain
-                        .verify_classic_ad_member(&member.name)
+                    check
+                        .run(SourceOperation::MemberProfile, || {
+                            chain.verify_classic_ad_member(&member.name)
+                        })
                         .with_context(|| format!(
                             "source.history_member_profile:{}",
                             member.name
@@ -328,29 +435,40 @@ impl CapturedSource {
                 );
             }
             // Only one fresh member is resident at a time in addition to capture.
-            let fresh = read_member(&chain, &plan).context("source.recheck_read")?;
-            ensure!(
-                captured.as_ref() == fresh.as_slice(),
-                "source.bytes_changed:{}",
-                member.name
-            );
+            let fresh = read_member(&chain, &plan, check).context("source.recheck_read")?;
+            check.run(SourceOperation::MemberCompare, || {
+                ensure!(
+                    captured.as_ref() == fresh.as_slice(),
+                    "source.bytes_changed:{}",
+                    member.name
+                );
+                Ok(())
+            })?;
         }
         for absent in &self.absent_members {
-            verify_app_absence(&chain, &absent.name).context("source.recheck_absence")?;
+            verify_app_absence(&chain, &absent.name, check).context("source.recheck_absence")?;
         }
-        self.verify_ad_compatible()
+        check.checkpoint(SourceStage::Independent)?;
+        self.verify_ad_compatible(check)
             .context("source.recheck_ad_profile")?;
+        check.checkpoint(SourceStage::Complete)?;
         Ok(())
     }
 
-    fn verify_ad_compatible(&self) -> Result<()> {
+    fn verify_ad_compatible(&self, check: &SourceCheck<'_>) -> Result<()> {
         // System.cpp CONF_mpq_list / LoadCommonMPQFiles skip absent fixed names;
         // mpq_libmpq.cpp pushes each archive to the front and uses the first hit.
         // Exact basenames avoid filesystem-dependent case aliases. This stricter
         // profile rejects unsupported app winners even if their bytes coincide.
-        for (index, entry) in std::fs::read_dir(&self.data)?.enumerate() {
+        let mut entries = check.run(SourceOperation::DirectoryOpen, || {
+            Ok(std::fs::read_dir(&self.data)?)
+        })?;
+        let mut index = 0;
+        while let Some(entry) = check.run(SourceOperation::DirectoryEntry, || {
+            Ok(entries.next().transpose()?)
+        })? {
             ensure!(index < 4096, "source.ad_directory_entry_limit");
-            let entry = entry?;
+            index += 1;
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
             if let Some(expected) = AD_ARCHIVES
@@ -363,28 +481,37 @@ impl CapturedSource {
         let mut resolved = vec![false; self.members.len()];
         for archive_name in AD_ARCHIVES.iter().rev() {
             let path = self.data.join(archive_name);
-            let metadata = match std::fs::symlink_metadata(&path) {
-                Ok(metadata) => metadata,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error).context("source.ad_archive_metadata"),
-            };
+            let metadata =
+                check.run(
+                    SourceOperation::ArchiveMetadata,
+                    || match std::fs::symlink_metadata(&path) {
+                        Ok(metadata) => Ok(Some(metadata)),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                        Err(error) => Err(error).context("source.ad_archive_metadata"),
+                    },
+                )?;
+            let Some(metadata) = metadata else { continue };
             ensure!(
                 metadata.file_type().is_file(),
                 "source.ad_regular_archive_required"
             );
             // One independently bounded source archive is held at a time, never
             // five separate full index budgets retained together.
-            let chain = open_chain(&path).context("source.ad_open_archive")?;
+            let chain = open_chain(&path, check).context("source.ad_open_archive")?;
             for absent in &self.absent_members {
                 ensure!(
-                    !chain
-                        .verify_classic_ad_member(&absent.name)
+                    !check
+                        .run(SourceOperation::MemberProfile, || {
+                            chain.verify_classic_ad_member(&absent.name)
+                        })
                         .with_context(|| format!("source.ad_absence_profile:{}", absent.name))?,
                     "source.ad_absence_changed:{}",
                     absent.name
                 );
                 ensure!(
-                    chain.find_file_archive(&absent.name).is_none(),
+                    check.run(SourceOperation::MemberLookup, || {
+                        Ok(chain.find_file_archive(&absent.name).is_none())
+                    })?,
                     "source.ad_absence_changed:{}",
                     absent.name
                 );
@@ -393,18 +520,24 @@ impl CapturedSource {
                 if resolved[index] {
                     continue;
                 }
-                if !chain
-                    .verify_classic_ad_member(&member.name)
+                if !check
+                    .run(SourceOperation::MemberProfile, || {
+                        chain.verify_classic_ad_member(&member.name)
+                    })
                     .with_context(|| format!("source.ad_member_profile:{}", member.name))?
                 {
                     continue;
                 }
-                let archive = chain
-                    .archive_for(&member.name)
+                let archive = check
+                    .run(SourceOperation::MemberLookup, || {
+                        chain.archive_for(&member.name)
+                    })
                     .with_context(|| format!("source.ad_deleted:{}", member.name))?;
-                let bytes = archive
-                    .file_size(&member.name)
-                    .context("source.ad_missing_size")? as usize;
+                let bytes = check.run(SourceOperation::MemberSize, || {
+                    archive
+                        .file_size(&member.name)
+                        .context("source.ad_missing_size")
+                })? as usize;
                 // MPQFile's <=1-byte dummy blocks lower archives too.
                 ensure!(bytes > 1, "source.ad_dummy_member:{}", member.name);
                 ensure!(
@@ -417,14 +550,17 @@ impl CapturedSource {
                     "source.ad_bytes_changed:{}",
                     member.name
                 );
-                let fresh = chain
-                    .read(&member.name)
+                let fresh = check
+                    .run(SourceOperation::MemberRead, || chain.read(&member.name))
                     .with_context(|| format!("source.ad_read:{}", member.name))?;
-                ensure!(
-                    fresh.as_slice() == self.payloads[index].as_ref(),
-                    "source.ad_bytes_changed:{}",
-                    member.name
-                );
+                check.run(SourceOperation::MemberCompare, || {
+                    ensure!(
+                        fresh.as_slice() == self.payloads[index].as_ref(),
+                        "source.ad_bytes_changed:{}",
+                        member.name
+                    );
+                    Ok(())
+                })?;
                 resolved[index] = true;
             }
         }
@@ -445,7 +581,7 @@ struct AdHeaderSnapshot {
     extension: Option<[u8; 12]>,
 }
 
-fn verify_ad_archive_header(path: &Path) -> Result<AdHeaderSnapshot> {
+fn verify_ad_archive_header(path: &Path, check: &SourceCheck<'_>) -> Result<AdHeaderSnapshot> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -453,8 +589,10 @@ fn verify_ad_archive_header(path: &Path) -> Result<AdHeaderSnapshot> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    let mut file = options.open(path).context("source.ad_header_open")?;
-    let metadata = file.metadata()?;
+    let mut file = check.run(SourceOperation::HeaderOpen, || {
+        options.open(path).context("source.ad_header_open")
+    })?;
+    let metadata = check.run(SourceOperation::HeaderMetadata, || Ok(file.metadata()?))?;
     ensure!(metadata.is_file(), "source.ad_regular_archive_required");
     let mut header = [0u8; 32];
     let mut offset = 0u64;
@@ -464,14 +602,20 @@ fn verify_ad_archive_header(path: &Path) -> Result<AdHeaderSnapshot> {
             offset + 32 <= MAX_HEADER_SCAN_BYTES,
             "source.ad_header_scan_limit"
         );
-        file.seek(SeekFrom::Start(offset))
-            .context("source.ad_header_read")?;
-        file.read_exact(&mut header[..4])
-            .context("source.ad_header_read")?;
+        check.run(SourceOperation::HeaderSeek, || {
+            file.seek(SeekFrom::Start(offset))
+                .context("source.ad_header_read")
+        })?;
+        check.run(SourceOperation::HeaderRead, || {
+            file.read_exact(&mut header[..4])
+                .context("source.ad_header_read")
+        })?;
         if header[..4] == *b"MPQ\x1a" {
             ensure!(offset + 32 <= metadata.len(), "source.ad_header_truncated");
-            file.read_exact(&mut header[4..])
-                .context("source.ad_header_read")?;
+            check.run(SourceOperation::HeaderRead, || {
+                file.read_exact(&mut header[4..])
+                    .context("source.ad_header_read")
+            })?;
             break;
         }
         // User-data pointers are not part of the pinned extractor's scan.
@@ -491,8 +635,10 @@ fn verify_ad_archive_header(path: &Path) -> Result<AdHeaderSnapshot> {
             "source.ad_header_scan_limit"
         );
         let mut extension = [0u8; 12];
-        file.read_exact(&mut extension)
-            .context("source.ad_header_read")?;
+        check.run(SourceOperation::HeaderRead, || {
+            file.read_exact(&mut extension)
+                .context("source.ad_header_read")
+        })?;
         // mpq_header_ex_s: u64 extended block table, u16 hash high, u16 block high.
         ensure!(extension == [0; 12], "source.ad_header_extension");
         Some(extension)
@@ -536,47 +682,61 @@ fn hash_field(hash: &mut Sha256, value: &[u8]) {
     hash.update(value);
 }
 
-fn open_chain(data: &Path) -> Result<Chain> {
+fn open_chain(data: &Path, check: &SourceCheck<'_>) -> Result<Chain> {
     // Validate fixed archives before the ordinary reader so header failures have
     // precise path-free diagnostics even when index decoding cannot begin.
-    let paths = if data.is_dir() {
+    let is_directory = check.run(SourceOperation::PathKind, || Ok(data.is_dir()))?;
+    let paths = if is_directory {
         AD_ARCHIVES.iter().map(|name| data.join(name)).collect()
     } else {
         vec![data.to_path_buf()]
     };
     let mut headers = Vec::new();
     for path in paths {
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) => ensure!(
-                metadata.file_type().is_file(),
-                "source.ad_regular_archive_required"
-            ),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound && data.is_dir() => continue,
-            Err(error) => return Err(error).context("source.ad_archive_metadata"),
-        }
-        let header = verify_ad_archive_header(&path)?;
+        let metadata =
+            check.run(
+                SourceOperation::ArchiveMetadata,
+                || match std::fs::symlink_metadata(&path) {
+                    Ok(metadata) => Ok(Some(metadata)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound && is_directory => {
+                        Ok(None)
+                    }
+                    Err(error) => Err(error).context("source.ad_archive_metadata"),
+                },
+            )?;
+        let Some(metadata) = metadata else { continue };
+        ensure!(
+            metadata.file_type().is_file(),
+            "source.ad_regular_archive_required"
+        );
+        let header = verify_ad_archive_header(&path, check)?;
         headers.push((path, header));
     }
-    let chain = Chain::open_bounded(
-        data,
-        ChainLimits {
-            index_bytes: 64 * 1024 * 1024,
-            sector_bytes: 64 * 1024,
-            member_bytes: MAX_MEMBER_BYTES,
-            header_scan_bytes: MAX_HEADER_SCAN_BYTES,
-            archives: 64,
-            directory_entries: 4096,
-        },
-    )
-    .context("source.open_patch_chain")?;
+    let chain = check.run(SourceOperation::ChainOpen, || {
+        Chain::open_bounded(
+            data,
+            ChainLimits {
+                index_bytes: 64 * 1024 * 1024,
+                sector_bytes: 64 * 1024,
+                member_bytes: MAX_MEMBER_BYTES,
+                header_scan_bytes: MAX_HEADER_SCAN_BYTES,
+                archives: 64,
+                directory_entries: 4096,
+            },
+        )
+        .context("source.open_patch_chain")
+    })?;
     for archive in chain.archives() {
-        if let Some((_, expected)) = headers.iter().find(|(path, _)| path == archive.path()) {
-            ensure!(
-                archive.header_snapshot() == expected.base
-                    && archive.header_extension_snapshot() == expected.extension,
-                "source.ad_header_selection"
-            );
-        }
+        check.run(SourceOperation::HeaderSelection, || {
+            if let Some((_, expected)) = headers.iter().find(|(path, _)| path == archive.path()) {
+                ensure!(
+                    archive.header_snapshot() == expected.base
+                        && archive.header_extension_snapshot() == expected.extension,
+                    "source.ad_header_selection"
+                );
+            }
+            Ok(())
+        })?;
     }
     Ok(chain)
 }
@@ -587,15 +747,21 @@ struct PlannedMember {
     bytes: usize,
 }
 
-fn plan_members(chain: &Chain, names: &[String]) -> Result<Vec<PlannedMember>> {
+fn plan_members(
+    chain: &Chain,
+    names: &[String],
+    check: &SourceCheck<'_>,
+) -> Result<Vec<PlannedMember>> {
     let mut total = 0usize;
     names
         .iter()
         .map(|name| {
-            let archive = chain
-                .archive_for(name)
+            let archive = check
+                .run(SourceOperation::MemberLookup, || chain.archive_for(name))
                 .with_context(|| format!("source.missing_or_deleted:{name}"))?;
-            let bytes = archive.file_size(name).context("source.missing_size")? as usize;
+            let bytes = check.run(SourceOperation::MemberSize, || {
+                archive.file_size(name).context("source.missing_size")
+            })? as usize;
             ensure!(bytes <= MAX_MEMBER_BYTES, "source.member_byte_limit:{name}");
             total = total
                 .checked_add(bytes)
@@ -616,9 +782,9 @@ fn plan_members(chain: &Chain, names: &[String]) -> Result<Vec<PlannedMember>> {
         .collect()
 }
 
-fn read_member(chain: &Chain, member: &PlannedMember) -> Result<Vec<u8>> {
-    let bytes = chain
-        .read(&member.name)
+fn read_member(chain: &Chain, member: &PlannedMember, check: &SourceCheck<'_>) -> Result<Vec<u8>> {
+    let bytes = check
+        .run(SourceOperation::MemberRead, || chain.read(&member.name))
         .with_context(|| format!("source.read:{}", member.name))?;
     ensure!(
         bytes.len() == member.bytes,
@@ -643,17 +809,20 @@ fn check_history_byte_budget(members: &[SourceMember], bytes: usize) -> Result<(
     Ok(())
 }
 
-fn verify_app_absence(chain: &Chain, name: &str) -> Result<()> {
+fn verify_app_absence(chain: &Chain, name: &str, check: &SourceCheck<'_>) -> Result<()> {
     // contains() alone collapses tombstones to false and ordinary lookup can skip
     // malformed hash entries. Both checks are required before recording absence.
     ensure!(
-        !chain
-            .verify_classic_ad_member(name)
+        !check
+            .run(SourceOperation::MemberProfile, || chain
+                .verify_classic_ad_member(name))
             .with_context(|| format!("source.absence_member_profile:{name}"))?,
         "source.absence_changed:{name}"
     );
     ensure!(
-        chain.find_file_archive(name).is_none(),
+        check.run(SourceOperation::MemberLookup, || Ok(chain
+            .find_file_archive(name)
+            .is_none()))?,
         "source.absence_changed:{name}"
     );
     Ok(())

@@ -109,39 +109,47 @@ fn owned_sources_refuse_changed_or_missing_sources_before_reader() {
 fn owned_sources_recheck_after_reader_and_preserve_cancellation() {
     let install = input::install();
     let owned = capture(&install);
-    let called = Cell::new(false);
-    assert!(matches!(
-        owned.with_height(
-            || true,
-            |_| {
-                called.set(true);
-                Ok(())
-            }
-        ),
-        Err(CompositionError::Cancelled)
-    ));
-    assert!(!called.get());
-    let cancelled = Cell::new(false);
-    assert!(matches!(
-        owned.with_height(
-            || cancelled.get(),
-            |_| {
-                cancelled.set(true);
-                Ok(())
-            }
-        ),
-        Err(CompositionError::Cancelled)
-    ));
-    assert!(owned
-        .with_height(
-            || false,
-            |height| {
-                let result = sample(height)?;
-                install.write(&input::overlapping_entries());
-                Ok(result)
-            }
-        )
-        .is_err());
+    let ((), preparations) = measure(|| {
+        let called = Cell::new(false);
+        assert!(matches!(
+            owned.with_height(
+                || true,
+                |_| {
+                    called.set(true);
+                    Ok(())
+                }
+            ),
+            Err(CompositionError::Cancelled)
+        ));
+        assert!(!called.get());
+        let cancelled = Cell::new(false);
+        assert!(matches!(
+            owned.with_height(
+                || cancelled.get(),
+                |_| {
+                    cancelled.set(true);
+                    Ok(())
+                }
+            ),
+            Err(CompositionError::Cancelled)
+        ));
+        cancelled.set(false);
+        assert_eq!(
+            owned.with_height(|| cancelled.get(), sample).unwrap().1,
+            [input::HEIGHT.to_bits(); 2]
+        );
+        assert!(owned
+            .with_height(
+                || false,
+                |height| {
+                    let result = sample(height)?;
+                    install.write(&input::overlapping_entries());
+                    Ok(result)
+                }
+            )
+            .is_err());
+    });
+    assert_eq!(preparations, Counts::default());
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -257,4 +265,32 @@ fn owned_sources_construction_refuses_cancellation_changed_and_deleted_sources()
             assert!(result.is_err());
         }
     }
+}
+
+#[test]
+fn owned_sources_preserve_typed_terrain_cancellation_and_genuine_source_failure() {
+    let install = input::install();
+    let owned = capture(&install);
+    drop(install);
+    let ((), preparations) = measure(|| {
+        // Exercise the actual terrain adapter, not only the outer source-height poll.
+        // Already-cancelled verification must stop even with the directory removed.
+        assert!(matches!(
+            super::super::verify_terrain_source(&owned.terrain, &|| true),
+            Err(CompositionError::Cancelled)
+        ));
+        assert!(matches!(
+            super::super::verify_terrain_source(&owned.terrain, &|| false),
+            Err(CompositionError::TerrainSource)
+        ));
+        assert!(matches!(
+            owned.with_height::<()>(|| true, |_| panic!("cancelled precheck invoked reader")),
+            Err(CompositionError::Cancelled)
+        ));
+        assert!(matches!(
+            owned.with_height::<()>(|| false, |_| panic!("missing source invoked reader")),
+            Err(CompositionError::TerrainSource)
+        ));
+    });
+    assert_eq!(preparations, Counts::default());
 }

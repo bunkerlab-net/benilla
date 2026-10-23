@@ -174,9 +174,7 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         cancelled: impl Fn() -> bool,
     ) -> Result<(), CompositionError> {
         check(&cancelled)?;
-        self.terrain
-            .verify_unchanged()
-            .map_err(|_| CompositionError::TerrainSource)?;
+        verify_terrain_source(self.terrain, &cancelled)?;
         self.collision
             .verify_unchanged(&cancelled)
             .map_err(CompositionError::Collision)?;
@@ -243,9 +241,7 @@ fn prepare_terrain(
     #[cfg(test)]
     preparation_counts::height();
     check(&cancelled)?;
-    terrain
-        .verify_unchanged()
-        .map_err(|_| CompositionError::TerrainSource)?;
+    verify_terrain_source(terrain, &cancelled)?;
     source
         .verify_unchanged(&cancelled)
         .map_err(|e| CompositionError::Collision(PrepareError::Source(e)))?;
@@ -291,6 +287,19 @@ fn prepare_terrain(
         selected,
         digest,
     })
+}
+fn verify_terrain_source(
+    terrain: &PreparedTerrain,
+    cancelled: &impl Fn() -> bool,
+) -> Result<(), CompositionError> {
+    terrain
+        .verify_unchanged_cancellable(cancelled)
+        .map_err(|error| match error {
+            benilla_native_terrain::TerrainFreshnessError::Cancelled => CompositionError::Cancelled,
+            benilla_native_terrain::TerrainFreshnessError::Source(_) => {
+                CompositionError::TerrainSource
+            }
+        })
 }
 fn check(cancelled: &impl Fn() -> bool) -> Result<(), CompositionError> {
     if cancelled() {
