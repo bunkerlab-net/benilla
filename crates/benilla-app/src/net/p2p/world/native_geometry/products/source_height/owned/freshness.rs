@@ -3,6 +3,7 @@
 use super::super::super::super::core::JobLease;
 use super::super::{preparation_counts, CompositionError};
 use super::OwnedSourceProducts;
+use benilla_world_runtime::native::AuthorityRequest;
 use crossbeam_channel::{bounded, Receiver, Sender, TryRecvError, TrySendError};
 use std::{
     io,
@@ -11,6 +12,7 @@ use std::{
         Arc,
     },
     thread,
+    time::Instant,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +47,33 @@ impl FreshnessObservation {
             return Err(super::super::super::Error::Identity.into());
         }
         self.check_active()
+    }
+
+    /// Resume exactly once on the caller thread. This is a live scheduling guard,
+    /// not freshness authority: the callback must perform all current source,
+    /// installed-owner and physics checks and must not publish or acknowledge.
+    pub(crate) fn with_current<T, E: From<CompositionError>>(
+        self,
+        products: &Arc<OwnedSourceProducts>,
+        lease: &JobLease,
+        invocation_deadline: Instant,
+        resume: impl FnOnce(&AuthorityRequest, Instant, &dyn Fn() -> bool) -> Result<T, E>,
+    ) -> Result<T, E> {
+        if !Arc::ptr_eq(&self.products, products) || !self.lease.same_job(lease) {
+            return Err(E::from(super::super::super::Error::Identity.into()));
+        }
+        let deadline = invocation_deadline.min(self.lease.deadline());
+        let cancelled = || self.check_active().is_err() || Instant::now() >= deadline;
+        if cancelled() {
+            return Err(E::from(CompositionError::Cancelled));
+        }
+        let result = resume(self.lease.request(), deadline, &cancelled)?;
+        // Retain the revocation tokens throughout certification, not merely until
+        // polling. A successful callback cannot emit after retirement or expiry.
+        if cancelled() {
+            return Err(E::from(CompositionError::Cancelled));
+        }
+        Ok(result)
     }
 
     fn check_active(&self) -> Result<(), CompositionError> {

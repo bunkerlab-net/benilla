@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Component-only retained query owner. No Service, publication callback or replacement API.
 use super::super::super::{
+    core::JobLease,
     products::source_height::{
         inventory::{InventoryCompatibility, OwnedInventoryCompatibility},
-        owned::OwnedSourceProducts,
+        owned::{freshness::FreshnessObservation, OwnedSourceProducts},
     },
     route_commit::{RouteCommitBoundary, RouteCommitNotice},
     source_route_resident_local::ledger::ResidentLedger,
@@ -225,6 +226,38 @@ impl OwnedResident {
                     deadline,
                     &cancelled,
                 )
+            },
+        )
+    }
+
+    /// A drained worker observation permits one synchronous attempt, not a cached
+    /// certificate. Callers advance physics before this call; every ECS resource
+    /// is reacquired by the existing certifier, and no borrow crosses the poll.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn certify_observed(
+        &mut self,
+        observation: FreshnessObservation,
+        lease: &JobLease,
+        world: &mut World,
+        installed: &NativeInventorySource,
+        player: PlayerId,
+        invocation_deadline: Instant,
+    ) -> Result<Facts, ResidentFilterError> {
+        // bind creates this unique allocation; moving the resident preserves it.
+        let products = Arc::clone(&self.products);
+        observation.with_current(
+            &products,
+            lease,
+            invocation_deadline,
+            |context, deadline, cancelled| {
+                let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+                    return Err(Failure::Binding.into());
+                };
+                if route.request.prior_cache.is_none() {
+                    self.certify_cold(world, installed, context, player, deadline, cancelled)
+                } else {
+                    self.certify_retained(world, installed, context, deadline, cancelled)
+                }
             },
         )
     }

@@ -521,3 +521,142 @@ fn disconnected_worker_stays_stopped_instead_of_spawning_a_replacement() {
         );
     }
 }
+
+#[test]
+fn resumed_observation_clamps_deadline_and_uses_original_request_on_caller_thread() {
+    let install = input::install();
+    let products = capture(&install);
+    let (_mailbox, lease, _) = request(WATCHDOG);
+    let caller = thread::current().id();
+    for invocation in [
+        lease.deadline() + WATCHDOG,
+        Instant::now() + Duration::from_secs(5),
+    ] {
+        let (_worker, observation) = observed(&products, &lease);
+        let result: Result<_, CompositionError> = observation.with_current(
+            &products,
+            &lease,
+            invocation,
+            |context, deadline, cancelled| {
+                assert_eq!(thread::current().id(), caller);
+                assert!(std::ptr::eq(context, lease.request()));
+                assert_eq!(deadline, invocation.min(lease.deadline()));
+                assert!(!cancelled());
+                products.verify_sources(cancelled)?;
+                Ok(17)
+            },
+        );
+        assert_eq!(result.unwrap(), 17);
+    }
+    let (_worker, observation) = observed(&products, &lease);
+    let result: Result<(), CompositionError> =
+        observation.with_current(&products, &lease, Instant::now(), |_, _, _| {
+            panic!("expired slice resumed")
+        });
+    assert!(matches!(result, Err(CompositionError::Cancelled)));
+    assert!(
+        lease.is_active(),
+        "a slice expiry must not retire or renew the Work"
+    );
+}
+
+#[test]
+fn resumed_observation_rejects_foreign_capture_or_work_before_callback() {
+    let install = input::install();
+    let products = capture(&install);
+    let foreign = capture(&install);
+    let (_mailbox, lease, _) = request(WATCHDOG);
+    let (_replacement, replacement, _) = request(WATCHDOG);
+    for (capture, work) in [(&foreign, &lease), (&products, &replacement)] {
+        let (_worker, observation) = observed(&products, &lease);
+        let result: Result<(), CompositionError> =
+            observation.with_current(capture, work, lease.deadline(), |_, _, _| {
+                panic!("foreign identity resumed")
+            });
+        assert!(matches!(
+            result,
+            Err(CompositionError::Validation(Error::Identity))
+        ));
+    }
+}
+
+#[test]
+fn resumed_observation_keeps_revocation_live_until_callback_returns() {
+    let install = input::install();
+    let products = capture(&install);
+    // Cancellation, accepted replacement, attachment retirement, and worker drop
+    // are tested both between Ready/consume and inside the synchronous attempt.
+    for before in [false, true] {
+        for mode in 0..4 {
+            let (mailbox, lease, _) = request(WATCHDOG);
+            let (_replacement, replacement, _) = request(WATCHDOG);
+            let (worker, observation) = observed(&products, &lease);
+            let mut worker = Some(worker);
+            let mut mailbox = Some(mailbox);
+            let mut revoke = || match mode {
+                0 => worker.as_ref().unwrap().cancel(),
+                1 => worker
+                    .as_mut()
+                    .unwrap()
+                    .try_enqueue(Arc::clone(&products), replacement.clone())
+                    .unwrap(),
+                2 => drop(mailbox.take()),
+                3 => drop(worker.take()),
+                _ => unreachable!(),
+            };
+            if before {
+                revoke();
+            }
+            let result: Result<(), CompositionError> =
+                observation.with_current(&products, &lease, lease.deadline(), |_, _, cancelled| {
+                    assert!(!before, "retired completion entered callback");
+                    assert!(!cancelled());
+                    revoke();
+                    assert!(cancelled());
+                    Ok(())
+                });
+            assert!(matches!(result, Err(CompositionError::Cancelled)));
+        }
+    }
+}
+
+#[test]
+fn resumed_observation_refuses_late_slice_expiry_and_changed_current_sources() {
+    let install = input::install();
+    let products = capture(&install);
+    let (_mailbox, lease, _) = request(WATCHDOG);
+    let (_worker, observation) = observed(&products, &lease);
+    let deadline = Instant::now() + Duration::from_millis(50);
+    let result: Result<(), CompositionError> =
+        observation.with_current(&products, &lease, deadline, |_, deadline, cancelled| {
+            thread::sleep(deadline.saturating_duration_since(Instant::now()));
+            assert!(cancelled());
+            Ok(())
+        });
+    assert!(matches!(result, Err(CompositionError::Cancelled)));
+    let (_worker, observation) = observed(&products, &lease);
+    install.write(&input::overlapping_entries());
+    let result: Result<(), CompositionError> =
+        observation.with_current(&products, &lease, lease.deadline(), |_, _, cancelled| {
+            products.verify_sources(cancelled)
+        });
+    assert!(
+        result.is_err(),
+        "historical success substituted for current sources"
+    );
+    assert!(!matches!(result, Err(CompositionError::Cancelled)));
+}
+
+#[test]
+fn resumed_observation_cannot_renew_original_expiry_after_ready() {
+    let install = input::install();
+    let products = capture(&install);
+    let (_mailbox, lease, _) = request(Duration::from_secs(5));
+    let (_worker, observation) = observed(&products, &lease);
+    thread::sleep(lease.deadline().saturating_duration_since(Instant::now()));
+    let result: Result<(), CompositionError> =
+        observation.with_current(&products, &lease, Instant::now() + WATCHDOG, |_, _, _| {
+            panic!("new slice renewed original expired Work")
+        });
+    assert!(matches!(result, Err(CompositionError::Cancelled)));
+}

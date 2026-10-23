@@ -125,7 +125,12 @@ jobs:
             products::source_height::owned::freshness::tests::already_expired_original_lease_is_refused_without_occupying_the_worker \
             products::source_height::owned::freshness::tests::drained_observation_is_revoked_by_explicit_cancel_or_a_new_accepted_request \
             products::source_height::owned::freshness::tests::dropped_worker_never_joins_a_held_verification_and_releases_owned_captures \
-            products::source_height::owned::freshness::tests::disconnected_worker_stays_stopped_instead_of_spawning_a_replacement
+            products::source_height::owned::freshness::tests::disconnected_worker_stays_stopped_instead_of_spawning_a_replacement \
+            products::source_height::owned::freshness::tests::resumed_observation_clamps_deadline_and_uses_original_request_on_caller_thread \
+            products::source_height::owned::freshness::tests::resumed_observation_rejects_foreign_capture_or_work_before_callback \
+            products::source_height::owned::freshness::tests::resumed_observation_keeps_revocation_live_until_callback_returns \
+            products::source_height::owned::freshness::tests::resumed_observation_refuses_late_slice_expiry_and_changed_current_sources \
+            products::source_height::owned::freshness::tests::resumed_observation_cannot_renew_original_expiry_after_ready
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Actual component runtime commits across source-view scopes, not durable controller saves.
 use super::super::super::super::{
-    core::mailbox,
+    core::{mailbox, SourceObservationTestWork},
     products::{
         source_height::{
-            owned::freshness::{CaptureFreshnessWorker, FreshnessPoll},
+            owned::freshness::{CaptureFreshnessWorker, FreshnessObservation, FreshnessPoll},
             preparation_counts::{measure, Counts},
             CompositionError, ResidentInitializationConfiguration,
         },
@@ -163,7 +163,7 @@ impl Authority for Consumer {
                         .unwrap()
                         .first_construction());
                     assert!(route.request.prior_cache.is_none());
-                    observe_sources(&self.owner, &self.session, &self.profile, request);
+                    let ready = observe_sources(&self.owner, &self.session, &self.profile, request);
                     assert_eq!(self.owner.ledger.diagnostic(), before);
                     let foreign = self.foreign_index.take().unwrap();
                     let foreign_owner = foreign.source_provenance().unwrap();
@@ -181,14 +181,8 @@ impl Authority for Consumer {
                     self.geometry.app.insert_resource(foreign);
                     // Pass the retained original provenance deliberately: certification
                     // must independently reject the actual replaced scene index.
-                    let refused = self.owner.certify_cold(
-                        self.geometry.app.world_mut(),
-                        &installed,
-                        request,
-                        f::player(),
-                        deadline,
-                        || false,
-                    );
+                    let refused =
+                        ready.certify(&mut self.owner, &mut self.geometry, &installed, deadline);
                     self.geometry.app.insert_resource(original);
                     self.geometry.advance_physics();
                     assert!(matches!(
@@ -196,14 +190,39 @@ impl Authority for Consumer {
                         Err(ResidentFilterError::Context(Failure::Binding))
                     ));
                     assert_eq!(self.owner.ledger.diagnostic(), before);
-                    self.owner.certify_cold(
-                        self.geometry.app.world_mut(),
-                        &installed,
-                        request,
-                        f::player(),
-                        deadline,
-                        || false,
-                    )
+                    // An obstacle introduced after Ready must be seen by the
+                    // current physics acquisition, not the worker's old success.
+                    let ready = observe_sources(&self.owner, &self.session, &self.profile, request);
+                    let a = route.request.origin;
+                    let b = route.request.goal;
+                    let middle = [
+                        (a.x.as_f32() + b.x.as_f32()) * 0.5,
+                        (a.y.as_f32() + b.y.as_f32()) * 0.5,
+                        a.z.as_f32() + 1.,
+                    ];
+                    let obstacle = self
+                        .geometry
+                        .app
+                        .world_mut()
+                        .spawn((
+                            avian3d::prelude::Collider::cuboid(2., 3., 0.25),
+                            avian3d::prelude::RigidBody::Static,
+                            avian3d::prelude::CollisionLayers::DEFAULT,
+                            bevy::prelude::Transform::from_translation(
+                                benilla_assets::coords::wow_to_bevy(middle),
+                            ),
+                        ))
+                        .id();
+                    let refused =
+                        ready.certify(&mut self.owner, &mut self.geometry, &installed, deadline);
+                    self.geometry.app.world_mut().despawn(obstacle);
+                    assert!(matches!(
+                        refused,
+                        Err(ResidentFilterError::Context(Failure::UnsupportedNavigation))
+                    ));
+                    assert!(self.owner.ledger.diagnostic().same_committed_root(&before));
+                    let ready = observe_sources(&self.owner, &self.session, &self.profile, request);
+                    ready.certify(&mut self.owner, &mut self.geometry, &installed, deadline)
                 } else {
                     assert_eq!(self.routes.len(), 1);
                     let original = self.routes[0]
@@ -217,13 +236,8 @@ impl Authority for Consumer {
                         original.construction_binding()
                     );
                     assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
-                    self.owner.certify_retained(
-                        self.geometry.app.world_mut(),
-                        &installed,
-                        request,
-                        deadline,
-                        || false,
-                    )
+                    let ready = observe_sources(&self.owner, &self.session, &self.profile, request);
+                    ready.certify(&mut self.owner, &mut self.geometry, &installed, deadline)
                 };
                 let facts = facts.map_err(|error| {
                     eprintln!("scoped resident Route refused: {error:?}");
@@ -296,14 +310,41 @@ impl Authority for Consumer {
     }
 }
 
-// Historical worker observation is consumed here and never reaches certification.
-// All original synchronous source and actual installed-owner checks still run below.
+// Holds the original Work and worker through one caller-thread attempt. No query
+// or ECS view survives the polling boundary.
+struct ReadySources {
+    _worker: CaptureFreshnessWorker,
+    _mailbox: super::super::super::super::core::Mailbox,
+    work: SourceObservationTestWork,
+    observation: FreshnessObservation,
+}
+impl ReadySources {
+    fn certify(
+        self,
+        owner: &mut OwnedResident,
+        geometry: &mut InstalledFixture,
+        installed: &NativeInventorySource,
+        deadline: Instant,
+    ) -> Result<Facts, ResidentFilterError> {
+        // Physics is advanced after polling, not inferred fresh from a new borrow.
+        geometry.advance_physics();
+        owner.certify_observed(
+            self.observation,
+            &self.work.lease(),
+            geometry.app.world_mut(),
+            installed,
+            f::player(),
+            deadline,
+        )
+    }
+}
+
 fn observe_sources(
     owner: &OwnedResident,
     session: &Session,
     profile: &Profile,
     request: &AuthorityRequest,
-) {
+) -> ReadySources {
     let (_client, mailbox) = mailbox(session.clone()).unwrap();
     let deadline = fixture::until();
     let work = mailbox
@@ -321,9 +362,13 @@ fn observe_sources(
                 std::thread::yield_now();
             }
             FreshnessPoll::Ready(result) => {
-                result.unwrap().consume(&owner.products, &lease).unwrap();
                 assert_eq!(lease.deadline(), deadline);
-                break;
+                return ReadySources {
+                    _worker: worker,
+                    _mailbox: mailbox,
+                    work,
+                    observation: result.unwrap(),
+                };
             }
             FreshnessPoll::Idle | FreshnessPoll::Stopped => panic!("source job disappeared"),
         }
@@ -471,7 +516,7 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                 let restore = if !notice.routes().is_empty() && consumer.routes.len() == 1 {
                     let request = consumer.routes.last().unwrap().clone();
                     let before = consumer.owner.ledger.diagnostic();
-                    observe_sources(
+                    let ready = observe_sources(
                         &consumer.owner,
                         &consumer.session,
                         &consumer.profile,
@@ -481,13 +526,11 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                     let restore = RestoreInstall::new(install);
                     install.write(&input::overlapping_entries());
                     assert!(matches!(
-                        consumer.owner.certify_cold(
-                            consumer.geometry.app.world_mut(),
+                        ready.certify(
+                            &mut consumer.owner,
+                            &mut consumer.geometry,
                             &installed,
-                            &request,
-                            f::player(),
                             fixture::until(),
-                            || false,
                         ),
                         Err(ResidentFilterError::Source(_))
                     ));

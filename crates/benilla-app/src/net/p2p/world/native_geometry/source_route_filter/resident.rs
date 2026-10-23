@@ -428,6 +428,12 @@ impl std::fmt::Display for ResidentFilterError {
         }
     }
 }
+#[cfg(all(test, not(benilla_headless_geometry)))]
+impl From<source_height::CompositionError> for ResidentFilterError {
+    fn from(error: source_height::CompositionError) -> Self {
+        Self::Source(error)
+    }
+}
 impl From<Failure> for ResidentFilterError {
     fn from(e: Failure) -> Self {
         Self::Context(e)
