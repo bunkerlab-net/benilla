@@ -38,6 +38,11 @@ SUITES = {
             "drained_observation_is_revoked_by_explicit_cancel_or_a_new_accepted_request",
             "dropped_worker_never_joins_a_held_verification_and_releases_owned_captures",
             "disconnected_worker_stays_stopped_instead_of_spawning_a_replacement",
+            "resumed_observation_clamps_deadline_and_uses_original_request_on_caller_thread",
+            "resumed_observation_rejects_foreign_capture_or_work_before_callback",
+            "resumed_observation_keeps_revocation_live_until_callback_returns",
+            "resumed_observation_refuses_late_slice_expiry_and_changed_current_sources",
+            "resumed_observation_cannot_renew_original_expiry_after_ready",
         ),
     ),
     "Verify cooperative terrain freshness cancellation": (
