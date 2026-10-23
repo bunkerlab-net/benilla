@@ -18,6 +18,15 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 SUITES = {
+    "Verify scoped resident source ownership": (
+        "benilla-native-corridor-tests",
+        "source_route_filter::resident::owned::tests::",
+        (
+            "scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views",
+            "scoped_resident_refuses_foreign_owner_expiry_cancel_and_changed_sources_without_state_loss",
+            "scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products",
+        ),
+    ),
     "Verify owned source bundle prerequisite": (
         "benilla-native-vmap-source",
         "tests::doodad_projection_capture_tests::owned_bundle_",
@@ -302,6 +311,24 @@ class ExactProofTests(unittest.TestCase):
                     with self.assertRaises(AssertionError):
                         assert_wired(bad)
 
+
+    def test_scoped_resident_proof_requires_navigation_helper_first(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        job = workflow.split("  workspace-gates:\n", 1)[1].split("\n  workspace-tests:", 1)[0]
+        steps = re.split(r"(?=^      - )", job, flags=re.MULTILINE)
+        titles = ["Verify navigation helper prerequisite", "Verify scoped resident source ownership"]
+        indexes = []
+        for title in titles:
+            matching = [i for i, step in enumerate(steps) if step.startswith(f"      - name: {title}\n")]
+            self.assertEqual(len(matching), 1)
+            index = matching[0]
+            self.assertNotRegex(steps[index], r"(?m)^        (?:if|continue-on-error):")
+            indexes.append(index)
+        self.assertLess(*indexes)
+        self.assertIn(
+            "mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact",
+            steps[indexes[0]],
+        )
 
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()

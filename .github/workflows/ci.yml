@@ -234,6 +234,16 @@ jobs:
           log="$RUNNER_TEMP/native-resident-navigation-helper.log"
           mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+      - name: Verify scoped resident source ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/scoped-resident-source-ownership.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib source_route_filter::resident::owned::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_route_filter::resident::owned::tests::scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views \
+            source_route_filter::resident::owned::tests::scoped_resident_refuses_foreign_owner_expiry_cancel_and_changed_sources_without_state_loss \
+            source_route_filter::resident::owned::tests::scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products
       - name: Verify private resident reconstruction adapter
         shell: bash
         run: |
