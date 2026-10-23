@@ -18,6 +18,18 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 SUITES = {
+    "Verify resident FIFO selection": (
+        "benilla-native-corridor-tests",
+        "core::resident_dispatch::fifo::tests::",
+        (
+            "resident_fifo_preserves_original_identity_capacity_and_attempt_accounting",
+            "resident_fifo_tail_fill_retires_exact_work_without_releasing_busy_worker",
+            "resident_fifo_cancellation_holds_slot_until_drain_and_reuses_one_worker",
+            "resident_fifo_expiry_foreign_owner_and_attachment_never_resume",
+            "resident_fifo_disconnect_stays_terminal_and_drop_revokes_without_joining",
+            "resident_fifo_ready_rechecks_foreign_source_owner_and_changed_source_without_ack",
+        ),
+    ),
     "Verify resident dispatch receipt identity": (
         "benilla-native-corridor-tests",
         "core::resident_dispatch::tests::",
@@ -75,6 +87,7 @@ SUITES = {
             "scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views",
             "scoped_resident_refuses_foreign_owner_expiry_cancel_and_changed_sources_without_state_loss",
             "scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products",
+            "fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack",
         ),
     ),
     "Verify owned source bundle prerequisite": (
