@@ -18,6 +18,18 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 SUITES = {
+    "Verify cooperative terrain freshness cancellation": (
+        "benilla-native-terrain",
+        "source::tests::cancellation::",
+        (
+            "cancellation_before_any_access_wins_even_when_directory_has_disappeared",
+            "every_app_independent_and_final_checkpoint_stops_then_allows_retry",
+            "source_failure_is_not_repolled_or_reclassified_as_cancellation",
+            "only_the_private_marker_classifies_cancellation_through_contexts",
+            "prepared_public_api_cancels_retries_and_preserves_evidence_and_diagnostics",
+            "uncancelled_api_keeps_corruption_winner_and_absence_fail_closed",
+        ),
+    ),
     "Verify scoped resident source ownership": (
         "benilla-native-corridor-tests",
         "source_route_filter::resident::owned::tests::",
@@ -45,6 +57,7 @@ SUITES = {
             "owned_sources_refuse_changed_or_missing_sources_before_reader",
             "owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves",
             "owned_sources_construction_refuses_cancellation_changed_and_deleted_sources",
+            "owned_sources_preserve_typed_terrain_cancellation_and_genuine_source_failure",
         ),
     ),
     "Verify joined resident installed corridor": (
