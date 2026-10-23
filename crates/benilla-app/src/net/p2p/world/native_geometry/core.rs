@@ -1328,6 +1328,10 @@ pub(super) enum ServiceStep {
     Pending,
     Complete(Box<Facts>),
 }
+#[cfg(all(test, not(benilla_headless_geometry)))]
+type ResidentAttemptHook<'call> = dyn FnMut(&Work, Instant) -> Option<Result<resident_dispatch::fifo::ResidentStep, Failure>>
+    + 'call;
+
 struct Work {
     owner: JobOwner,
     route_body: Option<OwnedRouteBodyProgress>,
@@ -1459,6 +1463,10 @@ pub(crate) struct Mailbox {
     rx: Receiver<Work>,
     route_rx: Receiver<RouteCommitWork>,
     route_initial: RefCell<Option<RouteCommitBoundary>>,
+    /// Test-only exclusive selector claim. It carries no resident authority and
+    /// stays Send; production installation and Work remain unchanged.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    resident_selector: OnceLock<std::sync::Weak<()>>,
     /// Retry at the same bounded FIFO tail; no second queue or renewed job lifetime.
     retry: Sender<Work>,
     active: Arc<AtomicBool>,
@@ -1517,6 +1525,8 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
             rx,
             route_rx,
             route_initial: RefCell::new(None),
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            resident_selector: OnceLock::new(),
             retry: tx,
             active,
             _cancellation: cancellation,
@@ -1903,10 +1913,29 @@ impl Mailbox {
         limit: usize,
         stage_routes: bool,
         deadline: Instant,
+        geometry: impl for<'call> FnMut(ServiceQuery<'call>, Instant) -> Result<ServiceStep, Failure>,
+    ) -> usize {
+        self.serve_service_query_slice_selected(
+            limit,
+            stage_routes,
+            deadline,
+            geometry,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            None,
+        )
+    }
+    fn serve_service_query_slice_selected(
+        &self,
+        limit: usize,
+        stage_routes: bool,
+        deadline: Instant,
         mut geometry: impl for<'call> FnMut(
             ServiceQuery<'call>,
             Instant,
         ) -> Result<ServiceStep, Failure>,
+        #[cfg(all(test, not(benilla_headless_geometry)))] mut resident: Option<
+            &mut ResidentAttemptHook<'_>,
+        >,
     ) -> usize {
         let mut count = 0;
         while count < limit.min(PER_FRAME) {
@@ -1932,6 +1961,26 @@ impl Mailbox {
                         "native geometry service retired before attempt: tick={} ticket={} kind={} request_expired={}",
                         summary.0, summary.1, summary.2, summary.3,
                     );
+                }
+                continue;
+            }
+            // Explicit native component opt-in only. The hook borrows this exact
+            // dequeued Work; Pending shares the original FIFO and attempt count.
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            if let Some(result) = resident.as_mut().and_then(|select| select(&work, deadline)) {
+                let pending = matches!(&result, Ok(resident_dispatch::fifo::ResidentStep::Pending));
+                let disposition = match result {
+                    Ok(resident_dispatch::fifo::ResidentStep::Pending) => {
+                        self.defer_route_query(work)
+                    }
+                    // Inspection is not a transport capability. No resident Facts
+                    // enter generic success, validation bypass, or commit/ACK here.
+                    Ok(resident_dispatch::fifo::ResidentStep::Observed) => self
+                        .finish_query_result(work, Err(Failure::UnsupportedQuery), deadline, false),
+                    Err(error) => self.finish_query_result(work, Err(error), deadline, false),
+                };
+                if pending || disposition == QueryDisposition::Deferred {
+                    break;
                 }
                 continue;
             }

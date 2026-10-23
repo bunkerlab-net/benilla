@@ -108,6 +108,21 @@ impl CaptureFreshnessWorker {
         Self::with_hooks(WorkerHooks::default())
     }
 
+    /// Deterministic native scheduler tests use the existing owned channel gate;
+    /// no callback, borrowed source or alternate worker lifecycle is introduced.
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn with_test_gate(
+        entered: Sender<thread::ThreadId>,
+        release: Receiver<()>,
+        published: Option<Sender<()>>,
+    ) -> io::Result<Self> {
+        Self::with_hooks(WorkerHooks {
+            before_verify: Some(Gate { entered, release }),
+            published,
+            ..WorkerHooks::default()
+        })
+    }
+
     fn with_hooks(hooks: WorkerHooks) -> io::Result<Self> {
         let (requests, receive) = bounded(1);
         let (complete, completed) = bounded(1);

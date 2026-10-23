@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Actual component runtime commits across source-view scopes, not durable controller saves.
 use super::super::super::super::{
-    core::{mailbox, resident_dispatch::ResidentDispatchWork},
+    core::{
+        mailbox,
+        resident_dispatch::{fifo::ResidentFifoSelection, ResidentDispatchWork},
+    },
     products::{
         source_height::{
             owned::freshness::{CaptureFreshnessWorker, FreshnessObservation, FreshnessPoll},
@@ -82,6 +85,12 @@ fn with_owned(
     );
 }
 
+#[derive(Clone, Copy)]
+enum FifoProbeMode {
+    Clear,
+    Obstacle,
+    Foreign,
+}
 struct Consumer {
     owner: OwnedResident,
     geometry: InstalledFixture,
@@ -91,6 +100,8 @@ struct Consumer {
     routes: Vec<AuthorityRequest>,
     constructor: Option<(usize, benilla_native_nav::SourceMapQuerySlot, usize)>,
     foreign_index: Option<NativeStaticMapIndex>,
+    fifo_probe: Option<FifoProbeMode>,
+    fifo_inspected: bool,
 }
 impl Consumer {
     fn installed(&self) -> NativeInventorySource {
@@ -157,6 +168,47 @@ impl Authority for Consumer {
             Query::SourceMotion(MotionQuery::Route(route)) => {
                 self.geometry.advance_physics();
                 let before = self.owner.ledger.diagnostic();
+                if let Some(mode) = &mut self.fifo_probe {
+                    let facts = certify_fifo_probe(
+                        &mut self.owner,
+                        &mut self.geometry,
+                        &self.session,
+                        request,
+                        *mode,
+                        self.foreign_index.take(),
+                    );
+                    if matches!(mode, FifoProbeMode::Foreign) {
+                        assert!(matches!(
+                            facts,
+                            Err(ResidentFilterError::Context(Failure::Binding))
+                        ));
+                    } else if matches!(mode, FifoProbeMode::Obstacle) {
+                        assert!(matches!(
+                            facts,
+                            Err(ResidentFilterError::Context(Failure::UnsupportedNavigation))
+                        ));
+                    } else {
+                        let Facts::SourceMotion(MotionFacts::Spatial(reply)) = facts.unwrap()
+                        else {
+                            panic!("spatial certificate");
+                        };
+                        let motion::Fact::RouteCalculation(calculation) = &reply.fact else {
+                            panic!("route certificate");
+                        };
+                        calculation.validate_for(&route.request).unwrap();
+                        assert!(matches!(
+                            calculation.outcome,
+                            motion::RouteOutcome::Complete(_)
+                        ));
+                    }
+                    assert!(self.owner.ledger.diagnostic().same_committed_root(&before));
+                    self.fifo_inspected = true;
+                    // Deliberately do not return inspected Facts to this runtime,
+                    // the mailbox, or a RouteCommitNotice/ACK path.
+                    return Err(NativeError::AuthorityUnavailable(
+                        "FIFO component inspection is not publication",
+                    ));
+                }
                 let facts = if self.routes.is_empty() {
                     assert!(request
                         .require_pathfinder_dispatch(&self.profile)
@@ -428,6 +480,8 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                 foreign_index: Some(
                     NativeStaticMapIndex::from_inventory(input::raw_inventory(install)).unwrap(),
                 ),
+                fifo_probe: None,
+                fifo_inspected: false,
             };
             let mut world = NativeWorld::synthetic_component_test_with_initialization(
                 consumer.profile.clone(),
@@ -787,4 +841,197 @@ fn scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_sourc
             .is_err());
         },
     );
+}
+
+/// The callback inspects a genuine certificate, but the original FIFO reply is a
+/// refusal and the caller's runtime deliberately rolls back instead of publishing.
+fn certify_fifo_probe(
+    owner: &mut OwnedResident,
+    geometry: &mut InstalledFixture,
+    session: &Session,
+    request: &AuthorityRequest,
+    mode: FifoProbeMode,
+    mut foreign_index: Option<NativeStaticMapIndex>,
+) -> Result<Facts, ResidentFilterError> {
+    let (_, mailbox) = mailbox(session.clone()).unwrap();
+    let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
+    let deadline = fixture::until();
+    let (lease, reply) = mailbox
+        .enqueue_resident_test_request(owner, 901, request.clone(), deadline)
+        .unwrap();
+    let installed = geometry
+        .app
+        .world()
+        .resource::<NativeStaticMapIndex>()
+        .source_provenance()
+        .unwrap()
+        .clone();
+    let mut inspected = None;
+    let mut callbacks = 0;
+    while inspected.is_none() {
+        assert!(Instant::now() < deadline);
+        let attempts = selector.serve(
+            &mailbox,
+            owner,
+            8,
+            deadline,
+            |owner, job, observation| {
+                callbacks += 1;
+                assert!(job.lease().same_job(&lease));
+                assert!(std::ptr::eq(job.request(), lease.request()));
+                let observation = observation.unwrap();
+                // Mutation happens after the successful worker observation is polled.
+                // No historical physics snapshot can authorize the current route.
+                let original_index = if matches!(mode, FifoProbeMode::Foreign) {
+                    let foreign = foreign_index.take().unwrap();
+                    assert!(!installed.same_owner(foreign.source_provenance().unwrap()));
+                    let original = geometry
+                        .app
+                        .world_mut()
+                        .remove_resource::<NativeStaticMapIndex>()
+                        .unwrap();
+                    geometry.app.insert_resource(foreign);
+                    Some(original)
+                } else {
+                    None
+                };
+                let obstacle = if matches!(mode, FifoProbeMode::Obstacle) {
+                    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+                        unreachable!()
+                    };
+                    let a = route.request.origin;
+                    let b = route.request.goal;
+                    let middle = [
+                        (a.x.as_f32() + b.x.as_f32()) * 0.5,
+                        (a.y.as_f32() + b.y.as_f32()) * 0.5,
+                        a.z.as_f32() + 1.,
+                    ];
+                    Some(
+                        geometry
+                            .app
+                            .world_mut()
+                            .spawn((
+                                avian3d::prelude::Collider::cuboid(2., 3., 0.25),
+                                avian3d::prelude::RigidBody::Static,
+                                avian3d::prelude::CollisionLayers::DEFAULT,
+                                bevy::prelude::Transform::from_translation(
+                                    benilla_assets::coords::wow_to_bevy(middle),
+                                ),
+                            ))
+                            .id(),
+                    )
+                } else {
+                    None
+                };
+                geometry.advance_physics();
+                inspected = Some(owner.certify_observed(
+                    observation,
+                    job,
+                    geometry.app.world_mut(),
+                    &installed,
+                ));
+                if let Some(obstacle) = obstacle {
+                    geometry.app.world_mut().despawn(obstacle);
+                }
+                if let Some(original) = original_index {
+                    geometry.app.insert_resource(original);
+                }
+            },
+            |_, _| panic!("resident cannot enter ordinary body/transport"),
+        );
+        assert_eq!(attempts, 1);
+        std::thread::yield_now();
+    }
+    assert_eq!(callbacks, 1);
+    assert!(matches!(
+        reply.try_result(),
+        Ok(Err(Failure::UnsupportedQuery))
+    ));
+    assert!(!lease.is_active());
+    assert_eq!(
+        selector.serve(
+            &mailbox,
+            owner,
+            8,
+            deadline,
+            |_, _, _| panic!("single use"),
+            |_, _| panic!("empty")
+        ),
+        0
+    );
+    inspected.unwrap()
+}
+
+#[test]
+fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack() {
+    for mode in [
+        FifoProbeMode::Clear,
+        FifoProbeMode::Obstacle,
+        FifoProbeMode::Foreign,
+    ] {
+        with_owned(|install, owner, geometry, session, profile| {
+            let mut consumer = Consumer {
+                owner,
+                geometry,
+                session,
+                profile,
+                authored: Default::default(),
+                routes: vec![],
+                constructor: None,
+                foreign_index: Some(
+                    NativeStaticMapIndex::from_inventory(input::raw_inventory(install)).unwrap(),
+                ),
+                fifo_probe: Some(mode),
+                fifo_inspected: false,
+            };
+            let mut world = NativeWorld::synthetic_component_test_with_initialization(
+                consumer.profile.clone(),
+                consumer.session.world,
+                f::player(),
+                1234,
+                None,
+                &mut consumer,
+            )
+            .unwrap();
+            let boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
+            consumer.owner.initialize(&boundary).unwrap();
+            let committed = consumer.owner.ledger.diagnostic();
+            for tick in 1..=12 {
+                let before = world.checkpoint().unwrap();
+                let inputs = if tick == 1 {
+                    let position = world.state().position;
+                    (1..=2)
+                        .map(|offset| {
+                            movement(
+                                &world,
+                                world.state().next_sequence + offset - 1,
+                                ai::Point::new(
+                                    position.x.as_f32(),
+                                    position.y.as_f32() - offset as f32,
+                                    position.z.as_f32(),
+                                )
+                                .unwrap(),
+                            )
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                };
+                let result = world.step_batch(tick, inputs, &mut consumer);
+                if consumer.fifo_inspected {
+                    assert!(result.is_err());
+                    assert_eq!(world.checkpoint().unwrap(), before);
+                    break;
+                }
+                result.unwrap();
+            }
+            assert!(consumer.fifo_inspected);
+            assert!(consumer.routes.is_empty());
+            assert!(consumer
+                .owner
+                .ledger
+                .diagnostic()
+                .same_committed_root(&committed));
+        });
+    }
 }

@@ -29,7 +29,7 @@ fn products(install: &input::Install) -> OwnedSourceProducts {
         .unwrap();
     OwnedSourceProducts::new(terrain, collision, || false).unwrap()
 }
-fn with_request(
+pub(super) fn with_request(
     test: impl FnOnce(
         &input::Install,
         &mut OwnedResident,
@@ -125,7 +125,7 @@ fn ready(worker: &mut CaptureFreshnessWorker) -> FreshnessObservation {
         }
     }
 }
-fn no_native_constructors(owner: &mut OwnedResident, geometry: &InstalledFixture) {
+pub(super) fn no_native_constructors(owner: &mut OwnedResident, geometry: &InstalledFixture) {
     let installed = geometry
         .app
         .world()

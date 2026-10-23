@@ -23,26 +23,24 @@ struct ResidentDispatchValidation {
     request: AuthorityRequest,
     lease: JobLease,
 }
-impl ResidentDispatchWork {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn capture(
+impl ResidentDispatchValidation {
+    fn validate_request(
         mailbox: &Mailbox,
         resident: &OwnedResident,
         profile: &Profile,
         player: PlayerId,
-        ticket: u64,
-        request: AuthorityRequest,
+        request: &AuthorityRequest,
         deadline: Instant,
-    ) -> Result<Self, Failure> {
-        let (identity, session, selected_profile, selected_player) = resident.dispatch_selection();
+    ) -> Result<(), Failure> {
+        let (_, session, selected_profile, selected_player) = resident.dispatch_selection();
         if session != &mailbox.session || selected_profile != profile || selected_player != player {
             return Err(Failure::Binding);
         }
         if !mailbox.active.load(Ordering::Acquire) || Instant::now() >= deadline {
             return Err(Failure::Deadline);
         }
-        mailbox.session.check_request_binding(&request)?;
-        validate_route_context(session, profile, &request)?;
+        mailbox.session.check_request_binding(request)?;
+        validate_route_context(session, profile, request)?;
         let event = request
             .require_pathfinder_dispatch(profile)
             .map_err(|_| Failure::Binding)?;
@@ -72,61 +70,101 @@ impl ResidentDispatchWork {
         // Validate genuine resident model/target witnesses without retaining a
         // SamePolygonModel or selecting/constructing any native query.
         gate_model(profile, session.world, player, route)?;
-        let (reply, _) = bounded(1);
-        let work = Work::new(
-            ticket,
-            request.clone(),
-            deadline,
-            reply,
-            mailbox.active.clone(),
-        );
-        let validation = ResidentDispatchValidation {
+        Ok(())
+    }
+    fn bind(
+        mailbox: &Mailbox,
+        resident: &OwnedResident,
+        profile: &Profile,
+        player: PlayerId,
+        work: &Work,
+        deadline: Instant,
+    ) -> Result<Self, Failure> {
+        Self::validate_request(
+            mailbox,
+            resident,
+            profile,
+            player,
+            &work.request,
+            deadline.min(work.deadline),
+        )?;
+        if !work.active_for(&mailbox.active) {
+            return Err(Failure::Deadline);
+        }
+        let (identity, session, _, _) = resident.dispatch_selection();
+        Ok(Self {
             session: session.clone(),
             profile: profile.clone(),
             player,
             resident: identity.clone(),
-            request,
+            request: work.request.clone(),
             lease: work.lease(),
-        };
-        let captured = Self { work, validation };
-        captured.job(mailbox, resident, deadline)?;
-        Ok(captured)
+        })
     }
-
+    fn job<'a>(
+        &'a self,
+        work: &'a Work,
+        mailbox: &Mailbox,
+        resident: &OwnedResident,
+        invocation_deadline: Instant,
+    ) -> Result<ResidentDispatchJob<'a>, Failure> {
+        check_owned_route(
+            &self.session,
+            &self.request,
+            &self.lease,
+            &mailbox.session,
+            work,
+        )?;
+        if !work.active_for(&mailbox.active) {
+            return Err(Failure::Deadline);
+        }
+        let job = ResidentDispatchJob {
+            validation: self,
+            work,
+            deadline: invocation_deadline.min(work.deadline),
+        };
+        job.require_resident(resident)?;
+        Ok(job)
+    }
+}
+impl ResidentDispatchWork {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn capture(
+        mailbox: &Mailbox,
+        resident: &OwnedResident,
+        profile: &Profile,
+        player: PlayerId,
+        ticket: u64,
+        request: AuthorityRequest,
+        deadline: Instant,
+    ) -> Result<Self, Failure> {
+        let (reply, _) = bounded(1);
+        let work = Work::new(ticket, request, deadline, reply, mailbox.active.clone());
+        let validation =
+            ResidentDispatchValidation::bind(mailbox, resident, profile, player, &work, deadline)?;
+        Ok(Self { work, validation })
+    }
     pub(crate) fn job<'a>(
         &'a self,
         mailbox: &Mailbox,
         resident: &OwnedResident,
         invocation_deadline: Instant,
     ) -> Result<ResidentDispatchJob<'a>, Failure> {
-        check_owned_route(
-            &self.validation.session,
-            &self.validation.request,
-            &self.validation.lease,
-            &mailbox.session,
-            &self.work,
-        )?;
-        if !self.work.active_for(&mailbox.active) {
-            return Err(Failure::Deadline);
-        }
-        let job = ResidentDispatchJob {
-            owner: self,
-            deadline: invocation_deadline.min(self.work.deadline),
-        };
-        job.require_resident(resident)?;
-        Ok(job)
+        self.validation
+            .job(&self.work, mailbox, resident, invocation_deadline)
     }
 }
 
 /// Invocation-local view only. It grants no queue access, geometry fact, native
 /// constructor, RouteJob conversion, or authority to publish/acknowledge.
 pub(crate) struct ResidentDispatchJob<'a> {
-    owner: &'a ResidentDispatchWork,
+    validation: &'a ResidentDispatchValidation,
+    work: &'a Work,
     deadline: Instant,
 }
 impl ResidentDispatchJob<'_> {
     pub(crate) fn require_resident(&self, resident: &OwnedResident) -> Result<(), Failure> {
-        let saved = &self.owner.validation;
+        let saved = self.validation;
         let (identity, session, profile, player) = resident.dispatch_selection();
         if !saved.resident.same_allocation(identity)
             || &saved.session != session
@@ -141,16 +179,16 @@ impl ResidentDispatchJob<'_> {
         Ok(())
     }
     pub(crate) fn request(&self) -> &AuthorityRequest {
-        &self.owner.work.request
+        &self.work.request
     }
     pub(crate) fn profile(&self) -> &Profile {
-        &self.owner.validation.profile
+        &self.validation.profile
     }
     pub(crate) fn player(&self) -> PlayerId {
-        self.owner.validation.player
+        self.validation.player
     }
     pub(crate) fn lease(&self) -> JobLease {
-        self.owner.work.lease()
+        self.work.lease()
     }
     pub(crate) fn deadline(&self) -> Instant {
         self.deadline
@@ -160,3 +198,6 @@ impl ResidentDispatchJob<'_> {
 #[path = "resident_dispatch/tests.rs"]
 #[cfg(test)]
 mod tests;
+
+#[path = "resident_dispatch/fifo.rs"]
+pub(crate) mod fifo;
