@@ -8,6 +8,11 @@
   </p>
 </div>
 
+Player downloads ship `config.example.toml`, never a live `config.toml`. For
+first-time setup, copy the example to `config.toml` only if no `config.toml`
+already exists beside the executable. Keep your existing configuration when
+updating; do not overwrite it with the example.
+
 ## This fork: experimental peer-to-peer mode
 
 This fork adds an **experimental trusted-friends P2P exploration backend**. A

@@ -196,7 +196,7 @@ class PackagingTests(unittest.TestCase):
                 with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
                     archive = packager.package(root, platform, SHA)
                 prefix = f"benilla-{platform}-{SHA}"
-                expected = {f"{prefix}/{p}" for p in [*executables(platform), "config.toml", "README.md"]}
+                expected = {f"{prefix}/{p}" for p in [*executables(platform), "config.example.toml", "README.md"]}
                 if platform == "windows-amd64":
                     with zipfile.ZipFile(archive) as output:
                         self.assertEqual(set(output.namelist()), expected)
@@ -236,7 +236,46 @@ class PackagingTests(unittest.TestCase):
                 else:
                     with tarfile.open(archive) as output:
                         names = output.getnames()
-                self.assertEqual(set(names), {prefix + player.name, prefix + "config.toml", prefix + "README.md"})
+                self.assertEqual(set(names), {prefix + player.name, prefix + "config.example.toml", prefix + "README.md"})
+
+    def test_player_archive_preserves_existing_config_on_every_platform(self):
+        repository = Path(__file__).resolve().parents[1]
+        for platform in packager.TARGETS:
+            for separate in (False, True):
+                with self.subTest(platform=platform, separate=separate), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    _, _, source = self.fixture(root, platform)
+                    original = (repository / "config.example.toml").read_bytes()
+                    (source / "config.example.toml").write_bytes(original)
+                    self.seal(source)
+                    url = None
+                    if separate:
+                        packager.package_source(root, platform, SHA)
+                        url = "https://github.com/bunkerlab-net/benilla/actions/runs/123/artifacts/456"
+                    archive = packager.package(root, platform, SHA, url)
+                    install = root / "installed"
+                    folder = install / f"benilla-{platform}-{SHA}"
+                    folder.mkdir(parents=True)
+                    live = folder / "config.toml"
+                    personal = b'[p2p]\npsk = "existing-private-fixture-key"\n'
+                    live.write_bytes(personal)
+                    if platform == "windows-amd64":
+                        with zipfile.ZipFile(archive) as output:
+                            output.extractall(install)
+                    else:
+                        with tarfile.open(archive) as output:
+                            output.extractall(install, filter="data")
+                    self.assertEqual(live.read_bytes(), personal)
+                    example = (folder / "config.example.toml").read_text()
+                    self.assertEqual(example, packager.player_config(source))
+                    self.assertEqual(tomllib.loads(example), {})
+                    self.assertIn('# psk = "REPLACE_WITH_A_PRIVATE_RANDOM_PASSPHRASE"', example)
+                    self.assertNotIn("must not ship", example)
+                    self.assertNotIn("existing-private-fixture-key", example)
+                    self.assertEqual((source / "config.example.toml").read_bytes(), original)
+                    readme = (folder / "README.md").read_text()
+                    self.assertIn("copy config.example.toml to config.toml only if config.toml does not already exist", readme)
+                    self.assertIn("Keep your existing config.toml when updating; never overwrite it with the example", readme)
 
     def test_player_config_has_no_active_p2p_or_data_override(self):
         root = Path(__file__).resolve().parents[1]
@@ -530,7 +569,7 @@ class PackagingTests(unittest.TestCase):
                 with patch.object(packager.subprocess, "Popen", side_effect=AssertionError("must not execute")):
                     archive = packager.package(root, platform, SHA, url)
                 prefix = f"benilla-{platform}-{SHA}"
-                expected = {f"{prefix}/{p}" for p in [*executables(platform), "config.toml", "README.md"]}
+                expected = {f"{prefix}/{p}" for p in [*executables(platform), "config.example.toml", "README.md"]}
                 if platform == "windows-amd64":
                     with zipfile.ZipFile(archive) as output:
                         self.assertEqual(set(output.namelist()), expected)

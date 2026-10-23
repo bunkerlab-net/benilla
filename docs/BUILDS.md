@@ -46,7 +46,7 @@ repository limits fail closed. Never manually remove a source artifact while its
 binary is available.
 Names include the platform and full source commit. Extract the GitHub artifact ZIP first, then the archive
 inside it. The player archive has exactly three files at its root:
-`benilla` (`benilla.exe` on Windows), `config.toml`, and `README.md`. Unix archives
+`benilla` (`benilla.exe` on Windows), `config.example.toml`, and `README.md`. Unix archives
 mark the player executable. The README starts with launch/config instructions and
 ends with the retained license/attribution notices. No `Data/`, source tree,
 developer guides, diagnostic scripts, helper executables, or debug symbols are in
@@ -80,10 +80,12 @@ upload, with the same 90-day source and 14-day binary retention requests.
 You need your own legally obtained English WoW 1.12.1 installation, build 5875,
 and, for realm mode, a compatible 1.12.1 server with Warden disabled.
 For experimental peer mode, read the player README and `docs/P2P-CONFIG.md` in the
-matching source. The shipped `config.toml` is a fully commented version of the
-source's `config.example.toml`: unchanged, it preserves realm mode and normal Data
-discovery. Uncomment a complete section and the settings you intend to use. Before
-enabling `[p2p]`, replace the public placeholder with a private random passphrase.
+matching source. The shipped `config.example.toml` is a fully commented version of the
+source example. For first-time setup, copy it to `config.toml` only if that file
+does not already exist. Preserve your existing `config.toml` when updating; never
+overwrite it with the example. The runtime still reads `config.toml`, not the
+example: unchanged, the template preserves realm mode and normal Data discovery.
+Uncomment a complete section and the settings you intend to use. Before enabling `[p2p]`, replace the public placeholder with a private random passphrase.
 No populated peer key/configuration is shipped. No game assets, MPQs,
 FrameXML, credentials, or user settings are included in the archive. The binary
 embeds benilla's own UI files and shaders. You do not need the source checkout.

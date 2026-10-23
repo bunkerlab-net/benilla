@@ -283,12 +283,12 @@ def package_source(root, platform, commit):
 
 
 def player_config(source):
-    # The source example intentionally enables P2P. An installed config.toml must
-    # not activate its public placeholder PSK or override Data autodiscovery.
+    # The source example intentionally enables P2P. Copying the player example
+    # to config.toml must not activate its placeholder PSK or override discovery.
     example = (source / "config.example.toml").read_text(encoding="utf-8")
     lines = example.splitlines()[1:]
     return (
-        "# Benilla example config.toml. All settings below are disabled by default.\n"
+        "# Benilla config.example.toml. All settings below are disabled by default.\n"
         "# Uncomment a section header (for example [wow]) together with its settings.\n"
         "# With no active settings, realm mode and Data/ or WoW/Data/ discovery apply.\n"
         "# Never share this file after adding a private passphrase or personal paths.\n\n"
@@ -306,9 +306,9 @@ def player_readme(source, platform, commit, source_notice):
     }
     readme = (
         "# Benilla player\n\n"
-        "1. Extract to a writable folder. Supply your own legally obtained English WoW 1.12.1 (build 5875) Data folder beside the executable, or uncomment [wow] and set data in config.toml. No game assets are included.\n"
+        "1. Extract to a writable folder. For first-time setup, copy config.example.toml to config.toml only if config.toml does not already exist. Keep your existing config.toml when updating; never overwrite it with the example. Supply your own legally obtained English WoW 1.12.1 (build 5875) Data folder beside the executable, or uncomment [wow] and set data in config.toml. No game assets are included.\n"
         f"2. Open a terminal in that folder and run `{launch}`. Realm mode needs a compatible server with Warden disabled; use the Realmlist button to set it.\n"
-        "3. config.toml is a commented example: unchanged, it preserves normal startup defaults. To enable experimental peer mode, uncomment [p2p] and its settings and replace the public PSK placeholder with a private random passphrase before launch. Never share a populated config.\n\n"
+        "3. config.example.toml is a commented template, not a live configuration. Edit your config.toml to customize settings; unchanged, the template preserves normal startup defaults. To enable experimental peer mode, uncomment [p2p] and its settings and replace the public PSK placeholder with a private random passphrase before launch. Never share a populated config.\n\n"
         "Relative data paths are resolved beside the executable. WOW_DATA overrides config and discovery; an empty WOW_DATA disables discovery. Settings, saves, logs, screenshots and addons go in benilla-config/, never into your game installation.\n\n"
         f"Platform: {requirements[platform]}\n\n"
         "Only the player, this README and the example config are needed here. Native diagnostic helpers and scripts are separate downloads, not startup dependencies. The optional diagnose-collision navigation stage needs the matching diagnostic helper download. Full guides are in the source archive.\n\n"
@@ -390,11 +390,11 @@ def package(root, platform, commit, source_url=None, *, helper_only=False,
             notice.write_text(source_notice, encoding="utf-8")
             files.append((notice, "SOURCE-DOWNLOAD.txt"))
     if not diagnostic:
-        config = dist / f"{name}-config.toml"
+        config = dist / f"{name}-config.example.toml"
         config.write_text(player_config(source), encoding="utf-8")
         readme = dist / f"{name}-README.md"
         readme.write_bytes(player_readme(source, platform, commit, source_notice))
-        files.extend(((config, "config.toml"), (readme, "README.md")))
+        files.extend(((config, "config.example.toml"), (readme, "README.md")))
     if platform == "windows-amd64":
         archive = dist / f"{name}.zip"
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
