@@ -271,6 +271,14 @@ impl Authority for Consumer {
                         "FIFO component inspection is not publication",
                     ));
                 }
+                assert_invocation_context(
+                    &mut self.owner,
+                    &installed,
+                    &self.session,
+                    &self.profile,
+                    request,
+                    self.routes.first(),
+                );
                 let facts = if self.routes.is_empty() {
                     assert!(request
                         .require_pathfinder_dispatch(&self.profile)
@@ -422,6 +430,222 @@ impl Authority for Consumer {
             facts,
         })
     }
+}
+
+fn assert_context_result(actual: Result<(), ResidentFilterError>, expected: Result<(), Failure>) {
+    match actual {
+        Ok(()) => assert_eq!(expected, Ok(())),
+        Err(ResidentFilterError::Context(error)) => assert_eq!(expected, Err(error)),
+        other => panic!("unexpected fallback {other:?}"),
+    }
+}
+
+// Exercise receipt reuse independently from route staging and publication.
+fn assert_invocation_context(
+    owner: &mut OwnedResident,
+    installed: &NativeInventorySource,
+    session: &Session,
+    profile: &Profile,
+    request: &AuthorityRequest,
+    historical: Option<&AuthorityRequest>,
+) {
+    use super::super::super::super::products::source_height::freshness_timings;
+    let (_client, mailbox) = mailbox(session.clone()).unwrap();
+    let deadline = fixture::until();
+    let capture = |ticket| {
+        ResidentDispatchWork::capture(
+            &mailbox,
+            owner,
+            profile,
+            f::player(),
+            ticket,
+            request.clone(),
+            deadline,
+        )
+        .unwrap()
+    };
+    let work = capture(801);
+    let other_work = capture(802);
+    let job = work.job(&mailbox, owner, deadline).unwrap();
+    let other_job = other_work.job(&mailbox, owner, deadline).unwrap();
+    let before = owner.ledger.diagnostic();
+    let (result, counts) = freshness_timings::measure(|| {
+        owner.calculate_with_job(
+            installed,
+            deadline,
+            || false,
+            Some(&job),
+            |provider, _, ledger| {
+                let proof = provider.invocation.as_ref().unwrap();
+                assert!(proof.matches(provider, request)?);
+                let (result, repeated) = freshness_timings::measure(|| {
+                    for _ in 0..3 {
+                        provider.check_context(request, deadline, &|| false)?;
+                    }
+                    Ok::<_, ResidentFilterError>(())
+                });
+                result?;
+                assert_eq!(repeated.context_validation_calls(), 0);
+                assert!(matches!(
+                    provider.check_context(request, deadline, &|| true),
+                    Err(ResidentFilterError::Source(CompositionError::Cancelled))
+                ));
+                assert!(matches!(
+                    provider.check_context(request, Instant::now(), &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
+
+                // Equal serialized bytes are not the live dispatch capability.
+                let decoded: AuthorityRequest =
+                    serde_json::from_value(serde_json::to_value(request).unwrap()).unwrap();
+                assert_eq!(&decoded, request);
+                assert!(decoded.require_pathfinder_dispatch(profile).is_err());
+                assert!(!proof.matches(provider, &decoded)?);
+                let expected =
+                    validate_route_context(&provider.session, &provider.profile, &decoded);
+                let (actual, fallback) = freshness_timings::measure(|| {
+                    provider.check_context(&decoded, deadline, &|| false)
+                });
+                assert_context_result(actual, expected);
+                assert_eq!(fallback.context_validation_calls(), 1);
+
+                for field in 0..6 {
+                    let mut changed = request.clone();
+                    match field {
+                        0 => changed.binding.world[0] ^= 1,
+                        1 => changed.binding.profile[0] ^= 1,
+                        2 => changed.binding.tick += 1,
+                        _ => {
+                            let Query::SourceMotion(MotionQuery::Route(route)) = &mut changed.query
+                            else {
+                                unreachable!()
+                            };
+                            match field {
+                                3 => {
+                                    route.owner_position.x =
+                                        ai::Real::new(route.owner_position.x.as_f32() + 1.).unwrap()
+                                }
+                                4 => {
+                                    route.request.owner_collision_height = ai::Real::new(
+                                        route.request.owner_collision_height.as_f32() + 1.,
+                                    )
+                                    .unwrap()
+                                }
+                                5 => {
+                                    route.request.goal.x =
+                                        ai::Real::new(route.request.goal.x.as_f32() + 1.).unwrap()
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                    assert_ne!(&changed, request);
+                    assert!(!proof.matches(provider, &changed)?);
+                    let expected =
+                        validate_route_context(&provider.session, &provider.profile, &changed);
+                    let (actual, measured) = freshness_timings::measure(|| {
+                        provider.check_context(&changed, deadline, &|| false)
+                    });
+                    assert_context_result(actual, expected);
+                    assert_eq!(measured.context_validation_calls(), 1);
+                }
+                if let Some(historical) = historical {
+                    assert!(!proof.matches(provider, historical)?);
+                    let (actual, measured) = freshness_timings::measure(|| {
+                        provider.check_context(historical, deadline, &|| false)
+                    });
+                    actual?;
+                    assert_eq!(measured.context_validation_calls(), 1);
+                }
+
+                // Bindings are checked even if a test transplants the private proof.
+                let mut proof = provider.invocation.take().unwrap();
+                let saved_lease = proof.lease.clone();
+                proof.lease = other_job.lease();
+                assert!(matches!(
+                    proof.matches(provider, request),
+                    Err(ResidentFilterError::Context(Failure::Binding))
+                ));
+                proof.lease = saved_lease;
+                let saved_identity = provider.state.identity.clone();
+                provider.state.identity = Rc::new(());
+                assert!(!proof.matches(provider, request)?);
+                assert!(InvocationContext::bind(&job, provider).is_err());
+                provider.state.identity = saved_identity;
+                provider.state.profile.tick_ms += 1;
+                assert!(!proof.matches(provider, request)?);
+                provider.state.profile.tick_ms -= 1;
+                provider.state.session.world[0] ^= 1;
+                assert!(!proof.matches(provider, request)?);
+                provider.state.session.world[0] ^= 1;
+                provider.invocation = Some(proof);
+                assert_eq!(ledger.diagnostic(), before);
+                Ok(())
+            },
+        )
+    });
+    result.unwrap();
+    // Exactly one fresh full validation mints this invocation's receipt. The
+    // explicit baseline validations in the mutation loop are counted separately.
+    assert_eq!(counts.context_validation_calls(), 8);
+    assert_eq!(owner.ledger.diagnostic(), before);
+    owner
+        .inspect(
+            installed,
+            deadline,
+            || false,
+            |provider, _, _| {
+                assert!(
+                    provider.invocation.is_none(),
+                    "receipt must not persist across views"
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = owner.calculate_with_job::<()>(
+            installed,
+            deadline,
+            || false,
+            Some(&job),
+            |_, _, _| {
+                panic!("temporary context receipt must unwind with its provider");
+            },
+        );
+    }));
+    assert!(unwound.is_err());
+    owner
+        .inspect(
+            installed,
+            deadline,
+            || false,
+            |provider, _, ledger| {
+                assert!(provider.invocation.is_none());
+                assert_eq!(ledger.diagnostic(), before);
+                Ok(())
+            },
+        )
+        .unwrap();
+    owner
+        .calculate_with_job(
+            installed,
+            deadline,
+            || false,
+            Some(&job),
+            |provider, _, ledger| {
+                drop(mailbox);
+                assert!(!job.lease().is_active());
+                assert!(matches!(
+                    provider.check_context(request, deadline, &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
+                assert_eq!(ledger.diagnostic(), before);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(owner.ledger.diagnostic(), before);
 }
 
 // Holds the original Work and worker through one caller-thread attempt. No query

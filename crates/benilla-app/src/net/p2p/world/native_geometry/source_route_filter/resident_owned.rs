@@ -18,6 +18,66 @@ use benilla_world_runtime::{native::Facts, PlayerId};
 use bevy::prelude::World;
 use std::sync::Arc;
 
+/// Borrowed only by one temporary provider view. It proves immutable context
+/// validation, never source freshness, physics clearance or publication authority.
+pub(super) struct InvocationContext<'call> {
+    job: &'call ResidentDispatchJob<'call>,
+    lease: super::super::super::core::JobLease,
+}
+impl<'call> InvocationContext<'call> {
+    fn bind(
+        job: &'call ResidentDispatchJob<'call>,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+    ) -> Result<Self, ResidentFilterError> {
+        job.require_provider(provider, &provider.session, &provider.profile)?;
+        validate_route_context(&provider.session, &provider.profile, job.request())?;
+        job.request()
+            .require_pathfinder_dispatch(&provider.profile)
+            .map_err(|_| Failure::Binding)?;
+        job.require_provider(provider, &provider.session, &provider.profile)?;
+        Ok(Self {
+            job,
+            lease: job.lease(),
+        })
+    }
+
+    pub(super) fn matches(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+    ) -> Result<bool, ResidentFilterError> {
+        // A miss may use the original validator; a revoked job must never do so.
+        if !self.lease.is_active() || Instant::now() >= self.job.deadline() {
+            return Err(Failure::Deadline.into());
+        }
+        if !self.lease.same_job(&self.job.lease()) {
+            return Err(Failure::Binding.into());
+        }
+        match self
+            .job
+            .require_provider(provider, &provider.session, &provider.profile)
+        {
+            Ok(()) => (),
+            Err(Failure::Binding) => return Ok(false),
+            Err(error) => return Err(error.into()),
+        }
+        if self.job.request() != context {
+            return Ok(false);
+        }
+        let Query::SourceMotion(MotionQuery::Route(saved)) = &self.job.request().query else {
+            return Ok(false);
+        };
+        let Query::SourceMotion(MotionQuery::Route(current)) = &context.query else {
+            return Ok(false);
+        };
+        Ok(saved
+            .pathfinder_dispatch
+            .as_ref()
+            .zip(current.pathfinder_dispatch.as_ref())
+            .is_some_and(|(saved, current)| saved.same_live_dispatch(current)))
+    }
+}
+
 pub(crate) struct OwnedResident {
     products: Arc<OwnedSourceProducts>,
     inventory: OwnedInventoryCompatibility,
@@ -127,6 +187,21 @@ impl OwnedResident {
             &mut ResidentLedger,
         ) -> Result<T, ResidentFilterError>,
     ) -> Result<T, ResidentFilterError> {
+        self.calculate_with_job(installed, deadline, cancelled, None, calculate)
+    }
+
+    fn calculate_with_job<T>(
+        &mut self,
+        installed: &NativeInventorySource,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        job: Option<&ResidentDispatchJob<'_>>,
+        calculate: impl for<'view> FnOnce(
+            &mut ResidentFilterProvider<'_, 'view, 'view, 'static>,
+            &InventoryCompatibility<'_, 'view, 'view, 'static>,
+            &mut ResidentLedger,
+        ) -> Result<T, ResidentFilterError>,
+    ) -> Result<T, ResidentFilterError> {
         let Self {
             products,
             inventory,
@@ -145,6 +220,7 @@ impl OwnedResident {
                         let mut provider = ResidentFilterProvider {
                             state: ResidentStateStorage::Borrowed(state),
                             height,
+                            invocation: None,
                         };
                         provider.verify_installed_owner(
                             &compatibility,
@@ -152,6 +228,9 @@ impl OwnedResident {
                             deadline,
                             &cancelled,
                         )?;
+                        if let Some(job) = job {
+                            provider.invocation = Some(InvocationContext::bind(job, &provider)?);
+                        }
                         let result = calculate(&mut provider, &compatibility, ledger)?;
                         provider.verify_installed_owner(
                             &compatibility,
@@ -196,29 +275,45 @@ impl OwnedResident {
             deadline,
             &cancelled,
             |provider, compatibility, ledger| {
-                let constructor = provider.observe(context, 101, deadline, &cancelled)?;
-                let los = provider.observe_chase_los(
-                    &constructor,
+                Self::cold_in_view(
+                    provider,
+                    compatibility,
+                    ledger,
+                    world,
                     context,
                     player,
-                    103,
-                    deadline,
-                    &cancelled,
-                )?;
-                let water =
-                    provider.observe_chase_water(&los, context, 104, deadline, &cancelled)?;
-                ledger.certify(
-                    world,
-                    compatibility,
-                    provider,
-                    context,
-                    constructor,
-                    water,
-                    105,
                     deadline,
                     &cancelled,
                 )
             },
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn cold_in_view(
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        ledger: &mut ResidentLedger,
+        world: &mut World,
+        context: &AuthorityRequest,
+        player: PlayerId,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Facts, ResidentFilterError> {
+        let constructor = provider.observe(context, 101, deadline, cancelled)?;
+        let los =
+            provider.observe_chase_los(&constructor, context, player, 103, deadline, cancelled)?;
+        let water = provider.observe_chase_water(&los, context, 104, deadline, cancelled)?;
+        ledger.certify(
+            world,
+            compatibility,
+            provider,
+            context,
+            constructor,
+            water,
+            105,
+            deadline,
+            cancelled,
         )
     }
 
@@ -275,11 +370,36 @@ impl OwnedResident {
                 let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
                     return Err(Failure::Binding.into());
                 };
-                if route.request.prior_cache.is_none() {
-                    self.certify_cold(world, installed, context, player, deadline, cancelled)
-                } else {
-                    self.certify_retained(world, installed, context, deadline, cancelled)
-                }
+                self.calculate_with_job(
+                    installed,
+                    deadline,
+                    cancelled,
+                    Some(&job),
+                    |provider, compatibility, ledger| {
+                        if route.request.prior_cache.is_none() {
+                            Self::cold_in_view(
+                                provider,
+                                compatibility,
+                                ledger,
+                                world,
+                                context,
+                                player,
+                                deadline,
+                                &cancelled,
+                            )
+                        } else {
+                            ledger.certify_retained(
+                                world,
+                                compatibility,
+                                provider,
+                                context,
+                                201,
+                                deadline,
+                                &cancelled,
+                            )
+                        }
+                    },
+                )
             },
         )
     }

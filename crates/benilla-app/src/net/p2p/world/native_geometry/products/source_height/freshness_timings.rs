@@ -34,6 +34,9 @@ pub(in super::super::super) enum Phase {
     ConcreteCorridor,
 }
 impl Counts {
+    pub(in super::super::super) fn context_validation_calls(&self) -> usize {
+        self.context_validation.started
+    }
     fn phase(&mut self, phase: Phase) -> &mut PhaseCounts {
         match phase {
             Phase::Total => &mut self.total,
@@ -136,7 +139,7 @@ mod tests {
                 Timer::start(Phase::ConcreteCorridor).finish(true);
                 drop(Timer::start(Phase::ConcreteCorridor));
             });
-            assert_eq!(phases.context_validation.started, 2);
+            assert_eq!(phases.context_validation_calls(), 2);
             assert_eq!(phases.context_validation.succeeded, 1);
             assert_eq!(phases.context_validation.refused, 1);
             assert_eq!(phases.concrete_corridor.started, 2);

@@ -443,6 +443,8 @@ impl From<Failure> for ResidentFilterError {
 pub(crate) struct ResidentFilterProvider<'a, 'terrain, 'bundle, 'source> {
     state: ResidentStateStorage<'a>,
     height: &'a PreparedSourceHeight<'terrain, 'bundle, 'source>,
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    invocation: Option<owned::InvocationContext<'a>>,
 }
 /// Private fields retain one allocation identity and its original native query.
 /// Visibility is only for the provider's crate-private Deref target.
@@ -602,6 +604,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
                 std::marker::PhantomData,
             ),
             height,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            invocation: None,
         })
     }
     #[cfg(not(benilla_headless_geometry))]
@@ -944,6 +948,16 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         }
         if Instant::now() >= deadline {
             return Err(Failure::Deadline.into());
+        }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if self
+            .invocation
+            .as_ref()
+            .map(|invocation| invocation.matches(self, context))
+            .transpose()?
+            .unwrap_or(false)
+        {
+            return Ok(());
         }
         validate_route_context(&self.session, &self.profile, context)?;
         Ok(())

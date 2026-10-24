@@ -186,6 +186,31 @@ impl ResidentDispatchJob<'_> {
         }
         Ok(())
     }
+    /// Immutable selection only; this cannot replace live source or physics checks.
+    pub(in super::super) fn require_provider(
+        &self,
+        provider: &super::super::source_route_filter::resident::ResidentFilterProvider<
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        session: &Session,
+        profile: &Profile,
+    ) -> Result<(), Failure> {
+        if !self.validation.lease.is_active() || Instant::now() >= self.deadline {
+            return Err(Failure::Deadline);
+        }
+        if !self.validation.lease.same_job(&self.work.lease())
+            || !self.validation.resident.matches(provider)
+            || &self.validation.session != session
+            || &self.validation.profile != profile
+            || self.validation.request != self.work.request
+        {
+            return Err(Failure::Binding);
+        }
+        Ok(())
+    }
     pub(crate) fn request(&self) -> &AuthorityRequest {
         &self.work.request
     }
