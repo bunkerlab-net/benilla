@@ -130,6 +130,7 @@ impl n::Authority for ProductAuthority {
 // actual bounded mailbox; the other component authorities remain synthetic.
 struct MailboxAuthority {
     local: core::LocalAuthority,
+    submissions: Arc<AtomicU64>,
     other: source::SyntheticMotionAuthority,
     stop: Arc<AtomicBool>,
     service: Option<std::thread::JoinHandle<()>>,
@@ -143,6 +144,7 @@ impl n::Authority for MailboxAuthority {
             request.query,
             n::Query::SourceMotion(n::MotionQuery::NearPoint(_))
         ) {
+            self.submissions.fetch_add(1, Ordering::SeqCst);
             self.local.resolve(request)
         } else {
             self.other.resolve(request)
@@ -162,6 +164,13 @@ impl Drop for MailboxAuthority {
     }
 }
 fn mailbox_authority(authority: ProductAuthority) -> MailboxAuthority {
+    mailbox_authority_with_expired_first_slice(authority, false).0
+}
+
+fn mailbox_authority_with_expired_first_slice(
+    authority: ProductAuthority,
+    mut expire_first_slice: bool,
+) -> (MailboxAuthority, Arc<AtomicU64>) {
     let ProductAuthority {
         provider,
         session,
@@ -181,7 +190,11 @@ fn mailbox_authority(authority: ProductAuthority) -> MailboxAuthority {
             let count = mailbox.serve_queries_until(1, |session, request, _, deadline| {
                 observed.lock().unwrap().push(request.clone());
                 // The retained provider is loaded/bound before this 2ms service window.
-                let facts = if fault.load(Ordering::SeqCst) == 1 {
+                let facts = if expire_first_slice {
+                    expire_first_slice = false;
+                    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                    Err(Failure::Deadline)
+                } else if fault.load(Ordering::SeqCst) == 1 {
                     Err(Failure::MissingGeometry)
                 } else {
                     provider.resolve(session, request, deadline)
@@ -210,12 +223,17 @@ fn mailbox_authority(authority: ProductAuthority) -> MailboxAuthority {
             }
         }
     });
-    MailboxAuthority {
-        local,
-        other,
-        stop,
-        service: Some(service),
-    }
+    let submissions = Arc::new(AtomicU64::new(0));
+    (
+        MailboxAuthority {
+            local,
+            submissions: Arc::clone(&submissions),
+            other,
+            stop,
+            service: Some(service),
+        },
+        submissions,
+    )
 }
 
 fn setup(z: f32) -> (n::Profile, ProductAuthority) {
@@ -807,7 +825,10 @@ fn mailbox_primary_malformed_facts_do_not_commit_project_or_rewrite_store() {
         let (data, product) = setup(10.);
         let fault = Arc::clone(&product.fault);
         let observed = Arc::clone(&product.observed);
-        let mut c = create(&h, data, mailbox_authority(product));
+        // A slice expiry may legitimately repeat the same service callback before
+        // malformed facts reach the controller. It must not permit a later retry.
+        let (authority, submissions) = mailbox_authority_with_expired_first_slice(product, true);
+        let mut c = create(&h, data, authority);
         c.initial_events().unwrap();
         pump_to(&mut c, 1);
         let before = c.world.checkpoint().unwrap();
@@ -824,15 +845,22 @@ fn mailbox_primary_malformed_facts_do_not_commit_project_or_rewrite_store() {
         assert_eq!(c.store.generation(), generation);
         assert_eq!(durable_files(&h), persisted);
         assert_eq!(c.position_xyz(), [MID - 50., MID - 1., 10.]);
-        assert_eq!(observed.lock().unwrap().len(), 1);
+        assert_eq!(submissions.load(Ordering::SeqCst), 1);
+        let attempts = observed.lock().unwrap().clone();
+        assert!(attempts.len() >= 2);
+        assert!(attempts.iter().all(|attempt| attempt == &attempts[0]));
         assert!(c.retry_tick().is_err());
         let waiting = c.pump(Duration::from_secs(60));
         assert_eq!(waiting.ticks, 0);
         assert!(waiting.events.is_empty());
+        assert!(matches!(waiting.pause.unwrap().kind, PauseKind::Simulation));
         assert_eq!(c.pending.as_ref().unwrap().inputs, pending);
         assert_eq!(c.world.checkpoint().unwrap(), before);
+        assert_eq!(c.store.generation(), generation);
         assert_eq!(durable_files(&h), persisted);
-        assert_eq!(observed.lock().unwrap().len(), 1);
+        assert_eq!(c.position_xyz(), [MID - 50., MID - 1., 10.]);
+        assert_eq!(*observed.lock().unwrap(), attempts);
+        assert_eq!(submissions.load(Ordering::SeqCst), 1);
     }
 }
 

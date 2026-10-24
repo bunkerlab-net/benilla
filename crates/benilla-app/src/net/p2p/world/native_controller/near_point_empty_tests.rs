@@ -118,6 +118,7 @@ fn empty_mailbox(product: EmptyProduct) -> MailboxAuthority {
     });
     MailboxAuthority {
         local,
+        submissions: Arc::new(AtomicU64::new(0)),
         other,
         stop,
         service: Some(service),
