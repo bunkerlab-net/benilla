@@ -8,6 +8,9 @@
 pub(super) mod core;
 mod local_corridor;
 mod products;
+#[cfg(not(benilla_headless_geometry))]
+#[cfg(test)]
+mod resident_result_controller_tests;
 pub(crate) fn run_collision_diagnostics(
     args: &[std::ffi::OsString],
     output: &mut impl std::io::Write,

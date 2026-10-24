@@ -311,13 +311,28 @@ impl Driver {
     }
     /// Receipt-only readback proves durable capture, not a reconstructed live owner.
     pub(crate) fn assert_recipe_readback(self) {
+        self.assert_recipe_readback_state(2, false);
+    }
+    /// A refused next tick leaves the prior durable recipe intact, without clearing its pause.
+    pub(crate) fn assert_result_transport_refusal_readback(self) {
+        self.assert_recipe_readback_state(1, true);
+    }
+    fn assert_recipe_readback_state(self, route_count: usize, refused: bool) {
         let Self {
             controller,
             _harness: harness,
             recipe_path,
         } = self;
-        assert!(controller.pause.is_none());
-        assert!(controller.pending.is_none());
+        if refused {
+            assert!(matches!(
+                controller.pause.as_ref().map(|pause| &pause.kind),
+                Some(PauseKind::Authority | PauseKind::Simulation)
+            ));
+            assert!(controller.pending.is_some());
+        } else {
+            assert!(controller.pause.is_none());
+            assert!(controller.pending.is_none());
+        }
         assert!(controller.outbox.is_none());
         assert!(controller.actions.is_empty());
         assert!(controller
@@ -347,7 +362,7 @@ impl Driver {
                     n::Query::SourceMotion(n::MotionQuery::Route(_))
                 ))
                 .count(),
-            2
+            route_count
         );
         let expected = recipe.recipe().clone();
         let generation = recipe.generation();
@@ -472,6 +487,24 @@ impl Driver {
     }
     pub(crate) fn store_generation(&self) -> u64 {
         self.controller.store.generation()
+    }
+    /// Fail the real store's next write without changing the committed world.
+    pub(crate) fn block_checkpoint_for_result_transport(&self, blocked: bool) {
+        let path = self
+            .recipe_path
+            .clone()
+            .unwrap_or_else(|| {
+                world_path(&self._harness.root, self.controller.world.state().world).unwrap()
+            })
+            .join(".world-checkpoint.pending");
+        if blocked {
+            fs::write(path, b"authored resident result transport failure").unwrap();
+        } else {
+            fs::remove_file(path).unwrap();
+        }
+    }
+    pub(crate) fn retry_checkpoint_for_result_transport(&mut self) -> Result<SavedBoundary, Error> {
+        self.controller.retry_checkpoint()
     }
     pub(crate) fn retry_route_commit(&mut self) -> Result<(), Error> {
         self.controller.retry_route_commit()
