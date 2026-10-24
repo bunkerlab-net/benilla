@@ -993,9 +993,9 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
                 &mut consumer,
             )
             .unwrap();
-            let boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
+            let mut boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
             consumer.owner.initialize(&boundary).unwrap();
-            let committed = consumer.owner.ledger.diagnostic();
+            let mut committed = consumer.owner.ledger.diagnostic();
             for tick in 1..=12 {
                 let before = world.checkpoint().unwrap();
                 let inputs = if tick == 1 {
@@ -1024,6 +1024,13 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
                     break;
                 }
                 result.unwrap();
+                // Successful pre-route ticks still advance the genuine ACK boundary.
+                // The refused FIFO attempt above must never reach this path.
+                let notice = RouteCommitNotice::capture(&world, &boundary).unwrap();
+                assert!(notice.routes().is_empty());
+                consumer.owner.acknowledge(&notice).unwrap();
+                boundary = notice.boundary().clone();
+                committed = consumer.owner.ledger.diagnostic();
             }
             assert!(consumer.fifo_inspected);
             assert!(consumer.routes.is_empty());
