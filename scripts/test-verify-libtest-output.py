@@ -88,6 +88,7 @@ SUITES = {
             "scoped_resident_refuses_foreign_owner_expiry_cancel_and_changed_sources_without_state_loss",
             "scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products",
             "fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack",
+            "fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack",
         ),
     ),
     "Verify owned source bundle prerequisite": (

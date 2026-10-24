@@ -316,7 +316,8 @@ jobs:
             source_route_filter::resident::owned::tests::scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views \
             source_route_filter::resident::owned::tests::scoped_resident_refuses_foreign_owner_expiry_cancel_and_changed_sources_without_state_loss \
             source_route_filter::resident::owned::tests::scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products \
-            source_route_filter::resident::owned::tests::fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack
+            source_route_filter::resident::owned::tests::fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack \
+            source_route_filter::resident::owned::tests::fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack
       - name: Verify private resident reconstruction adapter
         shell: bash
         run: |
