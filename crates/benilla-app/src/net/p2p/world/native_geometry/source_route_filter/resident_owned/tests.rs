@@ -168,13 +168,29 @@ impl Authority for Consumer {
             Query::SourceMotion(MotionQuery::Route(route)) => {
                 self.geometry.advance_physics();
                 let before = self.owner.ledger.diagnostic();
-                if let Some(mode) = &mut self.fifo_probe {
+                if let Some(mode) = self.fifo_probe {
+                    let retained = !self.routes.is_empty();
+                    if retained {
+                        assert_eq!(self.routes.len(), 1);
+                        assert_eq!(self.owner.ledger.counts(), (1, 1));
+                        let original = self.routes[0]
+                            .require_pathfinder_dispatch(&self.profile)
+                            .unwrap();
+                        let current = request.require_pathfinder_dispatch(&self.profile).unwrap();
+                        assert!(!current.first_construction());
+                        assert!(!original.same_live_dispatch(current));
+                        assert_eq!(
+                            current.construction_binding(),
+                            original.construction_binding()
+                        );
+                        assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
+                    }
                     let facts = certify_fifo_probe(
                         &mut self.owner,
                         &mut self.geometry,
                         &self.session,
                         request,
-                        *mode,
+                        mode,
                         self.foreign_index.take(),
                     );
                     if matches!(mode, FifoProbeMode::Foreign) {
@@ -196,6 +212,11 @@ impl Authority for Consumer {
                             panic!("route certificate");
                         };
                         calculation.validate_for(&route.request).unwrap();
+                        assert_eq!(calculation.prior_cache, route.request.prior_cache);
+                        assert_eq!(
+                            calculation.after_cache.revision,
+                            if retained { 2 } else { 1 }
+                        );
                         assert!(matches!(
                             calculation.outcome,
                             motion::RouteOutcome::Complete(_)
@@ -203,12 +224,32 @@ impl Authority for Consumer {
                     }
                     let after = self.owner.ledger.diagnostic();
                     if matches!(mode, FifoProbeMode::Clear) {
-                        assert!(after.only_initial_cold_staged_since(&before));
-                        after.assert_initial_cold_staging_rejects_mutations(&before);
-                        assert_eq!(self.owner.ledger.counts(), (1, 0));
+                        if retained {
+                            assert!(after.only_first_retained_staged_since(&before));
+                            after.assert_first_retained_staging_rejects_mutations(&before);
+                            assert_eq!(self.owner.ledger.counts(), (2, 1));
+                        } else {
+                            assert!(after.only_initial_cold_staged_since(&before));
+                            after.assert_initial_cold_staging_rejects_mutations(&before);
+                            assert_eq!(self.owner.ledger.counts(), (1, 0));
+                        }
                     } else {
                         assert_eq!(after, before);
-                        assert_eq!(self.owner.ledger.counts(), (0, 0));
+                        assert_eq!(
+                            self.owner.ledger.counts(),
+                            if retained { (1, 1) } else { (0, 0) }
+                        );
+                    }
+                    if retained {
+                        assert_eq!(
+                            Some(
+                                self.owner
+                                    .constructor_identity(&installed, request, deadline)
+                                    .unwrap()
+                            ),
+                            self.constructor,
+                            "retained FIFO must use the original single native constructor"
+                        );
                     }
                     self.fifo_inspected = true;
                     // Deliberately do not return inspected Facts to this runtime,
@@ -972,6 +1013,15 @@ fn certify_fifo_probe(
 
 #[test]
 fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack() {
+    fifo_current_physics_probe(false);
+}
+
+#[test]
+fn fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack() {
+    fifo_current_physics_probe(true);
+}
+
+fn fifo_current_physics_probe(retained: bool) {
     for mode in [
         FifoProbeMode::Clear,
         FifoProbeMode::Obstacle,
@@ -989,7 +1039,7 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
                 foreign_index: Some(
                     NativeStaticMapIndex::from_inventory(input::raw_inventory(install)).unwrap(),
                 ),
-                fifo_probe: Some(mode),
+                fifo_probe: (!retained).then_some(mode),
                 fifo_inspected: false,
             };
             let mut world = NativeWorld::synthetic_component_test_with_initialization(
@@ -1004,7 +1054,8 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
             let mut boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
             consumer.owner.initialize(&boundary).unwrap();
             let mut committed = consumer.owner.ledger.diagnostic();
-            for tick in 1..=12 {
+            let mut cold_notice = None;
+            for tick in 1..=76 {
                 let before = world.checkpoint().unwrap();
                 let inputs = if tick == 1 {
                     let position = world.state().position;
@@ -1022,6 +1073,18 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
                             )
                         })
                         .collect()
+                } else if retained && !consumer.routes.is_empty() {
+                    let position = world.state().position;
+                    vec![movement(
+                        &world,
+                        world.state().next_sequence,
+                        ai::Point::new(
+                            position.x.as_f32() - 0.125,
+                            position.y.as_f32(),
+                            position.z.as_f32(),
+                        )
+                        .unwrap(),
+                    )]
                 } else {
                     vec![]
                 };
@@ -1032,23 +1095,56 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
                     break;
                 }
                 result.unwrap();
-                // Successful pre-route ticks still advance the genuine ACK boundary.
+                // Successful ticks, including the prior cold route, advance the genuine
+                // component-runtime ACK boundary, not a durable-controller save.
                 // The refused FIFO attempt above must never reach this path.
                 let notice = RouteCommitNotice::capture(&world, &boundary).unwrap();
-                assert!(notice.routes().is_empty());
+                if !notice.routes().is_empty() {
+                    assert!(retained);
+                    assert!(cold_notice.is_none());
+                    assert_eq!(notice.routes().len(), 1);
+                    assert_eq!(consumer.routes.len(), 1);
+                    assert!(notice.routes()[0]
+                        .request
+                        .require_pathfinder_dispatch(&consumer.profile)
+                        .unwrap()
+                        .same_live_dispatch(
+                            consumer.routes[0]
+                                .require_pathfinder_dispatch(&consumer.profile)
+                                .unwrap()
+                        ));
+                    cold_notice = Some(notice.clone());
+                }
                 consumer.owner.acknowledge(&notice).unwrap();
                 boundary = notice.boundary().clone();
                 committed = consumer.owner.ledger.diagnostic();
+                if cold_notice.is_some() {
+                    assert_eq!(consumer.owner.ledger.counts(), (1, 1));
+                    consumer.fifo_probe = Some(mode);
+                    consumer.foreign_index = Some(
+                        NativeStaticMapIndex::from_inventory(input::raw_inventory(install))
+                            .unwrap(),
+                    );
+                }
             }
             assert!(consumer.fifo_inspected);
-            assert!(consumer.routes.is_empty());
+            assert_eq!(consumer.routes.len(), usize::from(retained));
+            assert_eq!(cold_notice.is_some(), retained);
             let after = consumer.owner.ledger.diagnostic();
             if matches!(mode, FifoProbeMode::Clear) {
-                assert!(after.only_initial_cold_staged_since(&committed));
-                assert_eq!(consumer.owner.ledger.counts(), (1, 0));
+                if retained {
+                    assert!(after.only_first_retained_staged_since(&committed));
+                    assert_eq!(consumer.owner.ledger.counts(), (2, 1));
+                } else {
+                    assert!(after.only_initial_cold_staged_since(&committed));
+                    assert_eq!(consumer.owner.ledger.counts(), (1, 0));
+                }
             } else {
                 assert_eq!(after, committed);
-                assert_eq!(consumer.owner.ledger.counts(), (0, 0));
+                assert_eq!(
+                    consumer.owner.ledger.counts(),
+                    if retained { (1, 1) } else { (0, 0) }
+                );
             }
         });
     }

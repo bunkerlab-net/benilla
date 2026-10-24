@@ -278,6 +278,68 @@ impl Diagnostic {
         }
     }
 
+    /// First retained FIFO certification may append exactly one uncommitted
+    /// candidate rooted in the acknowledged cold owner, and change nothing else.
+    pub(in super::super) fn only_first_retained_staged_since(&self, before: &Self) -> bool {
+        let [(cold_id, cold, None, true)] = before.candidates.as_slice() else {
+            return false;
+        };
+        if *cold_id != 0
+            || before.next_id != 1
+            || before.raw.is_none()
+            || before.candidate_raw_revisions.as_slice() != before.raw.as_slice()
+            || before.flat_candidates.as_slice() != [(0, 0, 0, 0)]
+            || self.candidates.len() != 2
+            || self.candidates[0] != before.candidates[0]
+            || self.candidates[1].0 != 1
+            || self.candidates[1].1 == *cold
+            || self.candidates[1].2 != Some(*cold)
+            || self.candidates[1].3
+            || self.candidate_raw_revisions.as_slice() != [before.raw.unwrap(); 2]
+            || self.flat_candidates.as_slice() != [(0, 0, 0, 0); 2]
+            || self.next_id != 2
+        {
+            return false;
+        }
+        let mut unstaged = self.clone();
+        unstaged.candidates.pop();
+        unstaged.candidate_raw_revisions.pop();
+        unstaged.flat_candidates.pop();
+        unstaged.next_id = before.next_id;
+        unstaged == *before
+    }
+
+    pub(in super::super) fn assert_first_retained_staging_rejects_mutations(&self, before: &Self) {
+        assert!(self.only_first_retained_staged_since(before));
+        let mutations: &[fn(&mut Self)] = &[
+            |d| d.candidates[0].3 = false,
+            |d| d.candidates[1].3 = true,
+            |d| d.candidates[1].0 += 1,
+            |d| d.candidates[1].2 = None,
+            |d| d.candidates[1].2 = Some(d.candidates[1].1),
+            |d| d.candidates.push(d.candidates[1]),
+            |d| d.candidate_raw_revisions[1][0] ^= 1,
+            |d| d.flat_candidates[1].0 = 1,
+            |d| d.raw = None,
+            |d| d.next_id += 1,
+            |d| d.capacity += 1,
+            |d| d.boundary = None,
+            |d| d.last_notice = None,
+            |d| d.route_epoch_committed = !d.route_epoch_committed,
+            |d| d.retained_epoch_committed = !d.retained_epoch_committed,
+            |d| d.epochs_committed += 1,
+            |d| d.one_retained = !d.one_retained,
+        ];
+        for (index, mutate) in mutations.iter().enumerate() {
+            let mut wrong = self.clone();
+            mutate(&mut wrong);
+            assert!(
+                !wrong.only_first_retained_staged_since(before),
+                "first retained staging mutation {index} was accepted"
+            );
+        }
+    }
+
     pub(in super::super) fn same_committed_root(&self, other: &Self) -> bool {
         self.profile == other.profile
             && self.boundary == other.boundary
