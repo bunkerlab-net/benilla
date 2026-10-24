@@ -489,10 +489,23 @@ fn resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume() {
         let work = capture(mailbox, owner, profile, request);
         let job = work.job(mailbox, owner, fixture::until()).unwrap();
         let lease = job.lease();
+        let deadline = lease.deadline();
+        // Retire before verification: cancellation during collision verification
+        // can retain its nested source error rather than top-level Cancelled.
+        let (entered, observed) = bounded(1);
+        let (release, resume) = bounded(1);
+        let mut worker = CaptureFreshnessWorker::with_test_gate(entered, resume, None).unwrap();
         owner.enqueue_observation(job, &mut worker).unwrap();
+        observed
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        assert!(lease.is_active(), "work expired before explicit retirement");
         drop(work);
         assert!(!lease.is_active());
-        let watchdog = fixture::until();
+        assert_eq!(lease.deadline(), deadline);
+        assert!(matches!(worker.try_poll(), FreshnessPoll::Pending));
+        release.try_send(()).unwrap();
+        let watchdog = deadline;
         loop {
             match worker.try_poll() {
                 FreshnessPoll::Pending => {
@@ -500,12 +513,18 @@ fn resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume() {
                     std::thread::yield_now();
                 }
                 FreshnessPoll::Ready(result) => {
-                    assert!(matches!(result, Err(CompositionError::Cancelled)));
+                    assert!(
+                        matches!(result, Err(CompositionError::Cancelled)),
+                        "retired work returned {:?}",
+                        result.map(|_| "unexpected observation")
+                    );
                     break;
                 }
                 _ => panic!("retired work lost its occupied slot"),
             }
         }
+        assert!(matches!(worker.try_poll(), FreshnessPoll::Idle));
+        assert_eq!(lease.deadline(), deadline);
         no_native_constructors(owner, geometry);
         assert!(mailbox.rx.is_empty() && mailbox.retry.is_empty());
     });
