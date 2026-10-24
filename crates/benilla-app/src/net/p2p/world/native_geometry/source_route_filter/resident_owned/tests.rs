@@ -501,6 +501,36 @@ fn assert_full_model_fallback(
     assert_eq!(counts.full_gate_model_calls(), 1);
 }
 
+fn assert_height_result(
+    actual: Result<Option<ai::Real>, ResidentFilterError>,
+    expected: Result<Option<ai::Real>, Failure>,
+) {
+    match (actual, expected) {
+        (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+        (Err(ResidentFilterError::Context(actual)), Err(expected)) => assert_eq!(actual, expected),
+        other => panic!("height fallback differs from full validation: {other:?}"),
+    }
+}
+
+fn assert_full_height_fallback(
+    provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+    deadline: Instant,
+) {
+    use super::super::super::super::products::source_height::freshness_timings;
+    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+        unreachable!()
+    };
+    let (expected, _) = freshness_timings::measure(|| {
+        super::super::super::initialized_owner_height(&provider.profile, route)
+    });
+    let (actual, counts) = freshness_timings::measure(|| {
+        provider.initialized_height_for(request, deadline, &|| false)
+    });
+    assert_height_result(actual, expected);
+    assert_eq!(counts.initialized_owner_height_calls(), 1);
+}
+
 // Exercise receipt reuse independently from route staging and publication.
 fn assert_invocation_context(
     owner: &mut OwnedResident,
@@ -561,6 +591,62 @@ fn assert_invocation_context(
                         f::player(),
                         route,
                     )
+                });
+                assert!(proof.height.borrow().is_none(), "height stays lazy at bind");
+                let (expected_height, _) = freshness_timings::measure(|| {
+                    super::super::super::initialized_owner_height(&provider.profile, route)
+                });
+                let expected_height = expected_height.unwrap();
+                assert!(expected_height.is_some());
+                let (first, counts) = freshness_timings::measure(|| {
+                    provider.initialized_height_for(request, deadline, &|| false)
+                });
+                assert_eq!(first?, expected_height);
+                assert_eq!(counts.initialized_owner_height_calls(), 1);
+                let (repeated, counts) = freshness_timings::measure(|| {
+                    provider.initialized_height_for(request, deadline, &|| false)
+                });
+                assert_eq!(repeated?, expected_height);
+                assert_eq!(counts.initialized_owner_height_calls(), 0);
+                assert_eq!(*proof.height.borrow(), Some(expected_height));
+                assert!(matches!(
+                    provider.initialized_height_for(request, deadline, &|| true),
+                    Err(ResidentFilterError::Source(CompositionError::Cancelled))
+                ));
+                assert!(matches!(
+                    provider.initialized_height_for(request, Instant::now(), &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
+                // Storage/validator semantics only: these detached proofs do not
+                // admit the altered route/profile as a live job.
+                freshness_timings::measure(|| {
+                    let empty = InvocationContext::bind(&job, provider).unwrap();
+                    let mut no_initialization = serde_json::to_value(route).unwrap();
+                    no_initialization["owner"]["initialization"] = serde_json::Value::Null;
+                    let no_initialization = serde_json::from_value(no_initialization).unwrap();
+                    let (first, counts) = freshness_timings::measure(|| {
+                        empty.initialized_height(&provider.profile, &no_initialization)
+                    });
+                    assert_eq!(first, Ok(None));
+                    assert_eq!(counts.initialized_owner_height_calls(), 1);
+                    assert_eq!(*empty.height.borrow(), Some(None));
+                    let (again, counts) = freshness_timings::measure(|| {
+                        empty.initialized_height(&provider.profile, &no_initialization)
+                    });
+                    assert_eq!(again, Ok(None));
+                    assert_eq!(counts.initialized_owner_height_calls(), 0);
+
+                    let failed = InvocationContext::bind(&job, provider).unwrap();
+                    let mut invalid = provider.profile.clone();
+                    invalid.creature_collision_heights = None;
+                    for _ in 0..2 {
+                        let (result, counts) = freshness_timings::measure(|| {
+                            failed.initialized_height(&invalid, route)
+                        });
+                        assert!(result.is_err());
+                        assert_eq!(counts.initialized_owner_height_calls(), 1);
+                        assert!(failed.height.borrow().is_none());
+                    }
                 });
                 let expected_model = expected.unwrap();
                 let (actual, first_model) = freshness_timings::measure(|| {
@@ -635,6 +721,7 @@ fn assert_invocation_context(
                 assert_eq!(fallback.context_validation_calls(), 1);
                 assert_full_dispatch_fallback(provider, &decoded, deadline);
                 assert_full_model_fallback(provider, &decoded, f::player(), deadline);
+                assert_full_height_fallback(provider, &decoded, deadline);
 
                 for field in 0..6 {
                     let mut changed = request.clone();
@@ -677,6 +764,7 @@ fn assert_invocation_context(
                     assert_eq!(measured.context_validation_calls(), 1);
                     assert_full_dispatch_fallback(provider, &changed, deadline);
                     assert_full_model_fallback(provider, &changed, f::player(), deadline);
+                    assert_full_height_fallback(provider, &changed, deadline);
                 }
                 if let Some(historical) = historical {
                     assert!(!proof.matches(provider, historical)?);
@@ -687,6 +775,7 @@ fn assert_invocation_context(
                     assert_eq!(measured.context_validation_calls(), 1);
                     assert_full_dispatch_fallback(provider, historical, deadline);
                     assert_full_model_fallback(provider, historical, f::player(), deadline);
+                    assert_full_height_fallback(provider, historical, deadline);
                 }
 
                 // Bindings are checked even if a test transplants the private proof.
@@ -706,6 +795,10 @@ fn assert_invocation_context(
                     provider.chase_model_for(request, f::player(), deadline, &|| false),
                     Err(ResidentFilterError::Context(Failure::Binding))
                 ));
+                assert!(matches!(
+                    provider.initialized_height_for(request, deadline, &|| false),
+                    Err(ResidentFilterError::Context(Failure::Binding))
+                ));
                 let mut proof = provider.invocation.take().unwrap();
                 proof.lease = saved_lease;
                 provider.invocation = Some(proof);
@@ -718,6 +811,7 @@ fn assert_invocation_context(
                     .matches(provider, request)?);
                 assert_full_dispatch_fallback(provider, request, deadline);
                 assert_full_model_fallback(provider, request, f::player(), deadline);
+                assert_full_height_fallback(provider, request, deadline);
                 assert!(InvocationContext::bind(&job, provider).is_err());
                 provider.state.identity = saved_identity;
                 provider.state.profile.tick_ms += 1;
@@ -728,6 +822,7 @@ fn assert_invocation_context(
                     .matches(provider, request)?);
                 assert_full_dispatch_fallback(provider, request, deadline);
                 assert_full_model_fallback(provider, request, f::player(), deadline);
+                assert_full_height_fallback(provider, request, deadline);
                 provider.state.profile.tick_ms -= 1;
                 provider.state.session.world[0] ^= 1;
                 assert!(!provider
@@ -737,6 +832,7 @@ fn assert_invocation_context(
                     .matches(provider, request)?);
                 assert_full_dispatch_fallback(provider, request, deadline);
                 assert_full_model_fallback(provider, request, f::player(), deadline);
+                assert_full_height_fallback(provider, request, deadline);
                 provider.state.session.world[0] ^= 1;
                 assert_eq!(
                     provider
@@ -747,6 +843,10 @@ fn assert_invocation_context(
                         .borrow()
                         .as_ref(),
                     Some(&expected_model)
+                );
+                assert_eq!(
+                    *provider.invocation.as_ref().unwrap().height.borrow(),
+                    Some(expected_height)
                 );
                 assert_eq!(ledger.diagnostic(), before);
                 Ok(())
@@ -775,6 +875,7 @@ fn assert_invocation_context(
                 );
                 assert_full_dispatch_fallback(provider, request, deadline);
                 assert_full_model_fallback(provider, request, f::player(), deadline);
+                assert_full_height_fallback(provider, request, deadline);
                 Ok(())
             },
         )
@@ -793,6 +894,26 @@ fn assert_invocation_context(
                     .model
                     .borrow()
                     .is_none());
+                assert!(provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .height
+                    .borrow()
+                    .is_none());
+                let (_, counts) = freshness_timings::measure(|| {
+                    provider
+                        .initialized_height_for(request, deadline, &|| false)
+                        .unwrap()
+                });
+                assert_eq!(counts.initialized_owner_height_calls(), 1);
+                assert!(provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .height
+                    .borrow()
+                    .is_some());
                 provider.chase_model_for(request, f::player(), deadline, &|| false)?;
                 assert!(provider
                     .invocation
@@ -832,9 +953,33 @@ fn assert_invocation_context(
                     .model
                     .borrow()
                     .is_none());
+                assert!(provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .height
+                    .borrow()
+                    .is_none());
+                let (_, counts) = freshness_timings::measure(|| {
+                    provider
+                        .initialized_height_for(request, deadline, &|| false)
+                        .unwrap()
+                });
+                assert_eq!(counts.initialized_owner_height_calls(), 1);
+                assert!(provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .height
+                    .borrow()
+                    .is_some());
                 provider.chase_model_for(request, f::player(), deadline, &|| false)?;
                 drop(mailbox);
                 assert!(!job.lease().is_active());
+                assert!(matches!(
+                    provider.initialized_height_for(request, deadline, &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
                 assert!(matches!(
                     provider.chase_model_for(request, f::player(), deadline, &|| false),
                     Err(ResidentFilterError::Context(Failure::Deadline))

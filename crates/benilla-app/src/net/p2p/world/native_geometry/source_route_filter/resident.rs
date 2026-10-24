@@ -923,6 +923,30 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         self.check_context(context, deadline, &cancelled)?;
         Ok(dependency.filter)
     }
+    // Only bounded joined/retained body construction reuses this operand.
+    // Full context and historical height validation retain their original path.
+    fn initialized_height_for(
+        &self,
+        context: &AuthorityRequest,
+        _deadline: Instant,
+        _cancelled: &impl Fn() -> bool,
+    ) -> Result<Option<benilla_sim::creature_ai::Real>, ResidentFilterError> {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if let Some(height) = self
+            .invocation
+            .as_ref()
+            .map(|invocation| invocation.height_for(self, context, _deadline, _cancelled))
+            .transpose()?
+            .flatten()
+        {
+            return Ok(height);
+        }
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        super::initialized_owner_height(&self.profile, route).map_err(Into::into)
+    }
+
     /// Reuse only this invocation's fully validated immutable live dispatch.
     /// Historical and unmatched contexts retain the complete runtime validator.
     fn dispatch_for<'request>(

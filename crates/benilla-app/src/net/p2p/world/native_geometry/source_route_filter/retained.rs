@@ -514,7 +514,8 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                 .get(&npc.spawn)
                 .ok_or(Failure::UnresolvedBody)?
                 .radius,
-            height: super::super::initialized_owner_height(&self.profile, route)?
+            height: self
+                .initialized_height_for(context, deadline, &cancelled)?
                 .ok_or(Failure::UnresolvedBody)?,
         };
         self.height

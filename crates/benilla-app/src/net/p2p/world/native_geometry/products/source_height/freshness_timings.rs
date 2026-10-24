@@ -52,6 +52,9 @@ impl Counts {
     pub(in super::super::super) fn full_gate_model_calls(&self) -> usize {
         self.full_gate_model.started
     }
+    pub(in super::super::super) fn initialized_owner_height_calls(&self) -> usize {
+        self.initialized_owner_height.started
+    }
     fn phase(&mut self, phase: Phase) -> &mut PhaseCounts {
         match phase {
             Phase::Total => &mut self.total,
@@ -174,6 +177,7 @@ mod tests {
                 }
             });
             assert_eq!(validation.full_resident_dispatch_calls(), 2);
+            assert_eq!(validation.initialized_owner_height_calls(), 2);
             for counts in [
                 validation.full_resident_dispatch,
                 validation.full_gate_model,

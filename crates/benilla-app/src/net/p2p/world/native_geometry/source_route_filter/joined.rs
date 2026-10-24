@@ -129,11 +129,12 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             &cancelled,
         )?;
         let terminal = self.terminal_for(&dependency.cold, context, deadline, &cancelled)?;
-        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+        let Query::SourceMotion(MotionQuery::Route(_)) = &context.query else {
             return Err(Failure::UnsupportedQuery.into());
         };
         let npc = context.binding.npc.ok_or(Failure::Binding)?;
-        let height = super::super::initialized_owner_height(&self.profile, route)?
+        let height = self
+            .initialized_height_for(context, deadline, &cancelled)?
             .ok_or(Failure::UnresolvedBody)?;
         // validate_route_context has checked radius against the selected initialized
         // model. A fixed fixture radius/height never becomes a corridor operand.

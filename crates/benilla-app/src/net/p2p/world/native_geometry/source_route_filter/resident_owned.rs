@@ -26,6 +26,8 @@ pub(super) struct InvocationContext<'call> {
     lease: super::super::super::core::JobLease,
     // Successful immutable operands only; never source or physics clearance.
     model: RefCell<Option<ChaseGateModel>>,
+    // Outer None is uncomputed; Some(None) is a successfully validated absence.
+    height: RefCell<Option<Option<benilla_sim::creature_ai::Real>>>,
 }
 impl<'call> InvocationContext<'call> {
     fn bind(
@@ -41,6 +43,7 @@ impl<'call> InvocationContext<'call> {
             job,
             lease: job.lease(),
             model: RefCell::new(None),
+            height: RefCell::new(None),
         })
     }
 
@@ -74,6 +77,47 @@ impl<'call> InvocationContext<'call> {
         let model = gate_model(&provider.profile, provider.session.world, player, route)?;
         *self.model.borrow_mut() = Some(model.clone());
         Ok(Some(model))
+    }
+
+    pub(super) fn height_for(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Option<Option<benilla_sim::creature_ai::Real>>, ResidentFilterError> {
+        if cancelled() {
+            return Err(ResidentFilterError::Source(
+                source_height::CompositionError::Cancelled,
+            ));
+        }
+        if Instant::now() >= deadline {
+            return Err(Failure::Deadline.into());
+        }
+        if !self.matches(provider, context)? {
+            return Ok(None);
+        }
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        self.initialized_height(&provider.profile, route)
+            .map(Some)
+            .map_err(Into::into)
+    }
+
+    fn initialized_height(
+        &self,
+        profile: &Profile,
+        route: &benilla_world_runtime::native::CreatureRouteRequest,
+    ) -> Result<Option<benilla_sim::creature_ai::Real>, Failure> {
+        if let Some(height) = *self.height.borrow() {
+            return Ok(height);
+        }
+        // This has additional initialization/radius invariants beyond model_for.
+        // No borrow spans validation; neither failure nor fallback fills the slot.
+        let height = super::super::initialized_owner_height(profile, route)?;
+        *self.height.borrow_mut() = Some(height);
+        Ok(height)
     }
 
     pub(super) fn matches(
