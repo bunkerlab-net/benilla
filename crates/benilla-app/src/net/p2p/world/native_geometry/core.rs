@@ -2134,8 +2134,7 @@ impl Mailbox {
                                     | QueryDisposition::Retired
                                     | QueryDisposition::Failed
                             )
-                        {
-                            if resident
+                            && resident
                                 .as_mut()
                                 .unwrap()
                                 .retire(&UndeliveredResidentResult {
@@ -2143,9 +2142,8 @@ impl Mailbox {
                                     lease: original_lease,
                                 })
                                 .is_err()
-                            {
-                                self.active.store(false, Ordering::Release);
-                            }
+                        {
+                            self.active.store(false, Ordering::Release);
                         }
                         disposition
                     }

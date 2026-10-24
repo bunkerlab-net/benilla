@@ -19,6 +19,7 @@ use super::{
     route_commit::RouteCommitNotice,
     source_creature_initialization::resident::ResidentCreatureInitializationProvider,
     source_pathfinder_query::resident_joined_tests as fixture,
+    source_player_environment::resident::ResidentEnvironmentError,
     source_route_filter::resident::{
         owned::OwnedResident, ResidentFilterError, ResidentFilterProvider,
     },
@@ -604,6 +605,14 @@ fn run(mode: Mode) {
                             provider
                                 .player_environment(player, fixture::until(), || false)
                                 .map(|_| ())
+                                .map_err(|error| match error {
+                                    ResidentEnvironmentError::Context(error) => {
+                                        ResidentFilterError::Context(error)
+                                    }
+                                    ResidentEnvironmentError::Source(error) => {
+                                        ResidentFilterError::Source(error)
+                                    }
+                                })
                         },
                     );
                     assert!(
