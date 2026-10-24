@@ -304,6 +304,16 @@ pub(super) fn gate_model(
     player: PlayerId,
     route: &CreatureRouteRequest,
 ) -> Result<ChaseGateModel, Failure> {
+    #[cfg(test)]
+    {
+        let timing = super::products::source_height::freshness_timings::Timer::start(
+            super::products::source_height::freshness_timings::Phase::FullGateModel,
+        );
+        let result = gate_model_with_initialized(profile, world, player, route, None);
+        timing.finish(result.is_ok());
+        result
+    }
+    #[cfg(not(test))]
     gate_model_with_initialized(profile, world, player, route, None)
 }
 pub(super) fn gate_model_with_initialized(

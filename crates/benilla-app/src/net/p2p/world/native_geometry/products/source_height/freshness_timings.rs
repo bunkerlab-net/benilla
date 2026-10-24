@@ -23,6 +23,9 @@ pub(crate) struct Counts {
     collision: PhaseCounts,
     context_validation: PhaseCounts,
     concrete_corridor: PhaseCounts,
+    full_resident_dispatch: PhaseCounts,
+    full_gate_model: PhaseCounts,
+    initialized_owner_height: PhaseCounts,
 }
 #[derive(Clone, Copy)]
 pub(in super::super::super) enum Phase {
@@ -32,6 +35,12 @@ pub(in super::super::super) enum Phase {
     ContextValidation,
     // Only the Corridor::certify entry point, not direct enclosure certification.
     ConcreteCorridor,
+    // Selected resident/filter, LOS, joined and retained callsites, not all dispatch checks.
+    FullResidentDispatch,
+    // The full gate_model wrapper (None), not the initialized fast path.
+    FullGateModel,
+    // Inclusive: may also be inside ContextValidation.
+    InitializedOwnerHeight,
 }
 impl Counts {
     pub(in super::super::super) fn context_validation_calls(&self) -> usize {
@@ -44,6 +53,9 @@ impl Counts {
             Phase::Collision => &mut self.collision,
             Phase::ContextValidation => &mut self.context_validation,
             Phase::ConcreteCorridor => &mut self.concrete_corridor,
+            Phase::FullResidentDispatch => &mut self.full_resident_dispatch,
+            Phase::FullGateModel => &mut self.full_gate_model,
+            Phase::InitializedOwnerHeight => &mut self.initialized_owner_height,
         }
     }
 }
@@ -145,6 +157,25 @@ mod tests {
             assert_eq!(phases.concrete_corridor.started, 2);
             assert_eq!(phases.concrete_corridor.succeeded, 1);
             assert_eq!(phases.concrete_corridor.refused, 1);
+            let (_, validation) = measure(|| {
+                for phase in [
+                    Phase::FullResidentDispatch,
+                    Phase::FullGateModel,
+                    Phase::InitializedOwnerHeight,
+                ] {
+                    Timer::start(phase).finish(true);
+                    drop(Timer::start(phase));
+                }
+            });
+            for counts in [
+                validation.full_resident_dispatch,
+                validation.full_gate_model,
+                validation.initialized_owner_height,
+            ] {
+                assert_eq!(counts.started, 2);
+                assert_eq!(counts.succeeded, 1);
+                assert_eq!(counts.refused, 1);
+            }
             std::thread::spawn(|| {
                 assert!(Timer::start(Phase::Total).started.is_none());
             })
@@ -167,6 +198,9 @@ mod tests {
         assert_eq!(outer.collision, PhaseCounts::default());
         assert_eq!(outer.context_validation, PhaseCounts::default());
         assert_eq!(outer.concrete_corridor, PhaseCounts::default());
+        assert_eq!(outer.full_resident_dispatch, PhaseCounts::default());
+        assert_eq!(outer.full_gate_model, PhaseCounts::default());
+        assert_eq!(outer.initialized_owner_height, PhaseCounts::default());
         assert!(Timer::start(Phase::Total).started.is_none());
         let (_, failed) = measure(|| {
             let _ = std::panic::catch_unwind(|| {

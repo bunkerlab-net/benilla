@@ -798,9 +798,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
             .retain_constructor(context)
             .map_err(ResidentFilterError::Query)?
             .slot();
-        let dispatch = context
-            .require_pathfinder_dispatch(&self.profile)
-            .map_err(|_| Failure::Binding)?;
+        let dispatch =
+            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
         let (identity, _, _) = self
             .query
             .registered_constructor_for(
@@ -817,8 +816,7 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<ResidentFilterDependency, ResidentFilterError> {
-        if !context
-            .require_pathfinder_dispatch(&self.profile)
+        if !require_resident_dispatch(context, &self.profile)
             .map_err(|_| Failure::Binding)?
             .first_construction()
         {
@@ -842,13 +840,10 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         self.check_context(&prior.context, deadline, &cancelled)?;
         let retained = prior.filter;
         self.check_context(context, deadline, &cancelled)?;
-        let saved = prior
-            .context
-            .require_pathfinder_dispatch(&self.profile)
+        let saved = require_resident_dispatch(&prior.context, &self.profile)
             .map_err(|_| Failure::Binding)?;
-        let current = context
-            .require_pathfinder_dispatch(&self.profile)
-            .map_err(|_| Failure::Binding)?;
+        let current =
+            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
         let Query::SourceMotion(MotionQuery::Route(old_route)) = &prior.context.query else {
             return Err(Failure::Binding.into());
         };
@@ -917,13 +912,10 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         if !Rc::ptr_eq(&self.identity, &dependency.identity) || dependency.context != *context {
             return Err(Failure::Binding.into());
         }
-        let saved = dependency
-            .context
-            .require_pathfinder_dispatch(&self.profile)
+        let saved = require_resident_dispatch(&dependency.context, &self.profile)
             .map_err(|_| Failure::Binding)?;
-        let current = context
-            .require_pathfinder_dispatch(&self.profile)
-            .map_err(|_| Failure::Binding)?;
+        let current =
+            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
         if !saved.same_live_dispatch(current) {
             return Err(Failure::Binding.into());
         }

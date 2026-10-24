@@ -80,8 +80,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         }
         // This slice has no retained-terminal/ACK migration. A later dispatch
         // cannot be silently reinterpreted as another cold first calculation.
-        if !context
-            .require_pathfinder_dispatch(&self.profile)
+        if !require_resident_dispatch(context, &self.profile)
             .map_err(|_| Failure::Binding)?
             .first_construction()
         {

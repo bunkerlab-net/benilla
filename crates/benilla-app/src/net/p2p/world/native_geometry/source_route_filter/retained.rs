@@ -64,13 +64,10 @@ impl ResidentRetainedRoot {
         if !Rc::ptr_eq(&self.provider, &provider.identity) || self.context != *context {
             return Err(Failure::Binding.into());
         }
-        let saved = self
-            .context
-            .require_pathfinder_dispatch(&provider.profile)
+        let saved = require_resident_dispatch(&self.context, &provider.profile)
             .map_err(|_| Failure::Binding)?;
-        let current = context
-            .require_pathfinder_dispatch(&provider.profile)
-            .map_err(|_| Failure::Binding)?;
+        let current =
+            require_resident_dispatch(context, &provider.profile).map_err(|_| Failure::Binding)?;
         if !saved.same_live_dispatch(current) {
             return Err(Failure::Binding.into());
         }
@@ -378,13 +375,10 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             return Err(Failure::Binding.into());
         }
         self.check_context(&previous.context, deadline, &cancelled)?;
-        let old = previous
-            .context
-            .require_pathfinder_dispatch(&self.profile)
+        let old = require_resident_dispatch(&previous.context, &self.profile)
             .map_err(|_| Failure::Binding)?;
-        let current = context
-            .require_pathfinder_dispatch(&self.profile)
-            .map_err(|_| Failure::Binding)?;
+        let current =
+            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
         let Query::SourceMotion(MotionQuery::Route(old_route)) = &previous.context.query else {
             return Err(Failure::Binding.into());
         };
@@ -585,17 +579,11 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         }
         validate_route_context(&self.session, &self.profile, context)?;
         validate_route_context(&self.session, &self.profile, &previous.context)?;
-        let saved = dependency
-            .root
-            .context
-            .require_pathfinder_dispatch(&self.profile)
+        let saved = require_resident_dispatch(&dependency.root.context, &self.profile)
             .map_err(|_| Failure::Binding)?;
-        let current = context
-            .require_pathfinder_dispatch(&self.profile)
-            .map_err(|_| Failure::Binding)?;
-        let old = previous
-            .context
-            .require_pathfinder_dispatch(&self.profile)
+        let current =
+            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
+        let old = require_resident_dispatch(&previous.context, &self.profile)
             .map_err(|_| Failure::Binding)?;
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
             return Err(Failure::Binding.into());

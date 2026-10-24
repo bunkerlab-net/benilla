@@ -15,6 +15,28 @@ use benilla_world_runtime::native::{
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Instant};
 
+// Forward exactly the full runtime check at the measured resident callsites.
+// This is not a receipt cache and cannot replace the original live validation.
+fn require_resident_dispatch<'request>(
+    context: &'request AuthorityRequest,
+    profile: &Profile,
+) -> Result<
+    &'request benilla_world_runtime::native::PathfinderDispatchReceipt,
+    benilla_world_runtime::native::NativeError,
+> {
+    #[cfg(test)]
+    {
+        let timing = super::products::source_height::freshness_timings::Timer::start(
+            super::products::source_height::freshness_timings::Phase::FullResidentDispatch,
+        );
+        let result = context.require_pathfinder_dispatch(profile);
+        timing.finish(result.is_ok());
+        result
+    }
+    #[cfg(not(test))]
+    context.require_pathfinder_dispatch(profile)
+}
+
 #[path = "source_route_filter/resident.rs"]
 pub(crate) mod resident;
 
@@ -511,7 +533,13 @@ pub(super) fn initialized_owner_height(
     profile: &Profile,
     route: &benilla_world_runtime::native::CreatureRouteRequest,
 ) -> Result<Option<benilla_sim::creature_ai::Real>, Failure> {
+    #[cfg(test)]
+    let timing = super::products::source_height::freshness_timings::Timer::start(
+        super::products::source_height::freshness_timings::Phase::InitializedOwnerHeight,
+    );
     let Some(initialization) = route.owner.initialization() else {
+        #[cfg(test)]
+        timing.finish(true);
         return Ok(None);
     };
     let selected = route
@@ -534,6 +562,13 @@ pub(super) fn initialized_owner_height(
     let height = route
         .require_collision_height(profile)
         .map_err(|_| Failure::Binding)?;
+    #[cfg(test)]
+    {
+        let result = initialized_height_for(profile, route, height).map(Some);
+        timing.finish(result.is_ok());
+        result
+    }
+    #[cfg(not(test))]
     initialized_height_for(profile, route, height).map(Some)
 }
 
