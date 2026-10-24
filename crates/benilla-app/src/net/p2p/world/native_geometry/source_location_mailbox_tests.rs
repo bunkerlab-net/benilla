@@ -128,6 +128,8 @@ fn location_reply_ticket_outer_query_kind_and_session_replacement_are_checked() 
     let (mut authority, service) = mailbox(session).unwrap();
     authority.ticket = 1;
     let reply = || Reply {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        resident: None,
         ticket: 1,
         request: request.clone(),
         result: Ok(facts.clone()),

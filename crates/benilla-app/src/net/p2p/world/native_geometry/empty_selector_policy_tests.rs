@@ -259,6 +259,8 @@ fn empty_selector_replies_preserve_exact_echo_and_cancellation() {
     let (mut authority, service) = mailbox(session).unwrap();
     authority.ticket = 1;
     let reply = || Reply {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        resident: None,
         ticket: 1,
         request: request.clone(),
         result: Ok(facts(&request)),

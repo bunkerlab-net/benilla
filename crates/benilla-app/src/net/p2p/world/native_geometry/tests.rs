@@ -326,6 +326,8 @@ fn timeout_cancels_the_reply_and_late_work_never_executes() {
 fn buffered_reply_cannot_extend_the_absolute_request_deadline() {
     let (tx, rx) = bounded(1);
     tx.try_send(Reply {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        resident: None,
         ticket: 1,
         request: request(),
         result: solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement),
@@ -345,6 +347,8 @@ fn forged_reply_ticket_or_npc_generation_is_rejected() {
         let handle = std::thread::spawn(move || worker.resolve(&request()));
         let work = service.rx.recv_timeout(WAIT).unwrap();
         let mut reply = Reply {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            resident: None,
             ticket: work.ticket,
             request: work.request.clone(),
             result: solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement),
@@ -679,6 +683,8 @@ fn replacing_service_invalidates_even_an_already_buffered_old_snapshot_reply() {
     let request = request();
     let result = solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement);
     let reply = Reply {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        resident: None,
         ticket: 1,
         request: request.clone(),
         result,
@@ -729,6 +735,8 @@ fn service_cancellation_wins_even_if_an_old_reply_is_buffered() {
     let (reply, receive) = bounded(1);
     reply
         .try_send(Reply {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            resident: None,
             ticket: 1,
             request: request(),
             result: solve(&movement(), body(), &mut Proof(Ok(()))).map(Facts::Movement),
@@ -1155,6 +1163,8 @@ fn source_los_mailbox_rejects_wrong_kind_changed_request_and_revoked_reply() {
     let (mut authority, service) = mailbox(los_session()).unwrap();
     authority.ticket = 1;
     let reply = || Reply {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        resident: None,
         ticket: 1,
         request: request.clone(),
         result: Ok(Facts::SourceSpell(SourceSpellFacts::LineOfSight(

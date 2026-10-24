@@ -160,6 +160,7 @@ pub(in super::super) struct ResidentLedger {
     last_notice: Option<RouteCommitNotice>,
     candidates: Vec<Entry>,
     next_id: u64,
+    transport_identity: std::sync::Arc<()>,
     route_epoch_committed: bool,
     one_retained: bool,
     two_owner_first_retained: bool,
@@ -365,7 +366,154 @@ impl Diagnostic {
     }
 }
 
+/// Immutable name of one genuinely staged candidate, not a geometry certificate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in super::super) struct ResidentCandidateStamp {
+    id: u64,
+    raw: [u8; 32],
+}
+
 impl ResidentLedger {
+    pub(in super::super) fn staged_transport_candidate(
+        &self,
+        context: &AuthorityRequest,
+        facts: &Facts,
+    ) -> Result<ResidentCandidateStamp, Failure> {
+        let mut matches = self.candidates.iter().filter(|entry| {
+            !entry.committed
+                && same_reply_dispatch(&self.profile, &entry.candidate.reply().request, context)
+                && entry.candidate.reply().facts == *facts
+        });
+        let entry = matches.next().ok_or(Failure::Binding)?;
+        if matches.next().is_some() || self.raw != Some(entry.candidate.raw_revision()) {
+            return Err(Failure::Binding);
+        }
+        self.validate_entry(&entry.candidate)?;
+        Ok(ResidentCandidateStamp {
+            id: entry.id,
+            raw: entry.candidate.raw_revision(),
+        })
+    }
+    pub(in super::super) fn validate_transport_candidate(
+        &self,
+        stamp: &ResidentCandidateStamp,
+        context: &AuthorityRequest,
+        facts: &Facts,
+    ) -> Result<(), Failure> {
+        if &self.staged_transport_candidate(context, facts)? != stamp {
+            return Err(Failure::Binding);
+        }
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(in super::super) fn assert_committed_transport_refusal(&self) {
+        let before = self.diagnostic();
+        for entry in self.candidates.iter().filter(|entry| entry.committed) {
+            let stamp = ResidentCandidateStamp {
+                id: entry.id,
+                raw: entry.candidate.raw_revision(),
+            };
+            let reply = entry.candidate.reply();
+            assert_eq!(
+                self.validate_transport_candidate(&stamp, &reply.request, &reply.facts),
+                Err(Failure::Binding)
+            );
+        }
+        assert_eq!(self.diagnostic(), before);
+    }
+    #[cfg(test)]
+    pub(in super::super) fn assert_transport_stamp_refusals(
+        &self,
+        context: &AuthorityRequest,
+        facts: &Facts,
+    ) {
+        let original = self.staged_transport_candidate(context, facts).unwrap();
+        let before = self.diagnostic();
+        let wrong_id = ResidentCandidateStamp {
+            id: original.id + 1,
+            raw: original.raw,
+        };
+        assert_eq!(
+            self.validate_transport_candidate(&wrong_id, context, facts),
+            Err(Failure::Binding)
+        );
+        let mut wrong_revision = original;
+        wrong_revision.raw[0] ^= 1;
+        assert_eq!(
+            self.validate_transport_candidate(&wrong_revision, context, facts),
+            Err(Failure::Binding)
+        );
+        assert_eq!(self.diagnostic(), before);
+    }
+    pub(in super::super) fn transport_identity(&self) -> std::sync::Arc<()> {
+        self.transport_identity.clone()
+    }
+    pub(in super::super) fn next_transport_candidate(&self) -> u64 {
+        self.next_id
+    }
+    /// Only a failed synchronous certification can retire its never-emitted candidate.
+    pub(in super::super) fn retire_rejected_transport_attempt(
+        &mut self,
+        proof: &super::super::source_route_filter::resident::owned::transport::RejectedResidentCertification,
+    ) -> Result<(), Failure> {
+        let (identity, context, first_id) = proof.parts()?;
+        if !std::sync::Arc::ptr_eq(identity, &self.transport_identity) {
+            return Err(Failure::Binding);
+        }
+        if self.next_id == first_id {
+            return Ok(());
+        }
+        if first_id.checked_add(1) != Some(self.next_id) {
+            return Err(Failure::Binding);
+        }
+        let position = self
+            .candidates
+            .iter()
+            .position(|entry| entry.id == first_id)
+            .ok_or(Failure::Binding)?;
+        let entry = &self.candidates[position];
+        if entry.committed
+            || !same_reply_dispatch(&self.profile, &entry.candidate.reply().request, context)
+            || self
+                .boundary
+                .as_ref()
+                .is_none_or(|boundary| boundary.tick() >= context.binding.tick)
+        {
+            return Err(Failure::Binding);
+        }
+        self.candidates.remove(position);
+        Ok(())
+    }
+    /// The private proof is minted only after the actual sender proves no Facts delivery.
+    /// Source pin, monotonic ID, native constructor and acknowledged head stay intact.
+    pub(in super::super) fn retire_unsent_transport_candidate(
+        &mut self,
+        proof: &super::super::core::UndeliveredResidentResult,
+    ) -> Result<(), Failure> {
+        let (identity, stamp, context, facts) = proof.result()?.retirement_parts();
+        if !std::sync::Arc::ptr_eq(identity, &self.transport_identity) {
+            return Err(Failure::Binding);
+        }
+        self.validate_transport_candidate(stamp, context, facts)?;
+        if self
+            .boundary
+            .as_ref()
+            .is_none_or(|boundary| boundary.tick() >= context.binding.tick)
+        {
+            return Err(Failure::Binding);
+        }
+        let position = self
+            .candidates
+            .iter()
+            .position(|entry| entry.id == stamp.id)
+            .ok_or(Failure::Binding)?;
+        if self.candidates[position].committed {
+            return Err(Failure::Binding);
+        }
+        self.candidates.remove(position);
+        Ok(())
+    }
+
     pub(in super::super) fn bind(
         session: &Session,
         profile: &Profile,
@@ -412,6 +560,7 @@ impl ResidentLedger {
             last_notice: None,
             candidates,
             next_id: 0,
+            transport_identity: std::sync::Arc::new(()),
             route_epoch_committed: false,
             one_retained,
             two_owner_first_retained,

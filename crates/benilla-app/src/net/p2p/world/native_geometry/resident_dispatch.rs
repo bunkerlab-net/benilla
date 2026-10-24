@@ -15,7 +15,7 @@ pub(crate) struct ResidentDispatchWork {
     work: Work,
     validation: ResidentDispatchValidation,
 }
-struct ResidentDispatchValidation {
+pub(in super::super) struct ResidentDispatchValidation {
     session: Session,
     profile: Profile,
     player: PlayerId,
@@ -39,7 +39,15 @@ impl ResidentDispatchValidation {
         if !mailbox.active.load(Ordering::Acquire) || Instant::now() >= deadline {
             return Err(Failure::Deadline);
         }
-        mailbox.session.check_request_binding(request)?;
+        Self::validate_shape(session, profile, player, request)
+    }
+    pub(in super::super) fn validate_shape(
+        session: &Session,
+        profile: &Profile,
+        player: PlayerId,
+        request: &AuthorityRequest,
+    ) -> Result<(), Failure> {
+        session.check_request_binding(request)?;
         validate_route_context(session, profile, request)?;
         let event = request
             .require_pathfinder_dispatch(profile)
@@ -201,3 +209,6 @@ mod tests;
 
 #[path = "resident_dispatch/fifo.rs"]
 pub(crate) mod fifo;
+
+#[path = "resident_dispatch/transport.rs"]
+pub(crate) mod transport;

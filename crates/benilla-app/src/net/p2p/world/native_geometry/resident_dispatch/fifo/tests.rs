@@ -225,7 +225,7 @@ fn resident_fifo_tail_fill_retires_exact_work_without_releasing_busy_worker() {
                 true,
                 until(),
                 |_, _| panic!("ordinary provider"),
-                Some(&mut |work, slice| {
+                Some(&mut |work: &Work, slice| {
                     assert!(work.lease().same_job(&original));
                     assert!(std::ptr::eq(&work.request, original.request()));
                     let result = selector.advance(mailbox, work, owner, slice, &mut resume);

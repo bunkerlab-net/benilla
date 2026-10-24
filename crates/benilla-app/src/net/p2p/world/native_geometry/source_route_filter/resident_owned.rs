@@ -25,6 +25,7 @@ pub(crate) struct OwnedResident {
     ledger: ResidentLedger,
     identity: ResidentProviderIdentity,
     player: PlayerId,
+    transport: Arc<transport::ResidentTransportSelection>,
 }
 impl OwnedResident {
     #[allow(clippy::too_many_arguments)]
@@ -75,7 +76,15 @@ impl OwnedResident {
                 },
             )
             .map_err(ResidentFilterError::Source)??;
+        let transport = Arc::new(transport::ResidentTransportSelection::new(
+            session,
+            profile,
+            player,
+            &identity,
+            ledger.transport_identity(),
+        ));
         Ok(Self {
+            transport,
             products: Arc::new(products),
             inventory,
             state,
@@ -319,3 +328,6 @@ impl OwnedResident {
 #[path = "resident_owned/tests.rs"]
 #[cfg(test)]
 mod tests;
+
+#[path = "resident_owned/transport.rs"]
+pub(crate) mod transport;

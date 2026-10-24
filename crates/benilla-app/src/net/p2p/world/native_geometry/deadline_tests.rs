@@ -184,6 +184,8 @@ fn absolute_job_expiry_stops_deferred_work_without_geometry_or_reply() {
     let (reply, rx) = bounded(1);
     reply
         .try_send(Reply {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            resident: None,
             ticket: 1,
             request: request(),
             result: Ok(facts()),

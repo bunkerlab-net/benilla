@@ -1329,8 +1329,45 @@ pub(super) enum ServiceStep {
     Complete(Box<Facts>),
 }
 #[cfg(all(test, not(benilla_headless_geometry)))]
-type ResidentAttemptHook<'call> = dyn FnMut(&Work, Instant) -> Option<Result<resident_dispatch::fifo::ResidentStep, Failure>>
-    + 'call;
+trait ResidentAttemptHook {
+    fn advance(
+        &mut self,
+        work: &Work,
+        deadline: Instant,
+    ) -> Option<Result<resident_dispatch::fifo::ResidentStep, Failure>>;
+    fn retire(&mut self, _: &UndeliveredResidentResult) -> Result<(), Failure> {
+        Err(Failure::Binding)
+    }
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+impl<F> ResidentAttemptHook for F
+where
+    F: FnMut(&Work, Instant) -> Option<Result<resident_dispatch::fifo::ResidentStep, Failure>>,
+{
+    fn advance(
+        &mut self,
+        work: &Work,
+        deadline: Instant,
+    ) -> Option<Result<resident_dispatch::fifo::ResidentStep, Failure>> {
+        self(work, deadline)
+    }
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+use super::source_route_filter::resident::owned::transport::{
+    CertifiedResidentResult, ResidentTransportSelection,
+};
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(crate) struct UndeliveredResidentResult {
+    result: Arc<CertifiedResidentResult>,
+    lease: JobLease,
+}
+#[cfg(all(test, not(benilla_headless_geometry)))]
+impl UndeliveredResidentResult {
+    pub(crate) fn result(&self) -> Result<&CertifiedResidentResult, Failure> {
+        self.result.matches_original_job(&self.lease)?;
+        Ok(&self.result)
+    }
+}
 
 struct Work {
     owner: JobOwner,
@@ -1392,6 +1429,8 @@ enum QueryDisposition {
     Retired,
 }
 struct Reply {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    resident: Option<Arc<CertifiedResidentResult>>,
     ticket: u64,
     request: AuthorityRequest,
     result: Result<Facts, Failure>,
@@ -1437,6 +1476,8 @@ struct RouteCommitReply {
 /// The controller owns this separately from its proposal-only Authority. Its unique
 /// transport and cancellation fence belong to exactly one mailbox installation.
 pub(crate) struct MailboxRouteCommitSink {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    resident: Option<Arc<ResidentTransportSelection>>,
     session: Session,
     tx: Sender<RouteCommitWork>,
     ticket: u64,
@@ -1459,6 +1500,8 @@ pub(crate) struct LocalAuthority {
     route_commit: Option<MailboxRouteCommitSink>,
 }
 pub(crate) struct Mailbox {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    resident: Option<Arc<ResidentTransportSelection>>,
     session: Session,
     rx: Receiver<Work>,
     route_rx: Receiver<RouteCommitWork>,
@@ -1491,6 +1534,18 @@ impl Drop for Mailbox {
     }
 }
 pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Failure> {
+    mailbox_selected(
+        session,
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        None,
+    )
+}
+fn mailbox_selected(
+    session: Session,
+    #[cfg(all(test, not(benilla_headless_geometry)))] resident: Option<
+        Arc<ResidentTransportSelection>,
+    >,
+) -> Result<(LocalAuthority, Mailbox), Failure> {
     session.check_participants()?;
     if !session.validate() {
         return Err(Failure::Invalid);
@@ -1500,8 +1555,12 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
     let active = Arc::new(AtomicBool::new(true));
     let (cancellation, cancelled) = bounded(0);
     let route_selected = session.same_polygon_route.is_some();
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    let route_selected = route_selected || resident.is_some();
     let route_ready = Arc::new(AtomicBool::new(!route_selected));
     let route_commit = route_selected.then(|| MailboxRouteCommitSink {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        resident: resident.clone(),
         session: session.clone(),
         tx: route_tx,
         ticket: 0,
@@ -1521,6 +1580,8 @@ pub(crate) fn mailbox(session: Session) -> Result<(LocalAuthority, Mailbox), Fai
             route_commit,
         },
         Mailbox {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            resident,
             session,
             rx,
             route_rx,
@@ -1589,6 +1650,10 @@ impl LocalAuthority {
         if reply.ticket != self.ticket || reply.request != *request {
             return Err(NativeError::AuthorityBinding);
         }
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if reply.resident.is_some() {
+            return Err(NativeError::AuthorityBinding);
+        }
         let facts = reply.result.map_err(Failure::native)?;
         validate_facts(&self.session, request, &facts).map_err(Failure::native)?;
         self.check_active()?;
@@ -1615,6 +1680,20 @@ fn check_route_boundary(session: &Session, boundary: &RouteCommitBoundary) -> Re
     Ok(())
 }
 
+fn check_selected_route_boundary(
+    session: &Session,
+    boundary: &RouteCommitBoundary,
+    #[cfg(all(test, not(benilla_headless_geometry)))] resident: Option<
+        &Arc<ResidentTransportSelection>,
+    >,
+) -> Result<(), Failure> {
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    if let Some(resident) = resident {
+        return resident.boundary(boundary);
+    }
+    check_route_boundary(session, boundary)
+}
+
 fn same_route_attachment(initial: &RouteCommitBoundary, next: &RouteCommitBoundary) -> bool {
     initial.session() == next.session()
         && initial.world() == next.world()
@@ -1636,7 +1715,13 @@ impl MailboxRouteCommitSink {
     }
     fn send(&mut self, command: RouteCommitCommand) -> Result<(), NativeError> {
         self.check_active()?;
-        check_route_boundary(&self.session, command.boundary()).map_err(Failure::native)?;
+        check_selected_route_boundary(
+            &self.session,
+            command.boundary(),
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            self.resident.as_ref(),
+        )
+        .map_err(Failure::native)?;
         self.ticket = self.ticket.checked_add(1).ok_or(NativeError::Limit)?;
         let (reply, rx) = bounded(1);
         let deadline = Instant::now() + WAIT;
@@ -1674,7 +1759,13 @@ impl MailboxRouteCommitSink {
 impl RouteCommitSink for MailboxRouteCommitSink {
     fn initialize(&mut self, boundary: &RouteCommitBoundary) -> Result<(), NativeError> {
         self.check_active()?;
-        check_route_boundary(&self.session, boundary).map_err(Failure::native)?;
+        check_selected_route_boundary(
+            &self.session,
+            boundary,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            self.resident.as_ref(),
+        )
+        .map_err(Failure::native)?;
         match &self.initial {
             Some(initial) if initial != boundary => return Err(NativeError::AuthorityBinding),
             Some(_) => (),
@@ -1732,7 +1823,29 @@ impl Mailbox {
     pub(crate) fn serve_route_commits(
         &self,
         limit: usize,
+        commit: impl FnMut(&Session, &RouteCommitCommand) -> Result<(), Failure>,
+    ) -> usize {
+        self.serve_route_commits_inner(
+            limit,
+            commit,
+            #[cfg(test)]
+            |_| false,
+        )
+    }
+    #[cfg(all(test, not(benilla_headless_geometry)))]
+    pub(crate) fn serve_route_commits_test_drop_reply(
+        &self,
+        limit: usize,
+        commit: impl FnMut(&Session, &RouteCommitCommand) -> Result<(), Failure>,
+        drop_success: impl FnMut(&RouteCommitCommand) -> bool,
+    ) -> usize {
+        self.serve_route_commits_inner(limit, commit, drop_success)
+    }
+    fn serve_route_commits_inner(
+        &self,
+        limit: usize,
         mut commit: impl FnMut(&Session, &RouteCommitCommand) -> Result<(), Failure>,
+        #[cfg(test)] mut drop_success: impl FnMut(&RouteCommitCommand) -> bool,
     ) -> usize {
         let deadline = Instant::now() + Duration::from_millis(2);
         let mut count = 0;
@@ -1757,6 +1870,10 @@ impl Mailbox {
             if !self.active.load(Ordering::Acquire) || Instant::now() >= work.deadline {
                 continue;
             }
+            #[cfg(test)]
+            if result.is_ok() && drop_success(&work.command) {
+                continue;
+            }
             let _ = work.reply.try_send(RouteCommitReply {
                 ticket: work.ticket,
                 command: work.command,
@@ -1766,7 +1883,12 @@ impl Mailbox {
         count
     }
     fn check_route_command(&self, command: &RouteCommitCommand) -> Result<(), Failure> {
-        check_route_boundary(&self.session, command.boundary())?;
+        check_selected_route_boundary(
+            &self.session,
+            command.boundary(),
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            self.resident.as_ref(),
+        )?;
         let initial = self.route_initial.borrow();
         match (initial.as_ref(), command) {
             (None, RouteCommitCommand::Initialize(_)) => Ok(()),
@@ -1934,7 +2056,7 @@ impl Mailbox {
             Instant,
         ) -> Result<ServiceStep, Failure>,
         #[cfg(all(test, not(benilla_headless_geometry)))] mut resident: Option<
-            &mut ResidentAttemptHook<'_>,
+            &mut dyn ResidentAttemptHook,
         >,
     ) -> usize {
         let mut count = 0;
@@ -1967,7 +2089,10 @@ impl Mailbox {
             // Explicit native component opt-in only. The hook borrows this exact
             // dequeued Work; Pending shares the original FIFO and attempt count.
             #[cfg(all(test, not(benilla_headless_geometry)))]
-            if let Some(result) = resident.as_mut().and_then(|select| select(&work, deadline)) {
+            if let Some(result) = resident
+                .as_mut()
+                .and_then(|select| select.advance(&work, deadline))
+            {
                 let pending = matches!(&result, Ok(resident_dispatch::fifo::ResidentStep::Pending));
                 let disposition = match result {
                     Ok(resident_dispatch::fifo::ResidentStep::Pending) => {
@@ -1977,6 +2102,53 @@ impl Mailbox {
                     // enter generic success, validation bypass, or commit/ACK here.
                     Ok(resident_dispatch::fifo::ResidentStep::Observed) => self
                         .finish_query_result(work, Err(Failure::UnsupportedQuery), deadline, false),
+                    Ok(resident_dispatch::fifo::ResidentStep::Complete(result)) => {
+                        let selected =
+                            self.resident
+                                .as_ref()
+                                .ok_or(Failure::Binding)
+                                .and_then(|selection| {
+                                    result.validate_reply(
+                                        selection,
+                                        &work.lease(),
+                                        &work.request,
+                                        result.facts(),
+                                    )
+                                });
+                        let selected_valid = selected.is_ok();
+                        let original_lease = work.lease();
+                        let result: Arc<CertifiedResidentResult> = Arc::from(result);
+                        let facts = selected.map(|()| result.facts().clone());
+                        let disposition = self.finish_query_result_traced_selected(
+                            work,
+                            facts,
+                            deadline,
+                            true,
+                            None,
+                            Some(Arc::clone(&result)),
+                        );
+                        if selected_valid
+                            && matches!(
+                                disposition,
+                                QueryDisposition::Deferred
+                                    | QueryDisposition::Retired
+                                    | QueryDisposition::Failed
+                            )
+                        {
+                            if resident
+                                .as_mut()
+                                .unwrap()
+                                .retire(&UndeliveredResidentResult {
+                                    result,
+                                    lease: original_lease,
+                                })
+                                .is_err()
+                            {
+                                self.active.store(false, Ordering::Release);
+                            }
+                        }
+                        disposition
+                    }
                     Err(error) => self.finish_query_result(work, Err(error), deadline, false),
                 };
                 if pending || disposition == QueryDisposition::Deferred {
@@ -2603,11 +2775,33 @@ impl Mailbox {
     }
     fn finish_query_result_traced(
         &self,
+        work: Work,
+        result: Result<Facts, Failure>,
+        slice: Instant,
+        staged: bool,
+        #[cfg(test)] trace: Option<&mut QueryFinishTiming>,
+    ) -> QueryDisposition {
+        self.finish_query_result_traced_selected(
+            work,
+            result,
+            slice,
+            staged,
+            #[cfg(test)]
+            trace,
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            None,
+        )
+    }
+    fn finish_query_result_traced_selected(
+        &self,
         mut work: Work,
         mut result: Result<Facts, Failure>,
         slice: Instant,
         staged: bool,
         #[cfg(test)] mut trace: Option<&mut QueryFinishTiming>,
+        #[cfg(all(test, not(benilla_headless_geometry)))] resident: Option<
+            Arc<CertifiedResidentResult>,
+        >,
     ) -> QueryDisposition {
         // Clone the transport echo before the last time guards, not after them.
         let request = work.request.clone();
@@ -2654,6 +2848,8 @@ impl Mailbox {
             QueryDisposition::Failed
         };
         let reply = Reply {
+            #[cfg(all(test, not(benilla_headless_geometry)))]
+            resident: if result.is_ok() { resident } else { None },
             ticket: work.ticket,
             request,
             result,

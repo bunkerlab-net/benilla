@@ -291,6 +291,8 @@ fn primary_replies_retain_ticket_outer_binding_and_replacement_checks() {
     let (mut authority, service) = mailbox(session).unwrap();
     authority.ticket = 1;
     let reply = || Reply {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        resident: None,
         ticket: 1,
         request: request.clone(),
         result: Ok(facts(&request)),

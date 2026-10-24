@@ -90,6 +90,9 @@ enum FifoProbeMode {
     Clear,
     Obstacle,
     Foreign,
+    Transport(bool),
+    TransportRefusal(bool),
+    TransportRetire(bool),
 }
 struct Consumer {
     owner: OwnedResident,
@@ -193,12 +196,18 @@ impl Authority for Consumer {
                         mode,
                         self.foreign_index.take(),
                     );
-                    if matches!(mode, FifoProbeMode::Foreign) {
+                    if matches!(
+                        mode,
+                        FifoProbeMode::Foreign | FifoProbeMode::TransportRefusal(true)
+                    ) {
                         assert!(matches!(
                             facts,
                             Err(ResidentFilterError::Context(Failure::Binding))
                         ));
-                    } else if matches!(mode, FifoProbeMode::Obstacle) {
+                    } else if matches!(
+                        mode,
+                        FifoProbeMode::Obstacle | FifoProbeMode::TransportRefusal(false)
+                    ) {
                         assert!(matches!(
                             facts,
                             Err(ResidentFilterError::Context(Failure::UnsupportedNavigation))
@@ -223,7 +232,11 @@ impl Authority for Consumer {
                         ));
                     }
                     let after = self.owner.ledger.diagnostic();
-                    if matches!(mode, FifoProbeMode::Clear) {
+                    if matches!(mode, FifoProbeMode::TransportRetire(_)) {
+                        assert_eq!(self.owner.ledger.counts(), (0, 0));
+                    } else if let FifoProbeMode::Transport(drop_reply) = mode {
+                        assert_eq!(self.owner.ledger.counts(), (usize::from(!drop_reply), 0));
+                    } else if matches!(mode, FifoProbeMode::Clear) {
                         if retained {
                             assert!(after.only_first_retained_staged_since(&before));
                             after.assert_first_retained_staging_rejects_mutations(&before);
@@ -902,6 +915,21 @@ fn certify_fifo_probe(
     mode: FifoProbeMode,
     mut foreign_index: Option<NativeStaticMapIndex>,
 ) -> Result<Facts, ResidentFilterError> {
+    if let FifoProbeMode::TransportRetire(expire) = mode {
+        return Ok(super::super::super::super::core::resident_dispatch::transport::exercise_result_terminal_retirement(
+            owner, geometry, request, expire,
+        ));
+    }
+    if let FifoProbeMode::TransportRefusal(foreign) = mode {
+        return super::super::super::super::core::resident_dispatch::transport::exercise_result_refusal(
+            owner, geometry, request, foreign.then(|| foreign_index.take().unwrap()),
+        );
+    }
+    if let FifoProbeMode::Transport(drop_reply) = mode {
+        return Ok(super::super::super::super::core::resident_dispatch::transport::exercise_result_transport(
+            owner, geometry, request, drop_reply,
+        ));
+    }
     let (_, mailbox) = mailbox(session.clone()).unwrap();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
     let deadline = fixture::until();
@@ -1027,6 +1055,29 @@ fn fifo_current_physics_probe(retained: bool) {
         FifoProbeMode::Obstacle,
         FifoProbeMode::Foreign,
     ] {
+        fifo_current_physics_probe_mode(retained, mode);
+    }
+}
+#[test]
+fn resident_result_transport_requeues_exact_work_and_rejects_forged_receipts() {
+    fifo_current_physics_probe_mode(false, FifoProbeMode::Transport(false));
+}
+#[test]
+fn resident_result_transport_dropped_reply_cannot_promote_staging() {
+    fifo_current_physics_probe_mode(false, FifoProbeMode::Transport(true));
+}
+#[test]
+fn resident_result_transport_rechecks_geometry_after_worker_completion() {
+    fifo_current_physics_probe_mode(false, FifoProbeMode::TransportRefusal(false));
+    fifo_current_physics_probe_mode(false, FifoProbeMode::TransportRefusal(true));
+}
+#[test]
+fn resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate() {
+    fifo_current_physics_probe_mode(false, FifoProbeMode::TransportRetire(false));
+    fifo_current_physics_probe_mode(false, FifoProbeMode::TransportRetire(true));
+}
+fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
+    {
         with_owned(|install, owner, geometry, session, profile| {
             let mut consumer = Consumer {
                 owner,
@@ -1131,7 +1182,14 @@ fn fifo_current_physics_probe(retained: bool) {
             assert_eq!(consumer.routes.len(), usize::from(retained));
             assert_eq!(cold_notice.is_some(), retained);
             let after = consumer.owner.ledger.diagnostic();
-            if matches!(mode, FifoProbeMode::Clear) {
+            if matches!(mode, FifoProbeMode::TransportRetire(_)) {
+                assert_eq!(consumer.owner.ledger.counts(), (0, 0));
+            } else if let FifoProbeMode::Transport(drop_reply) = mode {
+                assert_eq!(
+                    consumer.owner.ledger.counts(),
+                    (usize::from(!drop_reply), 0)
+                );
+            } else if matches!(mode, FifoProbeMode::Clear) {
                 if retained {
                     assert!(after.only_first_retained_staged_since(&committed));
                     assert_eq!(consumer.owner.ledger.counts(), (2, 1));

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Test-only selection in the actual FIFO. This module cannot publish resident Facts.
+//! Test-only selection in the actual FIFO. Inspection never grants publication.
 use super::super::super::products::source_height::{
     owned::freshness::{CaptureFreshnessWorker, FreshnessObservation, FreshnessPoll},
     CompositionError,
@@ -9,6 +9,7 @@ use super::*;
 pub(crate) enum ResidentStep {
     Pending,
     Observed,
+    Complete(Box<CertifiedResidentResult>),
 }
 struct Selected {
     validation: ResidentDispatchValidation,
@@ -98,7 +99,7 @@ impl ResidentFifoSelection {
             &mut OwnedResident,
             ResidentDispatchJob<'call>,
             Result<FreshnessObservation, CompositionError>,
-        ),
+        ) -> Result<Option<CertifiedResidentResult>, Failure>,
     ) -> Option<Result<ResidentStep, Failure>> {
         if !matches!(
             &work.request.query,
@@ -118,7 +119,7 @@ impl ResidentFifoSelection {
             &mut OwnedResident,
             ResidentDispatchJob<'call>,
             Result<FreshnessObservation, CompositionError>,
-        ),
+        ) -> Result<Option<CertifiedResidentResult>, Failure>,
     ) -> Result<ResidentStep, Failure> {
         self.maintain();
         if !Arc::ptr_eq(&self.attachment, &mailbox.active)
@@ -164,11 +165,19 @@ impl ResidentFifoSelection {
             FreshnessPoll::Ready(result) => {
                 // This borrow and observation cannot survive the callback. A
                 // consumed result is never returned to the queue as clearance.
-                if job.require_resident(resident).is_ok() {
-                    resume(resident, job, result);
-                }
+                let result = job
+                    .require_resident(resident)
+                    .and_then(|()| resume(resident, job, result));
                 self.selected = None;
-                Ok(ResidentStep::Observed)
+                match result? {
+                    None => Ok(ResidentStep::Observed),
+                    Some(result) => {
+                        // Preserve a genuine seal if Work expired after minting.
+                        // The shared final live-Work guard must retire it as unsent.
+                        result.validate_staged_result(resident, &work.lease())?;
+                        Ok(ResidentStep::Complete(Box::new(result)))
+                    }
+                }
             }
             FreshnessPoll::Stopped | FreshnessPoll::Idle => {
                 self.stopped = true;
@@ -198,7 +207,79 @@ impl ResidentFifoSelection {
             true,
             deadline,
             ordinary,
-            Some(&mut |work, slice| self.advance(mailbox, work, resident, slice, &mut resume)),
+            Some(&mut |work: &Work, slice| {
+                self.advance(mailbox, work, resident, slice, &mut |owner, job, result| {
+                    resume(owner, job, result);
+                    Ok(None)
+                })
+            }),
+        )
+    }
+    /// The explicit paired transport alone accepts a result minted by OwnedResident.
+    pub(in super::super::super) fn serve_results(
+        &mut self,
+        mailbox: &Mailbox,
+        resident: &mut OwnedResident,
+        limit: usize,
+        deadline: Instant,
+        resume: impl for<'call> FnMut(
+            &mut OwnedResident,
+            ResidentDispatchJob<'call>,
+            Result<FreshnessObservation, CompositionError>,
+        ) -> Result<CertifiedResidentResult, Failure>,
+        ordinary: impl for<'call> FnMut(ServiceQuery<'call>, Instant) -> Result<ServiceStep, Failure>,
+    ) -> usize {
+        struct Attempt<'a, F> {
+            selection: &'a mut ResidentFifoSelection,
+            mailbox: &'a Mailbox,
+            owner: &'a mut OwnedResident,
+            resume: F,
+        }
+        impl<F> ResidentAttemptHook for Attempt<'_, F>
+        where
+            F: for<'call> FnMut(
+                &mut OwnedResident,
+                ResidentDispatchJob<'call>,
+                Result<FreshnessObservation, CompositionError>,
+            ) -> Result<CertifiedResidentResult, Failure>,
+        {
+            fn advance(
+                &mut self,
+                work: &Work,
+                slice: Instant,
+            ) -> Option<Result<ResidentStep, Failure>> {
+                if matches!(
+                    work.request.query,
+                    Query::SourceMotion(MotionQuery::Route(_))
+                ) && self.mailbox.resident.as_ref().is_none_or(|selected| {
+                    !Arc::ptr_eq(selected, &self.owner.transport_selection())
+                }) {
+                    return Some(Err(Failure::Binding));
+                }
+                self.selection.advance(
+                    self.mailbox,
+                    work,
+                    self.owner,
+                    slice,
+                    &mut |owner, job, result| (self.resume)(owner, job, result).map(Some),
+                )
+            }
+            fn retire(&mut self, proof: &UndeliveredResidentResult) -> Result<(), Failure> {
+                self.owner.retire_undelivered_result(proof)
+            }
+        }
+        self.maintain();
+        mailbox.serve_service_query_slice_selected(
+            limit,
+            true,
+            deadline,
+            ordinary,
+            Some(&mut Attempt {
+                selection: self,
+                mailbox,
+                owner: resident,
+                resume,
+            }),
         )
     }
 }
