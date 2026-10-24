@@ -86,7 +86,7 @@ impl OwnedResident {
     }
 
     /// Read-only source observations. No mutable ledger or query escapes.
-    pub(crate) fn inspect<T>(
+    pub(in super::super::super) fn inspect<T>(
         &mut self,
         installed: &NativeInventorySource,
         deadline: Instant,

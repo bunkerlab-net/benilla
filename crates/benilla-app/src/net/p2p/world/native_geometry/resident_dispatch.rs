@@ -187,7 +187,7 @@ impl ResidentDispatchJob<'_> {
     pub(crate) fn player(&self) -> PlayerId {
         self.validation.player
     }
-    pub(crate) fn lease(&self) -> JobLease {
+    pub(in super::super) fn lease(&self) -> JobLease {
         self.work.lease()
     }
     pub(crate) fn deadline(&self) -> Instant {

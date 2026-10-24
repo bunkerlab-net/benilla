@@ -38,7 +38,7 @@ pub(crate) struct FreshnessObservation {
     stop: Arc<AtomicBool>,
 }
 impl FreshnessObservation {
-    pub(crate) fn consume(
+    pub(in super::super::super::super) fn consume(
         self,
         products: &Arc<OwnedSourceProducts>,
         lease: &JobLease,
@@ -52,7 +52,7 @@ impl FreshnessObservation {
     /// Resume exactly once on the caller thread. This is a live scheduling guard,
     /// not freshness authority: the callback must perform all current source,
     /// installed-owner and physics checks and must not publish or acknowledge.
-    pub(crate) fn with_current<T, E: From<CompositionError>>(
+    pub(in super::super::super::super) fn with_current<T, E: From<CompositionError>>(
         self,
         products: &Arc<OwnedSourceProducts>,
         lease: &JobLease,
@@ -143,7 +143,7 @@ impl CaptureFreshnessWorker {
 
     /// Only owned captures and an existing read-only lease enter the worker.
     /// No filesystem operation or borrowed cancellation callback runs here.
-    pub(crate) fn try_enqueue(
+    pub(in super::super::super::super) fn try_enqueue(
         &mut self,
         products: Arc<OwnedSourceProducts>,
         lease: JobLease,
