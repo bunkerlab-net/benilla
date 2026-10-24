@@ -4,7 +4,7 @@ use super::{
     core::{
         resident_dispatch::{
             fifo::ResidentFifoSelection,
-            transport::{paired_test_mailbox, ResidentTestAuthority},
+            transport::{paired_controller_proof_mailbox, ResidentTestAuthority},
         },
         Failure, PlayerEnvironmentPolicy, RouteCommitCommand, ServiceQuery, ServiceStep,
     },
@@ -243,7 +243,7 @@ fn run(mode: Mode) {
                 || false,
             )
             .unwrap();
-            let (mut authority, mailbox) = paired_test_mailbox(&owner).unwrap();
+            let (mut authority, mailbox) = paired_controller_proof_mailbox(&owner).unwrap();
             let sink = authority.take_route_commit_sink().unwrap();
             let authority = ControllerAuthority {
                 resident: authority,
@@ -541,11 +541,18 @@ fn run(mode: Mode) {
                                     ))
                                     .id();
                                 geometry.advance_physics();
+                                let certification_started = Instant::now();
                                 let refused = owner.certify_observed_result(
                                     observation,
                                     job,
                                     geometry.app.world_mut(),
                                     &installed,
+                                );
+                                eprintln!(
+                                    "resident controller changed-physics certification: tick={} elapsed_ms={} success={}",
+                                    request.binding.tick,
+                                    certification_started.elapsed().as_millis(),
+                                    refused.is_ok(),
                                 );
                                 geometry.app.world_mut().despawn(obstacle);
                                 geometry.advance_physics();
@@ -559,17 +566,30 @@ fn run(mode: Mode) {
                                 return Err(Failure::UnsupportedNavigation);
                             }
                             geometry.advance_physics();
+                            let certification_started = Instant::now();
                             let result = owner
                                 .certify_observed_result(
                                     observation.map_err(|_| Failure::Binding)?,
                                     job,
                                     geometry.app.world_mut(),
                                     &installed,
-                                )
-                                .map_err(|_| Failure::Binding)?;
+                                );
+                            eprintln!(
+                                "resident controller certification: tick={} elapsed_ms={} success={}",
+                                request.binding.tick,
+                                certification_started.elapsed().as_millis(),
+                                result.is_ok(),
+                            );
+                            let result = result.map_err(|_| Failure::Binding)?;
+                            let diagnostic_started = Instant::now();
                             let identity = owner
                                 .constructor_identity(&installed, &request, fixture::until())
                                 .unwrap();
+                            eprintln!(
+                                "resident controller constructor diagnostic: tick={} elapsed_ms={}",
+                                request.binding.tick,
+                                diagnostic_started.elapsed().as_millis(),
+                            );
                             assert_eq!(identity.2, 1);
                             if let Some(prior) = constructor {
                                 assert_eq!(identity, prior);

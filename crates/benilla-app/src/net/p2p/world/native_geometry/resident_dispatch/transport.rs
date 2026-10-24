@@ -5,9 +5,38 @@ use super::*;
 pub(crate) struct ResidentTestAuthority {
     ordinary: LocalAuthority,
     selection: Arc<ResidentTransportSelection>,
+    route_budget: RouteBudget,
 }
+// Correctness fixtures opt in explicitly; this is not a production latency budget.
+#[derive(Clone, Copy)]
+enum RouteBudget {
+    Default,
+    ControllerProof,
+}
+impl RouteBudget {
+    fn wait(self) -> Duration {
+        match self {
+            Self::Default => WAIT,
+            Self::ControllerProof => Duration::from_secs(60),
+        }
+    }
+}
+/// The ordinary paired transport keeps the same 500 ms Route deadline.
 pub(crate) fn paired_test_mailbox(
     resident: &OwnedResident,
+) -> Result<(ResidentTestAuthority, Mailbox), Failure> {
+    paired_mailbox(resident, RouteBudget::Default)
+}
+/// Fixed-budget controller correctness proof only, not a configurable timeout.
+/// Non-Route requests and the separate commit sink still use the ordinary WAIT.
+pub(crate) fn paired_controller_proof_mailbox(
+    resident: &OwnedResident,
+) -> Result<(ResidentTestAuthority, Mailbox), Failure> {
+    paired_mailbox(resident, RouteBudget::ControllerProof)
+}
+fn paired_mailbox(
+    resident: &OwnedResident,
+    route_budget: RouteBudget,
 ) -> Result<(ResidentTestAuthority, Mailbox), Failure> {
     let selection = resident.transport_selection();
     let (ordinary, mailbox) =
@@ -16,6 +45,7 @@ pub(crate) fn paired_test_mailbox(
         ResidentTestAuthority {
             ordinary,
             selection,
+            route_budget,
         },
         mailbox,
     ))
@@ -78,7 +108,9 @@ impl Authority for ResidentTestAuthority {
             .checked_add(1)
             .ok_or(NativeError::Limit)?;
         let (send, receive) = bounded(1);
-        let deadline = Instant::now() + WAIT;
+        let started = Instant::now();
+        // Assigned once: retries and service slices never renew this Work's expiry.
+        let deadline = started + self.route_budget.wait();
         let work = Work::new(
             self.ordinary.ticket,
             request.clone(),
@@ -98,9 +130,72 @@ impl Authority for ResidentTestAuthority {
                     NativeError::AuthorityUnavailable("local geometry service closed")
                 }
             })?;
-        let reply = receive_reply_until(&receive, &self.ordinary.cancelled, deadline)?;
+        let reply = receive_reply_until(&receive, &self.ordinary.cancelled, deadline);
+        eprintln!(
+            "resident Route receiver: tick={} ticket={} elapsed_ms={} budget_ms={} received={}",
+            request.binding.tick,
+            lease.ticket(),
+            started.elapsed().as_millis(),
+            self.route_budget.wait().as_millis(),
+            reply.is_ok(),
+        );
+        // Diagnostics precede the final active/identity/expiry checks, never follow them.
+        let reply = reply?;
         self.finish_reply(request, &lease, deadline, reply)
     }
+}
+
+/// Exercise the real default request and its exact requeued Work without certifying Facts.
+fn assert_default_route_expiry(owner: &OwnedResident, request: &AuthorityRequest) {
+    let (mut authority, mailbox) = paired_test_mailbox(owner).unwrap();
+    assert_eq!(authority.route_budget.wait(), Duration::from_millis(500));
+    let (proof, _) = paired_controller_proof_mailbox(owner).unwrap();
+    assert_eq!(proof.route_budget.wait(), Duration::from_secs(60));
+    // Isolate the request deadline from initialization in this refusal-only probe.
+    // No successful result or commit is supplied and no ledger operation is performed.
+    authority
+        .ordinary
+        .route_ready
+        .store(true, Ordering::Release);
+    std::thread::scope(|scope| {
+        let started = Instant::now();
+        let receiver = scope.spawn(|| authority.resolve(request));
+        let work = mailbox.rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let lease = work.lease();
+        let original_deadline = work.deadline;
+        assert!(matches!(
+            mailbox.defer_route_query(work),
+            QueryDisposition::Deferred
+        ));
+        assert_eq!(lease.ticket(), 1);
+        assert_eq!(lease.request(), request);
+        assert_eq!(lease.deadline(), original_deadline);
+        assert!(original_deadline >= started + WAIT);
+        let requeued = mailbox.rx.try_recv().unwrap();
+        assert!(lease.same_job(&requeued.lease()));
+        assert_eq!(requeued.request, *request);
+        assert_eq!(requeued.ticket, lease.ticket());
+        assert_eq!(requeued.deadline, original_deadline);
+        // Keep the original sender alive, but supply no reply until the default expires.
+        let refused = receiver.join().unwrap();
+        assert!(matches!(
+            refused,
+            Err(NativeError::AuthorityUnavailable(
+                "local geometry request deadline exceeded"
+            ))
+        ));
+        assert!(!lease.is_active());
+        assert_eq!(lease.deadline(), original_deadline);
+        assert!(matches!(
+            mailbox.defer_route_query(requeued),
+            QueryDisposition::Retired
+        ));
+        assert!(mailbox.rx.is_empty());
+        assert!(
+            mailbox.route_rx.is_empty(),
+            "expiry cannot enqueue a commit/ACK"
+        );
+    });
 }
 
 /// Genuine component setup supplies the live request; no seed Facts enter this probe.
@@ -118,6 +213,39 @@ pub(in super::super::super) fn exercise_result_transport(
     send::<Work>();
     send::<Reply>();
     send::<ResidentTestAuthority>();
+    if !drop_reply {
+        let installed = geometry
+            .app
+            .world()
+            .resource::<NativeStaticMapIndex>()
+            .source_provenance()
+            .unwrap()
+            .clone();
+        let before = owner
+            .inspect(
+                &installed,
+                Instant::now() + Duration::from_secs(120),
+                || false,
+                |_, _, ledger| Ok(ledger.diagnostic()),
+            )
+            .unwrap();
+        assert_default_route_expiry(owner, request);
+        owner
+            .inspect(
+                &installed,
+                Instant::now() + Duration::from_secs(120),
+                || false,
+                |_, _, ledger| {
+                    assert_eq!(
+                        ledger.diagnostic(),
+                        before,
+                        "default expiry changes no resident state"
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
     let (mut authority, mailbox) = paired_test_mailbox(owner).unwrap();
     authority.ordinary.ticket = 901;
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();

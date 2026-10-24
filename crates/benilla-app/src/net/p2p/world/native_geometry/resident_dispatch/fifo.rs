@@ -12,6 +12,7 @@ pub(crate) enum ResidentStep {
     Complete(Box<CertifiedResidentResult>),
 }
 struct Selected {
+    started: Instant,
     validation: ResidentDispatchValidation,
     cancelled: bool,
     occupied: bool,
@@ -135,6 +136,7 @@ impl ResidentFifoSelection {
             return Err(Failure::Binding);
         }
         if self.selected.is_none() {
+            let started = Instant::now();
             let (_, _, profile, player) = resident.dispatch_selection();
             let validation = ResidentDispatchValidation::bind(
                 mailbox, resident, profile, player, work, deadline,
@@ -145,6 +147,7 @@ impl ResidentFifoSelection {
                 _ => Failure::Binding,
             })?;
             self.selected = Some(Selected {
+                started,
                 validation,
                 cancelled: false,
                 occupied: true,
@@ -163,6 +166,13 @@ impl ResidentFifoSelection {
         match self.worker.try_poll() {
             FreshnessPoll::Pending => Ok(ResidentStep::Pending),
             FreshnessPoll::Ready(result) => {
+                eprintln!(
+                    "resident Route freshness ready: tick={} ticket={} elapsed_ms={} original_expired={}",
+                    work.request.binding.tick,
+                    work.ticket,
+                    selected.started.elapsed().as_millis(),
+                    Instant::now() >= work.deadline,
+                );
                 // This borrow and observation cannot survive the callback. A
                 // consumed result is never returned to the queue as clearance.
                 let result = job
