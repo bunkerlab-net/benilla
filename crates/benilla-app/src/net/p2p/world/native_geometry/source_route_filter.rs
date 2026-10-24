@@ -337,11 +337,22 @@ pub(super) fn validate_route_context(
     profile: &Profile,
     context: &AuthorityRequest,
 ) -> Result<(), Failure> {
+    #[cfg(test)]
+    let timing = super::products::source_height::freshness_timings::Timer::start(
+        super::products::source_height::freshness_timings::Phase::ContextValidation,
+    );
     validate_route_context_prefix(session, profile, context)?;
     let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
         return Err(Failure::UnsupportedQuery);
     };
     let height = initialized_owner_height(profile, route)?;
+    #[cfg(test)]
+    {
+        let result = validate_route_context_body(session, profile, context, height);
+        timing.finish(result.is_ok());
+        result
+    }
+    #[cfg(not(test))]
     validate_route_context_body(session, profile, context, height)
 }
 

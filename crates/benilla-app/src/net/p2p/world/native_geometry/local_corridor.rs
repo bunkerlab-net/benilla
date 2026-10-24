@@ -28,6 +28,16 @@ pub(super) struct LocalCorridor<'a, 'w, 's> {
 }
 impl Corridor for LocalCorridor<'_, '_, '_> {
     fn certify(&mut self, from: [f32; 3], to: [f32; 3], body: Body) -> Result<(), Failure> {
+        #[cfg(test)]
+        {
+            let timing = super::products::source_height::freshness_timings::Timer::start(
+                super::products::source_height::freshness_timings::Phase::ConcreteCorridor,
+            );
+            let result = self.certify_inner(from, to, body).map(|_| ());
+            timing.finish(result.is_ok());
+            result
+        }
+        #[cfg(not(test))]
         self.certify_inner(from, to, body).map(|_| ())
     }
 }

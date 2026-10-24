@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Scoped test-thread timings; observations never replace a source verification.
+//! Categories are inclusive wall times and may overlap; they must not be summed.
 use std::{
     cell::Cell,
     marker::PhantomData,
@@ -20,12 +21,17 @@ pub(crate) struct Counts {
     total: PhaseCounts,
     terrain: PhaseCounts,
     collision: PhaseCounts,
+    context_validation: PhaseCounts,
+    concrete_corridor: PhaseCounts,
 }
 #[derive(Clone, Copy)]
-pub(super) enum Phase {
+pub(in super::super::super) enum Phase {
     Total,
     Terrain,
     Collision,
+    ContextValidation,
+    // Only the Corridor::certify entry point, not direct enclosure certification.
+    ConcreteCorridor,
 }
 impl Counts {
     fn phase(&mut self, phase: Phase) -> &mut PhaseCounts {
@@ -33,6 +39,8 @@ impl Counts {
             Phase::Total => &mut self.total,
             Phase::Terrain => &mut self.terrain,
             Phase::Collision => &mut self.collision,
+            Phase::ContextValidation => &mut self.context_validation,
+            Phase::ConcreteCorridor => &mut self.concrete_corridor,
         }
     }
 }
@@ -58,14 +66,14 @@ pub(crate) fn measure<T>(run: impl FnOnce() -> T) -> (T, Counts) {
 }
 
 /// Non-Send guard remains on the measured thread. Disabled scopes read no clock.
-pub(super) struct Timer {
+pub(in super::super::super) struct Timer {
     started: Option<Instant>,
     phase: Phase,
     succeeded: bool,
     thread: PhantomData<Rc<()>>,
 }
 impl Timer {
-    pub(super) fn start(phase: Phase) -> Self {
+    pub(in super::super::super) fn start(phase: Phase) -> Self {
         let started = ACTIVE.with(|active| {
             let mut counts = active.get()?;
             counts.phase(phase).started += 1;
@@ -79,7 +87,7 @@ impl Timer {
             thread: PhantomData,
         }
     }
-    pub(super) fn finish(mut self, succeeded: bool) {
+    pub(in super::super::super) fn finish(mut self, succeeded: bool) {
         self.succeeded = succeeded;
     }
 }
@@ -122,6 +130,18 @@ mod tests {
             assert_eq!(inner.terrain.started, 1);
             assert_eq!(inner.terrain.refused, 1);
             assert_eq!(inner.collision.succeeded, 1);
+            let (_, phases) = measure(|| {
+                Timer::start(Phase::ContextValidation).finish(true);
+                Timer::start(Phase::ContextValidation).finish(false);
+                Timer::start(Phase::ConcreteCorridor).finish(true);
+                drop(Timer::start(Phase::ConcreteCorridor));
+            });
+            assert_eq!(phases.context_validation.started, 2);
+            assert_eq!(phases.context_validation.succeeded, 1);
+            assert_eq!(phases.context_validation.refused, 1);
+            assert_eq!(phases.concrete_corridor.started, 2);
+            assert_eq!(phases.concrete_corridor.succeeded, 1);
+            assert_eq!(phases.concrete_corridor.refused, 1);
             std::thread::spawn(|| {
                 assert!(Timer::start(Phase::Total).started.is_none());
             })
@@ -142,6 +162,8 @@ mod tests {
         assert_eq!(outer.total.unwound, 0);
         assert_eq!(outer.terrain, PhaseCounts::default());
         assert_eq!(outer.collision, PhaseCounts::default());
+        assert_eq!(outer.context_validation, PhaseCounts::default());
+        assert_eq!(outer.concrete_corridor, PhaseCounts::default());
         assert!(Timer::start(Phase::Total).started.is_none());
         let (_, failed) = measure(|| {
             let _ = std::panic::catch_unwind(|| {
