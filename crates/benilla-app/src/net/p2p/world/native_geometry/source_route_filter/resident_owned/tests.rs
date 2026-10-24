@@ -201,7 +201,15 @@ impl Authority for Consumer {
                             motion::RouteOutcome::Complete(_)
                         ));
                     }
-                    assert!(self.owner.ledger.diagnostic().same_committed_root(&before));
+                    let after = self.owner.ledger.diagnostic();
+                    if matches!(mode, FifoProbeMode::Clear) {
+                        assert!(after.only_initial_cold_staged_since(&before));
+                        after.assert_initial_cold_staging_rejects_mutations(&before);
+                        assert_eq!(self.owner.ledger.counts(), (1, 0));
+                    } else {
+                        assert_eq!(after, before);
+                        assert_eq!(self.owner.ledger.counts(), (0, 0));
+                    }
                     self.fifo_inspected = true;
                     // Deliberately do not return inspected Facts to this runtime,
                     // the mailbox, or a RouteCommitNotice/ACK path.
@@ -1034,11 +1042,14 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
             }
             assert!(consumer.fifo_inspected);
             assert!(consumer.routes.is_empty());
-            assert!(consumer
-                .owner
-                .ledger
-                .diagnostic()
-                .same_committed_root(&committed));
+            let after = consumer.owner.ledger.diagnostic();
+            if matches!(mode, FifoProbeMode::Clear) {
+                assert!(after.only_initial_cold_staged_since(&committed));
+                assert_eq!(consumer.owner.ledger.counts(), (1, 0));
+            } else {
+                assert_eq!(after, committed);
+                assert_eq!(consumer.owner.ledger.counts(), (0, 0));
+            }
         });
     }
 }

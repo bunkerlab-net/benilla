@@ -177,6 +177,7 @@ pub(in super::super) struct Diagnostic {
     boundary: Option<RouteCommitBoundary>,
     last_notice: Option<RouteCommitNotice>,
     candidates: Vec<(u64, usize, Option<usize>, bool)>,
+    candidate_raw_revisions: Vec<[u8; 32]>,
     capacity: usize,
     flat_candidates: Vec<(u8, usize, usize, usize)>,
     raw: Option<[u8; 32]>,
@@ -195,6 +196,7 @@ impl PartialEq for Diagnostic {
         self.profile == other.profile
             && self.boundary == other.boundary
             && self.candidates == other.candidates
+            && self.candidate_raw_revisions == other.candidate_raw_revisions
             && self.capacity == other.capacity
             && self.flat_candidates == other.flat_candidates
             && self.raw == other.raw
@@ -216,6 +218,66 @@ impl PartialEq for Diagnostic {
 }
 impl Eq for Diagnostic {}
 impl Diagnostic {
+    /// First cold certification pins raw provenance and stages one candidate, but
+    /// cannot change any acknowledged boundary, notice, epoch, or committed head.
+    pub(in super::super) fn only_initial_cold_staged_since(&self, before: &Self) -> bool {
+        if before.raw.is_some()
+            || before.next_id != 0
+            || !before.candidates.is_empty()
+            || !before.candidate_raw_revisions.is_empty()
+            || !before.flat_candidates.is_empty()
+            || self.raw.is_none()
+            || self.candidate_raw_revisions.as_slice() != self.raw.as_slice()
+            || self.next_id != 1
+            || !matches!(self.candidates.as_slice(), [(0, _, None, false)])
+            || self.flat_candidates.as_slice() != [(0, 0, 0, 0)]
+        {
+            return false;
+        }
+        // Compare every other diagnostic field exactly, including capacity. Only
+        // the five explicitly checked initial-staging fields may differ.
+        let mut unstaged = self.clone();
+        unstaged.raw = None;
+        unstaged.next_id = 0;
+        unstaged.candidates.clear();
+        unstaged.candidate_raw_revisions.clear();
+        unstaged.flat_candidates.clear();
+        unstaged == *before
+    }
+
+    /// Exercise the oracle against mutations of an actual successful FIFO stage.
+    pub(in super::super) fn assert_initial_cold_staging_rejects_mutations(&self, before: &Self) {
+        assert!(self.only_initial_cold_staged_since(before));
+        assert!(before.boundary.is_some());
+        assert!(before.last_notice.is_some());
+        let mutations: &[fn(&mut Self)] = &[
+            |d| d.candidates[0].3 = true,
+            |d| d.candidates[0].0 = 1,
+            |d| d.candidates[0].2 = Some(1),
+            |d| d.candidates.push(d.candidates[0]),
+            |d| d.flat_candidates[0].0 = 1,
+            |d| d.raw = None,
+            |d| d.raw.as_mut().unwrap()[0] ^= 1,
+            |d| d.candidate_raw_revisions[0][0] ^= 1,
+            |d| d.next_id = 2,
+            |d| d.capacity += 1,
+            |d| d.boundary = None,
+            |d| d.last_notice = None,
+            |d| d.route_epoch_committed = !d.route_epoch_committed,
+            |d| d.retained_epoch_committed = !d.retained_epoch_committed,
+            |d| d.epochs_committed += 1,
+            |d| d.one_retained = !d.one_retained,
+        ];
+        for (index, mutate) in mutations.iter().enumerate() {
+            let mut wrong = self.clone();
+            mutate(&mut wrong);
+            assert!(
+                !wrong.only_initial_cold_staged_since(before),
+                "initial cold staging mutation {index} was accepted"
+            );
+        }
+    }
+
     pub(in super::super) fn same_committed_root(&self, other: &Self) -> bool {
         self.profile == other.profile
             && self.boundary == other.boundary
@@ -2335,6 +2397,11 @@ impl ResidentLedger {
                 })
                 .collect(),
             capacity: self.candidates.capacity(),
+            candidate_raw_revisions: self
+                .candidates
+                .iter()
+                .map(|entry| entry.candidate.raw_revision())
+                .collect(),
             flat_candidates: self
                 .candidates
                 .iter()
