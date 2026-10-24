@@ -24,6 +24,16 @@ impl WdtIndex {
     pub fn global_wmo(&self) -> Option<&GlobalWmo> {
         self.0.global_wmo()
     }
+
+    /// Raw terrain-only source proof, independent of filtered global-WMO rendering state.
+    pub fn native_terrain_coverage_safe(&self) -> bool {
+        self.0.native_terrain_coverage_safe()
+    }
+
+    /// Identity of the exact source WDT, for binding the current map coverage snapshot.
+    pub fn native_source_digest(&self) -> [u8; 32] {
+        self.0.native_source_digest()
+    }
 }
 
 /// Loads a `*.wdt` into a [`WdtIndex`].

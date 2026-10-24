@@ -218,6 +218,8 @@ pub struct FactionGroupRow {
 /// `ChrRaces.dbc` race's template.
 pub struct FactionCatalog {
     templates: HashMap<u32, FactionTemplate>,
+    /// Exact column 2, retained independently so existing client template literals stay valid.
+    template_flags: HashMap<u32, u32>,
     /// Race id to `ChrRaces.dbc` column 2, `FactionID`, a template id: what a corpse's reaction
     /// (`0x5d7120`) and a unit's PvP team (`0x5efe00`) read for a race.
     race_templates: HashMap<u8, u32>,
@@ -245,6 +247,7 @@ impl FactionCatalog {
     ) -> Self {
         Self {
             templates,
+            template_flags: HashMap::new(),
             race_templates,
             factions: HashMap::new(),
             group_names: HashMap::new(),
@@ -258,6 +261,18 @@ impl FactionCatalog {
     /// The template row for a `UNIT_FIELD_FACTIONTEMPLATE` id.
     pub fn template(&self, id: u32) -> Option<&FactionTemplate> {
         self.templates.get(&id)
+    }
+
+    /// Exact `FactionTemplate.dbc` column 2. `None` means metadata was not loaded;
+    /// in particular [`Self::from_rows`] does not invent native flags for client fixtures.
+    pub fn template_flags(&self, id: u32) -> Option<u32> {
+        self.template_flags.get(&id).copied()
+    }
+
+    /// Raw `Faction.dbc` identity, including rows without reputation. Unlike
+    /// [`Self::reputation_faction`], this distinguishes an absent row from `rep_index < 0`.
+    pub fn faction(&self, faction_id: u32) -> Option<&FactionInfo> {
+        self.factions.get(&faction_id)
     }
 
     /// Every race with a `ChrRaces.dbc` row, and its template id.
@@ -409,16 +424,17 @@ fn chr_races_schema() -> Schema {
     s
 }
 
-/// Load the three faction tables and the race templates off the patch chain.
-pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
-    let bytes = chain
-        .read_file(FACTION_TEMPLATE)
-        .with_context(|| format!("reading {FACTION_TEMPLATE}"))?;
-    let rs = parse(&bytes, faction_template_schema(), "FactionTemplate")?;
+/// Decode native template rows and their flags through one shared path.
+fn template_rows_from(bytes: &[u8]) -> Result<(HashMap<u32, FactionTemplate>, HashMap<u32, u32>)> {
+    let rs = parse(bytes, faction_template_schema(), "FactionTemplate")?;
     let mut templates = HashMap::with_capacity(rs.records().len());
+    let mut template_flags = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         if let Some(id) = u32_at(r, 0) {
             let at = |i| u32_at(r, i).unwrap_or(0);
+            if let Some(flags) = u32_at(r, 2) {
+                template_flags.insert(id, flags);
+            }
             templates.insert(
                 id,
                 FactionTemplate {
@@ -432,6 +448,16 @@ pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
             );
         }
     }
+
+    Ok((templates, template_flags))
+}
+
+/// Load the three faction tables and the race templates off the patch chain.
+pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
+    let bytes = chain
+        .read_file(FACTION_TEMPLATE)
+        .with_context(|| format!("reading {FACTION_TEMPLATE}"))?;
+    let (templates, template_flags) = template_rows_from(&bytes)?;
 
     let bytes = chain
         .read_file(FACTION)
@@ -506,6 +532,7 @@ pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
 
     Ok(FactionCatalog {
         templates,
+        template_flags,
         race_templates,
         factions,
         group_names,
@@ -530,6 +557,66 @@ mod tests {
             enemies: [0; 4],
             friends: [0; 4],
         }
+    }
+
+    #[test]
+    fn synthetic_template_dbc_preserves_exact_flags_and_all_native_fields() {
+        // Arithmetic sentinels, not game data. Zero and high-bit flags are both meaningful.
+        let rows = [
+            [7u32, 50, 0x8000_1001, 3, 4, 5, 6, 0, 8, 9, 10, 0, 12, 13],
+            [8u32, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+        let mut bytes = b"WDBC".to_vec();
+        for field in [2u32, 14, 56, 1] {
+            bytes.extend_from_slice(&field.to_le_bytes());
+        }
+        for row in rows {
+            for field in row {
+                bytes.extend_from_slice(&field.to_le_bytes());
+            }
+        }
+        bytes.push(0);
+        let (templates, flags) = template_rows_from(&bytes).unwrap();
+        assert_eq!(
+            templates[&7],
+            FactionTemplate {
+                faction: 50,
+                group_mask: 3,
+                friend_group_mask: 4,
+                enemy_group_mask: 5,
+                enemies: [6, 0, 8, 9],
+                friends: [10, 0, 12, 13],
+            }
+        );
+        assert_eq!(flags.get(&7), Some(&0x8000_1001));
+        assert_eq!(flags.get(&8), Some(&0));
+        assert_eq!(flags.get(&9), None);
+        bytes.truncate(24);
+        assert!(template_rows_from(&bytes).is_err());
+    }
+
+    #[test]
+    fn native_metadata_distinguishes_missing_from_zero_and_untracked() {
+        let mut cat = FactionCatalog::from_rows(HashMap::from([(7, tpl(50))]), HashMap::new());
+        assert_eq!(cat.template_flags(7), None);
+        assert!(cat.faction(50).is_none());
+        cat.template_flags.insert(7, 0);
+        cat.factions.insert(
+            50,
+            FactionInfo {
+                rep_index: -1,
+                team: 0,
+                race_masks: [0; 4],
+                class_masks: [0; 4],
+                base: [0; 4],
+                flags: [0; 4],
+            },
+        );
+        assert_eq!(cat.template_flags(7), Some(0));
+        assert_eq!(cat.faction(50).unwrap().rep_index, -1);
+        assert!(cat.reputation_faction(50).is_none());
+        assert!(cat.faction(51).is_none());
+        assert_eq!(cat.template_flags(8), None);
     }
 
     /// Every branch, in the order `0x606640` tests them, and enemy-beats-friend precedence.

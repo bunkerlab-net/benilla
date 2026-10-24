@@ -8,6 +8,8 @@ mod addons;
 pub(crate) use addons::okay_after_clicks;
 mod dialog;
 mod input;
+mod recovery;
+pub(crate) mod recovery_model;
 mod refresh;
 mod screen;
 
@@ -74,6 +76,7 @@ impl Plugin for CharSelectPlugin {
                 publish_world_live.before(benilla_world::schedule::WorldStage::Net),
             )
             .init_resource::<dialog::DeleteDialog>()
+            .init_resource::<recovery::RecoveryPanel>()
             .init_resource::<addons::AddonsPanel>()
             .init_resource::<refresh::SelectBackground>()
             .add_systems(
@@ -104,6 +107,12 @@ impl Plugin for CharSelectPlugin {
                         screen::materialize_screen,
                         input::select_input.run_if(crate::ui_script::glue::native_glue),
                         input::rotate_model.run_if(crate::ui_script::glue::native_glue),
+                        // Read the shared glue art after its loaders and snapshot the window
+                        // before the CVar flush commits any pending display-mode restart.
+                        recovery::drive
+                            .after(crate::login::login_input)
+                            .before(crate::cvars::sync_cvars)
+                            .run_if(crate::ui_script::glue::native_glue),
                         debug_select_dialog,
                         dialog::drive_delete_dialog.run_if(crate::ui_script::glue::native_glue),
                         // Ahead of the dialog driver, so a refused delete shows the frame it lands.
@@ -1052,6 +1061,31 @@ mod tests {
             None,
             "and the reconnect's pending pick goes with it, or the next roster walks straight \
              back into the world the player was just thrown out of",
+        );
+    }
+
+    #[test]
+    fn network_reload_clears_queued_pick_after_returning_to_login() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .insert_state(ClientState::Login)
+            .insert_resource(Roster::with_pending_pick(vec![character(7, "Seven")], 7))
+            .add_message::<crate::net::DisconnectedMessage>()
+            .add_systems(Update, back_on_disconnect);
+        // Retirement already moved the screen to Login while the worker checkpointed.
+        // A pick queued before Connected still must not auto-answer the replacement roster.
+        app.world_mut()
+            .write_message(crate::net::DisconnectedMessage {
+                reason: "P2P connection closed for saved network settings".into(),
+                end: benilla_protocol::SessionEnd::Lost,
+                session_over: true,
+            });
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<Roster>().pending_pick, None);
+        assert_eq!(
+            *app.world().resource::<State<ClientState>>().get(),
+            ClientState::Login
         );
     }
 

@@ -1,0 +1,21 @@
+# item	value
+pin	8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+profile	Linux-x86_64-little-endian-GCC14-libstdc++20250315-C++17
+compiler	x86_64-linux-gnu-g++-14 (Debian 14.2.0-19) 14.2.0
+compiler_flags	-std=c++17 -O0 -fno-strict-aliasing -Wall -Wextra -Werror
+libstdc++	/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33
+libstdc++_sha256	972bb2a18b71140dab0240f8a1f68ab3fb1d56bcd4c4f824a91b70888faf5a00
+libc	glibc 2.41
+container	std::unordered_set<uint16>; std::hash<uint16>; std::equal_to<uint16>; std::allocator<uint16>
+lifecycle	original-WMODoodadData-fresh-empty-composite-std::swap; insert-only; no-set-reserve-rehash-erase
+load	default-max_load_factor=1.0; identity-hash-checked-over-entire-u16-domain
+growth	actual-linked-prime-policy; all-65537-cardinalities; four-full-permutation-agreement-checks
+out_of_line_prime_symbols	_ZNKSt8__detail20_Prime_rehash_policy14_M_need_rehashEmmm@GLIBCXX_3.4.18
+shuffle	xorshift32-seed-0x6d2b79f5; shifts-13,17,5; descending-Fisher-Yates; uint32-wrap
+affine	(index*65521+12345)mod65536
+small_permutations	all-720-permutations-of-0,1,13,26,29,65535; every-prefix-recorded
+offset_units	u16-elements; binary-little-endian
+authored_oracle_sha256	0e1bab276cc75b9ce2cd0d6deb8f6bbe44aebca13006100da3e894a77070301e
+compiled_source_sha256	0d7331fa821c8bd488ec6160e9633a652f790aebb09e2281f5151cd05684958f
+source_fragments_sha256	2bb3d38788fb6a77889b2cda26d5b3e27a17190561961ebe698327bedcf327da
+executable_sha256	d1b3abacef9d36a50645429f66d92747c4110322842bbb9ecf93be6ab1341d20

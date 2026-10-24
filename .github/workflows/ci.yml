@@ -1,5 +1,5 @@
 # The gates of scripts/gates.sh that need neither a WoW install nor a display, on Linux, for a pull
-# request from a fork: a red one is seen before anyone builds it. The data-gated tests, the engine
+# request: a red one is seen before anyone builds it. The data-gated tests, the engine
 # boot checks and a live run happen on the maintainer's machine before it lands.
 name: CI
 
@@ -15,14 +15,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gates:
-    # A branch of this repository runs the full chain before it lands; a fork's pull request runs here.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name != github.repository
+  # Exact proof gates and full workspace tests have independent time budgets.
+  workspace-gates:
     runs-on: ubuntu-26.04
     timeout-minutes: 150
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
+      # Bound peak memory while preserving the complete workspace and player test suites.
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
       # No debuginfo: it is most of target/, and a runner's disk is small.
       CARGO_PROFILE_DEV_DEBUG: 0
       # Set and empty: no install, as the gates' test-no-install runs.
@@ -31,23 +33,931 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Free disk space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Track unavailable data checks
+        run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
+      - name: Report available disk space
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+      - name: Test exact libtest proof gates
+        run: python3 scripts/test-verify-libtest-output.py
       - name: System libraries
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev libwayland-dev
+          # Standalone corridor tests link Wayland without the app clipboard's dlopen feature.
+          pkg-config --exists wayland-client
       - name: Toolchain
         run: rustup toolchain install && rustc -V
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-ubuntu26-v1
+          # Same-repository PR writes stay in that PR's cache scope; forks never save.
+          save-on-pull-request: true
+          save-on-workflow-dispatch: true
+      - name: Check isolated source feature boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Select only this library: workspace consumers enable synthetic-map-tests.
+          mbx clippy --locked -p benilla-native-vmap-source --lib --no-default-features -- -D warnings
+          mbx clippy --locked -p benilla-native-vmap-source --lib --no-default-features --features synthetic-map-tests -- -D warnings
+      - name: Verify cooperative terrain freshness cancellation
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/terrain-freshness-cancellation.log"
+          mbx test --locked -p benilla-native-terrain --lib source::tests::cancellation:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source::tests::cancellation::cancellation_before_any_access_wins_even_when_directory_has_disappeared \
+            source::tests::cancellation::every_app_independent_and_final_checkpoint_stops_then_allows_retry \
+            source::tests::cancellation::source_failure_is_not_repolled_or_reclassified_as_cancellation \
+            source::tests::cancellation::only_the_private_marker_classifies_cancellation_through_contexts \
+            source::tests::cancellation::prepared_public_api_cancels_retries_and_preserves_evidence_and_diagnostics \
+            source::tests::cancellation::uncancelled_api_keeps_corruption_winner_and_absence_fail_closed
+      - name: Verify owned source bundle prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/owned-source-bundle.log"
+          mbx test --locked -p benilla-native-vmap-source --lib tests::doodad_projection_capture_tests::owned_bundle_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            tests::doodad_projection_capture_tests::owned_bundle_cancellation_before_and_at_final_assembly_check_returns_no_bundle \
+            tests::doodad_projection_capture_tests::owned_bundle_moves_outlives_borrowed_capture_and_preserves_products \
+            tests::doodad_projection_capture_tests::owned_bundle_recheck_rejects_source_change_during_and_after_assembly
+      - name: Verify owned height reader prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/owned-height-reader.log"
+          mbx test --locked -p benilla-native-geometry-tests --lib products::source_height::owned::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            products::source_height::owned::tests::owned_sources_move_outlive_borrowed_views_and_preserve_exact_height \
+            products::source_height::owned::tests::owned_sources_recheck_after_reader_and_preserve_cancellation \
+            products::source_height::owned::tests::owned_sources_refuse_changed_or_missing_sources_before_reader \
+            products::source_height::owned::tests::owned_sources_prepare_once_and_reuse_exact_height_liquid_and_ray_after_moves \
+            products::source_height::owned::tests::owned_sources_construction_refuses_cancellation_changed_and_deleted_sources \
+            products::source_height::owned::tests::owned_sources_preserve_typed_terrain_cancellation_and_genuine_source_failure
+      - name: Verify resident observation without transport admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-observation-without-transport.log"
+          mbx test --locked -p benilla-native-geometry-tests --lib core::staged_job_tests::source_observation_work_retains_exact_resident_request_without_transport_admission -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            core::staged_job_tests::source_observation_work_retains_exact_resident_request_without_transport_admission
+      - name: Verify bounded capture freshness worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/capture-freshness-worker.log"
+          mbx test --locked -p benilla-native-geometry-tests --lib products::source_height::owned::freshness::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            products::source_height::owned::freshness::tests::captures_are_send_sync_and_caller_operations_finish_while_worker_is_held \
+            products::source_height::owned::freshness::tests::one_slot_includes_completed_undrained_work_and_reuses_the_same_worker \
+            products::source_height::owned::freshness::tests::cancellation_retirement_and_original_expiry_do_not_release_a_held_slot \
+            products::source_height::owned::freshness::tests::cancellation_after_success_and_after_publication_cannot_escape_the_token \
+            products::source_height::owned::freshness::tests::completed_source_errors_keep_their_provenance_after_cancellation_or_retirement \
+            products::source_height::owned::freshness::tests::observations_reject_equal_byte_foreign_captures_and_replacement_work \
+            products::source_height::owned::freshness::tests::drained_observations_still_reject_retired_expired_and_stopped_owners \
+            products::source_height::owned::freshness::tests::already_expired_original_lease_is_refused_without_occupying_the_worker \
+            products::source_height::owned::freshness::tests::drained_observation_is_revoked_by_explicit_cancel_or_a_new_accepted_request \
+            products::source_height::owned::freshness::tests::dropped_worker_never_joins_a_held_verification_and_releases_owned_captures \
+            products::source_height::owned::freshness::tests::disconnected_worker_stays_stopped_instead_of_spawning_a_replacement \
+            products::source_height::owned::freshness::tests::resumed_observation_clamps_deadline_and_uses_original_request_on_caller_thread \
+            products::source_height::owned::freshness::tests::resumed_observation_rejects_foreign_capture_or_work_before_callback \
+            products::source_height::owned::freshness::tests::resumed_observation_keeps_revocation_live_until_callback_returns \
+            products::source_height::owned::freshness::tests::resumed_observation_refuses_late_slice_expiry_and_changed_current_sources \
+            products::source_height::owned::freshness::tests::resumed_observation_cannot_renew_original_expiry_after_ready
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: test
-        run: cargo test --workspace
+        run: mbx clippy --locked --workspace --all-targets -- -D warnings
+      - name: Verify profile persistence and Dwarf character creation
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/profile-lib.log"
+          mbx test --locked -p benilla-profile --lib -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            tests::create_select_save_reopen_preserves_identity_and_characters \
+            tests::signatures_bind_owner_domain_and_challenge \
+            tests::invalid_creation_and_position_do_not_change_valid_save \
+            tests::classic_race_class_matrix_and_limits \
+            tests::opening_missing_never_creates_and_create_never_replaces \
+            tests::exclusive_session_lock_released_on_drop \
+            tests::corruption_fails_closed_retains_previous_and_never_regenerates \
+            tests::schema_size_checksum_and_owner_checks_fail_closed \
+            tests::externally_modified_file_is_not_overwritten \
+            tests::failed_save_retains_memory_and_current \
+            tests::public_canonical_character_contains_no_secret_and_roundtrips \
+            tests::unix_private_modes_symlinks_and_hardlinks \
+            tests::replaced_lock_and_symlink_backup_fail_without_overwrite \
+            tests::pre_commit_io_failures_preserve_current_backup_and_memory \
+            tests::post_rename_failure_preserves_backup_and_requires_reopen \
+            tests::closing_profile_unlocks_even_with_an_inherited_file_description \
+            tests::archive_and_restore_after_restart_preserve_identity_other_characters_and_world_bytes \
+            tests::wrong_owner_stale_duplicate_and_conflicting_restore_never_mutate \
+            tests::archive_and_active_limits_never_evict_records \
+            tests::archive_and_restore_precommit_failures_preserve_current_and_memory \
+            tests::archive_and_restore_uncertain_commit_require_reopen_and_never_duplicate \
+            tests::version_one_checksum_verified_before_lossless_read_only_open_and_explicit_mutation \
+            tests::failed_version_one_migration_keeps_original_bytes_and_uncertain_migration_can_reopen \
+            tests::archive_validation_covers_owner_id_name_and_selected_character \
+            tests::unchanged_position_checkpoint_verifies_disk_without_rewriting \
+            tests::unchanged_position_cannot_hide_uncertain_checkpoint \
+            tests::appearance_bytes_preserve_catalog_choices_and_reject_malformed_json \
+            world_setup::tests::separate_sidecar_preserves_profile_bytes_and_reopens_signed_selection \
+            world_setup::tests::exact_replay_returns_same_world_and_conflicts_stale_or_foreign_requests_fail \
+            world_setup::tests::declaration_tampering_wrong_owner_and_transport_domain_fail \
+            world_setup::tests::sidecar_cannot_be_copied_to_another_profile_or_silently_recovered \
+            world_setup::tests::invalid_and_oversize_inputs_do_not_create_setup_state \
+            world_setup::tests::world_limit_and_selection_validation_preserve_prior_declarations \
+            world_setup::tests::uncertain_commit_latches_both_setup_and_profile_until_reopen \
+            world_setup::tests::failed_precommit_preserves_previous_selection_and_cas_rejects_changed_sidecar \
+            world_setup::tests::changed_profile_identity_prevents_setup_signing \
+            world_setup::tests::symlink_hardlink_and_permissions_are_rejected_without_touching_targets \
+            world_setup::tests::tampered_signed_selection_and_oversize_sidecar_are_preserved_and_rejected \
+            world_setup::tests::full_replay_history_is_never_evicted_and_exact_replay_still_succeeds \
+            starting_location::tests::all_forty_combinations_create_persist_move_reopen_and_recover_without_reset \
+            starting_location::tests::mismatched_and_invalid_combinations_never_write_or_fall_back \
+            starting_location::tests::legacy_positions_and_policy_are_unchanged_by_new_source_support \
+            starting_location::tests::malformed_missing_duplicate_wrong_revision_and_unsupported_rows_fail_closed \
+            starting_location::tests::only_canonical_finite_decimal_strings_are_accepted \
+            starting_location::tests::captured_table_hash_matches_existing_python_canonicalizer \
+            recovery::tests::help_and_bad_arguments_never_open_or_create_a_profile \
+            recovery::tests::player_commands_list_and_restore_exact_id_after_restart \
+            storage::schema_tests::semantic_validation_survives_recomputed_checksums \
+            storage::schema_tests::valid_encoding_is_stable_and_checksum_detects_valid_json_corruption
+          tests=(
+            net::p2p::tests::dwarf_catalog_beard_creates_reopens_and_invalid_options_never_write
+            net::p2p::tests::peer_intro_requires_authenticated_owner_valid_traits_and_unique_game_identity
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify all-race appearance choices and Random paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/glue-hair-color-counts.log"
+          mbx test --locked -p benilla-ui --lib script::glue_create::tests::a_hair_colour_counts_its_styles_colours -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" script::glue_create::tests::a_hair_colour_counts_its_styles_colours
+          tests=(
+            net::p2p::profile::appearance_tests::stock_random_cycle_and_body_switches_reach_profile_for_all_classic_bodies
+            net::p2p::profile::appearance_tests::zero_or_missing_catalog_choices_are_not_synthesized_as_zero
+            char_create::appearance_tests::hair_style_changes_clamp_color_and_color_cycles_use_current_style
+            char_create::appearance_tests::race_or_gender_change_clamps_style_before_color
+            char_create::appearance_tests::repeated_randomization_uses_the_new_style_color_range
+            char_create::appearance_tests::missing_catalog_has_single_zero_choice_after_all_operations
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify rock crossing and terrain separation fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            player::mover::rock_tests::walking_over_a_closed_rock_never_crosses_the_separate_terrain
+            player::mover::rock_tests::walking_off_a_closed_rock_without_terrain_still_falls
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify moving character voice emitters
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            sound::kit::tests::attached_one_shots_follow_without_changing_fixed_sounds_loops_or_2d_audio
+            sound::kit::tests::emote_emitter_follows_each_speaker_and_preserves_voice_attachment_fallback
+            sound::kit::tests::emote_emitter_uses_live_model_attachment_instead_of_origin_or_fallback
+            sound::kit::tests::model_child_voice_follows_world_origin_not_its_local_seat_offset
+            sound::creature::tests::creature_vocals_follow_but_wing_and_unknown_events_stay_fixed
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify attached audio ordering and schedule ambiguity
+        shell: bash
+        env:
+          WOW_AMBIGUITY_DUMP: '1'
+        run: |
+          set -euo pipefail
+          tests=(
+            game_plugins::schedule_tests::attached_audio_reads_after_rig_anchor_and_camera_pose_writers
+            game_plugins::schedule_tests::the_schedules_have_no_more_undeclared_orders_than_the_ceilings_say
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify world API boundary and public camera presentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/world-api-doorway.log"
+          mbx test --locked -p benilla-app --test world_api_wall the_world_api_doorway_stays_shut -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" the_world_api_doorway_stays_shut
+          log="$RUNNER_TEMP/world-camera-presentation.log"
+          mbx test --locked -p benilla-world --lib view::tests::a_reader_in_present_sees_this_frames_camera -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" view::tests::a_reader_in_present_sees_this_frames_camera
+      - name: Verify navigation helper prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-navigation-helper.log"
+          mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+      - name: Verify resident FIFO selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-fifo-selection.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib core::resident_dispatch::fifo::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            core::resident_dispatch::fifo::tests::resident_fifo_preserves_original_identity_capacity_and_attempt_accounting \
+            core::resident_dispatch::fifo::tests::resident_fifo_tail_fill_retires_exact_work_without_releasing_busy_worker \
+            core::resident_dispatch::fifo::tests::resident_fifo_cancellation_holds_slot_until_drain_and_reuses_one_worker \
+            core::resident_dispatch::fifo::tests::resident_fifo_expiry_foreign_owner_and_attachment_never_resume \
+            core::resident_dispatch::fifo::tests::resident_fifo_disconnect_stays_terminal_and_drop_revokes_without_joining \
+            core::resident_dispatch::fifo::tests::resident_fifo_ready_rechecks_foreign_source_owner_and_changed_source_without_ack
+      - name: Verify resident dispatch receipt identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-dispatch-receipt.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib core::resident_dispatch::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            core::resident_dispatch::tests::resident_dispatch_preserves_original_work_selection_without_queue_admission \
+            core::resident_dispatch::tests::resident_dispatch_refuses_changed_context_body_player_and_branch_tampering \
+            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_work_attachment_dispatch_and_resident_allocation \
+            core::resident_dispatch::tests::resident_dispatch_revocation_and_original_expiry_prevent_certification \
+            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume
+      - name: Verify scoped resident source ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/scoped-resident-source-ownership.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib source_route_filter::resident::owned::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_route_filter::resident::owned::tests::scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views \
+            source_route_filter::resident::owned::tests::scoped_resident_refuses_foreign_owner_expiry_cancel_and_changed_sources_without_state_loss \
+            source_route_filter::resident::owned::tests::scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products \
+            source_route_filter::resident::owned::tests::fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack \
+            source_route_filter::resident::owned::tests::fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack \
+            source_route_filter::resident::owned::tests::resident_result_transport_requeues_exact_work_and_rejects_forged_receipts \
+            source_route_filter::resident::owned::tests::resident_result_transport_dropped_reply_cannot_promote_staging \
+            source_route_filter::resident::owned::tests::resident_result_transport_rechecks_geometry_after_worker_completion \
+            source_route_filter::resident::owned::tests::resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate
+      - name: Verify resident result controller transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-result-controller-transport.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_actual_controller_saves_cold_and_first_retained \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_checkpoint_failure_precedes_ack_and_recovery_never_reruns \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_lost_ack_retries_exact_notice_without_reexecution \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_changed_source_allows_historical_ack_not_fresh_geometry \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_worker_ready_rechecks_current_physics_before_reply
+      - name: Verify private resident reconstruction adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-reconstruction.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib resident_reconstruction_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cache_reconstruction::resident::tests::resident_reconstruction_requires_exact_fresh_owner_and_single_attachment \
+            source_cache_reconstruction::resident::tests::resident_reconstruction_rejects_used_query_even_with_new_empty_ledger
+          log="$RUNNER_TEMP/reconstruction-components.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib reconstruction_component_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            reconstruction_component_tests::fresh_mesh_reconstructs_no_path_then_mid_wander_arrival_next_leg_and_second_save \
+            reconstruction_component_tests::failure_after_reconstructed_no_path_and_normal_leg_discards_the_whole_fresh_session \
+            reconstruction_component_tests::receipt_only_replay_cannot_reconstruct_and_failure_keeps_saved_bytes_and_lock_reusable \
+            reconstruction_component_tests::changed_genesis_geometry_binding_and_late_failure_publish_no_reconstructed_session \
+            reconstruction_component_tests::rolled_back_first_calculation_cannot_supply_reconstruction_candidates \
+            reconstruction_component_tests::blocked_store_cannot_publish_a_session_from_its_old_recipe \
+            reconstruction_component_tests::natural_death_reanchors_then_fresh_respawn_crosses_the_old_total_tick_limit \
+            reconstruction_component_tests::natural_home_reset_reanchors_without_changing_generation_or_next_wander
+          log="$RUNNER_TEMP/suspended-owner-reconstruction.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib suspended_owner_component_tests::complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            suspended_owner_component_tests::complete_cache_free_anchor_history_reexecutes_both_owners_on_fresh_providers
+      - name: Verify controller recipe capture and save barrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_recipe_captures_cold_and_first_retained_through_real_save_barrier
+            net::p2p::world::native_controller::tests::route_commit_tests::recipe_controller_save_failure_and_lost_ack_preserve_once_only_publication
+            net::p2p::world::native_controller::tests::route_commit_tests::checkpoint_failure_retains_notice_and_retry_publishes_before_ack_failure
+            net::p2p::world::native_controller::tests::route_commit_tests::actual_driver_routes_ack_retry_without_replaying_the_committed_tick
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify bounded fresh resident recipe restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-recipe-restart.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_restart:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_fresh_recipe_replay_then_third_epoch_matches_uninterrupted \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_cancelled_replay_releases_all_owners_without_publication \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_expired_replay_releases_all_owners_without_publication \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_late_failure_after_cold_prefix_preserves_committed_bytes \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_full_record_mismatch_rejects_before_publication \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_changed_consumed_source_after_cold_prefix_refuses_replay \
+            net::p2p::native_geometry::source_route_resident_restart::resident_controller_recipe_tampered_envelope_refuses_before_publication
+      - name: Verify bounded accepted quest restart and durable fixture regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::accepted_loaded_quest_fresh_replay_finishes_combat_loot_and_reward_exactly
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::accepted_loaded_quest_late_replay_failure_releases_owners_and_preserves_bytes
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::accepted_loaded_quest_resumed_save_and_lost_ack_retry_publish_once
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_completes_stock_commands_in_both_orders_and_role_ids
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication
+            net::p2p::world::native_controller::tests::distinct_quest_loop_tests::loaded::copied_durable_fixture_reopens_exact_published_bytes
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify bounded post-reward quest restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::rewarded_loaded_quest_fresh_replay_rejects_duplicate_rewards_and_exhausted_loot
+            net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::restart::rewarded_loaded_quest_late_replay_after_loot_preserves_bytes_and_releases_owners
+          )
+          for test in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${test//::/-}.log"
+            mbx test --locked -p benilla-app --lib "$test" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" "$test"
+          done
+      - name: Verify native retained detail provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-detail-provenance.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::detail::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_straight::detail::tests::allocation_endpoints_and_exact_terminal_token_are_independent_bindings \
+            source_cold_same_polygon::retained_straight::detail::tests::budgets_and_deadline_fail_without_changing_terminal_or_predecessor \
+            source_cold_same_polygon::retained_straight::detail::tests::empty_calls_are_empty_attribution_and_genuine_invalid_height_is_refused \
+            source_cold_same_polygon::retained_straight::detail::tests::existing_original_generated_ridge_preserves_genuine_invalid_height_refusal \
+            source_cold_same_polygon::retained_straight::detail::tests::fixed_shorter_genuine_ridge_calculation_attributes_extra_detail_vertices \
+            source_cold_same_polygon::retained_straight::detail::tests::genuine_recorded_calls_capture_first_triangle_and_exact_loaded_vertices \
+            source_cold_same_polygon::retained_straight::detail::tests::shared_detail_diagonal_keeps_original_first_matching_triangle \
+            source_cold_same_polygon::retained_straight::detail::tests::witness_retains_query_and_token_without_retaining_terminal_or_ancestors
+      - name: Verify supplemental retained endpoint provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-endpoint-provenance.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::detail::endpoint::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::supplemental_heights_leave_native_endpoints_and_empty_original_calls_unchanged \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::two_probes_share_one_exact_triangle_budget_and_expiry \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::equal_terminal_or_foreign_query_cannot_replace_actual_tokens \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::genuine_non_same_polygon_path_is_not_relabelled_endpoint_support \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::support_retains_only_query_and_current_identity_not_terminal_chain \
+            source_cold_same_polygon::retained_straight::detail::endpoint::tests::nearest_same_polygon_does_not_authorize_an_outside_endpoint
+      - name: Verify native retained straight bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-retained-straight-bridge.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_straight::tests::allocation_endpoints_configuration_width_and_cap_errors_do_not_mutate_priors \
+            source_cold_same_polygon::retained_straight::tests::exact_and_one_short_budgets_discard_candidates_and_preserve_both_prior_kinds \
+            source_cold_same_polygon::retained_straight::tests::genuine_cold_replacement_then_cut_and_same_preserve_complete_storage_and_policy \
+            source_cold_same_polygon::retained_straight::tests::predecessor_tokens_reject_siblings_and_do_not_retain_prior_result_chains \
+            source_cold_same_polygon::retained_straight::tests::raw_incomplete_and_nopath_are_not_promoted_or_silently_retried
+      - name: Verify original cold-origin retained straight oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-retained-straight-oracle.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_straight::oracle_tests::original_cold_origin_sequences_match_retained_straight_storage_types_points_and_traces -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" source_cold_same_polygon::retained_straight::oracle_tests::original_cold_origin_sequences_match_retained_straight_storage_types_points_and_traces
+      - name: Verify native retained primitive budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-retained-primitive-budgets.log"
+          mbx test --locked -p benilla-native-nav --lib source_cold_same_polygon::retained_tests::retained_budget_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_cold_same_polygon::retained_tests::retained_budget_start_append_requires_nine_primitives_and_preserves_full_cache \
+            source_cold_same_polygon::retained_tests::retained_budget_non_same_selection_requires_tenth_cut_scan_and_preserves_prior
+      - name: Verify resident first cold Route feasibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-first-cold-route.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_commit::resident_first_cold_real_route_feasibility -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::cold_commit::resident_first_cold_real_route_feasibility
+      - name: Verify resident cold Route refusals
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-cold-refusals.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_refusals:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_scene_and_owner_changes \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_rechecks_final_source_cancel_and_expiry \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_decoded_and_foreign_prerequisites \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_equal_bytes_new_live_seal \
+            real_corridor_fixture::installed_source::cold_refusals::resident_cold_certification_refuses_observation_only_policy
+      - name: Verify resident cold Route rollback retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-cold-retry.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::cold_retry::resident_cold_real_route_rolls_back_and_retries_fresh_same_allocation
+      - name: Verify generated flat support predicates
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-flat-predicates.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::polygon_one_cell_expression_is_exact_not_a_height_tolerance \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::bounded_native_endpoints_are_not_claimed_as_sampled_heights \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::indexed_interior_height_cannot_leave_the_exact_band \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::every_sample_is_indexed_not_found_by_numeric_membership \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::detail_vertices_wrong_planes_and_unsuccessful_attribution_refuse \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::tests::all_plane_paths_are_not_minted_as_detail_supported
+      - name: Verify generated support prism arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-support-prism.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::actual_native_operands_have_checked_floor_prisms_without_changing_points \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::exact_envelope_bounds_accept_and_adjacent_outside_values_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::nonfinite_invalid_and_overflow_operands_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::one_candidate_is_checked_not_adjusted_until_floor_contact_appears \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::rounded_manual_boxes_cannot_hide_undercontainment \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::proof_boxes_include_low_gap_and_true_upper_body_regions \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::stationary_reverse_and_invalid_initialized_body_operands_are_explicit \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::tests::real_normalized_cast_endpoint_not_only_rounded_movement_is_enclosed
+      - name: Verify analytic planar nonpenetration arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/analytic-planar-arithmetic.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_ -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_exact_native_operands_have_positive_endpoint_separation \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_actual_sixth_normalized_endpoint_below_plane_refuses \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_one_representable_endpoint_below_plane_refuses \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_actual_half_extent_mismatches_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_actual_center_movement_and_head_mismatches_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_normalized_direction_and_length_mismatches_refuse \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::analytic_tests::analytic_planar_xy_outside_actual_proof_square_refuses
+      - name: Verify resident cold Route controller transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-cold-controller.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_controller:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_commits_exact_first_cold_candidate \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_rejected_notice_recovers_without_replay \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_lost_ack_retries_historical_notice_without_replay \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_historical_ack_survives_original_source_expiry \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_retry_ack_selects_fresh_live_candidate_not_failed_ancestor \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_two_owner_notice_is_atomic_before_publication \
+            net::p2p::native_geometry::source_route_resident_controller::resident_controller_recipe_captures_cold_and_first_retained_through_real_save_barrier
+      - name: Verify resident retained dispatch refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-retained-dispatch.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_continuation::resident_controller_retained_dispatch_refuses_without_disturbing_committed_owner -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_continuation::resident_controller_retained_dispatch_refuses_without_disturbing_committed_owner
+      - name: Verify resident historical ACK after source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-history.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_history::resident_controller_historical_ack_survives_changed_source_without_replay -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_history::resident_controller_historical_ack_survives_changed_source_without_replay
+      - name: Verify resident one-retained controller transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-one-retained.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_retained:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_retained::resident_controller_one_retained_commits_exact_ack_selected_predecessor \
+            net::p2p::native_geometry::source_route_resident_retained::resident_controller_one_retained_later_failure_rolls_back_and_selects_fresh_retry \
+            net::p2p::native_geometry::source_route_resident_retained::resident_controller_one_retained_lost_ack_retries_without_replay
+      - name: Verify resident one-retained concrete refusals
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-one-retained-refusals.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_retained_refusals::resident_controller_one_retained_refuses_concrete_source_changes_before_fresh_success -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_retained_refusals::resident_controller_one_retained_refuses_concrete_source_changes_before_fresh_success
+      - name: Verify retained resident historical ACK after source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-retained-history.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_history::resident_controller_retained_historical_ack_survives_changed_source_without_replay -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_history::resident_controller_retained_historical_ack_survives_changed_source_without_replay
+      - name: Verify resident second-retained dispatch refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-second-retained.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_repeated::resident_controller_second_retained_dispatch_refuses_with_revision_two_owner_intact -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_repeated::resident_controller_second_retained_dispatch_refuses_with_revision_two_owner_intact
+      - name: Verify resident three-epoch controller transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-three-epoch.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_three_epoch:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_commits_exact_ack_selected_predecessor \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_later_failure_rolls_back_and_selects_fresh_retry \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_lost_ack_retries_without_replay \
+            net::p2p::native_geometry::source_route_resident_three_epoch::resident_controller_three_epoch_refusals_preserve_predecessor_before_fresh_success
+      - name: Verify second-retained source budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-second-retained-budget.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::second_retained::tests::second_retained_budget_tracks_actual_backing_and_closes_outside_domain -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_filter::resident::retained::second_retained::tests::second_retained_budget_tracks_actual_backing_and_closes_outside_domain
+      - name: Verify resident third historical ACK and head release
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-third-history.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_third_history::resident_controller_third_historical_ack_releases_prior_head_after_source_change_without_replay -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_third_history::resident_controller_third_historical_ack_releases_prior_head_after_source_change_without_replay
+      - name: Verify old finite policy refuses fourth non-same route
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-old-policy-fourth-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_straight_refusals::finite_old_policy_refuses_actual_fourth_non_same_polygon_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_straight_refusals::finite_old_policy_refuses_actual_fourth_non_same_polygon_without_tick_or_store_commit
+      - name: Verify retained straight source budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-straight-source-budgets.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::complete_straight_budget_counts_selection_cut_hit_and_samples \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::cut_scans_are_both_charged_without_overlap \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::tests::operational_budgets_refuse_widening_without_clamping
+      - name: Verify generated source query receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-source-receipts.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::products::source_query::generated_provenance_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::products::source_query::generated_provenance_tests::generated_receipt_rejects_equal_byte_foreign_query_and_changed_bindings \
+            net::p2p::native_geometry::products::source_query::generated_provenance_tests::nongenerated_source_query_has_no_generation_receipt
+      - name: Verify strict straight policy refuses raised fifth path
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/strict-straight-fifth-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_supported_refusals::strict_straight_policy_refuses_actual_fifth_raised_path_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_supported_refusals::strict_straight_policy_refuses_actual_fifth_raised_path_without_tick_or_store_commit
+      - name: Verify generated support policy refuses fifth solver hit
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-support-fifth-solver-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_planar_refusals::generated_support_policy_refuses_actual_fifth_solver_hit_without_tick_or_store_commit -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_resident_planar_refusals::generated_support_policy_refuses_actual_fifth_solver_hit_without_tick_or_store_commit
+      - name: Verify generated endpoint support predicates
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/generated-endpoint-predicates.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests::supplemental_height_is_distinct_from_unchanged_endpoint_z \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests::endpoint_order_and_exact_band_are_required \
+            net::p2p::native_geometry::source_route_filter::resident::retained::straight_retained::generated_flat_support::endpoint::tests::supplemental_success_polygon_and_triangle_must_match_exact_receipt_band
+      - name: Verify prior planar policy refuses unattributed sixth path
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/prior-planar-sixth-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_endpoint_refusals:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_endpoint_refusals::prior_planar_policy_refuses_actual_sixth_without_original_height_attribution
+      - name: Verify source linear position enclosure
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/source-linear-enclosure.log"
+          mbx test --locked -p benilla-sim --lib creature_motion::linear_enclosure_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            creature_motion::linear_enclosure_tests::actual_sixth_enclosure_contains_source_spline_ticks \
+            creature_motion::linear_enclosure_tests::ascending_descending_and_constant_coordinates_enclose_samples \
+            creature_motion::linear_enclosure_tests::rounded_delta_cannot_substitute_a_different_endpoint \
+            creature_motion::linear_enclosure_tests::invalid_world_coordinate_is_not_enclosure_evidence
+      - name: Verify source spline support arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/source-spline-arithmetic.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::source_spline::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::source_spline::tests::actual_sixth_source_positions_are_enclosed_without_normalized_solver_parity \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::source_spline::tests::ascending_descending_and_stationary_source_intervals_are_enclosed \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::source_spline::tests::a_foreign_launch_origin_is_not_the_certified_segment \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::source_spline::tests::endpoint_reconstruction_and_real_domain_are_not_repaired \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::source_spline::tests::rounded_body_center_below_floor_cannot_use_source_feet_as_clearance \
+            net::p2p::native_geometry::source_route_resident_local::straight_loop::support_prism::source_spline::tests::source_endpoint_outside_proved_band_refuses
+      - name: Verify prior endpoint policy refuses normalized sixth sweep
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/prior-endpoint-sixth-refusal.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_source_spline_refusals:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_source_spline_refusals::prior_endpoint_policy_refuses_actual_sixth_normalized_sweep_below_plane
+      - name: Verify finite eight-epoch resident loop
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-eight-loop.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_finite_loop:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_finite_loop::finite_eight_epoch_loop_recovers_rollback_expiry_and_lost_ack \
+            net::p2p::native_geometry::source_route_resident_finite_loop::finite_eight_epoch_loop_refuses_stale_scene_and_historically_acks_source_change
+      - name: Verify finite repeated-source revision boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-repeated-source-boundary.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_filter::resident::retained::repeated_retained::tests::repeated_source_revision_is_finite_checked_and_never_authorizes_a_ninth -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" net::p2p::native_geometry::source_route_filter::resident::retained::repeated_retained::tests::repeated_source_revision_is_finite_checked_and_never_authorizes_a_ninth
+      - name: Verify first retained atomic owner pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-pair.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_resident_pair:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::source_route_resident_pair::two_owner_first_retained_commits_one_atomic_pair \
+            net::p2p::native_geometry::source_route_resident_pair::two_owner_second_callback_rollback_and_lost_ack_do_not_publish_twice \
+            net::p2p::native_geometry::source_route_resident_pair::two_owner_third_revision_refuses_before_source_work
+      - name: Verify installed source corridor
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-installed-source-corridor.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::installed_source_inventory_owner_certifies_concrete_corridor -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+      - name: Verify joined resident installed corridor
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-joined-corridor.log"
+          # MBX progress uses stderr; never merge it into libtest's stdout proof.
+          mbx test --locked -p benilla-native-corridor-tests --lib real_corridor_fixture::installed_source::joined:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            real_corridor_fixture::installed_source::joined::resident_joined_actual_installed_owner_and_corridor \
+            real_corridor_fixture::installed_source::joined::resident_joined_rechecks_live_geometry_and_final_source_after_segment
+      - name: Verify joined resident source geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/native-resident-joined-geometry.log"
+          # Keep diagnostics visible on stderr without corrupting exact result rows.
+          mbx test --locked -p benilla-native-geometry-tests --lib source_pathfinder_query::resident_joined_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_pathfinder_query::resident_joined_tests::resident_joined_cold_preserves_runtime_source_ancestry_and_expiry \
+            source_pathfinder_query::resident_joined_tests::resident_joined_missing_generated_endpoint_refuses_calculation \
+            source_pathfinder_query::resident_joined_tests::resident_joined_rejected_chase_prefix_never_calculates
+      - name: Record installed Service timing
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-service-timing.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_same_polygon_local::tests::installed_service_mailbox_executes_fresh_dispatch_retry_and_retained_route -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+          two_owner_log="$RUNNER_TEMP/native-two-owner-service-timing.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::source_route_same_polygon_local::two_owner_tests::installed_two_owner_cancellation_death_and_respawn_preserve_peer_native_head -- --exact --nocapture 2>&1 | tee "$two_owner_log"
+          grep -Fxq "running 1 test" "$two_owner_log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$two_owner_log"
+      - name: doc-links-gate-tests
+        run: python3 scripts/test-doc-links.py
       - name: doc-links
         run: scripts/doc-links.py
       - name: pass-span-lint
         run: scripts/pass-span-lint.py
-      - name: player-tests
-        run: cargo test -p benilla-formats -p benilla-app --no-default-features --lib
+      - name: classic-export-tests
+        run: python3 scripts/test-classic-export.py
+      - name: native-starter-tests
+        run: python3 scripts/test-native-starter.py
+      - name: initial-hook-tests
+        run: python3 scripts/test-initial-hooks.py
+      - name: native-outfit-source-oracle
+        run: python3 scripts/check-native-outfit-oracle.py
+      - name: defense-skill-source-oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
+          python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+      - name: initial-cast-phase-source-oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_initial_cast_phase_oracle.py
+          python3 crates/benilla-sim/tools/generate_initial_cast_phase_fixture.py --check
+      - name: packaging-tests
+        run: python3 scripts/test-package-player.py
+      - name: Report unavailable data checks
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s "$BENILLA_SKIP_LOG" ]]; then
+            echo "### Data-dependent test coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
+            sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          fi
 
+  workspace-tests:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      # Bound peak memory while preserving the complete workspace and player test suites.
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
+      # No debuginfo: it is most of target/, and a runner's disk is small.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      # Set and empty: no install, as the gates' test-no-install runs.
+      WOW_DATA: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Track unavailable data checks
+        run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
+      - name: Report available disk space
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+      - name: Test exact libtest proof gates
+        run: python3 scripts/test-verify-libtest-output.py
+      - name: System libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev libwayland-dev
+          # Standalone corridor tests link Wayland without the app clipboard's dlopen feature.
+          pkg-config --exists wayland-client
+      - name: Toolchain
+        run: rustup toolchain install && rustc -V
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-workspace-tests-ubuntu26-v1
+          # Same-repository PR writes stay in that PR's cache scope; forks never save.
+          save-on-pull-request: true
+          save-on-workflow-dispatch: true
+      # Keep one workspace invocation: package shards change feature unification.
+      - name: test
+        run: mbx test --locked --no-fail-fast --workspace
+      - name: Report unavailable data checks
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s "$BENILLA_SKIP_LOG" ]]; then
+            echo "### Data-dependent test coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
+            sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  player-gates:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      # Bound peak memory while preserving the complete workspace and player test suites.
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
+      # No debuginfo: it is most of target/, and a runner's disk is small.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      # Set and empty: no install, as the gates' test-no-install runs.
+      WOW_DATA: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Track unavailable data checks
+        run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
+      - name: Report available disk space
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+      - name: Test exact libtest proof gates
+        run: python3 scripts/test-verify-libtest-output.py
+      - name: System libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev libwayland-dev
+          # Standalone corridor tests link Wayland without the app clipboard's dlopen feature.
+          pkg-config --exists wayland-client
+      - name: Toolchain
+        run: rustup toolchain install && rustc -V
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-player-ubuntu26-v1
+          # Same-repository PR writes stay in that PR's cache scope; forks never save.
+          save-on-pull-request: true
+          save-on-workflow-dispatch: true
+      # Scoped library tests execute this sibling binary; a library dependency
+      # alone does not build it in a clean player-only job.
+      - name: Build native navigation test helper
+        run: mbx build --locked -p benilla-native-nav-generator --bin benilla-native-navigation
+      - name: Record player Route timing
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/native-player-route-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon::two_owner_tests::loaded_quest_initial_hostile_chase_reaches_real_terminal_without_a_route_certificate -- --exact --nocapture 2>&1 | tee "$log"
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+          retry_log="$RUNNER_TEMP/native-player-route-retry-timing.log"
+          mbx test --locked -p benilla-app --no-default-features --lib net::p2p::native_geometry::source_route_same_polygon_local::quest_loop_tests::installed_loaded_quest_loop_rolls_back_late_giver_and_retries_durable_publication -- --exact --nocapture 2>&1 | tee "$retry_log"
+          grep -Fxq "running 1 test" "$retry_log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$retry_log"
+      - name: player-tests
+        run: mbx test --locked --no-fail-fast -p benilla-formats -p benilla-app --no-default-features --lib
+
+      - name: Report unavailable data checks
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s "$BENILLA_SKIP_LOG" ]]; then
+            echo "### Data-dependent test coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
+            sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Preserve the existing required check: neither feature graph may be skipped or fail.
+  gates:
+    if: always()
+    needs: [workspace-gates, workspace-tests, player-gates]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every gate job to succeed
+        env:
+          WORKSPACE_RESULT: ${{ needs.workspace-gates.result }}
+          WORKSPACE_TESTS_RESULT: ${{ needs.workspace-tests.result }}
+          PLAYER_RESULT: ${{ needs.player-gates.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$WORKSPACE_RESULT" = success
+          test "$WORKSPACE_TESTS_RESULT" = success
+          test "$PLAYER_RESULT" = success

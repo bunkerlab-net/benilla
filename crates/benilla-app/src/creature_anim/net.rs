@@ -27,6 +27,7 @@ pub(super) fn register(app: &mut App) {
         .net_handler(K::MountSpecial, on_mount_special)
         .net_handler(K::TextEmote, on_text_emote)
         .net_handler(K::Emote, on_emote)
+        .net_handler(K::PeerEmoteClock, on_peer_emote_clock)
         .net_handler(K::PlaySpellVisual, on_play_spell_visual)
         .net_handler(K::AttackerState, on_attacker_state)
         .net_handler(K::EnvironmentalDamageLog, on_environmental_damage_log);
@@ -105,6 +106,50 @@ fn on_text_emote(
             &mut chat_log,
         );
     }
+}
+
+fn on_peer_emote_clock(
+    In(ev): In<SessionEvent>,
+    mut commands: Commands,
+    index: Res<GuidIndex>,
+    time: Res<Time>,
+    p2p: Option<Res<crate::net::P2pSettings>>,
+    mut clocks: Query<&mut super::peer_emote::PeerEmotePlayback>,
+) {
+    let SessionEvent::PeerEmoteClock {
+        guid,
+        emote_id,
+        generation,
+        elapsed_ms,
+    } = ev
+    else {
+        return;
+    };
+    if p2p.is_none() {
+        return;
+    }
+    let Some(&entity) = index.0.get(&guid) else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    if let Ok(mut clock) = clocks.get_mut(entity) {
+        if generation < clock.clock.generation {
+            return;
+        }
+        if generation == clock.clock.generation {
+            if clock.emote_id == emote_id {
+                clock
+                    .clock
+                    .observe(generation, f64::from(elapsed_ms) / 1000.0, now);
+            }
+            return;
+        }
+    }
+    commands
+        .entity(entity)
+        .insert(super::peer_emote::PeerEmotePlayback::new(
+            guid, emote_id, generation, elapsed_ms, now,
+        ));
 }
 
 fn on_emote(In(ev): In<SessionEvent>, index: Res<GuidIndex>, mut out: MessageWriter<EmoteMessage>) {

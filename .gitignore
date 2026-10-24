@@ -1,5 +1,7 @@
 # Rust build artifacts
 /target/
+# Fresh distribution source stays outside the cache action's pruned target tree.
+/.player-source/
 **/*.rs.bk
 # Cargo.lock IS committed (this workspace produces binaries).
 
@@ -41,3 +43,6 @@ __pycache__/
 # The vanilla addon corpus the UI engine's real-addon tests read (third-party content): a symlink
 # beside `WoW`, or `BENILLA_ADDON_CORPUS`.
 /wow-addons-vanilla
+
+# Private peer network key and machine-local game data path. Commit only the example.
+/config.toml

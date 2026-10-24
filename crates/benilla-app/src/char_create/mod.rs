@@ -2,6 +2,9 @@
 //! driving the `"create"` preview booth, with art, captions and sounds read from the player's
 //! install. This file holds the selection state, input and the wire.
 
+#[cfg(test)]
+#[path = "tests.rs"]
+mod appearance_tests;
 mod panels;
 mod parts;
 mod refresh;
@@ -157,7 +160,7 @@ fn debug_pick(
             let Some(want) = field.trim().parse::<u8>().ok() else {
                 continue;
             };
-            let n = counts[i].max(1);
+            let n = counts.get(i, sel.dials[2]).max(1);
             if want >= n {
                 warn!(
                     "char create: dial {i} value {want} past the range ({n}) for race {} sex {} — clamped",
@@ -166,6 +169,7 @@ fn debug_pick(
             }
             sel.dials[i] = want.min(n - 1);
         }
+        counts.clamp(&mut sel.dials);
     }
     preview.show_create(sel.race, sel.look());
     info!(
@@ -219,12 +223,62 @@ pub(crate) struct CreateSelection {
     creating: bool,
 }
 
-/// The five dial counts for a (race, sex), or `[1; 5]` without the catalog.
-fn dial_counts(catalog: Option<&CharCreate>, race: u8, sex: u8) -> [u8; 5] {
-    catalog
+/// CharSections gives each hair style its own colour count (`0x47a400`).
+struct DialCounts {
+    counts: [u8; 5],
+    hair_colors: Vec<u8>,
+}
+
+fn dial_counts(catalog: Option<&CharCreate>, race: u8, sex: u8) -> DialCounts {
+    let counts = catalog
         .and_then(|c| c.0.ranges(race, sex))
         .map(|r| [r.skin, r.face, r.hair_style, r.hair_color, r.facial_hair])
-        .unwrap_or([1; 5])
+        .unwrap_or([1; 5]);
+    let hair_colors = (0..counts[2])
+        .map(|style| catalog.map_or(1, |c| c.0.hair_colors(race, sex, style)))
+        .collect();
+    DialCounts {
+        counts,
+        hair_colors,
+    }
+}
+
+impl DialCounts {
+    fn get(&self, dial: usize, hair_style: u8) -> u8 {
+        if dial == 3 {
+            self.hair_colors
+                .get(usize::from(hair_style))
+                .copied()
+                .unwrap_or(0)
+        } else {
+            self.counts[dial]
+        }
+    }
+
+    fn clamp(&self, dials: &mut [u8; 5]) {
+        // Clamp style before looking up its dependent colour range.
+        for dial in 0..dials.len() {
+            dials[dial] = dials[dial].min(self.get(dial, dials[2]).saturating_sub(1));
+        }
+    }
+
+    fn cycle(&self, dials: &mut [u8; 5], dial: usize, dir: i8) {
+        let count = i32::from(self.get(dial, dials[2]).max(1));
+        dials[dial] = (i32::from(dials[dial]) + i32::from(dir)).rem_euclid(count) as u8;
+        self.clamp(dials);
+    }
+
+    fn randomize(&self, dials: &mut [u8; 5], rng: &mut u64) {
+        // As in RandomizeCharCustomization, choose style before its colours.
+        for dial in 0..dials.len() {
+            *rng ^= *rng << 13;
+            *rng ^= *rng >> 7;
+            *rng ^= *rng << 17;
+            *rng = rng.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let count = self.get(dial, dials[2]).max(1);
+            dials[dial] = (*rng % u64::from(count)) as u8;
+        }
+    }
 }
 
 impl CreateSelection {
@@ -251,10 +305,7 @@ impl CreateSelection {
                         .unwrap_or(1);
             }
         }
-        let counts = dial_counts(catalog, self.race, self.sex);
-        for (d, &n) in self.dials.iter_mut().zip(&counts) {
-            *d = if n == 0 { 0 } else { (*d).min(n - 1) };
-        }
+        dial_counts(catalog, self.race, self.sex).clamp(&mut self.dials);
     }
 
     /// The booth's look; the class dresses the (race, class, sex) starting outfit.
@@ -452,21 +503,12 @@ fn create_input(
 
 /// Cycle one dial by `dir`, wrapping within `0..count`.
 fn cycle_dial(sel: &mut CreateSelection, catalog: Option<&CharCreate>, dial: usize, dir: i8) {
-    let count = dial_counts(catalog, sel.race, sel.sex)[dial].max(1) as i32;
-    let cur = sel.dials[dial] as i32;
-    sel.dials[dial] = (cur + dir as i32).rem_euclid(count) as u8;
+    dial_counts(catalog, sel.race, sel.sex).cycle(&mut sel.dials, dial, dir);
 }
 
 /// Set every dial to a random valid index, from a small xorshift.
 fn randomize(sel: &mut CreateSelection, catalog: Option<&CharCreate>, rng: &mut u64) {
-    let counts = dial_counts(catalog, sel.race, sel.sex);
-    for (d, &n) in sel.dials.iter_mut().zip(&counts) {
-        *rng ^= *rng << 13;
-        *rng ^= *rng >> 7;
-        *rng ^= *rng << 17;
-        *rng = rng.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        *d = if n == 0 { 0 } else { (*rng % n as u64) as u8 };
-    }
+    dial_counts(catalog, sel.race, sel.sex).randomize(&mut sel.dials, rng);
 }
 
 /// Paint the name box through the shared `paint_glue_field`, so it draws like the login boxes.

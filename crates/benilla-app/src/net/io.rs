@@ -825,6 +825,10 @@ fn world(
                         Ok(ParkRequest::Char(CharRequest::Delete(target))) => {
                             Parked::Acted(CharAction::Delete, session.delete_character(target)?)
                         }
+                        Ok(ParkRequest::Char(CharRequest::Recover(request))) => {
+                            request.reject();
+                            Parked::StayPut
+                        }
                         Ok(ParkRequest::Char(CharRequest::Rename { guid, name })) => {
                             let (result, renamed) = session.rename_character(guid, &name)?;
                             Parked::Renamed(result, renamed)

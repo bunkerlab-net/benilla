@@ -37,6 +37,7 @@ use super::collider::{
     PendingCollider,
 };
 use super::merge::{MergeSite, StaticMerge};
+use super::native_coverage::{NativeHullId, StaticColliderSources};
 use super::weld::{hull_weld_disabled, HullWelds};
 use super::{
     doodad_ground_shade, ModelHandle, Placements, ShadeResolve, TerrainStreamer, SPAWN_BUDGET,
@@ -252,11 +253,12 @@ pub(super) fn spawn_loaded_placements(
                                             !doodad_hulls_bare(),
                                         ),
                                         PickOccluder,
+                                        StaticColliderSources(vec![NativeHullId::M2(unique_id)]),
                                     ))
                                     .id(),
                             );
                         } else {
-                            welds.add_tile(p.owner, verts, tris);
+                            welds.add_tile(p.owner, unique_id, verts, tris);
                         }
                     }
                     spawn_emitters_for(
@@ -499,6 +501,7 @@ pub(super) fn spawn_loaded_placements(
                                     ),
                                     // The walk faces take the selection ring (floors, steps).
                                     GroundDecalSurface,
+                                    StaticColliderSources(vec![NativeHullId::WmoWalk(unique_id)]),
                                     // Clamps the mouse pick. The reference's occluder faces are
                                     // MOPY reject-mask 0x84; the walk bake (0x04) is the nearest.
                                     PickOccluder,
@@ -511,10 +514,13 @@ pub(super) fn spawn_loaded_placements(
                     {
                         ents.push(
                             commands
-                                .spawn(PendingCollider::new(
-                                    build_collider_task(verts, tris),
-                                    Some(camera_layers()),
-                                    true,
+                                .spawn((
+                                    PendingCollider::new(
+                                        build_collider_task(verts, tris),
+                                        Some(camera_layers()),
+                                        true,
+                                    ),
+                                    StaticColliderSources(vec![NativeHullId::WmoCamera(unique_id)]),
                                 ))
                                 .id(),
                         );
@@ -722,11 +728,15 @@ pub(super) fn spawn_loaded_placements(
                                     !doodad_hulls_bare(),
                                 ),
                                 PickOccluder,
+                                StaticColliderSources(vec![NativeHullId::WmoDoodad(
+                                    unique_id,
+                                    d.source_index,
+                                )]),
                             ))
                             .id(),
                     );
                 } else {
-                    welds.add_prop(unique_id, verts, tris);
+                    welds.add_prop(unique_id, d.source_index, verts, tris);
                 }
             }
             spawn_emitters_for(
@@ -818,6 +828,7 @@ fn resolve_wmo_doodads(
                 _ => PropLight::Exterior,
             };
             out.push(WmoDoodadInst {
+                source_index: di as u32,
                 handle: asset_server.load(m2_url(&d.model)),
                 transform: wmo_world.mul_transform(local),
                 // Every group whose MODR names the prop, inverted at asset load.
@@ -957,6 +968,7 @@ mod retire_tests {
 
     fn prop(handle: Handle<M2Model>) -> WmoDoodadInst {
         WmoDoodadInst {
+            source_index: 0,
             handle,
             transform: Transform::IDENTITY,
             groups: Arc::from([]),

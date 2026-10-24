@@ -1,0 +1,10 @@
+# label	limit	path	visited	result
+no_intersection	74	1,2,3	7,8	1,2,3
+reverse_visited	74	1,2,3,4	7,2,8,9	9,8,2,3,4
+earliest_duplicate_visited	74	1,2,3,4	2,7,2,8	8,2,7,2,3,4
+furthest_duplicate_path	74	1,2,3,2,4	2,8	8,2,4
+truncate_tail	4	1,2,3,4,5	8,2,9,10	10,9,2,3
+req_equals_limit	3	1,2,3,4	2,8,9	1,2,3,4
+req_exceeds_limit	3	1,2,3,4	2,8,9,10	1,2,3,4
+empty_visited	74	1,2,3	-	1,2,3
+single_common	2	1	1	1

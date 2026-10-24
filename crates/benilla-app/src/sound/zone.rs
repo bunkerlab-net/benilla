@@ -38,7 +38,7 @@ use benilla_assets::{AssetSet, LockRecover, WorldAssets};
 use benilla_world::lighting::GameClock;
 use benilla_world::schedule::WorldStage;
 
-use super::kit::{play_kit_ext, KitRef, Latch, PlayExtras, SoundCategory, SoundKits};
+use super::kit::{play_kit_ext, FollowSource, KitRef, Latch, PlayExtras, SoundCategory, SoundKits};
 use super::mixer::{self, StreamingSoundHandle};
 use super::{AudioListener, SoundConfig, SoundOutput};
 
@@ -1027,6 +1027,7 @@ fn server_sounds(
                     SoundCategory::Sfx,
                     PlayExtras {
                         source,
+                        follow: source.map(|_| FollowSource::Origin),
                         latch,
                         ..default()
                     },

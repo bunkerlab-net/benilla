@@ -1,15 +1,18 @@
-# Build only when a maintainer explicitly requests artifacts.
+# Build master plus the temporary P2P feature branch, and maintainer-requested artifacts.
 name: Build player
 
 on:
+  push:
+    branches: [master, feat/psk-p2p-foundation]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: build-player-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -23,18 +26,22 @@ jobs:
           - platform: linux-amd64
             runner: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
+            cargo_jobs: 3
             archive: tar.gz
           - platform: linux-arm64
             runner: ubuntu-26.04-arm
             target: aarch64-unknown-linux-gnu
+            cargo_jobs: 3
             archive: tar.gz
           - platform: macos-arm64
             runner: macos-26
             target: aarch64-apple-darwin
+            cargo_jobs: 2
             archive: tar.gz
           - platform: windows-amd64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
+            cargo_jobs: 3
             archive: zip
     defaults:
       run:
@@ -42,7 +49,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
-      CARGO_BUILD_JOBS: 2
+      CARGO_BUILD_JOBS: ${{ matrix.cargo_jobs }}
       WOW_DATA: ""
       BUILD_TARGET: ${{ matrix.target }}
       BUILD_PLATFORM: ${{ matrix.platform }}
@@ -72,10 +79,92 @@ jobs:
           save-on-workflow-dispatch: true
       - name: Test packaging
         run: python3 scripts/test-package-player.py
-      - name: Build the player
-        run: mbx build --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
-      - name: Package the player
-        run: python3 scripts/package-player.py --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"
+      - name: Test local Classic export boundaries
+        run: python3 scripts/test-classic-export.py
+      - name: Test native starter preparation
+        run: python3 scripts/test-native-starter.py
+      - name: Test initial source hook capture
+        run: python3 scripts/test-initial-hooks.py
+      - name: Test bounded player diagnostic smoke
+        run: python3 scripts/test-player-diagnostics.py
+      - name: Verify native outfit source oracle on Linux
+        if: runner.os == 'Linux'
+        run: python3 scripts/check-native-outfit-oracle.py
+      - name: Verify native defense skill source oracle
+        run: |
+          python3 crates/benilla-sim/tools/test_defense_skill_oracle.py
+          python3 crates/benilla-sim/tools/generate_defense_skill_fixture.py --check
+      - name: Test bounded CI diagnostic capture
+        run: |
+          export BENILLA_TEST_BASH="$BASH"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export BENILLA_TEST_BASH="$(cygpath -w "$BASH")"
+          fi
+          python3 scripts/test-capture-ci-log.py
+      - name: Test actual navigation helper without inherited environment
+        id: native-helper
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/benilla-native-helper.log"
+          python3 scripts/capture-ci-log.py --log "$log" -- mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --nocapture
+          grep -Fxq "running 1 test" "$log"
+          grep -Fq "test result: ok. 1 passed; 0 failed; 0 ignored;" "$log"
+      - name: Test persistence and simulation on the native OS
+        # A focused helper failure stays red and must not skip the full native suite.
+        if: ${{ !cancelled() && (success() || steps.native-helper.outcome == 'failure') }}
+        run: |
+          set -o pipefail
+          python3 scripts/capture-ci-log.py --log "$RUNNER_TEMP/benilla-native-tests.log" -- mbx test --locked --no-fail-fast -p benilla-profile -p benilla-sim -p benilla-world-data -p benilla-world-runtime -p benilla-world-client -p benilla-world-store -p benilla-world-controller-tests -p benilla-native-geometry-tests -p benilla-native-nav -p benilla-native-nav-generator -p benilla-native-dbc -p benilla-native-terrain -p benilla-mpq -p benilla-native-vmap -p benilla-native-vmap-source
+      - name: Upload native test failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-native-test-failure-${{ matrix.platform }}-${{ github.sha }}
+          # Only bounded command output; never collect the workspace or environment.
+          path: |
+            ${{ runner.temp }}/benilla-native-helper.log
+            ${{ runner.temp }}/benilla-native-tests.log
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Prepare matching source and locked dependencies
+        run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
+      - name: Build the player and native helpers from the distributed source
+        run: |
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          # Stable source/vendor paths let Cargo reuse restored dependency artifacts.
+          cd .player-source/current
+          mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla --bin benilla --no-default-features --target "$BUILD_TARGET"
+          mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target "$BUILD_TARGET"
+          mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-nav-generator --bin benilla-native-navigation --no-default-features --target "$BUILD_TARGET"
+      - name: Verify actual player diagnostic dispatch without an install
+        timeout-minutes: 2
+        run: |
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          python3 scripts/check-player-diagnostics.py --binary "target/$BUILD_TARGET/release/benilla$suffix"
+      - name: Package the matching source
+        run: python3 scripts/package-player.py --source-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"
+      # Publish source first. A failed source upload must prevent binary publication.
+      - name: Upload corresponding source and checksum
+        id: source
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-source-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            dist/benilla-${{ matrix.platform }}-${{ github.sha }}-source.tar.gz
+            dist/benilla-${{ matrix.platform }}-${{ github.sha }}-source.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Verify source outlives the player download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ID: ${{ steps.source.outputs.artifact-id }}
+        run: python3 scripts/verify-source-retention.py
+      - name: Package the lightweight player with exact source link
+        env:
+          SOURCE_URL: ${{ steps.source.outputs.artifact-url }}
+        run: python3 scripts/package-player.py --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"
       - name: Upload the archive and checksum
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -83,6 +172,111 @@ jobs:
           path: |
             dist/benilla-${{ matrix.platform }}-${{ github.sha }}.${{ matrix.archive }}
             dist/benilla-${{ matrix.platform }}-${{ github.sha }}.${{ matrix.archive }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Package optional native diagnostic helpers separately
+        env:
+          SOURCE_URL: ${{ steps.source.outputs.artifact-url }}
+        run: python3 scripts/package-player.py --diagnostics-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"
+      - name: Upload optional native diagnostic helpers and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            dist/benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}.${{ matrix.archive }}
+            dist/benilla-diagnostics-${{ matrix.platform }}-${{ github.sha }}.${{ matrix.archive }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  terrain-helper-windows:
+    name: windows-amd64 terrain helper
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 3
+      WOW_DATA: ""
+      BUILD_TARGET: x86_64-pc-windows-msvc
+      BUILD_PLATFORM: windows-amd64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the repository toolchain
+        run: |
+          rustup toolchain install
+          rustup target add "$BUILD_TARGET"
+          rustc -Vv
+          test "$(rustc -Vv | sed -n 's/^host: //p' | tr -d '\r')" = "$BUILD_TARGET"
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: terrain-helper-windows-v1
+          save-on-workflow-dispatch: true
+      - name: Test packaging
+        run: python3 scripts/test-package-player.py
+      - name: Prepare matching source and locked dependencies
+        run: python3 scripts/package-player.py --prepare-source --commit "$GITHUB_SHA"
+      - name: Test Windows diagnostic collector on authored fixtures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location .player-source/current
+          & powershell.exe -NoProfile -File scripts/Test-BenillaTerrainDiagnostics.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell diagnostic collector tests failed' }
+          & pwsh.exe -NoProfile -File scripts/Test-BenillaTerrainDiagnostics.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PowerShell 7 diagnostic collector tests failed' }
+      - name: Test MPQ and terrain helper including inspect from distributed source
+        run: |
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          cd .player-source/current
+          mbx test --config .cargo/vendor-config.toml --offline --locked --no-default-features --no-fail-fast -p benilla-mpq -p benilla-native-terrain --target "$BUILD_TARGET"
+      - name: Build only the terrain helper from distributed source
+        run: |
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          cd .player-source/current
+          mbx build --config .cargo/vendor-config.toml --offline --locked --release -p benilla-native-terrain --bin benilla-native-terrain --no-default-features --target "$BUILD_TARGET"
+      - name: Package the matching source
+        run: python3 scripts/package-player.py --source-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA"
+      # Independent source upload: never collide with the full Windows player job.
+      - name: Upload helper corresponding source and checksum
+        id: source
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-native-terrain-source-windows-amd64-${{ github.sha }}
+          path: |
+            dist/benilla-windows-amd64-${{ github.sha }}-source.tar.gz
+            dist/benilla-windows-amd64-${{ github.sha }}-source.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Verify source outlives the helper download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ID: ${{ steps.source.outputs.artifact-id }}
+        run: python3 scripts/verify-source-retention.py
+      - name: Package only the terrain helper with exact source link
+        env:
+          SOURCE_URL: ${{ steps.source.outputs.artifact-url }}
+        run: python3 scripts/package-player.py --helper-only --platform "$BUILD_PLATFORM" --commit "$GITHUB_SHA" --source-url "$SOURCE_URL"
+      - name: Upload helper archive and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benilla-native-terrain-windows-amd64-${{ github.sha }}
+          path: |
+            dist/benilla-native-terrain-windows-amd64-${{ github.sha }}.zip
+            dist/benilla-native-terrain-windows-amd64-${{ github.sha }}.zip.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

@@ -29,9 +29,9 @@ use benilla_world::schedule::WorldStage;
 
 use super::creature::CreatureVoices;
 use super::kit::{
-    bark_chance_pass, object_sound_playing, play_kit_ext, Bus, KitRef, PlayExtras, SoundCategory,
-    SoundKits, Volume, EXERTION_CHANCE_CREATURE, EXERTION_CHANCE_PLAYER, INJURY_CHANCE_CREATURE,
-    INJURY_CHANCE_PLAYER,
+    bark_chance_pass, object_sound_playing, play_kit_ext, Bus, FollowSource, KitRef, PlayExtras,
+    SoundCategory, SoundKits, Volume, EXERTION_CHANCE_CREATURE, EXERTION_CHANCE_PLAYER,
+    INJURY_CHANCE_CREATURE, INJURY_CHANCE_PLAYER,
 };
 use super::{AudioListener, SoundConfig, SoundOutput};
 
@@ -378,6 +378,8 @@ fn combat_sounds(
             tr.translation,
             PlayExtras {
                 bus: Bus::EXERTION,
+                source: Some(attacker),
+                follow: Some(FollowSource::Origin),
                 ..default()
             },
             "exertion",
@@ -635,7 +637,12 @@ fn combat_sounds(
                     &mut out,
                     vocal,
                     victim_tr.translation,
-                    PlayExtras { bus, ..default() },
+                    PlayExtras {
+                        bus,
+                        source: swing.victim,
+                        follow: Some(FollowSource::Origin),
+                        ..default()
+                    },
                     "injury",
                 );
             }

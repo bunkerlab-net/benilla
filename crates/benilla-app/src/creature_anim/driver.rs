@@ -309,13 +309,15 @@ pub(super) fn drive_animations(
         // The open NPC session's unit (`[0xb4e2d0]`): its state emote is passed over when the
         // row's `EmoteFlags` carry `0x2000` (`0x5fd7e2`-`0x5fd7fd`).
         Option<Res<crate::ui_session::InteractNpc>>,
+        Query<&mut super::peer_emote::PeerEmotePlayback>,
     ),
     // The variation roll's LCG, the reference's single CRT `_rand` stream shared by every play.
     mut rng: ResMut<benilla_assets::AnimRng>,
     // The last anim trace line per traced unit; the trace writes only on change.
     mut anim_trace_last: Local<std::collections::HashMap<Entity, String>>,
 ) {
-    let (emote_sounds, loot_kneel, time, names, mut recomputes, riders, interact) = aux;
+    let (emote_sounds, loot_kneel, time, names, mut recomputes, riders, interact, mut peer_emotes) =
+        aux;
     let dt = time.delta_secs();
     // This frame's one-shot plays per unit, replayed in the reference's call order (`PlaySeq`
     // stamps): a later call overwrites an earlier, and the combat fast path keys on what is playing
@@ -1060,6 +1062,7 @@ pub(super) fn drive_animations(
         }
 
         // ── The mode machine: the base track's decision.
+        let mut peer_emote = peer_emotes.get_mut(entity).ok();
         mode::run(
             mode::Frame {
                 entity,
@@ -1088,6 +1091,9 @@ pub(super) fn drive_animations(
             &mut tr,
             &mut player,
             &mut rng,
+            peer_emote
+                .as_deref_mut()
+                .map(|clock| (clock, time.elapsed_secs_f64())),
         );
 
         // ── The base slot's playback rate, written over whatever the mode machine settled on: the

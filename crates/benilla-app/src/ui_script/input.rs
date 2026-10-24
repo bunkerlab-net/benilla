@@ -11,7 +11,7 @@ use benilla_ui::script::{KeyWalk, UiScript};
 
 use super::{
     CursorPayloadHeld, PlayerUiClickConsumed, PlayerUiHover, PlayerUiPressConsumed,
-    UiKeyboardCapture,
+    PlayerUiWheelCaptured, UiKeyboardCapture,
 };
 use crate::bindings::WheelNotches;
 use crate::textinput::{self, keymap, HostClipboard};
@@ -22,6 +22,7 @@ use crate::textinput::{self, keymap, HostClipboard};
 #[derive(bevy::ecs::system::SystemParam)]
 pub(super) struct PointerFeed<'w> {
     hover: ResMut<'w, PlayerUiHover>,
+    wheel_captured: ResMut<'w, PlayerUiWheelCaptured>,
     click_consumed: ResMut<'w, PlayerUiClickConsumed>,
     press_consumed: ResMut<'w, PlayerUiPressConsumed>,
     hovered: Res<'w, crate::target::Hovered>,
@@ -120,6 +121,7 @@ pub(super) fn feed_ui_input(
         &mut pointer.press_consumed,
         &mut pointer.payload_held,
     );
+    pointer.wheel_captured.0 = false;
     click_consumed.0 = false;
     press_consumed.0 = false;
     let Some(mut script) = script else {
@@ -205,6 +207,7 @@ pub(super) fn feed_ui_input(
                 script.mouse_button(x, y, name, false);
             }
         }
+        pointer.wheel_captured.0 = script.captures_mouse_wheel(x, y);
         feed_wheel(&mut script, &mut notches, x, y, &scroll);
     } else if !synthetic {
         // The OS pointer left: leave the hovered frame once, and disarm any press or drag every

@@ -95,6 +95,46 @@ pub struct ChrRaceRow {
     pub faction: u32,
 }
 
+/// A native player display selected from an unambiguous, complete loaded `ChrRaces` row.
+/// This proves client-table race/class eligibility, not server `playercreateinfo` coverage.
+/// Fields are private so a caller cannot manufacture loaded-source identity evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativePlayerDisplayRow {
+    raw_race_id: u32,
+    class: u8,
+    gender: u8,
+    display_id: u32,
+}
+
+impl NativePlayerDisplayRow {
+    /// The full-width `ChrRaces.ID` (field 0), before the client catalog's byte narrowing.
+    pub fn raw_race_id(&self) -> u32 {
+        self.raw_race_id
+    }
+
+    /// The requested class, checked against this catalog's available `CharBaseInfo` pairs.
+    pub fn class(&self) -> u8 {
+        self.class
+    }
+
+    /// The selected male (0) or female (1) gender.
+    pub fn gender(&self) -> u8 {
+        self.gender
+    }
+
+    /// `ChrRaces.MaleDisplayID` (field 4) or `FemaleDisplayID` (field 5).
+    pub fn display_id(&self) -> u32 {
+        self.display_id
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RawRaceDisplays {
+    race_id: u32,
+    male: u32,
+    female: u32,
+}
+
 /// One `NameGen.dbc` row (`[0xc0da78]`, stride 0x10): the name (`+0x4`), race (`+0x8`) and sex
 /// (`+0xc`) the create screen's name generator learns from (`0x475480`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +170,10 @@ pub struct CharCreateCatalog {
     hair_colors: HashMap<(u8, u8), Vec<u8>>,
     /// race → (male displayId, female displayId), from ChrRaces cols 4/5.
     displays: HashMap<u8, (u32, u32)>,
+    /// Full-width identities in file order, separate from the client's narrowed display map.
+    raw_race_displays: Vec<RawRaceDisplays>,
+    /// Exact 29-field/116-byte coverage, required only by native player display selection.
+    complete_race_records: bool,
     /// race → ChrRaces fileString (col 15), the GlueStrings key stem (`RACE_INFO_<FILE>`).
     files: HashMap<u8, String>,
     /// race → ChrRaces `Name_Lang` (cols 17-24, `+0x44`), the race name `GetCharacterInfo` returns.
@@ -154,6 +198,46 @@ impl CharCreateCatalog {
             _ => return None,
         };
         (id != 0).then_some(id)
+    }
+
+    /// Select a loaded race's native player display without the client's ID narrowing or
+    /// duplicate overwrite. Only exact 29-field/116-byte rows and gender 0/1 qualify; a
+    /// duplicate or out-of-range ID aliasing the selected race makes that race ambiguous.
+    /// Both race display IDs must be nonzero, as required before selecting a player model.
+    /// `CharBaseInfo` supplies client eligibility only, not server `playercreateinfo` row,
+    /// map, or class completeness; its excluded client pairs differ from server eligibility.
+    pub fn native_player_display(
+        &self,
+        race: u8,
+        class: u8,
+        gender: u8,
+    ) -> Option<NativePlayerDisplayRow> {
+        if !self.complete_race_records || !self.allows(race, class) {
+            return None;
+        }
+        let mut matches = self
+            .raw_race_displays
+            .iter()
+            .filter(|row| row.race_id as u8 == race);
+        let row = matches.next()?;
+        if row.race_id != u32::from(race)
+            || matches.next().is_some()
+            || row.male == 0
+            || row.female == 0
+        {
+            return None;
+        }
+        let display_id = match gender {
+            0 => row.male,
+            1 => row.female,
+            _ => return None,
+        };
+        Some(NativePlayerDisplayRow {
+            raw_race_id: row.race_id,
+            class,
+            gender,
+            display_id,
+        })
     }
 
     /// Whether a race may be created as a class (CharBaseInfo less `UNUSED_COMBOS`).
@@ -254,7 +338,15 @@ impl CharCreateCatalog {
 
     /// [`Self::load`] over NameGen's own load result.
     fn load_with(chain: &mut Chain, name_gen: Result<Vec<NameGenRow>>) -> Result<Self> {
-        let (race_rows, displays, files, names, custom_tokens) = load_races(chain)?;
+        let (
+            race_rows,
+            displays,
+            files,
+            names,
+            custom_tokens,
+            raw_race_displays,
+            complete_race_records,
+        ) = load_races(chain)?;
         let base_info = load_base_info(chain)?;
         let combos: HashSet<(u8, u8)> = base_info.iter().copied().collect();
         // NameGen feeds the random name alone, so its loss costs that and nothing else.
@@ -282,6 +374,8 @@ impl CharCreateCatalog {
             name_gen_error,
             hair_colors,
             displays,
+            raw_race_displays,
+            complete_race_records,
             files,
             names,
             custom_tokens,
@@ -366,6 +460,8 @@ fn load_races(
     HashMap<u8, String>,
     HashMap<u8, String>,
     HashMap<u8, ([String; 2], String)>,
+    Vec<RawRaceDisplays>,
+    bool,
 )> {
     let bytes = chain
         .read_file(CHR_RACES)
@@ -379,13 +475,22 @@ fn load_races(
         schema.add_field(SchemaField::new(format!("f{i}"), ty));
     }
     let rs = parse(&bytes, schema, "ChrRaces")?;
+    let complete_records = bytes[12..16] == 116_u32.to_le_bytes();
     let mut rows = Vec::new();
     let mut displays = HashMap::new();
     let mut files = HashMap::new();
     let mut names = HashMap::new();
     let mut tokens = HashMap::new();
+    let mut raw_displays = Vec::new();
     for r in rs.records() {
         let Some(race) = u32_at(r, 0) else { continue };
+        if let (Some(male), Some(female)) = (u32_at(r, 4), u32_at(r, 5)) {
+            raw_displays.push(RawRaceDisplays {
+                race_id: race,
+                male,
+                female,
+            });
+        }
         let race = race as u8;
         rows.push(ChrRaceRow {
             id: race,
@@ -407,7 +512,15 @@ fn load_races(
             tokens.insert(race, ([fm, ff], hair));
         }
     }
-    Ok((rows, displays, files, names, tokens))
+    Ok((
+        rows,
+        displays,
+        files,
+        names,
+        tokens,
+        raw_displays,
+        complete_records,
+    ))
 }
 
 /// CharBaseInfo → its (race, class) rows in file order: two one-byte fields, parsed by hand off the
@@ -902,3 +1015,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "native_player_display_tests.rs"]
+mod native_player_display_tests;

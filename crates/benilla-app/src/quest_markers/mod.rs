@@ -510,6 +510,10 @@ fn re_seat_cards(
     }
 }
 
+/// Creates on-demand rig anchors before consumers sample attached world positions.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct QuestMarkerBuildSet;
+
 pub(crate) struct QuestMarkersPlugin;
 
 impl Plugin for QuestMarkersPlugin {
@@ -519,7 +523,7 @@ impl Plugin for QuestMarkersPlugin {
             (
                 query_statuses,
                 sync_markers,
-                build_markers,
+                build_markers.in_set(QuestMarkerBuildSet),
                 pose_markers,
                 bake_seat_scale,
             )

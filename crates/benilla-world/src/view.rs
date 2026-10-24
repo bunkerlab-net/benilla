@@ -376,8 +376,10 @@ pub(crate) fn plugin(app: &mut App) {
         Update,
         publish_camera_pose
             .in_set(CameraPoseSet)
-            // After the controller writes this frame's `Transform`.
-            .after(crate::schedule::WorldStage::Input),
+            // Publish the controller's current root-camera pose before the public presentation
+            // stage, so game consumers need not name this engine-internal synchronization set.
+            .after(crate::schedule::WorldStage::Input)
+            .before(crate::schedule::WorldStage::Present),
     );
 }
 
@@ -429,9 +431,10 @@ mod tests {
         );
     }
 
-    /// [`CameraPoseSet`]'s contract: a reader ordered after it sees this frame's teleport snap.
+    /// The public presentation stage supplies this frame's root-camera teleport snap without
+    /// requiring a game consumer to name the engine's internal [`CameraPoseSet`].
     #[test]
-    fn a_reader_after_the_pose_set_sees_this_frames_camera() {
+    fn a_reader_in_present_sees_this_frames_camera() {
         #[derive(Resource, Default)]
         struct Seen(Vec3);
 
@@ -454,7 +457,10 @@ mod tests {
             snap_the_camera.in_set(crate::schedule::WorldStage::Input),
         );
         plugin(&mut app);
-        app.add_systems(Update, read_the_pose.after(CameraPoseSet));
+        app.add_systems(
+            Update,
+            read_the_pose.in_set(crate::schedule::WorldStage::Present),
+        );
         app.world_mut().spawn((
             WorldCamera,
             Transform::default(),

@@ -35,7 +35,9 @@ fn install_glue_side_vm(world: &mut World, screen: super::glue::GlueScreen) {
         false
     };
     if stock_asked && !stock_up {
-        error!("ui_script: WOW_GLUE_STOCK=1 but the stock glue VM did not come up with its character select screen; the roster is fetched at the park");
+        error!(
+            "ui_script: WOW_GLUE_STOCK=1 but the stock glue VM did not come up with its character select screen; the roster is fetched at the park"
+        );
     }
     if let Some(policy) = world.get_resource::<crate::net::RosterPolicy>() {
         policy
@@ -133,7 +135,7 @@ fn seed_agreements(world: &mut World, script: &mut UiScript) {
 
 /// A fresh VM from `make` on the process clock with the addon asset probes wired, or `None` (the
 /// world's VM removed) when the VM cannot start.
-fn new_vm<E: std::fmt::Display>(
+pub(super) fn new_vm<E: std::fmt::Display>(
     world: &mut World,
     make: fn() -> Result<UiScript, E>,
 ) -> Option<UiScript> {
@@ -245,6 +247,7 @@ pub(crate) struct ParkedBootVm(UiScript);
 
 /// `OnEnter(InWorld)`: arm the deferred entry load and park the boot VM.
 pub(crate) fn arm_entry_ui_load(world: &mut World) {
+    super::login_options::close(world);
     world.insert_resource(PendingEntryUiLoad);
     if let Some(vm) = world.remove_non_send_resource::<UiScript>() {
         world.insert_non_send_resource(ParkedBootVm(vm));
@@ -341,7 +344,7 @@ pub(crate) fn run_pending_entry_load(world: &mut World) {
 /// full-screen `BlackoutWorld` from `GetScreenWidth()` and `GetScreenHeight()` and never again
 /// (`WorldMapFrame.lua:19-28`), which answer the root while `UIParent` is still at scale 1. With no
 /// atlas yet (it bakes on the first `Update`) the per-frame pass seats the measurer.
-fn seat_raster_seam_for_load(world: &mut World, script: &mut UiScript) {
+pub(super) fn seat_raster_seam_for_load(world: &mut World, script: &mut UiScript) {
     let (w, h) = {
         let mut q = world.query_filtered::<&Window, With<bevy::window::PrimaryWindow>>();
         q.single(world)
@@ -947,6 +950,7 @@ pub(crate) fn shutdown_on_exit(
     if exits.get_mut(world).read().next().is_none() {
         return;
     }
+    super::login_options::close(world);
     let in_world = world
         .get_resource::<State<crate::char_select::ClientState>>()
         .is_some_and(|s| *s.get() == crate::char_select::ClientState::InWorld);

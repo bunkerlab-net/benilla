@@ -1,0 +1,175 @@
+{
+  "cmangos_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "scope": "Two independent live original PathFinder/query allocations, each cold-policy entry then retained straight",
+  "initial_policy": "cmangos-buildpolypath-zero-distance-v1",
+  "original_cold": "undefined-not-invoked-no-parity-claim",
+  "query_nodes": 1024,
+  "include_filter": 13,
+  "exclude_filter": 0,
+  "point_limit": 74,
+  "straight_line": true,
+  "use_straight_path": false,
+  "optimize": false,
+  "normalize_z": false,
+  "ignore_normalization": false,
+  "force_destination": false,
+  "collision_width_bits": "3e000000",
+  "previous_type": "actual preceding terminal, never seeded/reset",
+  "source_hashes": {
+    "LICENSE": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+    "dep/g3dlite/G3D/Array.h": "dc686928f94db32c4910a7802950d4a9a311fb2a439092493c7ad450bbb361a4",
+    "dep/g3dlite/G3D/BinaryFormat.h": "5dadf9080dcef4734ad1fdfc282326b1dfd656cf9c21cc06fbdf2905337e4bec",
+    "dep/g3dlite/G3D/Crypto.h": "f1b4b2b01472cf67d75c297aac276accd0144e086d3062b316e3e50dee1ee61a",
+    "dep/g3dlite/G3D/EqualsTrait.h": "4d9e291c6e32c8bd36cf8138d22b607391506a36bf881f9cb83ce57693e90495",
+    "dep/g3dlite/G3D/G3DGameUnits.h": "13b46825b01c316b3eb38c1ac8e2495da77d7f3d36226e5c6e2b14b223a78adc",
+    "dep/g3dlite/G3D/HashTrait.h": "473861cdf057ba060596e7f4c9c4bd4c5cd1b1fb4a53e3ec388cc46d3bb34dfb",
+    "dep/g3dlite/G3D/MemoryManager.h": "74cf6d697a9baca414af47495f8958394bfe1cc07719fcf2ceb53d765f4823c3",
+    "dep/g3dlite/G3D/PositionTrait.h": "b0d9a8b1d7a0a7f832e71bae180afdaf70fbbefbd0e8572cdfe219102aa3fa12",
+    "dep/g3dlite/G3D/Random.h": "57be92addeaeb2b213b00b903c1a24df02608aecdb6d64aff2157204a867fddd",
+    "dep/g3dlite/G3D/ReferenceCount.h": "7952f5aa124f2aaf27cbc5639cc3b9b407996053ca3aa2cb2b95a3553b66a9d8",
+    "dep/g3dlite/G3D/System.h": "bc7832b3fb9a5f7fc9d0e57b95170c2d2690f87053b60b1a0d60348d10ab6e1d",
+    "dep/g3dlite/G3D/Table.h": "a2ec597f48c9039a07d71a42b4000c813dd1bbd19ec4dc23758f610f05b9ccc6",
+    "dep/g3dlite/G3D/Vector2.h": "b3b5d611c9a7175d77c7fd82ebb67d85a3b0c8ef3af75835c6deb9438d1f366b",
+    "dep/g3dlite/G3D/Vector2int16.h": "f04f3898fa35ecae7a03fd977d7af1f90673ee5551249b55409fa00c1de91666",
+    "dep/g3dlite/G3D/Vector3.h": "75b8fa263ade1337c4a06d5e6918aa0a7d28bcb107ed405487e62235838125e2",
+    "dep/g3dlite/G3D/debug.h": "00f40aded3dde87eb5a43cd7164f6a9da73e8c1287d047ef4a72235f1693952e",
+    "dep/g3dlite/G3D/debugAssert.h": "f5ddb0467e799126015f10bdb4b6e7fc0e4bfb32efddc0c42e682a11a704c3f9",
+    "dep/g3dlite/G3D/debugPrintf.h": "526abd96b9eab55cefd31ce37abce7b4f841eca2afbfdb44eacd95b43485fa98",
+    "dep/g3dlite/G3D/format.h": "ba30b900fb32d0bb900e8d7ddafcee888468eb2fbbd5e6df2d268a828fd11edf",
+    "dep/g3dlite/G3D/g3dmath.h": "61503fbfe922cceaab848ba6571a67f9001ae1023684ad6625cb173e42f17b2f",
+    "dep/g3dlite/G3D/platform.h": "1e4ee53fd35fa4f8c19e4fc113b07825ecaf9bccc950b723cd636e021a925f65",
+    "dep/g3dlite/G3D/uint128.h": "77545b3f13112c5b30c56d47da8ecce3d1b2daab8d733363924a23938d8f9c4d",
+    "dep/g3dlite/license.cpp": "97b06b65ba383e1a7841d03834cf7f22b0005a54d9ac07b9e608ffb8d15ebce3",
+    "dep/recastnavigation/Detour/Include/DetourAlloc.h": "5f617c7f162069c395d7edfc59f0e06a9b6afaf6698de8fd674c80f00056ab71",
+    "dep/recastnavigation/Detour/Include/DetourAssert.h": "5c9ba991780904dba813c43d2f21b021b3149c460385c5aedc27a480b61de311",
+    "dep/recastnavigation/Detour/Include/DetourCommon.h": "24d69468f73782718855b3691ae348e50437febc7594635b37a940f1c0c8db46",
+    "dep/recastnavigation/Detour/Include/DetourMath.h": "f8c4e9d51a526ec5c38c01e48a035e50c6acaa1d0dd69ffa66209cb092d4cac7",
+    "dep/recastnavigation/Detour/Include/DetourNavMesh.h": "26c4268830b800659798a3e652b3a5f89b0c7eaffc141306dec4fec960bec481",
+    "dep/recastnavigation/Detour/Include/DetourNavMeshBuilder.h": "39fde320de4931e85949215ca9395e1027980572afe4962dfbc7d02804131798",
+    "dep/recastnavigation/Detour/Include/DetourNavMeshQuery.h": "7fec77b2d0f0ed8d588fb271a01da41943d4cd9b33d0809e761083950e2d625d",
+    "dep/recastnavigation/Detour/Include/DetourNode.h": "7c295c61f09dff0de42bdcc873a5d698d687bb2052aca8b293425c0ef0444a9e",
+    "dep/recastnavigation/Detour/Include/DetourStatus.h": "7255e33173c4bdb26f4224514d098fdc5c31e19cd80263a4e56475627602ade9",
+    "dep/recastnavigation/Detour/Source/DetourAlloc.cpp": "ddf4d9857e9e1714daa9dd9b687ac8139085cc602359db0dba4f1dedbedc69c1",
+    "dep/recastnavigation/Detour/Source/DetourAssert.cpp": "d7e05a59d390b02c3d7b2c3bbdf5c243f11ea36962243600c5acb26cdb80f796",
+    "dep/recastnavigation/Detour/Source/DetourCommon.cpp": "c28eb2d5fd251e1b2e24a7c03a679ff82684e51a0ce95db3cf457fda60362008",
+    "dep/recastnavigation/Detour/Source/DetourNavMesh.cpp": "e82c9a13cf01bea8ef0c6bcc50cef41f7604ce7343a70ef04a8bdc48be21a26a",
+    "dep/recastnavigation/Detour/Source/DetourNavMeshBuilder.cpp": "bbe5adf461cae282291e498db50550eb3a12706e352dd83021165d38950119f3",
+    "dep/recastnavigation/Detour/Source/DetourNavMeshQuery.cpp": "fb3f040b35633ad01dfec2a18e1dd1433b10ede69780dddf65bd0a016af0183b",
+    "dep/recastnavigation/Detour/Source/DetourNode.cpp": "067ffb9a81f7315f2253ff217263acb1c01590d130e01d4de4500308d756132b",
+    "dep/recastnavigation/License.txt": "5881db2682bc4871837e36b5af4460f59905a7944848221406f841eaa3fda8c4",
+    "src/game/MotionGenerators/MoveMap.cpp": "c50d5d5c501613099d4d84af586afcc8cb67389c7a634a639248749c698f2e8a",
+    "src/game/MotionGenerators/PathFinder.cpp": "0fc2684275621af341e104d7593c7f66e5baa6251e088548deb5c547625294ef",
+    "src/game/MotionGenerators/PathFinder.h": "5c98dfd9a7d28a5faf3a86866baf056cd6df40c06f4816f64070a92d4a89773b",
+    "src/game/MotionGenerators/TargetedMovementGenerator.cpp": "eaa569e520a7b7a37d3011822e0381d41ab49b9f2dc6ffa1e43d6344bc14ff15",
+    "src/game/Movement/MoveSplineInitArgs.h": "208d04b71cd4a293238fcecb1055dded216e924892f0cc1cfc8620611167c461",
+    "src/game/World/World.h": "3fa53d2883533f4d205c9aeaf13af224670d12f5e623cc1fd79dc9eca4de16a3"
+  },
+  "local_dependency_hashes": {
+    "straight_path_generate.py": "f937b3621b49175348ce2174d26f4b916245daeef8452f186f571f8a45517c3c",
+    "straight_path_oracle.cpp": "3aa958bd2f8521e8e02179cbb3f7a435bb5fc69d6230b51011304a1f115d367d",
+    "straight_path_source_hashes.sha256": "ec7e65157914850899f5b8238f5c1057c42eb79a0f12ec261b377b7313fe6bd2",
+    "straight_path_input_hashes.sha256": "ce717048b057a3a4bd74619f1534c057b8870ba4fd713a43bf1528ef84a86490",
+    "straight_path_source_fragments.test-fixture": "889f906e2d020388eaf5be43dff551eea763262d55dbc32395e1ad77f454ac40",
+    "cold_same_poly_generate.py": "7afb20590337a65b74abb5e65818a5ec0d8f6fbea22e638762982639f0ab545b",
+    "cold_same_poly_oracle.cpp": "9846ce4e3a750ba26f5554253f439563b80124809e440bd67caee97498ec8a77",
+    "cold_same_poly_source_fragments.test-fixture": "a3c02b35e7df0e3afd9b2c1b5d2d7cf68e62e2db7d2b46c7e2338a4d933b5264",
+    "cold_distance_generate.py": "21c7aee25fe9ed9f40439ecfa1d8b879354faa19ee3c2f4ca91d95c04436f7d4",
+    "cold_distance_input_hashes.sha256": "f3e2228c134f1bcd05a9d237b98eef3cd4913cac018e6ae55e219591e73b511b",
+    "point_path_generate.py": "def58b88922714127fc1c805bf90bf594bfa040bff037ef6bc423c724f4e760f",
+    "point_path_oracle.cpp": "9436776ed028eb708ed19af1ef3cd95364310b0433da4233c0e9c3de846cc7b3",
+    "point_path_source_hashes.sha256": "eb9e1c2ca53ea330270594e89ae2669c82e34e19e0f89526cad8451607b04601",
+    "point_path_input_hashes.sha256": "4d094a4b038b62d2475bf260e60f397ce1a9bbde3d56a8d5c6d815bfae366e3d",
+    "point_path_source_fragments.test-fixture": "f713bd64f114b99b54cccf0738f5200a540efcd6549e7c6f520dcbc446e1174e",
+    "retained_straight_origin_generate.py": "3b3ea8faafd31b8a4380b9632b51f2ed5eb91dbf4933061c9d2124b78e50dc1e",
+    "retained_straight_origin_oracle.cpp": "df8b33eeb0bbf94c475e911816966203c675d770ab0e95774b10c42d1ad0d79e"
+  },
+  "authored_input_hashes": {
+    "direct-corridor/params.test-fixture": "982c1ba0cc647668599a4f1ab17d2bf5612a9714c011d508ad18929884c6be2a",
+    "warm-cache/precision.test-fixture": "4a05137e1f45919c1f43e52f163af53d49a76b05ac1097310368b946c5d71cec"
+  },
+  "source_spans": {
+    "constructor_cache": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:37-39; PathFinder.h:115-120",
+      "sha256": "dd96e86cc09bf72ad9ab7b8c793103f9a1919a064a75242679505c0f865f2563"
+    },
+    "retained_prefix": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:410-415",
+      "sha256": "984b2022eb02a6a740ec51340e249d36c5d1c5cd3b24c5b2486b56ecbb9c692d"
+    },
+    "far_predicate": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:452",
+      "sha256": "6a8a93695150a67cb9de99baa8f8d50b27f90a325282d1b1ad2c0199a04ff0c9"
+    },
+    "cold_method": {
+      "source": "existing cold_same_poly source projection",
+      "sha256": "9a970d1ca016392182b8f6a1d9cd4c3b4124c93a7b9974144eae295843723b36"
+    },
+    "dtPolyRef PathFinder::getPathPolyByPosition(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:306",
+      "sha256": "97b654a62a8c1b353f81a9f21a7bb8ac60c7fe476b68bf987467d08dd0618db3"
+    },
+    "dtPolyRef PathFinder::getPolyByLocation(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:337",
+      "sha256": "c0c96d9f85af0e592f954f62a8cad251dd4a3f5319c15e12b2063b4ba26670ba"
+    },
+    "void PathFinder::BuildPointPath(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:795",
+      "sha256": "286f02c02b141215e061cc78b53e7f14ccd98863bd10c422ee09549f07c54547"
+    },
+    "void PathFinder::NormalizePath(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:988",
+      "sha256": "c7f8e41d5340edbd04eb273a74ebaaf4111b784ced03f7d326e818a43a32b991"
+    },
+    "void PathFinder::BuildShortcut(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:1005",
+      "sha256": "97808dc87a7e9eb3e4c8bd8739fc8679c7a4a6184a8c4883fe93c960e5b9ea42"
+    },
+    "uint32 PathFinder::fixupCorridor(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:1141",
+      "sha256": "df99f4544e78b68ebd430e83d01733c37ea9f0602fd9114652c3413e2afcccc0"
+    },
+    "bool PathFinder::getSteerTarget(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:1189",
+      "sha256": "8d52c801750fd25487c0d5d50e4221f8eef3ed212e4750df280838aae89df0a1"
+    },
+    "dtStatus PathFinder::findSmoothPath(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:1226",
+      "sha256": "116091de1fdcd6b5e95d54cd6b04164653123c003b2eafd8539a7b871c7ae778"
+    },
+    "bool PathFinder::inRangeYZX(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:1438",
+      "sha256": "47979beaf8e232b22b133ebf5899efb987346afe8ee3f46ea7721fd596f79d0f"
+    },
+    "bool PathFinder::inRange(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:1446",
+      "sha256": "5d4701c20f7ff72299b1d7ac9d290b4efa3a7c044f3029377065d5f15d51763d"
+    },
+    "float PathFinder::dist3DSqr(": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:1452",
+      "sha256": "0f7f40b17700e5e13890f07f7b44c18bae926137d79fadd395efef384dcea0f4"
+    },
+    "selected_suffix": {
+      "source": "src/game/MotionGenerators/PathFinder.cpp:506-792",
+      "sha256": "2002a9086211e1df3083575904ca0deae1c3d41dde0c240b1e53f50249431fe6"
+    }
+  },
+  "harness_sha256": "73022755c169ee9bef688089a04a080ea7017cc8014078c0e1c6c36aecfc52e7",
+  "source_package_sha256": "eba18caa60aa0c691cbfd943092d39fbc9e88afa5e36837772441b267b078d23",
+  "excluded": [
+    "original uninitialized cold caller",
+    "complete owner constructor",
+    "default-query-pointer repair",
+    "complete Calculate/BuildPolyPath",
+    "owner collision-width derivation",
+    "active normalization/world callbacks",
+    "smooth fallback",
+    "Route/gameplay admission"
+  ],
+  "lifetime_caveat": "Unchanged original dtMeshTile raw-storage lane is empirical, not a standards-defined lifetime proof",
+  "output_hashes": {
+    "cases.test-fixture": "58e446d11832ca668f7ee2af734a8f12caf2d3101726f43b710fefdf293a08b5",
+    "traces.test-fixture": "95bce9f8bd4876f10e10544b3eb7143d9784bacbed8128d218af077327e8c365"
+  },
+  "case_count": 5,
+  "trace_count": 32
+}

@@ -559,6 +559,11 @@ impl GlueCreate {
             v = 0;
         }
         obj.dials[which] = v;
+        if which == HAIR_STYLE {
+            // A colour must belong to the newly selected style's CharSections grid.
+            let colors = self.catalog.count(obj.race, obj.sex, HAIR_COLOR, v);
+            obj.dials[HAIR_COLOR] = obj.dials[HAIR_COLOR].clamp(0, colors.saturating_sub(1).max(0));
+        }
     }
 
     /// `RandomizeCharCustomization`'s body (`0x471080`): five fresh customizations for the

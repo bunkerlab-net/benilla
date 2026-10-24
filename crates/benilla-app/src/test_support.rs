@@ -120,9 +120,12 @@ pub(crate) fn runs_before<MA, MB>(
     // `Schedules`, which a resource scope refuses.
     app.world_mut()
         .schedule_scope(bevy::app::Update, |world, schedule| {
-            schedule
-                .initialize(world)
-                .expect("the Update schedule builds");
+            schedule.initialize(world).unwrap_or_else(|error| {
+                panic!(
+                    "the Update schedule builds: {}",
+                    error.to_string(schedule.graph(), world)
+                )
+            });
             let key = |id: TypeId| -> NodeId {
                 schedule
                     .systems()

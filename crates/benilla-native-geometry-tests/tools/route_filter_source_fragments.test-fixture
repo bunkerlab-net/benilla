@@ -1,0 +1,336 @@
+// CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f; unchanged source fragments.
+// Test-only scalar observer; no loaded geometry or route admission proof.
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+// BEGIN src/game/MotionGenerators/MoveMapSharedDefines.h
+enum NavArea
+{
+    NAV_AREA_EMPTY          = 0,
+    // areas 1-60 will be used for destructible areas (currently skipped in vmaps, WMO with flag 1)
+    // ground is the highest value to make recast choose ground over water when merging surfaces very close to each other (shallow water would be walkable)
+    NAV_AREA_GROUND         = 11,
+    NAV_AREA_GROUND_STEEP   = 10, // unused in cmangos - keeping it for structure
+    NAV_AREA_WATER          = 9,
+    NAV_AREA_MAGMA_SLIME    = 8, // don't need to differentiate between them
+    NAV_AREA_MAX_VALUE      = NAV_AREA_GROUND,
+    NAV_AREA_MIN_VALUE      = NAV_AREA_MAGMA_SLIME,
+    NAV_AREA_ALL_MASK       = 0x3F // max allowed value
+};
+// END src/game/MotionGenerators/MoveMapSharedDefines.h
+
+// BEGIN src/game/MotionGenerators/MoveMapSharedDefines.h
+enum NavTerrainFlag
+{
+    NAV_EMPTY        = 0x00,
+    NAV_GROUND       = 1 << (NAV_AREA_MAX_VALUE - NAV_AREA_GROUND),
+    NAV_GROUND_STEEP = 1 << (NAV_AREA_MAX_VALUE - NAV_AREA_GROUND_STEEP),
+    NAV_WATER        = 1 << (NAV_AREA_MAX_VALUE - NAV_AREA_WATER),
+    NAV_MAGMA_SLIME  = 1 << (NAV_AREA_MAX_VALUE - NAV_AREA_MAGMA_SLIME)
+};
+// END src/game/MotionGenerators/MoveMapSharedDefines.h
+
+// BEGIN src/game/Entities/ObjectGuid.h
+enum TypeID
+{
+    TYPEID_OBJECT        = 0,
+    TYPEID_ITEM          = 1,
+    TYPEID_CONTAINER     = 2,
+    TYPEID_UNIT          = 3,
+    TYPEID_PLAYER        = 4,
+    TYPEID_GAMEOBJECT    = 5,
+    TYPEID_DYNAMICOBJECT = 6,
+    TYPEID_CORPSE        = 7
+};
+// END src/game/Entities/ObjectGuid.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+enum GridMapLiquidStatus
+{
+    LIQUID_MAP_NO_WATER = 0x00000000,
+    LIQUID_MAP_ABOVE_WATER = 0x00000001,
+    LIQUID_MAP_WATER_WALK = 0x00000002,
+    LIQUID_MAP_IN_WATER = 0x00000004,
+    LIQUID_MAP_UNDER_WATER = 0x00000008
+};
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+struct GridMapLiquidData
+{
+    uint32 type_flags;
+    uint32 entry;
+    float level;
+    float depth_level;
+};
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+#define MAP_LIQUID_TYPE_NO_WATER    0x00
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+#define MAP_LIQUID_TYPE_MAGMA       0x01
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+#define MAP_LIQUID_TYPE_OCEAN       0x02
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+#define MAP_LIQUID_TYPE_SLIME       0x04
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+#define MAP_LIQUID_TYPE_WATER       0x08
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/Maps/GridMapDefines.h
+#define MAP_ALL_LIQUIDS   (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_MAGMA | MAP_LIQUID_TYPE_OCEAN | MAP_LIQUID_TYPE_SLIME)
+// END src/game/Maps/GridMapDefines.h
+
+// BEGIN src/game/MotionGenerators/PathFinder.cpp
+void PathFinder::createFilter()
+{
+    uint16 includeFlags = 0;
+    uint16 excludeFlags = 0;
+
+#ifdef ENABLE_PLAYERBOTS
+    if (!m_sourceUnit || m_sourceUnit->GetTypeId() == TYPEID_PLAYER)
+    {
+        // perfect support not possible, just stay 'safe'
+        if (!m_sourceUnit || ((Player*)m_sourceUnit)->GetPlayerbotAI()) //Blank or bot-navigation
+        {
+            includeFlags |= (NAV_GROUND | NAV_WATER);
+            excludeFlags |= (NAV_MAGMA_SLIME | NAV_GROUND_STEEP);
+
+            m_filter.setAreaCost(9, 20.0f);  //Water
+            m_filter.setAreaCost(12, 5.0f);  //Mob proximity
+            m_filter.setAreaCost(13, 20.0f); //Mob aggro
+        }
+        else
+        {
+            includeFlags |= (NAV_GROUND | NAV_WATER | NAV_GROUND_STEEP);
+            excludeFlags |= (NAV_MAGMA_SLIME);
+        }
+    }
+    else if (m_sourceUnit->GetTypeId() == TYPEID_UNIT)
+    {
+        Creature* creature = (Creature*)m_sourceUnit;
+        if (creature->CanWalk())
+            includeFlags |= (NAV_GROUND | NAV_GROUND_STEEP);          // walk
+
+        // creatures don't take environmental damage
+        if (creature->CanSwim())
+            includeFlags |= (NAV_WATER | NAV_MAGMA_SLIME);           // swim
+    }
+#else
+    if (m_sourceUnit->GetTypeId() == TYPEID_UNIT)
+    {
+        Creature* creature = (Creature*)m_sourceUnit;
+        if (creature->CanWalk())
+            includeFlags |= NAV_GROUND;          // walk
+
+        // creatures don't take environmental damage
+        if (creature->CanSwim())
+            includeFlags |= (NAV_WATER | NAV_MAGMA_SLIME);           // swim
+    }
+    else if (m_sourceUnit->GetTypeId() == TYPEID_PLAYER)
+    {
+        // perfect support not possible, just stay 'safe'
+        includeFlags |= (NAV_GROUND | NAV_WATER);
+    }
+#endif
+
+    m_filter.setIncludeFlags(includeFlags);
+    m_filter.setExcludeFlags(excludeFlags);
+
+    updateFilter();
+}
+// END src/game/MotionGenerators/PathFinder.cpp
+
+// BEGIN src/game/MotionGenerators/PathFinder.cpp
+void PathFinder::updateFilter()
+{
+    // allow creatures to cheat and use different movement types if they are moved
+    // forcefully into terrain they can't normally move in
+    if (m_sourceUnit && (m_sourceUnit->IsInWater() || m_sourceUnit->IsUnderwater()))
+    {
+        uint16 includedFlags = m_filter.getIncludeFlags();
+        includedFlags |= getNavTerrain(m_sourceUnit->GetPositionX(),
+                                       m_sourceUnit->GetPositionY(),
+                                       m_sourceUnit->GetPositionZ());
+
+        m_filter.setIncludeFlags(includedFlags);
+    }
+}
+// END src/game/MotionGenerators/PathFinder.cpp
+
+// BEGIN src/game/MotionGenerators/PathFinder.cpp
+NavTerrainFlag PathFinder::getNavTerrain(float x, float y, float z) const
+{
+    GridMapLiquidData data;
+    if (m_sourceUnit && m_sourceUnit->GetTerrain()->getLiquidStatus(x, y, z, MAP_ALL_LIQUIDS, &data) == LIQUID_MAP_NO_WATER)
+        return NAV_GROUND;
+
+    switch (data.type_flags)
+    {
+        case MAP_LIQUID_TYPE_WATER:
+        case MAP_LIQUID_TYPE_OCEAN:
+            return NAV_WATER;
+        case MAP_LIQUID_TYPE_MAGMA:
+        case MAP_LIQUID_TYPE_SLIME:
+            return NAV_MAGMA_SLIME;
+        default:
+            return NAV_GROUND;
+    }
+}
+// END src/game/MotionGenerators/PathFinder.cpp
+
+// BEGIN src/game/Entities/Unit.cpp
+bool Unit::IsInWater() const
+{
+    return GetTerrain()->IsInWater(GetPositionX(), GetPositionY(), GetPositionZ());
+}
+// END src/game/Entities/Unit.cpp
+
+// BEGIN src/game/Entities/Unit.cpp
+bool Unit::IsUnderwater() const
+{
+    return GetTerrain()->IsUnderWater(GetPositionX(), GetPositionY(), GetPositionZ());
+}
+// END src/game/Entities/Unit.cpp
+
+// BEGIN src/game/Maps/GridMap.cpp
+bool TerrainInfo::CanCheckLiquidLevel(float x, float y) const
+{
+    if (m_vmgr->isHeightCalcEnabled())
+        return true;
+
+    return const_cast<TerrainInfo*>(this)->GetGrid(x, y);
+}
+// END src/game/Maps/GridMap.cpp
+
+// BEGIN src/game/Maps/GridMap.cpp
+bool TerrainInfo::IsInWater(float x, float y, float z, GridMapLiquidData* data) const
+{
+    // Check surface in x, y point for liquid
+    if (CanCheckLiquidLevel(x, y))
+    {
+        GridMapLiquidData liquid_status;
+        GridMapLiquidData* liquid_ptr = data ? data : &liquid_status;
+        if (getLiquidStatus(x, y, z, MAP_ALL_LIQUIDS, liquid_ptr))
+        {
+            // if (liquid_prt->level - liquid_prt->depth_level > 2) //???
+            return true;
+        }
+    }
+    return false;
+}
+// END src/game/Maps/GridMap.cpp
+
+// BEGIN src/game/Maps/GridMap.cpp
+bool TerrainInfo::IsUnderWater(float x, float y, float z, float* pWaterZ/*= nullptr*/) const
+{
+    if (CanCheckLiquidLevel(x, y))
+    {
+        GridMapLiquidData mapData;
+
+        if (getLiquidStatus(x, y, z, MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN, &mapData) & LIQUID_MAP_UNDER_WATER)
+        {
+            if (pWaterZ)
+                *pWaterZ = mapData.level;
+
+            return true;
+        }
+    }
+    return false;
+}
+// END src/game/Maps/GridMap.cpp
