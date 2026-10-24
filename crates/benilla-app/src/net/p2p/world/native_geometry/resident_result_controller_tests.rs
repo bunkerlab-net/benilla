@@ -73,7 +73,20 @@ impl Authority for ControllerAuthority {
         match &request.query {
             Query::PlayerEnvironment(_)
             | Query::SourceMotion(MotionQuery::Route(_) | MotionQuery::NearPoint(_)) => {
-                self.resident.resolve(request)
+                let result = self.resident.resolve(request);
+                if let Err(error) = &result {
+                    let kind = match &request.query {
+                        Query::PlayerEnvironment(_) => "PlayerEnvironment",
+                        Query::SourceMotion(MotionQuery::NearPoint(_)) => "NearPoint",
+                        Query::SourceMotion(MotionQuery::Route(_)) => "Route",
+                        _ => unreachable!(),
+                    };
+                    eprintln!(
+                        "resident controller authority refused: tick={} kind={kind} error={error:?}",
+                        request.binding.tick,
+                    );
+                }
+                result
             }
             Query::SourceMotion(MotionQuery::Spatial(motion::Query::Bearing(bearing))) => {
                 let angle = benilla_sim::facing::bearing_bits(
@@ -312,7 +325,17 @@ fn run(mode: Mode) {
                             assert_eq!(driver.pending_inputs().unwrap(), pending);
                             out = driver.pump_zero();
                         }
-                        assert_eq!(out.ticks, 1);
+                        assert_eq!(
+                            out.ticks,
+                            1,
+                            "controller tick={} pause={:?} pending_ticks={} routes={} callbacks={} ACKs={}",
+                            driver.tick(),
+                            out.pause,
+                            out.pending_ticks,
+                            worker_routes.load(Ordering::SeqCst),
+                            worker_calls.load(Ordering::SeqCst),
+                            worker_acks.load(Ordering::SeqCst),
+                        );
                         let saved = if blocked {
                             failures += 1;
                             assert!(matches!(
