@@ -13,6 +13,8 @@ use benilla_native_vmap_source::AssembledSourceMap;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, time::Instant};
 mod environment;
+#[cfg(test)]
+pub(crate) mod freshness_timings;
 mod initialization;
 #[cfg(test)]
 pub(crate) mod owned;
@@ -173,11 +175,28 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
         &self,
         cancelled: impl Fn() -> bool,
     ) -> Result<(), CompositionError> {
+        #[cfg(test)]
+        let total = freshness_timings::Timer::start(freshness_timings::Phase::Total);
         check(&cancelled)?;
+        #[cfg(test)]
+        let terrain = freshness_timings::Timer::start(freshness_timings::Phase::Terrain);
         verify_terrain_source(self.terrain, &cancelled)?;
+        #[cfg(test)]
+        terrain.finish(true);
+        #[cfg(test)]
+        let collision = freshness_timings::Timer::start(freshness_timings::Phase::Collision);
         self.collision
             .verify_unchanged(&cancelled)
             .map_err(CompositionError::Collision)?;
+        #[cfg(test)]
+        collision.finish(true);
+        #[cfg(test)]
+        {
+            let result = check(&cancelled);
+            total.finish(result.is_ok());
+            result
+        }
+        #[cfg(not(test))]
         check(&cancelled)
     }
     pub(crate) fn query(

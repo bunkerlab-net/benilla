@@ -10,7 +10,7 @@ use super::{
     },
     products::{
         source_height::{
-            inventory::OwnedInventoryCompatibility, owned::OwnedSourceProducts,
+            freshness_timings, inventory::OwnedInventoryCompatibility, owned::OwnedSourceProducts,
             ResidentInitializationConfiguration,
         },
         vmap::installed_source_fixture as input,
@@ -569,14 +569,16 @@ fn run(mode: Mode) {
                                     .id();
                                 geometry.advance_physics();
                                 let certification_started = Instant::now();
-                                let refused = owner.certify_observed_result(
-                                    observation,
-                                    job,
-                                    geometry.app.world_mut(),
-                                    &installed,
-                                );
+                                let (refused, freshness) = freshness_timings::measure(|| {
+                                    owner.certify_observed_result(
+                                        observation,
+                                        job,
+                                        geometry.app.world_mut(),
+                                        &installed,
+                                    )
+                                });
                                 eprintln!(
-                                    "resident controller changed-physics certification: tick={} elapsed_ms={} success={}",
+                                    "resident controller changed-physics certification: tick={} elapsed_ms={} success={} freshness={freshness:?}",
                                     request.binding.tick,
                                     certification_started.elapsed().as_millis(),
                                     refused.is_ok(),
@@ -594,15 +596,17 @@ fn run(mode: Mode) {
                             }
                             geometry.advance_physics();
                             let certification_started = Instant::now();
-                            let result = owner
-                                .certify_observed_result(
-                                    observation.map_err(|_| Failure::Binding)?,
+                            let observation = observation.map_err(|_| Failure::Binding)?;
+                            let (result, freshness) = freshness_timings::measure(|| {
+                                owner.certify_observed_result(
+                                    observation,
                                     job,
                                     geometry.app.world_mut(),
                                     &installed,
-                                );
+                                )
+                            });
                             eprintln!(
-                                "resident controller certification: tick={} elapsed_ms={} success={}",
+                                "resident controller certification: tick={} elapsed_ms={} success={} freshness={freshness:?}",
                                 request.binding.tick,
                                 certification_started.elapsed().as_millis(),
                                 result.is_ok(),
