@@ -252,6 +252,7 @@ fn run(mode: Mode) {
             let mut selection = ResidentFifoSelection::new(&mailbox).unwrap();
             let routes = Arc::new(AtomicUsize::new(0));
             let calls = Arc::new(AtomicUsize::new(0));
+            let environment_calls = Arc::new(AtomicUsize::new(0));
             let acks = Arc::new(AtomicUsize::new(0));
             let mut notices: Vec<RouteCommitNotice> = Vec::new();
             let mut cold: Option<RouteCommitNotice> = None;
@@ -263,6 +264,7 @@ fn run(mode: Mode) {
             std::thread::scope(|scope| {
                 let worker_routes = routes.clone();
                 let worker_calls = calls.clone();
+                let worker_environment_calls = environment_calls.clone();
                 let worker_acks = acks.clone();
                 let worker = scope.spawn(move || {
                     let mut driver = controller_fixture
@@ -413,10 +415,30 @@ fn run(mode: Mode) {
                         if mode == Mode::ChangedSourceAck
                             && worker_routes.load(Ordering::SeqCst) == 1
                         {
+                            // Update expiry alone never queries terrain. A real accepted
+                            // SetPosition heartbeat refreshes the now-due environment,
+                            // including at the identical pose (no invented displacement).
+                            assert_eq!(
+                                driver
+                                    .state()
+                                    .player_environment()
+                                    .unwrap()
+                                    .environment()
+                                    .timer_ms(),
+                                0,
+                            );
+                            driver
+                                .queue_movement(
+                                    driver.state().position,
+                                    driver.state().orientation.as_f32(),
+                                )
+                                .unwrap();
                             let checkpoint = driver.checkpoint();
                             let generation = driver.store_generation();
                             let ack_count = worker_acks.load(Ordering::SeqCst);
                             let callbacks = worker_calls.load(Ordering::SeqCst);
+                            let environment_callbacks =
+                                worker_environment_calls.load(Ordering::SeqCst);
                             let refused = driver.pump_one();
                             assert_eq!(refused.ticks, 0);
                             assert!(refused.events.is_empty());
@@ -430,6 +452,11 @@ fn run(mode: Mode) {
                             assert!(
                                 worker_calls.load(Ordering::SeqCst) > callbacks,
                                 "the next actual controller geometry Work was serviced and refused"
+                            );
+                            assert_eq!(
+                                worker_environment_calls.load(Ordering::SeqCst),
+                                environment_callbacks + 1,
+                                "the same-pose input must request fresh PlayerEnvironment geometry"
                             );
                             break;
                         }
@@ -609,11 +636,14 @@ fn run(mode: Mode) {
                                 }
                             };
                             let facts = match &request.query {
-                                Query::PlayerEnvironment(_) => ordinary
-                                    .player_environment(player, deadline, || false)
-                                    .map_err(|_| Failure::Binding)?
-                                    .resolve(&session, request, deadline, || false)
-                                    .map_err(|_| Failure::Binding)?,
+                                Query::PlayerEnvironment(_) => {
+                                    environment_calls.fetch_add(1, Ordering::SeqCst);
+                                    ordinary
+                                        .player_environment(player, deadline, || false)
+                                        .map_err(|_| Failure::Binding)?
+                                        .resolve(&session, request, deadline, || false)
+                                        .map_err(|_| Failure::Binding)?
+                                }
                                 Query::SourceMotion(MotionQuery::NearPoint(_)) => ordinary
                                     .resolve_dry_primary_near_point(
                                         &session,
