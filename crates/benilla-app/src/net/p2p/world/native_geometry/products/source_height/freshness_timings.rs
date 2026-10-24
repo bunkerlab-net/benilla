@@ -49,6 +49,9 @@ impl Counts {
     pub(in super::super::super) fn full_resident_dispatch_calls(&self) -> usize {
         self.full_resident_dispatch.started
     }
+    pub(in super::super::super) fn full_gate_model_calls(&self) -> usize {
+        self.full_gate_model.started
+    }
     fn phase(&mut self, phase: Phase) -> &mut PhaseCounts {
         match phase {
             Phase::Total => &mut self.total,

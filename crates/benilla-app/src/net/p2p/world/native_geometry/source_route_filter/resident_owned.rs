@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Component-only retained query owner. No Service, publication callback or replacement API.
+use super::super::super::source_route_chase_gate::{gate_model, ChaseGateModel};
 use super::super::super::{
     core::resident_dispatch::ResidentDispatchJob,
     products::source_height::{
@@ -16,13 +17,15 @@ use super::*;
 use benilla_formats::NativeInventorySource;
 use benilla_world_runtime::{native::Facts, PlayerId};
 use bevy::prelude::World;
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
 /// Borrowed only by one temporary provider view. It proves immutable context
 /// validation, never source freshness, physics clearance or publication authority.
 pub(super) struct InvocationContext<'call> {
     job: &'call ResidentDispatchJob<'call>,
     lease: super::super::super::core::JobLease,
+    // Successful immutable operands only; never source or physics clearance.
+    model: RefCell<Option<ChaseGateModel>>,
 }
 impl<'call> InvocationContext<'call> {
     fn bind(
@@ -37,7 +40,40 @@ impl<'call> InvocationContext<'call> {
         Ok(Self {
             job,
             lease: job.lease(),
+            model: RefCell::new(None),
         })
+    }
+
+    pub(super) fn model_for(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        player: PlayerId,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Option<ChaseGateModel>, ResidentFilterError> {
+        if cancelled() {
+            return Err(ResidentFilterError::Source(
+                source_height::CompositionError::Cancelled,
+            ));
+        }
+        if Instant::now() >= deadline {
+            return Err(Failure::Deadline.into());
+        }
+        if !self.matches(provider, context)? || self.job.player() != player {
+            return Ok(None);
+        }
+        if let Some(model) = self.model.borrow().as_ref() {
+            return Ok(Some(model.clone()));
+        }
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        // No borrow is held while full validation runs, and failures never fill
+        // the slot. The matching proof binds the complete immutable input tuple.
+        let model = gate_model(&provider.profile, provider.session.world, player, route)?;
+        *self.model.borrow_mut() = Some(model.clone());
+        Ok(Some(model))
     }
 
     pub(super) fn matches(

@@ -40,6 +40,31 @@ pub(crate) struct ResidentChaseLosDependency {
     observation: ResidentChaseLosObservation,
 }
 impl ResidentFilterProvider<'_, '_, '_, '_> {
+    // Only bounded LOS certification uses this invocation-local operand reuse.
+    // Other callers (including historical water checks) retain the full gate.
+    pub(super) fn chase_model_for(
+        &self,
+        context: &AuthorityRequest,
+        player: PlayerId,
+        _deadline: Instant,
+        _cancelled: &impl Fn() -> bool,
+    ) -> Result<ChaseGateModel, ResidentFilterError> {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if let Some(model) = self
+            .invocation
+            .as_ref()
+            .map(|invocation| invocation.model_for(self, context, player, _deadline, _cancelled))
+            .transpose()?
+            .flatten()
+        {
+            return Ok(model);
+        }
+        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+            return Err(Failure::UnsupportedQuery.into());
+        };
+        gate_model(&self.profile, self.session.world, player, route).map_err(Into::into)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn observe_chase_los(
         &self,
@@ -140,7 +165,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         }
         // Existing source-selected model/width, generation/height and actual
         // starter-owned target-height validation. Body scalars are not operands.
-        let model = gate_model(&self.profile, self.session.world, player, route)?;
+        let model = self.chase_model_for(context, player, deadline, &cancelled)?;
         observe(0);
         self.check_context(context, deadline, &cancelled)?;
         let bits = |point: Point| [point.x.bits(), point.y.bits(), point.z.bits()];
@@ -215,10 +240,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         }
         let deadline = deadline.min(dependency.expires);
         self.check_context(context, deadline, &cancelled)?;
-        let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
-            return Err(Failure::UnsupportedQuery.into());
-        };
-        if gate_model(&self.profile, self.session.world, dependency.player, route)?
+        if self.chase_model_for(context, dependency.player, deadline, &cancelled)?
             != dependency.model
         {
             return Err(Failure::Binding.into());

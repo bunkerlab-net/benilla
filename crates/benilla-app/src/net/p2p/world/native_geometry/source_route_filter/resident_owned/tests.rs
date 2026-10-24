@@ -470,6 +470,37 @@ fn assert_full_dispatch_fallback(
     assert_eq!(counts.full_resident_dispatch_calls(), 1);
 }
 
+fn assert_model_result(
+    actual: Result<ChaseGateModel, ResidentFilterError>,
+    expected: Result<ChaseGateModel, Failure>,
+) {
+    match (actual, expected) {
+        (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+        (Err(ResidentFilterError::Context(actual)), Err(expected)) => assert_eq!(actual, expected),
+        other => panic!("model fallback differs from full validation: {other:?}"),
+    }
+}
+
+fn assert_full_model_fallback(
+    provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+    player: PlayerId,
+    deadline: Instant,
+) {
+    use super::super::super::super::products::source_height::freshness_timings;
+    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+        unreachable!()
+    };
+    let (expected, _) = freshness_timings::measure(|| {
+        gate_model(&provider.profile, provider.session.world, player, route)
+    });
+    let (actual, counts) = freshness_timings::measure(|| {
+        provider.chase_model_for(request, player, deadline, &|| false)
+    });
+    assert_model_result(actual, expected);
+    assert_eq!(counts.full_gate_model_calls(), 1);
+}
+
 // Exercise receipt reuse independently from route staging and publication.
 fn assert_invocation_context(
     owner: &mut OwnedResident,
@@ -508,6 +539,57 @@ fn assert_invocation_context(
             |provider, _, ledger| {
                 let proof = provider.invocation.as_ref().unwrap();
                 assert!(proof.matches(provider, request)?);
+                assert!(
+                    proof.model.borrow().is_none(),
+                    "model gate stays lazy at bind"
+                );
+                let mut wrong_player = f::player();
+                wrong_player.character[0] ^= 1;
+                // A mismatched player must run the full validator on every call;
+                // neither a refusal nor an unrelated success may fill this slot.
+                for _ in 0..2 {
+                    assert_full_model_fallback(provider, request, wrong_player, deadline);
+                    assert!(proof.model.borrow().is_none());
+                }
+                let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+                    unreachable!()
+                };
+                let (expected, _) = freshness_timings::measure(|| {
+                    gate_model(
+                        &provider.profile,
+                        provider.session.world,
+                        f::player(),
+                        route,
+                    )
+                });
+                let expected_model = expected.unwrap();
+                let (actual, first_model) = freshness_timings::measure(|| {
+                    provider.chase_model_for(request, f::player(), deadline, &|| false)
+                });
+                assert_eq!(actual?, expected_model);
+                assert_eq!(first_model.full_gate_model_calls(), 1);
+                let (actual, reused_model) = freshness_timings::measure(|| {
+                    provider.chase_model_for(request, f::player(), deadline, &|| false)
+                });
+                let returned = actual?;
+                assert_eq!(returned, expected_model);
+                assert_eq!(reused_model.full_gate_model_calls(), 0);
+                assert!(!std::ptr::eq(
+                    &returned,
+                    proof.model.borrow().as_ref().unwrap()
+                ));
+                drop(returned);
+                assert_eq!(proof.model.borrow().as_ref(), Some(&expected_model));
+                assert_full_model_fallback(provider, request, wrong_player, deadline);
+                assert_eq!(proof.model.borrow().as_ref(), Some(&expected_model));
+                assert!(matches!(
+                    provider.chase_model_for(request, f::player(), deadline, &|| true),
+                    Err(ResidentFilterError::Source(CompositionError::Cancelled))
+                ));
+                assert!(matches!(
+                    provider.chase_model_for(request, f::player(), Instant::now(), &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
                 let (result, repeated) = freshness_timings::measure(|| {
                     for _ in 0..3 {
                         provider.check_context(request, deadline, &|| false)?;
@@ -552,6 +634,7 @@ fn assert_invocation_context(
                 assert_context_result(actual, expected);
                 assert_eq!(fallback.context_validation_calls(), 1);
                 assert_full_dispatch_fallback(provider, &decoded, deadline);
+                assert_full_model_fallback(provider, &decoded, f::player(), deadline);
 
                 for field in 0..6 {
                     let mut changed = request.clone();
@@ -593,6 +676,7 @@ fn assert_invocation_context(
                     assert_context_result(actual, expected);
                     assert_eq!(measured.context_validation_calls(), 1);
                     assert_full_dispatch_fallback(provider, &changed, deadline);
+                    assert_full_model_fallback(provider, &changed, f::player(), deadline);
                 }
                 if let Some(historical) = historical {
                     assert!(!proof.matches(provider, historical)?);
@@ -602,6 +686,7 @@ fn assert_invocation_context(
                     actual?;
                     assert_eq!(measured.context_validation_calls(), 1);
                     assert_full_dispatch_fallback(provider, historical, deadline);
+                    assert_full_model_fallback(provider, historical, f::player(), deadline);
                 }
 
                 // Bindings are checked even if a test transplants the private proof.
@@ -617,6 +702,10 @@ fn assert_invocation_context(
                     provider.dispatch_for(request, deadline, &|| false),
                     Err(ResidentFilterError::Context(Failure::Binding))
                 ));
+                assert!(matches!(
+                    provider.chase_model_for(request, f::player(), deadline, &|| false),
+                    Err(ResidentFilterError::Context(Failure::Binding))
+                ));
                 let mut proof = provider.invocation.take().unwrap();
                 proof.lease = saved_lease;
                 provider.invocation = Some(proof);
@@ -628,6 +717,7 @@ fn assert_invocation_context(
                     .unwrap()
                     .matches(provider, request)?);
                 assert_full_dispatch_fallback(provider, request, deadline);
+                assert_full_model_fallback(provider, request, f::player(), deadline);
                 assert!(InvocationContext::bind(&job, provider).is_err());
                 provider.state.identity = saved_identity;
                 provider.state.profile.tick_ms += 1;
@@ -637,6 +727,7 @@ fn assert_invocation_context(
                     .unwrap()
                     .matches(provider, request)?);
                 assert_full_dispatch_fallback(provider, request, deadline);
+                assert_full_model_fallback(provider, request, f::player(), deadline);
                 provider.state.profile.tick_ms -= 1;
                 provider.state.session.world[0] ^= 1;
                 assert!(!provider
@@ -645,7 +736,18 @@ fn assert_invocation_context(
                     .unwrap()
                     .matches(provider, request)?);
                 assert_full_dispatch_fallback(provider, request, deadline);
+                assert_full_model_fallback(provider, request, f::player(), deadline);
                 provider.state.session.world[0] ^= 1;
+                assert_eq!(
+                    provider
+                        .invocation
+                        .as_ref()
+                        .unwrap()
+                        .model
+                        .borrow()
+                        .as_ref(),
+                    Some(&expected_model)
+                );
                 assert_eq!(ledger.diagnostic(), before);
                 Ok(())
             },
@@ -672,6 +774,7 @@ fn assert_invocation_context(
                     "receipt must not persist across views"
                 );
                 assert_full_dispatch_fallback(provider, request, deadline);
+                assert_full_model_fallback(provider, request, f::player(), deadline);
                 Ok(())
             },
         )
@@ -682,7 +785,22 @@ fn assert_invocation_context(
             deadline,
             || false,
             Some(&job),
-            |_, _, _| {
+            |provider, _, _| {
+                assert!(provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .model
+                    .borrow()
+                    .is_none());
+                provider.chase_model_for(request, f::player(), deadline, &|| false)?;
+                assert!(provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .model
+                    .borrow()
+                    .is_some());
                 panic!("temporary context receipt must unwind with its provider");
             },
         );
@@ -707,8 +825,20 @@ fn assert_invocation_context(
             || false,
             Some(&job),
             |provider, _, ledger| {
+                assert!(provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .model
+                    .borrow()
+                    .is_none());
+                provider.chase_model_for(request, f::player(), deadline, &|| false)?;
                 drop(mailbox);
                 assert!(!job.lease().is_active());
+                assert!(matches!(
+                    provider.chase_model_for(request, f::player(), deadline, &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
                 assert!(matches!(
                     provider.dispatch_for(request, deadline, &|| false),
                     Err(ResidentFilterError::Context(Failure::Deadline))
