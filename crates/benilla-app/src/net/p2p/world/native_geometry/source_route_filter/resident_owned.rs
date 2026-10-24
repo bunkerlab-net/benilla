@@ -395,7 +395,7 @@ impl OwnedResident {
                                 context,
                                 201,
                                 deadline,
-                                &cancelled,
+                                cancelled,
                             )
                         }
                     },
