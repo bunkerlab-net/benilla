@@ -459,19 +459,19 @@ fn run(mode: Mode) {
                                 return Ok(());
                             }
                             if !notice.routes().is_empty() {
-                                if cold.is_none() {
-                                    cold = Some(notice.clone());
-                                } else {
+                                if let Some(cold_notice) = cold.as_ref() {
                                     assert_eq!(notice.routes().len(), 1);
                                     source_route_resident_retained::assert_request(
                                         &profile,
-                                        cold.as_ref().unwrap(),
+                                        cold_notice,
                                         &notice.routes()[0].request,
                                     );
                                     source_route_resident_retained::assert_facts(
                                         &notice.routes()[0].request,
                                         &notice.routes()[0].facts,
                                     );
+                                } else {
+                                    cold = Some(notice.clone());
                                 }
                             }
                             notices.push(notice.clone());
