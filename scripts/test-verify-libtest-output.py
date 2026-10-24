@@ -89,6 +89,21 @@ SUITES = {
             "scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products",
             "fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack",
             "fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack",
+            "resident_result_transport_requeues_exact_work_and_rejects_forged_receipts",
+            "resident_result_transport_dropped_reply_cannot_promote_staging",
+            "resident_result_transport_rechecks_geometry_after_worker_completion",
+            "resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate",
+        ),
+    ),
+    "Verify resident result controller transport": (
+        "benilla-app",
+        "net::p2p::native_geometry::resident_result_controller_tests::",
+        (
+            "resident_result_transport_actual_controller_saves_cold_and_first_retained",
+            "resident_result_transport_checkpoint_failure_precedes_ack_and_recovery_never_reruns",
+            "resident_result_transport_lost_ack_retries_exact_notice_without_reexecution",
+            "resident_result_transport_changed_source_allows_historical_ack_not_fresh_geometry",
+            "resident_result_transport_worker_ready_rechecks_current_physics_before_reply",
         ),
     ),
     "Verify owned source bundle prerequisite": (
@@ -206,10 +221,13 @@ class ExactProofTests(unittest.TestCase):
                 )
 
     def test_rejects_missing_wrong_and_duplicate_header(self):
-        for replacement in ("", "running 0 tests\n", "running 9 tests\n"):
+        for replacement in ("", "running 0 tests\n", "wrong positive count"):
             with self.subTest(replacement=replacement):
                 self.assert_rejected(
-                    lambda out, names: out.replace(test_header(len(names)), replacement)
+                    lambda out, names: out.replace(
+                        test_header(len(names)),
+                        test_header(len(names) + 1) if replacement == "wrong positive count" else replacement,
+                    )
                 )
         self.assert_rejected(lambda out, names: test_header(len(names)) + out)
 
@@ -397,6 +415,7 @@ class ExactProofTests(unittest.TestCase):
             "Verify resident FIFO selection",
             "Verify resident dispatch receipt identity",
             "Verify scoped resident source ownership",
+            "Verify resident result controller transport",
         )
 
         def assert_order(candidate):

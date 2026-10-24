@@ -317,7 +317,23 @@ jobs:
             source_route_filter::resident::owned::tests::scoped_resident_refuses_foreign_owner_expiry_cancel_and_changed_sources_without_state_loss \
             source_route_filter::resident::owned::tests::scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_source_products \
             source_route_filter::resident::owned::tests::fifo_resident_ready_certifies_current_physics_without_transport_success_or_ack \
-            source_route_filter::resident::owned::tests::fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack
+            source_route_filter::resident::owned::tests::fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack \
+            source_route_filter::resident::owned::tests::resident_result_transport_requeues_exact_work_and_rejects_forged_receipts \
+            source_route_filter::resident::owned::tests::resident_result_transport_dropped_reply_cannot_promote_staging \
+            source_route_filter::resident::owned::tests::resident_result_transport_rechecks_geometry_after_worker_completion \
+            source_route_filter::resident::owned::tests::resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate
+      - name: Verify resident result controller transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/resident-result-controller-transport.log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_actual_controller_saves_cold_and_first_retained \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_checkpoint_failure_precedes_ack_and_recovery_never_reruns \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_lost_ack_retries_exact_notice_without_reexecution \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_changed_source_allows_historical_ack_not_fresh_geometry \
+            net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_worker_ready_rechecks_current_physics_before_reply
       - name: Verify private resident reconstruction adapter
         shell: bash
         run: |
