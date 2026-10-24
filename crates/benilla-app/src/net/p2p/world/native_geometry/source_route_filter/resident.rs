@@ -816,8 +816,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<ResidentFilterDependency, ResidentFilterError> {
-        if !require_resident_dispatch(context, &self.profile)
-            .map_err(|_| Failure::Binding)?
+        if !self
+            .dispatch_for(context, deadline, &cancelled)?
             .first_construction()
         {
             return Err(Failure::Binding.into());
@@ -840,10 +840,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         self.check_context(&prior.context, deadline, &cancelled)?;
         let retained = prior.filter;
         self.check_context(context, deadline, &cancelled)?;
-        let saved = require_resident_dispatch(&prior.context, &self.profile)
-            .map_err(|_| Failure::Binding)?;
-        let current =
-            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
+        let saved = self.dispatch_for(&prior.context, deadline, &cancelled)?;
+        let current = self.dispatch_for(context, deadline, &cancelled)?;
         let Query::SourceMotion(MotionQuery::Route(old_route)) = &prior.context.query else {
             return Err(Failure::Binding.into());
         };
@@ -912,10 +910,8 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         if !Rc::ptr_eq(&self.identity, &dependency.identity) || dependency.context != *context {
             return Err(Failure::Binding.into());
         }
-        let saved = require_resident_dispatch(&dependency.context, &self.profile)
-            .map_err(|_| Failure::Binding)?;
-        let current =
-            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
+        let saved = self.dispatch_for(&dependency.context, deadline, &cancelled)?;
+        let current = self.dispatch_for(context, deadline, &cancelled)?;
         if !saved.same_live_dispatch(current) {
             return Err(Failure::Binding.into());
         }
@@ -927,6 +923,40 @@ impl<'a, 'terrain, 'bundle, 'source> ResidentFilterProvider<'a, 'terrain, 'bundl
         self.check_context(context, deadline, &cancelled)?;
         Ok(dependency.filter)
     }
+    /// Reuse only this invocation's fully validated immutable live dispatch.
+    /// Historical and unmatched contexts retain the complete runtime validator.
+    fn dispatch_for<'request>(
+        &self,
+        context: &'request AuthorityRequest,
+        _deadline: Instant,
+        _cancelled: &impl Fn() -> bool,
+    ) -> Result<
+        &'request benilla_world_runtime::native::PathfinderDispatchReceipt,
+        ResidentFilterError,
+    > {
+        #[cfg(all(test, not(benilla_headless_geometry)))]
+        if let Some(invocation) = &self.invocation {
+            if _cancelled() {
+                return Err(ResidentFilterError::Source(
+                    source_height::CompositionError::Cancelled,
+                ));
+            }
+            if Instant::now() >= _deadline {
+                return Err(Failure::Deadline.into());
+            }
+            if invocation.matches(self, context)? {
+                let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
+                    return Err(Failure::Binding.into());
+                };
+                return route
+                    .pathfinder_dispatch
+                    .as_ref()
+                    .ok_or(Failure::Binding.into());
+            }
+        }
+        require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding.into())
+    }
+
     fn check_context(
         &self,
         context: &AuthorityRequest,

@@ -31,8 +31,7 @@ impl<'call> InvocationContext<'call> {
     ) -> Result<Self, ResidentFilterError> {
         job.require_provider(provider, &provider.session, &provider.profile)?;
         validate_route_context(&provider.session, &provider.profile, job.request())?;
-        job.request()
-            .require_pathfinder_dispatch(&provider.profile)
+        require_resident_dispatch(job.request(), &provider.profile)
             .map_err(|_| Failure::Binding)?;
         job.require_provider(provider, &provider.session, &provider.profile)?;
         Ok(Self {

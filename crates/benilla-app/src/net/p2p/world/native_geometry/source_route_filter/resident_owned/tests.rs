@@ -440,6 +440,36 @@ fn assert_context_result(actual: Result<(), ResidentFilterError>, expected: Resu
     }
 }
 
+fn assert_dispatch_result(
+    actual: Result<&benilla_world_runtime::native::PathfinderDispatchReceipt, ResidentFilterError>,
+    expected: Result<&benilla_world_runtime::native::PathfinderDispatchReceipt, NativeError>,
+) {
+    match (actual, expected) {
+        (Ok(actual), Ok(expected)) => {
+            assert!(
+                std::ptr::eq(actual, expected),
+                "return the current request's receipt"
+            );
+            assert!(actual.same_live_dispatch(expected));
+        }
+        (Err(ResidentFilterError::Context(Failure::Binding)), Err(_)) => (),
+        other => panic!("dispatch fallback differs from full validation: {other:?}"),
+    }
+}
+
+fn assert_full_dispatch_fallback(
+    provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+    request: &AuthorityRequest,
+    deadline: Instant,
+) {
+    use super::super::super::super::products::source_height::freshness_timings;
+    let expected = request.require_pathfinder_dispatch(&provider.profile);
+    let (actual, counts) =
+        freshness_timings::measure(|| provider.dispatch_for(request, deadline, &|| false));
+    assert_dispatch_result(actual, expected);
+    assert_eq!(counts.full_resident_dispatch_calls(), 1);
+}
+
 // Exercise receipt reuse independently from route staging and publication.
 fn assert_invocation_context(
     owner: &mut OwnedResident,
@@ -481,11 +511,24 @@ fn assert_invocation_context(
                 let (result, repeated) = freshness_timings::measure(|| {
                     for _ in 0..3 {
                         provider.check_context(request, deadline, &|| false)?;
+                        assert_dispatch_result(
+                            provider.dispatch_for(request, deadline, &|| false),
+                            request.require_pathfinder_dispatch(profile),
+                        );
                     }
                     Ok::<_, ResidentFilterError>(())
                 });
                 result?;
                 assert_eq!(repeated.context_validation_calls(), 0);
+                assert_eq!(repeated.full_resident_dispatch_calls(), 0);
+                assert!(matches!(
+                    provider.dispatch_for(request, deadline, &|| true),
+                    Err(ResidentFilterError::Source(CompositionError::Cancelled))
+                ));
+                assert!(matches!(
+                    provider.dispatch_for(request, Instant::now(), &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
                 assert!(matches!(
                     provider.check_context(request, deadline, &|| true),
                     Err(ResidentFilterError::Source(CompositionError::Cancelled))
@@ -508,6 +551,7 @@ fn assert_invocation_context(
                 });
                 assert_context_result(actual, expected);
                 assert_eq!(fallback.context_validation_calls(), 1);
+                assert_full_dispatch_fallback(provider, &decoded, deadline);
 
                 for field in 0..6 {
                     let mut changed = request.clone();
@@ -548,6 +592,7 @@ fn assert_invocation_context(
                     });
                     assert_context_result(actual, expected);
                     assert_eq!(measured.context_validation_calls(), 1);
+                    assert_full_dispatch_fallback(provider, &changed, deadline);
                 }
                 if let Some(historical) = historical {
                     assert!(!proof.matches(provider, historical)?);
@@ -556,6 +601,7 @@ fn assert_invocation_context(
                     });
                     actual?;
                     assert_eq!(measured.context_validation_calls(), 1);
+                    assert_full_dispatch_fallback(provider, historical, deadline);
                 }
 
                 // Bindings are checked even if a test transplants the private proof.
@@ -566,19 +612,40 @@ fn assert_invocation_context(
                     proof.matches(provider, request),
                     Err(ResidentFilterError::Context(Failure::Binding))
                 ));
+                provider.invocation = Some(proof);
+                assert!(matches!(
+                    provider.dispatch_for(request, deadline, &|| false),
+                    Err(ResidentFilterError::Context(Failure::Binding))
+                ));
+                let mut proof = provider.invocation.take().unwrap();
                 proof.lease = saved_lease;
+                provider.invocation = Some(proof);
                 let saved_identity = provider.state.identity.clone();
                 provider.state.identity = Rc::new(());
-                assert!(!proof.matches(provider, request)?);
+                assert!(!provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .matches(provider, request)?);
+                assert_full_dispatch_fallback(provider, request, deadline);
                 assert!(InvocationContext::bind(&job, provider).is_err());
                 provider.state.identity = saved_identity;
                 provider.state.profile.tick_ms += 1;
-                assert!(!proof.matches(provider, request)?);
+                assert!(!provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .matches(provider, request)?);
+                assert_full_dispatch_fallback(provider, request, deadline);
                 provider.state.profile.tick_ms -= 1;
                 provider.state.session.world[0] ^= 1;
-                assert!(!proof.matches(provider, request)?);
+                assert!(!provider
+                    .invocation
+                    .as_ref()
+                    .unwrap()
+                    .matches(provider, request)?);
+                assert_full_dispatch_fallback(provider, request, deadline);
                 provider.state.session.world[0] ^= 1;
-                provider.invocation = Some(proof);
                 assert_eq!(ledger.diagnostic(), before);
                 Ok(())
             },
@@ -588,6 +655,11 @@ fn assert_invocation_context(
     // Exactly one fresh full validation mints this invocation's receipt. The
     // explicit baseline validations in the mutation loop are counted separately.
     assert_eq!(counts.context_validation_calls(), 8);
+    assert_eq!(
+        counts.full_resident_dispatch_calls(),
+        1,
+        "fresh invocation mint remains fully validated"
+    );
     assert_eq!(owner.ledger.diagnostic(), before);
     owner
         .inspect(
@@ -599,6 +671,7 @@ fn assert_invocation_context(
                     provider.invocation.is_none(),
                     "receipt must not persist across views"
                 );
+                assert_full_dispatch_fallback(provider, request, deadline);
                 Ok(())
             },
         )
@@ -636,6 +709,10 @@ fn assert_invocation_context(
             |provider, _, ledger| {
                 drop(mailbox);
                 assert!(!job.lease().is_active());
+                assert!(matches!(
+                    provider.dispatch_for(request, deadline, &|| false),
+                    Err(ResidentFilterError::Context(Failure::Deadline))
+                ));
                 assert!(matches!(
                     provider.check_context(request, deadline, &|| false),
                     Err(ResidentFilterError::Context(Failure::Deadline))

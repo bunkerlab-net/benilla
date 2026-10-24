@@ -80,8 +80,8 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         }
         // This slice has no retained-terminal/ACK migration. A later dispatch
         // cannot be silently reinterpreted as another cold first calculation.
-        if !require_resident_dispatch(context, &self.profile)
-            .map_err(|_| Failure::Binding)?
+        if !self
+            .dispatch_for(context, deadline, &cancelled)?
             .first_construction()
         {
             return Err(Failure::UnsupportedQuery.into());

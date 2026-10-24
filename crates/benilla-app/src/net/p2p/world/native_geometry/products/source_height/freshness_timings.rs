@@ -46,6 +46,9 @@ impl Counts {
     pub(in super::super::super) fn context_validation_calls(&self) -> usize {
         self.context_validation.started
     }
+    pub(in super::super::super) fn full_resident_dispatch_calls(&self) -> usize {
+        self.full_resident_dispatch.started
+    }
     fn phase(&mut self, phase: Phase) -> &mut PhaseCounts {
         match phase {
             Phase::Total => &mut self.total,
@@ -167,6 +170,7 @@ mod tests {
                     drop(Timer::start(phase));
                 }
             });
+            assert_eq!(validation.full_resident_dispatch_calls(), 2);
             for counts in [
                 validation.full_resident_dispatch,
                 validation.full_gate_model,

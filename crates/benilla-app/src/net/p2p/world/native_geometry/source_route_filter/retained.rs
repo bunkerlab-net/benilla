@@ -64,10 +64,8 @@ impl ResidentRetainedRoot {
         if !Rc::ptr_eq(&self.provider, &provider.identity) || self.context != *context {
             return Err(Failure::Binding.into());
         }
-        let saved = require_resident_dispatch(&self.context, &provider.profile)
-            .map_err(|_| Failure::Binding)?;
-        let current =
-            require_resident_dispatch(context, &provider.profile).map_err(|_| Failure::Binding)?;
+        let saved = provider.dispatch_for(&self.context, deadline, &cancelled)?;
+        let current = provider.dispatch_for(context, deadline, &cancelled)?;
         if !saved.same_live_dispatch(current) {
             return Err(Failure::Binding.into());
         }
@@ -375,10 +373,8 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             return Err(Failure::Binding.into());
         }
         self.check_context(&previous.context, deadline, &cancelled)?;
-        let old = require_resident_dispatch(&previous.context, &self.profile)
-            .map_err(|_| Failure::Binding)?;
-        let current =
-            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
+        let old = self.dispatch_for(&previous.context, deadline, &cancelled)?;
+        let current = self.dispatch_for(context, deadline, &cancelled)?;
         let Query::SourceMotion(MotionQuery::Route(old_route)) = &previous.context.query else {
             return Err(Failure::Binding.into());
         };

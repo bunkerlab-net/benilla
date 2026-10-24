@@ -208,10 +208,8 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         if !Rc::ptr_eq(&self.identity, &dependency.identity) || dependency.context != *context {
             return Err(Failure::Binding.into());
         }
-        let saved = require_resident_dispatch(&dependency.context, &self.profile)
-            .map_err(|_| Failure::Binding)?;
-        let current =
-            require_resident_dispatch(context, &self.profile).map_err(|_| Failure::Binding)?;
+        let saved = self.dispatch_for(&dependency.context, deadline, &cancelled)?;
+        let current = self.dispatch_for(context, deadline, &cancelled)?;
         if !saved.same_live_dispatch(current) {
             return Err(Failure::Binding.into());
         }
