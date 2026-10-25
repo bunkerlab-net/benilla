@@ -216,7 +216,7 @@ fn resident_fifo_tail_fill_retires_exact_work_without_releasing_busy_worker() {
         let mut resume =
             |_: &mut OwnedResident,
              _: ResidentDispatchJob<'_>,
-             _: Result<FreshnessObservation, CompositionError>| {
+             _: ResidentPhase| {
                 panic!("tail fill must not resume")
             };
         assert_eq!(

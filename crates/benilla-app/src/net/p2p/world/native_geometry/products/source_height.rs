@@ -171,12 +171,15 @@ impl<'terrain, 'bundle, 'source> PreparedSourceHeight<'terrain, 'bundle, 'source
     pub(crate) fn binding(&self) -> Binding {
         self.binding
     }
+    #[cfg_attr(test, track_caller)]
     pub(crate) fn verify_unchanged(
         &self,
         cancelled: impl Fn() -> bool,
     ) -> Result<(), CompositionError> {
         #[cfg(test)]
         let total = freshness_timings::Timer::start(freshness_timings::Phase::Total);
+        #[cfg(test)]
+        freshness_timings::trace_source_check();
         check(&cancelled)?;
         #[cfg(test)]
         let terrain = freshness_timings::Timer::start(freshness_timings::Phase::Terrain);

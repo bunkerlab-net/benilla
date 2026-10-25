@@ -131,6 +131,168 @@ fn certify_inner(
             &cancelled,
         )?
     };
+    finish_scene(
+        predecessor,
+        dependency,
+        compatibility,
+        provider,
+        context,
+        segment_ticket,
+        deadline,
+        cancelled,
+        after,
+        owner,
+        &terrain,
+        &collision,
+        &spatial,
+    )
+}
+
+/// Owned native result only: no scene clearance, ECS borrow, or staged Facts.
+pub(in super::super) struct PreparedRetained {
+    pub(super) predecessor: Rc<ResidentColdCandidate>,
+    dependency: ResidentJoinedRetainedDependency,
+    installed_owner: benilla_formats::NativeInventorySource,
+    first_ticket: u64,
+    deadline: Instant,
+}
+impl PreparedRetained {
+    pub(in super::super) fn deadline(&self) -> Instant {
+        self.deadline
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn prepare(
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    predecessor: Rc<ResidentColdCandidate>,
+    context: &AuthorityRequest,
+    player: PlayerId,
+    first_ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+) -> Result<PreparedRetained, ResidentFilterError> {
+    provider.require_one_retained_route()?;
+    first_ticket.checked_add(4).ok_or(Failure::Invalid)?;
+    let mut state = SystemState::<Option<Res<NativeStaticMapIndex>>>::new(world);
+    let installed = state.get(world);
+    let owner = installed
+        .as_ref()
+        .and_then(|index| index.source_provenance())
+        .ok_or(Failure::Binding)?;
+    if !owner.same_owner(&predecessor.installed_owner) {
+        return Err(Failure::Binding.into());
+    }
+    provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
+    let dependency = if provider.require_two_owner_first_retained().is_ok() {
+        provider.observe_two_owner_first_retained(
+            &predecessor.dependency,
+            context,
+            player,
+            first_ticket,
+            SourceSamePolygonBudget {
+                // First retained lookup from full74+1 backing: per endpoint one
+                // active slot, one searchable tail and at most two nearest queries.
+                lookup_primitives: 8,
+                terminal_primitives: 1,
+            },
+            deadline,
+            &cancelled,
+        )?
+    } else {
+        provider.observe_joined_retained(
+            &predecessor.dependency,
+            context,
+            player,
+            first_ticket,
+            SourceSamePolygonBudget {
+                // First retained lookup from full74+1 backing: per endpoint one
+                // active slot, one searchable tail and at most two nearest queries.
+                lookup_primitives: 8,
+                terminal_primitives: 1,
+            },
+            deadline,
+            &cancelled,
+        )?
+    };
+    Ok(PreparedRetained {
+        deadline: dependency.deadline(deadline),
+        dependency,
+        predecessor,
+        installed_owner: owner.clone(),
+        first_ticket,
+    })
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn finish(
+    prepared: PreparedRetained,
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+    after: impl FnOnce(),
+) -> Result<(ResidentRetainedCandidate, Facts), ResidentFilterError> {
+    let PreparedRetained {
+        predecessor,
+        dependency,
+        installed_owner,
+        first_ticket,
+        deadline: original_deadline,
+    } = prepared;
+    let deadline = deadline.min(original_deadline);
+    let segment_ticket = first_ticket.checked_add(4).ok_or(Failure::Invalid)?;
+    let mut state = SystemState::<(
+        Option<Res<NativeStaticMapIndex>>,
+        NativeTerrainCoverage,
+        WorldCollision,
+        SpatialQuery,
+    )>::new(world);
+    let (installed, terrain, collision, spatial) = state.get(world);
+    let owner = installed
+        .as_ref()
+        .and_then(|index| index.source_provenance())
+        .ok_or(Failure::Binding)?;
+    if !owner.same_owner(&installed_owner) || !owner.same_owner(&predecessor.installed_owner) {
+        return Err(Failure::Binding.into());
+    }
+    provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
+    finish_scene(
+        predecessor,
+        dependency,
+        compatibility,
+        provider,
+        context,
+        segment_ticket,
+        deadline,
+        cancelled,
+        after,
+        owner,
+        &terrain,
+        &collision,
+        &spatial,
+    )
+}
+
+/// One immutable final scene island shared by synchronous and resumed callers.
+#[allow(clippy::too_many_arguments)]
+fn finish_scene<'w, 's>(
+    predecessor: Rc<ResidentColdCandidate>,
+    dependency: ResidentJoinedRetainedDependency,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    segment_ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+    after: impl FnOnce(),
+    owner: &benilla_formats::NativeInventorySource,
+    terrain: &NativeTerrainCoverage<'w, 's>,
+    collision: &WorldCollision<'w, 's>,
+    spatial: &SpatialQuery<'w, 's>,
+) -> Result<(ResidentRetainedCandidate, Facts), ResidentFilterError> {
     let deadline = dependency.deadline(deadline);
     let observation = provider.retained_for(
         &dependency,
@@ -164,9 +326,9 @@ fn certify_inner(
         return Err(Failure::Binding.into());
     }
     LocalCorridor {
-        terrain: &terrain,
-        collision: &collision,
-        spatial: &spatial,
+        terrain,
+        collision,
+        spatial,
         map,
         revision: raw,
     }

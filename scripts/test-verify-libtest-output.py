@@ -97,6 +97,11 @@ SUITES = {
             "resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate",
         ),
     ),
+    "Verify two-turn retained controller transport": (
+        "benilla-app",
+        "net::p2p::native_geometry::retained_phased_controller_tests::retained_phased_fifo_saves_after_distinct_owner_turns",
+        ("",),
+    ),
     "Verify resident result controller transport": (
         "benilla-app",
         "net::p2p::native_geometry::resident_result_controller_tests::",
@@ -306,7 +311,7 @@ class ExactProofTests(unittest.TestCase):
                 RUNNER_TEMP=str(temp),
                 EXPECTED_PACKAGE=package,
                 EXPECTED_PREFIX=prefix,
-                EXPECTED_EXACT="1" if title == "Verify resident observation without transport admission" else "0",
+                EXPECTED_EXACT="1" if title in ("Verify resident observation without transport admission", "Verify two-turn retained controller transport") else "0",
                 EXPECTED_SKIP=DEFAULT_BUDGET_PROBE if title == "Verify resident result controller transport" else "",
                 FAKE_OUTPUT=output,
                 FAKE_PROGRESS=PROGRESS,
@@ -536,6 +541,35 @@ class ExactProofTests(unittest.TestCase):
         output = output.replace("0 ignored", "1 ignored")
         with self.assertRaises(ValueError):
             VERIFIER.verify(output, expected)
+
+    def test_phased_comparison_runs_exact_ignored_tests_and_accumulates_failure(self):
+        shell = workflow_gate(
+            "Compare two-turn retained certification with synchronous baseline",
+            ".github/workflows/resident-controller-profile-comparison.yml",
+        )
+        self.assertIn("set -euo pipefail", shell)
+        self.assertIn("status=0", shell)
+        self.assertIn(
+            "for test in retained_phased_default_budget_comparison retained_phased_frame_cadenced_comparison; do",
+            shell,
+        )
+        self.assertIn(
+            'name="net::p2p::native_geometry::retained_phased_controller_tests::$test"', shell,
+        )
+        self.assertIn(
+            'if ! mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"; then status=1; fi',
+            shell,
+        )
+        self.assertIn(
+            'if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi',
+            shell,
+        )
+        self.assertIn('exit "$status"', shell)
+        source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs").read_text()
+        self.assertEqual(source.count('std::panic::catch_unwind(|| run('), 2)
+        self.assertIn('phased.max_owner_service < original.max_owner_service', source)
+        self.assertIn('assert_eq!(original.retained_trace.len(), 87)', source)
+        self.assertIn('assert_eq!(phased.retained_trace.len(), 93)', source)
 
     def test_default_budget_probe_is_explicit_release_and_exact_single_result(self):
         path = ".github/workflows/resident-controller-profile-comparison.yml"

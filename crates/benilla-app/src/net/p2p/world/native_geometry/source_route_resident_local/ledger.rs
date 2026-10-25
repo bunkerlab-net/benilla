@@ -790,6 +790,49 @@ impl ResidentLedger {
         cancelled: impl Fn() -> bool,
         after: impl FnOnce(),
     ) -> Result<Facts, ResidentFilterError> {
+        let predecessor = self.retained_preflight(compatibility, provider, context)?;
+        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
+        let (candidate, facts) = super::retained::certify(
+            world,
+            compatibility,
+            provider,
+            predecessor,
+            context,
+            self.player,
+            first_ticket,
+            deadline,
+            cancelled,
+            after,
+        )?;
+        // Recheck the exact root before staging; no ACK or pending-source yield
+        // can silently redirect this immutable native predecessor.
+        if !Rc::ptr_eq(self.committed_cold()?, &candidate.predecessor)
+            || self.raw != Some(candidate.raw_revision)
+        {
+            return Err(Failure::Binding.into());
+        }
+        self.validate_retained_candidate(&candidate)?;
+        let candidate = if self.two_retained || self.finite_retained {
+            let proposal = StagedWarmProposal::first(candidate);
+            self.validate_warm_proposal(&proposal)?;
+            Candidate::WarmProposal(Rc::new(proposal))
+        } else {
+            Candidate::Retained(Box::new(candidate))
+        };
+        self.candidates.push(Entry {
+            id: self.next_id,
+            candidate,
+            committed: false,
+        });
+        self.next_id = next;
+        Ok(facts)
+    }
+    fn retained_preflight(
+        &mut self,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+    ) -> Result<Rc<ResidentColdCandidate>, ResidentFilterError> {
         provider.require_one_retained_route()?;
         if !self.one_retained || self.retained_epoch_committed {
             return Err(Failure::UnsupportedQuery.into());
@@ -821,11 +864,25 @@ impl ResidentLedger {
         if self.candidates.len() == MAX_CANDIDATES {
             return Err(Failure::QueueCapacity.into());
         }
-        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
+        self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
         self.candidates
             .try_reserve(1)
             .map_err(|_| Failure::QueueCapacity)?;
-        let (candidate, facts) = super::retained::certify(
+        Ok(predecessor)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn prepare_retained(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<super::retained::PreparedRetained, ResidentFilterError> {
+        let predecessor = self.retained_preflight(compatibility, provider, context)?;
+        super::retained::prepare(
             world,
             compatibility,
             provider,
@@ -835,8 +892,36 @@ impl ResidentLedger {
             first_ticket,
             deadline,
             cancelled,
-            after,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn finish_retained(
+        &mut self,
+        prepared: super::retained::PreparedRetained,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Facts, ResidentFilterError> {
+        let predecessor = self.retained_preflight(compatibility, provider, context)?;
+        if !Rc::ptr_eq(&predecessor, &prepared.predecessor) {
+            return Err(Failure::Binding.into());
+        }
+        let (candidate, facts) = super::retained::finish(
+            prepared,
+            world,
+            compatibility,
+            provider,
+            context,
+            deadline,
+            cancelled,
+            || {},
         )?;
+        // Never reserve a staging identifier across the owner yield.
+        self.retained_preflight(compatibility, provider, context)?;
+        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
         // Recheck the exact root before staging; no ACK or pending-source yield
         // can silently redirect this immutable native predecessor.
         if !Rc::ptr_eq(self.committed_cold()?, &candidate.predecessor)
@@ -2589,6 +2674,52 @@ impl ResidentLedger {
             storage_bytes,
             upper_bound_bytes,
         })
+    }
+    /// Failure injection only; restoration cannot manufacture a candidate or ACK.
+    #[cfg(test)]
+    pub(in super::super) fn invalidate_prepared_for_test(
+        &mut self,
+        mutation: u8,
+    ) -> Box<dyn FnOnce(&mut Self)> {
+        match mutation {
+            15 => {
+                let saved = self.boundary.take();
+                Box::new(move |ledger| ledger.boundary = saved)
+            }
+            16 => {
+                let saved = self.raw;
+                self.raw.as_mut().unwrap()[0] ^= 1;
+                Box::new(move |ledger| ledger.raw = saved)
+            }
+            17 => {
+                let saved = self.candidates.remove(0);
+                Box::new(move |ledger| ledger.candidates.insert(0, saved))
+            }
+            18 => {
+                let saved = self.next_id;
+                self.next_id = u64::MAX;
+                Box::new(move |ledger| ledger.next_id = saved)
+            }
+            19 => {
+                let saved = self.retained_epoch_committed;
+                self.retained_epoch_committed = true;
+                Box::new(move |ledger| ledger.retained_epoch_committed = saved)
+            }
+            20 => {
+                let cold = Rc::clone(self.committed_cold().unwrap());
+                let mut full = Vec::with_capacity(MAX_CANDIDATES);
+                for id in 0..MAX_CANDIDATES {
+                    full.push(Entry {
+                        id: id as u64,
+                        candidate: Candidate::Cold(Rc::clone(&cold)),
+                        committed: id == 0,
+                    });
+                }
+                let saved = std::mem::replace(&mut self.candidates, full);
+                Box::new(move |ledger| ledger.candidates = saved)
+            }
+            _ => panic!("unknown ledger refusal injection"),
+        }
     }
     pub(in super::super) fn diagnostic(&self) -> Diagnostic {
         Diagnostic {

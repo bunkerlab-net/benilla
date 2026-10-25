@@ -59,6 +59,28 @@ impl FreshnessObservation {
         invocation_deadline: Instant,
         resume: impl FnOnce(&AuthorityRequest, Instant, &dyn Fn() -> bool) -> Result<T, E>,
     ) -> Result<T, E> {
+        self.with_current_borrowed(products, lease, invocation_deadline, resume)
+    }
+
+    /// Preserve the complete original revocation guard across an owner-local yield.
+    pub(in super::super::super::super) fn prepare_current<T, E: From<CompositionError>>(
+        self,
+        products: &Arc<OwnedSourceProducts>,
+        lease: &JobLease,
+        invocation_deadline: Instant,
+        prepare: impl FnOnce(&AuthorityRequest, Instant, &dyn Fn() -> bool) -> Result<T, E>,
+    ) -> Result<(Self, T), E> {
+        let prepared = self.with_current_borrowed(products, lease, invocation_deadline, prepare)?;
+        Ok((self, prepared))
+    }
+
+    fn with_current_borrowed<T, E: From<CompositionError>>(
+        &self,
+        products: &Arc<OwnedSourceProducts>,
+        lease: &JobLease,
+        invocation_deadline: Instant,
+        resume: impl FnOnce(&AuthorityRequest, Instant, &dyn Fn() -> bool) -> Result<T, E>,
+    ) -> Result<T, E> {
         if !Arc::ptr_eq(&self.products, products) || !self.lease.same_job(lease) {
             return Err(E::from(super::super::super::Error::Identity.into()));
         }

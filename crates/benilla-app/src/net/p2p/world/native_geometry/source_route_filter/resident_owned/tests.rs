@@ -88,13 +88,16 @@ fn with_owned(
 #[derive(Clone, Copy)]
 enum FifoProbeMode {
     Clear,
+    Phased(u8),
     Obstacle,
     Foreign,
     Transport(bool),
     TransportRefusal(bool),
     TransportRetire(bool),
 }
-struct Consumer {
+struct Consumer<'a> {
+    install: &'a input::Install,
+    phased_retained: bool,
     owner: OwnedResident,
     geometry: InstalledFixture,
     session: Session,
@@ -106,7 +109,7 @@ struct Consumer {
     fifo_probe: Option<FifoProbeMode>,
     fifo_inspected: bool,
 }
-impl Consumer {
+impl Consumer<'_> {
     fn installed(&self) -> NativeInventorySource {
         self.geometry
             .app
@@ -117,7 +120,7 @@ impl Consumer {
             .clone()
     }
 }
-impl Authority for Consumer {
+impl Authority for Consumer<'_> {
     fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
         let installed = self.installed();
         let deadline = fixture::until();
@@ -189,6 +192,7 @@ impl Authority for Consumer {
                         assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
                     }
                     let facts = certify_fifo_probe(
+                        self.install,
                         &mut self.owner,
                         &mut self.geometry,
                         &self.session,
@@ -198,7 +202,9 @@ impl Authority for Consumer {
                     );
                     if matches!(
                         mode,
-                        FifoProbeMode::Foreign | FifoProbeMode::TransportRefusal(true)
+                        FifoProbeMode::Foreign
+                            | FifoProbeMode::TransportRefusal(true)
+                            | FifoProbeMode::Phased(1)
                     ) {
                         assert!(matches!(
                             facts,
@@ -206,12 +212,19 @@ impl Authority for Consumer {
                         ));
                     } else if matches!(
                         mode,
-                        FifoProbeMode::Obstacle | FifoProbeMode::TransportRefusal(false)
+                        FifoProbeMode::Obstacle
+                            | FifoProbeMode::TransportRefusal(false)
+                            | FifoProbeMode::Phased(2)
                     ) {
                         assert!(matches!(
                             facts,
                             Err(ResidentFilterError::Context(Failure::UnsupportedNavigation))
                         ));
+                    } else if matches!(mode, FifoProbeMode::Phased(3..)) {
+                        assert!(
+                            facts.is_err(),
+                            "intervening revocation or identity mutation must refuse",
+                        );
                     } else {
                         let Facts::SourceMotion(MotionFacts::Spatial(reply)) = facts.unwrap()
                         else {
@@ -233,10 +246,10 @@ impl Authority for Consumer {
                     }
                     let after = self.owner.ledger.diagnostic();
                     if matches!(mode, FifoProbeMode::TransportRetire(_)) {
-                        assert_eq!(self.owner.ledger.counts(), (0, 0));
+                        assert_eq!(self.owner.ledger.counts(), (usize::from(retained), usize::from(retained)));
                     } else if let FifoProbeMode::Transport(drop_reply) = mode {
-                        assert_eq!(self.owner.ledger.counts(), (usize::from(!drop_reply), 0));
-                    } else if matches!(mode, FifoProbeMode::Clear) {
+                        assert_eq!(self.owner.ledger.counts(), (usize::from(retained) + usize::from(!drop_reply), usize::from(retained)));
+                    } else if matches!(mode, FifoProbeMode::Clear | FifoProbeMode::Phased(0)) {
                         if retained {
                             assert!(after.only_first_retained_staged_since(&before));
                             after.assert_first_retained_staging_rejects_mutations(&before);
@@ -247,7 +260,11 @@ impl Authority for Consumer {
                             assert_eq!(self.owner.ledger.counts(), (1, 0));
                         }
                     } else {
-                        assert_eq!(after, before);
+                        if matches!(mode, FifoProbeMode::Phased(21)) {
+                            assert!(after.same_committed_root(&before));
+                        } else {
+                            assert_eq!(after, before);
+                        }
                         assert_eq!(
                             self.owner.ledger.counts(),
                             if retained { (1, 1) } else { (0, 0) }
@@ -359,7 +376,11 @@ impl Authority for Consumer {
                     );
                     assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
                     let ready = observe_sources(&self.owner, &self.session, &self.profile, request);
-                    ready.certify(&mut self.owner, &mut self.geometry, &installed, deadline)
+                    if self.phased_retained {
+                        ready.certify_phased(&mut self.owner, &mut self.geometry, &installed, deadline)
+                    } else {
+                        ready.certify(&mut self.owner, &mut self.geometry, &installed, deadline)
+                    }
                 };
                 let facts = facts.map_err(|error| {
                     eprintln!("scoped resident Route refused: {error:?}");
@@ -1009,6 +1030,35 @@ struct ReadySources {
     observation: FreshnessObservation,
 }
 impl ReadySources {
+    fn certify_phased(
+        self,
+        owner: &mut OwnedResident,
+        geometry: &mut InstalledFixture,
+        installed: &NativeInventorySource,
+        deadline: Instant,
+    ) -> Result<Facts, ResidentFilterError> {
+        let job = self.work.job(&self._mailbox, owner, deadline)?;
+        let phase = owner.certify_phase_result(
+            ResidentPhase::Observation(Ok(self.observation)),
+            job,
+            geometry.app.world_mut(),
+            installed,
+        )?;
+        let ResidentPhaseResult::Prepared(prepared) = phase else {
+            panic!("retained prefix cannot return Facts");
+        };
+        geometry.advance_physics();
+        let job = self.work.job(&self._mailbox, owner, deadline)?;
+        match owner.certify_phase_result(
+            ResidentPhase::Prepared(prepared),
+            job,
+            geometry.app.world_mut(),
+            installed,
+        )? {
+            ResidentPhaseResult::Complete(result) => Ok(result.facts().clone()),
+            ResidentPhaseResult::Prepared(_) => panic!("final phase cannot yield again"),
+        }
+    }
     fn certify(
         self,
         owner: &mut OwnedResident,
@@ -1084,6 +1134,12 @@ fn movement(world: &NativeWorld, sequence: u64, destination: ai::Point) -> Owned
 
 #[test]
 fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
+    for phased_retained in [false, true] {
+        scoped_retained_owner_across_views(phased_retained);
+    }
+}
+
+fn scoped_retained_owner_across_views(phased_retained: bool) {
     with_owned(|install, mut owner, geometry, session, profile| {
         let ((), preparations) = measure(|| {
             let bytes = install.bytes();
@@ -1108,6 +1164,8 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                 )
                 .unwrap();
             let mut consumer = Consumer {
+                install,
+                phased_retained,
                 owner: moved_static(owner),
                 geometry,
                 session,
@@ -1205,7 +1263,7 @@ fn scoped_resident_keeps_cold_ack_and_retained_native_owner_across_views() {
                 }
                 // A successful off-thread observation cannot substitute for current
                 // installation or source validation, and it cannot promote the ledger.
-                let restore = if !notice.routes().is_empty() && consumer.routes.len() == 1 {
+                let restore = if !notice.routes().is_empty() {
                     let request = consumer.routes.last().unwrap().clone();
                     let before = consumer.owner.ledger.diagnostic();
                     let ready = observe_sources(
@@ -1484,6 +1542,7 @@ fn scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_sourc
 /// The callback inspects a genuine certificate, but the original FIFO reply is a
 /// refusal and the caller's runtime deliberately rolls back instead of publishing.
 fn certify_fifo_probe(
+    install: &input::Install,
     owner: &mut OwnedResident,
     geometry: &mut InstalledFixture,
     session: &Session,
@@ -1491,6 +1550,14 @@ fn certify_fifo_probe(
     mode: FifoProbeMode,
     mut foreign_index: Option<NativeStaticMapIndex>,
 ) -> Result<Facts, ResidentFilterError> {
+    if let FifoProbeMode::Phased(mutation @ 8..=10) = mode {
+        return super::super::super::super::core::resident_dispatch::fifo::exercise_prepared_retirement(owner, geometry, request, mutation);
+    }
+    if let FifoProbeMode::Phased(mutation) = mode {
+        return certify_phased_probe(
+            install, owner, geometry, session, request, mutation, foreign_index,
+        );
+    }
     if let FifoProbeMode::TransportRetire(expire) = mode {
         return Ok(super::super::super::super::core::resident_dispatch::transport::exercise_result_terminal_retirement(
             owner, geometry, request, expire,
@@ -1623,6 +1690,9 @@ fn fifo_resident_ready_certifies_current_physics_without_transport_success_or_ac
 #[test]
 fn fifo_retained_ready_preserves_committed_cold_without_current_transport_or_ack() {
     fifo_current_physics_probe(true);
+    for mutation in 0..22 {
+        fifo_current_physics_probe_mode(true, FifoProbeMode::Phased(mutation));
+    }
 }
 
 fn fifo_current_physics_probe(retained: bool) {
@@ -1637,10 +1707,12 @@ fn fifo_current_physics_probe(retained: bool) {
 #[test]
 fn resident_result_transport_requeues_exact_work_and_rejects_forged_receipts() {
     fifo_current_physics_probe_mode(false, FifoProbeMode::Transport(false));
+    fifo_current_physics_probe_mode(true, FifoProbeMode::Transport(false));
 }
 #[test]
 fn resident_result_transport_dropped_reply_cannot_promote_staging() {
     fifo_current_physics_probe_mode(false, FifoProbeMode::Transport(true));
+    fifo_current_physics_probe_mode(true, FifoProbeMode::Transport(true));
 }
 #[test]
 fn resident_result_transport_rechecks_geometry_after_worker_completion() {
@@ -1651,11 +1723,15 @@ fn resident_result_transport_rechecks_geometry_after_worker_completion() {
 fn resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate() {
     fifo_current_physics_probe_mode(false, FifoProbeMode::TransportRetire(false));
     fifo_current_physics_probe_mode(false, FifoProbeMode::TransportRetire(true));
+    fifo_current_physics_probe_mode(true, FifoProbeMode::TransportRetire(false));
+    fifo_current_physics_probe_mode(true, FifoProbeMode::TransportRetire(true));
 }
 fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
     {
         with_owned(|install, owner, geometry, session, profile| {
             let mut consumer = Consumer {
+                install,
+                phased_retained: false,
                 owner,
                 geometry,
                 session,
@@ -1759,13 +1835,13 @@ fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
             assert_eq!(cold_notice.is_some(), retained);
             let after = consumer.owner.ledger.diagnostic();
             if matches!(mode, FifoProbeMode::TransportRetire(_)) {
-                assert_eq!(consumer.owner.ledger.counts(), (0, 0));
+                assert_eq!(consumer.owner.ledger.counts(), (usize::from(retained), usize::from(retained)));
             } else if let FifoProbeMode::Transport(drop_reply) = mode {
                 assert_eq!(
                     consumer.owner.ledger.counts(),
-                    (usize::from(!drop_reply), 0)
+                    (usize::from(retained) + usize::from(!drop_reply), usize::from(retained))
                 );
-            } else if matches!(mode, FifoProbeMode::Clear) {
+            } else if matches!(mode, FifoProbeMode::Clear | FifoProbeMode::Phased(0)) {
                 if retained {
                     assert!(after.only_first_retained_staged_since(&committed));
                     assert_eq!(consumer.owner.ledger.counts(), (2, 1));
@@ -1774,12 +1850,248 @@ fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
                     assert_eq!(consumer.owner.ledger.counts(), (1, 0));
                 }
             } else {
-                assert_eq!(after, committed);
+                if matches!(mode, FifoProbeMode::Phased(21)) {
+                    assert!(after.same_committed_root(&committed));
+                } else {
+                    assert_eq!(after, committed);
+                }
                 assert_eq!(
                     consumer.owner.ledger.counts(),
                     if retained { (1, 1) } else { (0, 0) }
                 );
             }
         });
+    }
+}
+
+/// The original Work, cancellation and stop tokens survive a completed prefix.
+fn certify_phased_probe(
+    install: &input::Install,
+    owner: &mut OwnedResident,
+    geometry: &mut InstalledFixture,
+    session: &Session,
+    request: &AuthorityRequest,
+    mutation: u8,
+    mut foreign_index: Option<NativeStaticMapIndex>,
+) -> Result<Facts, ResidentFilterError> {
+    let installed = geometry
+        .app
+        .world()
+        .resource::<NativeStaticMapIndex>()
+        .source_provenance()
+        .unwrap()
+        .clone();
+    let profile = owner.state.profile.clone();
+    let ReadySources {
+        _worker: worker,
+        _mailbox: mailbox,
+        work,
+        observation,
+    } = observe_sources(owner, session, &profile, request);
+    let mut worker = Some(worker);
+    let before = owner.ledger.diagnostic();
+    let first_deadline = if mutation == 5 {
+        Instant::now() + Duration::from_secs(5)
+    } else {
+        fixture::until()
+    };
+    let job = work.job(&mailbox, owner, first_deadline).unwrap();
+    let original_lease = job.lease();
+    let result = owner
+        .certify_phase_result(
+            ResidentPhase::Observation(Ok(observation)),
+            job,
+            geometry.app.world_mut(),
+            &installed,
+        )
+        .unwrap();
+    let ResidentPhaseResult::Prepared(prepared) = result else {
+        panic!("retained prefix must yield");
+    };
+    assert_eq!(owner.ledger.diagnostic(), before);
+    // An intervening forged dispatch cannot select or replace the retained native owner.
+    let mut wrong = request.clone();
+    wrong.binding.tick += 1;
+    assert!(owner.state.query.retain_constructor(&wrong).is_err());
+    assert_eq!(owner.ledger.diagnostic(), before);
+    let original_index = if mutation == 1 {
+        let original = geometry
+            .app
+            .world_mut()
+            .remove_resource::<NativeStaticMapIndex>()
+            .unwrap();
+        geometry.app.insert_resource(foreign_index.take().unwrap());
+        Some(original)
+    } else {
+        None
+    };
+    let obstacle = if mutation == 2 {
+        let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
+            unreachable!()
+        };
+        let a = route.request.origin;
+        let b = route.request.goal;
+        let middle = [
+            (a.x.as_f32() + b.x.as_f32()) * 0.5,
+            (a.y.as_f32() + b.y.as_f32()) * 0.5,
+            a.z.as_f32() + 1.,
+        ];
+        Some(
+            geometry
+                .app
+                .world_mut()
+                .spawn((
+                    avian3d::prelude::Collider::cuboid(2., 3., 0.25),
+                    avian3d::prelude::RigidBody::Static,
+                    avian3d::prelude::CollisionLayers::DEFAULT,
+                    bevy::prelude::Transform::from_translation(benilla_assets::coords::wow_to_bevy(
+                        middle,
+                    )),
+                ))
+                .id(),
+        )
+    } else {
+        None
+    };
+    let restore = (11..=14)
+        .contains(&mutation)
+        .then(|| RestoreInstall::new(install));
+    if (11..=14).contains(&mutation) {
+        let mut entries = input::navigation_entries();
+        match mutation {
+            11 => entries = input::overlapping_entries(),
+            12 => {
+                entries.iter_mut().find(|(name, _)| name == input::WDT).unwrap().1[20] ^= 1;
+            }
+            13 => entries.retain(|(name, _)| !name.ends_with("Selected_40_40.adt")),
+            14 => {
+                entries
+                    .iter_mut()
+                    .find(|(name, _)| name == input::EXTERIOR_ADT)
+                    .unwrap()
+                    .1[20] ^= 1;
+            }
+            _ => unreachable!(),
+        }
+        install.write(&entries);
+    }
+    match mutation {
+        3 => worker.as_ref().unwrap().cancel(),
+        4 => drop(worker.take()),
+        5 => std::thread::sleep(first_deadline.saturating_duration_since(Instant::now())),
+        _ => {}
+    }
+    let restore_ledger =
+        (15..=20).contains(&mutation).then(|| owner.ledger.invalidate_prepared_for_test(mutation));
+    let competing = if mutation == 21 {
+        let ready = observe_sources(owner, session, &profile, request);
+        let first_id = owner.ledger.next_transport_candidate();
+        let job = ready
+            .work
+            .job(&ready._mailbox, owner, fixture::until())
+            .unwrap();
+        let result = owner
+            .certify_observed_result(ready.observation, job, geometry.app.world_mut(), &installed)
+            .unwrap();
+        Some((result, first_id))
+    } else {
+        None
+    };
+    let before_final = owner.ledger.diagnostic();
+    geometry.advance_physics();
+    let replacement = if mutation == 6 {
+        Some(
+            ResidentDispatchWork::capture(
+                &mailbox,
+                owner,
+                &profile,
+                f::player(),
+                702,
+                request.clone(),
+                fixture::until(),
+            )
+            .unwrap(),
+        )
+    } else {
+        None
+    };
+    let job = replacement
+        .as_ref()
+        .unwrap_or(&work)
+        .job(&mailbox, owner, fixture::until())
+        .unwrap();
+    let foreign_owner = foreign_index
+        .as_ref()
+        .and_then(|index| index.source_provenance());
+    let resumed_installed = if mutation == 7 {
+        foreign_owner.unwrap()
+    } else {
+        &installed
+    };
+    let result = owner.certify_phase_result(
+        ResidentPhase::Prepared(prepared),
+        job,
+        geometry.app.world_mut(),
+        resumed_installed,
+    );
+    assert!(
+        original_lease.is_active(),
+        "short BEGIN slice never expires the longer original Work",
+    );
+    match mutation {
+        1 | 7 | 15..=17 | 21 => assert!(matches!(
+            &result,
+            Err(ResidentFilterError::Context(Failure::Binding))
+        )),
+        2 => assert!(matches!(
+            &result,
+            Err(ResidentFilterError::Context(Failure::UnsupportedNavigation))
+        )),
+        3..=5 => assert!(matches!(
+            &result,
+            Err(ResidentFilterError::Source(CompositionError::Cancelled))
+        )),
+        18 | 20 => assert!(matches!(
+            &result,
+            Err(ResidentFilterError::Context(Failure::QueueCapacity))
+        )),
+        19 => assert!(matches!(
+            &result,
+            Err(ResidentFilterError::Context(Failure::UnsupportedQuery))
+        )),
+        11..=14 => assert!(matches!(&result, Err(ResidentFilterError::Source(_)))),
+        6 => assert!(matches!(
+            &result,
+            Err(ResidentFilterError::Source(CompositionError::Validation(
+                super::super::super::super::products::Error::Identity
+            )))
+        )),
+        _ => {}
+    }
+    if mutation != 0 {
+        assert_eq!(owner.ledger.diagnostic(), before_final);
+    }
+    if let Some(restore) = restore_ledger {
+        restore(&mut owner.ledger);
+    }
+    if let Some((result, first_id)) = competing {
+        owner
+            .retire_unpublished_probe_result(result, first_id)
+            .unwrap();
+        assert!(owner.ledger.diagnostic().same_committed_root(&before));
+        assert_eq!(owner.ledger.counts(), (1, 1));
+    } else if mutation != 0 {
+        assert_eq!(owner.ledger.diagnostic(), before);
+    }
+    if let Some(obstacle) = obstacle {
+        geometry.app.world_mut().despawn(obstacle);
+    }
+    if let Some(original) = original_index {
+        geometry.app.insert_resource(original);
+    }
+    drop(restore);
+    match result? {
+        ResidentPhaseResult::Complete(result) => Ok(result.facts().clone()),
+        ResidentPhaseResult::Prepared(_) => panic!("final cannot recreate native preparation"),
     }
 }

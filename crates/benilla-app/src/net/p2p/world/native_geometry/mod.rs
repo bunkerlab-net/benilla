@@ -633,3 +633,6 @@ mod tests {
         assert_eq!(app.world().resource::<Order>().0, [1, 2, 3]);
     }
 }
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod retained_phased_controller_tests;

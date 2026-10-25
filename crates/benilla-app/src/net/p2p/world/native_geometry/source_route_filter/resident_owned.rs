@@ -530,3 +530,6 @@ mod tests;
 
 #[path = "resident_owned/transport.rs"]
 pub(crate) mod transport;
+
+mod phased;
+pub(crate) use phased::{PreparedResident, ResidentPhase, ResidentPhaseResult};

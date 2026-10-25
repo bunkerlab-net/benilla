@@ -87,6 +87,20 @@ jobs:
             df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
             echo '::endgroup::'
           done
+      - name: Compare two-turn retained certification with synchronous baseline
+        if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Same runner/process comparison, default 500ms Work contract unchanged; no aggregate timing sum.'
+          status=0
+          for test in retained_phased_default_budget_comparison retained_phased_frame_cadenced_comparison; do
+            name="net::p2p::native_geometry::retained_phased_controller_tests::$test"
+            log="$RUNNER_TEMP/$test.log"
+            if ! mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"; then status=1; fi
+            if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi
+          done
+          exit "$status"
       - name: Validate the default Route budget in the release component fixture
         # Independent failures stay red without hiding later diagnostic results.
         # Require successful serial compilation/proofs; do not run after cancellation.

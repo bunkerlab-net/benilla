@@ -145,6 +145,19 @@ mod tests {
     #[test]
     fn scopes_isolate_nested_threads_and_restore_after_unwind() {
         assert!(Timer::start(Phase::Total).started.is_none());
+        let (_, trace) = trace_sources(|| {
+            trace_source_check();
+            let (_, inner) = trace_sources(trace_source_check);
+            assert_eq!(inner.len(), 1);
+            assert!(std::panic::catch_unwind(|| trace_sources(|| {
+                trace_source_check();
+                panic!("trace scope must restore on unwind");
+            }))
+            .is_err());
+            trace_source_check();
+        });
+        assert_eq!(trace.len(), 2);
+        assert!(SOURCE_TRACE.with(|trace| trace.borrow().is_none()));
         let (_, outer) = measure(|| {
             Timer::start(Phase::Total).finish(true);
             let (_, inner) = measure(|| {
@@ -223,4 +236,34 @@ mod tests {
         assert_eq!(failed.total.unwound, 1);
         assert_eq!(failed.total.refused, 0);
     }
+}
+
+/// Ordered callsite witnesses only; never source success or cached authority.
+pub(crate) type SourceTrace = Vec<(&'static str, u32, u32)>;
+thread_local! {
+    static SOURCE_TRACE: std::cell::RefCell<Option<SourceTrace>> = const { std::cell::RefCell::new(None) };
+}
+#[track_caller]
+pub(super) fn trace_source_check() {
+    let caller = std::panic::Location::caller();
+    SOURCE_TRACE.with(|trace| {
+        if let Some(trace) = trace.borrow_mut().as_mut() {
+            trace.push((caller.file(), caller.line(), caller.column()));
+        }
+    });
+}
+pub(crate) fn trace_sources<T>(run: impl FnOnce() -> T) -> (T, SourceTrace) {
+    struct Reset(Option<SourceTrace>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            SOURCE_TRACE.with(|trace| {
+                trace.replace(self.0.take());
+            });
+        }
+    }
+    let reset = Reset(SOURCE_TRACE.with(|trace| trace.replace(Some(Vec::new()))));
+    let result = run();
+    let trace = SOURCE_TRACE.with(|trace| trace.borrow_mut().take().unwrap());
+    drop(reset);
+    (result, trace)
 }

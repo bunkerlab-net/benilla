@@ -322,6 +322,14 @@ jobs:
             source_route_filter::resident::owned::tests::resident_result_transport_dropped_reply_cannot_promote_staging \
             source_route_filter::resident::owned::tests::resident_result_transport_rechecks_geometry_after_worker_completion \
             source_route_filter::resident::owned::tests::resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate
+      - name: Verify two-turn retained controller transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/retained-phased-controller.log"
+          name=net::p2p::native_geometry::retained_phased_controller_tests::retained_phased_fifo_saves_after_distinct_owner_turns
+          mbx test --locked -p benilla-app --lib "$name" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" "$name"
       - name: Verify resident result controller transport
         shell: bash
         run: |

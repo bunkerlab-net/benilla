@@ -24,7 +24,8 @@ use super::{
     source_pathfinder_query::resident_joined_tests as fixture,
     source_player_environment::resident::ResidentEnvironmentError,
     source_route_filter::resident::{
-        owned::OwnedResident, ResidentFilterError, ResidentFilterProvider,
+        owned::{OwnedResident, ResidentPhase, ResidentPhaseResult},
+        ResidentFilterError, ResidentFilterProvider,
     },
     source_route_resident_retained,
 };
@@ -177,6 +178,9 @@ pub(super) enum Mode {
     Accept,
     DefaultBudget,
     FrameCadenced,
+    Phased,
+    PhasedDefaultBudget,
+    PhasedFrameCadenced,
     MissedFrame,
     CheckpointFailure,
     LostAck,
@@ -185,16 +189,31 @@ pub(super) enum Mode {
 }
 impl Mode {
     fn frame_cadenced(self) -> bool {
-        matches!(self, Self::FrameCadenced | Self::MissedFrame)
+        matches!(
+            self,
+            Self::FrameCadenced | Self::MissedFrame | Self::PhasedFrameCadenced
+        )
     }
     fn default_budget(self) -> bool {
-        self == Self::DefaultBudget || self.frame_cadenced()
+        matches!(self, Self::DefaultBudget | Self::PhasedDefaultBudget) || self.frame_cadenced()
+    }
+    fn phased(self) -> bool {
+        matches!(
+            self,
+            Self::Phased | Self::PhasedDefaultBudget | Self::PhasedFrameCadenced
+        )
     }
     fn loses_ack(self) -> bool {
         matches!(self, Self::LostAck | Self::ChangedSourceAck)
     }
 }
-pub(super) fn run(mode: Mode) {
+pub(super) struct RunEvidence {
+    pub(super) retained_trace: freshness_timings::SourceTrace,
+    pub(super) max_owner_service: Duration,
+}
+pub(super) fn run(mode: Mode) -> RunEvidence {
+    let mut retained_trace = Vec::new();
+    let mut measured_max_owner_service = Duration::ZERO;
     let checkpoint_failure = mode == Mode::CheckpointFailure;
     fixture::with_selected_controller_fixture(
         fixture::ControllerOwners::Single,
@@ -587,6 +606,10 @@ pub(super) fn run(mode: Mode) {
                 let mut missed_frame = false;
                 let mut previous_frame = None;
                 let mut previous_fixed_steps = 0;
+                let mut prepared_frame = None;
+                let mut prepared_count = 0;
+                let mut finished_count = 0;
+                let mut max_owner_service = Duration::ZERO;
                 while !worker.is_finished() {
                     assert!(
                         Instant::now() < deadline,
@@ -705,7 +728,7 @@ pub(super) fn run(mode: Mode) {
                         let cold = matches!(command, RouteCommitCommand::Commit(notice) if !notice.routes().is_empty());
                         if !dropped && ((mode == Mode::LostAck && warm) || (mode == Mode::ChangedSourceAck && cold)) { dropped = true; true } else { false }
                     });
-                    let queries = selection.serve_results(
+                    let queries = selection.serve_phased_results(
                         &mailbox,
                         &mut owner,
                         if mode.frame_cadenced() {
@@ -714,9 +737,67 @@ pub(super) fn run(mode: Mode) {
                             32
                         },
                         fixture::until(),
-                        |owner, job, observation| {
+                        |owner, job, phase| {
                             calls.fetch_add(1, Ordering::SeqCst);
                             let request = job.request().clone();
+                            if mode.phased() {
+                                let finishing = matches!(&phase, ResidentPhase::Prepared(_));
+                                if !mode.frame_cadenced() {
+                                    geometry.advance_physics();
+                                }
+                                let frame = geometry.app.world().resource::<FrameCount>().0;
+                                if finishing {
+                                    assert_ne!(
+                                        prepared_frame,
+                                        Some(frame),
+                                        "final phase requires an intervening actual app update",
+                                    );
+                                }
+                                let before = owner.diagnostic();
+                                let started = Instant::now();
+                                let ((result, freshness), trace) = freshness_timings::trace_sources(|| {
+                                    freshness_timings::measure(|| {
+                                        owner.certify_phase_result(
+                                            phase, job, geometry.app.world_mut(), &installed,
+                                        )
+                                    })
+                                });
+                                if result.is_ok() && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()) {
+                                    assert_eq!(trace.len(), if finishing { 59 } else { 34 });
+                                    retained_trace.extend(trace);
+                                }
+                                eprintln!(
+                                    "resident phased certification: tick={} phase={} wall_us={} success={} freshness={freshness:?}",
+                                    request.binding.tick,
+                                    if finishing { "final" } else { "begin" },
+                                    started.elapsed().as_micros(),
+                                    result.is_ok(),
+                                );
+                                let result = result.map_err(|_| Failure::Binding)?;
+                                match &result {
+                                    ResidentPhaseResult::Prepared(_) => {
+                                        assert_eq!(
+                                            owner.diagnostic(), before,
+                                            "preparation cannot stage or promote",
+                                        );
+                                        prepared_frame = Some(frame);
+                                        prepared_count += 1;
+                                    }
+                                    ResidentPhaseResult::Complete(_) => {
+                                        if finishing {
+                                            finished_count += 1;
+                                        }
+                                        if !mode.default_budget() {
+                                            assert_constructor(owner, &request);
+                                        }
+                                        routes.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                }
+                                return Ok(result);
+                            }
+                            let ResidentPhase::Observation(observation) = phase else {
+                                panic!("baseline cannot prepare");
+                            };
                             if mode == Mode::PhysicsChangedWhenReady && !physics_refused {
                                 let observation = observation.map_err(|_| Failure::Binding)?;
                                 let Query::SourceMotion(MotionQuery::Route(route)) = &request.query
@@ -775,14 +856,20 @@ pub(super) fn run(mode: Mode) {
                             }
                             let certification_started = Instant::now();
                             let observation = observation.map_err(|_| Failure::Binding)?;
-                            let (result, freshness) = freshness_timings::measure(|| {
-                                owner.certify_observed_result(
-                                    observation,
-                                    job,
-                                    geometry.app.world_mut(),
-                                    &installed,
-                                )
+                            let ((result, freshness), trace) = freshness_timings::trace_sources(|| {
+                                freshness_timings::measure(|| {
+                                    owner.certify_observed_result(
+                                        observation,
+                                        job,
+                                        geometry.app.world_mut(),
+                                        &installed,
+                                    )
+                                })
                             });
+                            if result.is_ok() && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()) {
+                                assert_eq!(trace.len(), 87);
+                                retained_trace.extend(trace);
+                            }
                             eprintln!(
                                 "resident controller certification: tick={} elapsed_ms={} success={} freshness={freshness:?}",
                                 request.binding.tick,
@@ -794,7 +881,7 @@ pub(super) fn run(mode: Mode) {
                                 assert_constructor(owner, &request);
                             }
                             routes.fetch_add(1, Ordering::SeqCst);
-                            Ok(result)
+                            Ok(ResidentPhaseResult::Complete(Box::new(result)))
                         },
                         |job, deadline| {
                             calls.fetch_add(1, Ordering::SeqCst);
@@ -830,6 +917,7 @@ pub(super) fn run(mode: Mode) {
                             Ok(ServiceStep::Complete(Box::new(facts)))
                         },
                     );
+                    max_owner_service = max_owner_service.max(service_started.elapsed());
                     if mode.frame_cadenced() {
                         assert!(controls + queries <= allowance);
                         eprintln!(
@@ -839,6 +927,14 @@ pub(super) fn run(mode: Mode) {
                     } else {
                         std::thread::yield_now();
                     }
+                }
+                eprintln!(
+                    "resident owner-service maximum: phased={} frame_cadenced={} wall_us={}",
+                    mode.phased(), mode.frame_cadenced(), max_owner_service.as_micros(),
+                );
+                measured_max_owner_service = max_owner_service;
+                if mode.phased() {
+                    assert_eq!((prepared_count, finished_count), (1, 1));
                 }
                 let proofs = worker.join().unwrap();
                 assert_eq!(missed_frame, mode == Mode::MissedFrame);
@@ -902,6 +998,10 @@ pub(super) fn run(mode: Mode) {
             });
         },
     );
+    RunEvidence {
+        retained_trace,
+        max_owner_service: measured_max_owner_service,
+    }
 }
 
 #[test]

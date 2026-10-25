@@ -208,6 +208,7 @@ pub(in super::super::super) fn exercise_result_transport(
 ) -> Facts {
     use super::super::super::source_route_filter::resident::ResidentFilterError;
     use super::fifo::ResidentFifoSelection;
+    use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
     fn send<T: Send>() {}
     send::<Work>();
@@ -264,6 +265,7 @@ pub(in super::super::super) fn exercise_result_transport(
         .source_provenance()
         .unwrap()
         .clone();
+    let retained = matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some());
     let mut callbacks = 0;
     let mut facts = None;
     // A rejected post-stage attempt and then a successful late attempt each requeue
@@ -271,18 +273,18 @@ pub(in super::super::super) fn exercise_result_transport(
     while callbacks < 2 {
         assert!(Instant::now() < deadline);
         let slice = Instant::now() + Duration::from_secs(2);
-        selector.serve_results(
+        selector.serve_phased_results(
             &mailbox,
             owner,
             8,
             slice,
-            |owner, job, observation| {
+            |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
                 if callbacks == 0 {
                     let mut after_called = false;
-                    let result = owner.certify_observed_result_after(
-                        observation.map_err(|_| Failure::Binding)?,
+                    let result = owner.certify_phase_result_after(
+                        phase,
                         job,
                         geometry.app.world_mut(),
                         &installed,
@@ -293,6 +295,9 @@ pub(in super::super::super) fn exercise_result_transport(
                             Err(Failure::Deadline)
                         },
                     );
+                    if let Ok(ResidentPhaseResult::Prepared(prepared)) = result {
+                        return Ok(ResidentPhaseResult::Prepared(prepared));
+                    }
                     assert!(
                         after_called,
                         "injected failure follows genuine certification"
@@ -305,8 +310,8 @@ pub(in super::super::super) fn exercise_result_transport(
                     return Err(Failure::Deadline);
                 }
                 let result = owner
-                    .certify_observed_result(
-                        observation.map_err(|_| Failure::Binding)?,
+                    .certify_phase_result(
+                        phase,
                         job,
                         geometry.app.world_mut(),
                         &installed,
@@ -315,11 +320,14 @@ pub(in super::super::super) fn exercise_result_transport(
                         ResidentFilterError::Context(error) => error,
                         _ => Failure::Binding,
                     })?;
+                let ResidentPhaseResult::Complete(result) = result else {
+                    return Ok(result);
+                };
                 callbacks += 1;
                 facts = Some(result.facts().clone());
                 let remaining = slice.saturating_duration_since(Instant::now());
                 std::thread::sleep(remaining + Duration::from_millis(1));
-                Ok(result)
+                Ok(ResidentPhaseResult::Complete(result))
             },
             |_, _| panic!("resident must use selected continuation"),
         );
@@ -338,8 +346,8 @@ pub(in super::super::super) fn exercise_result_transport(
             deadline,
             || false,
             |_, _, ledger| {
-                assert_eq!(ledger.counts(), (0, 0));
-                assert_eq!(ledger.next_transport_candidate(), 2);
+                assert_eq!(ledger.counts(), (usize::from(retained), usize::from(retained)));
+                assert_eq!(ledger.next_transport_candidate(), if retained { 3 } else { 2 });
                 Ok(())
             },
         )
@@ -347,26 +355,29 @@ pub(in super::super::super) fn exercise_result_transport(
     // A second observation and concrete certification, never a saved result, supplies success.
     while lease.is_active() {
         assert!(Instant::now() < deadline);
-        selector.serve_results(
+        selector.serve_phased_results(
             &mailbox,
             owner,
             8,
             deadline,
-            |owner, job, observation| {
+            |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
                 let result = owner
-                    .certify_observed_result(
-                        observation.map_err(|_| Failure::Binding)?,
+                    .certify_phase_result(
+                        phase,
                         job,
                         geometry.app.world_mut(),
                         &installed,
                     )
                     .map_err(|_| Failure::Binding)?;
+                let ResidentPhaseResult::Complete(result) = result else {
+                    return Ok(result);
+                };
                 owner.assert_result_refusals_for_test(&result);
                 callbacks += 1;
                 facts = Some(result.facts().clone());
-                Ok(result)
+                Ok(ResidentPhaseResult::Complete(result))
             },
             |_, _| panic!("resident must use selected continuation"),
         );
@@ -380,7 +391,7 @@ pub(in super::super::super) fn exercise_result_transport(
                 deadline,
                 || false,
                 |_, _, ledger| {
-                    assert_eq!(ledger.counts(), (0, 0));
+                    assert_eq!(ledger.counts(), (usize::from(retained), usize::from(retained)));
                     Ok(())
                 },
             )
@@ -550,6 +561,7 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
     expire: bool,
 ) -> Facts {
     use super::fifo::ResidentFifoSelection;
+    use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
     let (_, mailbox) = paired_test_mailbox(owner).unwrap();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
@@ -569,6 +581,7 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
         .source_provenance()
         .unwrap()
         .clone();
+    let retained = matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some());
     let mut tail = Vec::new();
     let mut facts = None;
     while facts.is_none() {
@@ -578,22 +591,25 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
         } else {
             Instant::now() + Duration::from_secs(2)
         };
-        selector.serve_results(
+        selector.serve_phased_results(
             &mailbox,
             owner,
             8,
             slice,
-            |owner, job, observation| {
+            |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
                 let result = owner
-                    .certify_observed_result(
-                        observation.unwrap(),
+                    .certify_phase_result(
+                        phase,
                         job,
                         geometry.app.world_mut(),
                         &installed,
                     )
                     .unwrap();
+                let ResidentPhaseResult::Complete(result) = result else {
+                    return Ok(result);
+                };
                 facts = Some(result.facts().clone());
                 if !expire {
                     for ticket in 0..QUEUE_CAPACITY {
@@ -623,7 +639,7 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
                 std::thread::sleep(
                     until.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
                 );
-                Ok(result)
+                Ok(ResidentPhaseResult::Complete(result))
             },
             |_, _| panic!("selected resident Work only"),
         );
@@ -650,8 +666,8 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
             watchdog,
             || false,
             |_, _, ledger| {
-                assert_eq!(ledger.counts(), (0, 0));
-                assert_eq!(ledger.next_transport_candidate(), 1);
+                assert_eq!(ledger.counts(), (usize::from(retained), usize::from(retained)));
+                assert_eq!(ledger.next_transport_candidate(), if retained { 2 } else { 1 });
                 Ok(())
             },
         )

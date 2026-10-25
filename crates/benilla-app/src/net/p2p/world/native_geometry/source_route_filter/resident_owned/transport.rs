@@ -279,17 +279,27 @@ impl OwnedResident {
         installed: &NativeInventorySource,
         after: impl FnOnce() -> Result<(), Failure>,
     ) -> Result<CertifiedResidentResult, ResidentFilterError> {
+        self.certify_result_with(job, |owner, job| {
+            owner
+                .certify_observed(observation, job, world, installed)
+                .and_then(|facts| {
+                    after()?;
+                    Ok(facts)
+                })
+        })
+    }
+
+    pub(super) fn certify_result_with(
+        &mut self,
+        job: ResidentDispatchJob<'_>,
+        calculate: impl FnOnce(&mut Self, ResidentDispatchJob<'_>) -> Result<Facts, ResidentFilterError>,
+    ) -> Result<CertifiedResidentResult, ResidentFilterError> {
         job.require_resident(self)?;
         let lease = job.lease();
         let request = job.request().clone();
         self.transport.request(&request)?;
         let first_id = self.ledger.next_transport_candidate();
-        let calculated = self
-            .certify_observed(observation, job, world, installed)
-            .and_then(|facts| {
-                after()?;
-                Ok(facts)
-            });
+        let calculated = calculate(self, job);
         let facts = match calculated {
             Ok(facts) => facts,
             Err(error) => {
@@ -329,6 +339,22 @@ impl OwnedResident {
                 Err(error.into())
             }
         }
+    }
+
+    /// Retire an actual never-published probe result, preserving monotonic staging IDs.
+    pub(in super::super::super::super) fn retire_unpublished_probe_result(
+        &mut self,
+        result: CertifiedResidentResult,
+        first_id: u64,
+    ) -> Result<(), Failure> {
+        result.validate_staged_result(self, &result.lease)?;
+        let proof = RejectedResidentCertification {
+            selection: result.selection,
+            request: result.request,
+            lease: result.lease,
+            first_id,
+        };
+        self.ledger.retire_rejected_transport_attempt(&proof)
     }
 
     #[cfg(test)]

@@ -586,36 +586,57 @@ fn resumed_observation_keeps_revocation_live_until_callback_returns() {
     let products = capture(&install);
     // Cancellation, accepted replacement, attachment retirement, and worker drop
     // are tested both between Ready/consume and inside the synchronous attempt.
-    for before in [false, true] {
-        for mode in 0..4 {
-            let (mailbox, lease, _) = request(WATCHDOG);
-            let (_replacement, replacement, _) = request(WATCHDOG);
-            let (worker, observation) = observed(&products, &lease);
-            let mut worker = Some(worker);
-            let mut mailbox = Some(mailbox);
-            let mut revoke = || match mode {
-                0 => worker.as_ref().unwrap().cancel(),
-                1 => worker
-                    .as_mut()
-                    .unwrap()
-                    .try_enqueue(Arc::clone(&products), replacement.clone())
-                    .unwrap(),
-                2 => drop(mailbox.take()),
-                3 => drop(worker.take()),
-                _ => unreachable!(),
-            };
-            if before {
-                revoke();
-            }
-            let result: Result<(), CompositionError> =
-                observation.with_current(&products, &lease, lease.deadline(), |_, _, cancelled| {
-                    assert!(!before, "retired completion entered callback");
-                    assert!(!cancelled());
+    for prepared in [false, true] {
+        for before in [false, true] {
+            for mode in 0..4 {
+                let (mailbox, lease, _) = request(WATCHDOG);
+                let (_replacement, replacement, _) = request(WATCHDOG);
+                let (worker, observation) = observed(&products, &lease);
+                let observation = if prepared {
+                    let tokens = (
+                        Arc::clone(&observation.cancelled),
+                        Arc::clone(&observation.stop),
+                    );
+                    let (observation, ()) = observation
+                        .prepare_current::<_, CompositionError>(
+                            &products,
+                            &lease,
+                            lease.deadline(),
+                            |_, _, _| Ok(()),
+                        )
+                        .unwrap();
+                    assert!(Arc::ptr_eq(&tokens.0, &observation.cancelled));
+                    assert!(Arc::ptr_eq(&tokens.1, &observation.stop));
+                    observation
+                } else {
+                    observation
+                };
+                let mut worker = Some(worker);
+                let mut mailbox = Some(mailbox);
+                let mut revoke = || match mode {
+                    0 => worker.as_ref().unwrap().cancel(),
+                    1 => worker
+                        .as_mut()
+                        .unwrap()
+                        .try_enqueue(Arc::clone(&products), replacement.clone())
+                        .unwrap(),
+                    2 => drop(mailbox.take()),
+                    3 => drop(worker.take()),
+                    _ => unreachable!(),
+                };
+                if before {
                     revoke();
-                    assert!(cancelled());
-                    Ok(())
-                });
-            assert!(matches!(result, Err(CompositionError::Cancelled)));
+                }
+                let result: Result<(), CompositionError> =
+                    observation.with_current(&products, &lease, lease.deadline(), |_, _, cancelled| {
+                        assert!(!before, "retired completion entered callback");
+                        assert!(!cancelled());
+                        revoke();
+                        assert!(cancelled());
+                        Ok(())
+                    });
+                assert!(matches!(result, Err(CompositionError::Cancelled)));
+            }
         }
     }
 }
