@@ -120,7 +120,10 @@ mod unix {
         Ok(())
     }
 
-    fn wait_for_io(pipes: &mut [libc::pollfd; 3], deadline: Instant) -> Result<(), GenerationError> {
+    fn wait_for_io(
+        pipes: &mut [libc::pollfd; 3],
+        deadline: Instant,
+    ) -> Result<(), GenerationError> {
         if pipes.iter().all(|pipe| pipe.fd < 0) {
             // Closed pipes cannot notify us when the child exits.
             pause(deadline);
