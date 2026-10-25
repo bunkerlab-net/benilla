@@ -361,9 +361,9 @@ pub(super) fn run(mode: Mode) {
                         let tick_started = Instant::now();
                         let mut out = driver.pump_one();
                         let tick_elapsed = tick_started.elapsed();
-                        if mode == Mode::MissedFrame && out.pause.is_some() {
+                        if let (Mode::MissedFrame, Some(pause)) = (mode, out.pause.as_ref()) {
                             assert_eq!(worker_refusals.load(Ordering::SeqCst), 1);
-                            assert_eq!(out.pause.as_ref().unwrap().kind, PauseKind::Authority);
+                            assert_eq!(pause.kind, PauseKind::Authority);
                             assert_eq!(out.ticks, 0);
                             assert!(out.events.is_empty());
                             assert!(out.saved.is_none());
