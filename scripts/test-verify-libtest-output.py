@@ -461,6 +461,45 @@ class ExactProofTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 assert_order(bad)
 
+    def test_comparison_format_preflight_follows_setup_and_precedes_compilation(self):
+        path = ".github/workflows/resident-controller-profile-comparison.yml"
+        workflow = (ROOT / path).read_text()
+        title = "Check formatting and module resolution"
+        preflight = f"      - name: {title}\n        run: cargo fmt --all -- --check\n"
+        self.assertIn("run: cargo fmt --all -- --check", (ROOT / ".github/workflows/ci.yml").read_text())
+
+        def assert_order(candidate):
+            steps = re.split(r"(?=^      - )", candidate, flags=re.MULTILINE)
+            indexes = {}
+            for name in ("Toolchain", "Set up Mr Boxington", title):
+                matching = [i for i, step in enumerate(steps) if step.startswith(f"      - name: {name}\n")]
+                self.assertEqual(len(matching), 1)
+                indexes[name] = matching[0]
+            self.assertEqual(steps[indexes[title]], preflight)
+            self.assertLess(indexes["Toolchain"], indexes[title])
+            self.assertLess(indexes[title], indexes["Set up Mr Boxington"])
+            compilation = [
+                i for i, step in enumerate(steps)
+                if re.search(r"\b(?:mbx|cargo)\s+(?:build|check|clippy|test|rustc|doc)\b", step)
+            ]
+            self.assertTrue(compilation)
+            self.assertLess(indexes[title], min(compilation))
+
+        assert_order(workflow)
+        steps = re.split(r"(?=^      - )", workflow, flags=re.MULTILINE)
+        toolchain = next(step for step in steps if step.startswith("      - name: Toolchain\n"))
+        for bad in (
+            workflow.replace(preflight, ""),
+            workflow.replace(preflight, preflight + preflight),
+            workflow.replace(preflight, "").replace(toolchain, preflight + toolchain),
+            workflow.replace(preflight, "") + preflight,
+            workflow.replace(preflight, preflight.replace("        run:", "        if: false\n        run:")),
+            workflow.replace(preflight, preflight.replace("        run:", "        continue-on-error: true\n        run:")),
+            workflow.replace(preflight, preflight.replace("cargo fmt --all -- --check", "cargo fmt --all")),
+        ):
+            with self.assertRaises(AssertionError):
+                assert_order(bad)
+
     def test_controller_profile_comparison_is_scoped_and_profile_only(self):
         path = ".github/workflows/resident-controller-profile-comparison.yml"
         workflow = (ROOT / path).read_text()
