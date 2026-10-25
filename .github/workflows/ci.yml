@@ -327,7 +327,7 @@ jobs:
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/resident-result-controller-transport.log"
-          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --skip resident_default_budget_controller_saves_cold_and_first_retained --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" \
             net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_actual_controller_saves_cold_and_first_retained \
             net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_checkpoint_failure_precedes_ack_and_recovery_never_reruns \

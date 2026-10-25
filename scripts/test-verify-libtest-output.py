@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import tempfile
 import textwrap
@@ -17,6 +18,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
+DEFAULT_BUDGET_PROBE = "resident_default_budget_controller_saves_cold_and_first_retained"
 SUITES = {
     "Verify resident FIFO selection": (
         "benilla-native-corridor-tests",
@@ -284,6 +286,7 @@ class ExactProofTests(unittest.TestCase):
                 "'--lib', os.environ['EXPECTED_PREFIX'], '--', '--show-output', "
                 "'--test-threads=1', '--color', 'never']\n"
                 "if os.environ['EXPECTED_EXACT'] == '1': expected.insert(expected.index('--') + 1, '--exact')\n"
+                "if os.environ['EXPECTED_SKIP']: expected[expected.index('--') + 1:expected.index('--') + 1] = ['--skip', os.environ['EXPECTED_SKIP']]\n"
                 "assert sys.argv[1:] == expected, sys.argv[1:]\n"
                 "data = os.environ['FAKE_OUTPUT'].encode()\n"
                 "cut = data.find(b' ... ') + len(b' ... ')\n"
@@ -304,6 +307,7 @@ class ExactProofTests(unittest.TestCase):
                 EXPECTED_PACKAGE=package,
                 EXPECTED_PREFIX=prefix,
                 EXPECTED_EXACT="1" if title == "Verify resident observation without transport admission" else "0",
+                EXPECTED_SKIP=DEFAULT_BUDGET_PROBE if title == "Verify resident result controller transport" else "",
                 FAKE_OUTPUT=output,
                 FAKE_PROGRESS=PROGRESS,
                 FAKE_EXIT=str(exit_code),
@@ -491,6 +495,81 @@ class ExactProofTests(unittest.TestCase):
         self.assertEqual(shell.count('python3 scripts/verify-libtest-output.py "$log"'), 2)
         self.assertNotIn("--no-default-features", shell)
         self.assertNotIn("--nocapture", shell)
+
+    def test_controller_proof_selectors_exclude_only_default_budget_probe(self):
+        _, prefix, names = SUITES["Verify resident result controller transport"]
+        source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs").read_text()
+        actual = re.findall(r"(?m)^fn (resident_\w+)\(\)", source)
+        self.assertEqual(set(actual), {*names, DEFAULT_BUDGET_PROBE})
+
+        def assert_selection(command):
+            args = shlex.split(command)
+            self.assertEqual(args.count("--skip"), 1)
+            skip = args[args.index("--skip") + 1]
+            self.assertEqual(skip, DEFAULT_BUDGET_PROBE)
+            self.assertIn(prefix, args)
+            selected = [prefix + name for name in actual if skip not in prefix + name]
+            self.assertEqual(set(selected), {prefix + name for name in names})
+
+        for title, path in (
+            ("Verify resident result controller transport", ".github/workflows/ci.yml"),
+            ("Compare the same five controller fixtures serially", ".github/workflows/resident-controller-profile-comparison.yml"),
+        ):
+            with self.subTest(workflow=path):
+                shell = workflow_gate(title, path)
+                commands = [line for line in shell.splitlines() if "mbx test " in line and prefix in line]
+                self.assertEqual(len(commands), 1)
+                command = commands[0]
+                assert_selection(command)
+                for bad in (
+                    command.replace(f"--skip {DEFAULT_BUDGET_PROBE} ", ""),
+                    command.replace(f"--skip {DEFAULT_BUDGET_PROBE}", "--skip resident_"),
+                ):
+                    with self.assertRaises(AssertionError):
+                        assert_selection(bad)
+
+        # The observed six-result output must remain invalid, not be tolerated
+        # by weakening the five-proof verifier to allow ignored results.
+        expected = [prefix + name for name in names]
+        output = fixture(expected).replace("running 5 tests", "running 6 tests")
+        output = output.replace("\nsuccesses:", f"\ntest {prefix}{DEFAULT_BUDGET_PROBE} ... ignored\nsuccesses:", 1)
+        output = output.replace("0 ignored", "1 ignored")
+        with self.assertRaises(ValueError):
+            VERIFIER.verify(output, expected)
+
+    def test_default_budget_probe_is_explicit_release_and_exact_single_result(self):
+        path = ".github/workflows/resident-controller-profile-comparison.yml"
+        shell = workflow_gate("Validate the default Route budget in the release component fixture", path)
+        _, prefix, _ = SUITES["Verify resident result controller transport"]
+        name = prefix + DEFAULT_BUDGET_PROBE
+
+        def assert_gate(candidate):
+            lines = [line.strip() for line in candidate.splitlines() if line.strip()]
+            self.assertIn("set -euo pipefail", lines)
+            self.assertEqual([line for line in lines if line.startswith("name=")], [f"name={name}"])
+            commands = [shlex.split(line) for line in lines if line.startswith("mbx ")]
+            self.assertEqual(commands, [[
+                "mbx", "test", "--locked", "--release", "-p", "benilla-app", "--lib", "$name",
+                "--", "--exact", "--ignored", "--show-output", "--test-threads=1", "--color", "never",
+                "|", "tee", "$log",
+            ]])
+            verifiers = [shlex.split(line) for line in lines if "verify-libtest-output.py" in line]
+            self.assertEqual(verifiers, [["python3", "scripts/verify-libtest-output.py", "$log", "$name"]])
+
+        assert_gate(shell)
+        for bad in (
+            shell.replace("--release ", ""),
+            shell.replace("--exact ", ""),
+            shell.replace("--ignored ", ""),
+            shell.replace(f"name={name}", f"name={prefix}"),
+            shell.replace('"$log" "$name"', '"$log" "$name" another_test'),
+            shell.replace('"$log" "$name"', '"$log" "$name" || true'),
+        ):
+            with self.assertRaises(AssertionError):
+                assert_gate(bad)
+        VERIFIER.verify(fixture([name]), [name])
+        with self.assertRaises(ValueError):
+            VERIFIER.verify(fixture([name]).replace(" ... ok", " ... ignored"), [name])
 
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
