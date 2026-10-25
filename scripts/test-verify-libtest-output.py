@@ -2,6 +2,8 @@
 """No-compile fixtures for the actual joined-suite CI shell gates."""
 
 import importlib.util
+import json
+import sys
 import os
 from pathlib import Path
 import re
@@ -692,6 +694,138 @@ class ExactProofTests(unittest.TestCase):
         for name, path in zip(names, ["profiling.rs", "profiling_source_tests.rs"]):
             source = (ROOT / "crates/benilla-native-vmap-source/src" / path).read_text()
             self.assertIn("fn " + name.rsplit("::", 1)[1] + "()", source)
+
+    def test_revision_comparison_pins_inputs_and_builds_before_execution(self):
+        path = ".github/workflows/resident-instrumentation-revision-comparison.yml"
+        workflow = (ROOT / path).read_text()
+        self.assertIn("0d522190eca69f2c56d582d874a3c19d7df8d435", workflow)
+        self.assertIn("10fff5126b5edaaed3330cb7374099cae95e971f", workflow)
+        self.assertIn("c506058280ea97f266a07932909556da4243e467", workflow)
+        self.assertIn("f725aad16265f70657e83784438f1f24a3311a19", workflow)
+        self.assertIn('assert inventories[0] == inventories[1]', workflow)
+        self.assertIn('assert git("rev-parse", "HEAD") == head', workflow)
+        self.assertIn('assert git("rev-parse", "HEAD^{tree}") == tree', workflow)
+        self.assertEqual(workflow.split("    paths:\n", 1)[1].split("\n\n", 1)[0].strip(), "- " + path)
+        build = workflow_gate("Build both revisions before running either comparison", path)
+        run = workflow_gate("Run each pinned artifact once and verify both raw logs", path)
+        self.assertLess(workflow.index("Build both revisions before running either comparison"), workflow.index("Run each pinned artifact once and verify both raw logs"))
+        self.assertIn('"--locked", "--release", "--no-run"', build)
+        self.assertIn('"--message-format=json"', build)
+        self.assertIn('and m.get("executable") and m["profile"]["test"]', build)
+        self.assertIn('and m["target"]["name"] == target_name', build)
+        self.assertIn('and target_kind in m["target"]["kind"]', build)
+        self.assertIn('len(artifacts) != 1', build)
+        self.assertIn('f"resident-target-{label}"', build)
+        self.assertNotIn('run_exact(', build)
+        self.assertNotIn('"--no-run"', run)
+        self.assertNotIn('continue-on-error', workflow)
+        self.assertNotIn('--skip', workflow)
+        self.assertIn('sys.exit(status)', run)
+        self.assertIn('Fixed baseline-then-current order', workflow)
+        self.assertIn('not source-hook causation', workflow)
+
+    def test_revision_comparison_build_discovery_rejects_ambiguous_or_invalid_artifacts(self):
+        path = ".github/workflows/resident-instrumentation-revision-comparison.yml"
+        shell = workflow_gate("Build both revisions before running either comparison", path)
+        for fault in ("none", "duplicate", "not-test", "wrong-kind", "malformed"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                tools = root / "tools"
+                tools.mkdir()
+                for label in ("baseline", "current"):
+                    (root / label).mkdir()
+                cargo = tools / "cargo"
+                cargo.write_text("#!" + sys.executable + "\n" + textwrap.dedent(r"""
+                    import json, os, sys
+                    from pathlib import Path
+                    assert all(flag in sys.argv for flag in ['+1.98.1', 'test', '--locked', '--release', '--no-run', '--message-format=json'])
+                    package = sys.argv[sys.argv.index('-p') + 1]
+                    app = package == 'benilla-app'
+                    label = Path.cwd().name
+                    with Path(os.environ['CALLS']).open('a') as out:
+                        out.write(label + ':' + ('app' if app else 'helper') + '\n')
+                    target = Path(os.environ['CARGO_TARGET_DIR']) / 'release/deps'
+                    target.mkdir(parents=True, exist_ok=True)
+                    executable = target / ('app' if app else 'helper')
+                    executable.touch()
+                    artifact = {'reason': 'compiler-artifact', 'executable': str(executable), 'profile': {'test': True}, 'target': {'name': 'benilla_app' if app else 'process', 'kind': ['lib' if app else 'test']}}
+                    fault = os.environ['FAULT'] if label == 'baseline' and app else 'none'
+                    if fault == 'not-test': artifact['profile']['test'] = False
+                    if fault == 'wrong-kind': artifact['target']['kind'] = ['bin']
+                    if fault == 'malformed': print('not JSON')
+                    else: print(json.dumps(artifact))
+                    if fault == 'duplicate': print(json.dumps(artifact))
+                """))
+                cargo.chmod(0o755)
+                calls = root / "calls"
+                env = dict(os.environ, GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), CALLS=str(calls), FAULT=fault, PATH=str(tools) + os.pathsep + os.environ["PATH"])
+                result = subprocess.run(["bash", "-c", shell], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(calls.read_text().splitlines(), ["baseline:helper", "baseline:app", "current:helper", "current:app"])
+                records = json.loads((root / "resident-revision-comparison/build-records.json").read_text())
+                self.assertEqual([record["build_ok"] for record in records], [fault == "none", True])
+                self.assertNotEqual(records[0]["target"], records[1]["target"])
+
+    def test_revision_comparison_runs_both_once_and_retains_process_or_proof_failure(self):
+        path = ".github/workflows/resident-instrumentation-revision-comparison.yml"
+        shell = workflow_gate("Run each pinned artifact once and verify both raw logs", path)
+        name = "net::p2p::native_geometry::retained_phased_controller_tests::cold_phased_frame_cadenced_comparison"
+        helper = "empty_request_runs_without_inherited_environment"
+        cases = ((None, 0, False), ("baseline", 1, False), ("baseline", 0, True), ("current", 1, True), ("baseline", None, False))
+        for bad_label, exit_code, bad_proof in cases:
+            with self.subTest(label=bad_label, exit=exit_code, bad_proof=bad_proof), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                logs = root / "resident-revision-comparison"
+                logs.mkdir()
+                tools = root / "tools"
+                tools.mkdir()
+                for tool in ("rustc", "rustup"):
+                    executable = tools / tool
+                    executable.write_text("#!/bin/sh\necho /unused/runtime/path\n")
+                    executable.chmod(0o755)
+                (root / "scripts").mkdir()
+                (root / "scripts/verify-libtest-output.py").write_bytes((ROOT / "scripts/verify-libtest-output.py").read_bytes())
+                records = []
+                for label in ("baseline", "current"):
+                    checkout = root / label
+                    checkout.mkdir()
+                    (checkout / "Cargo.toml").write_text('[workspace.package]\nversion="0.2.0"\n')
+                    target = root / ("resident-target-" + label)
+                    (target / "release/deps").mkdir(parents=True)
+                    record = {"label": label, "root": str(checkout), "target": str(target), "build_ok": True}
+                    for kind, package, selected in (("helper", "benilla-native-nav-generator", helper), ("app", "benilla-app", name)):
+                        manifest = checkout / "crates" / package
+                        manifest.mkdir(parents=True)
+                        (manifest / "Cargo.toml").write_text('[package]\nname="' + package + '"\nversion="0.2.0"\n')
+                        executable = target / "release/deps" / kind
+                        bad = label == bad_label and kind == "app"
+                        output = fixture(["unexpected" if bad and bad_proof else selected])
+                        executable.write_text(
+                            "#!" + sys.executable + "\nimport os,sys\nfrom pathlib import Path\n"
+                            + "assert sys.argv[1] == " + repr(selected) + "\n"
+                            + "assert '--exact' in sys.argv and '--show-output' in sys.argv\n"
+                            + "assert ('--ignored' in sys.argv) == " + repr(kind == "app") + "\n"
+                            + "with Path(os.environ['CALLS']).open('a') as f: f.write(" + repr(label + ":" + kind + "\n") + ")\n"
+                            + "print(" + repr(output) + ", end='')\n"
+                            + "sys.exit(" + str(exit_code if bad else 0) + ")\n"
+                        )
+                        executable.chmod(0o755)
+                        if bad and exit_code is None:
+                            executable.unlink()
+                        record[kind] = {"executable": str(executable), "library_paths": []}
+                    records.append(record)
+                (logs / "build-records.json").write_text(json.dumps(records))
+                calls = root / "calls"
+                env = dict(os.environ, GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), CALLS=str(calls), PATH=str(tools) + os.pathsep + os.environ["PATH"])
+                result = subprocess.run(["bash", "-c", shell], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, bad_label is None, result.stdout + result.stderr)
+                expected = ["baseline:helper", "current:helper", "baseline:app", "current:app"]
+                if exit_code is None:
+                    expected.remove("baseline:app")
+                self.assertEqual(calls.read_text().splitlines(), expected)
+                for label in ("baseline", "current"):
+                    self.assertIn("RESULT " + label + "/app:", result.stdout)
+                    self.assertTrue((logs / (label + "-app.stdout.log")).exists())
 
     def test_observer_comparison_keeps_exact_scope_and_original_budget(self):
         title = "Measure resident observer overhead without changing the Work budget"
