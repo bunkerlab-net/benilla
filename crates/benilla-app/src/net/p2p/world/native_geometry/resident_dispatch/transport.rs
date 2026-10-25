@@ -658,3 +658,10 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
         .unwrap();
     facts.unwrap()
 }
+
+#[test]
+fn default_route_budget_matches_ordinary_wait_not_controller_proof() {
+    assert_eq!(RouteBudget::Default.wait(), WAIT);
+    assert_eq!(RouteBudget::Default.wait(), Duration::from_millis(500));
+    assert_eq!(RouteBudget::ControllerProof.wait(), Duration::from_secs(60));
+}

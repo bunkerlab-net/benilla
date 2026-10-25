@@ -38,7 +38,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           echo "Same-head, same-runner serial profile comparison: $EXPECTED_HEAD"
           echo 'Identical default-feature cfg(test) fixtures; release profile is not the packaged no-default-features player.'
-          echo 'Fixed 60s proof budget; no 500ms pass/fail threshold or default-budget success claim.'
+          echo 'Profile comparison uses a fixed 60s proof budget; a separate release step tests the default Route budget.'
           echo 'Receiver timing includes the test-only constructor_identity diagnostic, stops before final guards, and excludes checkpoint/ACK.'
           echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
           df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
@@ -76,7 +76,7 @@ jobs:
             log="$RUNNER_TEMP/controller-$profile-transport.log"
             # show-output exposes successful timing diagnostics without nocapture's
             # interleaving, preserving the exact stdout-only libtest verifier.
-            mbx test --locked "${args[@]}" -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+            mbx test --locked "${args[@]}" -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --skip resident_default_budget_controller_saves_cold_and_first_retained --show-output --test-threads=1 --color never | tee "$log"
             python3 scripts/verify-libtest-output.py "$log" \
               net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_actual_controller_saves_cold_and_first_retained \
               net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_checkpoint_failure_precedes_ack_and_recovery_never_reruns \
@@ -86,6 +86,17 @@ jobs:
             df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
             echo '::endgroup::'
           done
+      - name: Validate the default Route budget in the release component fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Authored component scene only; not packaged-player or real-gameplay evidence.'
+          echo 'Uses paired_test_mailbox default Route deadline, including final reply guards.'
+          echo 'Separate full-tick timing includes save/ACK; it is not a 500ms whole-tick threshold.'
+          name=net::p2p::native_geometry::resident_result_controller_tests::resident_default_budget_controller_saves_cold_and_first_retained
+          log="$RUNNER_TEMP/controller-release-default-budget.log"
+          mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" "$name"
       - name: Report final disk space
         if: always()
         run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"

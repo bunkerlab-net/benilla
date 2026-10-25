@@ -4,7 +4,9 @@ use super::{
     core::{
         resident_dispatch::{
             fifo::ResidentFifoSelection,
-            transport::{paired_controller_proof_mailbox, ResidentTestAuthority},
+            transport::{
+                paired_controller_proof_mailbox, paired_test_mailbox, ResidentTestAuthority,
+            },
         },
         Failure, PlayerEnvironmentPolicy, RouteCommitCommand, ServiceQuery, ServiceStep,
     },
@@ -73,7 +75,18 @@ impl Authority for ControllerAuthority {
         match &request.query {
             Query::PlayerEnvironment(_)
             | Query::SourceMotion(MotionQuery::Route(_) | MotionQuery::NearPoint(_)) => {
+                let started = Instant::now();
                 let result = self.resident.resolve(request);
+                if matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))) {
+                    // This includes finish_reply's active, identity and expiry checks.
+                    // It excludes the controller's subsequent durable save and ACK.
+                    eprintln!(
+                        "resident controller Route authority returned: tick={} elapsed_us={} success={}",
+                        request.binding.tick,
+                        started.elapsed().as_micros(),
+                        result.is_ok(),
+                    );
+                }
                 if let Err(error) = &result {
                     let kind = match &request.query {
                         Query::PlayerEnvironment(_) => "PlayerEnvironment",
@@ -146,6 +159,7 @@ impl Drop for AuthoredSourceChange<'_> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Accept,
+    DefaultBudget,
     CheckpointFailure,
     LostAck,
     ChangedSourceAck,
@@ -243,7 +257,12 @@ fn run(mode: Mode) {
                 || false,
             )
             .unwrap();
-            let (mut authority, mailbox) = paired_controller_proof_mailbox(&owner).unwrap();
+            let (mut authority, mailbox) = if mode == Mode::DefaultBudget {
+                paired_test_mailbox(&owner)
+            } else {
+                paired_controller_proof_mailbox(&owner)
+            }
+            .unwrap();
             let sink = authority.take_route_commit_sink().unwrap();
             let authority = ControllerAuthority {
                 resident: authority,
@@ -307,7 +326,10 @@ fn run(mode: Mode) {
                         if blocked {
                             driver.block_checkpoint_for_result_transport(true);
                         }
+                        let routes_before = worker_routes.load(Ordering::SeqCst);
+                        let tick_started = Instant::now();
                         let mut out = driver.pump_one();
+                        let tick_elapsed = tick_started.elapsed();
                         if mode == Mode::PhysicsChangedWhenReady
                             && out
                                 .pause
@@ -406,6 +428,19 @@ fn run(mode: Mode) {
                         }
                         assert!(driver.records().is_empty());
                         assert!(!driver.route_pending());
+                        if mode == Mode::DefaultBudget
+                            && worker_routes.load(Ordering::SeqCst) > routes_before
+                        {
+                            assert_eq!(worker_acks.load(Ordering::SeqCst), ack_before + 1);
+                            // Full pump includes checkpoint and commit ACK. Those have
+                            // their own budgets: this is not a 500 ms whole-tick SLA.
+                            eprintln!(
+                                "resident default-budget controller tick saved and acknowledged: tick={} route={} elapsed_us={}",
+                                driver.tick(),
+                                if routes_before == 0 { "cold" } else { "retained" },
+                                tick_elapsed.as_micros(),
+                            );
+                        }
                         assert_eq!(saved.tick, driver.tick());
                         assert_eq!(saved.generation, generation + 1);
                         proofs.push((before, driver.checkpoint().identity(), saved));
@@ -743,4 +778,12 @@ fn resident_result_transport_changed_source_allows_historical_ack_not_fresh_geom
 #[test]
 fn resident_result_transport_worker_ready_rechecks_current_physics_before_reply() {
     run(Mode::PhysicsChangedWhenReady);
+}
+
+/// Opt-in latency evidence on authored component inputs, not real gameplay.
+/// Refusal is a failure; no retry or proof-budget fallback is allowed here.
+#[test]
+#[ignore = "runner-sensitive default Route budget; run explicitly in release profile"]
+fn resident_default_budget_controller_saves_cold_and_first_retained() {
+    run(Mode::DefaultBudget);
 }
