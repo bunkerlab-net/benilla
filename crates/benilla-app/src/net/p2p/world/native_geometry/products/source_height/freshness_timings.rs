@@ -16,7 +16,7 @@ struct PhaseCounts {
     unwound: usize,
     elapsed: Duration,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Counts {
     total: PhaseCounts,
     terrain: PhaseCounts,
@@ -26,6 +26,19 @@ pub(crate) struct Counts {
     full_resident_dispatch: PhaseCounts,
     full_gate_model: PhaseCounts,
     initialized_owner_height: PhaseCounts,
+    invocation_match: PhaseCounts,
+    provider_guard: PhaseCounts,
+    provider_active: PhaseCounts,
+    provider_lease: PhaseCounts,
+    provider_identity: PhaseCounts,
+    provider_session: PhaseCounts,
+    provider_profile: PhaseCounts,
+    provider_request: PhaseCounts,
+    phase_entry_prechecks: PhaseCounts,
+    result_prechecks: PhaseCounts,
+    calculate_callback: PhaseCounts,
+    result_seal: PhaseCounts,
+    fifo_delivery: PhaseCounts,
 }
 #[derive(Clone, Copy)]
 pub(in super::super::super) enum Phase {
@@ -41,8 +54,137 @@ pub(in super::super::super) enum Phase {
     FullGateModel,
     // Inclusive: may also be inside ContextValidation.
     InitializedOwnerHeight,
+    InvocationMatch,
+    ProviderGuard,
+    ProviderActive,
+    ProviderLease,
+    ProviderIdentity,
+    ProviderSession,
+    ProviderProfile,
+    ProviderRequest,
+    // The following outer intervals are disjoint, not an exhaustive partition.
+    // All preceding validation/source categories are inclusive children.
+    PhaseEntryPrechecks,
+    ResultPrechecks,
+    CalculateCallback,
+    ResultSeal,
+    FifoDelivery,
+}
+impl Phase {
+    fn detailed(self) -> bool {
+        !matches!(
+            self,
+            Self::Total
+                | Self::Terrain
+                | Self::Collision
+                | Self::ContextValidation
+                | Self::ConcreteCorridor
+                | Self::FullResidentDispatch
+                | Self::FullGateModel
+                | Self::InitializedOwnerHeight
+        )
+    }
+}
+// Legacy measurements retain their original output shape and category set.
+impl std::fmt::Debug for Counts {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut output = formatter.debug_struct("Counts");
+        output.field("total", &self.total);
+        output.field("terrain", &self.terrain);
+        output.field("collision", &self.collision);
+        output.field("context_validation", &self.context_validation);
+        output.field("concrete_corridor", &self.concrete_corridor);
+        output.field("full_resident_dispatch", &self.full_resident_dispatch);
+        output.field("full_gate_model", &self.full_gate_model);
+        output.field("initialized_owner_height", &self.initialized_owner_height);
+        if self.invocation_match.started != 0 {
+            output.field("invocation_match", &self.invocation_match);
+        }
+        if self.provider_guard.started != 0 {
+            output.field("provider_guard", &self.provider_guard);
+        }
+        if self.provider_active.started != 0 {
+            output.field("provider_active", &self.provider_active);
+        }
+        if self.provider_lease.started != 0 {
+            output.field("provider_lease", &self.provider_lease);
+        }
+        if self.provider_identity.started != 0 {
+            output.field("provider_identity", &self.provider_identity);
+        }
+        if self.provider_session.started != 0 {
+            output.field("provider_session", &self.provider_session);
+        }
+        if self.provider_profile.started != 0 {
+            output.field("provider_profile", &self.provider_profile);
+        }
+        if self.provider_request.started != 0 {
+            output.field("provider_request", &self.provider_request);
+        }
+        if self.phase_entry_prechecks.started != 0 {
+            output.field("phase_entry_prechecks", &self.phase_entry_prechecks);
+        }
+        if self.result_prechecks.started != 0 {
+            output.field("result_prechecks", &self.result_prechecks);
+        }
+        if self.calculate_callback.started != 0 {
+            output.field("calculate_callback", &self.calculate_callback);
+        }
+        if self.result_seal.started != 0 {
+            output.field("result_seal", &self.result_seal);
+        }
+        if self.fifo_delivery.started != 0 {
+            output.field("fifo_delivery", &self.fifo_delivery);
+        }
+        output.finish()
+    }
 }
 impl Counts {
+    pub(crate) fn legacy_only(mut self) -> Self {
+        self.invocation_match = PhaseCounts::default();
+        self.provider_guard = PhaseCounts::default();
+        self.provider_active = PhaseCounts::default();
+        self.provider_lease = PhaseCounts::default();
+        self.provider_identity = PhaseCounts::default();
+        self.provider_session = PhaseCounts::default();
+        self.provider_profile = PhaseCounts::default();
+        self.provider_request = PhaseCounts::default();
+        self.phase_entry_prechecks = PhaseCounts::default();
+        self.result_prechecks = PhaseCounts::default();
+        self.calculate_callback = PhaseCounts::default();
+        self.result_seal = PhaseCounts::default();
+        self.fifo_delivery = PhaseCounts::default();
+        self
+    }
+
+    pub(crate) fn same_counts(&self, other: &Self) -> bool {
+        let normalize = |mut counts: Self| {
+            counts.total.elapsed = Duration::ZERO;
+            counts.terrain.elapsed = Duration::ZERO;
+            counts.collision.elapsed = Duration::ZERO;
+            counts.context_validation.elapsed = Duration::ZERO;
+            counts.concrete_corridor.elapsed = Duration::ZERO;
+            counts.full_resident_dispatch.elapsed = Duration::ZERO;
+            counts.full_gate_model.elapsed = Duration::ZERO;
+            counts.initialized_owner_height.elapsed = Duration::ZERO;
+            counts.invocation_match.elapsed = Duration::ZERO;
+            counts.provider_guard.elapsed = Duration::ZERO;
+            counts.provider_active.elapsed = Duration::ZERO;
+            counts.provider_lease.elapsed = Duration::ZERO;
+            counts.provider_identity.elapsed = Duration::ZERO;
+            counts.provider_session.elapsed = Duration::ZERO;
+            counts.provider_profile.elapsed = Duration::ZERO;
+            counts.provider_request.elapsed = Duration::ZERO;
+            counts.phase_entry_prechecks.elapsed = Duration::ZERO;
+            counts.result_prechecks.elapsed = Duration::ZERO;
+            counts.calculate_callback.elapsed = Duration::ZERO;
+            counts.result_seal.elapsed = Duration::ZERO;
+            counts.fifo_delivery.elapsed = Duration::ZERO;
+            counts
+        };
+        normalize(*self) == normalize(*other)
+    }
+
     pub(in super::super::super) fn context_validation_calls(&self) -> usize {
         self.context_validation.started
     }
@@ -55,6 +197,10 @@ impl Counts {
     pub(in super::super::super) fn initialized_owner_height_calls(&self) -> usize {
         self.initialized_owner_height.started
     }
+    pub(in super::super::super) fn started(&self, phase: Phase) -> usize {
+        let mut counts = *self;
+        counts.phase(phase).started
+    }
     fn phase(&mut self, phase: Phase) -> &mut PhaseCounts {
         match phase {
             Phase::Total => &mut self.total,
@@ -65,47 +211,103 @@ impl Counts {
             Phase::FullResidentDispatch => &mut self.full_resident_dispatch,
             Phase::FullGateModel => &mut self.full_gate_model,
             Phase::InitializedOwnerHeight => &mut self.initialized_owner_height,
+            Phase::InvocationMatch => &mut self.invocation_match,
+            Phase::ProviderGuard => &mut self.provider_guard,
+            Phase::ProviderActive => &mut self.provider_active,
+            Phase::ProviderLease => &mut self.provider_lease,
+            Phase::ProviderIdentity => &mut self.provider_identity,
+            Phase::ProviderSession => &mut self.provider_session,
+            Phase::ProviderProfile => &mut self.provider_profile,
+            Phase::ProviderRequest => &mut self.provider_request,
+            Phase::PhaseEntryPrechecks => &mut self.phase_entry_prechecks,
+            Phase::ResultPrechecks => &mut self.result_prechecks,
+            Phase::CalculateCallback => &mut self.calculate_callback,
+            Phase::ResultSeal => &mut self.result_seal,
+            Phase::FifoDelivery => &mut self.fifo_delivery,
+
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+    Off,
+    CountOnly,
+    Clocked,
+}
+#[derive(Clone, Copy)]
+struct Active {
+    mode: Mode,
+    detailed: bool,
+    counts: Counts,
+}
 thread_local! {
-    static ACTIVE: Cell<Option<Counts>> = const { Cell::new(None) };
+    static ACTIVE: Cell<Option<Active>> = const { Cell::new(None) };
 }
 
 /// Nested scopes report their own calls, then restore the outer counts. An outer
 /// timer's wall duration still includes nested work. Unwinding also restores state.
 pub(crate) fn measure<T>(run: impl FnOnce() -> T) -> (T, Counts) {
-    struct Reset(Option<Counts>);
+    measure_scope(Mode::Clocked, false, run)
+}
+
+/// Off performs no observer clock reads, record allocations or I/O. CountOnly
+/// records the identical fixed categories without reading observer clocks.
+pub(crate) fn measure_mode<T>(mode: Mode, run: impl FnOnce() -> T) -> (T, Counts) {
+    measure_scope(mode, true, run)
+}
+
+fn measure_scope<T>(mode: Mode, detailed: bool, run: impl FnOnce() -> T) -> (T, Counts) {
+    struct Reset(Option<Active>);
     impl Drop for Reset {
         fn drop(&mut self) {
             ACTIVE.with(|active| active.set(self.0));
         }
     }
-    let previous = ACTIVE.with(|active| active.replace(Some(Counts::default())));
+    let current = (mode != Mode::Off).then_some(Active {
+        mode,
+        detailed,
+        counts: Counts::default(),
+    });
+    let previous = ACTIVE.with(|active| active.replace(current));
     let reset = Reset(previous);
     let result = run();
-    let counts = ACTIVE.with(|active| active.get().expect("measurement is active"));
+    let counts = ACTIVE.with(|active| active.get().map_or(Counts::default(), |v| v.counts));
     drop(reset);
     (result, counts)
+}
+
+/// Evaluates one original short-circuit mismatch operand exactly once, in place.
+/// A false operand is a successful comparison, not permission to omit later work.
+pub(in super::super::super) fn mismatch(phase: Phase, compare: impl FnOnce() -> bool) -> bool {
+    let timer = Timer::start(phase);
+    let mismatch = compare();
+    timer.finish(!mismatch);
+    mismatch
 }
 
 /// Non-Send guard remains on the measured thread. Disabled scopes read no clock.
 pub(in super::super::super) struct Timer {
     started: Option<Instant>,
+    active: bool,
     phase: Phase,
     succeeded: bool,
     thread: PhantomData<Rc<()>>,
 }
 impl Timer {
     pub(in super::super::super) fn start(phase: Phase) -> Self {
-        let started = ACTIVE.with(|active| {
-            let mut counts = active.get()?;
-            counts.phase(phase).started += 1;
-            active.set(Some(counts));
-            Some(Instant::now())
+        let mode = ACTIVE.with(|active| {
+            let mut current = active.get()?;
+            if phase.detailed() && !current.detailed {
+                return None;
+            }
+            current.counts.phase(phase).started += 1;
+            active.set(Some(current));
+            Some(current.mode)
         });
+        let started = (mode == Some(Mode::Clocked)).then(Instant::now);
         Self {
             started,
+            active: mode.is_some(),
             phase,
             succeeded: false,
             thread: PhantomData,
@@ -117,13 +319,15 @@ impl Timer {
 }
 impl Drop for Timer {
     fn drop(&mut self) {
-        let Some(started) = self.started else {
+        if !self.active {
             return;
-        };
-        let elapsed = started.elapsed();
+        }
+        let elapsed = self
+            .started
+            .map_or(Duration::ZERO, |started| started.elapsed());
         ACTIVE.with(|active| {
-            if let Some(mut counts) = active.get() {
-                let phase = counts.phase(self.phase);
+            if let Some(mut current) = active.get() {
+                let phase = current.counts.phase(self.phase);
                 phase.elapsed += elapsed;
                 if std::thread::panicking() {
                     phase.unwound += 1;
@@ -132,7 +336,7 @@ impl Drop for Timer {
                 } else {
                     phase.refused += 1;
                 }
-                active.set(Some(counts));
+                active.set(Some(current));
             }
         });
     }
@@ -141,6 +345,96 @@ impl Drop for Timer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modes_preserve_outcomes_and_short_circuit_without_clocking_counts() {
+        let run = || {
+            let mut visited = Vec::new();
+            let refused = mismatch(Phase::ProviderLease, || {
+                visited.push(1);
+                false
+            }) || mismatch(Phase::ProviderIdentity, || {
+                visited.push(2);
+                true
+            }) || mismatch(Phase::ProviderProfile, || {
+                visited.push(3);
+                false
+            });
+            assert!(refused);
+            assert_eq!(visited, [1, 2]);
+        };
+        let (_, legacy) = measure(|| {
+            let timer = Timer::start(Phase::ProviderGuard);
+            assert!(!timer.active && timer.started.is_none());
+            Timer::start(Phase::Total).finish(true);
+        });
+        assert_eq!(legacy.provider_guard, PhaseCounts::default());
+        assert_eq!(legacy.total.started, 1);
+        let phases = [
+            Phase::InvocationMatch,
+            Phase::ProviderGuard,
+            Phase::ProviderActive,
+            Phase::ProviderLease,
+            Phase::ProviderIdentity,
+            Phase::ProviderSession,
+            Phase::ProviderProfile,
+            Phase::ProviderRequest,
+            Phase::PhaseEntryPrechecks,
+            Phase::ResultPrechecks,
+            Phase::CalculateCallback,
+            Phase::ResultSeal,
+            Phase::FifoDelivery,
+        ];
+        let (_, detail) = measure_mode(Mode::CountOnly, || {
+            for phase in phases {
+                Timer::start(phase).finish(true);
+            }
+        });
+        for phase in phases {
+            assert_eq!(detail.started(phase), 1);
+        }
+        assert_eq!(detail.legacy_only(), Counts::default());
+        let (_, off) = measure_mode(Mode::Off, run);
+        assert_eq!(off, Counts::default());
+        let (_, counted) = measure_mode(Mode::CountOnly, || {
+            let timer = Timer::start(Phase::Total);
+            assert!(timer.started.is_none());
+            assert!(timer.active);
+            timer.finish(true);
+            run();
+        });
+        let (_, clocked) = measure_mode(Mode::Clocked, || {
+            Timer::start(Phase::Total).finish(true);
+            run();
+        });
+        assert!(counted.same_counts(&clocked));
+        assert_eq!(counted.total.elapsed, Duration::ZERO);
+        assert_eq!(counted.provider_identity.refused, 1);
+        assert_eq!(counted.provider_profile.started, 0);
+        let (_, outer) = measure_mode(Mode::CountOnly, || {
+            Timer::start(Phase::ProviderGuard).finish(true);
+            let (_, disabled) = measure_mode(Mode::Off, || {
+                let timer = Timer::start(Phase::ProviderGuard);
+                assert!(!timer.active && timer.started.is_none());
+            });
+            assert_eq!(disabled, Counts::default());
+            assert!(std::panic::catch_unwind(|| {
+                measure_mode(Mode::Clocked, || panic!("restore count-only parent"));
+            })
+            .is_err());
+            let timer = Timer::start(Phase::ProviderGuard);
+            assert!(timer.started.is_none());
+            timer.finish(true);
+            std::thread::spawn(|| {
+                assert!(!Timer::start(Phase::ProviderGuard).active);
+            })
+            .join()
+            .unwrap();
+        });
+        assert_eq!(outer.provider_guard.succeeded, 2);
+        assert_eq!(outer.provider_guard.elapsed, Duration::ZERO);
+        assert!(!Timer::start(Phase::Total).active);
+    }
 
     #[test]
     fn scopes_isolate_nested_threads_and_restore_after_unwind() {

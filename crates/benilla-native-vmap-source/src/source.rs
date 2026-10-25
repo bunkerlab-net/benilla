@@ -18,6 +18,54 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+// The feature-off expansion is the original expression, not a shipping wrapper.
+#[cfg(feature = "synthetic-map-tests")]
+macro_rules! profile_result {
+    ($phase:ident, $operation:expr) => {{
+        let timer = crate::profiling::Timer::start(crate::profiling::Phase::$phase);
+        let result = $operation;
+        timer.finish(result.is_ok());
+        result
+    }};
+}
+#[cfg(not(feature = "synthetic-map-tests"))]
+macro_rules! profile_result {
+    ($phase:ident, $operation:expr) => {
+        $operation
+    };
+}
+#[cfg(feature = "synthetic-map-tests")]
+macro_rules! profile_value {
+    ($phase:ident, $operation:expr) => {{
+        let timer = crate::profiling::Timer::start(crate::profiling::Phase::$phase);
+        let value = $operation;
+        timer.finish(true);
+        value
+    }};
+}
+#[cfg(not(feature = "synthetic-map-tests"))]
+macro_rules! profile_value {
+    ($phase:ident, $operation:expr) => {
+        $operation
+    };
+}
+
+#[cfg(feature = "synthetic-map-tests")]
+macro_rules! profile_predicate {
+    ($phase:ident, $operation:expr) => {{
+        let timer = crate::profiling::Timer::start(crate::profiling::Phase::$phase);
+        let value = $operation;
+        timer.finish(value);
+        value
+    }};
+}
+#[cfg(not(feature = "synthetic-map-tests"))]
+macro_rules! profile_predicate {
+    ($phase:ident, $operation:expr) => {
+        $operation
+    };
+}
+
 pub(crate) const SOURCE_POLICY: &str = "cmangos-vmap-numeric-1-through-99-reverse-first-hit-v1";
 const SOURCE_PIN: &str = "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f";
 pub(crate) const MAX_MEMBER_BYTES: usize = 64 * 1024 * 1024;
@@ -359,6 +407,8 @@ impl CapturedSource {
     /// Reopen every index and replay receipts without retaining fresh payloads.
     /// Missing/new mounted archives are a change even if winners would coincide.
     pub(crate) fn verify_unchanged(&self, cancel: &dyn Fn() -> bool) -> Result<()> {
+        #[cfg(feature = "synthetic-map-tests")]
+        let verify = crate::profiling::Timer::start(crate::profiling::Phase::Verify);
         check_cancel(cancel)?;
         let chain = open_chain(&self.data, cancel)?;
         if chain.names != self.chain.names {
@@ -374,10 +424,12 @@ impl CapturedSource {
                 &mut work,
                 cancel,
             )?;
-            if !actual.matches(expected) {
+            if !profile_predicate!(ReceiptCompare, actual.matches(expected)) {
                 return Err(SourceError::Changed);
             }
         }
+        #[cfg(feature = "synthetic-map-tests")]
+        verify.finish(true);
         Ok(())
     }
 }
@@ -416,8 +468,12 @@ fn archive_candidates() -> Vec<String> {
 }
 
 fn open_chain(data: &Path, cancel: &dyn Fn() -> bool) -> Result<Chain> {
+    #[cfg(feature = "synthetic-map-tests")]
+    let open = crate::profiling::Timer::start(crate::profiling::Phase::OpenChain);
     check_cancel(cancel)?;
     let candidates = archive_candidates();
+    #[cfg(feature = "synthetic-map-tests")]
+    let directory = crate::profiling::Timer::start(crate::profiling::Phase::DirectoryScan);
     let entries = std::fs::read_dir(data).map_err(|_| SourceError::DirectoryRead)?;
     for (index, entry) in entries.enumerate() {
         check_cancel(cancel)?;
@@ -434,6 +490,8 @@ fn open_chain(data: &Path, cancel: &dyn Fn() -> bool) -> Result<Chain> {
             return Err(SourceError::ArchiveCase);
         }
     }
+    #[cfg(feature = "synthetic-map-tests")]
+    directory.finish(true);
     let mut chain = Chain {
         archives: Vec::new(),
         names: Vec::new(),
@@ -442,7 +500,7 @@ fn open_chain(data: &Path, cancel: &dyn Fn() -> bool) -> Result<Chain> {
     for name in candidates {
         check_cancel(cancel)?;
         let path = data.join(&name);
-        match std::fs::symlink_metadata(&path) {
+        match profile_result!(Metadata, std::fs::symlink_metadata(&path)) {
             Ok(metadata) if metadata.file_type().is_file() => {}
             Ok(_) => return Err(SourceError::ArchiveNotRegular),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -451,14 +509,17 @@ fn open_chain(data: &Path, cancel: &dyn Fn() -> bool) -> Result<Chain> {
         if chain.archives.len() >= MAX_ARCHIVES {
             return Err(SourceError::ArchiveLimit);
         }
-        let archive = Archive::open_classic_bounded(
-            &path,
-            ReadLimits {
-                index_bytes: MAX_INDEX_BYTES - index_bytes,
-                sector_bytes: 64 * 1024,
-                member_bytes: MAX_MEMBER_BYTES,
-                header_scan_bytes: MAX_HEADER_SCAN_BYTES,
-            },
+        let archive = profile_result!(
+            ArchiveOpenDecode,
+            Archive::open_classic_bounded(
+                &path,
+                ReadLimits {
+                    index_bytes: MAX_INDEX_BYTES - index_bytes,
+                    sector_bytes: 64 * 1024,
+                    member_bytes: MAX_MEMBER_BYTES,
+                    header_scan_bytes: MAX_HEADER_SCAN_BYTES,
+                },
+            )
         )
         .map_err(|_| SourceError::ArchiveOpen)?;
         validate_header(&archive)?;
@@ -471,6 +532,8 @@ fn open_chain(data: &Path, cancel: &dyn Fn() -> bool) -> Result<Chain> {
         chain.archives.push(archive);
         chain.names.push(name);
     }
+    #[cfg(feature = "synthetic-map-tests")]
+    open.finish(true);
     Ok(chain)
 }
 
@@ -574,8 +637,7 @@ fn read_lookup_with_name(
         let archive = &chain.archives[index];
         let archive_name = &chain.names[index];
         check_cancel(cancel)?;
-        match lookup_name
-            .probe(archive)
+        match profile_result!(ReceiptProbe, lookup_name.probe(archive))
             .map_err(|_| SourceError::MemberProfile)?
         {
             ClassicMemberProbe::Absent => continue,
@@ -611,12 +673,10 @@ fn read_lookup_with_name(
                 // retried indefinitely without consuming the acquisition budget.
                 *work = next;
                 check_cancel(cancel)?;
-                archive
-                    .verify_classic_ad_member(name)
+                profile_result!(MemberProfile, archive.verify_classic_ad_member(name))
                     .map_err(|_| SourceError::MemberProfile)?;
                 check_cancel(cancel)?;
-                let payload = archive
-                    .read_file(name)
+                let payload = profile_result!(PayloadRead, archive.read_file(name))
                     .map_err(|_| SourceError::MemberRead)?;
                 if payload.len() != bytes {
                     return Err(SourceError::MemberRead);
@@ -625,7 +685,7 @@ fn read_lookup_with_name(
                 let member = SourceMember {
                     name: name.to_owned(),
                     winning_archive: archive_name.clone(),
-                    sha256: format!("{:x}", Sha256::digest(&payload)),
+                    sha256: profile_value!(PayloadHash, format!("{:x}", Sha256::digest(&payload))),
                     bytes,
                 };
                 let observation = LookupObservation {

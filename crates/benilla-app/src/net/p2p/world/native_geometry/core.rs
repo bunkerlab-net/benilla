@@ -2103,6 +2103,8 @@ impl Mailbox {
                     Ok(resident_dispatch::fifo::ResidentStep::Observed) => self
                         .finish_query_result(work, Err(Failure::UnsupportedQuery), deadline, false),
                     Ok(resident_dispatch::fifo::ResidentStep::Complete(result)) => {
+                        use super::products::source_height::freshness_timings::{Phase, Timer};
+                        let delivery = Timer::start(Phase::FifoDelivery);
                         let selected =
                             self.resident
                                 .as_ref()
@@ -2145,6 +2147,7 @@ impl Mailbox {
                         {
                             self.active.store(false, Ordering::Release);
                         }
+                        delivery.finish(disposition == QueryDisposition::Delivered);
                         disposition
                     }
                     Err(error) => self.finish_query_result(work, Err(error), deadline, false),

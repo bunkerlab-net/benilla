@@ -842,3 +842,7 @@ fn prepared_replay_matches_owned_materialization_over_absent_grid() {
     verify_with_owned_receipts(&source, &|| false).unwrap();
     source.verify_unchanged(&|| false).unwrap();
 }
+
+#[cfg(feature = "synthetic-map-tests")]
+#[path = "profiling_source_tests.rs"]
+mod profiling_source_tests;

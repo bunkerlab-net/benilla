@@ -529,3 +529,92 @@ fn resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume() {
         assert!(mailbox.rx.is_empty() && mailbox.retry.is_empty());
     });
 }
+
+#[test]
+fn resident_dispatch_profile_modes_preserve_provider_guard_short_circuit() {
+    use super::super::super::products::source_height::freshness_timings::{
+        self, Counts, Mode, Phase,
+    };
+    with_request(|_, owner, geometry, mailbox, profile, request| {
+        let installed = geometry
+            .app
+            .world()
+            .resource::<NativeStaticMapIndex>()
+            .source_provenance()
+            .unwrap();
+        let mut foreign_identity = None;
+        with_request(|_, foreign, _, _, _, _| {
+            foreign_identity = Some(foreign.dispatch_selection().0.clone());
+        });
+        let foreign_identity = foreign_identity.unwrap();
+        for mutation in 0..7 {
+            let mut counted = None;
+            for mode in [Mode::Off, Mode::CountOnly, Mode::Clocked] {
+                let mut work = capture(mailbox, owner, profile, request);
+                let other = capture(mailbox, owner, profile, request);
+                let mut session = mailbox.session.clone();
+                let mut comparison_profile = profile.clone();
+                match mutation {
+                    2 => work.validation.lease = other.work.lease(),
+                    3 => work.validation.resident = foreign_identity.clone(),
+                    4 => session.map ^= 1,
+                    5 => comparison_profile.content_digest[0] ^= 1,
+                    6 => work.validation.request.binding.tick += 1,
+                    _ => (),
+                }
+                let job = ResidentDispatchJob {
+                    validation: &work.validation,
+                    work: &work.work,
+                    deadline: if mutation == 1 {
+                        Instant::now()
+                    } else {
+                        fixture::until()
+                    },
+                };
+                let (result, counts) = owner
+                    .inspect(installed, fixture::until(), || false, |provider, _, _| {
+                        Ok(freshness_timings::measure_mode(mode, || {
+                            job.require_provider(provider, &session, &comparison_profile)
+                        }))
+                    })
+                    .unwrap();
+                assert_eq!(
+                    result,
+                    match mutation {
+                        0 => Ok(()),
+                        1 => Err(Failure::Deadline),
+                        _ => Err(Failure::Binding),
+                    }
+                );
+                if mode == Mode::Off {
+                    assert_eq!(counts, Counts::default());
+                    continue;
+                }
+                assert_eq!(counts.started(Phase::ProviderGuard), 1);
+                for (index, phase) in [
+                    Phase::ProviderActive,
+                    Phase::ProviderLease,
+                    Phase::ProviderIdentity,
+                    Phase::ProviderSession,
+                    Phase::ProviderProfile,
+                    Phase::ProviderRequest,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    assert_eq!(
+                        counts.started(phase),
+                        usize::from(mutation == 0 || index < mutation),
+                        "short-circuit operand index={index} mutation={mutation} mode={mode:?}",
+                    );
+                }
+                if let Some(previous) = counted {
+                    assert!(counts.same_counts(&previous));
+                } else {
+                    counted = Some(counts);
+                }
+            }
+        }
+        no_native_constructors(owner, geometry);
+    });
+}

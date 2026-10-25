@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Component-only dispatch receipt. This sidecar never enters a mailbox queue.
+use super::super::products::source_height::freshness_timings::{self, Phase, Timer};
 use super::super::{
     source_route_chase_gate::gate_model,
     source_route_filter::{
@@ -198,17 +199,27 @@ impl ResidentDispatchJob<'_> {
         session: &Session,
         profile: &Profile,
     ) -> Result<(), Failure> {
-        if !self.validation.lease.is_active() || Instant::now() >= self.deadline {
+        let timer = Timer::start(Phase::ProviderGuard);
+        if freshness_timings::mismatch(Phase::ProviderActive, || {
+            !self.validation.lease.is_active() || Instant::now() >= self.deadline
+        }) {
             return Err(Failure::Deadline);
         }
-        if !self.validation.lease.same_job(&self.work.lease())
-            || !self.validation.resident.matches(provider)
-            || &self.validation.session != session
-            || &self.validation.profile != profile
-            || self.validation.request != self.work.request
+        if freshness_timings::mismatch(Phase::ProviderLease, || {
+            !self.validation.lease.same_job(&self.work.lease())
+        }) || freshness_timings::mismatch(Phase::ProviderIdentity, || {
+            !self.validation.resident.matches(provider)
+        }) || freshness_timings::mismatch(Phase::ProviderSession, || {
+            &self.validation.session != session
+        }) || freshness_timings::mismatch(Phase::ProviderProfile, || {
+            &self.validation.profile != profile
+        }) || freshness_timings::mismatch(Phase::ProviderRequest, || {
+            self.validation.request != self.work.request
+        })
         {
             return Err(Failure::Binding);
         }
+        timer.finish(true);
         Ok(())
     }
     pub(crate) fn request(&self) -> &AuthorityRequest {

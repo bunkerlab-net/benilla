@@ -22,6 +22,9 @@ DEFAULT_BUDGET_PROBE = "resident_default_budget_controller_saves_cold_and_first_
 COMPARISON_PATHS = (
     '.github/workflows/resident-controller-profile-comparison.yml',
     'crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/core.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/tests.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/freshness_timings.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness.rs',
@@ -39,6 +42,12 @@ COMPARISON_PATHS = (
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local/ledger.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local/retained.rs',
+    'crates/benilla-native-vmap-source/src/lib.rs',
+    'crates/benilla-native-vmap-source/src/map_bundle.rs',
+    'crates/benilla-native-vmap-source/src/source.rs',
+    'crates/benilla-native-vmap-source/src/source_tests.rs',
+    'crates/benilla-native-vmap-source/src/profiling.rs',
+    'crates/benilla-native-vmap-source/src/profiling_source_tests.rs',
 )
 SUITES = {
     "Verify resident FIFO selection": (
@@ -62,6 +71,7 @@ SUITES = {
             "resident_dispatch_refuses_foreign_work_attachment_dispatch_and_resident_allocation",
             "resident_dispatch_revocation_and_original_expiry_prevent_certification",
             "resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume",
+            "resident_dispatch_profile_modes_preserve_provider_guard_short_circuit",
         ),
     ),
     "Verify resident observation without transport admission": (
@@ -221,6 +231,13 @@ class ExactProofTests(unittest.TestCase):
             with self.subTest(suite=title):
                 with self.assertRaises(ValueError):
                     VERIFIER.verify(transform(output, names), names)
+
+    def test_resident_dispatch_manifest_matches_source_tests(self):
+        _, _, names = SUITES["Verify resident dispatch receipt identity"]
+        source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/tests.rs").read_text()
+        actual = re.findall(r"(?m)^#\[test\]\s*\nfn (\w+)\(", source)
+        self.assertEqual(set(names), set(actual))
+        self.assertEqual(len(names), len(actual))
 
     def test_scoped_resident_manifest_matches_parent_and_nested_cold_tests(self):
         _, _, names = SUITES["Verify scoped resident source ownership"]
@@ -650,6 +667,72 @@ class ExactProofTests(unittest.TestCase):
         output = output.replace("0 ignored", "1 ignored")
         with self.assertRaises(ValueError):
             VERIFIER.verify(output, expected)
+
+    def test_collision_observer_controls_require_explicit_feature_and_exact_tests(self):
+        title = "Verify scoped runtime collision observer controls"
+        shell = workflow_gate(title)
+        names = [
+            "profiling::tests::runtime_scopes_are_bounded_nested_unwind_safe_and_thread_local",
+            "source::tests::profiling_source_tests::runtime_diagnostics_preserve_reads_receipts_and_every_cancellation_checkpoint",
+        ]
+        self.assertIn("set -euo pipefail", shell)
+        self.assertIn("status=0", shell)
+        self.assertIn('exit "$status"', shell)
+        self.assertEqual(re.findall(r"(?m)^  ([a-z_]+::[a-z_:]+)$", shell), names)
+        self.assertIn(
+            'if ! mbx test --locked -p benilla-native-vmap-source --features synthetic-map-tests --lib "$name" -- --exact --show-output --test-threads=1 --color never | tee "$log"; then status=1; fi',
+            shell,
+        )
+        self.assertIn(
+            'if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi',
+            shell,
+        )
+        self.assertNotIn("--skip", shell)
+        self.assertNotIn("continue-on-error", shell)
+        for name, path in zip(names, ["profiling.rs", "profiling_source_tests.rs"]):
+            source = (ROOT / "crates/benilla-native-vmap-source/src" / path).read_text()
+            self.assertIn("fn " + name.rsplit("::", 1)[1] + "()", source)
+
+    def test_observer_comparison_keeps_exact_scope_and_original_budget(self):
+        title = "Measure resident observer overhead without changing the Work budget"
+        path = ".github/workflows/resident-controller-profile-comparison.yml"
+        workflow = (ROOT / path).read_text()
+        step = workflow.split(f"      - name: {title}\n", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}", step)
+        self.assertNotIn("continue-on-error", step)
+        shell = workflow_gate(title, path)
+        self.assertIn("set -euo pipefail", shell)
+        self.assertIn("status=0", shell)
+        self.assertIn("exit \"$status\"", shell)
+        self.assertIn(
+            "name=net::p2p::native_geometry::retained_phased_controller_tests::resident_observer_off_count_clocked_comparison",
+            shell,
+        )
+        self.assertIn(
+            'if ! mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"; then status=1; fi',
+            shell,
+        )
+        self.assertIn(
+            'if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi',
+            shell,
+        )
+        source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs").read_text()
+        observer = source.split("fn resident_observer_off_count_clocked_comparison() {", 1)[1]
+        self.assertIn("for mode in [Off, CountOnly, Clocked]", observer)
+        self.assertIn("std::panic::catch_unwind(std::panic::AssertUnwindSafe(||", observer)
+        self.assertIn("run_profiled(mode, &mut phases_on_failure)", observer)
+        self.assertIn("if let Ok(evidence) = &outcome", observer)
+        self.assertIn("resident observer failed records", observer)
+        self.assertIn("outcomes.iter().all(Result::is_ok)", observer)
+        self.assertIn("assert_eq!(off.cold_trace, clocked.cold_trace)", observer)
+        self.assertIn("assert_eq!(off.retained_trace, clocked.retained_trace)", observer)
+        runner = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs").read_text()
+        self.assertIn("run_inner(Mode::ColdPhasedFrameCadenced, Some(profile), phases_on_failure)", runner)
+        self.assertIn("freshness=deferred", runner)
+        self.assertIn("if profiling.is_some()", runner)
+        self.assertIn("freshness = freshness.legacy_only()", runner)
+        self.assertNotIn("--skip", shell)
+        self.assertNotIn("--nocapture", shell)
 
     def test_phased_comparison_runs_exact_ignored_tests_and_accumulates_failure(self):
         shell = workflow_gate(

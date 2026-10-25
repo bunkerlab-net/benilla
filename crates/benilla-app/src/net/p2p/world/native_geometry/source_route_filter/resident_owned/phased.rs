@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Private two-turn cold/first-retained certification; never a scene-proof cache.
 use super::super::super::super::{
-    products::source_height::CompositionError,
+    products::source_height::{
+        freshness_timings::{Phase, Timer},
+        CompositionError,
+    },
     source_route_resident_local::{
         ledger::{Diagnostic, PreparedCold},
         PreparedRetained,
@@ -86,8 +89,10 @@ impl OwnedResident {
         after: impl FnOnce() -> Result<(), Failure>,
         cold_split: bool,
     ) -> Result<ResidentPhaseResult, ResidentFilterError> {
+        let prechecks = Timer::start(Phase::PhaseEntryPrechecks);
         job.require_resident(self)?;
         self.transport.request(job.request())?;
+        prechecks.finish(true);
         match phase {
             ResidentPhase::Observation(observation) => {
                 let observation = observation.map_err(ResidentFilterError::Source)?;

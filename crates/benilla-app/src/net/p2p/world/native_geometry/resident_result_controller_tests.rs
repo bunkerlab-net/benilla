@@ -30,6 +30,7 @@ use super::{
     source_route_resident_retained,
 };
 use crate::net::p2p::world::{resident_fixture, PauseKind};
+use benilla_native_vmap_source::profiling as collision_profiling;
 use benilla_sim::{creature_ai as ai, creature_motion as motion};
 use benilla_world::terrain_stream::NativeStaticMapIndex;
 use benilla_world_runtime::native::{
@@ -228,14 +229,40 @@ impl Mode {
         matches!(self, Self::LostAck | Self::ChangedSourceAck)
     }
 }
+/// Four actual route owner turns only; all inner timing categories are inclusive.
+#[derive(Debug)]
+pub(super) struct ProfilePhaseEvidence {
+    pub(super) cold: bool,
+    pub(super) finishing: bool,
+    pub(super) succeeded: bool,
+    pub(super) callback: freshness_timings::Counts,
+    pub(super) collision: collision_profiling::Counts,
+    pub(super) outer: freshness_timings::Counts,
+    pub(super) service_wall: Duration,
+}
+
 pub(super) struct RunEvidence {
     pub(super) cold_trace: freshness_timings::SourceTrace,
     pub(super) max_cold_owner_service: Duration,
     pub(super) cold_latency: Duration,
     pub(super) retained_trace: freshness_timings::SourceTrace,
     pub(super) max_owner_service: Duration,
+    pub(super) profile_phases: Vec<ProfilePhaseEvidence>,
 }
 pub(super) fn run(mode: Mode) -> RunEvidence {
+    run_inner(mode, None, &mut Vec::new())
+}
+pub(super) fn run_profiled(
+    profile: freshness_timings::Mode,
+    phases_on_failure: &mut Vec<ProfilePhaseEvidence>,
+) -> RunEvidence {
+    run_inner(Mode::ColdPhasedFrameCadenced, Some(profile), phases_on_failure)
+}
+fn run_inner(
+    mode: Mode,
+    profiling: Option<freshness_timings::Mode>,
+    profile_phases: &mut Vec<ProfilePhaseEvidence>,
+) -> RunEvidence {
     let mut retained_trace = Vec::new();
     let mut cold_trace = Vec::new();
     let mut max_cold_owner_service = Duration::ZERO;
@@ -706,6 +733,7 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                     let mut service_phase = "none";
                     let mut service_tick = None;
                     let mut service_frame = None;
+                    let mut profile_phase = None;
                     let controls = mailbox.serve_route_commits_test_drop_reply(allowance, |_, command| match command {
                         RouteCommitCommand::Initialize(boundary) => owner.initialize(boundary),
                         RouteCommitCommand::Commit(notice) => {
@@ -760,233 +788,279 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                         let cold = matches!(command, RouteCommitCommand::Commit(notice) if !notice.routes().is_empty());
                         if !dropped && ((mode == Mode::LostAck && warm) || (mode == Mode::ChangedSourceAck && cold)) { dropped = true; true } else { false }
                     });
-                    let queries = selection.serve_phased_results(
-                        &mailbox,
-                        &mut owner,
-                        if mode.frame_cadenced() {
-                            allowance - controls
-                        } else {
-                            32
-                        },
-                        fixture::until(),
-                        |owner, job, phase| {
-                            calls.fetch_add(1, Ordering::SeqCst);
-                            let request = job.request().clone();
-                            let is_cold = matches!(
-                                &request.query,
-                                Query::SourceMotion(MotionQuery::Route(route))
-                                    if route.request.prior_cache.is_none()
-                            );
-                            cold_service |= is_cold;
-                            service_tick = Some(request.binding.tick);
-                            if is_cold && cold_started.is_none() {
-                                cold_started = Some(Instant::now());
-                            }
-                            if mode.phased() {
-                                let finishing = matches!(&phase, ResidentPhase::Prepared(_));
-                                service_phase = if finishing {
-                                    "final"
-                                } else if is_cold && !mode.cold_phased() {
-                                    "sync"
-                                } else {
-                                    "prepare"
+                    let (queries, outer_profile) = measure_optional(profiling, || {
+                        selection.serve_phased_results(
+                            &mailbox,
+                            &mut owner,
+                            if mode.frame_cadenced() {
+                                allowance - controls
+                            } else {
+                                32
+                            },
+                            fixture::until(),
+                            |owner, job, phase| {
+                                calls.fetch_add(1, Ordering::SeqCst);
+                                let request = job.request().clone();
+                                let is_cold = matches!(
+                                    &request.query,
+                                    Query::SourceMotion(MotionQuery::Route(route))
+                                        if route.request.prior_cache.is_none()
+                                );
+                                cold_service |= is_cold;
+                                service_tick = Some(request.binding.tick);
+                                if is_cold && cold_started.is_none() {
+                                    cold_started = Some(Instant::now());
+                                }
+                                if mode.phased() {
+                                    let finishing = matches!(&phase, ResidentPhase::Prepared(_));
+                                    service_phase = if finishing {
+                                        "final"
+                                    } else if is_cold && !mode.cold_phased() {
+                                        "sync"
+                                    } else {
+                                        "prepare"
+                                    };
+                                    if !mode.frame_cadenced() {
+                                        geometry.advance_physics();
+                                    }
+                                    let frame = geometry.app.world().resource::<FrameCount>().0;
+                                    service_frame = Some(frame);
+                                    if finishing {
+                                        assert_ne!(
+                                            prepared_frame,
+                                            Some(frame),
+                                            "final phase requires an intervening actual app update",
+                                        );
+                                    }
+                                    let before = owner.diagnostic();
+                                    let started = Instant::now();
+                                    let (((result, freshness), collision), trace) =
+                                        freshness_timings::trace_sources(|| {
+                                            measure_collision_optional(profiling, || {
+                                                measure_callback(profiling, || {
+                                                    if mode.cold_phased() {
+                                                        owner.certify_phase_result(
+                                                            phase,
+                                                            job,
+                                                            geometry.app.world_mut(),
+                                                            &installed,
+                                                        )
+                                                    } else {
+                                                        owner.certify_phase_result_retained_only(
+                                                            phase,
+                                                            job,
+                                                            geometry.app.world_mut(),
+                                                            &installed,
+                                                        )
+                                                    }
+                                                })
+                                            })
+                                        });
+                                    if let Some(collision) = collision {
+                                        profile_phase = Some((
+                                            is_cold,
+                                            finishing,
+                                            result.is_ok(),
+                                            freshness,
+                                            collision,
+                                        ));
+                                    }
+                                    if result.is_ok() && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()) {
+                                        assert_eq!(trace.len(), if finishing { 59 } else { 34 });
+                                        retained_trace.extend(trace.iter().copied());
+                                    }
+                                    if result.is_ok() && is_cold {
+                                        cold_trace.extend(trace.iter().copied());
+                                    }
+                                    if profiling.is_some() {
+                                        // All observer modes defer Counts formatting until after
+                                        // Work teardown, so log size does not depend on activation.
+                                        eprintln!(
+                                            "resident phased certification: cold={is_cold} tick={} phase={service_phase} wall_us={} success={} checks={} freshness=deferred",
+                                            request.binding.tick,
+                                            started.elapsed().as_micros(),
+                                            result.is_ok(),
+                                            trace.len(),
+                                        );
+                                    } else {
+                                        eprintln!(
+                                            "resident phased certification: cold={is_cold} tick={} phase={service_phase} wall_us={} success={} checks={} freshness={freshness:?}",
+                                            request.binding.tick,
+                                            started.elapsed().as_micros(),
+                                            result.is_ok(),
+                                            trace.len(),
+                                            freshness = freshness.legacy_only(),
+                                        );
+                                    }
+                                    let result = result.map_err(|_| Failure::Binding)?;
+                                    match &result {
+                                        ResidentPhaseResult::Prepared(_) => {
+                                            if is_cold {
+                                                assert!(
+                                                    owner.diagnostic().same_semantic_state(&before),
+                                                    "cold preparation cannot stage or promote",
+                                                );
+                                            } else {
+                                                assert_eq!(
+                                                    owner.diagnostic(), before,
+                                                    "retained preparation cannot alter ledger state",
+                                                );
+                                            }
+                                            prepared_frame = Some(frame);
+                                            prepared_count += 1;
+                                        }
+                                        ResidentPhaseResult::Complete(_) => {
+                                            if is_cold {
+                                                cold_latency = cold_started.unwrap().elapsed();
+                                            }
+                                            if finishing {
+                                                finished_count += 1;
+                                            }
+                                            if !mode.default_budget() {
+                                                assert_constructor(owner, &request);
+                                            }
+                                            routes.fetch_add(1, Ordering::SeqCst);
+                                        }
+                                    }
+                                    return Ok(result);
+                                }
+                                let ResidentPhase::Observation(observation) = phase else {
+                                    panic!("baseline cannot prepare");
                                 };
+                                if mode == Mode::PhysicsChangedWhenReady && !physics_refused {
+                                    let observation = observation.map_err(|_| Failure::Binding)?;
+                                    let Query::SourceMotion(MotionQuery::Route(route)) = &request.query
+                                    else {
+                                        unreachable!()
+                                    };
+                                    let a = route.request.origin;
+                                    let b = route.request.goal;
+                                    let middle = [
+                                        (a.x.as_f32() + b.x.as_f32()) * 0.5,
+                                        (a.y.as_f32() + b.y.as_f32()) * 0.5,
+                                        a.z.as_f32() + 1.,
+                                    ];
+                                    // The worker is already Ready: mutate physics only now, before the live scene borrow.
+                                    let obstacle = geometry
+                                        .app
+                                        .world_mut()
+                                        .spawn((
+                                            avian3d::prelude::Collider::cuboid(2., 3., 0.25),
+                                            avian3d::prelude::RigidBody::Static,
+                                            avian3d::prelude::CollisionLayers::DEFAULT,
+                                            bevy::prelude::Transform::from_translation(
+                                                benilla_assets::coords::wow_to_bevy(middle),
+                                            ),
+                                        ))
+                                        .id();
+                                    geometry.advance_physics();
+                                    let certification_started = Instant::now();
+                                    let (refused, freshness) = freshness_timings::measure(|| {
+                                        owner.certify_observed_result(
+                                            observation,
+                                            job,
+                                            geometry.app.world_mut(),
+                                            &installed,
+                                        )
+                                    });
+                                    eprintln!(
+                                        "resident controller changed-physics certification: tick={} elapsed_ms={} success={} freshness={freshness:?}",
+                                        request.binding.tick,
+                                        certification_started.elapsed().as_millis(),
+                                        refused.is_ok(),
+                                    );
+                                    geometry.app.world_mut().despawn(obstacle);
+                                    geometry.advance_physics();
+                                    assert!(matches!(
+                                        refused,
+                                        Err(ResidentFilterError::Context(
+                                            Failure::UnsupportedNavigation
+                                        ))
+                                    ));
+                                    physics_refused = true;
+                                    return Err(Failure::UnsupportedNavigation);
+                                }
                                 if !mode.frame_cadenced() {
                                     geometry.advance_physics();
                                 }
-                                let frame = geometry.app.world().resource::<FrameCount>().0;
-                                service_frame = Some(frame);
-                                if finishing {
-                                    assert_ne!(
-                                        prepared_frame,
-                                        Some(frame),
-                                        "final phase requires an intervening actual app update",
-                                    );
-                                }
-                                let before = owner.diagnostic();
-                                let started = Instant::now();
+                                let certification_started = Instant::now();
+                                let observation = observation.map_err(|_| Failure::Binding)?;
                                 let ((result, freshness), trace) = freshness_timings::trace_sources(|| {
                                     freshness_timings::measure(|| {
-                                        if mode.cold_phased() {
-                                            owner.certify_phase_result(
-                                                phase, job, geometry.app.world_mut(), &installed,
-                                            )
-                                        } else {
-                                            owner.certify_phase_result_retained_only(
-                                                phase, job, geometry.app.world_mut(), &installed,
-                                            )
-                                        }
+                                        owner.certify_observed_result(
+                                            observation,
+                                            job,
+                                            geometry.app.world_mut(),
+                                            &installed,
+                                        )
                                     })
                                 });
                                 if result.is_ok() && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()) {
-                                    assert_eq!(trace.len(), if finishing { 59 } else { 34 });
-                                    retained_trace.extend(trace.iter().copied());
-                                }
-                                if result.is_ok() && is_cold {
-                                    cold_trace.extend(trace.iter().copied());
+                                    assert_eq!(trace.len(), 87);
+                                    retained_trace.extend(trace);
                                 }
                                 eprintln!(
-                                    "resident phased certification: cold={is_cold} tick={} phase={service_phase} wall_us={} success={} checks={} freshness={freshness:?}",
-                                    request.binding.tick,
-                                    started.elapsed().as_micros(),
-                                    result.is_ok(),
-                                    trace.len(),
-                                );
-                                let result = result.map_err(|_| Failure::Binding)?;
-                                match &result {
-                                    ResidentPhaseResult::Prepared(_) => {
-                                        if is_cold {
-                                            assert!(
-                                                owner.diagnostic().same_semantic_state(&before),
-                                                "cold preparation cannot stage or promote",
-                                            );
-                                        } else {
-                                            assert_eq!(
-                                                owner.diagnostic(), before,
-                                                "retained preparation cannot alter ledger state",
-                                            );
-                                        }
-                                        prepared_frame = Some(frame);
-                                        prepared_count += 1;
-                                    }
-                                    ResidentPhaseResult::Complete(_) => {
-                                        if is_cold {
-                                            cold_latency = cold_started.unwrap().elapsed();
-                                        }
-                                        if finishing {
-                                            finished_count += 1;
-                                        }
-                                        if !mode.default_budget() {
-                                            assert_constructor(owner, &request);
-                                        }
-                                        routes.fetch_add(1, Ordering::SeqCst);
-                                    }
-                                }
-                                return Ok(result);
-                            }
-                            let ResidentPhase::Observation(observation) = phase else {
-                                panic!("baseline cannot prepare");
-                            };
-                            if mode == Mode::PhysicsChangedWhenReady && !physics_refused {
-                                let observation = observation.map_err(|_| Failure::Binding)?;
-                                let Query::SourceMotion(MotionQuery::Route(route)) = &request.query
-                                else {
-                                    unreachable!()
-                                };
-                                let a = route.request.origin;
-                                let b = route.request.goal;
-                                let middle = [
-                                    (a.x.as_f32() + b.x.as_f32()) * 0.5,
-                                    (a.y.as_f32() + b.y.as_f32()) * 0.5,
-                                    a.z.as_f32() + 1.,
-                                ];
-                                // The worker is already Ready: mutate physics only now, before the live scene borrow.
-                                let obstacle = geometry
-                                    .app
-                                    .world_mut()
-                                    .spawn((
-                                        avian3d::prelude::Collider::cuboid(2., 3., 0.25),
-                                        avian3d::prelude::RigidBody::Static,
-                                        avian3d::prelude::CollisionLayers::DEFAULT,
-                                        bevy::prelude::Transform::from_translation(
-                                            benilla_assets::coords::wow_to_bevy(middle),
-                                        ),
-                                    ))
-                                    .id();
-                                geometry.advance_physics();
-                                let certification_started = Instant::now();
-                                let (refused, freshness) = freshness_timings::measure(|| {
-                                    owner.certify_observed_result(
-                                        observation,
-                                        job,
-                                        geometry.app.world_mut(),
-                                        &installed,
-                                    )
-                                });
-                                eprintln!(
-                                    "resident controller changed-physics certification: tick={} elapsed_ms={} success={} freshness={freshness:?}",
+                                    "resident controller certification: tick={} elapsed_ms={} success={} freshness={freshness:?}",
                                     request.binding.tick,
                                     certification_started.elapsed().as_millis(),
-                                    refused.is_ok(),
+                                    result.is_ok(),
                                 );
-                                geometry.app.world_mut().despawn(obstacle);
-                                geometry.advance_physics();
-                                assert!(matches!(
-                                    refused,
-                                    Err(ResidentFilterError::Context(
-                                        Failure::UnsupportedNavigation
-                                    ))
-                                ));
-                                physics_refused = true;
-                                return Err(Failure::UnsupportedNavigation);
-                            }
-                            if !mode.frame_cadenced() {
-                                geometry.advance_physics();
-                            }
-                            let certification_started = Instant::now();
-                            let observation = observation.map_err(|_| Failure::Binding)?;
-                            let ((result, freshness), trace) = freshness_timings::trace_sources(|| {
-                                freshness_timings::measure(|| {
-                                    owner.certify_observed_result(
-                                        observation,
-                                        job,
-                                        geometry.app.world_mut(),
-                                        &installed,
-                                    )
-                                })
-                            });
-                            if result.is_ok() && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()) {
-                                assert_eq!(trace.len(), 87);
-                                retained_trace.extend(trace);
-                            }
-                            eprintln!(
-                                "resident controller certification: tick={} elapsed_ms={} success={} freshness={freshness:?}",
-                                request.binding.tick,
-                                certification_started.elapsed().as_millis(),
-                                result.is_ok(),
-                            );
-                            let result = result.map_err(|_| Failure::Binding)?;
-                            if !mode.default_budget() {
-                                assert_constructor(owner, &request);
-                            }
-                            routes.fetch_add(1, Ordering::SeqCst);
-                            Ok(ResidentPhaseResult::Complete(Box::new(result)))
-                        },
-                        |job, deadline| {
-                            calls.fetch_add(1, Ordering::SeqCst);
-                            let request = match &job {
-                                ServiceQuery::Immediate(job) => job.request(),
-                                ServiceQuery::NearPoint(job) => job.request(),
-                                ServiceQuery::Route(_) => {
-                                    panic!("resident route bypassed selected result transport")
+                                let result = result.map_err(|_| Failure::Binding)?;
+                                if !mode.default_budget() {
+                                    assert_constructor(owner, &request);
                                 }
-                            };
-                            let facts = match &request.query {
-                                Query::PlayerEnvironment(_) => {
-                                    environment_calls.fetch_add(1, Ordering::SeqCst);
-                                    ordinary
-                                        .player_environment(player, deadline, || false)
-                                        .map_err(|_| Failure::Binding)?
-                                        .resolve(&session, request, deadline, || false)
-                                        .map_err(|_| Failure::Binding)?
-                                }
-                                Query::SourceMotion(MotionQuery::NearPoint(_)) => ordinary
-                                    .resolve_dry_primary_near_point(
-                                        &session,
-                                        request,
-                                        player,
-                                        compatibility,
-                                        CONFIG,
-                                        deadline,
-                                        || false,
-                                    )
-                                    .map_err(|_| Failure::Binding)?,
-                                _ => return Err(Failure::UnsupportedQuery),
-                            };
-                            Ok(ServiceStep::Complete(Box::new(facts)))
-                        },
-                    );
+                                routes.fetch_add(1, Ordering::SeqCst);
+                                Ok(ResidentPhaseResult::Complete(Box::new(result)))
+                            },
+                            |job, deadline| {
+                                calls.fetch_add(1, Ordering::SeqCst);
+                                let request = match &job {
+                                    ServiceQuery::Immediate(job) => job.request(),
+                                    ServiceQuery::NearPoint(job) => job.request(),
+                                    ServiceQuery::Route(_) => {
+                                        panic!("resident route bypassed selected result transport")
+                                    }
+                                };
+                                let facts = match &request.query {
+                                    Query::PlayerEnvironment(_) => {
+                                        environment_calls.fetch_add(1, Ordering::SeqCst);
+                                        ordinary
+                                            .player_environment(player, deadline, || false)
+                                            .map_err(|_| Failure::Binding)?
+                                            .resolve(&session, request, deadline, || false)
+                                            .map_err(|_| Failure::Binding)?
+                                    }
+                                    Query::SourceMotion(MotionQuery::NearPoint(_)) => ordinary
+                                        .resolve_dry_primary_near_point(
+                                            &session,
+                                            request,
+                                            player,
+                                            compatibility,
+                                            CONFIG,
+                                            deadline,
+                                            || false,
+                                        )
+                                        .map_err(|_| Failure::Binding)?,
+                                    _ => return Err(Failure::UnsupportedQuery),
+                                };
+                                Ok(ServiceStep::Complete(Box::new(facts)))
+                            },
+                        )
+                    });
                     let service_elapsed = service_started.elapsed();
+                    if let Some((cold, finishing, succeeded, callback, collision)) = profile_phase {
+                        let outer = outer_profile.expect("profiled callback requires outer scope");
+                        assert!(profile_phases.len() < 4, "one cold and one retained pair only");
+                        profile_phases.push(ProfilePhaseEvidence {
+                            cold,
+                            finishing,
+                            succeeded,
+                            callback,
+                            collision,
+                            outer,
+                            service_wall: service_elapsed,
+                        });
+                    }
                     max_owner_service = max_owner_service.max(service_elapsed);
                     if cold_service {
                         max_cold_owner_service = max_cold_owner_service.max(service_elapsed);
@@ -1087,6 +1161,47 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
         cold_latency,
         retained_trace,
         max_owner_service: measured_max_owner_service,
+        profile_phases: std::mem::take(profile_phases),
+    }
+}
+
+fn measure_callback<T>(
+    mode: Option<freshness_timings::Mode>,
+    run: impl FnOnce() -> T,
+) -> (T, freshness_timings::Counts) {
+    if let Some(mode) = mode {
+        freshness_timings::measure_mode(mode, run)
+    } else {
+        freshness_timings::measure(run)
+    }
+}
+
+fn measure_optional<T>(
+    mode: Option<freshness_timings::Mode>,
+    run: impl FnOnce() -> T,
+) -> (T, Option<freshness_timings::Counts>) {
+    if let Some(mode) = mode {
+        let (result, counts) = freshness_timings::measure_mode(mode, run);
+        (result, Some(counts))
+    } else {
+        (run(), None)
+    }
+}
+
+fn measure_collision_optional<T>(
+    mode: Option<freshness_timings::Mode>,
+    run: impl FnOnce() -> T,
+) -> (T, Option<collision_profiling::Counts>) {
+    if let Some(mode) = mode {
+        let mode = match mode {
+            freshness_timings::Mode::Off => collision_profiling::Mode::Off,
+            freshness_timings::Mode::CountOnly => collision_profiling::Mode::CountOnly,
+            freshness_timings::Mode::Clocked => collision_profiling::Mode::Clocked,
+        };
+        let (result, counts) = collision_profiling::measure(mode, run);
+        (result, Some(counts))
+    } else {
+        (run(), None)
     }
 }
 

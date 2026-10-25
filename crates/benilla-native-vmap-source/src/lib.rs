@@ -22,6 +22,8 @@ mod map_bundle;
 mod map_products;
 mod map_spawn_index;
 mod placement_records;
+#[cfg(feature = "synthetic-map-tests")]
+pub mod profiling;
 mod receipts;
 pub use receipts::{SourceOutcome, SourceReceipt};
 mod selected_model_names;

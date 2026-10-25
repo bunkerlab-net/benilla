@@ -64,6 +64,21 @@ jobs:
           # Select only this library: workspace consumers enable synthetic-map-tests.
           mbx clippy --locked -p benilla-native-vmap-source --lib --no-default-features -- -D warnings
           mbx clippy --locked -p benilla-native-vmap-source --lib --no-default-features --features synthetic-map-tests -- -D warnings
+      - name: Verify scoped runtime collision observer controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          tests=(
+            profiling::tests::runtime_scopes_are_bounded_nested_unwind_safe_and_thread_local
+            source::tests::profiling_source_tests::runtime_diagnostics_preserve_reads_receipts_and_every_cancellation_checkpoint
+          )
+          for name in "${tests[@]}"; do
+            log="$RUNNER_TEMP/${name//::/-}.log"
+            if ! mbx test --locked -p benilla-native-vmap-source --features synthetic-map-tests --lib "$name" -- --exact --show-output --test-threads=1 --color never | tee "$log"; then status=1; fi
+            if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi
+          done
+          exit "$status"
       - name: Verify cooperative terrain freshness cancellation
         shell: bash
         run: |
@@ -305,7 +320,8 @@ jobs:
             core::resident_dispatch::tests::resident_dispatch_refuses_changed_context_body_player_and_branch_tampering \
             core::resident_dispatch::tests::resident_dispatch_refuses_foreign_work_attachment_dispatch_and_resident_allocation \
             core::resident_dispatch::tests::resident_dispatch_revocation_and_original_expiry_prevent_certification \
-            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume
+            core::resident_dispatch::tests::resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume \
+            core::resident_dispatch::tests::resident_dispatch_profile_modes_preserve_provider_guard_short_circuit
       - name: Verify scoped resident source ownership
         shell: bash
         run: |

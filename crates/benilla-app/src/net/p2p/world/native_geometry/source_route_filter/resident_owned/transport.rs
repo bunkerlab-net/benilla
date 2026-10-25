@@ -2,6 +2,7 @@
 //! Test-only result seal. Only synchronous genuine resident certification mints it.
 use super::super::super::super::{
     core::{self, resident_dispatch::ResidentDispatchValidation, JobLease},
+    products::source_height::freshness_timings::{Phase, Timer},
     source_route_resident_local::ledger::ResidentCandidateStamp,
 };
 use super::*;
@@ -294,12 +295,17 @@ impl OwnedResident {
         job: ResidentDispatchJob<'_>,
         calculate: impl FnOnce(&mut Self, ResidentDispatchJob<'_>) -> Result<Facts, ResidentFilterError>,
     ) -> Result<CertifiedResidentResult, ResidentFilterError> {
+        let prechecks = Timer::start(Phase::ResultPrechecks);
         job.require_resident(self)?;
         let lease = job.lease();
         let request = job.request().clone();
         self.transport.request(&request)?;
         let first_id = self.ledger.next_transport_candidate();
+        prechecks.finish(true);
+        let callback = Timer::start(Phase::CalculateCallback);
         let calculated = calculate(self, job);
+        callback.finish(calculated.is_ok());
+        let seal = Timer::start(Phase::ResultSeal);
         let facts = match calculated {
             Ok(facts) => facts,
             Err(error) => {
@@ -327,7 +333,10 @@ impl OwnedResident {
             Ok::<_, Failure>(result)
         })();
         match result {
-            Ok(result) => Ok(result),
+            Ok(result) => {
+                seal.finish(true);
+                Ok(result)
+            }
             Err(error) => {
                 let proof = RejectedResidentCertification {
                     selection: Arc::clone(&self.transport),

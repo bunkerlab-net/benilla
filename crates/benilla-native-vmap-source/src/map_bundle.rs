@@ -117,6 +117,8 @@ impl AssembledSourceMap<'_> {
         &self.models
     }
     pub fn verify_unchanged(&self, cancelled: impl Fn() -> bool) -> Result<(), MapBundleError> {
+        #[cfg(feature = "synthetic-map-tests")]
+        let _runtime = crate::profiling::RuntimeScope::enter();
         self.source
             .get()
             .source

@@ -125,6 +125,8 @@ impl<'call> InvocationContext<'call> {
         provider: &ResidentFilterProvider<'_, '_, '_, '_>,
         context: &AuthorityRequest,
     ) -> Result<bool, ResidentFilterError> {
+        use super::super::super::products::source_height::freshness_timings::{Phase, Timer};
+        let timer = Timer::start(Phase::InvocationMatch);
         // A miss may use the original validator; a revoked job must never do so.
         if !self.lease.is_active() || Instant::now() >= self.job.deadline() {
             return Err(Failure::Deadline.into());
@@ -149,11 +151,13 @@ impl<'call> InvocationContext<'call> {
         let Query::SourceMotion(MotionQuery::Route(current)) = &context.query else {
             return Ok(false);
         };
-        Ok(saved
+        let matches = saved
             .pathfinder_dispatch
             .as_ref()
             .zip(current.pathfinder_dispatch.as_ref())
-            .is_some_and(|(saved, current)| saved.same_live_dispatch(current)))
+            .is_some_and(|(saved, current)| saved.same_live_dispatch(current));
+        timer.finish(matches);
+        Ok(matches)
     }
 }
 
