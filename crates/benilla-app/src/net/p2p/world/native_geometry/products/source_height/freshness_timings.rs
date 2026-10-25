@@ -64,7 +64,7 @@ pub(in super::super::super) enum Phase {
     ProviderRequest,
     // The following outer intervals are disjoint, not an exhaustive partition.
     // All preceding validation/source categories are inclusive children.
-    PhaseEntryPrechecks,
+    EntryPrechecks,
     ResultPrechecks,
     CalculateCallback,
     ResultSeal,
@@ -219,7 +219,7 @@ impl Counts {
             Phase::ProviderSession => &mut self.provider_session,
             Phase::ProviderProfile => &mut self.provider_profile,
             Phase::ProviderRequest => &mut self.provider_request,
-            Phase::PhaseEntryPrechecks => &mut self.phase_entry_prechecks,
+            Phase::EntryPrechecks => &mut self.phase_entry_prechecks,
             Phase::ResultPrechecks => &mut self.result_prechecks,
             Phase::CalculateCallback => &mut self.calculate_callback,
             Phase::ResultSeal => &mut self.result_seal,
@@ -378,7 +378,7 @@ mod tests {
             Phase::ProviderSession,
             Phase::ProviderProfile,
             Phase::ProviderRequest,
-            Phase::PhaseEntryPrechecks,
+            Phase::EntryPrechecks,
             Phase::ResultPrechecks,
             Phase::CalculateCallback,
             Phase::ResultSeal,

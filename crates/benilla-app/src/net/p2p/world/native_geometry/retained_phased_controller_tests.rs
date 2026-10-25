@@ -189,7 +189,7 @@ fn resident_observer_off_count_clocked_comparison() {
         assert_eq!(off.collision, Default::default());
         assert_eq!(off.outer, Default::default());
         assert!(counted.callback.started(Phase::ProviderGuard) > 0);
-        assert_eq!(counted.callback.started(Phase::PhaseEntryPrechecks), 1);
+        assert_eq!(counted.callback.started(Phase::EntryPrechecks), 1);
         assert!(counted.collision.verify.started > 0);
         assert!(counted.collision.open_chain.started > 0);
         assert!(counted.collision.receipt_probe.started > 0);

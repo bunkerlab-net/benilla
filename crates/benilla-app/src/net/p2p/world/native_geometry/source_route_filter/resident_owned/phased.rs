@@ -89,7 +89,7 @@ impl OwnedResident {
         after: impl FnOnce() -> Result<(), Failure>,
         cold_split: bool,
     ) -> Result<ResidentPhaseResult, ResidentFilterError> {
-        let prechecks = Timer::start(Phase::PhaseEntryPrechecks);
+        let prechecks = Timer::start(Phase::EntryPrechecks);
         job.require_resident(self)?;
         self.transport.request(job.request())?;
         prechecks.finish(true);
