@@ -6,12 +6,18 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      compare_controller_profiles:
+        description: Run an isolated serial test/release controller fixture comparison
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.compare_controller_profiles && '-controller-profiles' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -942,6 +948,85 @@ jobs:
             echo "WoW assets are unavailable on this runner. These checks skipped their asset-dependent bodies:" >> "$GITHUB_STEP_SUMMARY"
             sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # Opt-in measurement, separate from all required CI correctness gates.
+  compare-controller-profiles:
+    if: github.event_name == 'workflow_dispatch' && inputs.compare_controller_profiles
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      WOW_DATA: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Identify the exact comparison and its limits
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          echo "Same-head, same-runner serial profile comparison: $EXPECTED_HEAD"
+          echo 'Identical default-feature cfg(test) fixtures; release profile is not the packaged no-default-features player.'
+          echo 'Fixed 60s proof budget; no 500ms pass/fail threshold or default-budget success claim.'
+          echo 'Receiver timing includes the test-only constructor_identity diagnostic, stops before final guards, and excludes checkpoint/ACK.'
+          echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
+          df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+      - name: Test exact libtest proof gates
+        run: python3 scripts/test-verify-libtest-output.py
+      - name: System libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev libwayland-dev
+          pkg-config --exists wayland-client
+      - name: Toolchain
+        run: rustup toolchain install && rustc -V
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-controller-profiles-ubuntu26-v1
+          save-on-workflow-dispatch: true
+      - name: Compare the same five controller fixtures serially
+        shell: bash
+        run: |
+          set -euo pipefail
+          for profile in test release; do
+            args=()
+            if [[ "$profile" == release ]]; then
+              args+=(--release)
+            fi
+            echo "::group::$profile profile: prerequisite and controller fixtures"
+            df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+            # This integration test also builds the helper in the matching profile.
+            log="$RUNNER_TEMP/controller-$profile-navigation-helper.log"
+            mbx test --locked "${args[@]}" -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment
+            log="$RUNNER_TEMP/controller-$profile-transport.log"
+            # show-output exposes successful timing diagnostics without nocapture's
+            # interleaving, preserving the exact stdout-only libtest verifier.
+            mbx test --locked "${args[@]}" -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+            python3 scripts/verify-libtest-output.py "$log" \
+              net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_actual_controller_saves_cold_and_first_retained \
+              net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_checkpoint_failure_precedes_ack_and_recovery_never_reruns \
+              net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_lost_ack_retries_exact_notice_without_reexecution \
+              net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_changed_source_allows_historical_ack_not_fresh_geometry \
+              net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_worker_ready_rechecks_current_physics_before_reply
+            df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+            echo '::endgroup::'
+          done
+      - name: Report final disk space
+        if: always()
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
 
   # Preserve the existing required check: neither feature graph may be skipped or fail.
   gates:

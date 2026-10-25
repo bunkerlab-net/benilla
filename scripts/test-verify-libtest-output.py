@@ -452,6 +452,41 @@ class ExactProofTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 assert_order(bad)
 
+    def test_controller_profile_comparison_is_opt_in_and_profile_only(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn(
+            "      compare_controller_profiles:\n"
+            "        description: Run an isolated serial test/release controller fixture comparison\n"
+            "        type: boolean\n        required: false\n        default: false\n",
+            workflow,
+        )
+        job = workflow.split("  compare-controller-profiles:\n", 1)[1].split("\n  gates:", 1)[0]
+        self.assertIn(
+            "    if: github.event_name == 'workflow_dispatch' && inputs.compare_controller_profiles\n",
+            job,
+        )
+        self.assertIn("    timeout-minutes: 150\n", job)
+        self.assertNotIn("continue-on-error:", job)
+        shell = workflow_gate("Compare the same five controller fixtures serially")
+        self.assertIn("set -euo pipefail", shell)
+        self.assertIn("for profile in test release; do", shell)
+        self.assertIn('args=()\n', shell)
+        self.assertIn('if [[ "$profile" == release ]]; then\n    args+=(--release)\n  fi', shell)
+        commands = [line for line in shell.splitlines() if line.lstrip().startswith("mbx test ")]
+        self.assertEqual(len(commands), 2)
+        self.assertTrue(all('mbx test --locked "${args[@]}" -p ' in line for line in commands))
+        self.assertTrue(all("--show-output --test-threads=1 --color never" in line for line in commands))
+        self.assertIn("-p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment -- --exact", commands[0])
+        package, prefix, names = SUITES["Verify resident result controller transport"]
+        self.assertIn(f"-p {package} --lib {prefix} --", commands[1])
+        self.assertEqual(
+            re.findall(r"net::p2p::native_geometry::resident_result_controller_tests::\w+", shell),
+            [prefix + name for name in names],
+        )
+        self.assertEqual(shell.count('python3 scripts/verify-libtest-output.py "$log"'), 2)
+        self.assertNotIn("--no-default-features", shell)
+        self.assertNotIn("--nocapture", shell)
+
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = re.findall(
