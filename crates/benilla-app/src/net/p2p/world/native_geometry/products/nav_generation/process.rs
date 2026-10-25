@@ -120,6 +120,30 @@ mod unix {
         Ok(())
     }
 
+    fn wait_for_io(pipes: &mut [libc::pollfd; 3], deadline: Instant) -> Result<(), GenerationError> {
+        if pipes.iter().all(|pipe| pipe.fd < 0) {
+            // Closed pipes cannot notify us when the child exits.
+            pause(deadline);
+            return Ok(());
+        }
+        let timeout = POLL_INTERVAL
+            .min(deadline.saturating_duration_since(Instant::now()))
+            .as_millis() as libc::c_int;
+        // Callers retain ownership of every pipe throughout this bounded wait.
+        let ready = unsafe { libc::poll(pipes.as_mut_ptr(), pipes.len() as libc::nfds_t, timeout) };
+        if ready < 0 {
+            if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                return Ok(());
+            }
+            return Err(GenerationError::Io);
+        }
+        if pipes.iter().any(|pipe| pipe.revents & libc::POLLNVAL != 0) {
+            return Err(GenerationError::Io);
+        }
+        // HUP/ERR wake the ordinary read/write path; EINTR returns to cancellation checks.
+        Ok(())
+    }
+
     /// A finite burst keeps continuous output from starving cancellation and stdin.
     fn drain<R: Read>(
         pipe: &mut Option<R>,
@@ -230,8 +254,74 @@ mod unix {
                 }
             }
             if !progress {
-                pause(deadline);
+                // Wake as soon as a pipe can progress, without extending the polling bound.
+                let mut pipes = [
+                    libc::pollfd {
+                        fd: stdin.as_ref().map_or(-1, AsRawFd::as_raw_fd),
+                        events: libc::POLLOUT,
+                        revents: 0,
+                    },
+                    libc::pollfd {
+                        fd: stdout.as_ref().map_or(-1, AsRawFd::as_raw_fd),
+                        events: libc::POLLIN,
+                        revents: 0,
+                    },
+                    libc::pollfd {
+                        fd: stderr.as_ref().map_or(-1, AsRawFd::as_raw_fd),
+                        events: libc::POLLIN,
+                        revents: 0,
+                    },
+                ];
+                wait_for_io(&mut pipes, deadline)?;
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::os::unix::net::UnixStream;
+
+        #[test]
+        fn readiness_preserves_bytes_and_hangup_is_drained() {
+            let (mut reader, mut writer) = UnixStream::pair().unwrap();
+            nonblocking(&reader).unwrap();
+            writer.write_all(b"x").unwrap();
+            let mut pipes = [
+                libc::pollfd {
+                    fd: writer.as_raw_fd(),
+                    events: libc::POLLOUT,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: reader.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: -1,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            let deadline = Instant::now() + Duration::from_secs(5);
+            wait_for_io(&mut pipes, deadline).unwrap();
+            assert_ne!(pipes[0].revents & libc::POLLOUT, 0);
+            assert_ne!(pipes[1].revents & libc::POLLIN, 0);
+            assert_eq!(pipes[2].revents, 0);
+            let mut byte = [0];
+            reader.read_exact(&mut byte).unwrap();
+            assert_eq!(&byte, b"x");
+
+            pipes[0].fd = -1;
+            drop(writer);
+            wait_for_io(&mut pipes, deadline).unwrap();
+            assert_ne!(pipes[1].revents & (libc::POLLIN | libc::POLLHUP), 0);
+            let mut reader = Some(reader);
+            let mut total = 0;
+            assert!(drain(&mut reader, &mut total, None, 1).unwrap());
+            assert!(reader.is_none());
+            assert_eq!(total, 0);
         }
     }
 }
