@@ -192,11 +192,8 @@ fn fixture_hash_hex_primitive_comparison() {
         "encoding_only",
         lengths.len() * encoding_rounds,
         |candidate| {
-            let encode: fn(&Sha256Output) -> String = if candidate {
-                fixed_hex
-            } else {
-                original_hex
-            };
+            let encode: fn(&Sha256Output) -> String =
+                if candidate { fixed_hex } else { original_hex };
             encoding_sample(&digests, encoding_rounds, encode)
         },
     );

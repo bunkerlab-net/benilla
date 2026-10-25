@@ -731,6 +731,11 @@ class ExactProofTests(unittest.TestCase):
             "crates/benilla-native-vmap-source/src/source.rs",
             "crates/benilla-native-vmap-source/src/map_bundle.rs",
         ])
+        self.assertIn("      - name: Verify encoder equivalence and measure the bounded primitive\n        id: primitive\n", workflow)
+        upload = workflow.split("      - name: Preserve primitive logs\n", 1)[1]
+        self.assertIn("if: ${{ always() && steps.primitive.outcome != 'skipped' }}", upload)
+        self.assertIn("if-no-files-found: error", upload)
+        self.assertNotIn("if-no-files-found: ignore", upload)
         self.assertIn("for test in " + " ".join(names) + "; do", shell)
         self.assertIn('if [[ "$test" == fixture_hash_hex_primitive_comparison ]]; then args+=(--ignored); fi', shell)
         self.assertIn('if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi', shell)

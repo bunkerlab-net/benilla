@@ -65,6 +65,7 @@ jobs:
           github-cache-mode: target
           cache-generation: resident-controller-profile-comparison-ubuntu26-v1
       - name: Verify encoder equivalence and measure the bounded primitive
+        id: primitive
         shell: bash
         run: |
           set -euo pipefail
@@ -79,7 +80,8 @@ jobs:
           done
           exit "$status"
       - name: Preserve primitive logs
-        if: always()
+        # No logs exist when an earlier gate prevented any measurement attempt.
+        if: ${{ always() && steps.primitive.outcome != 'skipped' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: resident-hash-hex-primitive
