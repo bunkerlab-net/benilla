@@ -252,7 +252,10 @@ impl Diagnostic {
                 .iter()
                 .map(|&i| value.candidate_raw_revisions[i])
                 .collect();
-            value.flat_candidates = committed.iter().map(|&i| value.flat_candidates[i]).collect();
+            value.flat_candidates = committed
+                .iter()
+                .map(|&i| value.flat_candidates[i])
+                .collect();
             value.raw = None;
             value.next_id = 0;
             value.capacity = 0;

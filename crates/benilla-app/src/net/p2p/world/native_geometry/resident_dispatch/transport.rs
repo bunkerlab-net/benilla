@@ -211,8 +211,11 @@ pub(in super::super::super) fn exercise_result_transport(
     use super::super::super::source_route_filter::resident::ResidentFilterError;
     use super::fifo::ResidentFifoSelection;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
-    let certify = if cold_split { OwnedResident::certify_phase_result }
-        else { OwnedResident::certify_phase_result_retained_only };
+    let certify = if cold_split {
+        OwnedResident::certify_phase_result
+    } else {
+        OwnedResident::certify_phase_result_retained_only
+    };
     fn send<T: Send>() {}
     send::<Work>();
     send::<Reply>();
@@ -575,8 +578,11 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
     use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
     use super::fifo::ResidentFifoSelection;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
-    let certify = if cold_split { OwnedResident::certify_phase_result }
-        else { OwnedResident::certify_phase_result_retained_only };
+    let certify = if cold_split {
+        OwnedResident::certify_phase_result
+    } else {
+        OwnedResident::certify_phase_result_retained_only
+    };
     let (_, mailbox) = paired_test_mailbox(owner).unwrap();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
     let watchdog = Instant::now() + Duration::from_secs(120);
@@ -613,8 +619,8 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
             |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
-                let result = certify(owner, phase, job, geometry.app.world_mut(), &installed)
-                    .unwrap();
+                let result =
+                    certify(owner, phase, job, geometry.app.world_mut(), &installed).unwrap();
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);
                 };

@@ -123,7 +123,12 @@ impl OwnedResident {
                                     let constructor =
                                         provider.observe(context, 101, deadline, cancelled)?;
                                     let los = provider.observe_chase_los(
-                                        &constructor, context, player, 103, deadline, cancelled,
+                                        &constructor,
+                                        context,
+                                        player,
+                                        103,
+                                        deadline,
+                                        cancelled,
                                     )?;
                                     let water = provider.observe_chase_water(
                                         &los, context, 104, deadline, cancelled,
@@ -200,8 +205,8 @@ impl OwnedResident {
                                         deadline,
                                         cancelled,
                                     ),
-                                    PreparedDependency::Retained(prepared) => {
-                                        ledger.finish_retained(
+                                    PreparedDependency::Retained(prepared) => ledger
+                                        .finish_retained(
                                             *prepared,
                                             world,
                                             compatibility,
@@ -209,8 +214,7 @@ impl OwnedResident {
                                             context,
                                             deadline,
                                             cancelled,
-                                        )
-                                    }
+                                        ),
                                 },
                             )
                         },

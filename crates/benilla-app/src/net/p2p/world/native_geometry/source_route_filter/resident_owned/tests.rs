@@ -250,16 +250,16 @@ impl Authority for Consumer<'_> {
                     }
                     let after = self.owner.ledger.diagnostic();
                     if matches!(
-                mode,
-                FifoProbeMode::TransportRetire(_) | FifoProbeMode::ColdTransportRetire(_)
-            ) {
+                        mode,
+                        FifoProbeMode::TransportRetire(_) | FifoProbeMode::ColdTransportRetire(_)
+                    ) {
                         assert_eq!(
                             self.owner.ledger.counts(),
                             (usize::from(retained), usize::from(retained))
                         );
                     } else if let FifoProbeMode::Transport(drop_reply)
-            | FifoProbeMode::ColdTransport(drop_reply) = mode
-            {
+                    | FifoProbeMode::ColdTransport(drop_reply) = mode
+                    {
                         assert_eq!(
                             self.owner.ledger.counts(),
                             (
