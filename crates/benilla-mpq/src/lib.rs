@@ -102,6 +102,32 @@ pub enum ClassicMemberProbe {
     Present(u32),
 }
 
+/// Immutable filename arithmetic only, never an archive index or lookup result.
+/// Each probe applies the current archive's table mask and validates its entries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedClassicMemberName {
+    name: String,
+    table_offset: u32,
+    name_a: u32,
+    name_b: u32,
+}
+
+impl PreparedClassicMemberName {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            table_offset: hash_string(name, hash_type::TABLE_OFFSET),
+            name_a: hash_string(name, hash_type::NAME_A),
+            name_b: hash_string(name, hash_type::NAME_B),
+        }
+    }
+
+    /// The exact supplied spelling, without normalization.
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
+}
+
 /// A read error; anything outside the 1.12.1 envelope surfaces here.
 #[derive(Debug)]
 pub enum Error {
@@ -303,6 +329,28 @@ impl Archive {
     /// as a dummy before attempting a read, including flagged delete markers.
     /// Positive results require a separate strict member check and bounded read.
     pub fn probe_classic_member(&self, name: &str) -> Result<ClassicMemberProbe> {
+        self.probe_classic_hashes(|| {
+            (
+                hash_string(name, hash_type::TABLE_OFFSET),
+                hash_string(name, hash_type::NAME_A),
+                hash_string(name, hash_type::NAME_B),
+            )
+        })
+    }
+
+    /// Probe a freshly selected index using immutable filename arithmetic.
+    /// This grants no readability, freshness, or payload-validation authority.
+    pub fn probe_prepared_classic_member(
+        &self,
+        name: &PreparedClassicMemberName,
+    ) -> Result<ClassicMemberProbe> {
+        self.probe_classic_hashes(|| (name.table_offset, name.name_a, name.name_b))
+    }
+
+    fn probe_classic_hashes(
+        &self,
+        hashes: impl FnOnce() -> (u32, u32, u32),
+    ) -> Result<ClassicMemberProbe> {
         let idx = &self.index;
         if idx.limits.is_none() || !idx.hash_table.len().is_power_of_two() {
             return Err(Error::Corrupt(
@@ -310,9 +358,8 @@ impl Archive {
             ));
         }
         let mask = idx.hash_table.len() - 1;
-        let start = hash_string(name, hash_type::TABLE_OFFSET) as usize & mask;
-        let want_a = hash_string(name, hash_type::NAME_A);
-        let want_b = hash_string(name, hash_type::NAME_B);
+        let (table_offset, want_a, want_b) = hashes();
+        let start = table_offset as usize & mask;
         for offset in 0..idx.hash_table.len() {
             let entry = idx.hash_table[(start + offset) & mask];
             if entry.block_index == HASH_EMPTY {
@@ -1698,5 +1745,251 @@ mod tests {
             assert!(archive.verify_classic_ad_member("a.bin").is_err());
             std::fs::remove_file(path).unwrap();
         }
+    }
+    fn prepared_probe_archive(names: &[(&str, u32, u32)], slots: u32) -> Vec<u8> {
+        let block_pos = 32 + slots * 16;
+        let data_pos = block_pos + names.len() as u32 * 16;
+        let mut hash = vec![u32::MAX; slots as usize * 4];
+        let mut blocks = Vec::new();
+        for (index, (name, flags, size)) in names.iter().enumerate() {
+            let mut slot =
+                hash_string(name, hash_type::TABLE_OFFSET) as usize & (slots as usize - 1);
+            while hash[slot * 4 + 3] != u32::MAX {
+                slot = (slot + 1) & (slots as usize - 1);
+            }
+            hash[slot * 4..slot * 4 + 4].copy_from_slice(&[
+                hash_string(name, hash_type::NAME_A),
+                hash_string(name, hash_type::NAME_B),
+                0,
+                index as u32,
+            ]);
+            blocks.extend([data_pos, 8, *size, *flags]);
+        }
+        crypto::encrypt_block(&mut hash, hash_string("(hash table)", hash_type::FILE_KEY));
+        crypto::encrypt_block(
+            &mut blocks,
+            hash_string("(block table)", hash_type::FILE_KEY),
+        );
+        let mut bytes = header(0, 32, block_pos, slots, names.len() as u32).to_vec();
+        bytes[8..12].copy_from_slice(&(data_pos + 8).to_le_bytes());
+        for word in hash.into_iter().chain(blocks) {
+            bytes.extend(word.to_le_bytes());
+        }
+        bytes.extend([1; 8]);
+        bytes
+    }
+
+    fn probe_result(
+        result: Result<ClassicMemberProbe>,
+    ) -> std::result::Result<ClassicMemberProbe, String> {
+        result.map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn prepared_classic_names_preserve_spelling_and_probe_semantics() {
+        let entries = [
+            ("World\\Test.ADT", FLAG_EXISTS, 8),
+            ("dummy", FLAG_EXISTS | FLAG_DELETE_MARKER, 1),
+            ("empty", FLAG_EXISTS, 0),
+            ("é\\猫.bin", FLAG_EXISTS, 8),
+            ("invalid", 0, 8),
+        ];
+        let path = temp_path("prepared_names");
+        std::fs::write(&path, prepared_probe_archive(&entries, 16)).unwrap();
+        for bounded in [false, true] {
+            let archive = if bounded {
+                Archive::open_classic_bounded(&path, offline_limits()).unwrap()
+            } else {
+                Archive::open(&path).unwrap()
+            };
+            for name in [
+                "World\\Test.ADT",
+                "world/test.adt",
+                "dummy",
+                "empty",
+                "missing",
+                "é/猫.bin",
+                "É/猫.bin",
+                "invalid",
+            ] {
+                let prepared = PreparedClassicMemberName::new(name);
+                assert_eq!(prepared.as_str(), name);
+                assert_eq!(
+                    probe_result(archive.probe_classic_member(name)),
+                    probe_result(archive.probe_prepared_classic_member(&prepared))
+                );
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prepared_classic_names_use_each_fresh_index_and_mask() {
+        let target = "World\\Maps\\Test\\Test_63_63.adt";
+        let prepared = PreparedClassicMemberName::new(target);
+        let path = temp_path("prepared_reopen");
+        for slots in [4, 8, 32, 64] {
+            let mask = slots - 1;
+            let offset = hash_string(target, hash_type::TABLE_OFFSET) & mask;
+            let collision = (0..10000)
+                .map(|n| format!("collision{n}"))
+                .find(|name| hash_string(name, hash_type::TABLE_OFFSET) & mask == offset)
+                .unwrap();
+            for entries in [
+                vec![(collision.as_str(), FLAG_EXISTS, 8)],
+                vec![
+                    (collision.as_str(), FLAG_EXISTS, 8),
+                    (target, FLAG_EXISTS, 7),
+                ],
+                vec![(target, FLAG_EXISTS, 1)],
+            ] {
+                let replacement = path.with_extension("replacement");
+                std::fs::write(&replacement, prepared_probe_archive(&entries, slots)).unwrap();
+                // Drop prior archive handles; each observation resolves the current path.
+                if path.exists() {
+                    std::fs::remove_file(&path).unwrap();
+                }
+                std::fs::rename(replacement, &path).unwrap();
+                let archive = Archive::open_classic_bounded(
+                    &path,
+                    ReadLimits {
+                        index_bytes: 4096,
+                        ..offline_limits()
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    probe_result(archive.probe_prepared_classic_member(&prepared)),
+                    probe_result(archive.probe_classic_member(target))
+                );
+                assert_eq!(
+                    archive.probe_prepared_classic_member(&prepared).unwrap(),
+                    if entries.len() == 2 {
+                        ClassicMemberProbe::Present(7)
+                    } else if entries[0].0 == target {
+                        ClassicMemberProbe::Dummy(1)
+                    } else {
+                        ClassicMemberProbe::Absent
+                    }
+                );
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prepared_classic_names_preserve_first_matching_invalid_entry_errors() {
+        let prepared = PreparedClassicMemberName::new("a.bin");
+        for invalid in [HASH_DELETED, 9] {
+            let mut bytes = archive_with_one_entry("a.bin", FLAG_EXISTS, b"valid");
+            let mut words = to_u32s(&bytes[32..96]);
+            let key = hash_string("(hash table)", hash_type::FILE_KEY);
+            decrypt_block(&mut words, key);
+            let slot = (hash_string("a.bin", hash_type::TABLE_OFFSET) & 3) as usize;
+            let original: [u32; 4] = words[slot * 4..slot * 4 + 4].try_into().unwrap();
+            words[slot * 4 + 3] = invalid;
+            let later = (slot + 1) & 3;
+            words[later * 4..later * 4 + 4].copy_from_slice(&original);
+            crypto::encrypt_block(&mut words, key);
+            for (index, word) in words.into_iter().enumerate() {
+                bytes[32 + index * 4..36 + index * 4].copy_from_slice(&word.to_le_bytes());
+            }
+            let path = temp_path("prepared_invalid");
+            std::fs::write(&path, bytes).unwrap();
+            let archive = Archive::open_classic_bounded(
+                &path,
+                ReadLimits {
+                    index_bytes: 4096,
+                    ..offline_limits()
+                },
+            )
+            .unwrap();
+            let expected =
+                Err("corrupt archive: classic probe matching invalid hash index".to_owned());
+            assert_eq!(
+                probe_result(archive.probe_classic_member("a.bin")),
+                expected
+            );
+            assert_eq!(
+                probe_result(archive.probe_prepared_classic_member(&prepared)),
+                expected
+            );
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "bounded same-process diagnostic, no timing threshold"]
+    fn prepared_classic_name_probe_timing() {
+        use std::hint::black_box;
+        use std::time::{Duration, Instant};
+        let names: Vec<_> = (0..64)
+            .flat_map(|x| {
+                (0..64).map(move |y| format!("World\\Maps\\Azeroth\\Azeroth_{x}_{y}.adt"))
+            })
+            .collect();
+        let entries: Vec<_> = names
+            .iter()
+            .take(18)
+            .map(|name| (name.as_str(), FLAG_EXISTS, 8))
+            .collect();
+        let path = temp_path("prepared_timing");
+        std::fs::write(&path, prepared_probe_archive(&entries, 64)).unwrap();
+        let start = Instant::now();
+        let prepared: Vec<_> = names
+            .iter()
+            .map(|name| PreparedClassicMemberName::new(name))
+            .collect();
+        let preparation = start.elapsed();
+        let mut plain_times = Vec::new();
+        let mut prepared_times = Vec::new();
+        let mut open_time = Duration::ZERO;
+        for round in 0..9 {
+            let mut paired = Vec::new();
+            for use_prepared in [round % 2 == 0, round % 2 != 0] {
+                let start = Instant::now();
+                let archive = Archive::open_classic_bounded(
+                    &path,
+                    ReadLimits {
+                        index_bytes: 4096,
+                        ..offline_limits()
+                    },
+                )
+                .unwrap();
+                open_time += start.elapsed();
+                let start = Instant::now();
+                let results: Vec<_> = names
+                    .iter()
+                    .zip(&prepared)
+                    .map(|(name, prepared)| {
+                        black_box(if use_prepared {
+                            archive.probe_prepared_classic_member(black_box(prepared))
+                        } else {
+                            archive.probe_classic_member(black_box(name))
+                        })
+                        .unwrap()
+                    })
+                    .collect();
+                let elapsed = start.elapsed();
+                if use_prepared {
+                    prepared_times.push(elapsed);
+                } else {
+                    plain_times.push(elapsed);
+                }
+                paired.push(results);
+            }
+            assert_eq!(paired[0], paired[1]);
+            assert_eq!(
+                paired[0]
+                    .iter()
+                    .filter(|p| matches!(p, ClassicMemberProbe::Present(8)))
+                    .count(),
+                18
+            );
+        }
+        plain_times.sort();
+        prepared_times.sort();
+        eprintln!("prepared filename probe diagnostic: names={} preparation_us={} open_total_us={} plain_median_us={} prepared_median_us={} pairs=9 (authored 18-positive/64-slot approximation; no payload reads)", names.len(), preparation.as_micros(), open_time.as_micros(), plain_times[4].as_micros(), prepared_times[4].as_micros());
+        std::fs::remove_file(path).unwrap();
     }
 }

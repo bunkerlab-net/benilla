@@ -13,7 +13,7 @@
 //! filesystem snapshot, a live lease, or protection against hostile ABA changes.
 //! No filesystem-wide integrity or client-build authenticity is claimed.
 
-use benilla_mpq::{Archive, ClassicMemberProbe, ReadLimits};
+use benilla_mpq::{Archive, ClassicMemberProbe, PreparedClassicMemberName, ReadLimits};
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -162,7 +162,7 @@ enum LookupScope {
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct LookupReceipt {
     scope: LookupScope,
-    name: String,
+    name: PreparedClassicMemberName,
     probe_count: usize,
     outcome: Outcome,
 }
@@ -178,7 +178,7 @@ impl LookupObservation {
     fn into_receipt(self, name: &str, scope: LookupScope) -> LookupReceipt {
         LookupReceipt {
             scope,
-            name: name.to_owned(),
+            name: PreparedClassicMemberName::new(name),
             probe_count: self.probe_count,
             outcome: self.outcome,
         }
@@ -231,7 +231,7 @@ impl CapturedSource {
                     bytes: *bytes,
                 },
             };
-            Some(crate::SourceReceipt::new(&receipt.name, outcome))
+            Some(crate::SourceReceipt::new(receipt.name.as_str(), outcome))
         })
     }
 
@@ -333,7 +333,7 @@ impl CapturedSource {
                     digest.update((index as u64).to_le_bytes());
                 }
             }
-            hash_field(&mut digest, receipt.name.as_bytes());
+            hash_field(&mut digest, receipt.name.as_str().as_bytes());
             digest.update((receipt.probe_count as u64).to_le_bytes());
             match &receipt.outcome {
                 Outcome::Absent => hash_field(&mut digest, b"absent"),
@@ -367,8 +367,13 @@ impl CapturedSource {
         let mut work = 0;
         for expected in &self.receipts {
             check_cancel(cancel)?;
-            let (_, actual) =
-                read_lookup(&chain, &expected.name, expected.scope, &mut work, cancel)?;
+            let (_, actual) = read_lookup_with_name(
+                &chain,
+                LookupName::Prepared(&expected.name),
+                expected.scope,
+                &mut work,
+                cancel,
+            )?;
             if !actual.matches(expected) {
                 return Err(SourceError::Changed);
             }
@@ -518,6 +523,30 @@ fn validate_header(archive: &Archive) -> Result<()> {
     Ok(())
 }
 
+enum LookupName<'a> {
+    Unprepared(&'a str),
+    Prepared(&'a PreparedClassicMemberName),
+}
+
+impl LookupName<'_> {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Unprepared(name) => name,
+            Self::Prepared(name) => name.as_str(),
+        }
+    }
+
+    fn probe(
+        &self,
+        archive: &Archive,
+    ) -> std::result::Result<ClassicMemberProbe, benilla_mpq::Error> {
+        match self {
+            Self::Unprepared(name) => archive.probe_classic_member(name),
+            Self::Prepared(name) => archive.probe_prepared_classic_member(name),
+        }
+    }
+}
+
 fn read_lookup(
     chain: &Chain,
     name: &str,
@@ -525,6 +554,17 @@ fn read_lookup(
     work: &mut u64,
     cancel: &dyn Fn() -> bool,
 ) -> Result<(Lookup, LookupObservation)> {
+    read_lookup_with_name(chain, LookupName::Unprepared(name), scope, work, cancel)
+}
+
+fn read_lookup_with_name(
+    chain: &Chain,
+    lookup_name: LookupName<'_>,
+    scope: LookupScope,
+    work: &mut u64,
+    cancel: &dyn Fn() -> bool,
+) -> Result<(Lookup, LookupObservation)> {
+    let name = lookup_name.as_str();
     let range = match scope {
         LookupScope::Chain => 0..chain.archives.len(),
         LookupScope::Archive(index) => index..index + 1,
@@ -534,8 +574,8 @@ fn read_lookup(
         let archive = &chain.archives[index];
         let archive_name = &chain.names[index];
         check_cancel(cancel)?;
-        match archive
-            .probe_classic_member(name)
+        match lookup_name
+            .probe(archive)
             .map_err(|_| SourceError::MemberProfile)?
         {
             ClassicMemberProbe::Absent => continue,

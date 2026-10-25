@@ -625,8 +625,16 @@ fn verify_with_owned_receipts(source: &CapturedSource, cancel: &dyn Fn() -> bool
     let mut work = 0;
     for expected in &source.receipts {
         check_cancel(cancel)?;
-        let (_, actual) = read_lookup(&chain, &expected.name, expected.scope, &mut work, cancel)?;
-        if actual.into_receipt(&expected.name, expected.scope) != *expected {
+        let (_, actual) = read_lookup(
+            &chain,
+            expected.name.as_str(),
+            expected.scope,
+            &mut work,
+            cancel,
+        )?;
+        // Retain the old owned-name comparison without preparing new hashes.
+        let actual_name = expected.name.as_str().to_owned();
+        if actual_name != expected.name.as_str() || !actual.matches(expected) {
             return Err(SourceError::Changed);
         }
     }
@@ -675,7 +683,7 @@ fn unnamed_observations_preserve_receipts_work_digest_and_cancellation_order() {
     ];
     for (receipt, (scope, name, probes)) in source.receipts.iter().zip(expected) {
         assert!(receipt.scope == scope);
-        assert_eq!(receipt.name, name);
+        assert_eq!(receipt.name.as_str(), name);
         assert_eq!(receipt.probe_count, probes);
     }
     assert!(matches!(source.receipts[0].outcome, Outcome::Absent));
@@ -733,8 +741,14 @@ fn unnamed_observations_preserve_receipts_work_digest_and_cancellation_order() {
     let chain = open_chain(&data, &|| false).unwrap();
     let mut work = 0;
     for expected in &source.receipts {
-        let (_, actual) =
-            read_lookup(&chain, &expected.name, expected.scope, &mut work, &|| false).unwrap();
+        let (_, actual) = read_lookup(
+            &chain,
+            expected.name.as_str(),
+            expected.scope,
+            &mut work,
+            &|| false,
+        )
+        .unwrap();
         assert!(actual.matches(expected));
         let mut bad = expected.clone();
         bad.probe_count += 1;
@@ -754,9 +768,10 @@ fn unnamed_observations_preserve_receipts_work_digest_and_cancellation_order() {
 }
 
 #[test]
-fn unnamed_lookup_keeps_final_payload_read_after_intermediate_poll() {
+fn prepared_and_unprepared_lookup_keeps_final_payload_read_after_intermediate_poll() {
     use std::cell::Cell;
-    for replace_path in [false, true] {
+    for (replace_path, use_prepared) in [(false, false), (true, false), (false, true), (true, true)]
+    {
         let temp = Temp::new();
         let data = temp.data();
         store(&data, "model.MPQ", &[entry(MAP, 1)]);
@@ -779,8 +794,14 @@ fn unnamed_lookup_keeps_final_payload_read_after_intermediate_poll() {
             false
         };
         let mut work = 0;
+        let prepared = PreparedClassicMemberName::new(MAP);
+        let name = if use_prepared {
+            LookupName::Prepared(&prepared)
+        } else {
+            LookupName::Unprepared(MAP)
+        };
         let (lookup, observation) =
-            read_lookup(&chain, MAP, LookupScope::Chain, &mut work, &cancel).unwrap();
+            read_lookup_with_name(&chain, name, LookupScope::Chain, &mut work, &cancel).unwrap();
         assert_eq!(present(lookup).bytes()[0], 2);
         assert_eq!(polls.get(), 5);
         assert_eq!(work, 16);
@@ -795,8 +816,7 @@ fn unnamed_lookup_keeps_final_payload_read_after_intermediate_poll() {
 }
 
 #[test]
-fn unnamed_replay_matches_owned_materialization_over_absent_grid() {
-    use std::time::Instant;
+fn prepared_replay_matches_owned_materialization_over_absent_grid() {
     let temp = Temp::new();
     let data = temp.data();
     store(&data, "model.MPQ", &[entry(MAP, 1)]);
@@ -817,27 +837,8 @@ fn unnamed_replay_matches_owned_materialization_over_absent_grid() {
         .iter()
         .all(|r| matches!(r.outcome, Outcome::Absent)));
     assert_eq!(source.read_work, 0);
-    let mut owned = Vec::new();
-    let mut unnamed = Vec::new();
-    // Same-process bounded diagnostic, alternating order. No timing threshold:
-    // runner observations are not an end-to-end Route performance guarantee.
-    for sample in 0..9 {
-        for materialize in [sample % 2 == 0, sample % 2 != 0] {
-            let start = Instant::now();
-            if materialize {
-                verify_with_owned_receipts(&source, &|| false).unwrap();
-            } else {
-                source.verify_unchanged(&|| false).unwrap();
-            }
-            let elapsed = start.elapsed();
-            if materialize {
-                owned.push(elapsed);
-            } else {
-                unnamed.push(elapsed);
-            }
-        }
-    }
-    owned.sort();
-    unnamed.sort();
-    eprintln!("vmap absent-grid replay: owned_receipt_median_ns={} unnamed_observation_median_ns={} lookups=4096 samples=9", owned[4].as_nanos(), unnamed[4].as_nanos());
+    // Correctness comparison only. Filename arithmetic is measured separately
+    // by the ignored MPQ probe diagnostic, without receipt-materialization costs.
+    verify_with_owned_receipts(&source, &|| false).unwrap();
+    source.verify_unchanged(&|| false).unwrap();
 }
