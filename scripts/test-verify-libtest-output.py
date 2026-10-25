@@ -571,6 +571,48 @@ class ExactProofTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             VERIFIER.verify(fixture([name]).replace(" ... ok", " ... ignored"), [name])
 
+    def test_frame_cadenced_probes_are_release_exact_and_outside_five_proof_selector(self):
+        path = ".github/workflows/resident-controller-profile-comparison.yml"
+        prefix = "net::p2p::native_geometry::frame_cadenced_controller_tests::"
+        probes = {
+            "Validate frame-cadenced mailbox cold and retained saves":
+                "frame_cadenced_mailbox_saves_cold_and_first_retained",
+            "Validate missed-frame mailbox refusal without publication":
+                "frame_cadenced_mailbox_missed_frames_refuse_without_publication",
+        }
+        source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/frame_cadenced_controller_tests.rs").read_text()
+        self.assertEqual(set(re.findall(r"#\[test\]\s*#\[ignore[^\n]*\]\s*fn (\w+)\(", source)), set(probes.values()))
+        for title, probe in probes.items():
+            shell = workflow_gate(title, path)
+            name = prefix + probe
+
+            def assert_gate(candidate):
+                lines = [line.strip() for line in candidate.splitlines() if line.strip()]
+                self.assertIn("set -euo pipefail", lines)
+                self.assertEqual([line for line in lines if line.startswith("name=")], [f"name={name}"])
+                commands = [shlex.split(line) for line in lines if line.startswith("mbx ")]
+                self.assertEqual(commands, [[
+                    "mbx", "test", "--locked", "--release", "-p", "benilla-app", "--lib", "$name",
+                    "--", "--exact", "--ignored", "--show-output", "--test-threads=1", "--color", "never",
+                    "|", "tee", "$log",
+                ]])
+                verifiers = [shlex.split(line) for line in lines if "verify-libtest-output.py" in line]
+                self.assertEqual(verifiers, [["python3", "scripts/verify-libtest-output.py", "$log", "$name"]])
+
+            assert_gate(shell)
+            for bad in (
+                shell.replace("--release ", ""),
+                shell.replace("--exact ", ""),
+                shell.replace("--ignored ", ""),
+                shell.replace(f"name={name}", f"name={prefix}"),
+                shell.replace('"$log" "$name"', '"$log" "$name" || true'),
+            ):
+                with self.assertRaises(AssertionError):
+                    assert_gate(bad)
+            VERIFIER.verify(fixture([name]), [name])
+            with self.assertRaises(ValueError):
+                VERIFIER.verify(fixture([name]).replace(" ... ok", " ... ignored"), [name])
+
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = re.findall(

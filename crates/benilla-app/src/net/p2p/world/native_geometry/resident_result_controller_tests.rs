@@ -10,6 +10,7 @@ use super::{
         },
         Failure, PlayerEnvironmentPolicy, RouteCommitCommand, ServiceQuery, ServiceStep,
     },
+    frame_cadenced_controller_tests as cadence,
     products::{
         source_height::{
             freshness_timings, inventory::OwnedInventoryCompatibility, owned::OwnedSourceProducts,
@@ -34,6 +35,7 @@ use benilla_world_runtime::native::{
     self as n, Authority, AuthorityReply, AuthorityRequest, Facts, MotionFacts, MotionQuery,
     NativeError, Query,
 };
+use bevy::diagnostic::FrameCount;
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -67,6 +69,8 @@ impl<F: FnMut(&AuthorityRequest) -> Result<Facts, NativeError>> Authority for In
 /// Only nonspatial fixture facts bypass the real mailbox; every Route and
 /// source-backed environment/near-point observation uses the paired transport.
 struct ControllerAuthority {
+    retained_deadline_refusals: Arc<AtomicUsize>,
+    expect_retained_deadline: bool,
     resident: ResidentTestAuthority,
     authored: n::synthetic_motion_fixture::SyntheticMotionAuthority,
 }
@@ -77,6 +81,17 @@ impl Authority for ControllerAuthority {
             | Query::SourceMotion(MotionQuery::Route(_) | MotionQuery::NearPoint(_)) => {
                 let started = Instant::now();
                 let result = self.resident.resolve(request);
+                if self.expect_retained_deadline
+                    && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some())
+                {
+                    assert!(matches!(
+                        result,
+                        Err(NativeError::AuthorityUnavailable(
+                            "local geometry request deadline exceeded"
+                        ))
+                    ));
+                    self.retained_deadline_refusals.fetch_add(1, Ordering::SeqCst);
+                }
                 if matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))) {
                     // This includes finish_reply's active, identity and expiry checks.
                     // It excludes the controller's subsequent durable save and ACK.
@@ -157,20 +172,28 @@ impl Drop for AuthoredSourceChange<'_> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
+pub(super) enum Mode {
     Accept,
     DefaultBudget,
+    FrameCadenced,
+    MissedFrame,
     CheckpointFailure,
     LostAck,
     ChangedSourceAck,
     PhysicsChangedWhenReady,
 }
 impl Mode {
+    fn frame_cadenced(self) -> bool {
+        matches!(self, Self::FrameCadenced | Self::MissedFrame)
+    }
+    fn default_budget(self) -> bool {
+        self == Self::DefaultBudget || self.frame_cadenced()
+    }
     fn loses_ack(self) -> bool {
         matches!(self, Self::LostAck | Self::ChangedSourceAck)
     }
 }
-fn run(mode: Mode) {
+pub(super) fn run(mode: Mode) {
     let checkpoint_failure = mode == Mode::CheckpointFailure;
     fixture::with_selected_controller_fixture(
         fixture::ControllerOwners::Single,
@@ -257,14 +280,17 @@ fn run(mode: Mode) {
                 || false,
             )
             .unwrap();
-            let (mut authority, mailbox) = if mode == Mode::DefaultBudget {
+            let (mut authority, mailbox) = if mode.default_budget() {
                 paired_test_mailbox(&owner)
             } else {
                 paired_controller_proof_mailbox(&owner)
             }
             .unwrap();
             let sink = authority.take_route_commit_sink().unwrap();
+            let retained_deadline_refusals = Arc::new(AtomicUsize::new(0));
             let authority = ControllerAuthority {
+                retained_deadline_refusals: retained_deadline_refusals.clone(),
+                expect_retained_deadline: mode == Mode::MissedFrame,
                 resident: authority,
                 authored: Default::default(),
             };
@@ -280,7 +306,11 @@ fn run(mode: Mode) {
             let mut dropped = false;
             let mut retried = false;
             let mut physics_refused = false;
+            if mode.frame_cadenced() {
+                cadence::install(&mut geometry.app);
+            }
             std::thread::scope(|scope| {
+                let worker_refusals = retained_deadline_refusals.clone();
                 let worker_routes = routes.clone();
                 let worker_calls = calls.clone();
                 let worker_environment_calls = environment_calls.clone();
@@ -330,6 +360,25 @@ fn run(mode: Mode) {
                         let tick_started = Instant::now();
                         let mut out = driver.pump_one();
                         let tick_elapsed = tick_started.elapsed();
+                        if mode == Mode::MissedFrame && out.pause.is_some() {
+                            assert_eq!(worker_refusals.load(Ordering::SeqCst), 1);
+                            assert_eq!(out.pause.as_ref().unwrap().kind, PauseKind::Authority);
+                            assert_eq!(out.ticks, 0);
+                            assert!(out.events.is_empty());
+                            assert!(out.saved.is_none());
+                            assert_eq!(driver.checkpoint().identity(), before);
+                            assert_eq!(driver.store_generation(), generation);
+                            assert_eq!(worker_acks.load(Ordering::SeqCst), ack_before);
+                            assert_eq!(worker_routes.load(Ordering::SeqCst), 1);
+                            assert!(!driver.route_pending());
+                            eprintln!(
+                                "resident frame-cadenced missed-frame pump refused: tick={} wall_us={}",
+                                driver.tick(),
+                                tick_elapsed.as_micros(),
+                            );
+                            driver.assert_result_transport_refusal_readback();
+                            return proofs;
+                        }
                         if mode == Mode::PhysicsChangedWhenReady
                             && out
                                 .pause
@@ -428,7 +477,7 @@ fn run(mode: Mode) {
                         }
                         assert!(driver.records().is_empty());
                         assert!(!driver.route_pending());
-                        if mode == Mode::DefaultBudget
+                        if mode.default_budget()
                             && worker_routes.load(Ordering::SeqCst) > routes_before
                         {
                             assert_eq!(worker_acks.load(Ordering::SeqCst), ack_before + 1);
@@ -517,12 +566,74 @@ fn run(mode: Mode) {
                     proofs
                 });
                 let deadline = Instant::now() + Duration::from_secs(120);
+                let mut missed_frame = false;
+                let mut previous_frame = None;
+                let mut previous_fixed_steps = 0;
                 while !worker.is_finished() {
                     assert!(
                         Instant::now() < deadline,
                         "actual controller transport stalled"
                     );
-                    mailbox.serve_route_commits_test_drop_reply(32, |_, command| match command {
+                    let allowance = if mode.frame_cadenced() {
+                        if mode == Mode::MissedFrame
+                            && !missed_frame
+                            && selection.selected_retained_deadline_for_test().is_some()
+                        {
+                            // Witness the original queued lease, not a pre-enqueue signal.
+                            let lease_deadline =
+                                selection.selected_retained_deadline_for_test().unwrap();
+                            assert!(Instant::now() < lease_deadline);
+                            // No App updates or service while the original 500 ms lease expires.
+                            let frame = geometry.app.world().resource::<FrameCount>().0;
+                            assert!(cadence::take_permit(&mut geometry.app).is_none());
+                            std::thread::sleep(
+                                (lease_deadline + Duration::from_millis(100))
+                                    .saturating_duration_since(Instant::now()),
+                            );
+                            // Keep the queued reply sender alive until the receiver has
+                            // observed timeout: otherwise a delayed receiver may see a
+                            // disconnected reply channel before its ready timeout.
+                            while retained_deadline_refusals.load(Ordering::SeqCst) == 0 {
+                                assert!(
+                                    !worker.is_finished()
+                                        || retained_deadline_refusals.load(Ordering::SeqCst) == 1,
+                                    "retained receiver did not observe timeout"
+                                );
+                                assert!(Instant::now() < deadline, "retained receiver stalled");
+                                std::thread::sleep(Duration::from_millis(1));
+                            }
+                            assert_eq!(geometry.app.world().resource::<FrameCount>().0, frame);
+                            assert!(cadence::take_permit(&mut geometry.app).is_none());
+                            missed_frame = true;
+                        }
+                        std::thread::sleep(Duration::from_millis(16));
+                        let update_started = Instant::now();
+                        geometry.app.update();
+                        let update_elapsed = update_started.elapsed();
+                        let Some((frame, allowance, fixed_steps)) =
+                            cadence::take_permit(&mut geometry.app)
+                        else {
+                            continue;
+                        };
+                        assert_ne!(
+                            previous_frame,
+                            Some(frame),
+                            "one service pass per render frame"
+                        );
+                        previous_frame = Some(frame);
+                        assert!(fixed_steps > previous_fixed_steps);
+                        previous_fixed_steps = fixed_steps;
+                        assert!(cadence::take_permit(&mut geometry.app).is_none());
+                        eprintln!(
+                            "resident frame-cadenced app update: frame={frame} fixed_steps={fixed_steps} wall_us={}",
+                            update_elapsed.as_micros(),
+                        );
+                        allowance
+                    } else {
+                        32
+                    };
+                    let service_started = Instant::now();
+                    let controls = mailbox.serve_route_commits_test_drop_reply(allowance, |_, command| match command {
                         RouteCommitCommand::Initialize(boundary) => owner.initialize(boundary),
                         RouteCommitCommand::Commit(notice) => {
                             let duplicate = notices.last().is_some_and(|prior| prior == notice);
@@ -568,10 +679,14 @@ fn run(mode: Mode) {
                         let cold = matches!(command, RouteCommitCommand::Commit(notice) if !notice.routes().is_empty());
                         if !dropped && ((mode == Mode::LostAck && warm) || (mode == Mode::ChangedSourceAck && cold)) { dropped = true; true } else { false }
                     });
-                    selection.serve_results(
+                    let queries = selection.serve_results(
                         &mailbox,
                         &mut owner,
-                        32,
+                        if mode.frame_cadenced() {
+                            allowance - controls
+                        } else {
+                            32
+                        },
                         fixture::until(),
                         |owner, job, observation| {
                             calls.fetch_add(1, Ordering::SeqCst);
@@ -629,7 +744,9 @@ fn run(mode: Mode) {
                                 physics_refused = true;
                                 return Err(Failure::UnsupportedNavigation);
                             }
-                            geometry.advance_physics();
+                            if !mode.frame_cadenced() {
+                                geometry.advance_physics();
+                            }
                             let certification_started = Instant::now();
                             let observation = observation.map_err(|_| Failure::Binding)?;
                             let (result, freshness) = freshness_timings::measure(|| {
@@ -699,9 +816,22 @@ fn run(mode: Mode) {
                             Ok(ServiceStep::Complete(Box::new(facts)))
                         },
                     );
-                    std::thread::yield_now();
+                    if mode.frame_cadenced() {
+                        assert!(controls + queries <= allowance);
+                        eprintln!(
+                            "resident frame-cadenced owner service: frame={previous_frame:?} controls={controls} queries={queries} wall_us={}",
+                            service_started.elapsed().as_micros(),
+                        );
+                    } else {
+                        std::thread::yield_now();
+                    }
                 }
                 let proofs = worker.join().unwrap();
+                assert_eq!(missed_frame, mode == Mode::MissedFrame);
+                assert_eq!(
+                    retained_deadline_refusals.load(Ordering::SeqCst),
+                    usize::from(mode == Mode::MissedFrame)
+                );
                 assert_eq!(dropped, mode.loses_ack());
                 assert_eq!(retried, mode.loses_ack());
                 assert_eq!(physics_refused, mode == Mode::PhysicsChangedWhenReady);
@@ -749,7 +879,11 @@ fn run(mode: Mode) {
                         .iter()
                         .filter(|notice| !notice.routes().is_empty())
                         .count(),
-                    if mode == Mode::ChangedSourceAck { 1 } else { 2 }
+                    if matches!(mode, Mode::MissedFrame | Mode::ChangedSourceAck) {
+                        1
+                    } else {
+                        2
+                    }
                 );
             });
         },

@@ -6,6 +6,8 @@
     reason = "native production session admission remains closed"
 )]
 pub(super) mod core;
+#[cfg(all(test, not(benilla_headless_geometry)))]
+mod frame_cadenced_controller_tests;
 mod local_corridor;
 mod products;
 #[cfg(not(benilla_headless_geometry))]

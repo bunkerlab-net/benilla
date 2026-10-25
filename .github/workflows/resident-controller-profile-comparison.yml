@@ -97,6 +97,26 @@ jobs:
           log="$RUNNER_TEMP/controller-release-default-budget.log"
           mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" "$name"
+      - name: Validate frame-cadenced mailbox cold and retained saves
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Scheduled post-physics permit, then test-only mailbox service after App::update; not production process integration.'
+          echo 'Default 500ms Route lease unchanged. Service/app-update/pump measurements are separate wall durations, not CPU.'
+          name=net::p2p::native_geometry::frame_cadenced_controller_tests::frame_cadenced_mailbox_saves_cold_and_first_retained
+          log="$RUNNER_TEMP/frame_cadenced_mailbox_saves_cold_and_first_retained.log"
+          mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" "$name"
+      - name: Validate missed-frame mailbox refusal without publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Scheduled post-physics permit, then test-only mailbox service after App::update; not production process integration.'
+          echo 'Default 500ms Route lease unchanged. Service/app-update/pump measurements are separate wall durations, not CPU.'
+          name=net::p2p::native_geometry::frame_cadenced_controller_tests::frame_cadenced_mailbox_missed_frames_refuse_without_publication
+          log="$RUNNER_TEMP/frame_cadenced_mailbox_missed_frames_refuse_without_publication.log"
+          mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" "$name"
       - name: Report final disk space
         if: always()
         run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"

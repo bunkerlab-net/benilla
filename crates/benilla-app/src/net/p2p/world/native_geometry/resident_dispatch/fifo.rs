@@ -59,6 +59,17 @@ impl ResidentFifoSelection {
             stopped: false,
         })
     }
+    /// Read-only timing witness for the frame-cadenced component fixture. This
+    /// observes the exact already-selected retained Work, never renews its lease.
+    pub(crate) fn selected_retained_deadline_for_test(&self) -> Option<Instant> {
+        let selected = self.selected.as_ref()?;
+        match &selected.validation.request.query {
+            Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some() => {
+                Some(selected.validation.lease.deadline())
+            }
+            _ => None,
+        }
+    }
     pub(crate) fn cancel(&mut self) {
         if let Some(selected) = &mut self.selected {
             selected.cancelled = true;
