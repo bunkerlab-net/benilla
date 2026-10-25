@@ -167,6 +167,28 @@ pub(crate) struct LookupReceipt {
     outcome: Outcome,
 }
 
+/// Fields observed by a lookup; its name and scope are already supplied by the
+/// caller. Freshness replay need not allocate another owned copy of that name.
+struct LookupObservation {
+    probe_count: usize,
+    outcome: Outcome,
+}
+
+impl LookupObservation {
+    fn into_receipt(self, name: &str, scope: LookupScope) -> LookupReceipt {
+        LookupReceipt {
+            scope,
+            name: name.to_owned(),
+            probe_count: self.probe_count,
+            outcome: self.outcome,
+        }
+    }
+
+    fn matches(&self, expected: &LookupReceipt) -> bool {
+        self.probe_count == expected.probe_count && self.outcome == expected.outcome
+    }
+}
+
 struct Chain {
     archives: Vec<Archive>,
     names: Vec<String>,
@@ -236,14 +258,15 @@ impl CapturedSource {
         if self.receipts.len() >= MAX_LOOKUPS {
             return Err(SourceError::LookupLimit);
         }
-        let (lookup, receipt) = read_lookup(
+        let (lookup, observation) = read_lookup(
             &self.chain,
             name,
             LookupScope::Chain,
             &mut self.read_work,
             cancel,
         )?;
-        self.receipts.push(receipt);
+        self.receipts
+            .push(observation.into_receipt(name, LookupScope::Chain));
         Ok(lookup)
     }
 
@@ -266,14 +289,15 @@ impl CapturedSource {
         if self.receipts.len() >= MAX_LOOKUPS {
             return Err(SourceError::LookupLimit);
         }
-        let (lookup, receipt) = read_lookup(
+        let (lookup, observation) = read_lookup(
             &self.chain,
             name,
             LookupScope::Archive(index),
             &mut self.read_work,
             cancel,
         )?;
-        self.receipts.push(receipt);
+        self.receipts
+            .push(observation.into_receipt(name, LookupScope::Archive(index)));
         Ok(lookup)
     }
 
@@ -345,7 +369,7 @@ impl CapturedSource {
             check_cancel(cancel)?;
             let (_, actual) =
                 read_lookup(&chain, &expected.name, expected.scope, &mut work, cancel)?;
-            if actual != *expected {
+            if !actual.matches(expected) {
                 return Err(SourceError::Changed);
             }
         }
@@ -500,7 +524,7 @@ fn read_lookup(
     scope: LookupScope,
     work: &mut u64,
     cancel: &dyn Fn() -> bool,
-) -> Result<(Lookup, LookupReceipt)> {
+) -> Result<(Lookup, LookupObservation)> {
     let range = match scope {
         LookupScope::Chain => 0..chain.archives.len(),
         LookupScope::Archive(index) => index..index + 1,
@@ -523,9 +547,7 @@ fn read_lookup(
                 let winning_archive = archive_name.clone();
                 return Ok((
                     Lookup::Dummy {},
-                    LookupReceipt {
-                        scope,
-                        name: name.to_owned(),
+                    LookupObservation {
                         probe_count: probed + 1,
                         outcome: Outcome::Dummy {
                             winning_archive,
@@ -566,9 +588,7 @@ fn read_lookup(
                     sha256: format!("{:x}", Sha256::digest(&payload)),
                     bytes,
                 };
-                let receipt = LookupReceipt {
-                    scope,
-                    name: name.to_owned(),
+                let observation = LookupObservation {
                     probe_count: probed + 1,
                     outcome: Outcome::Present(member.clone()),
                 };
@@ -577,16 +597,14 @@ fn read_lookup(
                         member,
                         payload: payload.into_boxed_slice(),
                     }),
-                    receipt,
+                    observation,
                 ));
             }
         }
     }
     Ok((
         Lookup::Absent,
-        LookupReceipt {
-            scope,
-            name: name.to_owned(),
+        LookupObservation {
             probe_count,
             outcome: Outcome::Absent,
         },

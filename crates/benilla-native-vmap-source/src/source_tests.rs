@@ -613,3 +613,231 @@ fn borrowed_chain_receipts_preserve_exact_outcomes_order_and_epoch() {
     assert_eq!(source.binding_digest(), epoch);
     source.verify_unchanged(&|| false).unwrap();
 }
+
+/// Reference replay retains the former owned-receipt comparison. Both paths
+/// still obtain every observation from the same fresh chain and member reads.
+fn verify_with_owned_receipts(source: &CapturedSource, cancel: &dyn Fn() -> bool) -> Result<()> {
+    check_cancel(cancel)?;
+    let chain = open_chain(&source.data, cancel)?;
+    if chain.names != source.chain.names {
+        return Err(SourceError::Changed);
+    }
+    let mut work = 0;
+    for expected in &source.receipts {
+        check_cancel(cancel)?;
+        let (_, actual) = read_lookup(&chain, &expected.name, expected.scope, &mut work, cancel)?;
+        if actual.into_receipt(&expected.name, expected.scope) != *expected {
+            return Err(SourceError::Changed);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn unnamed_observations_preserve_receipts_work_digest_and_cancellation_order() {
+    use std::cell::Cell;
+    let temp = Temp::new();
+    let data = temp.data();
+    store(
+        &data,
+        "model.MPQ",
+        &[
+            entry(MAP, 1),
+            raw_entry("dummy.wmo", vec![0]),
+            raw_entry("(listfile)", b"base.wmo\r\n\0".to_vec()),
+        ],
+    );
+    store(
+        &data,
+        "patch.MPQ",
+        &[raw_entry("(listfile)", b"patch.wmo\r\n\0".to_vec())],
+    );
+    let mut source = CapturedSource::open(&data, &|| false).unwrap();
+    for name in ["missing.wmo", MAP, "dummy.wmo"] {
+        source.read(name, &|| false).unwrap();
+    }
+    for index in 0..2 {
+        source
+            .read_from_archive(index, "(listfile)", &|| false)
+            .unwrap();
+    }
+    for name in ["missing.wmo", MAP] {
+        source.read(name, &|| false).unwrap();
+    }
+    let expected = [
+        (LookupScope::Chain, "missing.wmo", 2),
+        (LookupScope::Chain, MAP, 2),
+        (LookupScope::Chain, "dummy.wmo", 2),
+        (LookupScope::Archive(0), "(listfile)", 1),
+        (LookupScope::Archive(1), "(listfile)", 1),
+        (LookupScope::Chain, "missing.wmo", 2),
+        (LookupScope::Chain, MAP, 2),
+    ];
+    for (receipt, (scope, name, probes)) in source.receipts.iter().zip(expected) {
+        assert!(receipt.scope == scope);
+        assert_eq!(receipt.name, name);
+        assert_eq!(receipt.probe_count, probes);
+    }
+    assert!(matches!(source.receipts[0].outcome, Outcome::Absent));
+    assert!(
+        matches!(source.receipts[2].outcome, Outcome::Dummy { ref winning_archive, bytes: 1 } if winning_archive == "model.MPQ")
+    );
+    for (index, winner, payload) in [
+        (1, "model.MPQ", &[1, 0, 2, 3, 4, 5, 6, 7][..]),
+        (3, "model.MPQ", &b"base.wmo\r\n\0"[..]),
+        (4, "patch.MPQ", &b"patch.wmo\r\n\0"[..]),
+        (6, "model.MPQ", &[1, 0, 2, 3, 4, 5, 6, 7][..]),
+    ] {
+        let Outcome::Present(member) = &source.receipts[index].outcome else {
+            panic!("present receipt");
+        };
+        assert_eq!(member.winning_archive, winner);
+        assert_eq!(member.bytes, payload.len());
+        assert_eq!(member.sha256, format!("{:x}", Sha256::digest(payload)));
+    }
+    assert_eq!(source.read_work, 78);
+    assert_eq!(
+        source.binding_digest(),
+        "13f35e84b124f49269d471292c0ea42e67ba5be1d948d01ab53b64026f4c6335"
+    );
+    let polls = Cell::new(0);
+    source
+        .verify_unchanged(&|| {
+            polls.set(polls.get() + 1);
+            false
+        })
+        .unwrap();
+    let total = polls.get();
+    // Two archive directory entries, all104 candidate paths, then all seven
+    // receipts in their original order, including both repeated names.
+    assert_eq!(total, 139);
+    for cutoff in 1..=total + 1 {
+        let run = |owned: bool| {
+            let calls = Cell::new(0);
+            let cancel = || {
+                calls.set(calls.get() + 1);
+                calls.get() == cutoff
+            };
+            let result = if owned {
+                verify_with_owned_receipts(&source, &cancel)
+            } else {
+                source.verify_unchanged(&cancel)
+            };
+            (result, calls.get())
+        };
+        assert_eq!(run(false), run(true));
+        if cutoff <= total {
+            assert_eq!(run(false).0, Err(SourceError::Cancelled));
+        }
+    }
+    let chain = open_chain(&data, &|| false).unwrap();
+    let mut work = 0;
+    for expected in &source.receipts {
+        let (_, actual) =
+            read_lookup(&chain, &expected.name, expected.scope, &mut work, &|| false).unwrap();
+        assert!(actual.matches(expected));
+        let mut bad = expected.clone();
+        bad.probe_count += 1;
+        assert!(!actual.matches(&bad));
+        bad = expected.clone();
+        bad.outcome = if matches!(expected.outcome, Outcome::Absent) {
+            Outcome::Dummy {
+                winning_archive: "model.MPQ".into(),
+                bytes: 0,
+            }
+        } else {
+            Outcome::Absent
+        };
+        assert!(!actual.matches(&bad));
+    }
+    assert_eq!(work, source.read_work);
+}
+
+#[test]
+fn unnamed_lookup_keeps_final_payload_read_after_intermediate_poll() {
+    use std::cell::Cell;
+    for replace_path in [false, true] {
+        let temp = Temp::new();
+        let data = temp.data();
+        store(&data, "model.MPQ", &[entry(MAP, 1)]);
+        store(&data, "patch.MPQ", &[]);
+        let chain = open_chain(&data, &|| false).unwrap();
+        let polls = Cell::new(0);
+        let cancel = || {
+            polls.set(polls.get() + 1);
+            // Patch miss, model hit, pre-profile poll, then pre-payload poll.
+            if polls.get() == 4 {
+                let updated = archive(&[entry(MAP, 2)]);
+                if replace_path {
+                    let next = data.join("replacement");
+                    fs::write(&next, updated).unwrap();
+                    fs::rename(next, data.join("model.MPQ")).unwrap();
+                } else {
+                    fs::write(data.join("model.MPQ"), updated).unwrap();
+                }
+            }
+            false
+        };
+        let mut work = 0;
+        let (lookup, observation) =
+            read_lookup(&chain, MAP, LookupScope::Chain, &mut work, &cancel).unwrap();
+        assert_eq!(present(lookup).bytes()[0], 2);
+        assert_eq!(polls.get(), 5);
+        assert_eq!(work, 16);
+        let Outcome::Present(member) = observation.outcome else {
+            panic!("present observation");
+        };
+        assert_eq!(
+            member.sha256,
+            format!("{:x}", Sha256::digest([2, 0, 2, 3, 4, 5, 6, 7]))
+        );
+    }
+}
+
+#[test]
+fn unnamed_replay_matches_owned_materialization_over_absent_grid() {
+    use std::time::Instant;
+    let temp = Temp::new();
+    let data = temp.data();
+    store(&data, "model.MPQ", &[entry(MAP, 1)]);
+    let mut source = CapturedSource::open(&data, &|| false).unwrap();
+    for row in 0..64 {
+        for col in 0..64 {
+            source
+                .read(
+                    &format!("World\\Maps\\Authored\\Authored_{row}_{col}.adt"),
+                    &|| false,
+                )
+                .unwrap();
+        }
+    }
+    assert_eq!(source.receipts.len(), 4096);
+    assert!(source
+        .receipts
+        .iter()
+        .all(|r| matches!(r.outcome, Outcome::Absent)));
+    assert_eq!(source.read_work, 0);
+    let mut owned = Vec::new();
+    let mut unnamed = Vec::new();
+    // Same-process bounded diagnostic, alternating order. No timing threshold:
+    // runner observations are not an end-to-end Route performance guarantee.
+    for sample in 0..9 {
+        for materialize in [sample % 2 == 0, sample % 2 != 0] {
+            let start = Instant::now();
+            if materialize {
+                verify_with_owned_receipts(&source, &|| false).unwrap();
+            } else {
+                source.verify_unchanged(&|| false).unwrap();
+            }
+            let elapsed = start.elapsed();
+            if materialize {
+                owned.push(elapsed);
+            } else {
+                unnamed.push(elapsed);
+            }
+        }
+    }
+    owned.sort();
+    unnamed.sort();
+    eprintln!("vmap absent-grid replay: owned_receipt_median_ns={} unnamed_observation_median_ns={} lookups=4096 samples=9", owned[4].as_nanos(), unnamed[4].as_nanos());
+}
