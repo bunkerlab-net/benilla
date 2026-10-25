@@ -168,8 +168,8 @@ def fixture(names):
     )
 
 
-def workflow_gate(title):
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+def workflow_gate(title, path=".github/workflows/ci.yml"):
+    workflow = (ROOT / path).read_text()
     block = workflow.split(f"      - name: {title}\n", 1)[1]
     block = block.split("\n      - ", 1)[0]
     return textwrap.dedent(block.split("        run: |\n", 1)[1])
@@ -452,22 +452,27 @@ class ExactProofTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 assert_order(bad)
 
-    def test_controller_profile_comparison_is_opt_in_and_profile_only(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    def test_controller_profile_comparison_is_scoped_and_profile_only(self):
+        path = ".github/workflows/resident-controller-profile-comparison.yml"
+        workflow = (ROOT / path).read_text()
         self.assertIn(
-            "      compare_controller_profiles:\n"
-            "        description: Run an isolated serial test/release controller fixture comparison\n"
-            "        type: boolean\n        required: false\n        default: false\n",
+            "on:\n  push:\n"
+            "    branches: [feat/psk-p2p-foundation]\n"
+            f"    paths: [{path}]\n",
             workflow,
         )
-        job = workflow.split("  compare-controller-profiles:\n", 1)[1].split("\n  gates:", 1)[0]
-        self.assertIn(
-            "    if: github.event_name == 'workflow_dispatch' && inputs.compare_controller_profiles\n",
-            job,
-        )
+        self.assertNotIn("workflow_dispatch:", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertIn("  group: resident-controller-profile-comparison-${{ github.ref }}\n", workflow)
+        self.assertIn("          cache-generation: resident-controller-profile-comparison-ubuntu26-v1\n", workflow)
+        normal = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertNotIn("compare-controller-profiles:", normal)
+        self.assertNotIn("compare_controller_profiles:", normal)
+        job = workflow.split("  compare-controller-profiles:\n", 1)[1]
+        self.assertNotIn("    if:", job.split("    steps:", 1)[0])
         self.assertIn("    timeout-minutes: 150\n", job)
         self.assertNotIn("continue-on-error:", job)
-        shell = workflow_gate("Compare the same five controller fixtures serially")
+        shell = workflow_gate("Compare the same five controller fixtures serially", path)
         self.assertIn("set -euo pipefail", shell)
         self.assertIn("for profile in test release; do", shell)
         self.assertIn('args=()\n', shell)
