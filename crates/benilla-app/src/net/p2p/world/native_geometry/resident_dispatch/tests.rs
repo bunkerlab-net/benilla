@@ -572,11 +572,16 @@ fn resident_dispatch_profile_modes_preserve_provider_guard_short_circuit() {
                     },
                 };
                 let (result, counts) = owner
-                    .inspect(installed, fixture::until(), || false, |provider, _, _| {
-                        Ok(freshness_timings::measure_mode(mode, || {
-                            job.require_provider(provider, &session, &comparison_profile)
-                        }))
-                    })
+                    .inspect(
+                        installed,
+                        fixture::until(),
+                        || false,
+                        |provider, _, _| {
+                            Ok(freshness_timings::measure_mode(mode, || {
+                                job.require_provider(provider, &session, &comparison_profile)
+                            }))
+                        },
+                    )
                     .unwrap();
                 assert_eq!(
                     result,

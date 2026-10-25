@@ -215,8 +215,7 @@ impl ResidentDispatchJob<'_> {
             &self.validation.profile != profile
         }) || freshness_timings::mismatch(Phase::ProviderRequest, || {
             self.validation.request != self.work.request
-        })
-        {
+        }) {
             return Err(Failure::Binding);
         }
         timer.finish(true);

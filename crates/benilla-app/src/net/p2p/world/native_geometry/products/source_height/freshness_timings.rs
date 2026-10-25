@@ -224,7 +224,6 @@ impl Counts {
             Phase::CalculateCallback => &mut self.calculate_callback,
             Phase::ResultSeal => &mut self.result_seal,
             Phase::FifoDelivery => &mut self.fifo_delivery,
-
         }
     }
 }

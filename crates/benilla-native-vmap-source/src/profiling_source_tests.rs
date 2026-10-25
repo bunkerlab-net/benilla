@@ -4,11 +4,7 @@ use super::*;
 use crate::profiling::{self, Counts, Mode, RuntimeScope};
 use std::cell::Cell;
 
-fn verify(
-    source: &CapturedSource,
-    mode: Mode,
-    cutoff: usize,
-) -> (Result<()>, usize, Counts) {
+fn verify(source: &CapturedSource, mode: Mode, cutoff: usize) -> (Result<()>, usize, Counts) {
     let calls = Cell::new(0);
     let (result, counts) = profiling::measure(mode, || {
         let _runtime = RuntimeScope::enter();
@@ -31,9 +27,18 @@ fn runtime_diagnostics_preserve_reads_receipts_and_every_cancellation_checkpoint
     );
     let (source, unmarked) = profiling::measure(Mode::Clocked, || {
         let mut source = CapturedSource::open(&data, &|| false).unwrap();
-        assert!(matches!(source.read(MAP, &|| false).unwrap(), Lookup::Present(_)));
-        assert!(matches!(source.read("Missing", &|| false).unwrap(), Lookup::Absent));
-        assert!(matches!(source.read("Dummy", &|| false).unwrap(), Lookup::Dummy {}));
+        assert!(matches!(
+            source.read(MAP, &|| false).unwrap(),
+            Lookup::Present(_)
+        ));
+        assert!(matches!(
+            source.read("Missing", &|| false).unwrap(),
+            Lookup::Absent
+        ));
+        assert!(matches!(
+            source.read("Dummy", &|| false).unwrap(),
+            Lookup::Dummy {}
+        ));
         source.verify_unchanged(&|| false).unwrap();
         source
     });

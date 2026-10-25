@@ -194,8 +194,14 @@ fn resident_observer_off_count_clocked_comparison() {
         assert!(counted.collision.open_chain.started > 0);
         assert!(counted.collision.receipt_probe.started > 0);
         let final_count = usize::from(counted.finishing);
-        assert_eq!(counted.callback.started(Phase::ResultPrechecks), final_count);
-        assert_eq!(counted.callback.started(Phase::CalculateCallback), final_count);
+        assert_eq!(
+            counted.callback.started(Phase::ResultPrechecks),
+            final_count
+        );
+        assert_eq!(
+            counted.callback.started(Phase::CalculateCallback),
+            final_count
+        );
         assert_eq!(counted.callback.started(Phase::ResultSeal), final_count);
         assert_eq!(counted.outer.started(Phase::FifoDelivery), final_count);
         assert!(counted.callback.same_counts(&clocked.callback));

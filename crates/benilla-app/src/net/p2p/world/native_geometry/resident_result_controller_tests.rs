@@ -256,7 +256,11 @@ pub(super) fn run_profiled(
     profile: freshness_timings::Mode,
     phases_on_failure: &mut Vec<ProfilePhaseEvidence>,
 ) -> RunEvidence {
-    run_inner(Mode::ColdPhasedFrameCadenced, Some(profile), phases_on_failure)
+    run_inner(
+        Mode::ColdPhasedFrameCadenced,
+        Some(profile),
+        phases_on_failure,
+    )
 }
 fn run_inner(
     mode: Mode,
@@ -1050,7 +1054,10 @@ fn run_inner(
                     let service_elapsed = service_started.elapsed();
                     if let Some((cold, finishing, succeeded, callback, collision)) = profile_phase {
                         let outer = outer_profile.expect("profiled callback requires outer scope");
-                        assert!(profile_phases.len() < 4, "one cold and one retained pair only");
+                        assert!(
+                            profile_phases.len() < 4,
+                            "one cold and one retained pair only"
+                        );
                         profile_phases.push(ProfilePhaseEvidence {
                             cold,
                             finishing,

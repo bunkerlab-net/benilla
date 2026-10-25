@@ -727,7 +727,10 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn("assert_eq!(off.cold_trace, clocked.cold_trace)", observer)
         self.assertIn("assert_eq!(off.retained_trace, clocked.retained_trace)", observer)
         runner = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs").read_text()
-        self.assertIn("run_inner(Mode::ColdPhasedFrameCadenced, Some(profile), phases_on_failure)", runner)
+        self.assertRegex(
+            runner,
+            r"run_inner\(\s*Mode::ColdPhasedFrameCadenced,\s*Some\(profile\),\s*phases_on_failure,?\s*\)",
+        )
         self.assertIn("freshness=deferred", runner)
         self.assertIn("if profiling.is_some()", runner)
         self.assertIn("freshness = freshness.legacy_only()", runner)
