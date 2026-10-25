@@ -103,6 +103,16 @@ impl fmt::Debug for AssembledSourceMap<'_> {
     }
 }
 impl AssembledSourceMap<'_> {
+    /// Test-only full successful replay length distribution; no source identity,
+    /// payload, freshness or authority is returned. Multiplicity is preserved.
+    #[cfg(feature = "synthetic-map-tests")]
+    pub fn successful_replay_payload_lengths_for_test(&self) -> Vec<usize> {
+        self.source
+            .get()
+            .source
+            .successful_replay_payload_lengths_for_test()
+    }
+
     pub fn source_receipts(&self) -> impl Iterator<Item = crate::SourceReceipt<'_>> {
         self.source.get().source_receipts()
     }

@@ -695,6 +695,74 @@ class ExactProofTests(unittest.TestCase):
             source = (ROOT / "crates/benilla-native-vmap-source/src" / path).read_text()
             self.assertIn("fn " + name.rsplit("::", 1)[1] + "()", source)
 
+    def test_hash_hex_candidate_is_bounded_test_only_and_rehashes_both_full_paths(self):
+        directory = ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry"
+        source = (directory / "hash_hex_primitive_tests.rs").read_text()
+        module = (directory / "mod.rs").read_text()
+        self.assertIn('#[cfg(all(test, not(benilla_headless_geometry)))]\nmod hash_hex_primitive_tests;', module)
+        self.assertEqual(re.findall(r"(?m)^fn (\w+)\(\) \{", source), ["hash_hex_encoding_matches_original", "fixture_hash_hex_primitive_comparison"])
+        self.assertIn('format!("{:x}", Sha256::digest(payload))', source)
+        self.assertIn('fixed_hex(&Sha256::digest(payload))', source)
+        self.assertIn('drop(black_box(encode(black_box(payload.as_slice()))))', source)
+        self.assertIn('drop(black_box(encode(black_box(digest))))', source)
+        self.assertIn('[[false, true], [true, false]].into_iter().enumerate()', source)
+        self.assertIn('const MAX_FULL_ROUNDS: usize = 128;', source)
+        self.assertIn('const MAX_ENCODING_ROUNDS: usize = 4096;', source)
+        self.assertIn('const MAX_BYTES_PER_SAMPLE: usize = 64 * 1024 * 1024;', source)
+        self.assertIn('assert_eq!(source_counts.payload_hash.started, lengths.len())', source)
+        self.assertIn('assert_eq!(source_counts.payload_hash.succeeded, lengths.len())', source)
+        self.assertIn('histogram.values().sum::<usize>()', source)
+        self.assertIn('deterministic length-matched synthetic bytes, not captured payloads', source)
+        self.assertNotIn('unsafe', source)
+        original = (ROOT / "crates/benilla-native-vmap-source/src/source.rs").read_text()
+        self.assertIn('sha256: profile_value!(PayloadHash, format!("{:x}", Sha256::digest(&payload)))', original)
+        self.assertNotIn('fixed_hex', original)
+
+    def test_hash_hex_primitive_gate_is_exact_and_preserves_both_failures(self):
+        path = ".github/workflows/resident-hash-hex-primitive.yml"
+        shell = workflow_gate("Verify encoder equivalence and measure the bounded primitive", path)
+        names = ["hash_hex_encoding_matches_original", "fixture_hash_hex_primitive_comparison"]
+        prefix = "net::p2p::native_geometry::hash_hex_primitive_tests::"
+        workflow = (ROOT / path).read_text()
+        trigger_paths = [line.strip()[2:] for line in workflow.split("    paths:\n", 1)[1].split("\n\n", 1)[0].splitlines()]
+        self.assertEqual(trigger_paths, [path,
+            "crates/benilla-app/src/net/p2p/world/native_geometry/hash_hex_primitive_tests.rs",
+            "crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs",
+            "crates/benilla-native-vmap-source/src/source.rs",
+            "crates/benilla-native-vmap-source/src/map_bundle.rs",
+        ])
+        self.assertIn("for test in " + " ".join(names) + "; do", shell)
+        self.assertIn('if [[ "$test" == fixture_hash_hex_primitive_comparison ]]; then args+=(--ignored); fi', shell)
+        self.assertIn('if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi', shell)
+        self.assertIn('exit "$status"', shell)
+        self.assertNotIn('--skip', shell)
+        self.assertNotIn('--nocapture', shell)
+        self.assertNotIn('continue-on-error', workflow)
+        for bad, code, wrong in (("", 0, False), (names[0], 1, False), (names[0], 0, True), (names[1], 1, True)):
+            with self.subTest(bad=bad, code=code, wrong=wrong), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                mbx = root / "mbx"
+                mbx.write_text("#!" + sys.executable + "\n" + textwrap.dedent(r"""
+                    import json, os, sys
+                    from pathlib import Path
+                    name = sys.argv[sys.argv.index('--lib') + 1]
+                    short = name.rsplit('::', 1)[-1]
+                    assert all(x in sys.argv for x in ['test', '--locked', '--release', '--exact', '--show-output', '--test-threads=1'])
+                    assert ('--ignored' in sys.argv) == (short == 'fixture_hash_hex_primitive_comparison')
+                    with Path(os.environ['CALLS']).open('a') as out: out.write(short + '\n')
+                    selected = short == os.environ['BAD']
+                    print(json.loads(os.environ['OUTPUTS'])[short if not selected or os.environ['WRONG'] == '0' else 'wrong'], end='')
+                    sys.exit(int(os.environ['EXIT']) if selected else 0)
+                """))
+                mbx.chmod(0o755)
+                outputs = {name: fixture([prefix + name]) for name in names}
+                outputs['wrong'] = fixture(['unexpected'])
+                calls = root / 'calls'
+                env = dict(os.environ, RUNNER_TEMP=str(root), PATH=str(root) + os.pathsep + os.environ['PATH'], CALLS=str(calls), BAD=bad, EXIT=str(code), WRONG=str(int(wrong)), OUTPUTS=json.dumps(outputs))
+                result = subprocess.run(['bash', '-c', shell], cwd=ROOT, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, not bad, result.stdout + result.stderr)
+                self.assertEqual(calls.read_text().splitlines(), names)
+
     def test_revision_comparison_pins_inputs_and_builds_before_execution(self):
         path = ".github/workflows/resident-instrumentation-revision-comparison.yml"
         workflow = (ROOT / path).read_text()

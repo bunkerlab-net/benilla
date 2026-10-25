@@ -259,6 +259,19 @@ impl fmt::Debug for CapturedSource {
 }
 
 impl CapturedSource {
+    /// Fixture metadata for every successful replay receipt, including repeated
+    /// and archive-scoped lookups. This neither rereads bytes nor proves freshness.
+    #[cfg(feature = "synthetic-map-tests")]
+    pub(crate) fn successful_replay_payload_lengths_for_test(&self) -> Vec<usize> {
+        self.receipts
+            .iter()
+            .filter_map(|receipt| match &receipt.outcome {
+                Outcome::Present(member) => Some(member.bytes),
+                Outcome::Absent | Outcome::Dummy { .. } => None,
+            })
+            .collect()
+    }
+
     pub(crate) fn source_receipts(&self) -> impl Iterator<Item = crate::SourceReceipt<'_>> {
         self.receipts.iter().filter_map(|receipt| {
             if !matches!(receipt.scope, LookupScope::Chain) {
