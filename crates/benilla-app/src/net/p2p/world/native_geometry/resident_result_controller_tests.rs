@@ -303,6 +303,23 @@ pub(super) fn run(mode: Mode) {
             let mut notices: Vec<RouteCommitNotice> = Vec::new();
             let mut cold: Option<RouteCommitNotice> = None;
             let mut constructor = None;
+            let mut assert_constructor = |owner: &mut OwnedResident, request: &AuthorityRequest| {
+                let diagnostic_started = Instant::now();
+                let identity = owner
+                    .constructor_identity(&installed, request, fixture::until())
+                    .unwrap();
+                eprintln!(
+                    "resident controller constructor diagnostic: tick={} elapsed_ms={}",
+                    request.binding.tick,
+                    diagnostic_started.elapsed().as_millis(),
+                );
+                assert_eq!(identity.2, 1);
+                if let Some(prior) = constructor {
+                    assert_eq!(identity, prior);
+                } else {
+                    constructor = Some(identity);
+                }
+            };
             let mut source_change = None;
             let mut dropped = false;
             let mut retried = false;
@@ -638,6 +655,14 @@ pub(super) fn run(mode: Mode) {
                         RouteCommitCommand::Initialize(boundary) => owner.initialize(boundary),
                         RouteCommitCommand::Commit(notice) => {
                             let duplicate = notices.last().is_some_and(|prior| prior == notice);
+                            if mode.default_budget() && !duplicate {
+                                // The exact committed request has passed authority finish and save.
+                                // Keep test-only source/identity diagnostics outside its Route lease;
+                                // the full controller pump and commit ACK still include this work.
+                                for reply in notice.routes() {
+                                    assert_constructor(&mut owner, &reply.request);
+                                }
+                            }
                             if mode == Mode::ChangedSourceAck && !notice.routes().is_empty() && !duplicate {
                                 owner.inspect(&installed, fixture::until(), || false, |provider, _, ledger| {
                                     ledger.check_fresh_candidate(provider, &notice.routes()[0].request, fixture::until())
@@ -765,20 +790,8 @@ pub(super) fn run(mode: Mode) {
                                 result.is_ok(),
                             );
                             let result = result.map_err(|_| Failure::Binding)?;
-                            let diagnostic_started = Instant::now();
-                            let identity = owner
-                                .constructor_identity(&installed, &request, fixture::until())
-                                .unwrap();
-                            eprintln!(
-                                "resident controller constructor diagnostic: tick={} elapsed_ms={}",
-                                request.binding.tick,
-                                diagnostic_started.elapsed().as_millis(),
-                            );
-                            assert_eq!(identity.2, 1);
-                            if let Some(prior) = constructor {
-                                assert_eq!(identity, prior);
-                            } else {
-                                constructor = Some(identity);
+                            if !mode.default_budget() {
+                                assert_constructor(owner, &request);
                             }
                             routes.fetch_add(1, Ordering::SeqCst);
                             Ok(result)

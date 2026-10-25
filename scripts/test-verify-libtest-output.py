@@ -613,6 +613,59 @@ class ExactProofTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 VERIFIER.verify(fixture([name]).replace(" ... ok", " ... ignored"), [name])
 
+    def test_diagnostic_probes_do_not_hide_later_results_after_failure(self):
+        workflow = (ROOT / ".github/workflows/resident-controller-profile-comparison.yml").read_text()
+        titles = (
+            "Validate the default Route budget in the release component fixture",
+            "Validate frame-cadenced mailbox cold and retained saves",
+            "Validate missed-frame mailbox refusal without publication",
+        )
+        condition = "${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}"
+
+        def assert_flow(candidate):
+            self.assertNotIn("continue-on-error:", candidate)
+            steps = re.split(r"(?=^      - name: )", candidate, flags=re.MULTILINE)
+            serial = [step for step in steps if step.startswith(
+                "      - name: Compare the same five controller fixtures serially\n")]
+            self.assertEqual(len(serial), 1)
+            self.assertIn("        id: serial_comparison\n", serial[0])
+            self.assertNotRegex(serial[0], r"(?m)^        if:")
+            self.assertEqual(candidate.count("        id: serial_comparison\n"), 1)
+            for title in titles:
+                probe = [step for step in steps if step.startswith(f"      - name: {title}\n")]
+                self.assertEqual(len(probe), 1)
+                self.assertEqual(re.findall(r"(?m)^        if: (.*)$", probe[0]), [condition])
+                self.assertIn("          set -euo pipefail\n", probe[0])
+                self.assertNotIn("|| true", probe[0])
+
+        assert_flow(workflow)
+        for bad in (
+            workflow.replace("!cancelled() && ", ""),
+            workflow.replace("!cancelled()", "success()"),
+            workflow.replace("steps.serial_comparison.outcome", "steps.serial_comparison.conclusion"),
+            workflow.replace("        id: serial_comparison\n", ""),
+            workflow.replace("        shell: bash\n", "        continue-on-error: true\n        shell: bash\n", 1),
+        ):
+            with self.assertRaises(AssertionError):
+                assert_flow(bad)
+
+        # Truth table for the exact guarded expression above, not a GitHub runner
+        # emulation. A status function suppresses the implicit success() guard.
+        expression = condition.removeprefix("${{ ").removesuffix(" }}")
+        expression = expression.replace("!cancelled()", "not cancelled").replace("&&", "and")
+        expression = expression.replace("steps.serial_comparison.outcome", "serial_outcome")
+        for cancelled in (False, True):
+            for serial_outcome in ("success", "failure", "skipped", "cancelled"):
+                for earlier_probe_failed in (False, True):
+                    run_probe = eval(expression, {"__builtins__": {}}, {
+                        "cancelled": cancelled, "serial_outcome": serial_outcome,
+                    })
+                    self.assertEqual(run_probe, not cancelled and serial_outcome == "success")
+                    if earlier_probe_failed and serial_outcome == "success" and not cancelled:
+                        self.assertTrue(run_probe, "earlier diagnostic failure must not mask this probe")
+                    if serial_outcome != "success" or cancelled:
+                        self.assertFalse(run_probe, "failed/skipped prerequisite or cancellation must block probes")
+
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = re.findall(

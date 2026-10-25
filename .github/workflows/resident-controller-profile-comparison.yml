@@ -59,6 +59,7 @@ jobs:
           github-cache-mode: target
           cache-generation: resident-controller-profile-comparison-ubuntu26-v1
       - name: Compare the same five controller fixtures serially
+        id: serial_comparison
         shell: bash
         run: |
           set -euo pipefail
@@ -87,6 +88,9 @@ jobs:
             echo '::endgroup::'
           done
       - name: Validate the default Route budget in the release component fixture
+        # Independent failures stay red without hiding later diagnostic results.
+        # Require successful serial compilation/proofs; do not run after cancellation.
+        if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -98,6 +102,7 @@ jobs:
           mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" "$name"
       - name: Validate frame-cadenced mailbox cold and retained saves
+        if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -108,6 +113,7 @@ jobs:
           mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" "$name"
       - name: Validate missed-frame mailbox refusal without publication
+        if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
