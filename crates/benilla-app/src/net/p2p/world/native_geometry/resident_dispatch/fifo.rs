@@ -4,10 +4,10 @@ use super::super::super::products::source_height::{
     owned::freshness::{CaptureFreshnessWorker, FreshnessObservation, FreshnessPoll},
     CompositionError,
 };
-use super::*;
 use super::super::super::source_route_filter::resident::owned::{
     PreparedResident, ResidentPhase, ResidentPhaseResult,
 };
+use super::*;
 
 pub(crate) enum ResidentStep {
     Pending,
@@ -426,7 +426,11 @@ pub(in super::super::super) fn exercise_prepared_retirement(
     let before = owner.diagnostic();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
     let mut callbacks = 0;
-    while !selector.selected.as_ref().is_some_and(|s| s.prepared.is_some()) {
+    while !selector
+        .selected
+        .as_ref()
+        .is_some_and(|s| s.prepared.is_some())
+    {
         assert!(
             Instant::now() < deadline,
             "must reach Prepared before injecting retirement",

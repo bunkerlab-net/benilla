@@ -930,7 +930,9 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                 }
                 eprintln!(
                     "resident owner-service maximum: phased={} frame_cadenced={} wall_us={}",
-                    mode.phased(), mode.frame_cadenced(), max_owner_service.as_micros(),
+                    mode.phased(),
+                    mode.frame_cadenced(),
+                    max_owner_service.as_micros(),
                 );
                 measured_max_owner_service = max_owner_service;
                 if mode.phased() {

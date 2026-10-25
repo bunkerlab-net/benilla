@@ -627,14 +627,18 @@ fn resumed_observation_keeps_revocation_live_until_callback_returns() {
                 if before {
                     revoke();
                 }
-                let result: Result<(), CompositionError> =
-                    observation.with_current(&products, &lease, lease.deadline(), |_, _, cancelled| {
+                let result: Result<(), CompositionError> = observation.with_current(
+                    &products,
+                    &lease,
+                    lease.deadline(),
+                    |_, _, cancelled| {
                         assert!(!before, "retired completion entered callback");
                         assert!(!cancelled());
                         revoke();
                         assert!(cancelled());
                         Ok(())
-                    });
+                    },
+                );
                 assert!(matches!(result, Err(CompositionError::Cancelled)));
             }
         }

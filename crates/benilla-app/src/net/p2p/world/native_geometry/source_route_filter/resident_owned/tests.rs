@@ -246,9 +246,18 @@ impl Authority for Consumer<'_> {
                     }
                     let after = self.owner.ledger.diagnostic();
                     if matches!(mode, FifoProbeMode::TransportRetire(_)) {
-                        assert_eq!(self.owner.ledger.counts(), (usize::from(retained), usize::from(retained)));
+                        assert_eq!(
+                            self.owner.ledger.counts(),
+                            (usize::from(retained), usize::from(retained))
+                        );
                     } else if let FifoProbeMode::Transport(drop_reply) = mode {
-                        assert_eq!(self.owner.ledger.counts(), (usize::from(retained) + usize::from(!drop_reply), usize::from(retained)));
+                        assert_eq!(
+                            self.owner.ledger.counts(),
+                            (
+                                usize::from(retained) + usize::from(!drop_reply),
+                                usize::from(retained)
+                            )
+                        );
                     } else if matches!(mode, FifoProbeMode::Clear | FifoProbeMode::Phased(0)) {
                         if retained {
                             assert!(after.only_first_retained_staged_since(&before));
@@ -377,7 +386,12 @@ impl Authority for Consumer<'_> {
                     assert_eq!(route.request.prior_cache.as_ref().unwrap().revision, 1);
                     let ready = observe_sources(&self.owner, &self.session, &self.profile, request);
                     if self.phased_retained {
-                        ready.certify_phased(&mut self.owner, &mut self.geometry, &installed, deadline)
+                        ready.certify_phased(
+                            &mut self.owner,
+                            &mut self.geometry,
+                            &installed,
+                            deadline,
+                        )
                     } else {
                         ready.certify(&mut self.owner, &mut self.geometry, &installed, deadline)
                     }
@@ -1555,7 +1569,13 @@ fn certify_fifo_probe(
     }
     if let FifoProbeMode::Phased(mutation) = mode {
         return certify_phased_probe(
-            install, owner, geometry, session, request, mutation, foreign_index,
+            install,
+            owner,
+            geometry,
+            session,
+            request,
+            mutation,
+            foreign_index,
         );
     }
     if let FifoProbeMode::TransportRetire(expire) = mode {
@@ -1835,11 +1855,17 @@ fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
             assert_eq!(cold_notice.is_some(), retained);
             let after = consumer.owner.ledger.diagnostic();
             if matches!(mode, FifoProbeMode::TransportRetire(_)) {
-                assert_eq!(consumer.owner.ledger.counts(), (usize::from(retained), usize::from(retained)));
+                assert_eq!(
+                    consumer.owner.ledger.counts(),
+                    (usize::from(retained), usize::from(retained))
+                );
             } else if let FifoProbeMode::Transport(drop_reply) = mode {
                 assert_eq!(
                     consumer.owner.ledger.counts(),
-                    (usize::from(retained) + usize::from(!drop_reply), usize::from(retained))
+                    (
+                        usize::from(retained) + usize::from(!drop_reply),
+                        usize::from(retained)
+                    )
                 );
             } else if matches!(mode, FifoProbeMode::Clear | FifoProbeMode::Phased(0)) {
                 if retained {
@@ -1944,9 +1970,9 @@ fn certify_phased_probe(
                     avian3d::prelude::Collider::cuboid(2., 3., 0.25),
                     avian3d::prelude::RigidBody::Static,
                     avian3d::prelude::CollisionLayers::DEFAULT,
-                    bevy::prelude::Transform::from_translation(benilla_assets::coords::wow_to_bevy(
-                        middle,
-                    )),
+                    bevy::prelude::Transform::from_translation(
+                        benilla_assets::coords::wow_to_bevy(middle),
+                    ),
                 ))
                 .id(),
         )
@@ -1961,7 +1987,11 @@ fn certify_phased_probe(
         match mutation {
             11 => entries = input::overlapping_entries(),
             12 => {
-                entries.iter_mut().find(|(name, _)| name == input::WDT).unwrap().1[20] ^= 1;
+                entries
+                    .iter_mut()
+                    .find(|(name, _)| name == input::WDT)
+                    .unwrap()
+                    .1[20] ^= 1;
             }
             13 => entries.retain(|(name, _)| !name.ends_with("Selected_40_40.adt")),
             14 => {
@@ -1981,8 +2011,9 @@ fn certify_phased_probe(
         5 => std::thread::sleep(first_deadline.saturating_duration_since(Instant::now())),
         _ => {}
     }
-    let restore_ledger =
-        (15..=20).contains(&mutation).then(|| owner.ledger.invalidate_prepared_for_test(mutation));
+    let restore_ledger = (15..=20)
+        .contains(&mutation)
+        .then(|| owner.ledger.invalidate_prepared_for_test(mutation));
     let competing = if mutation == 21 {
         let ready = observe_sources(owner, session, &profile, request);
         let first_id = owner.ledger.next_transport_candidate();

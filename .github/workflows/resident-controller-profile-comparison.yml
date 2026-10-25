@@ -4,7 +4,25 @@ name: Resident controller profile comparison
 on:
   push:
     branches: [feat/psk-p2p-foundation]
-    paths: [.github/workflows/resident-controller-profile-comparison.yml]
+    paths:
+      - .github/workflows/resident-controller-profile-comparison.yml
+      - crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/freshness_timings.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness/tests.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/fifo.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/fifo/tests.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/transport.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/phased.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/transport.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local/ledger.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local/retained.rs
 
 permissions:
   contents: read

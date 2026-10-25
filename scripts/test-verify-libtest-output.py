@@ -19,6 +19,26 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 DEFAULT_BUDGET_PROBE = "resident_default_budget_controller_saves_cold_and_first_retained"
+COMPARISON_PATHS = (
+    '.github/workflows/resident-controller-profile-comparison.yml',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/freshness_timings.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness/tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/fifo.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/fifo/tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/transport.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/phased.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/transport.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local/ledger.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local/retained.rs',
+)
 SUITES = {
     "Verify resident FIFO selection": (
         "benilla-native-corridor-tests",
@@ -503,12 +523,30 @@ class ExactProofTests(unittest.TestCase):
     def test_controller_profile_comparison_is_scoped_and_profile_only(self):
         path = ".github/workflows/resident-controller-profile-comparison.yml"
         workflow = (ROOT / path).read_text()
-        self.assertIn(
-            "on:\n  push:\n"
+        expected_trigger = (
+            "  push:\n"
             "    branches: [feat/psk-p2p-foundation]\n"
-            f"    paths: [{path}]\n",
-            workflow,
+            "    paths:\n"
+            + "".join(f"      - {path}\n" for path in COMPARISON_PATHS)
         )
+
+        def assert_trigger(candidate):
+            trigger = re.search(r"(?ms)^on:\n(.*?)(?=^\S)", candidate)
+            self.assertIsNotNone(trigger)
+            self.assertEqual(trigger.group(1).rstrip() + "\n", expected_trigger)
+            self.assertEqual(len(COMPARISON_PATHS), len(set(COMPARISON_PATHS)))
+            self.assertNotRegex(expected_trigger, r"[*?]")
+
+        assert_trigger(workflow)
+        for bad in (
+            workflow.replace("branches: [feat/psk-p2p-foundation]", "branches: [feat/psk-p2p-foundation, main]"),
+            workflow.replace("    paths:\n", "    paths:\n      - '**'\n"),
+            workflow.replace(f"      - {path}\n", ""),
+            workflow.replace(f"      - {COMPARISON_PATHS[1]}\n", ""),
+            workflow.replace(f"      - {COMPARISON_PATHS[1]}\n", f"      - {COMPARISON_PATHS[1]}\n" * 2),
+        ):
+            with self.assertRaises(AssertionError):
+                assert_trigger(bad)
         self.assertNotIn("workflow_dispatch:", workflow)
         self.assertNotIn("pull_request:", workflow)
         self.assertIn("  group: resident-controller-profile-comparison-${{ github.ref }}\n", workflow)

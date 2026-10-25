@@ -60,7 +60,8 @@ impl OwnedResident {
                     job.deadline(),
                     |context, deadline, cancelled| {
                         job.require_resident(self)?;
-                        if !std::ptr::eq(context, job.request()) || job.profile() != &self.state.profile
+                        if !std::ptr::eq(context, job.request())
+                            || job.profile() != &self.state.profile
                         {
                             return Err(Failure::Binding.into());
                         }

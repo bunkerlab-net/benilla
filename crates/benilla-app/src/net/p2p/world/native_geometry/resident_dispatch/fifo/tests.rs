@@ -213,12 +213,9 @@ fn resident_fifo_tail_fill_retires_exact_work_without_releasing_busy_worker() {
         let (mut selector, control) = held(mailbox);
         let mut filled = false;
         let mut extra = None;
-        let mut resume =
-            |_: &mut OwnedResident,
-             _: ResidentDispatchJob<'_>,
-             _: ResidentPhase| {
-                panic!("tail fill must not resume")
-            };
+        let mut resume = |_: &mut OwnedResident, _: ResidentDispatchJob<'_>, _: ResidentPhase| {
+            panic!("tail fill must not resume")
+        };
         assert_eq!(
             mailbox.serve_service_query_slice_selected(
                 PER_FRAME,

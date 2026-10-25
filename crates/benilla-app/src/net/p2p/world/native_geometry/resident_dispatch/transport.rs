@@ -206,9 +206,9 @@ pub(in super::super::super) fn exercise_result_transport(
     request: &AuthorityRequest,
     drop_reply: bool,
 ) -> Facts {
+    use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
     use super::super::super::source_route_filter::resident::ResidentFilterError;
     use super::fifo::ResidentFifoSelection;
-    use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
     fn send<T: Send>() {}
     send::<Work>();
@@ -310,12 +310,7 @@ pub(in super::super::super) fn exercise_result_transport(
                     return Err(Failure::Deadline);
                 }
                 let result = owner
-                    .certify_phase_result(
-                        phase,
-                        job,
-                        geometry.app.world_mut(),
-                        &installed,
-                    )
+                    .certify_phase_result(phase, job, geometry.app.world_mut(), &installed)
                     .map_err(|error| match error {
                         ResidentFilterError::Context(error) => error,
                         _ => Failure::Binding,
@@ -346,8 +341,14 @@ pub(in super::super::super) fn exercise_result_transport(
             deadline,
             || false,
             |_, _, ledger| {
-                assert_eq!(ledger.counts(), (usize::from(retained), usize::from(retained)));
-                assert_eq!(ledger.next_transport_candidate(), if retained { 3 } else { 2 });
+                assert_eq!(
+                    ledger.counts(),
+                    (usize::from(retained), usize::from(retained))
+                );
+                assert_eq!(
+                    ledger.next_transport_candidate(),
+                    if retained { 3 } else { 2 }
+                );
                 Ok(())
             },
         )
@@ -364,12 +365,7 @@ pub(in super::super::super) fn exercise_result_transport(
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
                 let result = owner
-                    .certify_phase_result(
-                        phase,
-                        job,
-                        geometry.app.world_mut(),
-                        &installed,
-                    )
+                    .certify_phase_result(phase, job, geometry.app.world_mut(), &installed)
                     .map_err(|_| Failure::Binding)?;
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);
@@ -391,7 +387,10 @@ pub(in super::super::super) fn exercise_result_transport(
                 deadline,
                 || false,
                 |_, _, ledger| {
-                    assert_eq!(ledger.counts(), (usize::from(retained), usize::from(retained)));
+                    assert_eq!(
+                        ledger.counts(),
+                        (usize::from(retained), usize::from(retained))
+                    );
                     Ok(())
                 },
             )
@@ -560,8 +559,8 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
     request: &AuthorityRequest,
     expire: bool,
 ) -> Facts {
-    use super::fifo::ResidentFifoSelection;
     use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
+    use super::fifo::ResidentFifoSelection;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
     let (_, mailbox) = paired_test_mailbox(owner).unwrap();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
@@ -600,12 +599,7 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
                 let result = owner
-                    .certify_phase_result(
-                        phase,
-                        job,
-                        geometry.app.world_mut(),
-                        &installed,
-                    )
+                    .certify_phase_result(phase, job, geometry.app.world_mut(), &installed)
                     .unwrap();
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);
@@ -666,8 +660,14 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
             watchdog,
             || false,
             |_, _, ledger| {
-                assert_eq!(ledger.counts(), (usize::from(retained), usize::from(retained)));
-                assert_eq!(ledger.next_transport_candidate(), if retained { 2 } else { 1 });
+                assert_eq!(
+                    ledger.counts(),
+                    (usize::from(retained), usize::from(retained))
+                );
+                assert_eq!(
+                    ledger.next_transport_candidate(),
+                    if retained { 2 } else { 1 }
+                );
                 Ok(())
             },
         )
