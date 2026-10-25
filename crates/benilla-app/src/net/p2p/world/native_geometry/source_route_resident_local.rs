@@ -72,6 +72,46 @@ pub(super) fn certify(
         .as_ref()
         .and_then(|index| index.source_provenance())
         .ok_or(Failure::Binding)?;
+    let (dependency, segment_ticket) = observe_cold_source(
+        compatibility,
+        provider,
+        context,
+        constructor,
+        water,
+        ticket,
+        deadline,
+        &cancelled,
+        owner,
+    )?;
+    finish_scene(
+        dependency,
+        compatibility,
+        provider,
+        context,
+        segment_ticket,
+        deadline,
+        cancelled,
+        #[cfg(test)]
+        after,
+        owner,
+        &terrain,
+        &collision,
+        &spatial,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn observe_cold_source(
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    constructor: ResidentFilterDependency,
+    water: ResidentChaseWaterDependency,
+    ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+    owner: &benilla_formats::NativeInventorySource,
+) -> Result<(ResidentJoinedColdDependency, u64), ResidentFilterError> {
     let segment_ticket = ticket.checked_add(2).ok_or(Failure::Invalid)?;
     provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
     let dependency = provider.observe_joined_cold(
@@ -83,6 +123,127 @@ pub(super) fn certify(
         deadline,
         &cancelled,
     )?;
+    Ok((dependency, segment_ticket))
+}
+
+/// Owned source dependency only; no scene proof, candidate or publication authority.
+#[cfg(test)]
+pub(super) struct PreparedColdSource {
+    dependency: ResidentJoinedColdDependency,
+    installed_owner: benilla_formats::NativeInventorySource,
+    segment_ticket: u64,
+    deadline: Instant,
+}
+#[cfg(test)]
+impl PreparedColdSource {
+    pub(super) fn deadline(&self) -> Instant {
+        self.deadline
+    }
+}
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn prepare_cold_source(
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    constructor: ResidentFilterDependency,
+    water: ResidentChaseWaterDependency,
+    ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+) -> Result<PreparedColdSource, ResidentFilterError> {
+    provider.require_first_cold_route()?;
+    let mut state = SystemState::<Option<Res<NativeStaticMapIndex>>>::new(world);
+    let installed = state.get(world);
+    let owner = installed
+        .as_ref()
+        .and_then(|index| index.source_provenance())
+        .ok_or(Failure::Binding)?;
+    let (dependency, segment_ticket) = observe_cold_source(
+        compatibility,
+        provider,
+        context,
+        constructor,
+        water,
+        ticket,
+        deadline,
+        &cancelled,
+        owner,
+    )?;
+    Ok(PreparedColdSource {
+        deadline: dependency.deadline(deadline),
+        dependency,
+        installed_owner: owner.clone(),
+        segment_ticket,
+    })
+}
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn finish_cold_source(
+    prepared: PreparedColdSource,
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+) -> Result<(ResidentColdCandidate, Facts), ResidentFilterError> {
+    provider.require_first_cold_route()?;
+    let PreparedColdSource {
+        dependency,
+        installed_owner,
+        segment_ticket,
+        deadline: original,
+    } = prepared;
+    let deadline = deadline.min(original);
+    let mut state = SystemState::<(
+        Option<Res<NativeStaticMapIndex>>,
+        NativeTerrainCoverage,
+        WorldCollision,
+        SpatialQuery,
+    )>::new(world);
+    let (installed, terrain, collision, spatial) = state.get(world);
+    let owner = installed
+        .as_ref()
+        .and_then(|index| index.source_provenance())
+        .ok_or(Failure::Binding)?;
+    if !owner.same_owner(&installed_owner) {
+        return Err(Failure::Binding.into());
+    }
+    provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
+    finish_scene(
+        dependency,
+        compatibility,
+        provider,
+        context,
+        segment_ticket,
+        deadline,
+        cancelled,
+        || {},
+        owner,
+        &terrain,
+        &collision,
+        &spatial,
+    )
+}
+
+/// One immutable scene island, shared by synchronous and resumed certification.
+#[allow(clippy::too_many_arguments)]
+fn finish_scene<'w, 's>(
+    dependency: ResidentJoinedColdDependency,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    segment_ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+    #[cfg(test)] after: impl FnOnce(),
+    owner: &benilla_formats::NativeInventorySource,
+    terrain: &NativeTerrainCoverage<'w, 's>,
+    collision: &WorldCollision<'w, 's>,
+    spatial: &SpatialQuery<'w, 's>,
+) -> Result<(ResidentColdCandidate, Facts), ResidentFilterError> {
     let deadline = dependency.deadline(deadline);
     let observation = provider.joined_for(&dependency, context, deadline, &cancelled)?;
     let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
@@ -104,9 +265,9 @@ pub(super) fn certify(
         coverage.inventory_digest,
     );
     LocalCorridor {
-        terrain: &terrain,
-        collision: &collision,
-        spatial: &spatial,
+        terrain,
+        collision,
+        spatial,
         map,
         revision: raw,
     }

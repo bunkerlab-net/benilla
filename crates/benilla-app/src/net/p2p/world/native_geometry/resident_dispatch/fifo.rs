@@ -424,6 +424,10 @@ pub(in super::super::super) fn exercise_prepared_retirement(
         .unwrap()
         .clone();
     let before = owner.diagnostic();
+    let cold = request
+        .require_pathfinder_dispatch(owner.dispatch_selection().2)
+        .unwrap()
+        .first_construction();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
     let mut callbacks = 0;
     while !selector
@@ -456,12 +460,61 @@ pub(in super::super::super) fn exercise_prepared_retirement(
     }
     assert_eq!(callbacks, 1);
     assert!(!selector.selected.as_ref().unwrap().occupied);
-    assert_eq!(owner.diagnostic(), before);
+    if cold {
+        assert!(owner.diagnostic().same_semantic_state(&before));
+    } else {
+        assert_eq!(owner.diagnostic(), before);
+    }
     assert!(reply.try_result().is_err(), "prefix cannot reply");
+    if matches!(mutation, 3 | 4) {
+        if mutation == 3 {
+            selector.worker.cancel();
+        } else {
+            // Drop the exact original worker without discarding the selected
+            // preparation: its original stop token must still revoke resume.
+            drop(std::mem::replace(
+                &mut selector.worker,
+                CaptureFreshnessWorker::new().unwrap(),
+            ));
+        }
+        let mut resumed = false;
+        selector.serve_phased_results(
+            &mailbox,
+            owner,
+            1,
+            deadline,
+            |owner, job, phase| {
+                resumed = true;
+                assert!(job.lease().same_job(&lease));
+                assert!(matches!(&phase, ResidentPhase::Prepared(_)));
+                assert!(matches!(
+                    owner.certify_phase_result(phase, job, geometry.app.world_mut(), &installed),
+                    Err(super::super::super::source_route_filter::resident::ResidentFilterError::Source(
+                        CompositionError::Cancelled
+                    ))
+                ));
+                Err(Failure::Binding)
+            },
+            |_, _| panic!("ordinary provider"),
+        );
+        assert!(resumed);
+        assert!(!lease.is_active());
+        assert!(matches!(reply.try_result(), Ok(Err(Failure::Binding))));
+        if cold {
+            assert!(owner.diagnostic().same_semantic_state(&before));
+        } else {
+            assert_eq!(owner.diagnostic(), before);
+        }
+        return Err(Failure::Binding.into());
+    }
     if mutation == 9 {
         drop(selector);
         assert!(!lease.is_active());
-        assert_eq!(owner.diagnostic(), before);
+        if cold {
+            assert!(owner.diagnostic().same_semantic_state(&before));
+        } else {
+            assert_eq!(owner.diagnostic(), before);
+        }
         return Err(Failure::Binding.into());
     }
     if mutation == 10 {
@@ -493,6 +546,10 @@ pub(in super::super::super) fn exercise_prepared_retirement(
     } else {
         assert!(matches!(reply.try_result(), Ok(Err(Failure::Binding))));
     }
-    assert_eq!(owner.diagnostic(), before);
+    if cold {
+        assert!(owner.diagnostic().same_semantic_state(&before));
+    } else {
+        assert_eq!(owner.diagnostic(), before);
+    }
     Err(Failure::Binding.into())
 }

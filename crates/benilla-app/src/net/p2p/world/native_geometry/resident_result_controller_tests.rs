@@ -98,7 +98,8 @@ impl Authority for ControllerAuthority {
                     // This includes finish_reply's active, identity and expiry checks.
                     // It excludes the controller's subsequent durable save and ACK.
                     eprintln!(
-                        "resident controller Route authority returned: tick={} elapsed_us={} success={}",
+                        "resident controller Route authority returned: cold={} tick={} elapsed_us={} success={}",
+                        matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_none()),
                         request.binding.tick,
                         started.elapsed().as_micros(),
                         result.is_ok(),
@@ -181,6 +182,9 @@ pub(super) enum Mode {
     Phased,
     PhasedDefaultBudget,
     PhasedFrameCadenced,
+    ColdPhased,
+    ColdPhasedDefaultBudget,
+    ColdPhasedFrameCadenced,
     MissedFrame,
     CheckpointFailure,
     LostAck,
@@ -191,16 +195,33 @@ impl Mode {
     fn frame_cadenced(self) -> bool {
         matches!(
             self,
-            Self::FrameCadenced | Self::MissedFrame | Self::PhasedFrameCadenced
+            Self::FrameCadenced
+                | Self::MissedFrame
+                | Self::PhasedFrameCadenced
+                | Self::ColdPhasedFrameCadenced
         )
     }
     fn default_budget(self) -> bool {
-        matches!(self, Self::DefaultBudget | Self::PhasedDefaultBudget) || self.frame_cadenced()
+        matches!(
+            self,
+            Self::DefaultBudget | Self::PhasedDefaultBudget | Self::ColdPhasedDefaultBudget
+        ) || self.frame_cadenced()
     }
     fn phased(self) -> bool {
         matches!(
             self,
-            Self::Phased | Self::PhasedDefaultBudget | Self::PhasedFrameCadenced
+            Self::Phased
+                | Self::PhasedDefaultBudget
+                | Self::PhasedFrameCadenced
+                | Self::ColdPhased
+                | Self::ColdPhasedDefaultBudget
+                | Self::ColdPhasedFrameCadenced
+        )
+    }
+    fn cold_phased(self) -> bool {
+        matches!(
+            self,
+            Self::ColdPhased | Self::ColdPhasedDefaultBudget | Self::ColdPhasedFrameCadenced
         )
     }
     fn loses_ack(self) -> bool {
@@ -208,11 +229,18 @@ impl Mode {
     }
 }
 pub(super) struct RunEvidence {
+    pub(super) cold_trace: freshness_timings::SourceTrace,
+    pub(super) max_cold_owner_service: Duration,
+    pub(super) cold_latency: Duration,
     pub(super) retained_trace: freshness_timings::SourceTrace,
     pub(super) max_owner_service: Duration,
 }
 pub(super) fn run(mode: Mode) -> RunEvidence {
     let mut retained_trace = Vec::new();
+    let mut cold_trace = Vec::new();
+    let mut max_cold_owner_service = Duration::ZERO;
+    let mut cold_started = None;
+    let mut cold_latency = Duration::ZERO;
     let mut measured_max_owner_service = Duration::ZERO;
     let checkpoint_failure = mode == Mode::CheckpointFailure;
     fixture::with_selected_controller_fixture(
@@ -674,6 +702,10 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                         32
                     };
                     let service_started = Instant::now();
+                    let mut cold_service = false;
+                    let mut service_phase = "none";
+                    let mut service_tick = None;
+                    let mut service_frame = None;
                     let controls = mailbox.serve_route_commits_test_drop_reply(allowance, |_, command| match command {
                         RouteCommitCommand::Initialize(boundary) => owner.initialize(boundary),
                         RouteCommitCommand::Commit(notice) => {
@@ -740,12 +772,30 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                         |owner, job, phase| {
                             calls.fetch_add(1, Ordering::SeqCst);
                             let request = job.request().clone();
+                            let is_cold = matches!(
+                                &request.query,
+                                Query::SourceMotion(MotionQuery::Route(route))
+                                    if route.request.prior_cache.is_none()
+                            );
+                            cold_service |= is_cold;
+                            service_tick = Some(request.binding.tick);
+                            if is_cold && cold_started.is_none() {
+                                cold_started = Some(Instant::now());
+                            }
                             if mode.phased() {
                                 let finishing = matches!(&phase, ResidentPhase::Prepared(_));
+                                service_phase = if finishing {
+                                    "final"
+                                } else if is_cold && !mode.cold_phased() {
+                                    "sync"
+                                } else {
+                                    "prepare"
+                                };
                                 if !mode.frame_cadenced() {
                                     geometry.advance_physics();
                                 }
                                 let frame = geometry.app.world().resource::<FrameCount>().0;
+                                service_frame = Some(frame);
                                 if finishing {
                                     assert_ne!(
                                         prepared_frame,
@@ -757,33 +807,52 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                                 let started = Instant::now();
                                 let ((result, freshness), trace) = freshness_timings::trace_sources(|| {
                                     freshness_timings::measure(|| {
-                                        owner.certify_phase_result(
-                                            phase, job, geometry.app.world_mut(), &installed,
-                                        )
+                                        if mode.cold_phased() {
+                                            owner.certify_phase_result(
+                                                phase, job, geometry.app.world_mut(), &installed,
+                                            )
+                                        } else {
+                                            owner.certify_phase_result_retained_only(
+                                                phase, job, geometry.app.world_mut(), &installed,
+                                            )
+                                        }
                                     })
                                 });
                                 if result.is_ok() && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()) {
                                     assert_eq!(trace.len(), if finishing { 59 } else { 34 });
-                                    retained_trace.extend(trace);
+                                    retained_trace.extend(trace.iter().copied());
+                                }
+                                if result.is_ok() && is_cold {
+                                    cold_trace.extend(trace.iter().copied());
                                 }
                                 eprintln!(
-                                    "resident phased certification: tick={} phase={} wall_us={} success={} freshness={freshness:?}",
+                                    "resident phased certification: cold={is_cold} tick={} phase={service_phase} wall_us={} success={} checks={} freshness={freshness:?}",
                                     request.binding.tick,
-                                    if finishing { "final" } else { "begin" },
                                     started.elapsed().as_micros(),
                                     result.is_ok(),
+                                    trace.len(),
                                 );
                                 let result = result.map_err(|_| Failure::Binding)?;
                                 match &result {
                                     ResidentPhaseResult::Prepared(_) => {
-                                        assert_eq!(
-                                            owner.diagnostic(), before,
-                                            "preparation cannot stage or promote",
-                                        );
+                                        if is_cold {
+                                            assert!(
+                                                owner.diagnostic().same_semantic_state(&before),
+                                                "cold preparation cannot stage or promote",
+                                            );
+                                        } else {
+                                            assert_eq!(
+                                                owner.diagnostic(), before,
+                                                "retained preparation cannot alter ledger state",
+                                            );
+                                        }
                                         prepared_frame = Some(frame);
                                         prepared_count += 1;
                                     }
                                     ResidentPhaseResult::Complete(_) => {
+                                        if is_cold {
+                                            cold_latency = cold_started.unwrap().elapsed();
+                                        }
                                         if finishing {
                                             finished_count += 1;
                                         }
@@ -917,7 +986,17 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                             Ok(ServiceStep::Complete(Box::new(facts)))
                         },
                     );
-                    max_owner_service = max_owner_service.max(service_started.elapsed());
+                    let service_elapsed = service_started.elapsed();
+                    max_owner_service = max_owner_service.max(service_elapsed);
+                    if cold_service {
+                        max_cold_owner_service = max_cold_owner_service.max(service_elapsed);
+                    }
+                    if queries > 0 {
+                        eprintln!(
+                            "resident phase owner service: cold={cold_service} phase={service_phase} tick={service_tick:?} frame={service_frame:?} wall_us={}",
+                            service_elapsed.as_micros()
+                        );
+                    }
                     if mode.frame_cadenced() {
                         assert!(controls + queries <= allowance);
                         eprintln!(
@@ -929,14 +1008,16 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
                     }
                 }
                 eprintln!(
-                    "resident owner-service maximum: phased={} frame_cadenced={} wall_us={}",
+                    "resident owner-service maximum: phased={} cold_split={} frame_cadenced={} wall_us={}",
                     mode.phased(),
+                    mode.cold_phased(),
                     mode.frame_cadenced(),
                     max_owner_service.as_micros(),
                 );
                 measured_max_owner_service = max_owner_service;
                 if mode.phased() {
-                    assert_eq!((prepared_count, finished_count), (1, 1));
+                    let count = if mode.cold_phased() { 2 } else { 1 };
+                    assert_eq!((prepared_count, finished_count), (count, count));
                 }
                 let proofs = worker.join().unwrap();
                 assert_eq!(missed_frame, mode == Mode::MissedFrame);
@@ -1001,6 +1082,9 @@ pub(super) fn run(mode: Mode) -> RunEvidence {
         },
     );
     RunEvidence {
+        cold_trace,
+        max_cold_owner_service,
+        cold_latency,
         retained_trace,
         max_owner_service: measured_max_owner_service,
     }

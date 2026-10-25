@@ -330,6 +330,14 @@ jobs:
           name=net::p2p::native_geometry::retained_phased_controller_tests::retained_phased_fifo_saves_after_distinct_owner_turns
           mbx test --locked -p benilla-app --lib "$name" -- --exact --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" "$name"
+      - name: Verify two-turn cold controller transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/cold-phased-controller.log"
+          name=net::p2p::native_geometry::retained_phased_controller_tests::cold_phased_fifo_saves_after_distinct_owner_turns
+          mbx test --locked -p benilla-app --lib "$name" -- --exact --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" "$name"
       - name: Verify resident result controller transport
         shell: bash
         run: |

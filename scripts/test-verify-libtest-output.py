@@ -34,6 +34,7 @@ COMPARISON_PATHS = (
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/phased.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests/cold_phased_negatives.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/transport.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_resident_local/ledger.rs',
@@ -120,6 +121,11 @@ SUITES = {
     "Verify two-turn retained controller transport": (
         "benilla-app",
         "net::p2p::native_geometry::retained_phased_controller_tests::retained_phased_fifo_saves_after_distinct_owner_turns",
+        ("",),
+    ),
+    "Verify two-turn cold controller transport": (
+        "benilla-app",
+        "net::p2p::native_geometry::retained_phased_controller_tests::cold_phased_fifo_saves_after_distinct_owner_turns",
         ("",),
     ),
     "Verify resident result controller transport": (
@@ -331,7 +337,7 @@ class ExactProofTests(unittest.TestCase):
                 RUNNER_TEMP=str(temp),
                 EXPECTED_PACKAGE=package,
                 EXPECTED_PREFIX=prefix,
-                EXPECTED_EXACT="1" if title in ("Verify resident observation without transport admission", "Verify two-turn retained controller transport") else "0",
+                EXPECTED_EXACT="1" if title in ("Verify resident observation without transport admission", "Verify two-turn retained controller transport", "Verify two-turn cold controller transport") else "0",
                 EXPECTED_SKIP=DEFAULT_BUDGET_PROBE if title == "Verify resident result controller transport" else "",
                 FAKE_OUTPUT=output,
                 FAKE_PROGRESS=PROGRESS,
@@ -643,10 +649,31 @@ class ExactProofTests(unittest.TestCase):
         )
         self.assertIn('exit "$status"', shell)
         source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs").read_text()
-        self.assertEqual(source.count('std::panic::catch_unwind(|| run('), 2)
+        self.assertEqual(source.count('std::panic::catch_unwind(|| run('), 4)
         self.assertIn('phased.max_owner_service < original.max_owner_service', source)
         self.assertIn('assert_eq!(original.retained_trace.len(), 87)', source)
         self.assertIn('assert_eq!(phased.retained_trace.len(), 93)', source)
+
+    def test_cold_comparison_preserves_retained_baseline_and_exact_selectors(self):
+        shell = workflow_gate(
+            "Compare cold split with retained-only split baseline",
+            ".github/workflows/resident-controller-profile-comparison.yml",
+        )
+        self.assertIn("set -euo pipefail", shell)
+        self.assertIn("status=0", shell)
+        self.assertIn("for test in cold_phased_default_budget_comparison cold_phased_frame_cadenced_comparison; do", shell)
+        self.assertIn('name="net::p2p::native_geometry::retained_phased_controller_tests::$test"', shell)
+        self.assertIn('if ! mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"; then status=1; fi', shell)
+        self.assertIn('if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi', shell)
+        self.assertIn('exit "$status"', shell)
+        source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs").read_text()
+        cold = source[source.index("fn compare_cold("):]
+        self.assertIn('compare_cold(Mode::PhasedDefaultBudget, Mode::ColdPhasedDefaultBudget)', source)
+        self.assertIn('compare_cold(Mode::PhasedFrameCadenced, Mode::ColdPhasedFrameCadenced)', source)
+        self.assertIn('assert_eq!(original.cold_trace.len(), 71)', cold)
+        self.assertIn('assert_eq!(original.retained_trace, phased.retained_trace)', cold)
+        self.assertIn('phased.max_cold_owner_service < original.max_cold_owner_service', cold)
+        self.assertNotIn('phased.max_owner_service < original.max_owner_service', cold)
 
     def test_default_budget_probe_is_explicit_release_and_exact_single_result(self):
         path = ".github/workflows/resident-controller-profile-comparison.yml"
@@ -727,6 +754,8 @@ class ExactProofTests(unittest.TestCase):
     def test_diagnostic_probes_do_not_hide_later_results_after_failure(self):
         workflow = (ROOT / ".github/workflows/resident-controller-profile-comparison.yml").read_text()
         titles = (
+            "Compare two-turn retained certification with synchronous baseline",
+            "Compare cold split with retained-only split baseline",
             "Validate the default Route budget in the release component fixture",
             "Validate frame-cadenced mailbox cold and retained saves",
             "Validate missed-frame mailbox refusal without publication",

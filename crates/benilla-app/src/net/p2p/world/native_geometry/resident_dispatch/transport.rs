@@ -205,11 +205,14 @@ pub(in super::super::super) fn exercise_result_transport(
     geometry: &mut super::super::super::real_corridor_fixture::installed_source::InstalledFixture,
     request: &AuthorityRequest,
     drop_reply: bool,
+    cold_split: bool,
 ) -> Facts {
     use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
     use super::super::super::source_route_filter::resident::ResidentFilterError;
     use super::fifo::ResidentFifoSelection;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
+    let certify = if cold_split { OwnedResident::certify_phase_result }
+        else { OwnedResident::certify_phase_result_retained_only };
     fn send<T: Send>() {}
     send::<Work>();
     send::<Reply>();
@@ -283,18 +286,29 @@ pub(in super::super::super) fn exercise_result_transport(
                 geometry.advance_physics();
                 if callbacks == 0 {
                     let mut after_called = false;
-                    let result = owner.certify_phase_result_after(
-                        phase,
-                        job,
-                        geometry.app.world_mut(),
-                        &installed,
-                        || {
-                            after_called = true;
-                            let remaining = slice.saturating_duration_since(Instant::now());
-                            std::thread::sleep(remaining + Duration::from_millis(1));
-                            Err(Failure::Deadline)
-                        },
-                    );
+                    let after = || {
+                        after_called = true;
+                        let remaining = slice.saturating_duration_since(Instant::now());
+                        std::thread::sleep(remaining + Duration::from_millis(1));
+                        Err(Failure::Deadline)
+                    };
+                    let result = if cold_split {
+                        owner.certify_phase_result_after(
+                            phase,
+                            job,
+                            geometry.app.world_mut(),
+                            &installed,
+                            after,
+                        )
+                    } else {
+                        owner.certify_phase_result_retained_only_after(
+                            phase,
+                            job,
+                            geometry.app.world_mut(),
+                            &installed,
+                            after,
+                        )
+                    };
                     if let Ok(ResidentPhaseResult::Prepared(prepared)) = result {
                         return Ok(ResidentPhaseResult::Prepared(prepared));
                     }
@@ -309,8 +323,7 @@ pub(in super::super::super) fn exercise_result_transport(
                     callbacks += 1;
                     return Err(Failure::Deadline);
                 }
-                let result = owner
-                    .certify_phase_result(phase, job, geometry.app.world_mut(), &installed)
+                let result = certify(owner, phase, job, geometry.app.world_mut(), &installed)
                     .map_err(|error| match error {
                         ResidentFilterError::Context(error) => error,
                         _ => Failure::Binding,
@@ -364,8 +377,7 @@ pub(in super::super::super) fn exercise_result_transport(
             |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
-                let result = owner
-                    .certify_phase_result(phase, job, geometry.app.world_mut(), &installed)
+                let result = certify(owner, phase, job, geometry.app.world_mut(), &installed)
                     .map_err(|_| Failure::Binding)?;
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);
@@ -558,10 +570,13 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
     geometry: &mut super::super::super::real_corridor_fixture::installed_source::InstalledFixture,
     request: &AuthorityRequest,
     expire: bool,
+    cold_split: bool,
 ) -> Facts {
     use super::super::super::source_route_filter::resident::owned::ResidentPhaseResult;
     use super::fifo::ResidentFifoSelection;
     use benilla_world::terrain_stream::NativeStaticMapIndex;
+    let certify = if cold_split { OwnedResident::certify_phase_result }
+        else { OwnedResident::certify_phase_result_retained_only };
     let (_, mailbox) = paired_test_mailbox(owner).unwrap();
     let mut selector = ResidentFifoSelection::new(&mailbox).unwrap();
     let watchdog = Instant::now() + Duration::from_secs(120);
@@ -598,8 +613,7 @@ pub(in super::super::super) fn exercise_result_terminal_retirement(
             |owner, job, phase| {
                 assert!(job.lease().same_job(&lease));
                 geometry.advance_physics();
-                let result = owner
-                    .certify_phase_result(phase, job, geometry.app.world_mut(), &installed)
+                let result = certify(owner, phase, job, geometry.app.world_mut(), &installed)
                     .unwrap();
                 let ResidentPhaseResult::Complete(result) = result else {
                     return Ok(result);

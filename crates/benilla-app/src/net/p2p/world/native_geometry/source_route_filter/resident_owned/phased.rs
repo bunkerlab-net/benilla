@@ -1,15 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Private two-turn first-retained certification; never a scene-proof cache.
+//! Private two-turn cold/first-retained certification; never a scene-proof cache.
 use super::super::super::super::{
     products::source_height::CompositionError,
-    source_route_resident_local::{ledger::Diagnostic, PreparedRetained},
+    source_route_resident_local::{
+        ledger::{Diagnostic, PreparedCold},
+        PreparedRetained,
+    },
 };
 use super::transport::CertifiedResidentResult;
 use super::*;
 
 pub(crate) struct PreparedResident {
     observation: FreshnessObservation,
-    retained: PreparedRetained,
+    dependency: PreparedDependency,
+}
+enum PreparedDependency {
+    Cold(Box<PreparedCold>),
+    Retained(Box<PreparedRetained>),
+}
+impl PreparedDependency {
+    fn deadline(&self) -> Instant {
+        match self {
+            Self::Cold(prepared) => prepared.deadline(),
+            Self::Retained(prepared) => prepared.deadline(),
+        }
+    }
 }
 pub(crate) enum ResidentPhase {
     Observation(Result<FreshnessObservation, CompositionError>),
@@ -32,6 +47,25 @@ impl OwnedResident {
     ) -> Result<ResidentPhaseResult, ResidentFilterError> {
         self.certify_phase_result_after(phase, job, world, installed, || Ok(()))
     }
+    pub(crate) fn certify_phase_result_retained_only(
+        &mut self,
+        phase: ResidentPhase,
+        job: ResidentDispatchJob<'_>,
+        world: &mut World,
+        installed: &NativeInventorySource,
+    ) -> Result<ResidentPhaseResult, ResidentFilterError> {
+        self.certify_phase_result_inner(phase, job, world, installed, || Ok(()), false)
+    }
+    pub(in super::super::super::super) fn certify_phase_result_retained_only_after(
+        &mut self,
+        phase: ResidentPhase,
+        job: ResidentDispatchJob<'_>,
+        world: &mut World,
+        installed: &NativeInventorySource,
+        after: impl FnOnce() -> Result<(), Failure>,
+    ) -> Result<ResidentPhaseResult, ResidentFilterError> {
+        self.certify_phase_result_inner(phase, job, world, installed, after, false)
+    }
     pub(in super::super::super::super) fn certify_phase_result_after(
         &mut self,
         phase: ResidentPhase,
@@ -39,6 +73,18 @@ impl OwnedResident {
         world: &mut World,
         installed: &NativeInventorySource,
         after: impl FnOnce() -> Result<(), Failure>,
+    ) -> Result<ResidentPhaseResult, ResidentFilterError> {
+        self.certify_phase_result_inner(phase, job, world, installed, after, true)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn certify_phase_result_inner(
+        &mut self,
+        phase: ResidentPhase,
+        job: ResidentDispatchJob<'_>,
+        world: &mut World,
+        installed: &NativeInventorySource,
+        after: impl FnOnce() -> Result<(), Failure>,
+        cold_split: bool,
     ) -> Result<ResidentPhaseResult, ResidentFilterError> {
         job.require_resident(self)?;
         self.transport.request(job.request())?;
@@ -48,13 +94,15 @@ impl OwnedResident {
                 let Query::SourceMotion(MotionQuery::Route(route)) = &job.request().query else {
                     return Err(Failure::Binding.into());
                 };
-                if route.request.prior_cache.is_none() {
+                if !cold_split && route.request.prior_cache.is_none() {
                     return self
                         .certify_observed_result_after(observation, job, world, installed, after)
                         .map(|result| ResidentPhaseResult::Complete(Box::new(result)));
                 }
                 let products = Arc::clone(&self.products);
-                let (observation, retained) = observation.prepare_current(
+                let cold = route.request.prior_cache.is_none();
+                let player = self.player;
+                let (observation, dependency) = observation.prepare_current(
                     &products,
                     &job.lease(),
                     job.deadline(),
@@ -71,31 +119,60 @@ impl OwnedResident {
                             cancelled,
                             Some(&job),
                             |provider, compatibility, ledger| {
-                                ledger.prepare_retained(
-                                    world,
-                                    compatibility,
-                                    provider,
-                                    context,
-                                    201,
-                                    deadline,
-                                    cancelled,
-                                )
+                                if cold {
+                                    let constructor =
+                                        provider.observe(context, 101, deadline, cancelled)?;
+                                    let los = provider.observe_chase_los(
+                                        &constructor, context, player, 103, deadline, cancelled,
+                                    )?;
+                                    let water = provider.observe_chase_water(
+                                        &los, context, 104, deadline, cancelled,
+                                    )?;
+                                    return ledger
+                                        .prepare_cold(
+                                            world,
+                                            compatibility,
+                                            provider,
+                                            context,
+                                            constructor,
+                                            water,
+                                            105,
+                                            deadline,
+                                            cancelled,
+                                        )
+                                        .map(|prepared| {
+                                            PreparedDependency::Cold(Box::new(prepared))
+                                        });
+                                }
+                                ledger
+                                    .prepare_retained(
+                                        world,
+                                        compatibility,
+                                        provider,
+                                        context,
+                                        201,
+                                        deadline,
+                                        cancelled,
+                                    )
+                                    .map(|prepared| {
+                                        PreparedDependency::Retained(Box::new(prepared))
+                                    })
                             },
                         )
                     },
                 )?;
                 Ok(ResidentPhaseResult::Prepared(Box::new(PreparedResident {
                     observation,
-                    retained,
+                    dependency,
                 })))
             }
             ResidentPhase::Prepared(prepared) => self
                 .certify_result_with(job, |owner, job| {
                     let PreparedResident {
                         observation,
-                        retained,
+                        dependency,
                     } = *prepared;
-                    let deadline = job.deadline().min(retained.deadline());
+                    let deadline = job.deadline().min(dependency.deadline());
                     let products = Arc::clone(&owner.products);
                     let facts = observation.with_current(
                         &products,
@@ -113,16 +190,27 @@ impl OwnedResident {
                                 deadline,
                                 cancelled,
                                 Some(&job),
-                                |provider, compatibility, ledger| {
-                                    ledger.finish_retained(
-                                        retained,
+                                |provider, compatibility, ledger| match dependency {
+                                    PreparedDependency::Cold(prepared) => ledger.finish_cold(
+                                        *prepared,
                                         world,
                                         compatibility,
                                         provider,
                                         context,
                                         deadline,
                                         cancelled,
-                                    )
+                                    ),
+                                    PreparedDependency::Retained(prepared) => {
+                                        ledger.finish_retained(
+                                            *prepared,
+                                            world,
+                                            compatibility,
+                                            provider,
+                                            context,
+                                            deadline,
+                                            cancelled,
+                                        )
+                                    }
                                 },
                             )
                         },

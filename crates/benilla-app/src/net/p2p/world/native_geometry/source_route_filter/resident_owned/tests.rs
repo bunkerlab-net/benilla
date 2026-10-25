@@ -92,8 +92,10 @@ enum FifoProbeMode {
     Obstacle,
     Foreign,
     Transport(bool),
+    ColdTransport(bool),
     TransportRefusal(bool),
     TransportRetire(bool),
+    ColdTransportRetire(bool),
 }
 struct Consumer<'a> {
     install: &'a input::Install,
@@ -108,6 +110,7 @@ struct Consumer<'a> {
     foreign_index: Option<NativeStaticMapIndex>,
     fifo_probe: Option<FifoProbeMode>,
     fifo_inspected: bool,
+    foreign_boundary: Option<RouteCommitBoundary>,
 }
 impl Consumer<'_> {
     fn installed(&self) -> NativeInventorySource {
@@ -199,6 +202,7 @@ impl Authority for Consumer<'_> {
                         request,
                         mode,
                         self.foreign_index.take(),
+                        self.foreign_boundary.take(),
                     );
                     if matches!(
                         mode,
@@ -245,12 +249,17 @@ impl Authority for Consumer<'_> {
                         ));
                     }
                     let after = self.owner.ledger.diagnostic();
-                    if matches!(mode, FifoProbeMode::TransportRetire(_)) {
+                    if matches!(
+                mode,
+                FifoProbeMode::TransportRetire(_) | FifoProbeMode::ColdTransportRetire(_)
+            ) {
                         assert_eq!(
                             self.owner.ledger.counts(),
                             (usize::from(retained), usize::from(retained))
                         );
-                    } else if let FifoProbeMode::Transport(drop_reply) = mode {
+                    } else if let FifoProbeMode::Transport(drop_reply)
+            | FifoProbeMode::ColdTransport(drop_reply) = mode
+            {
                         assert_eq!(
                             self.owner.ledger.counts(),
                             (
@@ -270,9 +279,15 @@ impl Authority for Consumer<'_> {
                         }
                     } else {
                         if matches!(mode, FifoProbeMode::Phased(21)) {
-                            assert!(after.same_committed_root(&before));
-                        } else {
+                            if retained {
+                                assert!(after.same_committed_root(&before));
+                            } else {
+                                assert!(after.same_acknowledged_state(&before));
+                            }
+                        } else if retained || !matches!(mode, FifoProbeMode::Phased(_)) {
                             assert_eq!(after, before);
+                        } else {
+                            assert!(after.same_semantic_state(&before));
                         }
                         assert_eq!(
                             self.owner.ledger.counts(),
@@ -1052,7 +1067,7 @@ impl ReadySources {
         deadline: Instant,
     ) -> Result<Facts, ResidentFilterError> {
         let job = self.work.job(&self._mailbox, owner, deadline)?;
-        let phase = owner.certify_phase_result(
+        let phase = owner.certify_phase_result_retained_only(
             ResidentPhase::Observation(Ok(self.observation)),
             job,
             geometry.app.world_mut(),
@@ -1063,7 +1078,7 @@ impl ReadySources {
         };
         geometry.advance_physics();
         let job = self.work.job(&self._mailbox, owner, deadline)?;
-        match owner.certify_phase_result(
+        match owner.certify_phase_result_retained_only(
             ResidentPhase::Prepared(prepared),
             job,
             geometry.app.world_mut(),
@@ -1192,6 +1207,7 @@ fn scoped_retained_owner_across_views(phased_retained: bool) {
                 ),
                 fifo_probe: None,
                 fifo_inspected: false,
+                foreign_boundary: None,
             };
             let mut world = NativeWorld::synthetic_component_test_with_initialization(
                 consumer.profile.clone(),
@@ -1555,6 +1571,7 @@ fn scoped_resident_bind_rejects_equal_byte_foreign_inventory_and_different_sourc
 
 /// The callback inspects a genuine certificate, but the original FIFO reply is a
 /// refusal and the caller's runtime deliberately rolls back instead of publishing.
+#[allow(clippy::too_many_arguments)]
 fn certify_fifo_probe(
     install: &input::Install,
     owner: &mut OwnedResident,
@@ -1563,11 +1580,33 @@ fn certify_fifo_probe(
     request: &AuthorityRequest,
     mode: FifoProbeMode,
     mut foreign_index: Option<NativeStaticMapIndex>,
+    foreign_boundary: Option<RouteCommitBoundary>,
 ) -> Result<Facts, ResidentFilterError> {
     if let FifoProbeMode::Phased(mutation @ 8..=10) = mode {
         return super::super::super::super::core::resident_dispatch::fifo::exercise_prepared_retirement(owner, geometry, request, mutation);
     }
     if let FifoProbeMode::Phased(mutation) = mode {
+        if request
+            .require_pathfinder_dispatch(&owner.state.profile)
+            .unwrap()
+            .first_construction()
+        {
+            if matches!(mutation, 3 | 4) {
+                return super::super::super::super::core::resident_dispatch::fifo::exercise_prepared_retirement(
+                    owner, geometry, request, mutation,
+                );
+            }
+            return cold_phased_negatives::certify_cold_phased_probe(
+                install,
+                owner,
+                geometry,
+                session,
+                request,
+                mutation,
+                foreign_index,
+                foreign_boundary,
+            );
+        }
         return certify_phased_probe(
             install,
             owner,
@@ -1578,9 +1617,11 @@ fn certify_fifo_probe(
             foreign_index,
         );
     }
-    if let FifoProbeMode::TransportRetire(expire) = mode {
+    if let FifoProbeMode::TransportRetire(expire) | FifoProbeMode::ColdTransportRetire(expire) =
+        mode
+    {
         return Ok(super::super::super::super::core::resident_dispatch::transport::exercise_result_terminal_retirement(
-            owner, geometry, request, expire,
+            owner, geometry, request, expire, matches!(mode, FifoProbeMode::ColdTransportRetire(_)),
         ));
     }
     if let FifoProbeMode::TransportRefusal(foreign) = mode {
@@ -1588,9 +1629,9 @@ fn certify_fifo_probe(
             owner, geometry, request, foreign.then(|| foreign_index.take().unwrap()),
         );
     }
-    if let FifoProbeMode::Transport(drop_reply) = mode {
+    if let FifoProbeMode::Transport(drop_reply) | FifoProbeMode::ColdTransport(drop_reply) = mode {
         return Ok(super::super::super::super::core::resident_dispatch::transport::exercise_result_transport(
-            owner, geometry, request, drop_reply,
+            owner, geometry, request, drop_reply, matches!(mode, FifoProbeMode::ColdTransport(_)),
         ));
     }
     let (_, mailbox) = mailbox(session.clone()).unwrap();
@@ -1764,6 +1805,7 @@ fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
                 ),
                 fifo_probe: (!retained).then_some(mode),
                 fifo_inspected: false,
+                foreign_boundary: None,
             };
             let mut world = NativeWorld::synthetic_component_test_with_initialization(
                 consumer.profile.clone(),
@@ -1811,6 +1853,11 @@ fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
                 } else {
                     vec![]
                 };
+                if matches!(mode, FifoProbeMode::Phased(23)) {
+                    // Same actual state/tick, newly attached controller session.
+                    consumer.foreign_boundary =
+                        Some(RouteCommitBoundary::capture_initial(&world).unwrap());
+                }
                 let result = world.step_batch(tick, inputs, &mut consumer);
                 if consumer.fifo_inspected {
                     assert!(result.is_err());
@@ -1854,12 +1901,17 @@ fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
             assert_eq!(consumer.routes.len(), usize::from(retained));
             assert_eq!(cold_notice.is_some(), retained);
             let after = consumer.owner.ledger.diagnostic();
-            if matches!(mode, FifoProbeMode::TransportRetire(_)) {
+            if matches!(
+                mode,
+                FifoProbeMode::TransportRetire(_) | FifoProbeMode::ColdTransportRetire(_)
+            ) {
                 assert_eq!(
                     consumer.owner.ledger.counts(),
                     (usize::from(retained), usize::from(retained))
                 );
-            } else if let FifoProbeMode::Transport(drop_reply) = mode {
+            } else if let FifoProbeMode::Transport(drop_reply)
+            | FifoProbeMode::ColdTransport(drop_reply) = mode
+            {
                 assert_eq!(
                     consumer.owner.ledger.counts(),
                     (
@@ -1877,9 +1929,15 @@ fn fifo_current_physics_probe_mode(retained: bool, mode: FifoProbeMode) {
                 }
             } else {
                 if matches!(mode, FifoProbeMode::Phased(21)) {
-                    assert!(after.same_committed_root(&committed));
-                } else {
+                    if retained {
+                        assert!(after.same_committed_root(&committed));
+                    } else {
+                        assert!(after.same_acknowledged_state(&committed));
+                    }
+                } else if retained || !matches!(mode, FifoProbeMode::Phased(_)) {
                     assert_eq!(after, committed);
+                } else {
+                    assert!(after.same_semantic_state(&committed));
                 }
                 assert_eq!(
                     consumer.owner.ledger.counts(),
@@ -1924,7 +1982,7 @@ fn certify_phased_probe(
     let job = work.job(&mailbox, owner, first_deadline).unwrap();
     let original_lease = job.lease();
     let result = owner
-        .certify_phase_result(
+        .certify_phase_result_retained_only(
             ResidentPhase::Observation(Ok(observation)),
             job,
             geometry.app.world_mut(),
@@ -2059,7 +2117,7 @@ fn certify_phased_probe(
     } else {
         &installed
     };
-    let result = owner.certify_phase_result(
+    let result = owner.certify_phase_result_retained_only(
         ResidentPhase::Prepared(prepared),
         job,
         geometry.app.world_mut(),
@@ -2126,3 +2184,6 @@ fn certify_phased_probe(
         ResidentPhaseResult::Prepared(_) => panic!("final cannot recreate native preparation"),
     }
 }
+
+#[path = "tests/cold_phased_negatives.rs"]
+mod cold_phased_negatives;

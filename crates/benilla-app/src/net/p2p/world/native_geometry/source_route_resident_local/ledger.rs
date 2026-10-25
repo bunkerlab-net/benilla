@@ -170,6 +170,17 @@ pub(in super::super) struct ResidentLedger {
     finite_straight: bool,
     epochs_committed: u8,
 }
+/// Owner-local native dependency with the exact original cold ledger baseline.
+pub(in super::super) struct PreparedCold {
+    source: super::PreparedColdSource,
+    baseline: Diagnostic,
+    request: AuthorityRequest,
+}
+impl PreparedCold {
+    pub(in super::super) fn deadline(&self) -> Instant {
+        self.source.deadline()
+    }
+}
 /// Includes every mutable ledger field. Candidate addresses identify immutable
 /// opaque objects, including their private live seals, rather than serialized DTOs.
 #[derive(Clone, Debug)]
@@ -219,6 +230,53 @@ impl PartialEq for Diagnostic {
 }
 impl Eq for Diagnostic {}
 impl Diagnostic {
+    /// Allocation reservation is not semantic staging and may grow capacity.
+    pub(in super::super) fn same_semantic_state(&self, before: &Self) -> bool {
+        let mut current = self.clone();
+        current.capacity = before.capacity;
+        current == *before
+    }
+
+    /// Transport retirement may retain raw provenance and monotonic IDs, never ACK.
+    pub(in super::super) fn same_acknowledged_state(&self, before: &Self) -> bool {
+        let normalize = |value: &Self| {
+            let mut value = value.clone();
+            let committed = value
+                .candidates
+                .iter()
+                .enumerate()
+                .filter_map(|(index, entry)| entry.3.then_some(index))
+                .collect::<Vec<_>>();
+            value.candidates = committed.iter().map(|&i| value.candidates[i]).collect();
+            value.candidate_raw_revisions = committed
+                .iter()
+                .map(|&i| value.candidate_raw_revisions[i])
+                .collect();
+            value.flat_candidates = committed.iter().map(|&i| value.flat_candidates[i]).collect();
+            value.raw = None;
+            value.next_id = 0;
+            value.capacity = 0;
+            value
+        };
+        normalize(self) == normalize(before)
+    }
+
+    /// Exact first-cold cleanup: retain raw provenance and the consumed staging ID.
+    pub(in super::super) fn only_cold_candidate_retired_since(&self, staged: &Self) -> bool {
+        if !matches!(staged.candidates.as_slice(), [(_, _, None, false)])
+            || staged.candidate_raw_revisions.as_slice() != staged.raw.as_slice()
+            || staged.raw.is_none()
+            || staged.flat_candidates.as_slice() != [(0, 0, 0, 0)]
+        {
+            return false;
+        }
+        let mut retired = staged.clone();
+        retired.candidates.clear();
+        retired.candidate_raw_revisions.clear();
+        retired.flat_candidates.clear();
+        *self == retired
+    }
+
     /// First cold certification pins raw provenance and stages one candidate, but
     /// cannot change any acknowledged boundary, notice, epoch, or committed head.
     pub(in super::super) fn only_initial_cold_staged_since(&self, before: &Self) -> bool {
@@ -660,6 +718,41 @@ impl ResidentLedger {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<Facts, ResidentFilterError> {
+        self.cold_preflight(compatibility, provider, context)?;
+        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
+        let (candidate, facts) = super::certify(
+            world,
+            compatibility,
+            provider,
+            context,
+            constructor,
+            water,
+            ticket,
+            deadline,
+            cancelled,
+            || {},
+        )?;
+        if !candidate.installed_owner.same_owner(&self.owner)
+            || self.raw.is_some_and(|raw| raw != candidate.raw_revision)
+        {
+            return Err(Failure::Binding.into());
+        }
+        self.validate_candidate(&candidate)?;
+        self.raw = Some(candidate.raw_revision);
+        self.candidates.push(Entry {
+            id: self.next_id,
+            candidate: Candidate::Cold(Rc::new(candidate)),
+            committed: false,
+        });
+        self.next_id = next;
+        Ok(facts)
+    }
+    fn cold_preflight(
+        &mut self,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+    ) -> Result<(), ResidentFilterError> {
         let previous = self.boundary.as_ref().ok_or(Failure::Binding)?;
         // Synchronous controller pairing only: its ACK barrier excludes another
         // attempt after a successful step. Until then only an equal-input retry
@@ -690,11 +783,31 @@ impl ResidentLedger {
         if self.candidates.len() == MAX_CANDIDATES {
             return Err(Failure::QueueCapacity.into());
         }
-        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
+        self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
         self.candidates
             .try_reserve(1)
             .map_err(|_| Failure::QueueCapacity)?;
-        let (candidate, facts) = super::certify(
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn prepare_cold(
+        &mut self,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        constructor: ResidentFilterDependency,
+        water: ResidentChaseWaterDependency,
+        ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<PreparedCold, ResidentFilterError> {
+        self.cold_preflight(compatibility, provider, context)?;
+        if self.profile.npcs.len() != 1 {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        let baseline = self.diagnostic();
+        let source = super::prepare_cold_source(
             world,
             compatibility,
             provider,
@@ -704,13 +817,53 @@ impl ResidentLedger {
             ticket,
             deadline,
             cancelled,
-            || {},
         )?;
-        if !candidate.installed_owner.same_owner(&self.owner)
+        Ok(PreparedCold {
+            source,
+            baseline,
+            request: context.clone(),
+        })
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn finish_cold(
+        &mut self,
+        prepared: PreparedCold,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Facts, ResidentFilterError> {
+        self.cold_preflight(compatibility, provider, context)?;
+        if self.profile.npcs.len() != 1 {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if !same_reply_dispatch(&self.profile, &prepared.request, context)
+            || !self.diagnostic().same_semantic_state(&prepared.baseline)
+        {
+            return Err(Failure::Binding.into());
+        }
+        let (candidate, facts) = super::finish_cold_source(
+            prepared.source,
+            world,
+            compatibility,
+            provider,
+            context,
+            deadline,
+            cancelled,
+        )?;
+        self.cold_preflight(compatibility, provider, context)?;
+        if self.profile.npcs.len() != 1 {
+            return Err(Failure::UnsupportedQuery.into());
+        }
+        if !self.diagnostic().same_semantic_state(&prepared.baseline)
+            || !candidate.installed_owner.same_owner(&self.owner)
             || self.raw.is_some_and(|raw| raw != candidate.raw_revision)
         {
             return Err(Failure::Binding.into());
         }
+        let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;
         self.validate_candidate(&candidate)?;
         self.raw = Some(candidate.raw_revision);
         self.candidates.push(Entry {
@@ -2674,6 +2827,48 @@ impl ResidentLedger {
             storage_bytes,
             upper_bound_bytes,
         })
+    }
+    /// Cold refusal injections do not require a retained predecessor or raw pin.
+    pub(in super::super) fn invalidate_prepared_cold_for_test(
+        &mut self,
+        mutation: u8,
+    ) -> Box<dyn FnOnce(&mut Self)> {
+        match mutation {
+            15 => {
+                let saved = self.boundary.take();
+                Box::new(move |ledger| ledger.boundary = saved)
+            }
+            16 => {
+                let saved = self.raw;
+                let mut raw = saved.unwrap_or([0; 32]);
+                raw[0] ^= 1;
+                self.raw = Some(raw);
+                Box::new(move |ledger| ledger.raw = saved)
+            }
+            17 => {
+                let saved = self.route_epoch_committed;
+                self.route_epoch_committed = true;
+                Box::new(move |ledger| ledger.route_epoch_committed = saved)
+            }
+            18 => {
+                let saved = self.next_id;
+                self.next_id = u64::MAX;
+                Box::new(move |ledger| ledger.next_id = saved)
+            }
+            19 => {
+                let saved = self.retained_epoch_committed;
+                self.retained_epoch_committed = true;
+                Box::new(move |ledger| ledger.retained_epoch_committed = saved)
+            }
+            _ => panic!("unknown cold ledger refusal injection"),
+        }
+    }
+    pub(in super::super) fn replace_cold_boundary_for_test(
+        &mut self,
+        boundary: RouteCommitBoundary,
+    ) -> Box<dyn FnOnce(&mut Self)> {
+        let saved = self.boundary.replace(boundary);
+        Box::new(move |ledger| ledger.boundary = saved)
     }
     /// Failure injection only; restoration cannot manufacture a candidate or ACK.
     #[cfg(test)]
