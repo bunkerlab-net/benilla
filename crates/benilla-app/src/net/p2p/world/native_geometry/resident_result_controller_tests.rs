@@ -90,7 +90,8 @@ impl Authority for ControllerAuthority {
                             "local geometry request deadline exceeded"
                         ))
                     ));
-                    self.retained_deadline_refusals.fetch_add(1, Ordering::SeqCst);
+                    self.retained_deadline_refusals
+                        .fetch_add(1, Ordering::SeqCst);
                 }
                 if matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))) {
                     // This includes finish_reply's active, identity and expiry checks.

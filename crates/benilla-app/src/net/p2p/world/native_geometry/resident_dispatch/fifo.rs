@@ -64,7 +64,9 @@ impl ResidentFifoSelection {
     pub(crate) fn selected_retained_deadline_for_test(&self) -> Option<Instant> {
         let selected = self.selected.as_ref()?;
         match &selected.validation.request.query {
-            Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some() => {
+            Query::SourceMotion(MotionQuery::Route(route))
+                if route.request.prior_cache.is_some() =>
+            {
                 Some(selected.validation.lease.deadline())
             }
             _ => None,
