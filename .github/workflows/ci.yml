@@ -321,7 +321,9 @@ jobs:
             source_route_filter::resident::owned::tests::resident_result_transport_requeues_exact_work_and_rejects_forged_receipts \
             source_route_filter::resident::owned::tests::resident_result_transport_dropped_reply_cannot_promote_staging \
             source_route_filter::resident::owned::tests::resident_result_transport_rechecks_geometry_after_worker_completion \
-            source_route_filter::resident::owned::tests::resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate
+            source_route_filter::resident::owned::tests::resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate \
+            source_route_filter::resident::owned::tests::cold_phased_negatives::cold_fifo_final_retry_drop_tail_full_and_post_mint_expiry_do_not_ack \
+            source_route_filter::resident::owned::tests::cold_phased_negatives::cold_fifo_prepared_refusals_preserve_original_work_and_uncommitted_ledger
       - name: Verify two-turn retained controller transport
         shell: bash
         run: |

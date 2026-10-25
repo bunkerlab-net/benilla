@@ -116,6 +116,8 @@ SUITES = {
             "resident_result_transport_dropped_reply_cannot_promote_staging",
             "resident_result_transport_rechecks_geometry_after_worker_completion",
             "resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate",
+            "cold_phased_negatives::cold_fifo_final_retry_drop_tail_full_and_post_mint_expiry_do_not_ack",
+            "cold_phased_negatives::cold_fifo_prepared_refusals_preserve_original_work_and_uncommitted_ledger",
         ),
     ),
     "Verify two-turn retained controller transport": (
@@ -219,6 +221,30 @@ class ExactProofTests(unittest.TestCase):
             with self.subTest(suite=title):
                 with self.assertRaises(ValueError):
                     VERIFIER.verify(transform(output, names), names)
+
+    def test_scoped_resident_manifest_matches_parent_and_nested_cold_tests(self):
+        _, _, names = SUITES["Verify scoped resident source ownership"]
+        root = ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned"
+        parent = (root / "tests.rs").read_text()
+        self.assertIn('#[path = "tests/cold_phased_negatives.rs"]\nmod cold_phased_negatives;', parent)
+        pattern = r"(?m)^#\[test\]\s*\nfn (\w+)\("
+        actual = set(re.findall(pattern, parent))
+        cold = (root / "tests/cold_phased_negatives.rs").read_text()
+        actual.update("cold_phased_negatives::" + name for name in re.findall(pattern, cold))
+        self.assertEqual(set(names), actual)
+        self.assertEqual(len(names), len(actual))
+        self.assertEqual(len(names), 11)
+
+    def test_scoped_resident_gate_rejects_old_nine_test_evidence(self):
+        _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
+        names = [prefix + name for name in short_names]
+        old_names = [name for name in names if "::cold_phased_negatives::" not in name]
+        self.assertEqual(len(old_names), 9)
+        with self.assertRaises(ValueError):
+            VERIFIER.verify(fixture(old_names), names)
+        for cold_name in set(names) - set(old_names):
+            with self.subTest(test=cold_name), self.assertRaises(ValueError):
+                VERIFIER.verify(fixture(names).replace(f"test {cold_name} ... ok\n", ""), names)
 
     def test_accepts_exact_two_and_three_with_captured_diagnostics(self):
         for title, _, _, names, output in self.variants():
