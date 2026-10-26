@@ -4,6 +4,7 @@
 use super::super::super::vmap::installed_source_fixture as input;
 use super::super::freshness_timings::trace_sources;
 use super::*;
+use benilla_native_vmap_source::{MapBundleError, SourceError};
 use std::{cell::Cell, time::Duration};
 
 fn deadline() -> Instant {
@@ -89,28 +90,72 @@ fn inventory_f04_and_f05_poll_order_on_live_sources() {
 
 #[test]
 fn inventory_f04_postpoll_masks_real_source_fault_but_f05_preserves_it() {
-    for missing in [false, true] {
+    #[derive(Clone, Copy, Debug)]
+    enum Fault {
+        CollisionMember,
+        TerrainMember,
+        MissingArchive,
+    }
+    for fault in [
+        Fault::CollisionMember,
+        Fault::TerrainMember,
+        Fault::MissingArchive,
+    ] {
         with_view(|install, view| {
-            if missing {
-                drop(install);
-            } else {
-                install.write(&input::overlapping_entries());
+            match fault {
+                // The exterior ADT is captured by collision, not the terrain guards.
+                Fault::CollisionMember => install.write(&input::overlapping_entries()),
+                Fault::TerrainMember => {
+                    let original = input::entries();
+                    let mut changed = original.clone();
+                    let wdt = &mut changed
+                        .iter_mut()
+                        .find(|(name, _)| name == input::WDT)
+                        .unwrap()
+                        .1;
+                    wdt[20] ^= 1;
+                    let differences: Vec<_> = original
+                        .iter()
+                        .zip(&changed)
+                        .filter(|(before, after)| before != after)
+                        .map(|(_, (name, _))| name.as_str())
+                        .collect();
+                    assert_eq!(differences, [input::WDT]);
+                    install.write(&changed);
+                }
+                Fault::MissingArchive => drop(install),
             }
-            // The actual terrain capture must reject the missing/changed MPQ.
-            // Measure its callback count before selecting the wrapper postpoll.
+            let assert_source_error = |result: &Result<(), CompositionError>| {
+                let expected = match fault {
+                    Fault::CollisionMember => matches!(
+                        result,
+                        Err(CompositionError::Collision(PrepareError::Source(
+                            MapBundleError::Source(SourceError::Changed)
+                        )))
+                    ),
+                    Fault::TerrainMember | Fault::MissingArchive => {
+                        matches!(result, Err(CompositionError::TerrainSource))
+                    }
+                };
+                assert!(expected, "{fault:?}: {result:?}");
+            };
+            // Measure each genuine source failure before selecting its postpoll.
             let (result, baseline_polls, trace) = run(view, false, usize::MAX, deadline());
-            assert!(matches!(result, Err(CompositionError::TerrainSource)));
+            assert_source_error(&result);
             assert_eq!(trace, 1);
             assert!(baseline_polls > 2);
             let (result, polls, trace) = run(view, true, usize::MAX, deadline());
-            assert!(matches!(result, Err(CompositionError::TerrainSource)));
+            assert_source_error(&result);
             assert_eq!((polls, trace), (baseline_polls - 1, 1));
 
             let (result, polls, trace) = run(view, false, baseline_polls, deadline());
-            assert!(matches!(result, Err(CompositionError::Cancelled)));
+            assert!(
+                matches!(result, Err(CompositionError::Cancelled)),
+                "{fault:?}: {result:?}"
+            );
             assert_eq!((polls, trace), (baseline_polls, 1));
             let (result, polls, trace) = run(view, true, baseline_polls, deadline());
-            assert!(matches!(result, Err(CompositionError::TerrainSource)));
+            assert_source_error(&result);
             assert_eq!((polls, trace), (baseline_polls - 1, 1));
         });
     }
