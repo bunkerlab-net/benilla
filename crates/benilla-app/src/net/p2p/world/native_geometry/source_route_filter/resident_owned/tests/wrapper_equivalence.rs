@@ -194,7 +194,7 @@ fn compare_wrappers(
                                 owner,
                                 installed,
                                 deadline,
-                                &cancelled,
+                                cancelled,
                                 Some(&job),
                                 calculate,
                             )
@@ -202,7 +202,7 @@ fn compare_wrappers(
                             owner.calculate_with_job(
                                 installed,
                                 deadline,
-                                &cancelled,
+                                cancelled,
                                 Some(&job),
                                 calculate,
                             )
