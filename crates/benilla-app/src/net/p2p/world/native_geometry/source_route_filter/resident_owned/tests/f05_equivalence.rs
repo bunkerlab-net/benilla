@@ -307,6 +307,7 @@ fn f05_source_frames_failed_entry_skips_reader_and_exit() {
     });
 }
 
+#[cfg(test)]
 #[test]
 fn f05_actual_fifo_dropped_receiver_retires_only_new_unacknowledged_stage() {
     use super::super::super::super::super::{

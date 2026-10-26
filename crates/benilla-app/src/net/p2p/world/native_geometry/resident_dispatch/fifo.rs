@@ -584,6 +584,7 @@ pub(in super::super::super) fn exercise_prepared_retirement(
     Err(Failure::Binding.into())
 }
 
+#[cfg(test)]
 impl ResidentFifoSelection {
     pub(in super::super::super) fn f05_pending(&self) -> bool {
         self.selected
