@@ -2534,24 +2534,27 @@ fn owned_los_literal_oracle_preserves_source_and_invocation_operands() {
                 let deadline = fixture::until();
                 // Both products are genuinely observed on this same owner and
                 // contain no source-view borrow. No retained/native dependency.
-                let (_filter, dependency) = self.consumer.owner.calculate(
-                    &installed,
-                    deadline,
-                    || false,
-                    |provider, _, _| {
-                        let filter = provider.observe(request, 101, deadline, || false)?;
-                        let los = provider.observe_chase_los(
-                            &filter,
-                            request,
-                            f::player(),
-                            103,
-                            deadline,
-                            || false,
-                        )?;
-                        Ok((filter, los))
-                    },
-                )
-                .unwrap();
+                let (_filter, dependency) = self
+                    .consumer
+                    .owner
+                    .calculate(
+                        &installed,
+                        deadline,
+                        || false,
+                        |provider, _, _| {
+                            let filter = provider.observe(request, 101, deadline, || false)?;
+                            let los = provider.observe_chase_los(
+                                &filter,
+                                request,
+                                f::player(),
+                                103,
+                                deadline,
+                                || false,
+                            )?;
+                            Ok((filter, los))
+                        },
+                    )
+                    .unwrap();
                 let (_client, mailbox) = mailbox(self.consumer.session.clone()).unwrap();
                 let work = ResidentDispatchWork::capture(
                     &mailbox,
@@ -2568,46 +2571,59 @@ fn owned_los_literal_oracle_preserves_source_and_invocation_operands() {
                 equivalence::compare(|mode, fault, old| {
                     assert!(lease.is_active());
                     assert!(job.lease().same_job(&lease));
-                    let evidence = self.consumer.owner.calculate_with_job(
-                        &installed,
-                        deadline,
-                        || false,
-                        (mode != Mode::None).then_some(&job),
-                        |provider, _, ledger| {
-                            assert_eq!(provider.invocation.is_some(), mode != Mode::None);
-                            if let Some(invocation) = provider.invocation.as_ref() {
-                                assert!(invocation.operands.model.borrow().is_none());
-                            }
-                            if mode == Mode::Warm {
-                                // Exactly one real warm-up, outside the measured
-                                // LOS trace, separately on BOTH old/current arms.
-                                let (result, counts) = freshness_timings::measure_mode(
-                                    freshness_timings::Mode::CountOnly,
-                                    || {
-                                        provider.chase_model_for(
-                                            request, f::player(), deadline, &|| false,
-                                        )
-                                    },
+                    let evidence = self
+                        .consumer
+                        .owner
+                        .calculate_with_job(
+                            &installed,
+                            deadline,
+                            || false,
+                            (mode != Mode::None).then_some(&job),
+                            |provider, _, ledger| {
+                                assert_eq!(provider.invocation.is_some(), mode != Mode::None);
+                                if let Some(invocation) = provider.invocation.as_ref() {
+                                    assert!(invocation.operands.model.borrow().is_none());
+                                }
+                                if mode == Mode::Warm {
+                                    // Exactly one real warm-up, outside the measured
+                                    // LOS trace, separately on BOTH old/current arms.
+                                    let (result, counts) = freshness_timings::measure_mode(
+                                        freshness_timings::Mode::CountOnly,
+                                        || {
+                                            provider.chase_model_for(
+                                                request,
+                                                f::player(),
+                                                deadline,
+                                                &|| false,
+                                            )
+                                        },
+                                    );
+                                    result.unwrap();
+                                    assert_eq!(counts.full_gate_model_calls(), 1);
+                                    assert!(provider
+                                        .invocation
+                                        .as_ref()
+                                        .unwrap()
+                                        .operands
+                                        .model
+                                        .borrow()
+                                        .is_some());
+                                }
+                                let evidence = equivalence::arm(
+                                    provider,
+                                    &dependency,
+                                    request,
+                                    deadline,
+                                    install,
+                                    mode,
+                                    fault,
+                                    old,
                                 );
-                                result.unwrap();
-                                assert_eq!(counts.full_gate_model_calls(), 1);
-                                assert!(provider
-                                    .invocation
-                                    .as_ref()
-                                    .unwrap()
-                                    .operands
-                                    .model
-                                    .borrow()
-                                    .is_some());
-                            }
-                            let evidence = equivalence::arm(
-                                provider, &dependency, request, deadline, install, mode, fault, old,
-                            );
-                            assert_eq!(ledger.diagnostic(), before);
-                            Ok(evidence)
-                        },
-                    )
-                    .unwrap();
+                                assert_eq!(ledger.diagnostic(), before);
+                                Ok(evidence)
+                            },
+                        )
+                        .unwrap();
                     assert!(lease.is_active());
                     assert_eq!(self.consumer.owner.ledger.diagnostic(), before);
                     evidence

@@ -239,8 +239,12 @@ pub(crate) fn compare(mut run: impl FnMut(Mode, Fault, bool) -> Evidence) {
             if matches!(fault, Fault::None) {
                 let old_source = old.trace[0];
                 let current_source = current.trace[0];
-                assert!(old_source.0.ends_with("source_route_filter/chase_los/equivalence.rs"));
-                assert!(current_source.0.ends_with("source_route_filter/chase_los.rs"));
+                assert!(old_source
+                    .0
+                    .ends_with("source_route_filter/chase_los/equivalence.rs"));
+                assert!(current_source
+                    .0
+                    .ends_with("source_route_filter/chase_los.rs"));
                 assert_effect_location(
                     old_source,
                     include_str!("equivalence.rs"),
@@ -289,8 +293,14 @@ pub(crate) fn compare(mut run: impl FnMut(Mode, Fault, bool) -> Evidence) {
                 normalized, current.trace,
                 "one anchored LOS alias: {mode:?}/{fault:?}"
             );
-            assert_eq!(old.polls, current.polls, "ordered polls: {mode:?}/{fault:?}");
-            assert!(old.counts.same_counts(&current.counts), "{mode:?}/{fault:?}");
+            assert_eq!(
+                old.polls, current.polls,
+                "ordered polls: {mode:?}/{fault:?}"
+            );
+            assert!(
+                old.counts.same_counts(&current.counts),
+                "{mode:?}/{fault:?}"
+            );
         }
     }
 }
