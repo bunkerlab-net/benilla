@@ -654,10 +654,9 @@ fn with_fixture_at_with_owners<T>(
             other,
         )
     });
-    assert_eq!(
-        install.bytes(),
-        before,
-        "authored install must remain unchanged"
+    assert!(
+        install.bytes() == before,
+        "authored install must remain unchanged (exact archive-byte equality)"
     );
     result
 }

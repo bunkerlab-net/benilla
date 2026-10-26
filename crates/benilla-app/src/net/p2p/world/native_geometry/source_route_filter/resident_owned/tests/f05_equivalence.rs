@@ -217,6 +217,9 @@ fn f05_source_frames_inner_error_and_cancelled_exit_match_original_wrappers() {
     for fault in 0..3 {
         for original in [true, false] {
             with_scope(|install, products, inventory, _, guard| {
+                // Save archive bytes, not entries to reserialize; the fault stays
+                // installed through the actual F59 and every fault assertion.
+                let original_bytes = (fault == 2).then(|| install.bytes());
                 let inner = || {
                     match fault {
                         0 => {}
@@ -264,6 +267,11 @@ fn f05_source_frames_inner_error_and_cancelled_exit_match_original_wrappers() {
                         .map(|_| ())
                     }
                 });
+                eprintln!(
+                    "F05 wrapper fault={fault} original={original} error_variant={:?} source_calls={}",
+                    result.as_ref().err().map(std::mem::discriminant),
+                    trace.len(),
+                );
                 match fault {
                     0 => assert!(matches!(
                         result,
@@ -278,6 +286,15 @@ fn f05_source_frames_inner_error_and_cancelled_exit_match_original_wrappers() {
                     3,
                     "F01/F02 then F59; original={original} fault={fault}"
                 );
+                if let Some(original_bytes) = original_bytes {
+                    for (name, bytes) in &original_bytes {
+                        std::fs::write(install.path().join(name), bytes).unwrap();
+                    }
+                    assert!(
+                        install.bytes() == original_bytes,
+                        "exact archive restore failed; original={original} fault={fault}"
+                    );
+                }
             });
         }
     }
