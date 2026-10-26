@@ -230,25 +230,48 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<ResidentChaseLosObservation, ResidentFilterError> {
+        let deadline = self.los_before_source(dependency, context, deadline, &cancelled)?;
+        self.height
+            .verify_unchanged(&cancelled)
+            .map_err(ResidentFilterError::Source)?;
+        self.los_after_source(dependency, context, deadline, &cancelled)
+    }
+    fn los_before_source(
+        &self,
+        dependency: &ResidentChaseLosDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Instant, ResidentFilterError> {
         if !Rc::ptr_eq(&self.identity, &dependency.identity) || dependency.context != *context {
             return Err(Failure::Binding.into());
         }
-        let saved = self.dispatch_for(&dependency.context, deadline, &cancelled)?;
-        let current = self.dispatch_for(context, deadline, &cancelled)?;
+        let saved = self.dispatch_for(&dependency.context, deadline, cancelled)?;
+        let current = self.dispatch_for(context, deadline, cancelled)?;
         if !saved.same_live_dispatch(current) {
             return Err(Failure::Binding.into());
         }
         let deadline = deadline.min(dependency.expires);
-        self.check_context(context, deadline, &cancelled)?;
-        if self.chase_model_for(context, dependency.player, deadline, &cancelled)?
+        self.check_context(context, deadline, cancelled)?;
+        if self.chase_model_for(context, dependency.player, deadline, cancelled)?
             != dependency.model
         {
             return Err(Failure::Binding.into());
         }
-        self.height
-            .verify_unchanged(&cancelled)
-            .map_err(ResidentFilterError::Source)?;
-        self.check_context(context, deadline, &cancelled)?;
+        Ok(deadline)
+    }
+    fn los_after_source(
+        &self,
+        dependency: &ResidentChaseLosDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<ResidentChaseLosObservation, ResidentFilterError> {
+        self.check_context(context, deadline, cancelled)?;
         Ok(dependency.observation)
     }
 }
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "chase_los/equivalence.rs"]
+pub(super) mod equivalence;

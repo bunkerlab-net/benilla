@@ -41,6 +41,8 @@ COMPARISON_PATHS = (
     'crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained/observation_equivalence.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/chase_los.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/chase_los/equivalence.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained/prefix_equivalence.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/phased.rs',
@@ -148,6 +150,7 @@ SUITES = {
             "wrapper_equivalence::owned_wrapper_old_literal_and_operand_refactor_preserve_unwind_and_source_order",
             "owned_retained_prefix_literal_oracle_preserves_two_source_effects",
             "owned_retained_observation_literal_oracle_preserves_final_source_effect",
+            "owned_los_literal_oracle_preserves_source_and_invocation_operands",
         ),
     ),
     "Verify two-turn retained controller transport": (
@@ -284,12 +287,12 @@ class ExactProofTests(unittest.TestCase):
         actual.update("wrapper_equivalence::" + name for name in re.findall(pattern, wrappers))
         self.assertEqual(set(names), actual)
         self.assertEqual(len(names), len(actual))
-        self.assertEqual(len(names), 14)
+        self.assertEqual(len(names), 15)
 
     def test_scoped_resident_gate_rejects_old_nine_test_evidence(self):
         _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
         names = [prefix + name for name in short_names]
-        old_names = [name for name in names if "::cold_phased_negatives::" not in name and "::wrapper_equivalence::" not in name and not name.endswith("::owned_retained_prefix_literal_oracle_preserves_two_source_effects") and not name.endswith("::owned_retained_observation_literal_oracle_preserves_final_source_effect")]
+        old_names = [name for name in names if "::cold_phased_negatives::" not in name and "::wrapper_equivalence::" not in name and not name.endswith("::owned_retained_prefix_literal_oracle_preserves_two_source_effects") and not name.endswith("::owned_retained_observation_literal_oracle_preserves_final_source_effect") and not name.endswith("::owned_los_literal_oracle_preserves_source_and_invocation_operands")]
         self.assertEqual(len(old_names), 9)
         with self.assertRaises(ValueError):
             VERIFIER.verify(fixture(old_names), names)
@@ -301,7 +304,7 @@ class ExactProofTests(unittest.TestCase):
         _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
         added = "owned_retained_prefix_literal_oracle_preserves_two_source_effects"
         names = [prefix + name for name in short_names]
-        legacy = [name for name in names if name != prefix + added and name != prefix + "owned_retained_observation_literal_oracle_preserves_final_source_effect"]
+        legacy = [name for name in names if name != prefix + added and name != prefix + "owned_retained_observation_literal_oracle_preserves_final_source_effect" and name != prefix + "owned_los_literal_oracle_preserves_source_and_invocation_operands"]
         self.assertEqual(len(legacy), 12)
         with self.assertRaises(ValueError):
             VERIFIER.verify(fixture(legacy), names)
@@ -319,7 +322,7 @@ class ExactProofTests(unittest.TestCase):
         _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
         added = "owned_retained_observation_literal_oracle_preserves_final_source_effect"
         names = [prefix + name for name in short_names]
-        legacy = [name for name in names if name != prefix + added]
+        legacy = [name for name in names if name != prefix + added and name != prefix + "owned_los_literal_oracle_preserves_source_and_invocation_operands"]
         self.assertEqual(len(legacy), 13)
         with self.assertRaises(ValueError):
             VERIFIER.verify(fixture(legacy), names)
@@ -327,6 +330,20 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn(
             '#[path = "retained/observation_equivalence.rs"]\npub(crate) mod observation_equivalence;',
             (root / "retained.rs").read_text(),
+        )
+
+    def test_los_gate_rejects_legacy_fourteen_results(self):
+        _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
+        added = "owned_los_literal_oracle_preserves_source_and_invocation_operands"
+        names = [prefix + name for name in short_names]
+        legacy = [name for name in names if name != prefix + added]
+        self.assertEqual(len(legacy), 14)
+        with self.assertRaises(ValueError):
+            VERIFIER.verify(fixture(legacy), names)
+        source = ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/chase_los.rs"
+        self.assertIn(
+            '#[cfg(all(test, not(benilla_headless_geometry)))]\n#[path = "chase_los/equivalence.rs"]\npub(super) mod equivalence;',
+            source.read_text(),
         )
 
     def test_accepts_exact_two_and_three_with_captured_diagnostics(self):

@@ -2514,3 +2514,173 @@ fn owned_retained_observation_literal_oracle_preserves_final_source_effect() {
         assert_eq!(probe.consumer.owner.ledger.counts(), (1, 1));
     });
 }
+
+#[test]
+fn owned_los_literal_oracle_preserves_source_and_invocation_operands() {
+    use super::super::super::super::products::source_height::freshness_timings;
+    use super::super::chase_los::equivalence::{self, Mode};
+
+    struct LosProbe<'a> {
+        consumer: Consumer<'a>,
+        inspected: bool,
+    }
+    impl Authority for LosProbe<'_> {
+        fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+            if matches!(request.query, Query::SourceMotion(MotionQuery::Route(_))) {
+                assert!(!self.inspected);
+                let installed = self.consumer.installed();
+                let before = self.consumer.owner.ledger.diagnostic();
+                let install = self.consumer.install;
+                let deadline = fixture::until();
+                // Both products are genuinely observed on this same owner and
+                // contain no source-view borrow. No retained/native dependency.
+                let (_filter, dependency) = self.consumer.owner.calculate(
+                    &installed,
+                    deadline,
+                    || false,
+                    |provider, _, _| {
+                        let filter = provider.observe(request, 101, deadline, || false)?;
+                        let los = provider.observe_chase_los(
+                            &filter,
+                            request,
+                            f::player(),
+                            103,
+                            deadline,
+                            || false,
+                        )?;
+                        Ok((filter, los))
+                    },
+                )
+                .unwrap();
+                let (_client, mailbox) = mailbox(self.consumer.session.clone()).unwrap();
+                let work = ResidentDispatchWork::capture(
+                    &mailbox,
+                    &self.consumer.owner,
+                    &self.consumer.profile,
+                    f::player(),
+                    994,
+                    request.clone(),
+                    deadline,
+                )
+                .unwrap();
+                let job = work.job(&mailbox, &self.consumer.owner, deadline).unwrap();
+                let lease = job.lease();
+                equivalence::compare(|mode, fault, old| {
+                    assert!(lease.is_active());
+                    assert!(job.lease().same_job(&lease));
+                    let evidence = self.consumer.owner.calculate_with_job(
+                        &installed,
+                        deadline,
+                        || false,
+                        (mode != Mode::None).then_some(&job),
+                        |provider, _, ledger| {
+                            assert_eq!(provider.invocation.is_some(), mode != Mode::None);
+                            if let Some(invocation) = provider.invocation.as_ref() {
+                                assert!(invocation.operands.model.borrow().is_none());
+                            }
+                            if mode == Mode::Warm {
+                                // Exactly one real warm-up, outside the measured
+                                // LOS trace, separately on BOTH old/current arms.
+                                let (result, counts) = freshness_timings::measure_mode(
+                                    freshness_timings::Mode::CountOnly,
+                                    || {
+                                        provider.chase_model_for(
+                                            request, f::player(), deadline, &|| false,
+                                        )
+                                    },
+                                );
+                                result.unwrap();
+                                assert_eq!(counts.full_gate_model_calls(), 1);
+                                assert!(provider
+                                    .invocation
+                                    .as_ref()
+                                    .unwrap()
+                                    .operands
+                                    .model
+                                    .borrow()
+                                    .is_some());
+                            }
+                            let evidence = equivalence::arm(
+                                provider, &dependency, request, deadline, install, mode, fault, old,
+                            );
+                            assert_eq!(ledger.diagnostic(), before);
+                            Ok(evidence)
+                        },
+                    )
+                    .unwrap();
+                    assert!(lease.is_active());
+                    assert_eq!(self.consumer.owner.ledger.diagnostic(), before);
+                    evidence
+                });
+                self.inspected = true;
+                return Err(NativeError::AuthorityUnavailable(
+                    "standalone LOS diagnostics never stage or publish",
+                ));
+            }
+            self.consumer.resolve(request)
+        }
+    }
+    with_owned(|install, owner, geometry, session, profile| {
+        let mut probe = LosProbe {
+            consumer: Consumer {
+                install,
+                phased_retained: false,
+                owner,
+                geometry,
+                session,
+                profile,
+                authored: Default::default(),
+                routes: vec![],
+                constructor: None,
+                foreign_index: None,
+                fifo_probe: None,
+                fifo_inspected: false,
+                foreign_boundary: None,
+            },
+            inspected: false,
+        };
+        let mut world = NativeWorld::synthetic_component_test_with_initialization(
+            probe.consumer.profile.clone(),
+            probe.consumer.session.world,
+            f::player(),
+            1234,
+            None,
+            &mut probe,
+        )
+        .unwrap();
+        let boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
+        probe.consumer.owner.initialize(&boundary).unwrap();
+        for tick in 1..=76 {
+            let position = world.state().position;
+            let inputs = if tick == 1 {
+                (1..=2)
+                    .map(|offset| {
+                        movement(
+                            &world,
+                            world.state().next_sequence + offset - 1,
+                            ai::Point::new(
+                                position.x.as_f32(),
+                                position.y.as_f32() - offset as f32,
+                                position.z.as_f32(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+            let before = world.checkpoint().unwrap();
+            let result = world.step_batch(tick, inputs, &mut probe);
+            if probe.inspected {
+                assert!(result.is_err());
+                assert_eq!(world.checkpoint().unwrap(), before);
+                break;
+            }
+            result.unwrap();
+        }
+        assert!(probe.inspected);
+        assert!(probe.consumer.routes.is_empty());
+        assert_eq!(probe.consumer.owner.ledger.counts(), (0, 0));
+    });
+}
