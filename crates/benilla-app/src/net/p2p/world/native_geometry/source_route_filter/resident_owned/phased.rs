@@ -231,3 +231,18 @@ impl OwnedResident {
         }
     }
 }
+
+impl PreparedResident {
+    pub(super) fn is_f05_retained(&self) -> bool {
+        matches!(self.dependency, PreparedDependency::Retained(_))
+    }
+
+    pub(super) fn into_f05_retained(
+        self,
+    ) -> Result<(FreshnessObservation, PreparedRetained), ResidentFilterError> {
+        match self.dependency {
+            PreparedDependency::Retained(prepared) => Ok((self.observation, *prepared)),
+            PreparedDependency::Cold(_) => Err(Failure::Binding.into()),
+        }
+    }
+}

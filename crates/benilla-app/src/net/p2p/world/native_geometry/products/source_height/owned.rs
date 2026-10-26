@@ -6,6 +6,8 @@ use benilla_native_terrain::PreparedTerrain;
 use benilla_native_vmap_source::AssembledSourceMap;
 use std::collections::BTreeMap;
 
+#[cfg(all(test, not(benilla_headless_geometry)))]
+pub(in super::super::super) mod f05_scope;
 pub(crate) mod freshness;
 
 pub(crate) struct OwnedSourceProducts {

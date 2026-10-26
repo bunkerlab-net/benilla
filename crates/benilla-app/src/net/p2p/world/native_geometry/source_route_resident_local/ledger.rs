@@ -8,9 +8,10 @@ use super::super::source_route_filter::resident::retained::straight_retained::{
 use super::super::{
     core::Session,
     route_commit::{RouteCommitBoundary, RouteCommitNotice},
-    source_route_filter::resident::ResidentProviderIdentity,
+    source_route_filter::resident::{owned::f05::F05ResumePermit, ResidentProviderIdentity},
 };
 use super::retained::ResidentRetainedCandidate;
+pub(in super::super) use super::retained::{ParkedRetainedF05, ReadyRetainedScene};
 pub(in super::super) use super::straight_loop::StraightSegmentPhase;
 use super::three_epoch::{StagedWarmProposal, WarmDependency, WarmHead, WarmPredecessor};
 use super::*;
@@ -1050,6 +1051,66 @@ impl ResidentLedger {
             cancelled,
         )
     }
+    /// Begin only the first pre-clearance root; no candidate or staging ID is reserved.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn begin_retained_f05(
+        &mut self,
+        prepared: super::retained::PreparedRetained,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<ParkedRetainedF05, ResidentFilterError> {
+        let predecessor = self.retained_preflight(compatibility, provider, context)?;
+        if !Rc::ptr_eq(&predecessor, &prepared.predecessor) {
+            return Err(Failure::Binding.into());
+        }
+        super::retained::begin_f05(
+            prepared,
+            world,
+            compatibility,
+            provider,
+            context,
+            deadline,
+            cancelled,
+        )
+    }
+
+    /// No speculative ledger check precedes the original F05 post-source context check.
+    pub(in super::super) fn resume_retained_f05(
+        parked: ParkedRetainedF05,
+        source: super::super::products::source_height::owned::freshness::F05VerifiedSuccess,
+        permit: &F05ResumePermit,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<ReadyRetainedScene, ResidentFilterError> {
+        super::retained::resume_f05(parked, source, permit, provider, context, cancelled)
+    }
+
+    /// Current physics must have been synchronized after the ready observation.
+    pub(in super::super) fn finish_retained_f05(
+        &mut self,
+        ready: ReadyRetainedScene,
+        world: &mut World,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Facts, ResidentFilterError> {
+        let (candidate, facts) = super::retained::finish_f05(
+            ready,
+            world,
+            compatibility,
+            provider,
+            context,
+            cancelled,
+        )?;
+        self.stage_finished_retained(candidate, facts, compatibility, provider, context)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) fn finish_retained(
         &mut self,
@@ -1075,6 +1136,17 @@ impl ResidentLedger {
             cancelled,
             || {},
         )?;
+        self.stage_finished_retained(candidate, facts, compatibility, provider, context)
+    }
+
+    fn stage_finished_retained(
+        &mut self,
+        candidate: ResidentRetainedCandidate,
+        facts: Facts,
+        compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+    ) -> Result<Facts, ResidentFilterError> {
         // Never reserve a staging identifier across the owner yield.
         self.retained_preflight(compatibility, provider, context)?;
         let next = self.next_id.checked_add(1).ok_or(Failure::QueueCapacity)?;

@@ -169,7 +169,7 @@ impl<'call> InvocationContext<'call> {
 
 pub(crate) struct OwnedResident {
     products: Arc<OwnedSourceProducts>,
-    inventory: OwnedInventoryCompatibility,
+    inventory: Rc<OwnedInventoryCompatibility>,
     state: ResidentFilterState,
     ledger: ResidentLedger,
     identity: ResidentProviderIdentity,
@@ -235,7 +235,7 @@ impl OwnedResident {
         Ok(Self {
             transport,
             products: Arc::new(products),
-            inventory,
+            inventory: Rc::new(inventory),
             state,
             ledger,
             identity,
@@ -546,3 +546,7 @@ pub(crate) mod transport;
 #[path = "resident_owned/phased.rs"]
 mod phased;
 pub(crate) use phased::{PreparedResident, ResidentPhase, ResidentPhaseResult};
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "resident_owned/f05.rs"]
+pub(crate) mod f05;

@@ -3,12 +3,16 @@
 //! Current clearance is fresh; historical filter/native state supplies ancestry only.
 use super::super::super::{
     core::Body,
-    products::vmap::{RayReply, StaticRay},
+    products::{
+        source_height::owned::freshness::F05VerifiedSuccess,
+        vmap::{RayReply, StaticRay},
+    },
 };
 use super::{
     chase_los::{water::ResidentChaseWaterDependency, ResidentChaseLosDecision},
     cold::ResidentSamePolygonObservation,
     joined::ResidentJoinedColdDependency,
+    owned::f05::{F05ResumePermit, InactiveF05Proof},
     *,
 };
 use benilla_native_nav::{
@@ -85,9 +89,9 @@ impl ResidentRetainedRoot {
     }
 }
 
-// These states retain only owner-local operands between the original synchronous
-// operations. They confer no authority and cannot leave this module's drivers.
-struct RootCurrentState {
+// These states retain only owner-local operands, never source or scene authority.
+// The root may enter only the sealed first-slot adapter; other drivers stay synchronous.
+pub(in super::super::super) struct RootCurrentState {
     deadline: Instant,
 }
 impl RootCurrentState {
@@ -97,12 +101,48 @@ impl RootCurrentState {
         context: &AuthorityRequest,
         cancelled: &impl Fn() -> bool,
     ) -> Result<Instant, ResidentFilterError> {
-        provider
-            .height
-            .verify_unchanged(cancelled)
-            .map_err(ResidentFilterError::Source)?;
+        let source = provider.height.verify_unchanged(cancelled);
+        self.complete_source(source, provider, context, cancelled)
+    }
+
+    /// Consume this exact source occurrence before its original context check.
+    fn complete_source(
+        self,
+        source: Result<(), source_height::CompositionError>,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Instant, ResidentFilterError> {
+        source.map_err(ResidentFilterError::Source)?;
         provider.check_context(context, self.deadline, cancelled)?;
         Ok(self.deadline)
+    }
+
+    /// Only a consumed, guard-matched actual worker success can finish parked F05.
+    pub(in super::super::super) fn complete_verified_source(
+        self,
+        source: F05VerifiedSuccess,
+        _permit: &F05ResumePermit,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Instant, ResidentFilterError> {
+        drop(source.into_diagnostics());
+        self.complete_source(Ok(()), provider, context, cancelled)
+    }
+
+    /// The private driver has established original-guard monotonic inactivity.
+    pub(in super::super::super) fn unwind_verified_source(
+        self,
+        source: F05VerifiedSuccess,
+        _inactive: &InactiveF05Proof,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        cancelled: &impl Fn() -> bool,
+    ) -> ResidentFilterError {
+        drop(source.into_diagnostics());
+        self.complete_source(Ok(()), provider, context, cancelled)
+            .expect_err("original F05 guard must be monotonically inactive")
     }
 }
 struct PredecessorState {
@@ -577,6 +617,48 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
     ) -> Result<ResidentJoinedRetainedObservation, ResidentFilterError> {
         let deadline =
             self.check_retained_prefix(&dependency.root, prior, context, deadline, &cancelled)?;
+        self.retained_after_prefix(dependency, prior, context, deadline, &cancelled)
+    }
+
+    /// First pre-clearance root only; no source occurrence is consumed here.
+    pub(in super::super::super) fn begin_retained_f05(
+        &self,
+        dependency: &ResidentJoinedRetainedDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<RootCurrentState, ResidentFilterError> {
+        dependency
+            .root
+            .begin_current(self, context, deadline, cancelled)
+    }
+
+    /// Resume after the original F05 source operation, never by replaying the root.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super::super) fn complete_retained_f05(
+        &self,
+        root: RootCurrentState,
+        source: F05VerifiedSuccess,
+        permit: &F05ResumePermit,
+        dependency: &ResidentJoinedRetainedDependency,
+        prior: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<ResidentJoinedRetainedObservation, ResidentFilterError> {
+        let deadline = root.complete_verified_source(source, permit, self, context, cancelled)?;
+        self.begin_retained_predecessor(prior, context, deadline, cancelled)?
+            .finish(self, context, deadline, cancelled)?;
+        self.retained_after_prefix(dependency, prior, context, deadline, cancelled)
+    }
+
+    fn retained_after_prefix(
+        &self,
+        dependency: &ResidentJoinedRetainedDependency,
+        prior: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<ResidentJoinedRetainedObservation, ResidentFilterError> {
         if !Rc::ptr_eq(
             &dependency.root.predecessor,
             &prior
@@ -592,7 +674,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             &dependency.root,
             context,
             deadline,
-            &cancelled,
+            cancelled,
         )?;
         let tickets = dependency
             .observations
@@ -649,7 +731,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                 .ok_or(Failure::UnresolvedBody)?
                 .radius,
             height: self
-                .initialized_height_for(context, deadline, &cancelled)?
+                .initialized_height_for(context, deadline, cancelled)?
                 .ok_or(Failure::UnresolvedBody)?,
         };
         RetainedObservationState {
@@ -658,7 +740,7 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
             masks,
             body,
         }
-        .finish(self, terminal, native, context, &cancelled)
+        .finish(self, terminal, native, context, cancelled)
     }
     pub(crate) fn retained_cache(
         &self,

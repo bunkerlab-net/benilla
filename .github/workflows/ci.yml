@@ -322,6 +322,33 @@ jobs:
             core::resident_dispatch::tests::resident_dispatch_revocation_and_original_expiry_prevent_certification \
             core::resident_dispatch::tests::resident_dispatch_refuses_foreign_capture_and_dropped_work_before_resume \
             core::resident_dispatch::tests::resident_dispatch_profile_modes_preserve_provider_guard_short_circuit
+      - name: Verify one-slot F05 raw worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/verify-one-slot-f05-raw-worker.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib products::source_height::owned::freshness::tests::f05:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            products::source_height::owned::freshness::tests::f05::continuation_keeps_original_guard_and_occupied_slot_until_exact_raw_drain \
+            products::source_height::owned::freshness::tests::f05::raw_success_and_source_error_survive_late_cancel_retirement_and_stop \
+            products::source_height::owned::freshness::tests::f05::original_callback_expiry_cancel_and_stop_keep_running_continuation_tombstoned \
+            products::source_height::owned::freshness::tests::f05::foreign_products_work_worker_and_revoked_guard_cannot_submit_continuation \
+            products::source_height::owned::freshness::tests::f05::control_wake_precedes_held_completion_and_disconnect_never_fabricates_raw_result \
+            products::source_height::owned::freshness::tests::f05::dropped_continuation_worker_does_not_join_and_pinned_guard_remains_cancelled \
+            products::source_height::owned::freshness::tests::f05::foreign_raw_result_identity_never_releases_original_slot_or_mints_completion \
+            products::source_height::owned::freshness::tests::f05::completion_must_match_original_guard_before_success_token_is_minted \
+            products::source_height::owned::freshness::tests::f05::f05_only_gate_never_blocks_observation_and_rechecks_original_guard_after_release
+      - name: Verify one-slot F05 private source frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/verify-one-slot-f05-private-source-frames.log"
+          mbx test --locked -p benilla-native-corridor-tests --lib source_route_filter::resident::owned::f05::tests:: -- --show-output --test-threads=1 --color never | tee "$log"
+          python3 scripts/verify-libtest-output.py "$log" \
+            source_route_filter::resident::owned::f05::tests::f05_source_frames_preserve_scope_exit_debt_and_exact_inventory_custody \
+            source_route_filter::resident::owned::f05::tests::f05_source_frames_inner_error_and_cancelled_exit_match_original_wrappers \
+            source_route_filter::resident::owned::f05::tests::f05_source_frames_failed_entry_skips_reader_and_exit \
+            source_route_filter::resident::owned::f05::tests::f05_actual_fifo_dropped_receiver_retires_only_new_unacknowledged_stage
       - name: Verify inventory freshness wrapper error order
         shell: bash
         run: |
@@ -354,6 +381,22 @@ jobs:
             source_route_filter::resident::owned::tests::owned_retained_prefix_literal_oracle_preserves_two_source_effects \
             source_route_filter::resident::owned::tests::owned_retained_observation_literal_oracle_preserves_final_source_effect \
             source_route_filter::resident::owned::tests::owned_los_literal_oracle_preserves_source_and_invocation_operands
+      - name: Verify release F05 controls and current scene refusals
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          for test in resident_f05_held_source_control_cancel_and_quit_never_ack resident_f05_current_scene_and_source_changes_refuse_before_save; do
+            name="net::p2p::native_geometry::resident_result_controller_tests::$test"
+            log="$RUNNER_TEMP/$test.log"
+            if ! mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never | tee "$log"; then status=1; fi
+            if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi
+          done
+          exit "$status"
+      - name: Verify F05 private capability compiler boundaries
+        shell: bash
+        run: |
+          python3 scripts/verify-f05-privacy.py
       - name: Verify two-turn retained controller transport
         shell: bash
         run: |
@@ -375,7 +418,7 @@ jobs:
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/resident-result-controller-transport.log"
-          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --skip resident_default_budget_controller_saves_cold_and_first_retained --show-output --test-threads=1 --color never | tee "$log"
+          mbx test --locked -p benilla-app --lib net::p2p::native_geometry::resident_result_controller_tests:: -- --skip resident_default_budget_controller_saves_cold_and_first_retained --skip resident_f05_default_budget_actual_controller_comparison --skip resident_f05_held_source_control_cancel_and_quit_never_ack --skip resident_f05_current_scene_and_source_changes_refuse_before_save --show-output --test-threads=1 --color never | tee "$log"
           python3 scripts/verify-libtest-output.py "$log" \
             net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_actual_controller_saves_cold_and_first_retained \
             net::p2p::native_geometry::resident_result_controller_tests::resident_result_transport_checkpoint_failure_precedes_ack_and_recovery_never_reruns \

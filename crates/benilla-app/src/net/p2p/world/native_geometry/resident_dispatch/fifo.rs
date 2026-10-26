@@ -14,12 +14,24 @@ pub(crate) enum ResidentStep {
     Observed,
     Complete(Box<CertifiedResidentResult>),
 }
+use super::super::super::{
+    products::source_height::owned::freshness::{F05Completion, F05Poll, F05Slot},
+    real_corridor_fixture::installed_source::InstalledFixture,
+    source_route_filter::resident::owned::f05::{self, DriverCustody, ParkedF05},
+};
+
+struct WaitingF05 {
+    frame: Box<ParkedF05>,
+    slot: F05Slot,
+    completion: Option<F05Completion>,
+}
 struct Selected {
     started: Instant,
     validation: ResidentDispatchValidation,
     cancelled: bool,
     occupied: bool,
     prepared: Option<Box<PreparedResident>>,
+    f05: Option<WaitingF05>,
 }
 /// Caller-thread sidecar owns no Work, reply sender, world view, or second queue.
 /// A cancelled slot remains occupied until the persistent worker is drained.
@@ -29,6 +41,13 @@ pub(crate) struct ResidentFifoSelection {
     attachment: Arc<AtomicBool>,
     claim: Arc<()>,
     stopped: bool,
+    f05_parks: usize,
+    f05_drains: usize,
+    f05_reentry_jobs: usize,
+    f05_error: Option<String>,
+    f05_raw_outcome: Option<String>,
+    f05_reached_scene: bool,
+    f05_trace: Option<super::super::super::products::source_height::freshness_timings::SourceTrace>,
 }
 impl ResidentFifoSelection {
     pub(crate) fn new(mailbox: &Mailbox) -> Result<Self, Failure> {
@@ -61,6 +80,13 @@ impl ResidentFifoSelection {
             attachment: mailbox.active.clone(),
             claim,
             stopped: false,
+            f05_parks: 0,
+            f05_drains: 0,
+            f05_reentry_jobs: 0,
+            f05_error: None,
+            f05_raw_outcome: None,
+            f05_reached_scene: false,
+            f05_trace: None,
         })
     }
     /// Read-only timing witness for the frame-cadenced component fixture. This
@@ -87,6 +113,9 @@ impl ResidentFifoSelection {
         let Some(selected) = &mut self.selected else {
             return;
         };
+        if selected.f05.is_some() {
+            return; // The owning F05 driver alone drains and pays its exit debt.
+        }
         if !selected.cancelled && selected.validation.lease.is_active() {
             return;
         }
@@ -171,6 +200,7 @@ impl ResidentFifoSelection {
                 cancelled: false,
                 occupied: true,
                 prepared: None,
+                f05: None,
             });
             // Enqueue never polls in the same attempt, even if already complete.
             return Ok(ResidentStep::Pending);
@@ -552,4 +582,298 @@ pub(in super::super::super) fn exercise_prepared_retirement(
         assert_eq!(owner.diagnostic(), before);
     }
     Err(Failure::Binding.into())
+}
+
+impl ResidentFifoSelection {
+    pub(in super::super::super) fn f05_pending(&self) -> bool {
+        self.selected
+            .as_ref()
+            .is_some_and(|selected| selected.f05.is_some())
+    }
+
+    pub(in super::super::super) fn f05_wake(&self) -> crossbeam_channel::Receiver<()> {
+        self.worker.completion_wake()
+    }
+
+    // Drain before mailbox retirement can discard the original queued Work.
+    // Timeout is already authoritative externally; normal retained unwind is
+    // diagnostic cleanup only and never replaces that timeout with a reply.
+    fn maintain_f05(&mut self, owner: &mut OwnedResident, custody: &DriverCustody) {
+        let Some(selected) = self.selected.as_mut() else {
+            return;
+        };
+        let Some(waiting) = selected.f05.as_mut() else {
+            return;
+        };
+        if selected.cancelled || !selected.validation.lease.is_active() {
+            self.worker.cancel();
+        }
+        if waiting.completion.is_none() {
+            match self.worker.try_poll_f05(&waiting.slot) {
+                F05Poll::Pending => return,
+                F05Poll::Ready(completion) => {
+                    selected.occupied = false;
+                    self.f05_drains += 1;
+                    self.f05_raw_outcome = Some(completion.diagnostic_outcome());
+                    self.f05_trace = Some(completion.diagnostics().trace.clone());
+                    waiting.completion = Some(completion);
+                }
+                F05Poll::Mismatch | F05Poll::Stopped => {
+                    // Internal slot corruption/disconnect is explicit unfinished
+                    // abandonment, not a fabricated source result or F59 success.
+                    self.stopped = true;
+                    self.selected = None;
+                    return;
+                }
+            }
+        }
+        if waiting.frame.guard().cancelled() {
+            let WaitingF05 {
+                frame, completion, ..
+            } = selected.f05.take().unwrap();
+            let completion = completion.unwrap();
+            let result = frame.complete_inactive(owner, completion, custody);
+            self.f05_error = result.as_ref().err().map(|error| format!("{error:?}"));
+            assert!(result.is_err(), "inactive F05 cannot publish");
+            // Preserve the original live-lease cancellation tombstone.
+            selected.cancelled = true;
+            if !selected.validation.lease.is_active() {
+                self.selected = None;
+            }
+        }
+    }
+
+    fn advance_f05(
+        &mut self,
+        mailbox: &Mailbox,
+        work: &Work,
+        owner: &mut OwnedResident,
+        custody: &DriverCustody,
+        geometry: &mut InstalledFixture,
+        slice: Instant,
+    ) -> Option<Result<ResidentStep, Failure>> {
+        if !matches!(work.request.query, Query::SourceMotion(MotionQuery::Route(_))) {
+            return None;
+        }
+        Some(self.advance_f05_route(mailbox, work, owner, custody, geometry, slice))
+    }
+
+    fn advance_f05_route(
+        &mut self,
+        mailbox: &Mailbox,
+        work: &Work,
+        owner: &mut OwnedResident,
+        custody: &DriverCustody,
+        geometry: &mut InstalledFixture,
+        slice: Instant,
+    ) -> Result<ResidentStep, Failure> {
+        if !Arc::ptr_eq(&self.attachment, &mailbox.active)
+            || !mailbox
+                .resident_selector
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .is_some_and(|claim| Arc::ptr_eq(&claim, &self.claim))
+            || self.stopped
+        {
+            return Err(Failure::Binding);
+        }
+        if let Some(selected) = self.selected.as_mut() {
+            if !selected.validation.lease.same_job(&work.lease()) {
+                return Err(Failure::QueueCapacity);
+            }
+            if selected.cancelled {
+                return Err(Failure::Binding);
+            }
+            if let Some(waiting) = selected.f05.as_mut() {
+                if waiting.completion.is_none() {
+                    return Ok(ResidentStep::Pending);
+                }
+                let WaitingF05 {
+                    frame, completion, ..
+                } = selected.f05.take().unwrap();
+                let completion = completion.unwrap();
+                let deadline = slice.min(frame.guard().callback_deadline());
+                let reentry_jobs = &mut self.f05_reentry_jobs;
+                let validation = &selected.validation;
+                let make_job = move |owner: &OwnedResident| {
+                    *reentry_jobs += 1;
+                    validation.job(work, mailbox, owner, deadline)
+                };
+                let (result, reached_scene) =
+                    frame.complete_active(owner, completion, custody, make_job, geometry);
+                self.f05_reached_scene = reached_scene;
+                self.f05_error = result.as_ref().err().map(|error| format!("{error:?}"));
+                self.selected = None;
+                let result = result.map_err(|_| Failure::Binding)?;
+                result.validate_staged_result(owner, &work.lease())?;
+                return Ok(ResidentStep::Complete(Box::new(result)));
+            }
+            if selected
+                .prepared
+                .as_ref()
+                .is_some_and(|prepared| f05::is_f05_retained(prepared))
+            {
+                let job = selected.validation.job(work, mailbox, owner, slice)?;
+                let prepared = *selected.prepared.take().unwrap();
+                let installed = geometry
+                    .app
+                    .world()
+                    .resource::<benilla_world::terrain_stream::NativeStaticMapIndex>()
+                    .source_provenance()
+                    .ok_or(Failure::Binding)?
+                    .clone();
+                let frame = owner
+                    .begin_f05(prepared, job, geometry.app.world_mut(), &installed, custody)
+                    .map_err(|_| Failure::Binding)?;
+                match self.worker.try_continue_f05(frame.guard()) {
+                    Ok(slot) => {
+                        selected.occupied = true;
+                        self.f05_parks += 1;
+                        selected.f05 = Some(WaitingF05 {
+                            frame: Box::new(frame),
+                            slot,
+                            completion: None,
+                        });
+                        return Ok(ResidentStep::Pending);
+                    }
+                    Err(_) => {
+                        let result = frame.reentry_error(owner, Failure::Binding.into());
+                        assert!(result.is_err());
+                        self.selected = None;
+                        return Err(Failure::Binding);
+                    }
+                }
+            }
+        }
+        self.advance_route(mailbox, work, owner, slice, &mut |owner, job, phase| {
+            let installed = geometry
+                .app
+                .world()
+                .resource::<benilla_world::terrain_stream::NativeStaticMapIndex>()
+                .source_provenance()
+                .ok_or(Failure::Binding)?
+                .clone();
+            owner
+                .certify_phase_result(phase, job, geometry.app.world_mut(), &installed)
+                .map(Some)
+                .map_err(|_| Failure::Binding)
+        })
+    }
+
+    pub(in super::super::super) fn serve_f05(
+        &mut self,
+        mailbox: &Mailbox,
+        owner: &mut OwnedResident,
+        custody: &DriverCustody,
+        geometry: &mut InstalledFixture,
+        limit: usize,
+        deadline: Instant,
+        ordinary: impl for<'call> FnMut(ServiceQuery<'call>, Instant) -> Result<ServiceStep, Failure>,
+    ) -> usize {
+        if !Arc::ptr_eq(&self.attachment, &mailbox.active) {
+            return 0;
+        }
+        self.maintain_f05(owner, custody);
+        struct Attempt<'a> {
+            selection: &'a mut ResidentFifoSelection,
+            mailbox: &'a Mailbox,
+            owner: &'a mut OwnedResident,
+            custody: &'a DriverCustody,
+            geometry: &'a mut InstalledFixture,
+        }
+        impl ResidentAttemptHook for Attempt<'_> {
+            fn advance(
+                &mut self,
+                work: &Work,
+                slice: Instant,
+            ) -> Option<Result<ResidentStep, Failure>> {
+                if self.mailbox.resident.as_ref().is_none_or(|selected| {
+                    !Arc::ptr_eq(selected, &self.owner.transport_selection())
+                }) {
+                    return Some(Err(Failure::Binding));
+                }
+                self.selection.advance_f05(
+                    self.mailbox, work, self.owner, self.custody, self.geometry, slice,
+                )
+            }
+            fn retire(&mut self, proof: &UndeliveredResidentResult) -> Result<(), Failure> {
+                self.owner.retire_undelivered_result(proof)
+            }
+        }
+        mailbox.serve_service_query_slice_selected(
+            limit,
+            true,
+            deadline,
+            ordinary,
+            Some(&mut Attempt {
+                selection: self,
+                mailbox,
+                owner,
+                custody,
+                geometry,
+            }),
+        )
+    }
+}
+
+impl ResidentFifoSelection {
+    pub(in super::super::super) fn f05_idle(&self) -> bool {
+        self.selected.is_none()
+    }
+}
+
+impl ResidentFifoSelection {
+    pub(in super::super::super) fn f05_counts(&self) -> (usize, usize) {
+        (self.f05_parks, self.f05_drains)
+    }
+    pub(in super::super::super) fn f05_trace(
+        &self,
+    ) -> Option<&super::super::super::products::source_height::freshness_timings::SourceTrace> {
+        self.f05_trace.as_ref()
+    }
+}
+
+impl ResidentFifoSelection {
+    pub(in super::super::super) fn with_f05_test_gate(
+        mailbox: &Mailbox,
+        entered: crossbeam_channel::Sender<()>,
+        release: crossbeam_channel::Receiver<()>,
+    ) -> Result<Self, Failure> {
+        Self::with_worker(mailbox, || CaptureFreshnessWorker::with_f05_test_gate(entered, release))
+    }
+    pub(in super::super::super) fn pending_f05_request(&self) -> Option<&AuthorityRequest> {
+        Some(self.selected.as_ref()?.f05.as_ref()?.frame.guard().request())
+    }
+}
+
+impl ResidentFifoSelection {
+    pub(in super::super::super) fn f05_outcome(&self) -> (bool, Option<&str>) {
+        (self.f05_reached_scene, self.f05_error.as_deref())
+    }
+}
+
+impl ResidentFifoSelection {
+    pub(in super::super::super) fn pending_f05_deadline(&self) -> Option<Instant> {
+        Some(
+            self.selected
+                .as_ref()?
+                .f05
+                .as_ref()?
+                .frame
+                .guard()
+                .callback_deadline(),
+        )
+    }
+}
+
+impl ResidentFifoSelection {
+    pub(in super::super::super) fn f05_raw_outcome(&self) -> Option<&str> {
+        self.f05_raw_outcome.as_deref()
+    }
+}
+
+impl ResidentFifoSelection {
+    pub(crate) fn f05_reentry_jobs(&self) -> usize {
+        self.f05_reentry_jobs
+    }
 }

@@ -144,6 +144,14 @@ impl ResidentTransportSelection {
     }
 }
 
+/// Original attempt identity and cleanup lower bound, never a reserved candidate.
+pub(super) struct ResidentAttempt {
+    selection: Arc<ResidentTransportSelection>,
+    request: AuthorityRequest,
+    lease: JobLease,
+    first_id: u64,
+}
+
 /// Constructed only after the synchronous attempt returned an error, before any result escaped.
 pub(in super::super::super::super) struct RejectedResidentCertification {
     selection: Arc<ResidentTransportSelection>,
@@ -295,6 +303,17 @@ impl OwnedResident {
         job: ResidentDispatchJob<'_>,
         calculate: impl FnOnce(&mut Self, ResidentDispatchJob<'_>) -> Result<Facts, ResidentFilterError>,
     ) -> Result<CertifiedResidentResult, ResidentFilterError> {
+        let attempt = self.begin_attempt(&job)?;
+        let callback = Timer::start(Phase::CalculateCallback);
+        let calculated = calculate(self, job);
+        callback.finish(calculated.is_ok());
+        self.finish_attempt(attempt, calculated)
+    }
+
+    pub(super) fn begin_attempt(
+        &self,
+        job: &ResidentDispatchJob<'_>,
+    ) -> Result<ResidentAttempt, ResidentFilterError> {
         let prechecks = Timer::start(Phase::ResultPrechecks);
         job.require_resident(self)?;
         let lease = job.lease();
@@ -302,15 +321,31 @@ impl OwnedResident {
         self.transport.request(&request)?;
         let first_id = self.ledger.next_transport_candidate();
         prechecks.finish(true);
-        let callback = Timer::start(Phase::CalculateCallback);
-        let calculated = calculate(self, job);
-        callback.finish(calculated.is_ok());
+        Ok(ResidentAttempt {
+            selection: Arc::clone(&self.transport),
+            request,
+            lease,
+            first_id,
+        })
+    }
+
+    pub(super) fn finish_attempt(
+        &mut self,
+        attempt: ResidentAttempt,
+        calculated: Result<Facts, ResidentFilterError>,
+    ) -> Result<CertifiedResidentResult, ResidentFilterError> {
+        let ResidentAttempt {
+            selection,
+            request,
+            lease,
+            first_id,
+        } = attempt;
         let seal = Timer::start(Phase::ResultSeal);
         let facts = match calculated {
             Ok(facts) => facts,
             Err(error) => {
                 let proof = RejectedResidentCertification {
-                    selection: Arc::clone(&self.transport),
+                    selection: Arc::clone(&selection),
                     request,
                     lease,
                     first_id,
@@ -320,10 +355,10 @@ impl OwnedResident {
             }
         };
         let result = (|| {
-            self.transport.facts(&request, &facts)?;
+            selection.facts(&request, &facts)?;
             let candidate = self.ledger.staged_transport_candidate(&request, &facts)?;
             let result = CertifiedResidentResult {
-                selection: Arc::clone(&self.transport),
+                selection: Arc::clone(&selection),
                 lease: lease.clone(),
                 request: request.clone(),
                 facts,
@@ -339,7 +374,7 @@ impl OwnedResident {
             }
             Err(error) => {
                 let proof = RejectedResidentCertification {
-                    selection: Arc::clone(&self.transport),
+                    selection: Arc::clone(&selection),
                     request,
                     lease,
                     first_id,

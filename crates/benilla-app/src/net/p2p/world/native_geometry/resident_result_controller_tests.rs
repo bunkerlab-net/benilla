@@ -246,11 +246,12 @@ pub(super) struct RunEvidence {
     pub(super) max_cold_owner_service: Duration,
     pub(super) cold_latency: Duration,
     pub(super) retained_trace: freshness_timings::SourceTrace,
+    retained_final_trace: freshness_timings::SourceTrace,
     pub(super) max_owner_service: Duration,
     pub(super) profile_phases: Vec<ProfilePhaseEvidence>,
 }
 pub(super) fn run(mode: Mode) -> RunEvidence {
-    run_inner(mode, None, &mut Vec::new())
+    run_inner(mode, None, &mut Vec::new(), false)
 }
 pub(super) fn run_profiled(
     profile: freshness_timings::Mode,
@@ -260,14 +261,17 @@ pub(super) fn run_profiled(
         Mode::ColdPhasedFrameCadenced,
         Some(profile),
         phases_on_failure,
+        false,
     )
 }
 fn run_inner(
     mode: Mode,
     profiling: Option<freshness_timings::Mode>,
     profile_phases: &mut Vec<ProfilePhaseEvidence>,
+    capture_final_trace: bool,
 ) -> RunEvidence {
     let mut retained_trace = Vec::new();
+    let mut retained_final_trace = Vec::new();
     let mut cold_trace = Vec::new();
     let mut max_cold_owner_service = Duration::ZERO;
     let mut cold_started = None;
@@ -872,6 +876,10 @@ fn run_inner(
                                     if result.is_ok() && matches!(&request.query, Query::SourceMotion(MotionQuery::Route(route)) if route.request.prior_cache.is_some()) {
                                         assert_eq!(trace.len(), if finishing { 59 } else { 34 });
                                         retained_trace.extend(trace.iter().copied());
+                                        if capture_final_trace && finishing {
+                                            assert!(retained_final_trace.is_empty());
+                                            retained_final_trace.extend(trace.iter().copied());
+                                        }
                                     }
                                     if result.is_ok() && is_cold {
                                         cold_trace.extend(trace.iter().copied());
@@ -1167,6 +1175,7 @@ fn run_inner(
         max_cold_owner_service,
         cold_latency,
         retained_trace,
+        retained_final_trace,
         max_owner_service: measured_max_owner_service,
         profile_phases: std::mem::take(profile_phases),
     }
@@ -1242,4 +1251,738 @@ fn resident_result_transport_worker_ready_rechecks_current_physics_before_reply(
 #[ignore = "runner-sensitive default Route budget; run explicitly in release profile"]
 fn resident_default_budget_controller_saves_cold_and_first_retained() {
     run(Mode::DefaultBudget);
+}
+
+#[derive(bevy::prelude::Resource, Default)]
+struct F05ControlTurns(usize);
+
+#[derive(bevy::ecs::schedule::ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
+struct F05Control;
+
+fn advance_f05_control(mut turns: bevy::prelude::ResMut<F05ControlTurns>) {
+    turns.0 += 1;
+}
+
+/// Separate control World: no scene, resident, native, ledger or dispatch resource.
+/// Completion wakes never run the scene App. This is not a rendered-frame proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum F05Fault {
+    Clear,
+    CancelHeld,
+    CancelAfterStaging,
+    CancelReady,
+    SourceErrorThenCancelReady,
+    ExpireHeld,
+    QuitHeld,
+    ColliderBirth,
+    ForeignIndex,
+    SourceChange,
+}
+
+fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
+    use super::source_route_filter::resident::owned::f05::ResidentF05Driver;
+
+    let mut final_trace = Vec::new();
+    fixture::with_selected_controller_fixture(
+        fixture::ControllerOwners::Single,
+        true,
+        false,
+        false,
+        false,
+        fixture::GeneratedSupport::Disabled,
+        |install, height, compatibility, inventory, policy, profile, query, other| {
+            let controller_fixture = resident_fixture::Fixture::new(profile.clone(), [8; 16]);
+            let player = controller_fixture.player();
+            let mut session = fixture::session(&profile);
+            session.world = controller_fixture.world_id();
+            session.player_environment =
+                Some(PlayerEnvironmentPolicy::from_profile(&profile, player).unwrap());
+            let ordinary = ResidentFilterProvider::bind_with_policy(
+                &session,
+                &profile,
+                height,
+                other,
+                policy.clone(),
+            )
+            .unwrap();
+            let initialization = ResidentCreatureInitializationProvider::bind(
+                session.world,
+                &profile,
+                height,
+                CONFIG,
+                fixture::until(),
+                || false,
+            )
+            .unwrap();
+            let mut initializer = Initializer(
+                |request: &AuthorityRequest| {
+                    initialization
+                        .resolve(request, fixture::until(), || false)
+                        .map_err(|_| NativeError::AuthorityBinding)
+                },
+                Default::default(),
+            );
+            let world = n::NativeWorld::synthetic_component_test_with_initialization(
+                profile.clone(),
+                session.world,
+                player,
+                1234,
+                None,
+                &mut initializer,
+            )
+            .unwrap();
+            let mut geometry = InstalledFixture::new(install.path(), inventory);
+            let installed = geometry
+                .app
+                .world()
+                .resource::<NativeStaticMapIndex>()
+                .source_provenance()
+                .unwrap()
+                .clone();
+            let terrain =
+                benilla_native_terrain::prepare(install.path(), 0, &input::guard_source_tiles())
+                    .unwrap();
+            let collision = benilla_native_vmap_source::prepare(install.path(), 0, || false)
+                .unwrap()
+                .into_map_bundle(input::profile(), || false)
+                .unwrap()
+                .unwrap();
+            let products = OwnedSourceProducts::new(terrain, collision, || false).unwrap();
+            let provenance =
+                OwnedInventoryCompatibility::capture(compatibility, fixture::until(), || false)
+                    .unwrap();
+            let owner = OwnedResident::bind(
+                products,
+                provenance,
+                &session,
+                &profile,
+                player,
+                query,
+                policy,
+                &installed,
+                fixture::until(),
+                || false,
+            )
+            .unwrap();
+            // Pair against the genuine owner before transferring exclusive custody.
+            let (mut authority, mailbox) = paired_test_mailbox(&owner).unwrap();
+            let sink = authority.take_route_commit_sink().unwrap();
+            let authority = ControllerAuthority {
+                retained_deadline_refusals: Arc::new(AtomicUsize::new(0)),
+                expect_retained_deadline: false,
+                resident: authority,
+                authored: Default::default(),
+            };
+            // Prepare foreign provenance before any original Work deadline starts.
+            let mut foreign_index = (fault == F05Fault::ForeignIndex).then(|| {
+                let mut foreign = InstalledFixture::new(install.path(), input::raw_inventory(install));
+                foreign
+                    .app
+                    .world_mut()
+                    .remove_resource::<NativeStaticMapIndex>()
+                    .unwrap()
+            });
+            let (driver, gate) = if fault == F05Fault::Clear {
+                (ResidentF05Driver::new(owner, &mailbox).unwrap(), None)
+            } else {
+                let (driver, entered, release) = if fault == F05Fault::CancelAfterStaging {
+                    ResidentF05Driver::new_with_f05_gate_cancel_after_staging(owner, &mailbox).unwrap()
+                } else {
+                    ResidentF05Driver::new_with_f05_gate(owner, &mailbox).unwrap()
+                };
+                (driver, Some((entered, release)))
+            };
+            let wake = driver.completion_wake();
+            let mut driver = Some(driver);
+            let routes = Arc::new(AtomicUsize::new(0));
+            let acks = Arc::new(AtomicUsize::new(0));
+            let mut notices: Vec<RouteCommitNotice> = Vec::new();
+            let mut acknowledged_ledger = None;
+            let mut control = bevy::prelude::World::new();
+            control.insert_resource(F05ControlTurns::default());
+            let mut schedule = bevy::ecs::schedule::Schedule::new(F05Control);
+            schedule.add_systems(advance_f05_control);
+            control.add_schedule(schedule);
+            let mut source_change = None;
+            std::thread::scope(|scope| {
+                let worker_routes = Arc::clone(&routes);
+                let worker_acks = Arc::clone(&acks);
+                let worker = scope.spawn(move || {
+                    let mut controller = controller_fixture
+                        .open_recipe_initialized(world, authority)
+                        .unwrap();
+                    assert!(!controller.initial_events().unwrap().is_empty());
+                    controller.attach_route_commit_sink(sink).unwrap();
+                    let mut proofs = Vec::new();
+                    let mut cold_position = None;
+                    let mut warm_step = 0;
+                    for _ in 1..=88 {
+                        if worker_routes.load(Ordering::SeqCst) == 0 {
+                            controller
+                                .queue_profile_target_movement(controller.tick() + 1)
+                                .unwrap();
+                        } else {
+                            let start = *cold_position.get_or_insert(controller.state().position);
+                            warm_step += 1;
+                            controller
+                                .queue_movement(
+                                    ai::Point::new(
+                                        start.x.as_f32() - (warm_step as f32) * 0.125,
+                                        start.y.as_f32(),
+                                        start.z.as_f32(),
+                                    )
+                                    .unwrap(),
+                                    0.5,
+                                )
+                                .unwrap();
+                        }
+                        let before = controller.checkpoint().identity();
+                        let generation = controller.store_generation();
+                        let ack_before = worker_acks.load(Ordering::SeqCst);
+                        let routes_before = worker_routes.load(Ordering::SeqCst);
+                        let started = Instant::now();
+                        let out = controller.pump_one();
+                        eprintln!(
+                            "F05 controller original-500ms pump: tick={} routes_before={} routes_after={} wall_us={} pause={:?}",
+                            controller.tick(),
+                            routes_before,
+                            worker_routes.load(Ordering::SeqCst),
+                            started.elapsed().as_micros(),
+                            out.pause,
+                        );
+                        if out.pause.is_some() || out.ticks != 1 {
+                            assert_eq!(controller.checkpoint().identity(), before);
+                            assert_eq!(controller.store_generation(), generation);
+                            assert_eq!(worker_acks.load(Ordering::SeqCst), ack_before);
+                            assert!(out.saved.is_none());
+                            assert!(out.events.is_empty());
+                            controller.assert_result_transport_refusal_readback();
+                            return Err(format!("original budget refusal: {:?}", out.pause));
+                        }
+                        let saved = out.saved.expect("environment requires durable publication");
+                        assert_eq!(saved.tick, controller.tick());
+                        assert_eq!(saved.generation, generation + 1);
+                        assert!(!controller.route_pending());
+                        assert!(controller.records().is_empty());
+                        proofs.push((before, controller.checkpoint().identity(), saved));
+                        let flushed = controller.pump_zero();
+                        assert_eq!(flushed.ticks, 0);
+                        assert!(flushed.events.is_empty());
+                        if worker_routes.load(Ordering::SeqCst) == 2 {
+                            controller.assert_recipe_readback();
+                            return Ok(proofs);
+                        }
+                    }
+                    Err("two actual route saves/ACKs were not reached".to_owned())
+                });
+                let outer_deadline = Instant::now() + Duration::from_secs(120);
+                let mut begin_trace = None;
+                let mut resume_trace = None;
+                let mut begin_owner_wall = Duration::ZERO;
+                let mut resume_owner_wall = Duration::ZERO;
+                let mut pending_turns = 0;
+                let mut fault_applied = false;
+                let mut ledger_before_fault = None;
+                let mut abandoned_counts = None;
+                let mut completion_wakes = 0;
+                let mut max_owner_service = Duration::ZERO;
+                while !worker.is_finished() {
+                    assert!(Instant::now() < outer_deadline, "F05 controller stalled");
+                    control.run_schedule(F05Control);
+                    let started = Instant::now();
+                    if driver.is_some() {
+                        mailbox.serve_route_commits_test_drop_reply(
+                            32,
+                            |_, command| match command {
+                                RouteCommitCommand::Initialize(boundary) => {
+                                    driver.as_mut().unwrap().initialize(boundary)
+                                }
+                                RouteCommitCommand::Commit(notice) => {
+                                    driver.as_mut().unwrap().acknowledge(notice)?;
+                                    acknowledged_ledger = Some((
+                                        driver.as_ref().unwrap().diagnostic(),
+                                        driver.as_ref().unwrap().ledger_counts(),
+                                    ));
+                                    if !notice.routes().is_empty() {
+                                        assert_eq!(notice.routes().len(), 1);
+                                        if let Some(cold) =
+                                            notices.iter().find(|notice| !notice.routes().is_empty())
+                                        {
+                                            source_route_resident_retained::assert_request(
+                                                &profile,
+                                                cold,
+                                                &notice.routes()[0].request,
+                                            );
+                                            source_route_resident_retained::assert_facts(
+                                                &notice.routes()[0].request,
+                                                &notice.routes()[0].facts,
+                                            );
+                                        }
+                                        routes.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                    notices.push(notice.clone());
+                                    acks.fetch_add(1, Ordering::SeqCst);
+                                    Ok(())
+                                }
+                            },
+                            |_| false,
+                        );
+                        let before_counts = driver.as_ref().unwrap().f05_counts();
+                        let (_, trace) = freshness_timings::trace_sources(|| {
+                            driver.as_mut().unwrap().serve(
+                                &mailbox,
+                                &mut geometry,
+                                1,
+                                fixture::until(),
+                                |job, deadline| {
+                                    let request = match &job {
+                                        ServiceQuery::Immediate(job) => job.request(),
+                                        ServiceQuery::NearPoint(job) => job.request(),
+                                        ServiceQuery::Route(_) => {
+                                            panic!("F05 route bypassed private driver")
+                                        }
+                                    };
+                                    let facts = match &request.query {
+                                        Query::PlayerEnvironment(_) => ordinary
+                                            .player_environment(player, deadline, || false)
+                                            .map_err(|_| Failure::Binding)?
+                                            .resolve(&session, request, deadline, || false)
+                                            .map_err(|_| Failure::Binding)?,
+                                        Query::SourceMotion(MotionQuery::NearPoint(_)) => ordinary
+                                            .resolve_dry_primary_near_point(
+                                                &session,
+                                                request,
+                                                player,
+                                                compatibility,
+                                                CONFIG,
+                                                deadline,
+                                                || false,
+                                            )
+                                            .map_err(|_| Failure::Binding)?,
+                                        _ => return Err(Failure::UnsupportedQuery),
+                                    };
+                                    Ok(ServiceStep::Complete(Box::new(facts)))
+                                },
+                            )
+                        });
+                        let after_counts = driver.as_ref().unwrap().f05_counts();
+                        if after_counts.0 != before_counts.0 {
+                            assert_eq!((before_counts, after_counts), ((0, 0), (1, 0)));
+                            begin_owner_wall = started.elapsed();
+                            assert!(begin_trace.replace(trace.clone()).is_none());
+                        }
+                        if after_counts.1 != before_counts.1 {
+                            assert_eq!((before_counts, after_counts), ((1, 0), (1, 1)));
+                            resume_owner_wall = started.elapsed();
+                            assert!(resume_trace.replace(trace).is_none());
+                        }
+                    }
+                    max_owner_service = max_owner_service.max(started.elapsed());
+                    if !fault_applied
+                        && gate.as_ref().is_some_and(|(entered, _)| entered.try_recv().is_ok())
+                    {
+                        let active = driver.as_mut().unwrap();
+                        assert!(active.pending());
+                        assert_eq!(active.f05_reentry_jobs(), 0);
+                        assert_eq!(routes.load(Ordering::SeqCst), 1);
+                        let before = active.diagnostic();
+                        let (acknowledged, acknowledged_counts) =
+                            acknowledged_ledger.as_ref().unwrap();
+                        assert!(before.same_semantic_state(acknowledged));
+                        assert_eq!(active.ledger_counts(), *acknowledged_counts);
+                        assert_eq!(active.ledger_counts().0, (1, 1));
+                        ledger_before_fault = Some((before.clone(), active.ledger_counts()));
+                        let ack_before = acks.load(Ordering::SeqCst);
+                        let frame = geometry.app.world().resource::<FrameCount>().0;
+                        let controls_before = control.resource::<F05ControlTurns>().0;
+                        // Real control schedules run while the actual source task is held.
+                        for _ in 0..3 {
+                            control.run_schedule(F05Control);
+                        }
+                        assert_eq!(control.resource::<F05ControlTurns>().0, controls_before + 3);
+                        assert_eq!(geometry.app.world().resource::<FrameCount>().0, frame);
+                        let committed = notices.last().unwrap();
+                        assert!(matches!(
+                            active.initialize(committed.boundary()),
+                            Err(Failure::QueueCapacity)
+                        ));
+                        assert!(matches!(
+                            active.acknowledge(committed),
+                            Err(Failure::QueueCapacity)
+                        ));
+                        match fault {
+                            F05Fault::CancelHeld => active.cancel(),
+                            F05Fault::CancelReady | F05Fault::CancelAfterStaging => {}
+                            F05Fault::ExpireHeld => {
+                                let original_deadline = active.pending_deadline().unwrap();
+                                assert!(Instant::now() < original_deadline);
+                                while Instant::now() < original_deadline {
+                                    control.run_schedule(F05Control);
+                                    let _ = wake.recv_timeout(
+                                        original_deadline
+                                            .saturating_duration_since(Instant::now())
+                                            .min(Duration::from_millis(1)),
+                                    );
+                                }
+                                assert!(active.pending());
+                                assert_eq!(active.pending_deadline(), Some(original_deadline));
+                            }
+                            F05Fault::QuitHeld => {
+                                abandoned_counts = Some(active.f05_counts());
+                            }
+                            F05Fault::ColliderBirth => {
+                                let request = active.pending_request().unwrap();
+                                let Query::SourceMotion(MotionQuery::Route(route)) = &request.query
+                                else {
+                                    unreachable!()
+                                };
+                                let a = route.request.origin;
+                                let b = route.request.goal;
+                                let middle = [
+                                    (a.x.as_f32() + b.x.as_f32()) * 0.5,
+                                    (a.y.as_f32() + b.y.as_f32()) * 0.5,
+                                    a.z.as_f32() + 1.,
+                                ];
+                                geometry.app.world_mut().spawn((
+                                    avian3d::prelude::Collider::cuboid(2., 3., 0.25),
+                                    avian3d::prelude::RigidBody::Static,
+                                    avian3d::prelude::CollisionLayers::DEFAULT,
+                                    bevy::prelude::Transform::from_translation(
+                                        benilla_assets::coords::wow_to_bevy(middle),
+                                    ),
+                                ));
+                                // No sync here: the private final island must sync/reprove it.
+                            }
+                            F05Fault::ForeignIndex => {
+                                geometry.app.insert_resource(foreign_index.take().unwrap());
+                            }
+                            F05Fault::SourceChange | F05Fault::SourceErrorThenCancelReady => {
+                                source_change = Some(AuthoredSourceChange::begin(install));
+                            }
+                            F05Fault::Clear => unreachable!(),
+                        }
+                        assert!(active.diagnostic().same_semantic_state(&before));
+                        assert_eq!(acks.load(Ordering::SeqCst), ack_before);
+                        if matches!(fault, F05Fault::CancelReady | F05Fault::SourceErrorThenCancelReady) {
+                            // No source result is drained or interpreted here. The worker sends
+                            // this coalesced notification only after publishing its actual result.
+                            while wake.try_recv().is_ok() {}
+                            let original_deadline = active.pending_deadline().unwrap();
+                            gate.as_ref().unwrap().1.try_send(()).unwrap();
+                            loop {
+                                assert!(
+                                    Instant::now() < original_deadline,
+                                    "ready-before-cancel missed original deadline"
+                                );
+                                control.run_schedule(F05Control);
+                                if wake.recv_timeout(
+                                    original_deadline
+                                        .saturating_duration_since(Instant::now())
+                                        .min(Duration::from_millis(1)),
+                                ).is_ok() {
+                                    break;
+                                }
+                            }
+                            assert!(Instant::now() < original_deadline);
+                            active.cancel();
+                        } else {
+                            if fault == F05Fault::QuitHeld {
+                                drop(driver.take());
+                            }
+                            // No thread join or wait for source completion on the control path.
+                            gate.as_ref().unwrap().1.try_send(()).unwrap();
+                        }
+                        fault_applied = true;
+                    }
+                    if driver.as_ref().is_some_and(|driver| driver.pending()) {
+                        pending_turns += 1;
+                    }
+                    // Bounded control timer also admits queued mailbox/control work.
+                    // Wake is notification only; serve drains and validates actual results.
+                    if wake.recv_timeout(Duration::from_millis(1)).is_ok() {
+                        completion_wakes += 1;
+                    }
+                }
+                eprintln!(
+                    "F05 nonframe control evidence: turns={} pending_turns={pending_turns} completion_wakes={completion_wakes} max_owner_service_us={} routes={} ACKs={}",
+                    control.resource::<F05ControlTurns>().0,
+                    max_owner_service.as_micros(),
+                    routes.load(Ordering::SeqCst),
+                    acks.load(Ordering::SeqCst),
+                );
+                eprintln!(
+                    "F05 contiguous owner slices: begin_us={} resume_final_island_us={} publication_to_drain_latency=unmeasured",
+                    begin_owner_wall.as_micros(),
+                    resume_owner_wall.as_micros(),
+                );
+                // An already-retired receiver does not erase owed diagnostic unwind.
+                while driver.as_ref().is_some_and(|driver| driver.pending()) {
+                    assert!(Instant::now() < outer_deadline, "F05 tombstone did not drain");
+                    control.run_schedule(F05Control);
+                    driver.as_mut().unwrap().serve(
+                        &mailbox,
+                        &mut geometry,
+                        1,
+                        fixture::until(),
+                        |_, _| Err(Failure::UnsupportedQuery),
+                    );
+                    let _ = wake.recv_timeout(Duration::from_millis(1));
+                }
+                let counts = driver
+                    .as_ref()
+                    .map(|driver| driver.f05_counts())
+                    .or(abandoned_counts);
+                eprintln!(
+                    "F05 actual slot evidence: fault={fault:?} parks/drains={counts:?} worker_source_trace={:?} operation_outcome={:?}",
+                    driver.as_ref().and_then(|driver| driver.f05_trace()),
+                    driver.as_ref().map(|driver| driver.f05_outcome()),
+                );
+                let outcome = worker.join().unwrap();
+                if fault != F05Fault::Clear {
+                    assert!(
+                        fault_applied,
+                        "failed before reaching the intended held F05 fault"
+                    );
+                    assert!(outcome.is_err(), "actual fault must refuse without save/ACK");
+                    let expected = match fault {
+                        F05Fault::CancelHeld
+                        | F05Fault::ExpireHeld
+                        | F05Fault::CancelReady
+                        | F05Fault::SourceErrorThenCancelReady => {
+                            Some((false, Some("Source(Cancelled)")))
+                        }
+                        F05Fault::CancelAfterStaging => Some((true, Some("Source(Cancelled)"))),
+                        F05Fault::ColliderBirth => Some((true, Some("Context(Obstacle)"))),
+                        F05Fault::ForeignIndex => Some((true, Some("Context(Binding)"))),
+                        F05Fault::SourceChange => Some((false, Some("Source(TerrainSource)"))),
+                        F05Fault::QuitHeld => None,
+                        F05Fault::Clear => unreachable!(),
+                    };
+                    assert_eq!(driver.as_ref().map(|driver| driver.f05_outcome()), expected);
+                    let expected_raw = match fault {
+                        F05Fault::CancelHeld | F05Fault::ExpireHeld => Some("Cancelled"),
+                        F05Fault::SourceChange | F05Fault::SourceErrorThenCancelReady => {
+                            Some("TerrainSource")
+                        }
+                        F05Fault::QuitHeld => None,
+                        F05Fault::Clear
+                        | F05Fault::CancelReady
+                        | F05Fault::CancelAfterStaging
+                        | F05Fault::ColliderBirth
+                        | F05Fault::ForeignIndex => Some("Ok(())"),
+                    };
+                    assert_eq!(
+                        driver.as_ref().and_then(|driver| driver.f05_raw_outcome()),
+                        expected_raw
+                    );
+                    if let Some(driver) = &driver {
+                        assert_eq!(
+                            driver.f05_reentry_jobs(),
+                            usize::from(matches!(
+                                fault,
+                                F05Fault::CancelAfterStaging
+                                    | F05Fault::ColliderBirth
+                                    | F05Fault::ForeignIndex
+                            )),
+                            "raw source errors and inactive success never construct a reentry job"
+                        );
+                        let (before, (counts_before, next_id_before)) =
+                            ledger_before_fault.as_ref().unwrap();
+                        assert!(driver.diagnostic().same_committed_root(before));
+                        let (counts_after, next_id_after) = driver.ledger_counts();
+                        assert_eq!(counts_after, *counts_before);
+                        assert_eq!(
+                            counts_after,
+                            (1, 1),
+                            "only original acknowledged cold remains"
+                        );
+                        assert_eq!(
+                            next_id_after,
+                            *next_id_before + u64::from(fault == F05Fault::CancelAfterStaging),
+                            "only actual poststage cancellation consumes a fresh staging ID"
+                        );
+                    }
+                    assert_eq!(routes.load(Ordering::SeqCst), 1);
+                    assert_eq!(
+                        counts,
+                        Some((1, usize::from(fault != F05Fault::QuitHeld)))
+                    );
+                    return;
+                }
+                let proofs = outcome.unwrap();
+                assert_eq!(driver.as_ref().unwrap().f05_raw_outcome(), Some("Ok(())"));
+                assert_eq!(driver.as_ref().unwrap().f05_reentry_jobs(), 1);
+                assert_eq!(counts, Some((1, 1)), "only first retained F05 parks");
+                assert_eq!(
+                    driver.as_ref().unwrap().f05_trace().unwrap().len(),
+                    1,
+                    "one actual worker source effect"
+                );
+                let begin = begin_trace.unwrap();
+                let resume = resume_trace.unwrap();
+                assert_eq!(begin.len(), 4, "original F01-F04 on BEGIN owner turn");
+                assert_eq!(
+                    resume.len(),
+                    55,
+                    "original F06-F59 plus labeled extra owner check"
+                );
+                final_trace.extend(begin);
+                final_trace.extend(driver.as_ref().unwrap().f05_trace().unwrap().iter().copied());
+                final_trace.extend(resume);
+                assert_eq!(routes.load(Ordering::SeqCst), 2);
+                assert!(pending_turns > 0);
+                assert!(completion_wakes > 0);
+                assert_eq!(proofs.len(), notices.len());
+                for ((before, after, saved), notice) in proofs.iter().zip(&notices) {
+                    assert_eq!(notice.previous_record(), before.history_tip);
+                    assert_eq!(notice.before(), before.state_digest);
+                    assert_eq!(notice.boundary().record(), after.history_tip);
+                    assert_eq!(notice.boundary().state(), after.state_digest);
+                    assert_eq!(notice.boundary().tick(), saved.tick);
+                }
+            });
+            assert_eq!(
+                source_change.is_some(),
+                matches!(fault, F05Fault::SourceChange | F05Fault::SourceErrorThenCancelReady)
+            );
+            drop(source_change);
+        },
+    );
+    final_trace
+}
+
+#[test]
+#[ignore = "runner-sensitive original500ms paired F05 prototype; explicit release diagnostic"]
+fn resident_f05_default_budget_actual_controller_comparison() {
+    // One declared pair. Report both outcomes even if the first arm fails; no retry.
+    // Additional trace storage is enabled only for this declared paired diagnostic.
+    let baseline = std::panic::catch_unwind(|| {
+        run_inner(Mode::ColdPhasedDefaultBudget, None, &mut Vec::new(), true)
+    });
+    let parked = std::panic::catch_unwind(|| run_f05_controller(F05Fault::Clear));
+    eprintln!(
+        "F05 original500ms paired outcome: baseline_cold_retained_split={} one_f05_slot={}",
+        baseline.is_ok(),
+        parked.is_ok(),
+    );
+    assert!(baseline.is_ok(), "baseline failed at the unchanged budget");
+    assert!(parked.is_ok(), "F05 prototype failed at the unchanged budget");
+    assert_f05_logical_trace(&baseline.unwrap().retained_final_trace, parked.unwrap());
+}
+
+#[test]
+#[ignore = "mandatory release F05 fault gate; preserves the original500ms Route deadline"]
+fn resident_f05_held_source_control_cancel_and_quit_never_ack() {
+    for fault in [
+        F05Fault::CancelHeld,
+        F05Fault::ExpireHeld,
+        F05Fault::CancelReady,
+        F05Fault::SourceErrorThenCancelReady,
+        F05Fault::QuitHeld,
+    ] {
+        run_f05_controller(fault);
+    }
+}
+
+#[test]
+#[ignore = "mandatory release F05 fault gate; preserves the original500ms Route deadline"]
+fn resident_f05_current_scene_and_source_changes_refuse_before_save() {
+    for fault in [
+        F05Fault::CancelAfterStaging,
+        F05Fault::ColliderBirth,
+        F05Fault::ForeignIndex,
+        F05Fault::SourceChange,
+    ] {
+        run_f05_controller(fault);
+    }
+}
+
+fn assert_f05_logical_trace(
+    baseline: &freshness_timings::SourceTrace,
+    mut parked: freshness_timings::SourceTrace,
+) {
+    fn anchored(
+        actual: &(&'static str, u32, u32),
+        path: &str,
+        source: &str,
+        needle: &str,
+        occurrence: usize,
+    ) {
+        let line = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains(needle))
+            .nth(occurrence)
+            .expect("audited source-call anchor must exist")
+            .0
+            + 1;
+        assert!(actual.0.ends_with(path), "unexpected callsite: {actual:?}");
+        assert_eq!(actual.1 as usize, line, "unexpected source-call anchor");
+        assert!(actual.2 > 0);
+    }
+    // Exact authored environment-present branch only, not a universal G1 count.
+    assert_eq!(baseline.len(), 59);
+    assert_eq!(parked.len(), 60);
+    const OWNED: &str = include_str!("products/source_height/owned.rs");
+    const SCOPE: &str = include_str!("products/source_height/owned/f05_scope.rs");
+    const ROOT: &str = include_str!("source_route_filter/retained.rs");
+    anchored(
+        &baseline[0],
+        "products/source_height/owned.rs",
+        OWNED,
+        "height.verify_unchanged(&cancelled)?;",
+        0,
+    );
+    anchored(
+        &parked[0],
+        "products/source_height/owned/f05_scope.rs",
+        SCOPE,
+        "height.verify_unchanged(||",
+        0,
+    );
+    anchored(
+        &baseline[4],
+        "source_route_filter/retained.rs",
+        ROOT,
+        "let source = provider.height.verify_unchanged(cancelled);",
+        0,
+    );
+    anchored(
+        &parked[4],
+        "products/source_height/owned.rs",
+        OWNED,
+        "self.view().verify_unchanged(cancelled)",
+        0,
+    );
+    anchored(
+        &baseline[58],
+        "products/source_height/owned.rs",
+        OWNED,
+        "height.verify_unchanged(&cancelled)?;",
+        1,
+    );
+    anchored(
+        &parked[59],
+        "products/source_height/owned.rs",
+        OWNED,
+        "self.view().verify_unchanged(cancelled)",
+        0,
+    );
+    assert_eq!(parked[4], parked[59]);
+    // The sole added current-owner source observation is after original F11.
+    // It must be the exact inventory::fresh callsite already used by original F04.
+    assert_eq!(parked[11], baseline[3]);
+    eprintln!(
+        "F05 explicitly added current-owner source occurrence after F11: {:?}",
+        parked[11]
+    );
+    parked.remove(11);
+    for slot in [0, 4, 58] {
+        parked[slot] = baseline[slot];
+    }
+    assert_eq!(
+        &parked,
+        baseline,
+        "every other original source occurrence stays ordered"
+    );
 }

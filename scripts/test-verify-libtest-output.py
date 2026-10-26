@@ -21,6 +21,7 @@ SPEC = importlib.util.spec_from_file_location(
 VERIFIER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFIER)
 DEFAULT_BUDGET_PROBE = "resident_default_budget_controller_saves_cold_and_first_retained"
+F05_CONTROLLER_TESTS = ('resident_f05_default_budget_actual_controller_comparison', 'resident_f05_held_source_control_cancel_and_quit_never_ack', 'resident_f05_current_scene_and_source_changes_refuse_before_save')
 COMPARISON_PATHS = (
     '.github/workflows/resident-controller-profile-comparison.yml',
     'crates/benilla-app/src/net/p2p/world/native_geometry/mod.rs',
@@ -45,6 +46,11 @@ COMPARISON_PATHS = (
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/chase_los/equivalence.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained/prefix_equivalence.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/f05_scope.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/f05.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests/f05_equivalence.rs',
+    'scripts/verify-f05-privacy.py',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/phased.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests/cold_phased_negatives.rs',
@@ -130,6 +136,31 @@ SUITES = {
             "inventory_f04_and_f05_poll_order_on_live_sources",
             "inventory_f04_postpoll_masks_real_source_fault_but_f05_preserves_it",
             "inventory_f04_prefix_cancel_and_deadline_skip_source",
+        ),
+    ),
+    'Verify one-slot F05 raw worker': (
+        "benilla-native-corridor-tests",
+        'products::source_height::owned::freshness::tests::f05::',
+        (
+            'continuation_keeps_original_guard_and_occupied_slot_until_exact_raw_drain',
+            'raw_success_and_source_error_survive_late_cancel_retirement_and_stop',
+            'original_callback_expiry_cancel_and_stop_keep_running_continuation_tombstoned',
+            'foreign_products_work_worker_and_revoked_guard_cannot_submit_continuation',
+            'control_wake_precedes_held_completion_and_disconnect_never_fabricates_raw_result',
+            'dropped_continuation_worker_does_not_join_and_pinned_guard_remains_cancelled',
+            'foreign_raw_result_identity_never_releases_original_slot_or_mints_completion',
+            'completion_must_match_original_guard_before_success_token_is_minted',
+            'f05_only_gate_never_blocks_observation_and_rechecks_original_guard_after_release',
+        ),
+    ),
+    'Verify one-slot F05 private source frames': (
+        "benilla-native-corridor-tests",
+        'source_route_filter::resident::owned::f05::tests::',
+        (
+            'f05_source_frames_preserve_scope_exit_debt_and_exact_inventory_custody',
+            'f05_source_frames_inner_error_and_cancelled_exit_match_original_wrappers',
+            'f05_source_frames_failed_entry_skips_reader_and_exit',
+            'f05_actual_fifo_dropped_receiver_retires_only_new_unacknowledged_stage',
         ),
     ),
     "Verify scoped resident source ownership": (
@@ -443,7 +474,7 @@ class ExactProofTests(unittest.TestCase):
                 "'--lib', os.environ['EXPECTED_PREFIX'], '--', '--show-output', "
                 "'--test-threads=1', '--color', 'never']\n"
                 "if os.environ['EXPECTED_EXACT'] == '1': expected.insert(expected.index('--') + 1, '--exact')\n"
-                "if os.environ['EXPECTED_SKIP']: expected[expected.index('--') + 1:expected.index('--') + 1] = ['--skip', os.environ['EXPECTED_SKIP']]\n"
+                "for skip in reversed(os.environ['EXPECTED_SKIP'].split()): expected[expected.index('--') + 1:expected.index('--') + 1] = ['--skip', skip]\n"
                 "assert sys.argv[1:] == expected, sys.argv[1:]\n"
                 "data = os.environ['FAKE_OUTPUT'].encode()\n"
                 "cut = data.find(b' ... ') + len(b' ... ')\n"
@@ -464,7 +495,7 @@ class ExactProofTests(unittest.TestCase):
                 EXPECTED_PACKAGE=package,
                 EXPECTED_PREFIX=prefix,
                 EXPECTED_EXACT="1" if title in ("Verify resident observation without transport admission", "Verify two-turn retained controller transport", "Verify two-turn cold controller transport") else "0",
-                EXPECTED_SKIP=DEFAULT_BUDGET_PROBE if title == "Verify resident result controller transport" else "",
+                EXPECTED_SKIP=" ".join((DEFAULT_BUDGET_PROBE, *F05_CONTROLLER_TESTS)) if title == "Verify resident result controller transport" else "",
                 FAKE_OUTPUT=output,
                 FAKE_PROGRESS=PROGRESS,
                 FAKE_EXIT=str(exit_code),
@@ -714,15 +745,14 @@ class ExactProofTests(unittest.TestCase):
         _, prefix, names = SUITES["Verify resident result controller transport"]
         source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs").read_text()
         actual = re.findall(r"(?m)^fn (resident_\w+)\(\)", source)
-        self.assertEqual(set(actual), {*names, DEFAULT_BUDGET_PROBE})
+        self.assertEqual(set(actual), {*names, DEFAULT_BUDGET_PROBE, *F05_CONTROLLER_TESTS})
 
         def assert_selection(command):
             args = shlex.split(command)
-            self.assertEqual(args.count("--skip"), 1)
-            skip = args[args.index("--skip") + 1]
-            self.assertEqual(skip, DEFAULT_BUDGET_PROBE)
+            skips = [args[i + 1] for i, arg in enumerate(args) if arg == "--skip"]
+            self.assertEqual(skips, [DEFAULT_BUDGET_PROBE, *F05_CONTROLLER_TESTS])
             self.assertIn(prefix, args)
-            selected = [prefix + name for name in actual if skip not in prefix + name]
+            selected = [prefix + name for name in actual if not any(skip in prefix + name for skip in skips)]
             self.assertEqual(set(selected), {prefix + name for name in names})
 
         for title, path in (
@@ -1017,7 +1047,7 @@ class ExactProofTests(unittest.TestCase):
         runner = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs").read_text()
         self.assertRegex(
             runner,
-            r"run_inner\(\s*Mode::ColdPhasedFrameCadenced,\s*Some\(profile\),\s*phases_on_failure,?\s*\)",
+            r"run_inner\(\s*Mode::ColdPhasedFrameCadenced,\s*Some\(profile\),\s*phases_on_failure,\s*false,?\s*\)",
         )
         self.assertIn("freshness=deferred", runner)
         self.assertIn("if profiling.is_some()", runner)
@@ -1205,6 +1235,80 @@ class ExactProofTests(unittest.TestCase):
                         self.assertTrue(run_probe, "earlier diagnostic failure must not mask this probe")
                     if serial_outcome != "success" or cancelled:
                         self.assertFalse(run_probe, "failed/skipped prerequisite or cancellation must block probes")
+
+    def test_f05_worker_and_private_scope_manifests_match_actual_tests(self):
+        base = ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry"
+        cases = (
+            ("Verify one-slot F05 raw worker", "products/source_height/owned/freshness/tests.rs", True),
+            ("Verify one-slot F05 private source frames", "source_route_filter/resident_owned/tests/f05_equivalence.rs", False),
+        )
+        for title, relative, nested in cases:
+            source = (base / relative).read_text()
+            if nested:
+                source = source.split("mod f05 {", 1)[1]
+            actual = re.findall(r"#\[test\]\s*fn (\w+)\(", source)
+            names = SUITES[title][2]
+            self.assertEqual(set(actual), set(names), title)
+            self.assertEqual(len(actual), len(names), title)
+            for missing in names:
+                expected = [SUITES[title][1] + name for name in names]
+                output = "running %d tests\n" % (len(expected) - 1)
+                output += "".join(f"test {name} ... ok\n" for name in expected if not name.endswith("::" + missing))
+                output += "\ntest result: ok. %d passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n" % (len(expected) - 1)
+                with self.assertRaises(ValueError):
+                    VERIFIER.verify(output, expected)
+
+    def test_f05_release_fault_gates_attempt_both_despite_failure(self):
+        title = "Verify release F05 controls and current scene refusals"
+        paths = (".github/workflows/ci.yml", ".github/workflows/resident-controller-profile-comparison.yml")
+        names = F05_CONTROLLER_TESTS[1:]
+        for path in paths:
+            shell = workflow_gate(title, path)
+            self.assertIn("set -euo pipefail", shell)
+            self.assertIn("for test in " + " ".join(names) + "; do", shell)
+            self.assertIn('--release -p benilla-app --lib "$name" -- --exact --ignored', shell)
+            self.assertIn('if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi', shell)
+            self.assertIn('exit "$status"', shell)
+            with tempfile.TemporaryDirectory() as temp:
+                temp = Path(temp)
+                mbx = temp / "mbx"
+                mbx.write_text("#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nname=sys.argv[sys.argv.index('--lib')+1]\nwith open(os.environ['CALLS'],'a') as f:f.write(name+'\\n')\nassert '--release' in sys.argv and '--exact' in sys.argv and '--ignored' in sys.argv\nprint('running 1 test')\nprint('test '+name+' ... ok')\nprint('test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s')\nsys.exit(1 if name.endswith('never_ack') else 0)\n")
+                mbx.chmod(0o755)
+                env = dict(os.environ, PATH=f"{temp}:{os.environ['PATH']}", RUNNER_TEMP=str(temp), CALLS=str(temp / "calls"))
+                run = subprocess.run(["bash", "-c", shell], cwd=ROOT, env=env, capture_output=True, text=True, timeout=10)
+                self.assertNotEqual(run.returncode, 0)
+                calls = (temp / "calls").read_text().splitlines()
+                self.assertEqual([name.rsplit("::", 1)[1] for name in calls], list(names))
+        workflow = (ROOT / paths[1]).read_text()
+        section = workflow.split("      - name: " + title + "\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}", section)
+
+    def test_f05_paired_release_gate_preserves_exact_attempt_and_full_trace(self):
+        path = ".github/workflows/resident-controller-profile-comparison.yml"
+        title = "Compare one parked F05 against cold and retained split"
+        shell = workflow_gate(title, path)
+        self.assertIn("set -euo pipefail", shell)
+        self.assertIn("status=0", shell)
+        self.assertIn("name=net::p2p::native_geometry::resident_result_controller_tests::" + F05_CONTROLLER_TESTS[0], shell)
+        self.assertEqual(shell.count('mbx test --locked --release -p benilla-app --lib "$name" -- --exact --ignored --show-output --test-threads=1 --color never'), 1)
+        self.assertIn('if ! python3 scripts/verify-libtest-output.py "$log" "$name"; then status=1; fi', shell)
+        self.assertIn('exit "$status"', shell)
+        self.assertNotIn("--skip", shell)
+        workflow = (ROOT / path).read_text()
+        section = workflow.split("      - name: " + title + "\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: ${{ !cancelled() && steps.serial_comparison.outcome == 'success' }}", section)
+        source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs").read_text()
+        self.assertIn("run_inner(mode, None, &mut Vec::new(), false)", source)
+        self.assertIn("run_inner(Mode::ColdPhasedDefaultBudget, None, &mut Vec::new(), true)", source)
+        self.assertIn("assert_eq!(baseline.len(), 59)", source)
+        self.assertIn("assert_eq!(parked.len(), 60)", source)
+        self.assertIn("assert_eq!(parked[11], baseline[3])", source)
+        self.assertIn("for slot in [0, 4, 58]", source)
+
+    def test_f05_privacy_gate_runs_real_probe_parser_selftests(self):
+        self.assertEqual(workflow_gate("Verify F05 private capability compiler boundaries").strip(), "python3 scripts/verify-f05-privacy.py")
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/verify-f05-privacy.py"), "--self-test"], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()

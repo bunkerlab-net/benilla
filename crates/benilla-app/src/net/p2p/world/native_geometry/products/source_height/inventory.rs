@@ -26,6 +26,24 @@ pub(crate) struct OwnedInventoryCompatibility {
 }
 #[cfg(all(test, not(benilla_headless_geometry)))]
 impl OwnedInventoryCompatibility {
+    // Only a checked, non-escaping F05 source scope can construct this access.
+    pub(super) fn reconstitute_f05<'view, 'terrain, 'bundle, 'source>(
+        &self,
+        view: &'view PreparedSourceHeight<'terrain, 'bundle, 'source>,
+        access: &super::owned::f05_scope::F05ViewAccess<'_>,
+    ) -> Result<InventoryCompatibility<'view, 'terrain, 'bundle, 'source>, CompositionError> {
+        if !access.matches(self)
+            || (view.binding(), view.generated_query_source_epoch()) != (self.height, self.epoch)
+        {
+            return Err(Error::Identity.into());
+        }
+        Ok(InventoryCompatibility {
+            view,
+            owner: self.owner.clone(),
+            revision: self.revision,
+        })
+    }
+
     pub(crate) fn capture(
         compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
         deadline: Instant,

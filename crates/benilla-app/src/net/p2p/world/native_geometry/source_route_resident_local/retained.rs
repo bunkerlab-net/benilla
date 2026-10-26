@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! One fresh retained calculation, rooted only by the private ledger's cold ACK.
-use super::super::source_route_filter::resident::retained::ResidentJoinedRetainedDependency;
+use super::super::{
+    products::source_height::owned::freshness::F05VerifiedSuccess,
+    source_route_filter::resident::{
+        owned::f05::{F05ResumePermit, InactiveF05Proof},
+        retained::{
+            ResidentJoinedRetainedDependency, ResidentJoinedRetainedObservation, RootCurrentState,
+        },
+    },
+};
 use super::*;
 use benilla_native_nav::SourceSamePolygonBudget;
 use benilla_world_runtime::PlayerId;
@@ -161,6 +169,162 @@ impl PreparedRetained {
         self.deadline
     }
 }
+/// One pre-clearance source slot. The genuine native dependency stays owner-local.
+pub(in super::super) struct ParkedRetainedF05 {
+    pub(super) prepared: PreparedRetained,
+    root: RootCurrentState,
+    segment_ticket: u64,
+    deadline: Instant,
+}
+impl ParkedRetainedF05 {
+    /// Caller must establish monotonic inactivity of the original callback guard.
+    /// This can only fail the original post-source check; it cannot reach F06.
+    pub(in super::super) fn unwind_cancelled_f05(
+        self,
+        source: F05VerifiedSuccess,
+        inactive: &InactiveF05Proof,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        cancelled: impl Fn() -> bool,
+    ) -> ResidentFilterError {
+        self.root
+            .unwind_verified_source(source, inactive, provider, context, &cancelled)
+    }
+}
+
+/// Diagnostics before any terrain/physics query, consumed without another yield.
+pub(in super::super) struct ReadyRetainedScene {
+    prepared: PreparedRetained,
+    observation: ResidentJoinedRetainedObservation,
+    segment_ticket: u64,
+    deadline: Instant,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn begin_f05(
+    prepared: PreparedRetained,
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+) -> Result<ParkedRetainedF05, ResidentFilterError> {
+    let deadline = deadline.min(prepared.deadline);
+    let segment_ticket = prepared.first_ticket.checked_add(4).ok_or(Failure::Invalid)?;
+    let mut state = SystemState::<(
+        Option<Res<NativeStaticMapIndex>>,
+        NativeTerrainCoverage,
+        WorldCollision,
+        SpatialQuery,
+    )>::new(world);
+    let (installed, _, _, _) = state.get(world);
+    let owner = installed
+        .as_ref()
+        .and_then(|index| index.source_provenance())
+        .ok_or(Failure::Binding)?;
+    if !owner.same_owner(&prepared.installed_owner)
+        || !owner.same_owner(&prepared.predecessor.installed_owner)
+    {
+        return Err(Failure::Binding.into());
+    }
+    provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
+    let deadline = prepared.dependency.deadline(deadline);
+    let root = provider.begin_retained_f05(&prepared.dependency, context, deadline, &cancelled)?;
+    Ok(ParkedRetainedF05 {
+        prepared,
+        root,
+        segment_ticket,
+        deadline,
+    })
+}
+
+pub(super) fn resume_f05(
+    parked: ParkedRetainedF05,
+    source: F05VerifiedSuccess,
+    permit: &F05ResumePermit,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    cancelled: impl Fn() -> bool,
+) -> Result<ReadyRetainedScene, ResidentFilterError> {
+    let ParkedRetainedF05 {
+        prepared,
+        root,
+        segment_ticket,
+        deadline,
+    } = parked;
+    let observation = provider.complete_retained_f05(
+        root,
+        source,
+        permit,
+        &prepared.dependency,
+        &prepared.predecessor.dependency,
+        context,
+        &cancelled,
+    )?;
+    Ok(ReadyRetainedScene {
+        prepared,
+        observation,
+        segment_ticket,
+        deadline,
+    })
+}
+
+/// Called only after the caller synchronizes current physics, with no intervening yield.
+pub(super) fn finish_f05(
+    ready: ReadyRetainedScene,
+    world: &mut World,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    cancelled: impl Fn() -> bool,
+) -> Result<(ResidentRetainedCandidate, Facts), ResidentFilterError> {
+    let ReadyRetainedScene {
+        prepared,
+        observation,
+        segment_ticket,
+        deadline,
+    } = ready;
+    let PreparedRetained {
+        predecessor,
+        dependency,
+        installed_owner,
+        ..
+    } = prepared;
+    let mut state = SystemState::<(
+        Option<Res<NativeStaticMapIndex>>,
+        NativeTerrainCoverage,
+        WorldCollision,
+        SpatialQuery,
+    )>::new(world);
+    let (installed, terrain, collision, spatial) = state.get(world);
+    let owner = installed
+        .as_ref()
+        .and_then(|index| index.source_provenance())
+        .ok_or(Failure::Binding)?;
+    if !owner.same_owner(&installed_owner) || !owner.same_owner(&predecessor.installed_owner) {
+        return Err(Failure::Binding.into());
+    }
+    // Additional current-owner verification after F11, never cached scene authority.
+    provider.verify_installed_owner(compatibility, owner, deadline, &cancelled)?;
+    finish_observed_scene(
+        predecessor,
+        dependency,
+        observation,
+        compatibility,
+        provider,
+        context,
+        segment_ticket,
+        deadline,
+        cancelled,
+        || {},
+        owner,
+        &terrain,
+        &collision,
+        &spatial,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn prepare(
     world: &mut World,
@@ -301,6 +465,41 @@ fn finish_scene<'w, 's>(
         deadline,
         &cancelled,
     )?;
+    finish_observed_scene(
+        predecessor,
+        dependency,
+        observation,
+        compatibility,
+        provider,
+        context,
+        segment_ticket,
+        deadline,
+        cancelled,
+        after,
+        owner,
+        terrain,
+        collision,
+        spatial,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_observed_scene<'w, 's>(
+    predecessor: Rc<ResidentColdCandidate>,
+    dependency: ResidentJoinedRetainedDependency,
+    observation: ResidentJoinedRetainedObservation,
+    compatibility: &InventoryCompatibility<'_, '_, '_, '_>,
+    provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+    context: &AuthorityRequest,
+    segment_ticket: u64,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+    after: impl FnOnce(),
+    owner: &benilla_formats::NativeInventorySource,
+    terrain: &NativeTerrainCoverage<'w, 's>,
+    collision: &WorldCollision<'w, 's>,
+    spatial: &SpatialQuery<'w, 's>,
+) -> Result<(ResidentRetainedCandidate, Facts), ResidentFilterError> {
     let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
         return Err(Failure::Binding.into());
     };
