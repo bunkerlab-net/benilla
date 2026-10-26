@@ -29,6 +29,9 @@ COMPARISON_PATHS = (
     'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/tests.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/freshness_timings.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/inventory.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/inventory_tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests/wrapper_equivalence.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness/tests.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/fifo.rs',
@@ -115,6 +118,15 @@ SUITES = {
             "uncancelled_api_keeps_corruption_winner_and_absence_fail_closed",
         ),
     ),
+    "Verify inventory freshness wrapper error order": (
+        "benilla-native-corridor-tests",
+        "products::source_height::inventory::inventory_tests::",
+        (
+            "inventory_f04_and_f05_poll_order_on_live_sources",
+            "inventory_f04_postpoll_masks_real_source_fault_but_f05_preserves_it",
+            "inventory_f04_prefix_cancel_and_deadline_skip_source",
+        ),
+    ),
     "Verify scoped resident source ownership": (
         "benilla-native-corridor-tests",
         "source_route_filter::resident::owned::tests::",
@@ -130,6 +142,7 @@ SUITES = {
             "resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate",
             "cold_phased_negatives::cold_fifo_final_retry_drop_tail_full_and_post_mint_expiry_do_not_ack",
             "cold_phased_negatives::cold_fifo_prepared_refusals_preserve_original_work_and_uncommitted_ledger",
+            "wrapper_equivalence::owned_wrapper_old_literal_and_operand_refactor_preserve_unwind_and_source_order",
         ),
     ),
     "Verify two-turn retained controller transport": (
@@ -241,6 +254,17 @@ class ExactProofTests(unittest.TestCase):
         self.assertEqual(set(names), set(actual))
         self.assertEqual(len(names), len(actual))
 
+    def test_inventory_wrapper_manifest_matches_actual_nonheadless_tests(self):
+        package, _, names = SUITES["Verify inventory freshness wrapper error order"]
+        self.assertEqual(package, "benilla-native-corridor-tests")
+        root = ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height"
+        source = (root / "inventory_tests.rs").read_text()
+        actual = re.findall(r"(?m)^#\[test\]\s*\nfn (\w+)\(", source)
+        self.assertEqual(set(names), set(actual))
+        self.assertEqual(len(names), len(actual))
+        registration = (root / "inventory.rs").read_text()
+        self.assertIn('#[cfg(all(test, not(benilla_headless_geometry)))]\n#[path = "inventory_tests.rs"]\nmod inventory_tests;', registration)
+
     def test_scoped_resident_manifest_matches_parent_and_nested_cold_tests(self):
         _, _, names = SUITES["Verify scoped resident source ownership"]
         root = ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned"
@@ -250,14 +274,17 @@ class ExactProofTests(unittest.TestCase):
         actual = set(re.findall(pattern, parent))
         cold = (root / "tests/cold_phased_negatives.rs").read_text()
         actual.update("cold_phased_negatives::" + name for name in re.findall(pattern, cold))
+        self.assertIn('#[path = "tests/wrapper_equivalence.rs"]\nmod wrapper_equivalence;', parent)
+        wrappers = (root / "tests/wrapper_equivalence.rs").read_text()
+        actual.update("wrapper_equivalence::" + name for name in re.findall(pattern, wrappers))
         self.assertEqual(set(names), actual)
         self.assertEqual(len(names), len(actual))
-        self.assertEqual(len(names), 11)
+        self.assertEqual(len(names), 12)
 
     def test_scoped_resident_gate_rejects_old_nine_test_evidence(self):
         _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
         names = [prefix + name for name in short_names]
-        old_names = [name for name in names if "::cold_phased_negatives::" not in name]
+        old_names = [name for name in names if "::cold_phased_negatives::" not in name and "::wrapper_equivalence::" not in name]
         self.assertEqual(len(old_names), 9)
         with self.assertRaises(ValueError):
             VERIFIER.verify(fixture(old_names), names)

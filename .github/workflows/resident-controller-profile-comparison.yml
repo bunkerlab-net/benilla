@@ -12,6 +12,9 @@ on:
       - crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/tests.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/freshness_timings.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/inventory.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/inventory_tests.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests/wrapper_equivalence.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/products/source_height/owned/freshness/tests.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/fifo.rs

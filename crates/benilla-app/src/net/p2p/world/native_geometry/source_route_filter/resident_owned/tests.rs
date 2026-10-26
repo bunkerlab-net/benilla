@@ -620,7 +620,7 @@ fn assert_invocation_context(
                 let proof = provider.invocation.as_ref().unwrap();
                 assert!(proof.matches(provider, request)?);
                 assert!(
-                    proof.model.borrow().is_none(),
+                    proof.operands.model.borrow().is_none(),
                     "model gate stays lazy at bind"
                 );
                 let mut wrong_player = f::player();
@@ -629,7 +629,7 @@ fn assert_invocation_context(
                 // neither a refusal nor an unrelated success may fill this slot.
                 for _ in 0..2 {
                     assert_full_model_fallback(provider, request, wrong_player, deadline);
-                    assert!(proof.model.borrow().is_none());
+                    assert!(proof.operands.model.borrow().is_none());
                 }
                 let Query::SourceMotion(MotionQuery::Route(route)) = &request.query else {
                     unreachable!()
@@ -642,7 +642,10 @@ fn assert_invocation_context(
                         route,
                     )
                 });
-                assert!(proof.height.borrow().is_none(), "height stays lazy at bind");
+                assert!(
+                    proof.operands.height.borrow().is_none(),
+                    "height stays lazy at bind"
+                );
                 let (expected_height, _) = freshness_timings::measure(|| {
                     super::super::super::initialized_owner_height(&provider.profile, route)
                 });
@@ -658,7 +661,7 @@ fn assert_invocation_context(
                 });
                 assert_eq!(repeated?, expected_height);
                 assert_eq!(counts.initialized_owner_height_calls(), 0);
-                assert_eq!(*proof.height.borrow(), Some(expected_height));
+                assert_eq!(*proof.operands.height.borrow(), Some(expected_height));
                 assert!(matches!(
                     provider.initialized_height_for(request, deadline, &|| true),
                     Err(ResidentFilterError::Source(CompositionError::Cancelled))
@@ -670,7 +673,8 @@ fn assert_invocation_context(
                 // Storage/validator semantics only: these detached proofs do not
                 // admit the altered route/profile as a live job.
                 freshness_timings::measure(|| {
-                    let empty = InvocationContext::bind(&job, provider).unwrap();
+                    let empty_operands = InvocationOperands::default();
+                    let empty = InvocationContext::bind(&job, provider, &empty_operands).unwrap();
                     let mut no_initialization = serde_json::to_value(route).unwrap();
                     no_initialization["owner"]["initialization"] = serde_json::Value::Null;
                     let no_initialization = serde_json::from_value(no_initialization).unwrap();
@@ -679,14 +683,15 @@ fn assert_invocation_context(
                     });
                     assert_eq!(first, Ok(None));
                     assert_eq!(counts.initialized_owner_height_calls(), 1);
-                    assert_eq!(*empty.height.borrow(), Some(None));
+                    assert_eq!(*empty.operands.height.borrow(), Some(None));
                     let (again, counts) = freshness_timings::measure(|| {
                         empty.initialized_height(&provider.profile, &no_initialization)
                     });
                     assert_eq!(again, Ok(None));
                     assert_eq!(counts.initialized_owner_height_calls(), 0);
 
-                    let failed = InvocationContext::bind(&job, provider).unwrap();
+                    let failed_operands = InvocationOperands::default();
+                    let failed = InvocationContext::bind(&job, provider, &failed_operands).unwrap();
                     let mut invalid = provider.profile.clone();
                     invalid.creature_collision_heights = None;
                     for _ in 0..2 {
@@ -695,7 +700,7 @@ fn assert_invocation_context(
                         });
                         assert!(result.is_err());
                         assert_eq!(counts.initialized_owner_height_calls(), 1);
-                        assert!(failed.height.borrow().is_none());
+                        assert!(failed.operands.height.borrow().is_none());
                     }
                 });
                 let expected_model = expected.unwrap();
@@ -712,12 +717,12 @@ fn assert_invocation_context(
                 assert_eq!(reused_model.full_gate_model_calls(), 0);
                 assert!(!std::ptr::eq(
                     &returned,
-                    proof.model.borrow().as_ref().unwrap()
+                    proof.operands.model.borrow().as_ref().unwrap()
                 ));
                 drop(returned);
-                assert_eq!(proof.model.borrow().as_ref(), Some(&expected_model));
+                assert_eq!(proof.operands.model.borrow().as_ref(), Some(&expected_model));
                 assert_full_model_fallback(provider, request, wrong_player, deadline);
-                assert_eq!(proof.model.borrow().as_ref(), Some(&expected_model));
+                assert_eq!(proof.operands.model.borrow().as_ref(), Some(&expected_model));
                 assert!(matches!(
                     provider.chase_model_for(request, f::player(), deadline, &|| true),
                     Err(ResidentFilterError::Source(CompositionError::Cancelled))
@@ -862,7 +867,8 @@ fn assert_invocation_context(
                 assert_full_dispatch_fallback(provider, request, deadline);
                 assert_full_model_fallback(provider, request, f::player(), deadline);
                 assert_full_height_fallback(provider, request, deadline);
-                assert!(InvocationContext::bind(&job, provider).is_err());
+                let invalid_operands = InvocationOperands::default();
+                assert!(InvocationContext::bind(&job, provider, &invalid_operands).is_err());
                 provider.state.identity = saved_identity;
                 provider.state.profile.tick_ms += 1;
                 assert!(!provider
@@ -889,13 +895,14 @@ fn assert_invocation_context(
                         .invocation
                         .as_ref()
                         .unwrap()
+                        .operands
                         .model
                         .borrow()
                         .as_ref(),
                     Some(&expected_model)
                 );
                 assert_eq!(
-                    *provider.invocation.as_ref().unwrap().height.borrow(),
+                    *provider.invocation.as_ref().unwrap().operands.height.borrow(),
                     Some(expected_height)
                 );
                 assert_eq!(ledger.diagnostic(), before);
@@ -941,6 +948,7 @@ fn assert_invocation_context(
                     .invocation
                     .as_ref()
                     .unwrap()
+                    .operands
                     .model
                     .borrow()
                     .is_none());
@@ -948,6 +956,7 @@ fn assert_invocation_context(
                     .invocation
                     .as_ref()
                     .unwrap()
+                    .operands
                     .height
                     .borrow()
                     .is_none());
@@ -961,6 +970,7 @@ fn assert_invocation_context(
                     .invocation
                     .as_ref()
                     .unwrap()
+                    .operands
                     .height
                     .borrow()
                     .is_some());
@@ -969,6 +979,7 @@ fn assert_invocation_context(
                     .invocation
                     .as_ref()
                     .unwrap()
+                    .operands
                     .model
                     .borrow()
                     .is_some());
@@ -1000,6 +1011,7 @@ fn assert_invocation_context(
                     .invocation
                     .as_ref()
                     .unwrap()
+                    .operands
                     .model
                     .borrow()
                     .is_none());
@@ -1007,6 +1019,7 @@ fn assert_invocation_context(
                     .invocation
                     .as_ref()
                     .unwrap()
+                    .operands
                     .height
                     .borrow()
                     .is_none());
@@ -1020,6 +1033,7 @@ fn assert_invocation_context(
                     .invocation
                     .as_ref()
                     .unwrap()
+                    .operands
                     .height
                     .borrow()
                     .is_some());
@@ -2187,3 +2201,6 @@ fn certify_phased_probe(
 
 #[path = "tests/cold_phased_negatives.rs"]
 mod cold_phased_negatives;
+
+#[path = "tests/wrapper_equivalence.rs"]
+mod wrapper_equivalence;

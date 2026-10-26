@@ -438,15 +438,26 @@ mod tests {
     #[test]
     fn scopes_isolate_nested_threads_and_restore_after_unwind() {
         assert!(Timer::start(Phase::Total).started.is_none());
+        assert_eq!(current_source_trace_len(), 0);
         let (_, trace) = trace_sources(|| {
             trace_source_check();
-            let (_, inner) = trace_sources(trace_source_check);
+            assert_eq!(current_source_trace_len(), 1);
+            let (_, inner) = trace_sources(|| {
+                assert_eq!(current_source_trace_len(), 0);
+                trace_source_check();
+                assert_eq!(current_source_trace_len(), 1);
+            });
             assert_eq!(inner.len(), 1);
+            assert_eq!(current_source_trace_len(), 1);
+            std::thread::spawn(|| assert_eq!(current_source_trace_len(), 0))
+                .join()
+                .unwrap();
             assert!(std::panic::catch_unwind(|| trace_sources(|| {
                 trace_source_check();
                 panic!("trace scope must restore on unwind");
             }))
             .is_err());
+            assert_eq!(current_source_trace_len(), 1);
             trace_source_check();
         });
         assert_eq!(trace.len(), 2);
@@ -545,6 +556,12 @@ pub(super) fn trace_source_check() {
         }
     });
 }
+/// Read-only diagnostic for authored cancellation/source-mutation cutoffs.
+/// It neither starts a check nor alters its result or checkpoints.
+pub(crate) fn current_source_trace_len() -> usize {
+    SOURCE_TRACE.with(|trace| trace.borrow().as_ref().map_or(0, Vec::len))
+}
+
 pub(crate) fn trace_sources<T>(run: impl FnOnce() -> T) -> (T, SourceTrace) {
     struct Reset(Option<SourceTrace>);
     impl Drop for Reset {

@@ -244,3 +244,7 @@ fn fresh(
     poll(deadline, cancelled)?;
     result
 }
+
+#[cfg(all(test, not(benilla_headless_geometry)))]
+#[path = "inventory_tests.rs"]
+mod inventory_tests;

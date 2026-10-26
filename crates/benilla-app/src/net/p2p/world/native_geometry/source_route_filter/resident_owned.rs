@@ -19,20 +19,27 @@ use benilla_world_runtime::{native::Facts, PlayerId};
 use bevy::prelude::World;
 use std::{cell::RefCell, sync::Arc};
 
+/// Successful immutable operands owned by one logical calculation, not its
+/// temporary provider view. No source observation or physics clearance is stored.
+#[derive(Default)]
+struct InvocationOperands {
+    model: RefCell<Option<ChaseGateModel>>,
+    // Outer None is uncomputed; Some(None) is a successfully validated absence.
+    height: RefCell<Option<Option<benilla_sim::creature_ai::Real>>>,
+}
+
 /// Borrowed only by one temporary provider view. It proves immutable context
 /// validation, never source freshness, physics clearance or publication authority.
 pub(super) struct InvocationContext<'call> {
     job: &'call ResidentDispatchJob<'call>,
     lease: super::super::super::core::JobLease,
-    // Successful immutable operands only; never source or physics clearance.
-    model: RefCell<Option<ChaseGateModel>>,
-    // Outer None is uncomputed; Some(None) is a successfully validated absence.
-    height: RefCell<Option<Option<benilla_sim::creature_ai::Real>>>,
+    operands: &'call InvocationOperands,
 }
 impl<'call> InvocationContext<'call> {
     fn bind(
         job: &'call ResidentDispatchJob<'call>,
         provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        operands: &'call InvocationOperands,
     ) -> Result<Self, ResidentFilterError> {
         job.require_provider(provider, &provider.session, &provider.profile)?;
         validate_route_context(&provider.session, &provider.profile, job.request())?;
@@ -42,8 +49,7 @@ impl<'call> InvocationContext<'call> {
         Ok(Self {
             job,
             lease: job.lease(),
-            model: RefCell::new(None),
-            height: RefCell::new(None),
+            operands,
         })
     }
 
@@ -66,7 +72,7 @@ impl<'call> InvocationContext<'call> {
         if !self.matches(provider, context)? || self.job.player() != player {
             return Ok(None);
         }
-        if let Some(model) = self.model.borrow().as_ref() {
+        if let Some(model) = self.operands.model.borrow().as_ref() {
             return Ok(Some(model.clone()));
         }
         let Query::SourceMotion(MotionQuery::Route(route)) = &context.query else {
@@ -75,7 +81,7 @@ impl<'call> InvocationContext<'call> {
         // No borrow is held while full validation runs, and failures never fill
         // the slot. The matching proof binds the complete immutable input tuple.
         let model = gate_model(&provider.profile, provider.session.world, player, route)?;
-        *self.model.borrow_mut() = Some(model.clone());
+        *self.operands.model.borrow_mut() = Some(model.clone());
         Ok(Some(model))
     }
 
@@ -110,13 +116,13 @@ impl<'call> InvocationContext<'call> {
         profile: &Profile,
         route: &benilla_world_runtime::native::CreatureRouteRequest,
     ) -> Result<Option<benilla_sim::creature_ai::Real>, Failure> {
-        if let Some(height) = *self.height.borrow() {
+        if let Some(height) = *self.operands.height.borrow() {
             return Ok(height);
         }
         // This has additional initialization/radius invariants beyond model_for.
         // No borrow spans validation; neither failure nor fallback fills the slot.
         let height = super::super::initialized_owner_height(profile, route)?;
-        *self.height.borrow_mut() = Some(height);
+        *self.operands.height.borrow_mut() = Some(height);
         Ok(height)
     }
 
@@ -300,6 +306,7 @@ impl OwnedResident {
                         let compatibility = inventory
                             .reborrow(height, deadline, &cancelled)
                             .map_err(ResidentFilterError::Source)?;
+                        let operands = InvocationOperands::default();
                         let mut provider = ResidentFilterProvider {
                             state: ResidentStateStorage::Borrowed(state),
                             height,
@@ -312,7 +319,8 @@ impl OwnedResident {
                             &cancelled,
                         )?;
                         if let Some(job) = job {
-                            provider.invocation = Some(InvocationContext::bind(job, &provider)?);
+                            provider.invocation =
+                                Some(InvocationContext::bind(job, &provider, &operands)?);
                         }
                         let result = calculate(&mut provider, &compatibility, ledger)?;
                         provider.verify_installed_owner(
