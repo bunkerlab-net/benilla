@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! A1 root/predecessor prefix only, not the remaining G1 predicates or suspension.
 use super::super::super::super::products::{
-    source_height::freshness_timings,
-    vmap::installed_source_fixture as input,
+    source_height::freshness_timings, vmap::installed_source_fixture as input,
 };
 use super::*;
 use std::{
@@ -102,7 +101,8 @@ fn old_check_retained_predecessor(
     if route.request.prior_cache.as_deref() != Some(&cache) {
         return Err(Failure::Binding.into());
     }
-    provider.height
+    provider
+        .height
         .verify_unchanged(&cancelled)
         .map_err(ResidentFilterError::Source)?;
     provider.check_context(context, deadline, &cancelled)
@@ -142,7 +142,10 @@ fn assert_effect_location(location: SourceLocation, source: &str, start: &str, e
     let begin_line = source[..begin].lines().count() + 1;
     let end_line = source[..finish].lines().count() + 1;
     assert!((begin_line..end_line).contains(&(location.1 as usize)));
-    assert_eq!(source[begin..finish].matches(".verify_unchanged(").count(), 1);
+    assert_eq!(
+        source[begin..finish].matches(".verify_unchanged(").count(),
+        1
+    );
     let line = source.lines().nth(location.1 as usize - 1).unwrap();
     assert!((1..=line.len() + 1).contains(&(location.2 as usize)));
 }
@@ -313,7 +316,11 @@ pub(crate) fn compare(
                         &result,
                         Err(ResidentFilterError::Context(Failure::Binding))
                     ));
-                    assert_eq!(trace.len(), 1, "root passed; predecessor refuses cold dispatch");
+                    assert_eq!(
+                        trace.len(),
+                        1,
+                        "root passed; predecessor refuses cold dispatch"
+                    );
                 }
                 Fault::SourceAt(at) | Fault::SourceThenCancel(at, _) => {
                     assert!(matches!(

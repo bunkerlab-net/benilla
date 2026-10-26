@@ -2265,12 +2265,7 @@ fn owned_retained_prefix_literal_oracle_preserves_two_source_effects() {
                                     |_| {},
                                     |provider, dependency, prior| {
                                         super::super::retained::prefix_equivalence::compare(
-                                            provider,
-                                            dependency,
-                                            prior,
-                                            request,
-                                            deadline,
-                                            install,
+                                            provider, dependency, prior, request, deadline, install,
                                         );
                                     },
                                 )?;
