@@ -77,8 +77,8 @@ fn inventory_f04_and_f05_poll_order_on_live_sources() {
                 } else {
                     assert!(matches!(result, Err(CompositionError::Cancelled)));
                     // F04 polls once more even after source cancellation.
-                    let expected = cutoff
-                        + usize::from(!source_first_rule && cutoff > 1 && cutoff < total);
+                    let expected =
+                        cutoff + usize::from(!source_first_rule && cutoff > 1 && cutoff < total);
                     assert_eq!(polls, expected);
                 }
                 assert_eq!(trace, usize::from(cutoff > 1));

@@ -151,38 +151,44 @@ fn compare_wrappers(
             let ((outcome, counts), trace) = freshness_timings::trace_sources(|| {
                 freshness_timings::measure_mode(freshness_timings::Mode::CountOnly, || {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let calculate = |provider: &mut ResidentFilterProvider<'_, '_, '_, 'static>,
-                                         _: &InventoryCompatibility<'_, '_, '_, 'static>,
-                                         ledger: &mut ResidentLedger| {
-                            callback_ran.set(true);
-                            events.borrow_mut().push(Event::Callback);
-                            assert_eq!(ledger.diagnostic(), before);
-                            let proof = provider.invocation.as_ref().unwrap();
-                            assert!(proof.operands.model.borrow().is_none());
-                            assert!(proof.operands.height.borrow().is_none());
-                            events.borrow_mut().push(Event::Match);
-                            assert!(proof.matches(provider, request)?);
-                            events.borrow_mut().push(Event::Model);
-                            let model =
-                                provider.chase_model_for(request, f::player(), deadline, &|| false)?;
-                            events.borrow_mut().push(Event::Height);
-                            let height =
-                                provider.initialized_height_for(request, deadline, &|| false)?;
-                            assert_eq!(proof.operands.model.borrow().as_ref(), Some(&model));
-                            assert_eq!(*proof.operands.height.borrow(), Some(height));
-                            events.borrow_mut().push(Event::Return);
-                            match fault {
-                                Fault::Panic => panic!("wrapper oracle callback unwind"),
-                                Fault::InnerErrorSource => {
-                                    mutate();
-                                    Err(Failure::UnsupportedQuery.into())
+                        let calculate =
+                            |provider: &mut ResidentFilterProvider<'_, '_, '_, 'static>,
+                             _: &InventoryCompatibility<'_, '_, '_, 'static>,
+                             ledger: &mut ResidentLedger| {
+                                callback_ran.set(true);
+                                events.borrow_mut().push(Event::Callback);
+                                assert_eq!(ledger.diagnostic(), before);
+                                let proof = provider.invocation.as_ref().unwrap();
+                                assert!(proof.operands.model.borrow().is_none());
+                                assert!(proof.operands.height.borrow().is_none());
+                                events.borrow_mut().push(Event::Match);
+                                assert!(proof.matches(provider, request)?);
+                                events.borrow_mut().push(Event::Model);
+                                let model = provider.chase_model_for(
+                                    request,
+                                    f::player(),
+                                    deadline,
+                                    &|| false,
+                                )?;
+                                events.borrow_mut().push(Event::Height);
+                                let height =
+                                    provider
+                                        .initialized_height_for(request, deadline, &|| false)?;
+                                assert_eq!(proof.operands.model.borrow().as_ref(), Some(&model));
+                                assert_eq!(*proof.operands.height.borrow(), Some(height));
+                                events.borrow_mut().push(Event::Return);
+                                match fault {
+                                    Fault::Panic => panic!("wrapper oracle callback unwind"),
+                                    Fault::InnerErrorSource => {
+                                        mutate();
+                                        Err(Failure::UnsupportedQuery.into())
+                                    }
+                                    Fault::InnerError | Fault::InnerErrorCancel => {
+                                        Err(Failure::UnsupportedQuery.into())
+                                    }
+                                    _ => Ok((model, height)),
                                 }
-                                Fault::InnerError | Fault::InnerErrorCancel => {
-                                    Err(Failure::UnsupportedQuery.into())
-                                }
-                                _ => Ok((model, height)),
-                            }
-                        };
+                            };
                         if old {
                             old_literal_calculate_with_job(
                                 owner,
@@ -241,7 +247,10 @@ fn compare_wrappers(
                 Fault::CancelAt(1) | Fault::SourceAt(1) => success[..1].to_vec(),
                 _ => unreachable!(),
             };
-            assert_eq!(trace, expected_trace, "original wrapper completion: {fault:?}");
+            assert_eq!(
+                trace, expected_trace,
+                "original wrapper completion: {fault:?}"
+            );
             if callback_ran.get() {
                 assert_eq!(counts.context_validation_calls(), 1);
                 assert_eq!(counts.full_gate_model_calls(), 1);
@@ -257,11 +266,15 @@ fn compare_wrappers(
                 )),
                 Fault::CancelAt(_) | Fault::InnerErrorCancel => assert!(matches!(
                     &outcome,
-                    Ok(Err(ResidentFilterError::Source(CompositionError::Cancelled)))
+                    Ok(Err(ResidentFilterError::Source(
+                        CompositionError::Cancelled
+                    )))
                 )),
                 Fault::SourceAt(_) | Fault::InnerErrorSource => assert!(matches!(
                     &outcome,
-                    Ok(Err(ResidentFilterError::Source(CompositionError::TerrainSource)))
+                    Ok(Err(ResidentFilterError::Source(
+                        CompositionError::TerrainSource
+                    )))
                 )),
             }
             assert_eq!(

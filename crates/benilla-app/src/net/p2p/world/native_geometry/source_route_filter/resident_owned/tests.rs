@@ -720,9 +720,15 @@ fn assert_invocation_context(
                     proof.operands.model.borrow().as_ref().unwrap()
                 ));
                 drop(returned);
-                assert_eq!(proof.operands.model.borrow().as_ref(), Some(&expected_model));
+                assert_eq!(
+                    proof.operands.model.borrow().as_ref(),
+                    Some(&expected_model)
+                );
                 assert_full_model_fallback(provider, request, wrong_player, deadline);
-                assert_eq!(proof.operands.model.borrow().as_ref(), Some(&expected_model));
+                assert_eq!(
+                    proof.operands.model.borrow().as_ref(),
+                    Some(&expected_model)
+                );
                 assert!(matches!(
                     provider.chase_model_for(request, f::player(), deadline, &|| true),
                     Err(ResidentFilterError::Source(CompositionError::Cancelled))
@@ -902,7 +908,13 @@ fn assert_invocation_context(
                     Some(&expected_model)
                 );
                 assert_eq!(
-                    *provider.invocation.as_ref().unwrap().operands.height.borrow(),
+                    *provider
+                        .invocation
+                        .as_ref()
+                        .unwrap()
+                        .operands
+                        .height
+                        .borrow(),
                     Some(expected_height)
                 );
                 assert_eq!(ledger.diagnostic(), before);
