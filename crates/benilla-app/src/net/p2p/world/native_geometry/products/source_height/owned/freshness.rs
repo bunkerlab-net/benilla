@@ -504,9 +504,10 @@ impl CaptureFreshnessWorker {
             return Err(F05EnqueueError::Busy);
         }
         if !Arc::ptr_eq(&self.stop, &guard.observation.stop)
-            || !self.latest.as_ref().is_some_and(|latest| {
-                Arc::ptr_eq(latest, &guard.observation.cancelled)
-            })
+            || !self
+                .latest
+                .as_ref()
+                .is_some_and(|latest| Arc::ptr_eq(latest, &guard.observation.cancelled))
         {
             return Err(F05EnqueueError::Identity);
         }
@@ -640,7 +641,10 @@ fn run(
             cancelled: job.cancelled,
             stop: Arc::clone(&stop),
         });
-        if completed.try_send(WorkerResult::Observation(result)).is_err() {
+        if completed
+            .try_send(WorkerResult::Observation(result))
+            .is_err()
+        {
             break;
         }
         if let Some(published) = &hooks.published {

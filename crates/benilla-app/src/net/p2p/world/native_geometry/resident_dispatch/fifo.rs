@@ -652,7 +652,10 @@ impl ResidentFifoSelection {
         geometry: &mut InstalledFixture,
         slice: Instant,
     ) -> Option<Result<ResidentStep, Failure>> {
-        if !matches!(work.request.query, Query::SourceMotion(MotionQuery::Route(_))) {
+        if !matches!(
+            work.request.query,
+            Query::SourceMotion(MotionQuery::Route(_))
+        ) {
             return None;
         }
         Some(self.advance_f05_route(mailbox, work, owner, custody, geometry, slice))
@@ -793,7 +796,12 @@ impl ResidentFifoSelection {
                     return Some(Err(Failure::Binding));
                 }
                 self.selection.advance_f05(
-                    self.mailbox, work, self.owner, self.custody, self.geometry, slice,
+                    self.mailbox,
+                    work,
+                    self.owner,
+                    self.custody,
+                    self.geometry,
+                    slice,
                 )
             }
             fn retire(&mut self, proof: &UndeliveredResidentResult) -> Result<(), Failure> {
@@ -839,10 +847,20 @@ impl ResidentFifoSelection {
         entered: crossbeam_channel::Sender<()>,
         release: crossbeam_channel::Receiver<()>,
     ) -> Result<Self, Failure> {
-        Self::with_worker(mailbox, || CaptureFreshnessWorker::with_f05_test_gate(entered, release))
+        Self::with_worker(mailbox, || {
+            CaptureFreshnessWorker::with_f05_test_gate(entered, release)
+        })
     }
     pub(in super::super::super) fn pending_f05_request(&self) -> Option<&AuthorityRequest> {
-        Some(self.selected.as_ref()?.f05.as_ref()?.frame.guard().request())
+        Some(
+            self.selected
+                .as_ref()?
+                .f05
+                .as_ref()?
+                .frame
+                .guard()
+                .request(),
+        )
     }
 }
 

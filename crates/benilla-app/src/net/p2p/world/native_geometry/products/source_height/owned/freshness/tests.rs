@@ -745,8 +745,14 @@ mod f05 {
         let slot = worker.try_continue_f05(&guard).unwrap();
         let source_thread = control.wait();
         assert_ne!(source_thread, thread::current().id());
-        assert!(!guard.cancelled(), "continuation must not revoke original observation");
-        assert!(Arc::ptr_eq(&original_cancel, worker.latest.as_ref().unwrap()));
+        assert!(
+            !guard.cancelled(),
+            "continuation must not revoke original observation"
+        );
+        assert!(Arc::ptr_eq(
+            &original_cancel,
+            worker.latest.as_ref().unwrap()
+        ));
         for _ in 0..3 {
             assert!(matches!(worker.try_poll_f05(&slot), F05Poll::Pending));
             assert!(matches!(worker.try_poll(), FreshnessPoll::Pending));
@@ -762,17 +768,32 @@ mod f05 {
         let wrong_slot = F05Slot {
             identity: Arc::new(()),
         };
-        assert!(matches!(worker.try_poll_f05(&wrong_slot), F05Poll::Mismatch));
+        assert!(matches!(
+            worker.try_poll_f05(&wrong_slot),
+            F05Poll::Mismatch
+        ));
         control.resume();
         published.recv_timeout(WATCHDOG).unwrap();
         worker.completion_wake().recv_timeout(WATCHDOG).unwrap();
-        assert!(worker.occupied, "completed-undrained work still occupies capacity");
-        assert!(matches!(worker.try_poll_f05(&wrong_slot), F05Poll::Mismatch));
+        assert!(
+            worker.occupied,
+            "completed-undrained work still occupies capacity"
+        );
+        assert!(matches!(
+            worker.try_poll_f05(&wrong_slot),
+            F05Poll::Mismatch
+        ));
         let raw = raw_ready(&mut worker, &slot);
         assert!(raw.matches_guard(&guard));
         assert!(raw.result.is_ok());
-        assert_eq!(raw.diagnostics.trace.len(), 1, "actual worker TLS source occurrence");
-        assert!(raw.diagnostics.trace[0].0.ends_with("source_height/owned.rs"));
+        assert_eq!(
+            raw.diagnostics.trace.len(),
+            1,
+            "actual worker TLS source occurrence"
+        );
+        assert!(raw.diagnostics.trace[0]
+            .0
+            .ends_with("source_height/owned.rs"));
         assert!(raw.diagnostics().cancel_checks > 0);
         assert_eq!(raw.diagnostics().first_cancelled_check, None);
         assert_eq!(raw.diagnostics().counts.started(Phase::Total), 1);
@@ -829,7 +850,10 @@ mod f05 {
             assert!(guard.cancelled());
             let raw = raw_ready(&mut worker, &slot);
             assert_eq!(raw.diagnostics.trace.len(), 1);
-            assert!(raw.matches_guard(&guard), "inactive matching must preserve raw precedence");
+            assert!(
+                raw.matches_guard(&guard),
+                "inactive matching must preserve raw precedence"
+            );
             match raw.into_outcome(&guard).unwrap() {
                 F05Outcome::SourceError(CompositionError::TerrainSource, diagnostics) => {
                     assert!(source_error);
@@ -842,11 +866,13 @@ mod f05 {
                 }
                 _ => panic!("late retirement rewrote actual raw source outcome"),
             }
-            assert!(matches!(guard.check_success(), Err(CompositionError::Cancelled)));
+            assert!(matches!(
+                guard.check_success(),
+                Err(CompositionError::Cancelled)
+            ));
             // Actual canceled F59 source entry can still run from the ORIGINAL guard.
-            let (exit, trace) = freshness_timings::trace_sources(|| {
-                products.verify_sources(|| guard.cancelled())
-            });
+            let (exit, trace) =
+                freshness_timings::trace_sources(|| products.verify_sources(|| guard.cancelled()));
             assert!(matches!(exit, Err(CompositionError::Cancelled)));
             assert_eq!(trace.len(), 1);
         }
@@ -889,7 +915,10 @@ mod f05 {
             assert_eq!(raw.diagnostics.trace.len(), 1);
             assert_eq!(raw.diagnostics.cancel_checks, 1);
             assert_eq!(raw.diagnostics.first_cancelled_check, Some(1));
-            assert_eq!(guard.callback_deadline(), callback_deadline.min(lease.deadline()));
+            assert_eq!(
+                guard.callback_deadline(),
+                callback_deadline.min(lease.deadline())
+            );
             if mode != 2 {
                 assert!(
                     lease.is_active(),
@@ -923,7 +952,9 @@ mod f05 {
             Err(F05EnqueueError::Identity)
         ));
         assert!(!other_worker.occupied);
-        worker.try_enqueue(Arc::clone(&products), other.clone()).unwrap();
+        worker
+            .try_enqueue(Arc::clone(&products), other.clone())
+            .unwrap();
         control.wait();
         assert!(guard.cancelled());
         assert!(matches!(
@@ -980,7 +1011,10 @@ mod f05 {
         });
         dropped.recv_timeout(WATCHDOG).unwrap();
         assert!(guard.cancelled());
-        assert!(guard.matches(&products, &lease), "inactive custody identity remains checkable");
+        assert!(
+            guard.matches(&products, &lease),
+            "inactive custody identity remains checkable"
+        );
         control.resume();
     }
     #[test]

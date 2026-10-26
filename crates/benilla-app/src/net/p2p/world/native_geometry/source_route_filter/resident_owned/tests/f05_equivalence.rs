@@ -3,12 +3,12 @@
 use super::super::super::super::super::{
     core::mailbox,
     products::{
-        Error,
         source_height::{
             freshness_timings::trace_sources,
             owned::freshness::{CaptureFreshnessWorker, FreshnessPoll},
         },
         vmap::installed_source_fixture as input,
+        Error,
     },
     source_pathfinder_query::resident_joined_tests as fixture,
     source_route_same_polygon::tests::captured_route_request,
@@ -41,7 +41,8 @@ fn with_scope(
                 .into_map_bundle(input::profile(), || false)
                 .unwrap()
                 .unwrap();
-            let products = Arc::new(OwnedSourceProducts::new(terrain, collision, || false).unwrap());
+            let products =
+                Arc::new(OwnedSourceProducts::new(terrain, collision, || false).unwrap());
             let inventory = Rc::new(
                 OwnedInventoryCompatibility::capture(compatibility, fixture::until(), || false)
                     .unwrap(),
@@ -66,7 +67,9 @@ fn with_scope(
                         std::thread::yield_now();
                     }
                     FreshnessPoll::Ready(result) => break result.unwrap(),
-                    FreshnessPoll::Idle | FreshnessPoll::Stopped => panic!("original source job lost"),
+                    FreshnessPoll::Idle | FreshnessPoll::Stopped => {
+                        panic!("original source job lost")
+                    }
                 }
             };
             let guard = Rc::new(
@@ -197,7 +200,10 @@ fn f05_source_frames_preserve_scope_exit_debt_and_exact_inventory_custody() {
             )
         });
         result.unwrap();
-        assert!(trace.is_empty(), "view restoration adds no source observation");
+        assert!(
+            trace.is_empty(),
+            "view restoration adds no source observation"
+        );
         let (result, trace) = trace_sources(|| height.finish(Ok::<_, CompositionError>(())));
         result.unwrap();
         assert_eq!(trace.len(), 1, "original owed F59");

@@ -65,9 +65,7 @@ pub(in super::super::super::super) fn begin<T, E: From<CompositionError>>(
         return Err(E::from(CompositionError::from(Error::Identity)));
     }
     let height = products.view();
-    height.verify_unchanged(|| {
-        guard.cancelled() || Instant::now() >= guard.callback_deadline()
-    })?;
+    height.verify_unchanged(|| guard.cancelled() || Instant::now() >= guard.callback_deadline())?;
     let frame = F05HeightFrame {
         products: Arc::clone(&products),
         custody: Rc::clone(&custody),
@@ -76,9 +74,8 @@ pub(in super::super::super::super) fn begin<T, E: From<CompositionError>>(
     };
     // No ? may leave the logical scope after F01 without paying F59 on error.
     let inner: Result<T, E> = (|| {
-        let compatibility = inventory.reborrow(&height, guard.callback_deadline(), || {
-            guard.cancelled()
-        })?;
+        let compatibility =
+            inventory.reborrow(&height, guard.callback_deadline(), || guard.cancelled())?;
         let output = read(&height, &compatibility)?;
         Ok(output)
     })();

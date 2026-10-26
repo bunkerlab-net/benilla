@@ -5,7 +5,7 @@ use super::super::super::super::{
     products::source_height::{
         owned::{
             f05_scope,
-            freshness::{F05Guard, F05Completion, F05Outcome, F05VerifiedSuccess},
+            freshness::{F05Completion, F05Guard, F05Outcome, F05VerifiedSuccess},
         },
         CompositionError,
     },
@@ -170,11 +170,8 @@ impl OwnedResident {
         let began = (|| {
             let (observation, prepared) = prepared.into_f05_retained()?;
             let deadline = job.deadline().min(prepared.deadline());
-            let guard = Rc::new(observation.into_f05_guard(
-                &self.products,
-                &job.lease(),
-                deadline,
-            )?);
+            let guard =
+                Rc::new(observation.into_f05_guard(&self.products, &job.lease(), deadline)?);
             job.require_resident(self)?;
             if !std::ptr::eq(guard.request(), job.request()) || job.profile() != &self.state.profile
             {
@@ -195,13 +192,11 @@ impl OwnedResident {
                         height,
                         invocation: None,
                     };
-                    provider.verify_installed_owner(
-                        compatibility,
-                        installed,
-                        deadline,
-                        &|| guard.cancelled(),
-                    )?;
-                    provider.invocation = Some(InvocationContext::bind(&job, &provider, &operands)?);
+                    provider.verify_installed_owner(compatibility, installed, deadline, &|| {
+                        guard.cancelled()
+                    })?;
+                    provider.invocation =
+                        Some(InvocationContext::bind(&job, &provider, &operands)?);
                     let retained = self.ledger.begin_retained_f05(
                         prepared,
                         world,
@@ -220,9 +215,7 @@ impl OwnedResident {
             ))
         })();
         match began {
-            Ok((
-                guard, invocation, identity, height, inventory, retained, operands,
-            )) => {
+            Ok((guard, invocation, identity, height, inventory, retained, operands)) => {
                 Ok(ParkedF05 {
                     attempt,
                     anchor: InvocationAnchor {
@@ -405,7 +398,9 @@ impl ResidentF05Driver {
     pub(in super::super::super::super) fn cancel(&mut self) {
         self.selection.cancel();
     }
-    pub(in super::super::super::super) fn completion_wake(&self) -> crossbeam_channel::Receiver<()> {
+    pub(in super::super::super::super) fn completion_wake(
+        &self,
+    ) -> crossbeam_channel::Receiver<()> {
         self.selection.f05_wake()
     }
     pub(in super::super::super::super) fn serve(
@@ -417,7 +412,10 @@ impl ResidentF05Driver {
         ordinary: impl for<'call> FnMut(
             super::super::super::super::core::ServiceQuery<'call>,
             Instant,
-        ) -> Result<super::super::super::super::core::ServiceStep, Failure>,
+        ) -> Result<
+            super::super::super::super::core::ServiceStep,
+            Failure,
+        >,
     ) -> usize {
         self.selection.serve_f05(
             mailbox,
@@ -438,7 +436,8 @@ impl ResidentF05Driver {
         if !self.selection.f05_idle() {
             return Err(Failure::QueueCapacity.into());
         }
-        self.owner.constructor_identity(installed, context, deadline)
+        self.owner
+            .constructor_identity(installed, context, deadline)
     }
 }
 
@@ -452,7 +451,8 @@ impl ResidentF05Driver {
     }
     pub(in super::super::super::super) fn f05_trace(
         &self,
-    ) -> Option<&super::super::super::super::products::source_height::freshness_timings::SourceTrace> {
+    ) -> Option<&super::super::super::super::products::source_height::freshness_timings::SourceTrace>
+    {
         self.selection.f05_trace()
     }
 }
@@ -481,7 +481,9 @@ impl ParkedF05 {
     ) -> (Result<CertifiedResidentResult, ResidentFilterError>, bool) {
         match completion.into_outcome(&self.guard) {
             Err(error) => (self.reentry_error(owner, error.into()), false),
-            Ok(F05Outcome::SourceError(error, _diagnostics)) => (self.source_error(owner, error), false),
+            Ok(F05Outcome::SourceError(error, _diagnostics)) => {
+                (self.source_error(owner, error), false)
+            }
             Ok(F05Outcome::Success(success)) => {
                 if self.guard.cancelled() {
                     return (self.cancelled_success(success, owner, custody), false);

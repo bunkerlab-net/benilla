@@ -1100,14 +1100,8 @@ impl ResidentLedger {
         context: &AuthorityRequest,
         cancelled: impl Fn() -> bool,
     ) -> Result<Facts, ResidentFilterError> {
-        let (candidate, facts) = super::retained::finish_f05(
-            ready,
-            world,
-            compatibility,
-            provider,
-            context,
-            cancelled,
-        )?;
+        let (candidate, facts) =
+            super::retained::finish_f05(ready, world, compatibility, provider, context, cancelled)?;
         self.stage_finished_retained(candidate, facts, compatibility, provider, context)
     }
 

@@ -1375,7 +1375,8 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
             };
             // Prepare foreign provenance before any original Work deadline starts.
             let mut foreign_index = (fault == F05Fault::ForeignIndex).then(|| {
-                let mut foreign = InstalledFixture::new(install.path(), input::raw_inventory(install));
+                let mut foreign =
+                    InstalledFixture::new(install.path(), input::raw_inventory(install));
                 foreign
                     .app
                     .world_mut()
@@ -1386,7 +1387,8 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                 (ResidentF05Driver::new(owner, &mailbox).unwrap(), None)
             } else {
                 let (driver, entered, release) = if fault == F05Fault::CancelAfterStaging {
-                    ResidentF05Driver::new_with_f05_gate_cancel_after_staging(owner, &mailbox).unwrap()
+                    ResidentF05Driver::new_with_f05_gate_cancel_after_staging(owner, &mailbox)
+                        .unwrap()
                 } else {
                     ResidentF05Driver::new_with_f05_gate(owner, &mailbox).unwrap()
                 };
@@ -1505,8 +1507,9 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                                     ));
                                     if !notice.routes().is_empty() {
                                         assert_eq!(notice.routes().len(), 1);
-                                        if let Some(cold) =
-                                            notices.iter().find(|notice| !notice.routes().is_empty())
+                                        if let Some(cold) = notices
+                                            .iter()
+                                            .find(|notice| !notice.routes().is_empty())
                                         {
                                             source_route_resident_retained::assert_request(
                                                 &profile,
@@ -1579,7 +1582,9 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                     }
                     max_owner_service = max_owner_service.max(started.elapsed());
                     if !fault_applied
-                        && gate.as_ref().is_some_and(|(entered, _)| entered.try_recv().is_ok())
+                        && gate
+                            .as_ref()
+                            .is_some_and(|(entered, _)| entered.try_recv().is_ok())
                     {
                         let active = driver.as_mut().unwrap();
                         assert!(active.pending());
@@ -1663,7 +1668,10 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                         }
                         assert!(active.diagnostic().same_semantic_state(&before));
                         assert_eq!(acks.load(Ordering::SeqCst), ack_before);
-                        if matches!(fault, F05Fault::CancelReady | F05Fault::SourceErrorThenCancelReady) {
+                        if matches!(
+                            fault,
+                            F05Fault::CancelReady | F05Fault::SourceErrorThenCancelReady
+                        ) {
                             // No source result is drained or interpreted here. The worker sends
                             // this coalesced notification only after publishing its actual result.
                             while wake.try_recv().is_ok() {}
@@ -1675,11 +1683,14 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                                     "ready-before-cancel missed original deadline"
                                 );
                                 control.run_schedule(F05Control);
-                                if wake.recv_timeout(
-                                    original_deadline
-                                        .saturating_duration_since(Instant::now())
-                                        .min(Duration::from_millis(1)),
-                                ).is_ok() {
+                                if wake
+                                    .recv_timeout(
+                                        original_deadline
+                                            .saturating_duration_since(Instant::now())
+                                            .min(Duration::from_millis(1)),
+                                    )
+                                    .is_ok()
+                                {
                                     break;
                                 }
                             }
@@ -1717,7 +1728,10 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                 );
                 // An already-retired receiver does not erase owed diagnostic unwind.
                 while driver.as_ref().is_some_and(|driver| driver.pending()) {
-                    assert!(Instant::now() < outer_deadline, "F05 tombstone did not drain");
+                    assert!(
+                        Instant::now() < outer_deadline,
+                        "F05 tombstone did not drain"
+                    );
                     control.run_schedule(F05Control);
                     driver.as_mut().unwrap().serve(
                         &mailbox,
@@ -1743,7 +1757,10 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                         fault_applied,
                         "failed before reaching the intended held F05 fault"
                     );
-                    assert!(outcome.is_err(), "actual fault must refuse without save/ACK");
+                    assert!(
+                        outcome.is_err(),
+                        "actual fault must refuse without save/ACK"
+                    );
                     let expected = match fault {
                         F05Fault::CancelHeld
                         | F05Fault::ExpireHeld
@@ -1803,10 +1820,7 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                         );
                     }
                     assert_eq!(routes.load(Ordering::SeqCst), 1);
-                    assert_eq!(
-                        counts,
-                        Some((1, usize::from(fault != F05Fault::QuitHeld)))
-                    );
+                    assert_eq!(counts, Some((1, usize::from(fault != F05Fault::QuitHeld))));
                     return;
                 }
                 let proofs = outcome.unwrap();
@@ -1827,7 +1841,15 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                     "original F06-F59 plus labeled extra owner check"
                 );
                 final_trace.extend(begin);
-                final_trace.extend(driver.as_ref().unwrap().f05_trace().unwrap().iter().copied());
+                final_trace.extend(
+                    driver
+                        .as_ref()
+                        .unwrap()
+                        .f05_trace()
+                        .unwrap()
+                        .iter()
+                        .copied(),
+                );
                 final_trace.extend(resume);
                 assert_eq!(routes.load(Ordering::SeqCst), 2);
                 assert!(pending_turns > 0);
@@ -1843,7 +1865,10 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
             });
             assert_eq!(
                 source_change.is_some(),
-                matches!(fault, F05Fault::SourceChange | F05Fault::SourceErrorThenCancelReady)
+                matches!(
+                    fault,
+                    F05Fault::SourceChange | F05Fault::SourceErrorThenCancelReady
+                )
             );
             drop(source_change);
         },
@@ -1866,7 +1891,10 @@ fn resident_f05_default_budget_actual_controller_comparison() {
         parked.is_ok(),
     );
     assert!(baseline.is_ok(), "baseline failed at the unchanged budget");
-    assert!(parked.is_ok(), "F05 prototype failed at the unchanged budget");
+    assert!(
+        parked.is_ok(),
+        "F05 prototype failed at the unchanged budget"
+    );
     assert_f05_logical_trace(&baseline.unwrap().retained_final_trace, parked.unwrap());
 }
 
@@ -1981,8 +2009,7 @@ fn assert_f05_logical_trace(
         parked[slot] = baseline[slot];
     }
     assert_eq!(
-        &parked,
-        baseline,
+        &parked, baseline,
         "every other original source occurrence stays ordered"
     );
 }

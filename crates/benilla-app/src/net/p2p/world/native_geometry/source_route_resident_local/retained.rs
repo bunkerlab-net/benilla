@@ -211,7 +211,10 @@ pub(super) fn begin_f05(
     cancelled: impl Fn() -> bool,
 ) -> Result<ParkedRetainedF05, ResidentFilterError> {
     let deadline = deadline.min(prepared.deadline);
-    let segment_ticket = prepared.first_ticket.checked_add(4).ok_or(Failure::Invalid)?;
+    let segment_ticket = prepared
+        .first_ticket
+        .checked_add(4)
+        .ok_or(Failure::Invalid)?;
     let mut state = SystemState::<(
         Option<Res<NativeStaticMapIndex>>,
         NativeTerrainCoverage,
