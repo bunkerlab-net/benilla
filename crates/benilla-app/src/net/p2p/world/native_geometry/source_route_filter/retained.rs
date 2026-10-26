@@ -131,6 +131,56 @@ enum RetainedPrefixState {
     PredecessorEnter(Instant),
 }
 
+// Owned scalar operands at the original F11 source boundary. The synchronous
+// caller retains the same terminal/native borrows; this is not a resume proof.
+struct RetainedObservationState {
+    deadline: Instant,
+    tickets: [u64; 2],
+    masks: [u8; 2],
+    body: Body,
+}
+impl RetainedObservationState {
+    fn finish(
+        self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        terminal: &LoadedSourceSamePolygon,
+        native: &benilla_native_nav::LoadedSourceColdDistanceCompatibility,
+        context: &AuthorityRequest,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<ResidentJoinedRetainedObservation, ResidentFilterError> {
+        let Self {
+            deadline,
+            tickets,
+            masks,
+            body,
+        } = self;
+        provider
+            .height
+            .verify_unchanged(cancelled)
+            .map_err(ResidentFilterError::Source)?;
+        provider.check_context(context, deadline, cancelled)?;
+        Ok(ResidentJoinedRetainedObservation {
+            terminal: ResidentSamePolygonObservation {
+                points: terminal.points().try_into().map_err(|_| Failure::Binding)?,
+                liquid_tickets: tickets,
+                liquid_masks: masks,
+                actual_end: terminal.actual_end(),
+                path_type: terminal.path_type(),
+                active_len: native.active_len(),
+                filter: native.filter(),
+                query_capacity: terminal.query_capacity(),
+                before_storage_zero: native.before_active_len() == 0
+                    && native.before_storage().len()
+                        == usize::from(motion::PATHFINDER_CACHE_POINT_LIMIT)
+                    && native.before_storage().iter().all(|id| *id == 0),
+                compatibility_id: native.compatibility_id(),
+                compatibility_version: native.compatibility_version(),
+            },
+            body,
+        })
+    }
+}
+
 /// Own fresh prerequisites and the real native successor, never a reconstructed cache.
 /// The concrete candidate separately owns its ACK-selected cold predecessor by Rc.
 pub(crate) struct ResidentJoinedRetainedDependency {
@@ -602,29 +652,13 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
                 .initialized_height_for(context, deadline, &cancelled)?
                 .ok_or(Failure::UnresolvedBody)?,
         };
-        self.height
-            .verify_unchanged(&cancelled)
-            .map_err(ResidentFilterError::Source)?;
-        self.check_context(context, deadline, &cancelled)?;
-        Ok(ResidentJoinedRetainedObservation {
-            terminal: ResidentSamePolygonObservation {
-                points: terminal.points().try_into().map_err(|_| Failure::Binding)?,
-                liquid_tickets: tickets,
-                liquid_masks: masks,
-                actual_end: terminal.actual_end(),
-                path_type: terminal.path_type(),
-                active_len: native.active_len(),
-                filter: native.filter(),
-                query_capacity: terminal.query_capacity(),
-                before_storage_zero: native.before_active_len() == 0
-                    && native.before_storage().len()
-                        == usize::from(motion::PATHFINDER_CACHE_POINT_LIMIT)
-                    && native.before_storage().iter().all(|id| *id == 0),
-                compatibility_id: native.compatibility_id(),
-                compatibility_version: native.compatibility_version(),
-            },
+        RetainedObservationState {
+            deadline,
+            tickets,
+            masks,
             body,
-        })
+        }
+        .finish(self, terminal, native, context, &cancelled)
     }
     pub(crate) fn retained_cache(
         &self,
@@ -899,5 +933,7 @@ pub(crate) fn cold_storage_footprint_for_test(origin: &ResidentJoinedColdDepende
         + 3 * context_cache_bytes(&origin.retained_cold().historical_observation().context)
 }
 
+#[path = "retained/observation_equivalence.rs"]
+pub(crate) mod observation_equivalence;
 #[path = "retained/prefix_equivalence.rs"]
 pub(crate) mod prefix_equivalence;

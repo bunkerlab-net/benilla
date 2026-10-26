@@ -23,6 +23,7 @@ on:
       - crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained.rs
+      - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained/observation_equivalence.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained/prefix_equivalence.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned.rs
       - crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/phased.rs

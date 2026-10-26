@@ -2365,3 +2365,152 @@ fn owned_retained_prefix_literal_oracle_preserves_two_source_effects() {
         assert_eq!(probe.consumer.owner.ledger.counts(), (1, 1));
     });
 }
+
+#[test]
+fn owned_retained_observation_literal_oracle_preserves_final_source_effect() {
+    struct ObservationProbe<'a> {
+        consumer: Consumer<'a>,
+        inspected: bool,
+    }
+    impl Authority for ObservationProbe<'_> {
+        fn resolve(&mut self, request: &AuthorityRequest) -> Result<AuthorityReply, NativeError> {
+            if matches!(request.query, Query::SourceMotion(MotionQuery::Route(_)))
+                && !self.consumer.routes.is_empty()
+            {
+                assert!(!self.inspected);
+                let installed = self.consumer.installed();
+                let before = self.consumer.owner.ledger.diagnostic();
+                assert_eq!(self.consumer.owner.ledger.counts(), (1, 1));
+                let (_client, mailbox) = mailbox(self.consumer.session.clone()).unwrap();
+                let install = self.consumer.install;
+                for bind_job in [false, true] {
+                    let deadline = fixture::until();
+                    let work = ResidentDispatchWork::capture(
+                        &mailbox,
+                        &self.consumer.owner,
+                        &self.consumer.profile,
+                        f::player(),
+                        993,
+                        request.clone(),
+                        deadline,
+                    )
+                    .unwrap();
+                    let job = work.job(&mailbox, &self.consumer.owner, deadline).unwrap();
+                    self.consumer
+                        .owner
+                        .calculate_with_job(
+                            &installed,
+                            deadline,
+                            || false,
+                            bind_job.then_some(&job),
+                            |provider, _, ledger| {
+                                assert_eq!(provider.invocation.is_some(), bind_job);
+                                ledger.inspect_retained_prefix_for_test(
+                                    provider,
+                                    request,
+                                    201,
+                                    deadline,
+                                    || false,
+                                    |_| {},
+                                    |provider, dependency, prior| {
+                                        super::super::retained::observation_equivalence::compare(
+                                            provider, dependency, prior, request, deadline, install,
+                                        );
+                                    },
+                                )?;
+                                assert_eq!(ledger.diagnostic(), before);
+                                Ok(())
+                            },
+                        )
+                        .unwrap();
+                    assert!(job.lease().is_active());
+                    assert_eq!(self.consumer.owner.ledger.diagnostic(), before);
+                }
+                self.inspected = true;
+                return Err(NativeError::AuthorityUnavailable(
+                    "retained observation comparison never stages or publishes",
+                ));
+            }
+            self.consumer.resolve(request)
+        }
+    }
+    with_owned(|install, owner, geometry, session, profile| {
+        let mut probe = ObservationProbe {
+            consumer: Consumer {
+                install,
+                phased_retained: false,
+                owner,
+                geometry,
+                session,
+                profile,
+                authored: Default::default(),
+                routes: vec![],
+                constructor: None,
+                foreign_index: Some(
+                    NativeStaticMapIndex::from_inventory(input::raw_inventory(install)).unwrap(),
+                ),
+                fifo_probe: None,
+                fifo_inspected: false,
+                foreign_boundary: None,
+            },
+            inspected: false,
+        };
+        let mut world = NativeWorld::synthetic_component_test_with_initialization(
+            probe.consumer.profile.clone(),
+            probe.consumer.session.world,
+            f::player(),
+            1234,
+            None,
+            &mut probe,
+        )
+        .unwrap();
+        let mut boundary = RouteCommitBoundary::capture_initial(&world).unwrap();
+        probe.consumer.owner.initialize(&boundary).unwrap();
+        for tick in 1..=76 {
+            let position = world.state().position;
+            let inputs = if tick == 1 {
+                (1..=2)
+                    .map(|offset| {
+                        movement(
+                            &world,
+                            world.state().next_sequence + offset - 1,
+                            ai::Point::new(
+                                position.x.as_f32(),
+                                position.y.as_f32() - offset as f32,
+                                position.z.as_f32(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                    .collect()
+            } else if !probe.consumer.routes.is_empty() {
+                vec![movement(
+                    &world,
+                    world.state().next_sequence,
+                    ai::Point::new(
+                        position.x.as_f32() - 0.125,
+                        position.y.as_f32(),
+                        position.z.as_f32(),
+                    )
+                    .unwrap(),
+                )]
+            } else {
+                vec![]
+            };
+            let before = world.checkpoint().unwrap();
+            let result = world.step_batch(tick, inputs, &mut probe);
+            if probe.inspected {
+                assert!(result.is_err());
+                assert_eq!(world.checkpoint().unwrap(), before);
+                break;
+            }
+            result.unwrap();
+            let notice = RouteCommitNotice::capture(&world, &boundary).unwrap();
+            probe.consumer.owner.acknowledge(&notice).unwrap();
+            boundary = notice.boundary().clone();
+        }
+        assert!(probe.inspected);
+        assert_eq!(probe.consumer.routes.len(), 1);
+        assert_eq!(probe.consumer.owner.ledger.counts(), (1, 1));
+    });
+}
