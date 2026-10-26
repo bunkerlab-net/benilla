@@ -90,7 +90,7 @@ fn f05_source_frames_preserve_scope_exit_debt_and_exact_inventory_custody() {
         fn check() {}
     }
     impl<T: ?Sized> AmbiguousIfClone<()> for T {}
-    impl<T: ?Sized + Clone> AmbiguousIfClone<u8> for T {}
+    impl<T: Clone> AmbiguousIfClone<u8> for T {}
     let _ = <f05_scope::F05HeightFrame as AmbiguousIfClone<_>>::check;
     let _ = <f05_scope::F05InventoryFrame as AmbiguousIfClone<_>>::check;
     let _ = <F05ResumePermit as AmbiguousIfClone<_>>::check;

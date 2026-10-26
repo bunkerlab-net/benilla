@@ -134,7 +134,7 @@ impl ParkedF05 {
                         &proof,
                         &provider,
                         self.guard.request(),
-                        &|| self.guard.cancelled(),
+                        || self.guard.cancelled(),
                     ))
                 },
             )
@@ -192,7 +192,7 @@ impl OwnedResident {
                         height,
                         invocation: None,
                     };
-                    provider.verify_installed_owner(compatibility, installed, deadline, &|| {
+                    provider.verify_installed_owner(compatibility, installed, deadline, || {
                         guard.cancelled()
                     })?;
                     provider.invocation =
@@ -204,7 +204,7 @@ impl OwnedResident {
                         &mut provider,
                         guard.request(),
                         deadline,
-                        &|| guard.cancelled(),
+                        || guard.cancelled(),
                     )?;
                     drop(provider);
                     Ok::<_, ResidentFilterError>((retained, operands))
@@ -296,7 +296,7 @@ impl ParkedF05 {
                         &permit,
                         &mut provider,
                         job.request(),
-                        &cancelled,
+                        cancelled,
                     )?;
                     // No scene proof exists yet. This authored NON-frame schedule
                     // owns no resident/state/ledger resource or driver callback.
@@ -308,7 +308,7 @@ impl ParkedF05 {
                         compatibility,
                         &mut provider,
                         job.request(),
-                        &cancelled,
+                        cancelled,
                     )?;
                     if custody.cancel_after_staging {
                         self.guard.cancel();
@@ -318,7 +318,7 @@ impl ParkedF05 {
                         compatibility,
                         &self.installed,
                         deadline,
-                        &cancelled,
+                        cancelled,
                     )?;
                     Ok(facts)
                 },

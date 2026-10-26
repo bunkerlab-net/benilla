@@ -1492,19 +1492,17 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                     assert!(Instant::now() < outer_deadline, "F05 controller stalled");
                     control.run_schedule(F05Control);
                     let started = Instant::now();
-                    if driver.is_some() {
+                    if let Some(active) = driver.as_mut() {
                         mailbox.serve_route_commits_test_drop_reply(
                             32,
                             |_, command| match command {
                                 RouteCommitCommand::Initialize(boundary) => {
-                                    driver.as_mut().unwrap().initialize(boundary)
+                                    active.initialize(boundary)
                                 }
                                 RouteCommitCommand::Commit(notice) => {
-                                    driver.as_mut().unwrap().acknowledge(notice)?;
-                                    acknowledged_ledger = Some((
-                                        driver.as_ref().unwrap().diagnostic(),
-                                        driver.as_ref().unwrap().ledger_counts(),
-                                    ));
+                                    active.acknowledge(notice)?;
+                                    acknowledged_ledger =
+                                        Some((active.diagnostic(), active.ledger_counts()));
                                     if !notice.routes().is_empty() {
                                         assert_eq!(notice.routes().len(), 1);
                                         if let Some(cold) = notices
@@ -1530,9 +1528,9 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                             },
                             |_| false,
                         );
-                        let before_counts = driver.as_ref().unwrap().f05_counts();
+                        let before_counts = active.f05_counts();
                         let (_, trace) = freshness_timings::trace_sources(|| {
-                            driver.as_mut().unwrap().serve(
+                            active.serve(
                                 &mailbox,
                                 &mut geometry,
                                 1,
@@ -1568,7 +1566,7 @@ fn run_f05_controller(fault: F05Fault) -> freshness_timings::SourceTrace {
                                 },
                             )
                         });
-                        let after_counts = driver.as_ref().unwrap().f05_counts();
+                        let after_counts = active.f05_counts();
                         if after_counts.0 != before_counts.0 {
                             assert_eq!((before_counts, after_counts), ((0, 0), (1, 0)));
                             begin_owner_wall = started.elapsed();
