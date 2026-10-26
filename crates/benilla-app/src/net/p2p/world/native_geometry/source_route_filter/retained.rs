@@ -61,23 +61,74 @@ impl ResidentRetainedRoot {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<Instant, ResidentFilterError> {
+        self.begin_current(provider, context, deadline, &cancelled)?
+            .finish(provider, context, &cancelled)
+    }
+    fn begin_current(
+        &self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<RootCurrentState, ResidentFilterError> {
         if !Rc::ptr_eq(&self.provider, &provider.identity) || self.context != *context {
             return Err(Failure::Binding.into());
         }
-        let saved = provider.dispatch_for(&self.context, deadline, &cancelled)?;
-        let current = provider.dispatch_for(context, deadline, &cancelled)?;
+        let saved = provider.dispatch_for(&self.context, deadline, cancelled)?;
+        let current = provider.dispatch_for(context, deadline, cancelled)?;
         if !saved.same_live_dispatch(current) {
             return Err(Failure::Binding.into());
         }
         let deadline = deadline.min(self.expires);
-        provider.check_context(context, deadline, &cancelled)?;
+        provider.check_context(context, deadline, cancelled)?;
+        Ok(RootCurrentState { deadline })
+    }
+}
+
+// These states retain only owner-local operands between the original synchronous
+// operations. They confer no authority and cannot leave this module's drivers.
+struct RootCurrentState {
+    deadline: Instant,
+}
+impl RootCurrentState {
+    fn finish(
+        self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Instant, ResidentFilterError> {
         provider
             .height
-            .verify_unchanged(&cancelled)
+            .verify_unchanged(cancelled)
             .map_err(ResidentFilterError::Source)?;
-        provider.check_context(context, deadline, &cancelled)?;
-        Ok(deadline)
+        provider.check_context(context, self.deadline, cancelled)?;
+        Ok(self.deadline)
     }
+}
+struct PredecessorState {
+    // Keep the original Vec-backed temporary alive through source and context
+    // checks, then drop it on this predecessor's return (including unwind).
+    _cache: motion::PathFinderCache,
+}
+impl PredecessorState {
+    fn finish(
+        self,
+        provider: &ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<(), ResidentFilterError> {
+        provider
+            .height
+            .verify_unchanged(cancelled)
+            .map_err(ResidentFilterError::Source)?;
+        provider.check_context(context, deadline, cancelled)
+    }
+}
+enum RetainedPrefixState {
+    RootEnter,
+    RootSource(RootCurrentState),
+    PredecessorEnter(Instant),
 }
 
 /// Own fresh prerequisites and the real native successor, never a reconstructed cache.
@@ -366,15 +417,25 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<(), ResidentFilterError> {
+        self.begin_retained_predecessor(prior, context, deadline, &cancelled)?
+            .finish(self, context, deadline, &cancelled)
+    }
+    fn begin_retained_predecessor(
+        &self,
+        prior: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<PredecessorState, ResidentFilterError> {
         self.require_first_retained_calculation()?;
-        self.check_context(context, deadline, &cancelled)?;
+        self.check_context(context, deadline, cancelled)?;
         let previous = prior.retained_cold().historical_observation();
         if !Rc::ptr_eq(&self.identity, &previous.identity) {
             return Err(Failure::Binding.into());
         }
-        self.check_context(&previous.context, deadline, &cancelled)?;
-        let old = self.dispatch_for(&previous.context, deadline, &cancelled)?;
-        let current = self.dispatch_for(context, deadline, &cancelled)?;
+        self.check_context(&previous.context, deadline, cancelled)?;
+        let old = self.dispatch_for(&previous.context, deadline, cancelled)?;
+        let current = self.dispatch_for(context, deadline, cancelled)?;
         let Query::SourceMotion(MotionQuery::Route(old_route)) = &previous.context.query else {
             return Err(Failure::Binding.into());
         };
@@ -424,10 +485,35 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         if route.request.prior_cache.as_deref() != Some(&cache) {
             return Err(Failure::Binding.into());
         }
-        self.height
-            .verify_unchanged(&cancelled)
-            .map_err(ResidentFilterError::Source)?;
-        self.check_context(context, deadline, &cancelled)
+        Ok(PredecessorState { _cache: cache })
+    }
+
+    fn check_retained_prefix(
+        &self,
+        root: &ResidentRetainedRoot,
+        prior: &ResidentJoinedColdDependency,
+        context: &AuthorityRequest,
+        deadline: Instant,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Instant, ResidentFilterError> {
+        let mut state = RetainedPrefixState::RootEnter;
+        loop {
+            state = match state {
+                RetainedPrefixState::RootEnter => RetainedPrefixState::RootSource(
+                    root.begin_current(self, context, deadline, cancelled)?,
+                ),
+                RetainedPrefixState::RootSource(root) => {
+                    let deadline = root.finish(self, context, cancelled)?;
+                    RetainedPrefixState::PredecessorEnter(deadline)
+                }
+                RetainedPrefixState::PredecessorEnter(deadline) => {
+                    let predecessor =
+                        self.begin_retained_predecessor(prior, context, deadline, cancelled)?;
+                    predecessor.finish(self, context, deadline, cancelled)?;
+                    return Ok(deadline);
+                }
+            };
+        }
     }
 
     /// Only diagnostics escape; the actual native terminal stays in the dependency.
@@ -439,10 +525,8 @@ impl ResidentFilterProvider<'_, '_, '_, '_> {
         deadline: Instant,
         cancelled: impl Fn() -> bool,
     ) -> Result<ResidentJoinedRetainedObservation, ResidentFilterError> {
-        let deadline = dependency
-            .root
-            .check_current(self, context, deadline, &cancelled)?;
-        self.check_retained_predecessor(prior, context, deadline, &cancelled)?;
+        let deadline =
+            self.check_retained_prefix(&dependency.root, prior, context, deadline, &cancelled)?;
         if !Rc::ptr_eq(
             &dependency.root.predecessor,
             &prior
@@ -814,3 +898,6 @@ pub(crate) fn cold_storage_footprint_for_test(origin: &ResidentJoinedColdDepende
     native_storage_footprint(origin.retained_cold().native_terminal())
         + 3 * context_cache_bytes(&origin.retained_cold().historical_observation().context)
 }
+
+#[path = "retained/prefix_equivalence.rs"]
+pub(crate) mod prefix_equivalence;

@@ -39,6 +39,8 @@ COMPARISON_PATHS = (
     'crates/benilla-app/src/net/p2p/world/native_geometry/resident_dispatch/transport.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/resident_result_controller_tests.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/retained_phased_controller_tests.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained.rs',
+    'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/retained/prefix_equivalence.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/phased.rs',
     'crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter/resident_owned/tests.rs',
@@ -143,6 +145,7 @@ SUITES = {
             "cold_phased_negatives::cold_fifo_final_retry_drop_tail_full_and_post_mint_expiry_do_not_ack",
             "cold_phased_negatives::cold_fifo_prepared_refusals_preserve_original_work_and_uncommitted_ledger",
             "wrapper_equivalence::owned_wrapper_old_literal_and_operand_refactor_preserve_unwind_and_source_order",
+            "owned_retained_prefix_literal_oracle_preserves_two_source_effects",
         ),
     ),
     "Verify two-turn retained controller transport": (
@@ -279,18 +282,36 @@ class ExactProofTests(unittest.TestCase):
         actual.update("wrapper_equivalence::" + name for name in re.findall(pattern, wrappers))
         self.assertEqual(set(names), actual)
         self.assertEqual(len(names), len(actual))
-        self.assertEqual(len(names), 12)
+        self.assertEqual(len(names), 13)
 
     def test_scoped_resident_gate_rejects_old_nine_test_evidence(self):
         _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
         names = [prefix + name for name in short_names]
-        old_names = [name for name in names if "::cold_phased_negatives::" not in name and "::wrapper_equivalence::" not in name]
+        old_names = [name for name in names if "::cold_phased_negatives::" not in name and "::wrapper_equivalence::" not in name and not name.endswith("::owned_retained_prefix_literal_oracle_preserves_two_source_effects")]
         self.assertEqual(len(old_names), 9)
         with self.assertRaises(ValueError):
             VERIFIER.verify(fixture(old_names), names)
         for cold_name in set(names) - set(old_names):
             with self.subTest(test=cold_name), self.assertRaises(ValueError):
                 VERIFIER.verify(fixture(names).replace(f"test {cold_name} ... ok\n", ""), names)
+
+    def test_retained_prefix_gate_rejects_legacy_twelve_results(self):
+        _, prefix, short_names = SUITES["Verify scoped resident source ownership"]
+        added = "owned_retained_prefix_literal_oracle_preserves_two_source_effects"
+        names = [prefix + name for name in short_names]
+        legacy = [name for name in names if name != prefix + added]
+        self.assertEqual(len(legacy), 12)
+        with self.assertRaises(ValueError):
+            VERIFIER.verify(fixture(legacy), names)
+        root = ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/source_route_filter"
+        self.assertIn(
+            '#[cfg(all(test, not(benilla_headless_geometry)))]\n#[path = "retained.rs"]\npub(crate) mod retained;',
+            (root / "resident.rs").read_text(),
+        )
+        self.assertIn(
+            '#[path = "retained/prefix_equivalence.rs"]\npub(crate) mod prefix_equivalence;',
+            (root / "retained.rs").read_text(),
+        )
 
     def test_accepts_exact_two_and_three_with_captured_diagnostics(self):
         for title, _, _, names, output in self.variants():

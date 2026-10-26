@@ -350,7 +350,8 @@ jobs:
             source_route_filter::resident::owned::tests::resident_result_transport_tail_full_and_post_mint_expiry_retire_only_unsent_candidate \
             source_route_filter::resident::owned::tests::cold_phased_negatives::cold_fifo_final_retry_drop_tail_full_and_post_mint_expiry_do_not_ack \
             source_route_filter::resident::owned::tests::cold_phased_negatives::cold_fifo_prepared_refusals_preserve_original_work_and_uncommitted_ledger \
-            source_route_filter::resident::owned::tests::wrapper_equivalence::owned_wrapper_old_literal_and_operand_refactor_preserve_unwind_and_source_order
+            source_route_filter::resident::owned::tests::wrapper_equivalence::owned_wrapper_old_literal_and_operand_refactor_preserve_unwind_and_source_order \
+            source_route_filter::resident::owned::tests::owned_retained_prefix_literal_oracle_preserves_two_source_effects
       - name: Verify two-turn retained controller transport
         shell: bash
         run: |

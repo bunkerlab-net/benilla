@@ -1115,6 +1115,35 @@ impl ResidentLedger {
             super::super::source_route_filter::resident::retained::ResidentRetainedPhase,
         ),
     ) -> Result<(), ResidentFilterError> {
+        self.inspect_retained_prefix_for_test(
+            provider,
+            context,
+            first_ticket,
+            deadline,
+            cancelled,
+            observe,
+            |_, _, _| {},
+        )
+    }
+    /// Borrow actual guarded dependencies only for a local differential test.
+    /// The callback cannot return or retain these fresh borrows as authority.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn inspect_retained_prefix_for_test(
+        &self,
+        provider: &mut ResidentFilterProvider<'_, '_, '_, '_>,
+        context: &AuthorityRequest,
+        first_ticket: u64,
+        deadline: Instant,
+        cancelled: impl Fn() -> bool,
+        observe: impl FnMut(
+            super::super::source_route_filter::resident::retained::ResidentRetainedPhase,
+        ),
+        inspect: impl for<'scope> FnOnce(
+            &'scope ResidentFilterProvider<'_, '_, '_, '_>,
+            &'scope super::super::source_route_filter::resident::retained::ResidentJoinedRetainedDependency,
+            &'scope super::super::source_route_filter::resident::joined::ResidentJoinedColdDependency,
+        ),
+    ) -> Result<(), ResidentFilterError> {
         provider.require_one_retained_route()?;
         if !self.one_retained || self.retained_epoch_committed {
             return Err(Failure::UnsupportedQuery.into());
@@ -1130,21 +1159,21 @@ impl ResidentLedger {
         }
         let predecessor = self.committed_cold()?;
         self.validate_retained_context(predecessor, context)?;
-        provider
-            .observe_joined_retained_observed(
-                &predecessor.dependency,
-                context,
-                self.player,
-                first_ticket,
-                benilla_native_nav::SourceSamePolygonBudget {
-                    lookup_primitives: 8,
-                    terminal_primitives: 1,
-                },
-                deadline,
-                cancelled,
-                observe,
-            )
-            .map(|_| ())
+        let dependency = provider.observe_joined_retained_observed(
+            &predecessor.dependency,
+            context,
+            self.player,
+            first_ticket,
+            benilla_native_nav::SourceSamePolygonBudget {
+                lookup_primitives: 8,
+                terminal_primitives: 1,
+            },
+            deadline,
+            cancelled,
+            observe,
+        )?;
+        inspect(provider, &dependency, &predecessor.dependency);
+        Ok(())
     }
     fn validate_entry(&self, candidate: &Candidate) -> Result<(), Failure> {
         match candidate {
