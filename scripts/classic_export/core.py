@@ -403,6 +403,9 @@ def report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any], *,
         for row in rows:
             key = ":".join(str(row[name]) for name in KEYS[table])
             if table == "creature":
+                # CMaNGOS can select zero-id spawns through uncaptured creature_spawn_entry rows.
+                if row["id"] == 0:
+                    add(table, key, "spawn.entry_substitution_not_captured")
                 if not set(SPAWN_SCHEMA) <= set(tables):
                     add(table, key, "spawn.overrides_pools_events_not_captured")
                 if row["MovementType"] or row["spawndist"] != {"decimal": "0"}:
@@ -421,7 +424,8 @@ def report(tables: dict[str, list[dict[str, Any]]], profiles: dict[str, Any], *,
                     add(table, key, "quest.dynamic_xp")
                 if row["RequiredCondition"] or row["StartScript"] or row["CompleteScript"]:
                     add(table, key, "quest.condition_or_script")
-                if row["PrevQuestId"] or row["NextQuestId"] or row["ExclusiveGroup"] or row["BreadcrumbForQuestId"]:
+                if any(row[name] for name in ("PrevQuestId", "NextQuestId", "NextQuestInChain",
+                                               "ExclusiveGroup", "BreadcrumbForQuestId")):
                     add(table, key, "quest.chain")
                 if any(row[f"ReqCreatureOrGOId{i}"] < 0 or row[f"ReqSpellCast{i}"] or row[f"ReqItemId{i}"] for i in range(1,5)):
                     add(table, key, "quest.nonkill_objective")

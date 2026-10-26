@@ -151,6 +151,58 @@ class ExportTests(unittest.TestCase):
         self.assertIn("creature.native_stats_combat_faction_required", reasons)
         self.assertTrue(all(q.startswith("SELECT ") and ";" not in q for q, _ in source.queries))
 
+    def test_zero_id_spawn_is_preserved_with_unresolved_substitution_blocker(self):
+        source = FakeSource()
+        source.rows["creature"].append(dict(source.rows["creature"][0], guid=2, id=0))
+        bundle = capture(source, selection())
+        validate_bundle(bundle)
+        self.assertEqual([(r["guid"], r["id"]) for r in bundle["tables"]["creature"]],
+                         [(1, 900001), (2, 0)])
+        finding = {"table": "creature", "key": "2", "status": "blocked",
+                   "reason": "spawn.entry_substitution_not_captured"}
+        self.assertEqual([r for r in bundle["report"]["unsupported"]
+                          if r["reason"] == finding["reason"]], [finding])
+        self.assertFalse(bundle["report"]["capture_complete"])
+        self.assertFalse(bundle["report"]["runnable"])
+        self.assertTrue(all("creature_spawn_entry" not in sql for sql, _ in source.queries))
+        self.assert_required_finding_cannot_be_forged(bundle, finding)
+
+    def test_next_quest_in_chain_alone_is_preserved_and_blocked(self):
+        source = FakeSource()
+        source.rows["quest_template"][0]["NextQuestInChain"] = 910002
+        bundle = capture(source, selection())
+        validate_bundle(bundle)
+        self.assertEqual(bundle["tables"]["quest_template"][0]["NextQuestInChain"], 910002)
+        self.assertEqual([r["entry"] for r in bundle["tables"]["quest_template"]], [910001])
+        finding = {"table": "quest_template", "key": "910001", "status": "blocked",
+                   "reason": "quest.chain"}
+        self.assertIn(finding, bundle["report"]["unsupported"])
+        self.assert_required_finding_cannot_be_forged(bundle, finding)
+
+    def test_ordinary_capture_does_not_claim_global_quest_chain_closure(self):
+        bundle = capture(FakeSource(), selection())
+        validate_bundle(bundle)
+        reasons = {r["reason"] for r in bundle["report"]["unsupported"]}
+        self.assertNotIn("spawn.entry_substitution_not_captured", reasons)
+        self.assertNotIn("quest.chain", reasons)
+        self.assertIn("quest.native_eligibility_credit_reward_required", reasons)
+        # Zero own-link fields say nothing about uncaptured inbound quest links.
+        self.assertFalse(bundle["report"]["capture_complete"])
+        self.assertFalse(bundle["report"]["runnable"])
+
+    def assert_required_finding_cannot_be_forged(self, bundle, finding):
+        for alteration in ("omit", "reason", "key"):
+            with self.subTest(alteration=alteration, finding=finding["reason"]):
+                forged = copy.deepcopy(bundle)
+                issues = forged["report"]["unsupported"]
+                index = issues.index(finding)
+                if alteration == "omit":
+                    issues.pop(index)
+                else:
+                    issues[index][alteration] = "forged"
+                with self.assertRaisesRegex(ExportError, "bundle.missing_or_inconsistent_blocker"):
+                    validate_bundle(forged)
+
     def test_prepared_query_uses_numeric_parameters_only(self):
         query = Query("creature_template", "ids", (900001,))
         sql, params = query.sql()

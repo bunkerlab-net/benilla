@@ -126,6 +126,15 @@ generation, item admission or whole-table provenance is supplied.
 Not captured: other event override/group/linking state; gameobjects; non-body loot;
 conditions; other AI/script data; local starter outfits/DBC records; quest chains
 beyond referenced fields; spell procs/stacking or the local client DBCs.
+Zero `creature.id` rows remain raw and carry
+`spawn.entry_substitution_not_captured`: `creature_spawn_entry` alternatives are
+not captured or resolved. A nonzero captured `NextQuestInChain` is a `quest.chain`
+blocker, like the other captured chain fields. Zero own-link fields do not prove
+absence of inbound links from uncaptured quests; global chain closure remains
+unproven. Offline validation recomputes the exact required findings. Older
+bundles missing a newly required finding fail validation and should be
+recaptured; unchanged raw table hashes cannot excuse missing report findings.
+
 Legacy v2 captures without server learning coverage remain valid but unproven;
 new v2 captures require both reviewed learning tables. A bounded native compiler
 request may add exact item/spell roots through `--dependency-request`; see the
