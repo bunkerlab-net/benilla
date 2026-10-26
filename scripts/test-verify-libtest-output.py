@@ -1310,6 +1310,78 @@ class ExactProofTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(ROOT / "scripts/verify-f05-privacy.py"), "--self-test"], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_f05_short_diagnostic_preserves_both_exit_statuses_and_exact_manifest(self):
+        shell = workflow_gate("Diagnose exact F05 private source frames")
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        diagnostic = workflow.split("  f05-private-diagnostic:\n", 1)[1].split("\n  workspace-tests:", 1)[0]
+        self.assertIn("${{ (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feat/psk-p2p-foundation' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/psk-p2p-foundation') }}", diagnostic)
+        self.assertIn("    runs-on: ubuntu-26.04\n    timeout-minutes: 150\n", diagnostic)
+        self.assertNotIn("continue-on-error", diagnostic)
+        self.assertNotIn("needs:", diagnostic)
+        package, prefix, names = SUITES["Verify one-slot F05 private source frames"]
+        full_names = [prefix + name for name in names]
+        self.assertEqual(len(full_names), 4)
+        self.assertIn("set +e", shell)
+        for name in full_names:
+            self.assertIn(name, shell)
+        for test_status, valid, large in ((0, True, False), (17, True, False), (0, False, False), (17, False, False), (17, False, True)):
+            with self.subTest(test_status=test_status, valid=valid, large=large), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                mbx = directory / "mbx"
+                mbx.write_text("#!/usr/bin/env python3\nimport os,sys\nexpected=['test','--locked','-p','benilla-native-corridor-tests','--lib',os.environ['PREFIX'],'--','--show-output','--test-threads=1','--color','never']\nassert sys.argv[1:]==expected,sys.argv\nwith open(os.environ['CALLS'],'a') as f:f.write('attempt\\n')\nprint(os.environ['OUTPUT'],end='')\nprint('x'*(128*1024) if os.environ['LARGE']=='1' else 'stderr diagnostic only',file=sys.stderr)\nsys.exit(int(os.environ['EXIT']))\n")
+                mbx.chmod(0o755)
+                output = fixture(full_names if valid else full_names[:-1])
+                env = dict(os.environ, PATH=f"{directory}:{os.environ['PATH']}", RUNNER_TEMP=str(directory), CALLS=str(directory / "calls"), PREFIX=prefix, OUTPUT=output, EXIT=str(test_status), LARGE="1" if large else "0")
+                result = subprocess.run(["bash", "-c", shell], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode == 0, test_status == 0 and valid)
+                self.assertEqual((directory / "calls").read_text(), "attempt\n")
+                logs = directory / "f05-private-diagnostic"
+                self.assertEqual((logs / "test.stdout.log").read_text(), output)
+                expected_stderr = "x" * (128 * 1024) + "\n" if large else "stderr diagnostic only\n"
+                self.assertEqual((logs / "test.stderr.log").read_text(), expected_stderr)
+                if large:
+                    self.assertLess(len(result.stdout.encode()), 70000, "huge single-line diagnostics must not flood job log")
+                status = (logs / "exit-status").read_text()
+                self.assertIn(f"test_exit={test_status}\n", status)
+                self.assertEqual("verifier_exit=0\n" in status, valid)
+                self.assertTrue((logs / "verifier.stderr.log").is_file(), "verifier runs even after cargo failure")
+
+    def test_f05_diagnostic_artifact_is_bounded_and_missing_attempt_is_not_proof(self):
+        import hashlib
+        shell = workflow_gate("Prepare bounded F05 diagnostic evidence")
+        for attempted in (False, True):
+            with self.subTest(attempted=attempted), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                source = directory / "f05-private-diagnostic"
+                payload = b"x" * (2 * 1024 * 1024 + 123)
+                if attempted:
+                    source.mkdir()
+                    (source / "attempted").write_text("true\n")
+                    (source / "test.stdout.log").write_bytes(payload)
+                env = dict(os.environ, RUNNER_TEMP=str(directory), F05_EVENT_SHA="abc123", F05_TEST_OUTCOME="failure" if attempted else "skipped")
+                result = subprocess.run(["bash", "-c", shell], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                artifact = directory / "f05-private-artifact"
+                metadata = json.loads((artifact / "metadata.json").read_text())
+                self.assertEqual(metadata["attempted"], attempted)
+                self.assertEqual(metadata["event_sha"], "abc123")
+                self.assertFalse(metadata["logs"]["exit-status"]["present"])
+                if attempted:
+                    evidence = metadata["logs"]["test.stdout.log"]
+                    retained = (artifact / "test.stdout.log").read_bytes()
+                    self.assertEqual(len(retained), 2 * 1024 * 1024)
+                    self.assertTrue(evidence["truncated_to_tail"])
+                    self.assertEqual(evidence["original_sha256"], hashlib.sha256(payload).hexdigest())
+                    self.assertEqual(evidence["retained_sha256"], hashlib.sha256(retained).hexdigest())
+                    self.assertEqual((source / "test.stdout.log").read_bytes(), payload)
+                else:
+                    self.assertEqual(list(artifact.iterdir()), [artifact / "metadata.json"])
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        upload = workflow.split("      - name: Preserve bounded F05 diagnostic evidence\n", 1)[1].split("\n  workspace-tests:", 1)[0]
+        self.assertIn("if: always()", upload)
+        self.assertIn("if-no-files-found: error", upload)
+        self.assertIn("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", upload)
+
     def test_full_workspace_suite_keeps_its_own_unfiltered_job(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = re.findall(

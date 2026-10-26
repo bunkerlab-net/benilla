@@ -910,6 +910,126 @@ jobs:
             sort "$BENILLA_SKIP_LOG" | uniq -c | sort -rn >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  # Temporary prototype-branch diagnostic; not recovery/replacement of the old failed log.
+  f05-private-diagnostic:
+    if: >-
+      ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feat/psk-p2p-foundation' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/psk-p2p-foundation') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      # Bound peak memory while preserving the complete workspace and player test suites.
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_TEST_DEBUG: 0
+      # No debuginfo: it is most of target/, and a runner's disk is small.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      # Set and empty: no install, as the gates' test-no-install runs.
+      WOW_DATA: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Track unavailable data checks
+        run: echo "BENILLA_SKIP_LOG=$RUNNER_TEMP/benilla-data-skips.log" >> "$GITHUB_ENV"
+      - name: Report available disk space
+        run: df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+      - name: System libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libasound2-dev libudev-dev libwayland-dev
+          # Standalone corridor tests link Wayland without the app clipboard's dlopen feature.
+          pkg-config --exists wayland-client
+      - name: Toolchain
+        run: rustup toolchain install && rustc -V
+      - name: Set up Mr Boxington
+        uses: jdx/mr-boxington-action@47ce49b32025d93a7a2f4570815afaa2b7092240 # v1.7.2
+        with:
+          version: latest
+          backend: github
+          github-cache-mode: target
+          cache-generation: ci-ubuntu26-v1
+          # Same-repository PR writes stay in that PR's cache scope; forks never save.
+          save-on-pull-request: true
+          save-on-workflow-dispatch: true
+      - name: Diagnose exact F05 private source frames
+        id: f05_private
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/f05-private-diagnostic"
+          mkdir -p "$directory"
+          git rev-parse HEAD > "$directory/checkout.sha"
+          printf 'true\n' > "$directory/attempted"
+          set +e
+          mbx test --locked -p benilla-native-corridor-tests --lib source_route_filter::resident::owned::f05::tests:: -- --show-output --test-threads=1 --color never > "$directory/test.stdout.log" 2> "$directory/test.stderr.log"
+          test_status=$?
+          python3 scripts/verify-libtest-output.py "$directory/test.stdout.log" \
+            source_route_filter::resident::owned::f05::tests::f05_source_frames_preserve_scope_exit_debt_and_exact_inventory_custody \
+            source_route_filter::resident::owned::f05::tests::f05_source_frames_inner_error_and_cancelled_exit_match_original_wrappers \
+            source_route_filter::resident::owned::f05::tests::f05_source_frames_failed_entry_skips_reader_and_exit \
+            source_route_filter::resident::owned::f05::tests::f05_actual_fifo_dropped_receiver_retires_only_new_unacknowledged_stage > "$directory/verifier.stdout.log" 2> "$directory/verifier.stderr.log"
+          verifier_status=$?
+          set -e
+          printf 'test_exit=%s\nverifier_exit=%s\n' "$test_status" "$verifier_status" > "$directory/exit-status"
+          cat "$directory/checkout.sha" "$directory/exit-status"
+          if (( test_status != 0 || verifier_status != 0 )); then
+            for name in test.stdout.log test.stderr.log verifier.stderr.log; do
+              printf '\n--- bounded tail: %s ---\n' "$name"
+              tail -c 65536 "$directory/$name" | tail -n 80
+            done
+            exit 1
+          fi
+          tail -c 65536 "$directory/test.stdout.log" | tail -n 8
+      - name: Prepare bounded F05 diagnostic evidence
+        if: always()
+        env:
+          F05_EVENT_SHA: ${{ github.sha }}
+          F05_TEST_OUTCOME: ${{ steps.f05_private.outcome }}
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          source = Path(os.environ["RUNNER_TEMP"]) / "f05-private-diagnostic"
+          output = Path(os.environ["RUNNER_TEMP"]) / "f05-private-artifact"
+          output.mkdir(parents=True, exist_ok=True)
+          metadata = {
+              "event_sha": os.environ["F05_EVENT_SHA"],
+              "test_step_outcome": os.environ["F05_TEST_OUTCOME"],
+              "attempted": (source / "attempted").is_file(),
+              "meaning": "One fresh diagnostic execution; not original inaccessible failure evidence.",
+              "logs": {},
+          }
+          cap = 2 * 1024 * 1024
+          for name in ("checkout.sha", "attempted", "exit-status", "test.stdout.log", "test.stderr.log", "verifier.stdout.log", "verifier.stderr.log"):
+              path = source / name
+              if not path.is_file():
+                  metadata["logs"][name] = {"present": False}
+                  continue
+              size = path.stat().st_size
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(65536), b""):
+                      digest.update(chunk)
+                  stream.seek(max(0, size - cap))
+                  tail = stream.read(cap)
+              (output / name).write_bytes(tail)
+              metadata["logs"][name] = {"present": True, "original_bytes": size, "original_sha256": digest.hexdigest(), "retained_bytes": len(tail), "retained_sha256": hashlib.sha256(tail).hexdigest(), "truncated_to_tail": size > cap}
+          (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          print(json.dumps(metadata, indent=2))
+          PYCODE
+      - name: Preserve bounded F05 diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: f05-private-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/f05-private-artifact/
+          if-no-files-found: error
+          retention-days: 7
+
   workspace-tests:
     runs-on: ubuntu-26.04
     timeout-minutes: 150
