@@ -191,7 +191,8 @@ pub(crate) fn compare(
             match fault {
                 Fault::Context => selected_context.binding.tick += 1,
                 Fault::QueryId => {
-                    let Query::SourceMotion(MotionQuery::Route(route)) = &mut selected_context.query
+                    let Query::SourceMotion(MotionQuery::Route(route)) =
+                        &mut selected_context.query
                     else {
                         unreachable!()
                     };
@@ -383,7 +384,10 @@ pub(crate) fn compare(
             evidence[0].0, evidence[1].0,
             "complete diagnostic observation: {fault:?}"
         );
-        assert_eq!(evidence[0].1, evidence[1].1, "full error payload: {fault:?}");
+        assert_eq!(
+            evidence[0].1, evidence[1].1,
+            "full error payload: {fault:?}"
+        );
         assert_eq!(
             normalized, evidence[1].2,
             "one anchored F11 alias only: {fault:?}"
