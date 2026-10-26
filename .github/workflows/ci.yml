@@ -952,6 +952,9 @@ jobs:
           # Same-repository PR writes stay in that PR's cache scope; forks never save.
           save-on-pull-request: true
           save-on-workflow-dispatch: true
+      # The authored fixture launches this sibling executable; --lib does not build it.
+      - name: Build F05 diagnostic navigation helper
+        run: mbx build --locked -p benilla-native-nav-generator --bin benilla-native-navigation
       - name: Diagnose exact F05 private source frames
         id: f05_private
         shell: bash

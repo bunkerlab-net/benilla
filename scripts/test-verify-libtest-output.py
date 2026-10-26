@@ -1310,6 +1310,24 @@ class ExactProofTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(ROOT / "scripts/verify-f05-privacy.py"), "--self-test"], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_f05_diagnostic_builds_actual_navigation_helper_before_scoped_tests(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        diagnostic = workflow.split("  f05-private-diagnostic:\n", 1)[1].split("\n  workspace-tests:", 1)[0]
+        build = "      - name: Build F05 diagnostic navigation helper\n        run: mbx build --locked -p benilla-native-nav-generator --bin benilla-native-navigation\n"
+        self.assertEqual(diagnostic.count(build), 1)
+        self.assertLess(diagnostic.index(build), diagnostic.index("      - name: Diagnose exact F05 private source frames"))
+        player = workflow.split("  player-gates:\n", 1)[1].split("\n  gates:", 1)[0]
+        self.assertIn("      - name: Build native navigation test helper\n        run: mbx build --locked -p benilla-native-nav-generator --bin benilla-native-navigation\n", player)
+        self.assertLess(player.index("      - name: Build native navigation test helper"), player.index("      - name: player-tests"))
+        normal = workflow.split("  workspace-gates:\n", 1)[1].split("\n  f05-private-diagnostic:", 1)[0]
+        self.assertLess(normal.index("      - name: Verify navigation helper prerequisite"), normal.index("      - name: Verify one-slot F05 private source frames"))
+        prerequisite = workflow_gate("Verify navigation helper prerequisite")
+        self.assertIn("mbx test --locked -p benilla-native-nav-generator --test process empty_request_runs_without_inherited_environment", prerequisite)
+        self.assertIn('python3 scripts/verify-libtest-output.py "$log" empty_request_runs_without_inherited_environment', prerequisite)
+        fixture_source = (ROOT / "crates/benilla-app/src/net/p2p/world/native_geometry/products/vmap/installed_source_fixture.rs").read_text()
+        self.assertIn('"build benilla-native-nav-generator before scoped tests"', fixture_source)
+        self.assertIn('"benilla-native-navigation{}"', fixture_source)
+
     def test_f05_short_diagnostic_preserves_both_exit_statuses_and_exact_manifest(self):
         shell = workflow_gate("Diagnose exact F05 private source frames")
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
