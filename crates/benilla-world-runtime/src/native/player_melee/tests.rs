@@ -35,7 +35,8 @@ fn profile_with_options(
     home_spawn: Option<f32>,
     fragile_weapon: bool,
 ) -> Profile {
-    let (mut profile, mut input, mut rows) = synthetic_quest_fixture::setup();
+    let (mut profile, mut input, mut rows) =
+        synthetic_quest_fixture::setup_with_levels(3, 60, false, 0x3f800000);
     if fragile_player {
         input.create_health = 1;
         input.create_attributes.0[2] = 1;
@@ -171,12 +172,19 @@ fn profile_with_options(
     motion.npcs.get_mut(&2).unwrap().npc_spawn_orientation =
         Orientation::new(std::f32::consts::PI).unwrap();
     profile.source_motion = Some(motion);
-    profile.creature_capabilities = Some(
-        CreatureCapabilityCatalog::validate_sources(
-            synthetic_motion_fixture::creature_capability_sources(&profile),
-        )
-        .unwrap(),
-    );
+    let mut capabilities = synthetic_motion_fixture::creature_capability_sources(&profile);
+    let CreatureCapabilityRows::Complete(capability_rows) = &mut capabilities else {
+        unreachable!()
+    };
+    for source in capability_rows {
+        source.requested_spawn_template_entry = source.spawn_entry;
+        let CreatureCapabilityRows::Complete(spawns) = &mut source.spawn_templates else {
+            unreachable!()
+        };
+        spawns[0].entry = source.spawn_entry;
+    }
+    profile.creature_capabilities =
+        Some(CreatureCapabilityCatalog::validate_sources(capabilities).unwrap());
     profile.source_visitors = Some(
         SourceVisitorCatalog::validate_sources(
             crate::native::synthetic_two_owner_fixture::visitor_input(&profile, vec![2, 3]),
@@ -190,7 +198,11 @@ fn profile_with_options(
                 .iter()
                 .map(|npc| NpcCombatAuthoritySource {
                     entry: npc.entry,
-                    extra_flags: 2,
+                    extra_flags: match npc.ai.reaction {
+                        ai::Reaction::Defensive => 2,
+                        ai::Reaction::Aggressive => 0,
+                        ai::Reaction::Passive => unreachable!(),
+                    },
                     static_flags1: 0,
                     static_flags2: 0,
                     static_flags3: 0,
@@ -200,6 +212,16 @@ fn profile_with_options(
         )
         .unwrap();
     let mut sources = creature_generation_tests::complete_scene_sources(&profile);
+    // Distinct authored spawn-template rows may retain different current health.
+    // The capability capture above names these same rows, not a shared entry zero.
+    for source in &mut sources {
+        source.requested_spawn_template_entry = source.spawn_entry;
+        let benilla_sim::creature_init::Rows::Complete(spawns) = &mut source.input.spawn_template
+        else {
+            unreachable!()
+        };
+        spawns[0].entry = source.spawn_entry;
+    }
     let target = sources
         .iter_mut()
         .find(|source| source.spawn_id == 2)
@@ -867,7 +889,7 @@ fn source_initialized_fishing_pole_is_refused_before_policy_selection() {
         item: 900002,
         count: 1,
     });
-    let mut profile = fixture::profile();
+    let mut profile = fixture::initialized_profile();
     profile
         .initialize_player(&input, fixture::float(0.0), 1)
         .unwrap();
