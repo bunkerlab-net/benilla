@@ -34,6 +34,7 @@ pub mod mage_resource;
 pub mod starter_init;
 
 pub mod npc_melee;
+pub mod player_melee;
 
 /// Bounded source-derived player death and corpse lifecycle.
 pub mod player_death;
