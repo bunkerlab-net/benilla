@@ -454,23 +454,32 @@ fn mailbox_resolve(
     let request_copy = request;
     let worker = std::thread::spawn(move || authority.resolve(&request_copy));
     let end = deadline();
-    let mut serviced = 0;
+    let mut attempts = 0;
     while !worker.is_finished() && Instant::now() < end {
         let frame_start = Instant::now();
-        serviced += service.serve_queries_until(1, |session, request, _, deadline| {
+        let used = service.serve_queries_until(1, |session, request, _, deadline| {
             assert_eq!(request, &expected_request);
             assert!(deadline >= frame_start);
             assert!(deadline <= Instant::now() + Duration::from_millis(2));
             resolve(session, request, deadline)
         });
+        assert!(used <= 1, "each invocation spends at most one attempt");
+        attempts += used;
         std::thread::yield_now();
     }
     assert!(
         worker.is_finished(),
         "cross-thread geometry request did not finish"
     );
-    assert_eq!(serviced, 1);
-    worker.join().unwrap()
+    // Service counts attempts, not replies: an expired slice retains the same job.
+    assert!(attempts >= 1);
+    let reply = worker.join().unwrap();
+    assert_eq!(
+        service.serve_queries_until(1, |_, _, _, _| panic!("duplicate completed query")),
+        0,
+        "one logical query leaves no duplicate or deferred work after its reply"
+    );
+    reply
 }
 
 #[test]

@@ -778,48 +778,78 @@ fn primary_only_provider_keeps_rejecting_the_same_required_fallbacks() {
 fn mailbox_resolve(
     session: Session,
     request: AuthorityRequest,
+    force_slice_expiry: bool,
     mut resolve: impl FnMut(&Session, &AuthorityRequest, Instant) -> Result<Facts, Failure>,
 ) -> Result<AuthorityReply, NativeError> {
     let (mut authority, service) = core::mailbox(session).unwrap();
     let expected = request.clone();
     let worker = std::thread::spawn(move || authority.resolve(&request));
     let end = deadline();
-    let mut serviced = 0;
+    let mut attempts = 0;
+    let mut forced_expiry = false;
     while !worker.is_finished() && Instant::now() < end {
         let start = Instant::now();
-        serviced += service.serve_queries_until(1, |session, request, _, expires| {
+        let used = service.serve_queries_until(1, |session, request, _, expires| {
             assert_eq!(request, &expected);
             assert!(expires >= start);
             assert!(expires <= Instant::now() + Duration::from_millis(2));
+            if force_slice_expiry && !forced_expiry {
+                forced_expiry = true;
+                std::thread::sleep(expires.saturating_duration_since(Instant::now()));
+                assert!(Instant::now() >= expires);
+                assert_eq!(resolve(session, request, expires), Err(Failure::Deadline));
+                return Err(Failure::Deadline);
+            }
             resolve(session, request, expires)
         });
+        assert!(used <= 1, "each invocation spends at most one attempt");
+        attempts += used;
         std::thread::yield_now();
     }
     assert!(
         worker.is_finished(),
         "cross-thread geometry request did not finish"
     );
-    assert_eq!(serviced, 1);
-    worker.join().unwrap()
+    // Service counts attempts, not replies: an expired slice retains the same job.
+    assert!(attempts >= 1);
+    if force_slice_expiry {
+        assert!(forced_expiry);
+        assert!(
+            attempts >= 2,
+            "the expired attempt must consume its own budget"
+        );
+    }
+    let reply = worker.join().unwrap();
+    assert_eq!(
+        service.serve_queries_until(1, |_, _, _, _| panic!("duplicate completed query")),
+        0,
+        "one logical query leaves no duplicate or deferred work after its reply"
+    );
+    reply
 }
 
 #[test]
 fn loaded_empty_selector_mailbox_returns_exact_fact_without_moving_owner() {
-    let (snapshot, config) = loaded();
-    let (world, session, request) = setup(&snapshot, config);
-    let provider =
-        SourceEmptySelectorNearPointProvider::bind(&session, world.profile(), snapshot, config)
-            .unwrap();
-    let before = world.checkpoint().unwrap();
-    let reply = mailbox_resolve(session, request.clone(), |session, request, expires| {
-        provider.resolve(session, request, expires)
-    })
-    .unwrap();
-    assert_eq!(reply.request, request);
-    let (echo, result) = point(reply.facts);
-    assert_echo(&request, echo);
-    assert_eq!(result, Point::new(mid() - 52.5, mid() - 1., 7.).unwrap());
-    assert_eq!(world.checkpoint().unwrap(), before);
+    for force_slice_expiry in [false, true] {
+        let (snapshot, config) = loaded();
+        let (world, session, request) = setup(&snapshot, config);
+        let provider =
+            SourceEmptySelectorNearPointProvider::bind(&session, world.profile(), snapshot, config)
+                .unwrap();
+        let before = world.checkpoint().unwrap();
+        let reply = mailbox_resolve(
+            session,
+            request.clone(),
+            force_slice_expiry,
+            |session, request, expires| provider.resolve(session, request, expires),
+        )
+        .unwrap();
+        assert_eq!(reply.request, request);
+        let (echo, result) = point(reply.facts);
+        assert_echo(&request, echo);
+        assert_eq!(result, Point::new(mid() - 52.5, mid() - 1., 7.).unwrap());
+        assert_eq!(world.checkpoint().unwrap(), before);
+    }
 }
 
 #[test]
