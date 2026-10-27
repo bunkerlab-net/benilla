@@ -167,7 +167,10 @@ pub(super) fn replay_stop(
         .get(&previous.spawn)
         .ok_or(NativeError::InvalidCheckpoint)?;
     crate::native::interactions::spell_authority::historical_target_profile(
-        profile, owner, previous, captured_ms,
+        profile,
+        owner,
+        previous,
+        captured_ms,
     )?;
     Ok(ReplayedCause {
         key,
@@ -198,7 +201,8 @@ mod tests {
         world.state.tick = 1;
         world.state.now_ms += u64::from(world.profile.tick_ms);
         let previous = world.state.npcs[&2].id;
-        let (_, rejected) = super::super::start(&world.profile, &mut world.state, previous).unwrap();
+        let (_, rejected) =
+            super::super::start(&world.profile, &mut world.state, previous).unwrap();
         assert!(rejected.is_none());
         // The exact field write of DeathAction::SetHealthZero precedes
         // CombatStop. This fixture deliberately does NOT forge a death state;
@@ -268,7 +272,9 @@ mod tests {
     fn missing_real_death_plan_refuses_finish_without_mutating_state() {
         let (mut world, pending, _) = pending_fixture();
         let snapshot = world.state.clone();
-        assert!(pending.finish(&world.profile, &mut world.state, true).is_err());
+        assert!(pending
+            .finish(&world.profile, &mut world.state, true)
+            .is_err());
         assert_eq!(world.state, snapshot);
     }
 
@@ -306,7 +312,9 @@ mod tests {
         ) -> Result<crate::native::AuthorityReply, NativeError> {
             if post_death_owner_query(request) {
                 self.rejected = true;
-                return Err(NativeError::AuthorityUnavailable("post-death owner visitor"));
+                return Err(NativeError::AuthorityUnavailable(
+                    "post-death owner visitor",
+                ));
             }
             crate::native::Authority::resolve(&mut self.base, request)
         }
@@ -331,13 +339,13 @@ mod tests {
         )
         .unwrap();
         let target = world.state.npcs[&2].id;
-        let mut authority = crate::native::synthetic_two_owner_fixture::CompleteAuthority::default();
+        let mut authority =
+            crate::native::synthetic_two_owner_fixture::CompleteAuthority::default();
         let mut death_frame = None;
         for _ in 0..50 {
             let before = world.checkpoint().unwrap();
-            let input = (world.state.tick == 0).then(|| {
-                synthetic_quest_fixture::command(&world, Command::AttackStart { target })
-            });
+            let input = (world.state.tick == 0)
+                .then(|| synthetic_quest_fixture::command(&world, Command::AttackStart { target }));
             authority.queries.clear();
             world
                 .step(world.state.tick + 1, input.clone(), &mut authority)
@@ -370,14 +378,17 @@ mod tests {
                 break;
             }
         }
-        let (before, input) = death_frame.expect("actual source NPC melee must kill fragile player");
+        let (before, input) =
+            death_frame.expect("actual source NPC melee must kill fragile player");
         let mut retry =
             NativeWorld::restore_synthetic_component_test(profile, before.clone()).unwrap();
         let before_records = retry.records().len();
         let mut rejecting = RejectAfterDeath::default();
         assert!(matches!(
             retry.step(retry.state.tick + 1, input, &mut rejecting),
-            Err(NativeError::AuthorityUnavailable("post-death owner visitor"))
+            Err(NativeError::AuthorityUnavailable(
+                "post-death owner visitor"
+            ))
         ));
         assert!(
             rejecting.rejected,

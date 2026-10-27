@@ -22,7 +22,8 @@ pub struct PlayerMeleeGeometry {
 /// branch. Neither bounding radii nor renderer-axis coordinates belong here.
 pub fn player_in_melee_range(input: PlayerMeleeGeometry) -> Result<bool, AiError> {
     let mut reach = combat_reach(input.player_reach, input.target_reach)?;
-    if input.player_moving && !input.player_walking && input.target_moving && !input.target_walking {
+    if input.player_moving && !input.player_walking && input.target_moving && !input.target_walking
+    {
         reach = reach.add(Real::constant(0x402a_aaab))?; // MELEE_LEEWAY = 8.0f / 3.0f
     }
     Ok(input
@@ -39,19 +40,14 @@ fn uint(value: Single) -> Result<u32, MeleeError> {
 /// BASE_ATTACK branch only. Caller must establish a genuine parry outcome,
 /// no active offhand, and absence of CREATURE_EXTRA_FLAG_NO_PARRY_HASTEN.
 /// No timer reset or callback occurs when the source branch does not write.
-pub fn mainhand_parry_haste(
-    remaining_ms: u32,
-    attack_time_ms: u32,
-) -> Result<u32, MeleeError> {
+pub fn mainhand_parry_haste(remaining_ms: u32, attack_time_ms: u32) -> Result<u32, MeleeError> {
     if remaining_ms > 1_000_000 || !(1..=1_000_000).contains(&attack_time_ms) {
         return Err(MeleeError::Domain("bounded mainhand parry timer"));
     }
     let remaining = numeric::integer(i64::from(remaining_ms))?;
     let interval = numeric::integer(i64::from(attack_time_ms))?;
-    let twenty = numeric::checked(interval.mul_r(
-        Single::from_bits(0x3e4c_cccd),
-        Round::NearestTiesToEven,
-    ))?;
+    let twenty =
+        numeric::checked(interval.mul_r(Single::from_bits(0x3e4c_cccd), Round::NearestTiesToEven))?;
     let sixty = numeric::checked(numeric::integer(3)?.mul_r(twenty, Round::NearestTiesToEven))?;
     if remaining > twenty && remaining <= sixty {
         uint(twenty)
@@ -76,9 +72,8 @@ pub fn npc_shield_block(level: u8, strength: SpellFloat) -> Result<u32, MeleeErr
     {
         return Err(MeleeError::Domain("NPC block level/strength"));
     }
-    let bonus = uint(numeric::checked(strength.div_r(
-        numeric::integer(20)?,
-        Round::NearestTiesToEven,
-    ))?)?;
+    let bonus = uint(numeric::checked(
+        strength.div_r(numeric::integer(20)?, Round::NearestTiesToEven),
+    )?)?;
     Ok(u32::from(level) / 2 + bonus)
 }

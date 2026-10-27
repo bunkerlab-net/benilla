@@ -372,7 +372,9 @@ impl<A: Authority> Frame<'_, A> {
             .profile
             .player_melee
             .as_ref()
-            .ok_or(NativeError::UnsupportedMechanic("player weapon skill policy"))?;
+            .ok_or(NativeError::UnsupportedMechanic(
+                "player weapon skill policy",
+            ))?;
         if gain != policy.weapon_skill_gain() {
             return Err(NativeError::InvalidState);
         }
@@ -386,7 +388,11 @@ impl<A: Authority> Frame<'_, A> {
             .quest_progression
             .as_mut()
             .ok_or(NativeError::InvalidState)?;
-        let combat = self.state.combat.as_ref().ok_or(NativeError::InvalidState)?;
+        let combat = self
+            .state
+            .combat
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?;
         state.validate_weapon_policy(Some(gain))?;
         state.weapon_skill_change(
             g,

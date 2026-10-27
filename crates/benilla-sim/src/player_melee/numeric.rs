@@ -84,7 +84,10 @@ pub(super) fn chances(a: MageAttack, d: CreatureDefense) -> Result<MeleeChances,
         .max(integer(if miss_difference > 10 { 1 } else { 0 })?)
         .min(integer(100)?);
     let avoidance = |factor| -> Result<u16, MeleeError> {
-        die(clamp(add(integer(5)?, mul(integer(difference)?, factor)?)?)?)
+        die(clamp(add(
+            integer(5)?,
+            mul(integer(difference)?, factor)?,
+        )?)?)
     };
     let active = d.can_react && !d.casting_non_melee;
     let dodge = if active && d.can_dodge {

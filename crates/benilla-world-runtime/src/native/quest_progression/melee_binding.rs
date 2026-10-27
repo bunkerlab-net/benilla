@@ -118,8 +118,8 @@ impl MeleeExecutionBinding {
             + i32::from(skill.permanent_bonus)
             + i32::from(skill.temporary_bonus))
         .max(0) as u16;
-        let intellect = u32::try_from(p.numeric.attributes.0[3])
-            .map_err(|_| NativeError::InvalidState)?;
+        let intellect =
+            u32::try_from(p.numeric.attributes.0[3]).map_err(|_| NativeError::InvalidState)?;
         let damage = self.progression.derived.damage[0];
         Ok(ValidatedMeleeOperands {
             level: self.level,
@@ -161,9 +161,13 @@ impl MeleeExecutionBinding {
         let current = current.ok_or(NativeError::InvalidCheckpoint)?;
         self.kill.validate_prior(current)?;
         current.validate_weapon_policy(
-            profile.player_melee.as_ref().map(PlayerMeleePolicy::weapon_skill_gain),
+            profile
+                .player_melee
+                .as_ref()
+                .map(PlayerMeleePolicy::weapon_skill_gain),
         )?;
-        self.progression.validate(g, current, self.level, identity)?;
+        self.progression
+            .validate(g, current, self.level, identity)?;
         self.current_operands(profile)
     }
 }
@@ -210,7 +214,9 @@ impl MeleeExecutionBinding {
             .quest_progression
             .as_ref()
             .ok_or(NativeError::InvalidCheckpoint)?;
-        let (prior, training) = self.progression.validate(g, current, self.level, identity)?;
+        let (prior, training) = self
+            .progression
+            .validate(g, current, self.level, identity)?;
         Ok(TransitionPair {
             genesis: g,
             current,
@@ -277,7 +283,8 @@ impl MeleeExecutionBinding {
         }
         let mut expected = self.clone();
         if let Some(target) = killed {
-            self.kill.validate_transition(&after.kill, current, target)?;
+            self.kill
+                .validate_transition(&after.kill, current, target)?;
             let owner = state
                 .npcs
                 .get(&target.spawn)
@@ -311,17 +318,19 @@ impl MeleeExecutionBinding {
                 identity: training.identity,
                 abilities: training.abilities.clone(),
             };
-            expected.progression.training_prefix = HistoryPrefix::capture(
-                self.progression.owner, "training", &training.calls,
-            )?;
+            expected.progression.training_prefix =
+                HistoryPrefix::capture(self.progression.owner, "training", &training.calls)?;
             let p = tx.player.view();
             let recipe = self.recipe_state(g)?.rebase(
                 p.level,
-            p.modifiers.create,
-            p.modifiers.create_health,
-            p.modifiers.create_mana,
+                p.modifiers.create,
+                p.modifiers.create_health,
+                p.modifiers.create_mana,
             )?;
-            expected.level = p.level.try_into().map_err(|_| NativeError::InvalidCheckpoint)?;
+            expected.level = p
+                .level
+                .try_into()
+                .map_err(|_| NativeError::InvalidCheckpoint)?;
             expected.progression.recipe = recipe.snapshot();
             expected.progression.player = tx.player.snapshot();
             expected.progression.derived = tx.derived;
@@ -333,37 +342,51 @@ impl MeleeExecutionBinding {
             if before_recipe.broken_slots.contains(&slot) {
                 return Err(NativeError::InvalidCheckpoint);
             }
-            let result = recipe.set_item_broken(slot, true, init::Resources {
-                health: before.numeric.health,
-                max_health: before.numeric.max_health,
-                mana: before.numeric.powers[0],
-                max_mana: before.numeric.max_powers[0],
-            })?;
+            let result = recipe.set_item_broken(
+                slot,
+                true,
+                init::Resources {
+                    health: before.numeric.health,
+                    max_health: before.numeric.max_health,
+                    mana: before.numeric.powers[0],
+                    max_mana: before.numeric.max_powers[0],
+                },
+            )?;
             let after_recipe = recipe.snapshot();
             let before_inputs = g.inputs_for_recipe(&before_recipe);
             let after_inputs = g.inputs_for_recipe(&after_recipe);
             expected.progression.derived.apply_item_break(
-                &before, &before_inputs, &after_inputs, slot, &result,
+                &before,
+                &before_inputs,
+                &after_inputs,
+                slot,
+                &result,
             )?;
             let mut view = before.clone();
             view.modifiers = after_recipe.modifiers.clone();
             let mut powers = view.numeric.powers;
             powers[0] = result.resources.mana;
             view.numeric = pg::NumericState::from_modifiers(
-                view.level, &view.modifiers, result.resources.health, powers,
+                view.level,
+                &view.modifiers,
+                result.resources.health,
+                powers,
             )?;
             view.alive = result.resources.health != 0;
             expected.progression.player = pg::State::restore(&g.levels, view)?.snapshot();
             expected.progression.recipe = after_recipe.clone();
-            expected.append_exact_callbacks(current, &[DerivedCall::ItemBreak {
-                before: Box::new(before),
-                before_recipe: Box::new(before_recipe),
-                after_recipe: Box::new(after_recipe),
-                before_inputs,
-                after_inputs,
-                slot,
-                recompute: Box::new(result),
-            }])?;
+            expected.append_exact_callbacks(
+                current,
+                &[DerivedCall::ItemBreak {
+                    before: Box::new(before),
+                    before_recipe: Box::new(before_recipe),
+                    after_recipe: Box::new(after_recipe),
+                    before_inputs,
+                    after_inputs,
+                    slot,
+                    recompute: Box::new(result),
+                }],
+            )?;
         }
         if expected != *after {
             return Err(NativeError::InvalidCheckpoint);
@@ -388,7 +411,12 @@ impl MeleeExecutionBinding {
         } = self.transition_pair(profile, state, after)?;
         let mut expected = self.clone();
         if let Some((skill, gain)) = weapon {
-            if profile.player_melee.as_ref().map(|policy| policy.weapon_skill_gain()) != Some(gain) {
+            if profile
+                .player_melee
+                .as_ref()
+                .map(|policy| policy.weapon_skill_gain())
+                != Some(gain)
+            {
                 return Err(NativeError::InvalidCheckpoint);
             }
             let inputs = g.inputs_for_recipe(self.recipe());
@@ -447,7 +475,9 @@ mod tests {
         };
         for id in [136, 162] {
             skills.push(init::DefaultSkill { id, step: 0 });
-            input.skill_lines.push(init::SkillLineRow { id, category: 6 });
+            input
+                .skill_lines
+                .push(init::SkillLineRow { id, category: 6 });
         }
         let mut weapon = input.items[0].clone();
         weapon.id = 900002;
@@ -668,23 +698,43 @@ mod tests {
     fn commit_progression(world: &mut NativeWorld, next: QuestProgressionState) {
         let view = next.player.view();
         let combat = world.state.combat.as_mut().unwrap();
-        let recipe = combat.recipe.rebase(
-            view.level, view.modifiers.create, view.modifiers.create_health,
-            view.modifiers.create_mana,
-        ).unwrap();
-        let result = recipe.current(init::Resources {
-            health: view.numeric.health,
-            max_health: view.numeric.max_health,
-            mana: view.numeric.powers[0],
-            max_mana: view.numeric.max_powers[0],
-        }).unwrap();
+        let recipe = combat
+            .recipe
+            .rebase(
+                view.level,
+                view.modifiers.create,
+                view.modifiers.create_health,
+                view.modifiers.create_mana,
+            )
+            .unwrap();
+        let result = recipe
+            .current(init::Resources {
+                health: view.numeric.health,
+                max_health: view.numeric.max_health,
+                mana: view.numeric.powers[0],
+                max_mana: view.numeric.max_powers[0],
+            })
+            .unwrap();
         combat.recipe = recipe;
         combat.stats = crate::native::combat::CharacterStats::from_result(&result);
-        combat.skills = view.skills.iter().filter(|skill| skill.status != pg::SkillStatus::Deleted)
-            .map(|skill| (skill.id, SkillState {
-                id: skill.id, value: skill.value, maximum: skill.maximum, step: skill.step,
-                permanent_bonus: skill.permanent_bonus, temporary_bonus: skill.temporary_bonus,
-            })).collect();
+        combat.skills = view
+            .skills
+            .iter()
+            .filter(|skill| skill.status != pg::SkillStatus::Deleted)
+            .map(|skill| {
+                (
+                    skill.id,
+                    SkillState {
+                        id: skill.id,
+                        value: skill.value,
+                        maximum: skill.maximum,
+                        step: skill.step,
+                        permanent_bonus: skill.permanent_bonus,
+                        temporary_bonus: skill.temporary_bonus,
+                    },
+                )
+            })
+            .collect();
         world.state.health = view.numeric.health;
         world.state.resources.caster.mana = view.numeric.powers[0];
         world.state.quest_progression = Some(next);
@@ -697,33 +747,73 @@ mod tests {
         let npc = world.state.npcs.values().next().unwrap();
         let target = npc.id;
         let target_profile = npc.effective_profile(&world.profile).unwrap();
-        let (awarded, _) = world.state.quest_progression.as_ref().unwrap().killed(
-            world.profile.quest_progression.as_ref().unwrap(),
-            world.state.combat.as_ref().unwrap(), world.state.world, &target_profile, target,
-        ).unwrap();
+        let (awarded, _) = world
+            .state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .killed(
+                world.profile.quest_progression.as_ref().unwrap(),
+                world.state.combat.as_ref().unwrap(),
+                world.state.world,
+                &target_profile,
+                target,
+            )
+            .unwrap();
         assert_eq!(awarded.player.view().level, 2);
-        assert!(awarded.derived_calls.iter().any(|call| matches!(call, DerivedCall::Level { .. })));
-        assert!(awarded.derived_calls.iter().any(|call| matches!(call, DerivedCall::Hook { .. })));
+        assert!(awarded
+            .derived_calls
+            .iter()
+            .any(|call| matches!(call, DerivedCall::Level { .. })));
+        assert!(awarded
+            .derived_calls
+            .iter()
+            .any(|call| matches!(call, DerivedCall::Hook { .. })));
         commit_progression(&mut world, awarded);
         let after_kill = MeleeExecutionBinding::capture(&world.profile, &world.state).unwrap();
         before
-            .validate_damage_callbacks(&world.profile, &world.state, &after_kill, Some(target), None)
+            .validate_damage_callbacks(
+                &world.profile,
+                &world.state,
+                &after_kill,
+                Some(target),
+                None,
+            )
             .unwrap();
         assert!(before
             .validate_damage_callbacks(&world.profile, &world.state, &after_kill, None, None)
             .is_err());
-        let (unrelated, _) = world.state.quest_progression.as_ref().unwrap().admin_give_level(
-            world.profile.quest_progression.as_ref().unwrap(),
-            world.state.combat.as_ref().unwrap(), 3,
-        ).unwrap();
+        let (unrelated, _) = world
+            .state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .admin_give_level(
+                world.profile.quest_progression.as_ref().unwrap(),
+                world.state.combat.as_ref().unwrap(),
+                3,
+            )
+            .unwrap();
         commit_progression(&mut world, unrelated);
         let after_unrelated = MeleeExecutionBinding::capture(&world.profile, &world.state).unwrap();
         check(&after_unrelated, &world).unwrap(); // independently source-valid, but not this kill
         assert!(before
-            .validate_damage_callbacks(&world.profile, &world.state, &after_unrelated, Some(target), None)
+            .validate_damage_callbacks(
+                &world.profile,
+                &world.state,
+                &after_unrelated,
+                Some(target),
+                None
+            )
             .is_err());
         before
-            .validate_damage_callbacks(&world.profile, &world.state, &after_kill, Some(target), None)
+            .validate_damage_callbacks(
+                &world.profile,
+                &world.state,
+                &after_kill,
+                Some(target),
+                None,
+            )
             .unwrap();
     }
 

@@ -747,7 +747,10 @@ fn native51_melee_domains_are_exact_and_old_evidence_cannot_reseal_as_current_re
         .clone();
     let initial = before.checkpoint().unwrap();
     // Format52 changes root envelopes, not this established v51 callback domain.
-    for (format, _) in PREVIOUS_NATIVE_IDENTITIES.into_iter().filter(|(format, _)| *format < 51) {
+    for (format, _) in PREVIOUS_NATIVE_IDENTITIES
+        .into_iter()
+        .filter(|(format, _)| *format < 51)
+    {
         for old_action in [false, true] {
             let mut forged = vec![record.clone(), next.clone()];
             if old_action {
@@ -814,7 +817,10 @@ fn previous_native_visitor_callback_evidence_rejects_with_rehashed_record_chain(
         );
     }
     // Format52 changes root envelopes, not this established v51 callback domain.
-    for (format, _) in PREVIOUS_NATIVE_IDENTITIES.into_iter().filter(|(format, _)| *format < 51) {
+    for (format, _) in PREVIOUS_NATIVE_IDENTITIES
+        .into_iter()
+        .filter(|(format, _)| *format < 51)
+    {
         let mut forged = records.clone();
         let mut changed = 0;
         for record in &mut forged {
@@ -927,7 +933,10 @@ fn previous_native_event_ai_evidence_rejects_rehashed_checkpoints_and_records() 
         .unwrap()
     );
     // Format52 changes root envelopes, not this established v51 callback domain.
-    for (format, _) in PREVIOUS_NATIVE_IDENTITIES.into_iter().filter(|(format, _)| *format < 51) {
+    for (format, _) in PREVIOUS_NATIVE_IDENTITIES
+        .into_iter()
+        .filter(|(format, _)| *format < 51)
+    {
         let old_callback = crate::digest(
             format!("benilla-native-event-ai-callback-v{format}\0").as_bytes(),
             &evaluation.callback,

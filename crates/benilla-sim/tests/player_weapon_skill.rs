@@ -25,7 +25,11 @@ fn weapon_skill_matches_pinned_source_chances_draws_and_callbacks() {
             gain: p[4] as u16,
         };
         let chance = weapon_gain_chance(level, intellect, skill).unwrap();
-        assert_eq!(chance.map(|c| u64::from(c.bits())).unwrap_or(0), p[6], "{row}");
+        assert_eq!(
+            chance.map(|c| u64::from(c.bits())).unwrap_or(0),
+            p[6],
+            "{row}"
+        );
         assert_eq!(u64::from(chance.is_some()), p[7], "{row}");
         let roll = PercentRoll::from_bits(p[5]).unwrap();
         let result = resolve_weapon_gain(level, intellect, skill, chance.map(|_| roll)).unwrap();

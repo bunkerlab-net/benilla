@@ -101,13 +101,7 @@ fn player_reach_is_strict_three_dimensional_and_requires_both_running() {
 
 #[test]
 fn parry_thresholds_and_invalid_operands_do_not_get_defaults() {
-    for (remaining, expected) in [
-        (399, 399),
-        (400, 400),
-        (401, 400),
-        (1200, 400),
-        (1201, 401),
-    ] {
+    for (remaining, expected) in [(399, 399), (400, 400), (401, 400), (1200, 400), (1201, 401)] {
         assert_eq!(mainhand_parry_haste(remaining, 2000).unwrap(), expected);
     }
     assert!(mainhand_parry_haste(1, 0).is_err());

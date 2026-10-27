@@ -240,7 +240,10 @@ impl MeleeKillContext {
     }
 
     #[cfg(any(test, feature = "synthetic-native-tests"))]
-    pub(super) fn validate_prior(&self, current: &QuestProgressionState) -> Result<(), NativeError> {
+    pub(super) fn validate_prior(
+        &self,
+        current: &QuestProgressionState,
+    ) -> Result<(), NativeError> {
         if self.rest != kill::RestState::fresh_player()
             || self.next_death_event == 0
             || self.next_death_event > current.next_death_event
@@ -263,9 +266,10 @@ impl MeleeKillContext {
             || self.next_death_event == 0
             || self.next_death_event.checked_add(1) != Some(after.next_death_event)
             || after.next_death_event > current.next_death_event
-            || current.credited_generations.get(&target.spawn).is_none_or(|generation| {
-                *generation < target.generation
-            })
+            || current
+                .credited_generations
+                .get(&target.spawn)
+                .is_none_or(|generation| *generation < target.generation)
         {
             return Err(NativeError::InvalidCheckpoint);
         }

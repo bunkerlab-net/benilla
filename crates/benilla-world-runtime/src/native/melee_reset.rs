@@ -97,7 +97,11 @@ impl MeleeResetWitness {
     }
 
     #[cfg(any(test, feature = "synthetic-native-tests"))]
-    pub(in crate::native) fn validate(&self, profile: &Profile, state: &State) -> Result<(), NativeError> {
+    pub(in crate::native) fn validate(
+        &self,
+        profile: &Profile,
+        state: &State,
+    ) -> Result<(), NativeError> {
         let identity = (profile.digest(), state.domain, state.world, state.player);
         if self.policy != POLICY
             || self.release_receipt_digest
@@ -357,7 +361,9 @@ pub(in crate::native) fn validate_current(
         player_melee::validate_current(profile, state)?;
         combat.validate_melee_timer_fields(genesis)?;
     } else {
-        if state.player_melee.is_some() { return Err(NativeError::InvalidState); }
+        if state.player_melee.is_some() {
+            return Err(NativeError::InvalidState);
+        }
         combat.validate_melee_timers(genesis)?;
     }
     if interactions::spell_authority::resets_melee_timers(profile, 133)? {
@@ -388,7 +394,9 @@ pub(in crate::native) fn validate_current(
     } else if combat.melee_reset.is_some() {
         return Err(NativeError::InvalidState);
     }
-    if profile.player_melee.is_some() { return Ok(()); }
+    if profile.player_melee.is_some() {
+        return Ok(());
+    }
     let expected = match &combat.melee_reset {
         None => [0, 0],
         Some(witness) => witness.remaining_ms(state.now_ms, profile.tick_ms)?,

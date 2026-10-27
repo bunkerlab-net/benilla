@@ -8,12 +8,30 @@ pub const RNG_POLICY: &str = "benilla-native-sha256-counter-le64-rejection-fract
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum DrawPurpose {
-    PlayerMeleeDamage { action: u64, npc: crate::NpcId },
-    PlayerMeleeOutcome { action: u64, npc: crate::NpcId },
-    PlayerMeleeGlance { action: u64, npc: crate::NpcId },
-    PlayerWeaponGain { action: u64, npc: crate::NpcId },
-    PlayerDurabilityChance { action: u64, npc: crate::NpcId },
-    PlayerDurabilitySlot { action: u64, npc: crate::NpcId },
+    PlayerMeleeDamage {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    PlayerMeleeOutcome {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    PlayerMeleeGlance {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    PlayerWeaponGain {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    PlayerDurabilityChance {
+        action: u64,
+        npc: crate::NpcId,
+    },
+    PlayerDurabilitySlot {
+        action: u64,
+        npc: crate::NpcId,
+    },
     WanderAngle {
         npc: crate::NpcId,
     },

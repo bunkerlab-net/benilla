@@ -66,20 +66,20 @@ fn player_melee_event(
             guid: target_guid(target)?,
             emote_id: 34,
         },
-        n::Event::PlayerMelee { target, outcome, .. } => {
-            SessionEvent::AttackerState(p::AttackerState {
-                attacker: player,
-                victim: target_guid(target)?,
-                hit_info: outcome.hit_info,
-                damage: outcome.damage,
-                victim_state: outcome.victim_state,
-                absorb: outcome.absorb,
-                resist: outcome.resist,
-                blocked: outcome.blocked,
-                melee_spell_id: 0,
-                school: outcome.school,
-            })
-        }
+        n::Event::PlayerMelee {
+            target, outcome, ..
+        } => SessionEvent::AttackerState(p::AttackerState {
+            attacker: player,
+            victim: target_guid(target)?,
+            hit_info: outcome.hit_info,
+            damage: outcome.damage,
+            victim_state: outcome.victim_state,
+            absorb: outcome.absorb,
+            resist: outcome.resist,
+            blocked: outcome.blocked,
+            melee_spell_id: 0,
+            school: outcome.school,
+        }),
         n::Event::PlayerSwingError { code } => SessionEvent::AttackSwingError(match code {
             0 => p::AttackSwingError::NotInRange,
             1 | 3 => p::AttackSwingError::DeadOrUnattackable,
@@ -311,9 +311,11 @@ impl NativeProjection {
             return Err(Error::UnsupportedCommand);
         }
         if !self.npcs.contains_key(&target.id)
-            || !w.state().npcs.get(&target.id.spawn).is_some_and(|npc| {
-                npc.id == target.id && npc.ai.phase() != ai::Phase::Despawned
-            })
+            || !w
+                .state()
+                .npcs
+                .get(&target.id.spawn)
+                .is_some_and(|npc| npc.id == target.id && npc.ai.phase() != ai::Phase::Despawned)
         {
             return Err(Error::UnknownTarget);
         }
@@ -1344,7 +1346,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(matches!(
             events[0],
-            SessionEvent::AttackStart { attacker: 7, victim: 42 }
+            SessionEvent::AttackStart {
+                attacker: 7,
+                victim: 42
+            }
         ));
         let SessionEvent::AttackerState(actual) = &events[1] else {
             panic!("expected player swing")
@@ -1364,11 +1369,20 @@ mod tests {
                 school: outcome.school,
             }
         );
-        assert!(matches!(events[2], SessionEvent::Emote { guid: 42, emote_id: 34 }));
+        assert!(matches!(
+            events[2],
+            SessionEvent::Emote {
+                guid: 42,
+                emote_id: 34
+            }
+        ));
         assert!(matches!(events[3], SessionEvent::CancelCombat));
         assert!(matches!(
             events[4],
-            SessionEvent::AttackStop { attacker: 7, victim: 42 }
+            SessionEvent::AttackStop {
+                attacker: 7,
+                victim: 42
+            }
         ));
         assert!(matches!(
             player_melee_event(&source[0], 7, |_| Err(Error::UnknownTarget)),
@@ -1376,7 +1390,9 @@ mod tests {
         ));
         // Forced cancel needs no victim; client stop is not itself forced cancel.
         assert!(matches!(
-            player_melee_event(&n::Event::PlayerAttackCancel, 7, |_| Err(Error::UnknownTarget)),
+            player_melee_event(&n::Event::PlayerAttackCancel, 7, |_| Err(
+                Error::UnknownTarget
+            )),
             Ok(SessionEvent::CancelCombat)
         ));
     }

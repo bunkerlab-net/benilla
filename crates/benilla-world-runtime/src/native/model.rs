@@ -458,7 +458,9 @@ pub struct State {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Command {
-    AttackStart { target: NpcId },
+    AttackStart {
+        target: NpcId,
+    },
     AttackStop,
     InventoryMove(InventoryMoveRequest),
     Admin(AdminRequest),
@@ -578,12 +580,25 @@ pub enum Rejection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Event {
-    PlayerAttackStart { target: NpcId },
-    PlayerAttackStop { target: NpcId },
+    PlayerAttackStart {
+        target: NpcId,
+    },
+    PlayerAttackStop {
+        target: NpcId,
+    },
     PlayerAttackCancel,
-    PlayerMeleeCriticalWound { target: NpcId },
-    PlayerMelee { target: NpcId, action: u64, outcome: MeleeOutcome, effective: u32 },
-    PlayerSwingError { code: u8 },
+    PlayerMeleeCriticalWound {
+        target: NpcId,
+    },
+    PlayerMelee {
+        target: NpcId,
+        action: u64,
+        outcome: MeleeOutcome,
+        effective: u32,
+    },
+    PlayerSwingError {
+        code: u8,
+    },
     EventAiEvaluation(Box<EventAiEvaluation>),
     EventAiSpeech(Box<EventAiSpeech>),
     PlayerEnvironment(PlayerEnvironmentReceipt),

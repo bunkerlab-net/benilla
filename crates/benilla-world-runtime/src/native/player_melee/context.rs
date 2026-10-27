@@ -154,7 +154,9 @@ impl SourceContext {
         #[cfg(not(any(test, feature = "synthetic-native-tests")))]
         let operands = self.binding.current_operands(profile)?;
         if operands.weapon_subclass == Some(20) {
-            return Err(NativeError::UnsupportedMechanic("player melee fishing-pole callback"));
+            return Err(NativeError::UnsupportedMechanic(
+                "player melee fishing-pole callback",
+            ));
         }
         let combat_genesis = profile.combat.as_ref().ok_or(NativeError::InvalidProfile)?;
         let equipment = equipment::EquipmentState::restore(
@@ -172,9 +174,13 @@ impl SourceContext {
         let target = self.target();
         if self.credited_generation.is_some_and(|generation| {
             generation > target.generation
-                || state.quest_progression.as_ref().and_then(|progression| {
-                    progression.credited_generations.get(&target.spawn).copied()
-                }).is_none_or(|current| current < generation)
+                || state
+                    .quest_progression
+                    .as_ref()
+                    .and_then(|progression| {
+                        progression.credited_generations.get(&target.spawn).copied()
+                    })
+                    .is_none_or(|current| current < generation)
         }) {
             return Err(NativeError::InvalidCheckpoint);
         }
@@ -216,7 +222,8 @@ impl SourceContext {
             )?;
         }
         // Public source geometry routines validate finite bounded coordinates.
-        self.player_position.distance_squared(self.target_position)?;
+        self.player_position
+            .distance_squared(self.target_position)?;
         if benilla_sim::facing::normalize_bits(self.player_orientation.bits())?
             != self.player_orientation.bits()
             || benilla_sim::facing::normalize_bits(self.target_orientation)?
@@ -325,7 +332,9 @@ fn arc(
     )?)
 }
 
-fn exact_nonnegative_float(value: u32) -> Result<benilla_sim::classic_spell::SpellFloat, NativeError> {
+fn exact_nonnegative_float(
+    value: u32,
+) -> Result<benilla_sim::classic_spell::SpellFloat, NativeError> {
     use benilla_sim::classic_spell::SpellFloat;
     if value > 1_000_000 {
         return Err(NativeError::UnsupportedMechanic("bounded NPC strength"));

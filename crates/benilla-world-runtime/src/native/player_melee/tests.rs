@@ -45,7 +45,9 @@ fn profile_with_options(
     };
     for id in [136, 162] {
         skills.push(init::DefaultSkill { id, step: 0 });
-        input.skill_lines.push(init::SkillLineRow { id, category: 6 });
+        input
+            .skill_lines
+            .push(init::SkillLineRow { id, category: 6 });
     }
     let mut weapon = input.items[0].clone();
     weapon.id = 900002;
@@ -198,8 +200,12 @@ fn profile_with_options(
         )
         .unwrap();
     let mut sources = creature_generation_tests::complete_scene_sources(&profile);
-    let target = sources.iter_mut().find(|source| source.spawn_id == 2).unwrap();
-    let benilla_sim::creature_init::Rows::Complete(spawns) = &mut target.input.spawn_template else {
+    let target = sources
+        .iter_mut()
+        .find(|source| source.spawn_id == 2)
+        .unwrap();
+    let benilla_sim::creature_init::Rows::Complete(spawns) = &mut target.input.spawn_template
+    else {
         unreachable!()
     };
     spawns[0].current_health = health;
@@ -208,14 +214,18 @@ fn profile_with_options(
     profile.initialize_facing_authority().unwrap();
     if fragile_player {
         use benilla_sim::player_death as death;
-        profile.configure_player_death(
-            death::DeathConfig {
-                map_instanceable: false,
-                pve_reclaim_delay_enabled: true,
-            },
-            death::DeathSupport::checked(&death::REQUIRED_ABSENCES.map(|entry| (entry, Some(false))))
+        profile
+            .configure_player_death(
+                death::DeathConfig {
+                    map_instanceable: false,
+                    pve_reclaim_delay_enabled: true,
+                },
+                death::DeathSupport::checked(
+                    &death::REQUIRED_ABSENCES.map(|entry| (entry, Some(false))),
+                )
                 .unwrap(),
-        ).unwrap();
+            )
+            .unwrap();
     }
     profile.initialize_player_melee(1).unwrap();
     profile
@@ -267,38 +277,93 @@ fn accepted_mainhand_command_reaches_damage_death_credit_and_durable_replay() {
     let input = synthetic_quest_fixture::command(&world, Command::AttackStart { target });
     let mut authority = CompleteAuthority::default();
     let mut skill_before = world.state.combat.as_ref().unwrap().skills[&136].value;
-    let mut calls_before = world.state.quest_progression.as_ref().unwrap().derived_calls.len();
+    let mut calls_before = world
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .derived_calls
+        .len();
     world.step(1, Some(input), &mut authority).unwrap();
-    assert!(world.last_tick().unwrap().events.iter().any(|event| matches!(
-        event,
-        Event::InputResult { sequence: 0, accepted: true }
-    )));
-    assert!(world.last_tick().unwrap().events.iter().any(|event| matches!(
-        event, Event::PlayerAttackStart { target: actual } if *actual == target
-    )));
+    assert!(world
+        .last_tick()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            Event::InputResult {
+                sequence: 0,
+                accepted: true
+            }
+        )));
+    assert!(world
+        .last_tick()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event, Event::PlayerAttackStart { target: actual } if *actual == target
+        )));
     // One accepted command, then ordinary scheduled ticks, never a replayed command.
     for _ in 0..100 {
         if world.state.npcs[&2].health == 0 {
             break;
         }
         skill_before = world.state.combat.as_ref().unwrap().skills[&136].value;
-        calls_before = world.state.quest_progression.as_ref().unwrap().derived_calls.len();
-        world.step(world.state.tick + 1, None, &mut authority).unwrap();
+        calls_before = world
+            .state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .derived_calls
+            .len();
+        world
+            .step(world.state.tick + 1, None, &mut authority)
+            .unwrap();
     }
     assert_eq!(world.state.npcs[&2].health, 0);
-    assert_eq!(world.state.quest_progression.as_ref().unwrap().player.view().level, 2);
+    assert_eq!(
+        world
+            .state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .player
+            .view()
+            .level,
+        2
+    );
     let lethal = world.last_tick().unwrap();
-    let gain = lethal.draws.iter().position(|draw| matches!(
-        draw.purpose, DrawPurpose::PlayerWeaponGain { npc, .. } if npc == target
-    )).expect("lethal attack still executes the attacker weapon-skill callback after level-up");
-    let outcome = lethal.draws.iter().position(|draw| matches!(
-        draw.purpose, DrawPurpose::PlayerMeleeOutcome { npc, .. } if npc == target
-    )).unwrap();
+    let gain = lethal
+        .draws
+        .iter()
+        .position(|draw| {
+            matches!(
+                draw.purpose, DrawPurpose::PlayerWeaponGain { npc, .. } if npc == target
+            )
+        })
+        .expect("lethal attack still executes the attacker weapon-skill callback after level-up");
+    let outcome = lethal
+        .draws
+        .iter()
+        .position(|draw| {
+            matches!(
+                draw.purpose, DrawPurpose::PlayerMeleeOutcome { npc, .. } if npc == target
+            )
+        })
+        .unwrap();
     assert!(outcome < gain);
-    let calls = &world.state.quest_progression.as_ref().unwrap().derived_calls;
-    let level = calls.iter().position(|call| matches!(
-        call, quest_progression::DerivedCall::Level { level: 2, .. }
-    )).expect("actual lethal level-up callback");
+    let calls = &world
+        .state
+        .quest_progression
+        .as_ref()
+        .unwrap()
+        .derived_calls;
+    let level = calls
+        .iter()
+        .position(|call| matches!(call, quest_progression::DerivedCall::Level { level: 2, .. }))
+        .expect("actual lethal level-up callback");
     let combat = world.state.combat.as_ref().unwrap();
     let expected = benilla_sim::player_melee::resolve_weapon_gain(
         2,
@@ -316,9 +381,13 @@ fn accepted_mainhand_command_reaches_damage_death_credit_and_durable_replay() {
     .unwrap();
     assert_eq!(combat.skills[&136].value, expected.value());
     assert_eq!(
-        calls[calls_before..].iter().filter(|call| matches!(
-            call, quest_progression::DerivedCall::Weapon { skill: 136, .. }
-        )).count(),
+        calls[calls_before..]
+            .iter()
+            .filter(|call| matches!(
+                call,
+                quest_progression::DerivedCall::Weapon { skill: 136, .. }
+            ))
+            .count(),
         usize::from(expected.update_weapon_skill())
     );
     // A failed skill probability is not a callback success. Any actual Weapon
@@ -328,17 +397,41 @@ fn accepted_mainhand_command_reaches_damage_death_credit_and_durable_replay() {
             assert_eq!(view.level, 2);
         }
     }
-    let swing = lethal.events.iter().position(|event| matches!(
-        event, Event::PlayerMelee { target: actual, effective, .. }
-            if *actual == target && *effective > 0
-    )).expect("actual positive player mainhand damage");
-    let death = lethal.events.iter().position(|event| matches!(
-        event, Event::Npc { id, effect: ai::Effect::Died } if *id == target
-    )).expect("actual target death callback");
-    assert!(swing < death, "source AttackState precedes DealMeleeDamage death");
-    assert_eq!(world.state.npcs[&2].original_loot_recipient, Some(world.state.player));
+    let swing = lethal
+        .events
+        .iter()
+        .position(|event| {
+            matches!(
+                event, Event::PlayerMelee { target: actual, effective, .. }
+                    if *actual == target && *effective > 0
+            )
+        })
+        .expect("actual positive player mainhand damage");
+    let death = lethal
+        .events
+        .iter()
+        .position(|event| {
+            matches!(
+                event, Event::Npc { id, effect: ai::Effect::Died } if *id == target
+            )
+        })
+        .expect("actual target death callback");
+    assert!(
+        swing < death,
+        "source AttackState precedes DealMeleeDamage death"
+    );
     assert_eq!(
-        world.state.quest_progression.as_ref().unwrap().credited_generations.get(&2),
+        world.state.npcs[&2].original_loot_recipient,
+        Some(world.state.player)
+    );
+    assert_eq!(
+        world
+            .state
+            .quest_progression
+            .as_ref()
+            .unwrap()
+            .credited_generations
+            .get(&2),
         Some(&target.generation)
     );
     assert_eq!(restore(&world).state_digest(), world.state_digest());
@@ -377,13 +470,20 @@ fn attack_commands_refuse_unselected_and_foreign_generation_atomically() {
 fn client_attack_stop_without_victim_is_accepted_without_forced_cancel() {
     let mut world = world();
     let input = synthetic_quest_fixture::command(&world, Command::AttackStop);
-    world.step(1, Some(input), &mut CompleteAuthority::default()).unwrap();
+    world
+        .step(1, Some(input), &mut CompleteAuthority::default())
+        .unwrap();
     let events = &world.last_tick().unwrap().events;
     assert!(events.iter().any(|event| matches!(
-        event, Event::InputResult { sequence: 0, accepted: true }
+        event,
+        Event::InputResult {
+            sequence: 0,
+            accepted: true
+        }
     )));
     assert!(!events.iter().any(|event| matches!(
-        event, Event::PlayerAttackCancel | Event::PlayerAttackStop { .. } | Event::PlayerMelee { .. }
+        event,
+        Event::PlayerAttackCancel | Event::PlayerAttackStop { .. } | Event::PlayerMelee { .. }
     )));
     assert_eq!(restore(&world).state_digest(), world.state_digest());
 }
@@ -396,26 +496,51 @@ fn repeated_start_then_client_stop_preserves_exact_edges_without_a_swing() {
         Command::AttackStart { target },
         Command::AttackStart { target },
         Command::AttackStop,
-    ].into_iter().enumerate().map(|(sequence, command)| {
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(sequence, command)| {
         let mut input = synthetic_quest_fixture::command(&world, command);
         input.input.sequence = sequence as u64;
         input
-    }).collect();
-    world.step_batch(1, commands, &mut CompleteAuthority::default()).unwrap();
+    })
+    .collect();
+    world
+        .step_batch(1, commands, &mut CompleteAuthority::default())
+        .unwrap();
     let events = &world.last_tick().unwrap().events;
-    assert_eq!(events.iter().filter(|event| matches!(
-        event, Event::InputResult { accepted: true, .. }
-    )).count(), 3);
-    assert_eq!(events.iter().filter(|event| matches!(
-        event, Event::PlayerAttackStart { target: actual } if *actual == target
-    )).count(), 1);
-    assert_eq!(events.iter().filter(|event| matches!(
-        event, Event::PlayerAttackStop { target: actual } if *actual == target
-    )).count(), 1);
-    assert!(!events.iter().any(|event| matches!(
-        event, Event::PlayerAttackCancel | Event::PlayerMelee { .. }
-    )));
-    assert_eq!(world.state.combat.as_ref().unwrap().melee_timers.victim(), None);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::InputResult { accepted: true, .. }))
+            .count(),
+        3
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(
+                event, Event::PlayerAttackStart { target: actual } if *actual == target
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(
+                event, Event::PlayerAttackStop { target: actual } if *actual == target
+            ))
+            .count(),
+        1
+    );
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event, Event::PlayerAttackCancel | Event::PlayerMelee { .. })));
+    assert_eq!(
+        world.state.combat.as_ref().unwrap().melee_timers.victim(),
+        None
+    );
     assert_eq!(restore(&world).state_digest(), world.state_digest());
 }
 
@@ -439,30 +564,58 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
         let input = synthetic_quest_fixture::command(&world, Command::AttackStart { target });
         let mut authority = CompleteAuthority::default();
         world.step(1, Some(input), &mut authority).unwrap();
-        assert!(world.last_tick().unwrap().events.iter().any(|event| matches!(
-            event, Event::InputResult { sequence: 0, accepted: true }
-        )));
+        assert!(world
+            .last_tick()
+            .unwrap()
+            .events
+            .iter()
+            .any(|event| matches!(
+                event,
+                Event::InputResult {
+                    sequence: 0,
+                    accepted: true
+                }
+            )));
         if world.state.npcs[&2].defense_reactive.is_none() {
             continue;
         }
         active_cases += 1;
-        assert_eq!(world.state.npcs[&2].defense_reactive.as_ref().unwrap()
-            .remaining(world.state.now_ms, profile.tick_ms).unwrap(), 4000 - profile.tick_ms);
+        assert_eq!(
+            world.state.npcs[&2]
+                .defense_reactive
+                .as_ref()
+                .unwrap()
+                .remaining(world.state.now_ms, profile.tick_ms)
+                .unwrap(),
+            4000 - profile.tick_ms
+        );
         assert!(world.state.npcs[&2]
             .defense_reactive_active(world.state.now_ms, profile.tick_ms)
             .unwrap());
         assert_eq!(restore(&world).state_digest(), world.state_digest());
         first.get_or_insert_with(|| world.clone());
         for _ in 0..25 {
-            world.step(world.state.tick + 1, None, &mut authority).unwrap();
+            world
+                .step(world.state.tick + 1, None, &mut authority)
+                .unwrap();
         }
-        if world.state.npcs[&2].defense_reactive.as_ref().is_some_and(|cause| {
-            cause.remaining(world.state.now_ms, profile.tick_ms).unwrap() == 4000 - profile.tick_ms
-        }) {
+        if world.state.npcs[&2]
+            .defense_reactive
+            .as_ref()
+            .is_some_and(|cause| {
+                cause
+                    .remaining(world.state.now_ms, profile.tick_ms)
+                    .unwrap()
+                    == 4000 - profile.tick_ms
+            })
+        {
             refreshed.get_or_insert(world);
         }
     }
-    assert!(active_cases > 0, "enumeration must exercise an actual defense callback");
+    assert!(
+        active_cases > 0,
+        "enumeration must exercise an actual defense callback"
+    );
     let mut world = first.expect("actual source reactive required");
     let original = world.checkpoint().unwrap();
     for pointer in [
@@ -471,7 +624,9 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
         "/state/npcs/2/defense_reactive/draws/0/value",
     ] {
         let mut value = serde_json::to_value(&original).unwrap();
-        let field = value.pointer_mut(pointer).expect("exact serialized proof field");
+        let field = value
+            .pointer_mut(pointer)
+            .expect("exact serialized proof field");
         *field = serde_json::json!(field.as_u64().unwrap() + 1);
         let mut changed: Checkpoint = serde_json::from_value(value).unwrap();
         changed.digest = crate::digest(b"benilla-native-state-v52\0", &changed.state);
@@ -487,11 +642,19 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
     let input = synthetic_quest_fixture::command(&world, Command::AttackStop);
     let mut authority = CompleteAuthority::default();
     world.step(2, Some(input), &mut authority).unwrap();
-    assert!(world.state.npcs[&2].defense_reactive.is_some(), "stop must not clear defense reactive");
+    assert!(
+        world.state.npcs[&2].defense_reactive.is_some(),
+        "stop must not clear defense reactive"
+    );
     while world.state.tick < 40 {
-        world.step(world.state.tick + 1, None, &mut authority).unwrap();
+        world
+            .step(world.state.tick + 1, None, &mut authority)
+            .unwrap();
     }
-    assert!(world.state.npcs[&2].defense_reactive.is_none(), "exact expiry clears retained cause");
+    assert!(
+        world.state.npcs[&2].defense_reactive.is_none(),
+        "exact expiry clears retained cause"
+    );
     assert_eq!(restore(&world).state_digest(), world.state_digest());
 
     let mut world = refreshed.expect("enumeration must exercise an actual refresh");
@@ -499,15 +662,23 @@ fn genuine_npc_defense_reactive_refresh_expiry_death_and_restore_are_bound() {
     assert_eq!(restore(&world).state_digest(), world.state_digest());
     let target = world.state.npcs[&2].id;
     for _ in 0..300 {
-        if world.state.npcs[&2].health == 0 { break; }
-        world.step(world.state.tick + 1, None, &mut authority).unwrap();
+        if world.state.npcs[&2].health == 0 {
+            break;
+        }
+        world
+            .step(world.state.tick + 1, None, &mut authority)
+            .unwrap();
     }
     assert_eq!(world.state.npcs[&2].health, 0);
     assert!(world.state.npcs[&2].defense_reactive.is_none());
     assert_eq!(restore(&world).state_digest(), world.state_digest());
     for _ in 0..100 {
-        if world.state.npcs[&2].id != target { break; }
-        world.step(world.state.tick + 1, None, &mut authority).unwrap();
+        if world.state.npcs[&2].id != target {
+            break;
+        }
+        world
+            .step(world.state.tick + 1, None, &mut authority)
+            .unwrap();
     }
     assert_ne!(world.state.npcs[&2].id, target);
     assert!(world.state.npcs[&2].defense_reactive.is_none());
@@ -527,21 +698,40 @@ fn actual_npc_lethal_callback_closes_player_attack_before_checkpoint() {
     let profile = fragile_profile();
     let mut world =
         NativeWorld::synthetic_component_test(profile, [1; 16], fixture::player(), 42).unwrap();
-    assert!(world.state.health <= 5, "authored initializer produced genuinely low health");
+    assert!(
+        world.state.health <= 5,
+        "authored initializer produced genuinely low health"
+    );
     let initial = world.checkpoint().unwrap();
     let target = world.state.npcs[&2].id;
     let input = synthetic_quest_fixture::command(&world, Command::AttackStart { target });
     let mut authority = CompleteAuthority::default();
     world.step(1, Some(input), &mut authority).unwrap();
-    assert!(world.last_tick().unwrap().events.iter().any(|event| matches!(
-        event, Event::InputResult { sequence: 0, accepted: true }
-    )));
+    assert!(world
+        .last_tick()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            Event::InputResult {
+                sequence: 0,
+                accepted: true
+            }
+        )));
     for _ in 0..50 {
-        if world.state.health == 0 { break; }
-        world.step(world.state.tick + 1, None, &mut authority).unwrap();
+        if world.state.health == 0 {
+            break;
+        }
+        world
+            .step(world.state.tick + 1, None, &mut authority)
+            .unwrap();
     }
     assert_eq!(world.state.health, 0);
-    assert!(world.state.npcs.contains_key(&2), "removed source owner was reinserted");
+    assert!(
+        world.state.npcs.contains_key(&2),
+        "removed source owner was reinserted"
+    );
     let events = &world.last_tick().unwrap().events;
     assert!(events.iter().any(|event| matches!(
         event, Event::Melee { id, effective, .. } if *id == target && *effective > 0
@@ -555,13 +745,31 @@ fn actual_npc_lethal_callback_closes_player_attack_before_checkpoint() {
         .position(|event| matches!(event, Event::PlayerAttackStop { target: actual } if *actual == target))
         .expect("source stopped original player victim");
     assert!(cancel < stop);
-    assert_eq!(world.state.combat.as_ref().unwrap().melee_timers.victim(), None);
-    assert!(!world.state.combat.as_ref().unwrap().melee_timers.melee_attacking());
+    assert_eq!(
+        world.state.combat.as_ref().unwrap().melee_timers.victim(),
+        None
+    );
+    assert!(!world
+        .state
+        .combat
+        .as_ref()
+        .unwrap()
+        .melee_timers
+        .melee_attacking());
     let checkpoint = world.checkpoint().unwrap();
     let restored =
         NativeWorld::restore_synthetic_component_test(world.profile.clone(), checkpoint).unwrap();
     assert_eq!(restored.state.health, 0);
-    assert_eq!(restored.state.combat.as_ref().unwrap().melee_timers.victim(), None);
+    assert_eq!(
+        restored
+            .state
+            .combat
+            .as_ref()
+            .unwrap()
+            .melee_timers
+            .victim(),
+        None
+    );
     assert_eq!(restored.state_digest(), world.state_digest());
     let mut replay =
         NativeWorld::restore_synthetic_component_test(world.profile.clone(), initial).unwrap();
@@ -577,18 +785,32 @@ fn both_cast_and_mainhand_overlap_orders_refuse_the_whole_transaction() {
         let target = world.state.npcs[&2].id;
         let mut commands = vec![
             Command::AttackStart { target },
-            Command::Cast { ability: 60001, target },
+            Command::Cast {
+                ability: 60001,
+                target,
+            },
         ];
-        if cast_first { commands.reverse(); }
-        let inputs = commands.into_iter().enumerate().map(|(sequence, command)| {
-            let mut input = synthetic_quest_fixture::command(&world, command);
-            input.input.sequence = sequence as u64;
-            input
-        }).collect();
-        assert!(matches!(
-            world.step_batch(1, inputs, &mut CompleteAuthority::default()),
-            Err(NativeError::UnsupportedMechanic("player melee concurrent spell/projectile/aura"))
-        ), "cast_first={cast_first}");
+        if cast_first {
+            commands.reverse();
+        }
+        let inputs = commands
+            .into_iter()
+            .enumerate()
+            .map(|(sequence, command)| {
+                let mut input = synthetic_quest_fixture::command(&world, command);
+                input.input.sequence = sequence as u64;
+                input
+            })
+            .collect();
+        assert!(
+            matches!(
+                world.step_batch(1, inputs, &mut CompleteAuthority::default()),
+                Err(NativeError::UnsupportedMechanic(
+                    "player melee concurrent spell/projectile/aura"
+                ))
+            ),
+            "cast_first={cast_first}"
+        );
         assert_eq!(world.state_digest(), before);
         assert_eq!(world.state.next_sequence, 0);
         assert!(world.records().is_empty());
@@ -598,10 +820,17 @@ fn both_cast_and_mainhand_overlap_orders_refuse_the_whole_transaction() {
 #[test]
 fn source_initialized_fishing_pole_is_refused_before_policy_selection() {
     let mut input = fixture::initialized_starter_input();
-    let init::Rows::Complete(skills) = &mut input.default_skills else { unreachable!() };
+    let init::Rows::Complete(skills) = &mut input.default_skills else {
+        unreachable!()
+    };
     skills.push(init::DefaultSkill { id: 356, step: 1 });
-    input.skill_lines.push(init::SkillLineRow { id: 356, category: 9 });
-    let init::Rows::Complete(rows) = &mut input.skill_race_class else { unreachable!() };
+    input.skill_lines.push(init::SkillLineRow {
+        id: 356,
+        category: 9,
+    });
+    let init::Rows::Complete(rows) = &mut input.skill_race_class else {
+        unreachable!()
+    };
     rows.push(init::SkillRaceClassRow {
         row_id: 900,
         skill: 356,
@@ -610,7 +839,11 @@ fn source_initialized_fishing_pole_is_refused_before_policy_selection() {
         flags: 0,
         tier: 900,
     });
-    input.skill_tiers.push(init::SkillTierRow { id: 900, values: [1; 16], maxima: [75; 16] });
+    input.skill_tiers.push(init::SkillTierRow {
+        id: 900,
+        values: [1; 16],
+        maxima: [75; 16],
+    });
     let mut pole = input.items[0].clone();
     pole.id = 900002;
     pole.class = 2;
@@ -625,7 +858,9 @@ fn source_initialized_fishing_pole_is_refused_before_policy_selection() {
     };
     pole.delay_ms = 2500;
     input.items.push(pole);
-    let init::Rows::Complete(grants) = &mut input.item_grants else { unreachable!() };
+    let init::Rows::Complete(grants) = &mut input.item_grants else {
+        unreachable!()
+    };
     grants.push(init::ItemGrant {
         source: init::GrantSource::Custom,
         source_order: 1,
@@ -633,13 +868,22 @@ fn source_initialized_fishing_pole_is_refused_before_policy_selection() {
         count: 1,
     });
     let mut profile = fixture::profile();
-    profile.initialize_player(&input, fixture::float(0.0), 1).unwrap();
-    assert!(profile.combat.as_ref().unwrap().equipment_weapons.iter()
+    profile
+        .initialize_player(&input, fixture::float(0.0), 1)
+        .unwrap();
+    assert!(profile
+        .combat
+        .as_ref()
+        .unwrap()
+        .equipment_weapons
+        .iter()
         .any(|weapon| weapon.slot == 15 && weapon.subclass == 20));
     let before = profile.digest();
     assert_eq!(
         profile.initialize_player_melee(1),
-        Err(NativeError::UnsupportedMechanic("player melee fishing-pole callback"))
+        Err(NativeError::UnsupportedMechanic(
+            "player melee fishing-pole callback"
+        ))
     );
     assert_eq!(profile.digest(), before);
     assert!(profile.player_melee.is_none());
@@ -650,25 +894,27 @@ fn actual_returning_home_preserves_active_range_and_facing_precedence() {
     for (spawn, expected_error) in [(16.0, 0), (8.0, 2)] {
         for already_active in [false, true] {
             let profile = profile_with_home_case(60, false, Some(spawn));
-            let mut world = NativeWorld::synthetic_component_test(
-                profile,
-                [1; 16],
-                fixture::player(),
-                42,
-            )
-            .unwrap();
+            let mut world =
+                NativeWorld::synthetic_component_test(profile, [1; 16], fixture::player(), 42)
+                    .unwrap();
             let mut authority = CompleteAuthority::default();
             let target = world.state.npcs[&2].id;
             if already_active {
-                let input = synthetic_quest_fixture::command(&world, Command::AttackStart { target });
+                let input =
+                    synthetic_quest_fixture::command(&world, Command::AttackStart { target });
                 world.step(1, Some(input), &mut authority).unwrap();
                 assert_eq!(
                     world.state.combat.as_ref().unwrap().melee_timers.victim(),
                     Some(target)
                 );
-                assert!(world.last_tick().unwrap().events.iter().any(|event| matches!(
-                    event, Event::PlayerAttackStart { target: actual } if *actual == target
-                )));
+                assert!(world
+                    .last_tick()
+                    .unwrap()
+                    .events
+                    .iter()
+                    .any(|event| matches!(
+                        event, Event::PlayerAttackStart { target: actual } if *actual == target
+                    )));
             }
             for _ in 0..20 {
                 if world.state.npcs[&2].ai.phase() == ai::Phase::ReturningHome {
@@ -677,10 +923,12 @@ fn actual_returning_home_preserves_active_range_and_facing_precedence() {
                 world
                     .step(world.state.tick + 1, None, &mut authority)
                     .unwrap();
-                assert!(!world.last_tick().unwrap().events.iter().any(|event| matches!(
-                    event,
-                    Event::PlayerMelee { .. }
-                )));
+                assert!(!world
+                    .last_tick()
+                    .unwrap()
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, Event::PlayerMelee { .. })));
             }
             assert_eq!(world.state.npcs[&2].ai.phase(), ai::Phase::ReturningHome);
             let before = current_fields(&world.state).unwrap();
@@ -748,7 +996,9 @@ fn actual_hit_done_weapon_break_precedes_unarmed_timer_reset_and_restore() {
     let genesis = profile.combat.as_ref().unwrap();
     assert_eq!(genesis.equipment.item(15).unwrap().current_durability, 1);
     assert_eq!(
-        genesis.source_attack_times_for_recipe(&genesis.recipe.snapshot()).unwrap()[0],
+        genesis
+            .source_attack_times_for_recipe(&genesis.recipe.snapshot())
+            .unwrap()[0],
         2500
     );
     let mut reached = 0;
@@ -768,25 +1018,41 @@ fn actual_hit_done_weapon_break_precedes_unarmed_timer_reset_and_restore() {
             .step(1, Some(input), &mut CompleteAuthority::default())
             .unwrap();
         let record = world.last_tick().unwrap();
-        assert!(record.events.iter().any(|event| matches!(
-            event, Event::InputResult { accepted: true, .. }
-        )));
-        let Some(slot_index) = record.draws.iter().position(|draw| matches!(
-            draw.purpose, DrawPurpose::PlayerDurabilitySlot { npc, .. } if npc == target
-        ) && draw.value == 15) else {
+        assert!(record
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::InputResult { accepted: true, .. })));
+        let Some(slot_index) = record.draws.iter().position(|draw| {
+            matches!(
+                draw.purpose, DrawPurpose::PlayerDurabilitySlot { npc, .. } if npc == target
+            ) && draw.value == 15
+        }) else {
             continue;
         };
         reached += 1;
         assert!(record.draws[..slot_index].iter().any(|draw| matches!(
             draw.purpose, DrawPurpose::PlayerDurabilityChance { npc, .. } if npc == target
         )));
-        let swing = record.events.iter().position(|event| matches!(
-            event, Event::PlayerMelee { target: actual, effective, .. }
-                if *actual == target && *effective > 0
-        )).expect("actual surviving HIT_DONE damage");
-        let broken = record.events.iter().position(|event| matches!(
-            event, Event::Combat(CombatEvent::ItemStats { slot: 15, .. })
-        )).expect("actual weapon break callback");
+        let swing = record
+            .events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event, Event::PlayerMelee { target: actual, effective, .. }
+                        if *actual == target && *effective > 0
+                )
+            })
+            .expect("actual surviving HIT_DONE damage");
+        let broken = record
+            .events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    Event::Combat(CombatEvent::ItemStats { slot: 15, .. })
+                )
+            })
+            .expect("actual weapon break callback");
         assert!(swing < broken);
         assert!(world.state.npcs[&2].health > 0);
         let combat = world.state.combat.as_ref().unwrap();

@@ -30,38 +30,69 @@ impl PlayerMeleePolicy {
         if self.policy != PLAYER_MELEE_POLICY {
             return Err(NativeError::InvalidProfile);
         }
-        let combat = profile.combat.as_ref().ok_or(NativeError::UnsupportedMechanic(
-            "player melee retained starter operands",
-        ))?;
-        if combat.equipment_weapons.iter().any(|weapon| weapon.slot == 15
-            && weapon.subclass == 20) {
-            return Err(NativeError::UnsupportedMechanic("player melee fishing-pole callback"));
+        let combat = profile
+            .combat
+            .as_ref()
+            .ok_or(NativeError::UnsupportedMechanic(
+                "player melee retained starter operands",
+            ))?;
+        if combat
+            .equipment_weapons
+            .iter()
+            .any(|weapon| weapon.slot == 15 && weapon.subclass == 20)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "player melee fishing-pole callback",
+            ));
         }
         if combat.starter_identity.class != 8 {
             return Err(NativeError::UnsupportedMechanic("player melee non-mage"));
         }
-        let _progression = profile.quest_progression.as_ref().ok_or(
-            NativeError::UnsupportedMechanic("player melee live derived-stat source"),
-        )?;
-        let generations = profile.creature_generations.as_ref().ok_or(
-            NativeError::UnsupportedMechanic("player melee retained creature initialization"),
-        )?;
+        let _progression =
+            profile
+                .quest_progression
+                .as_ref()
+                .ok_or(NativeError::UnsupportedMechanic(
+                    "player melee live derived-stat source",
+                ))?;
+        let generations =
+            profile
+                .creature_generations
+                .as_ref()
+                .ok_or(NativeError::UnsupportedMechanic(
+                    "player melee retained creature initialization",
+                ))?;
         if profile.source_motion.is_none()
             || !profile.source_facing_authority()
-            || !profile.source_combat_authority() {
+            || !profile.source_combat_authority()
+        {
             return Err(NativeError::UnsupportedMechanic(
                 "player melee source movement/relations/facing",
             ));
         }
         interactions::player_melee::validate_policy(profile)?;
-        if combat.initial_auras.iter().any(|aura| aura.aura_interrupt_flags & 0x1000 != 0) {
-            return Err(NativeError::UnsupportedMechanic("player melee attack-interrupted passive aura"));
+        if combat
+            .initial_auras
+            .iter()
+            .any(|aura| aura.aura_interrupt_flags & 0x1000 != 0)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "player melee attack-interrupted passive aura",
+            ));
         }
-        if combat.source_attack_times_for_recipe(&combat.recipe.snapshot())?.into_iter().any(|time| time > 1_000_000) {
-            return Err(NativeError::UnsupportedMechanic("player melee bounded attack interval"));
+        if combat
+            .source_attack_times_for_recipe(&combat.recipe.snapshot())?
+            .into_iter()
+            .any(|time| time > 1_000_000)
+        {
+            return Err(NativeError::UnsupportedMechanic(
+                "player melee bounded attack interval",
+            ));
         }
         for npc in &profile.npcs {
-            let source = generations.source(npc.ai.creature_id).ok_or(NativeError::InvalidProfile)?;
+            let source = generations
+                .source(npc.ai.creature_id)
+                .ok_or(NativeError::InvalidProfile)?;
             let raw = &source.input.template;
             // Existing ordinary initialization owns only these classes/static
             // flags. Do not reinterpret unsupported controls as absent defenses.
@@ -104,9 +135,12 @@ pub(in crate::native) fn validate_weapon_history(
     state: &State,
 ) -> Result<(), NativeError> {
     if let Some(progression) = &state.quest_progression {
-        progression.validate_weapon_policy(profile.player_melee
-            .as_ref()
-            .map(PlayerMeleePolicy::weapon_skill_gain))?;
+        progression.validate_weapon_policy(
+            profile
+                .player_melee
+                .as_ref()
+                .map(PlayerMeleePolicy::weapon_skill_gain),
+        )?;
     }
     Ok(())
 }
@@ -122,15 +156,29 @@ impl PlayerMeleeState {
         self.proof.replay_work()
     }
     pub(in crate::native) fn new(profile: &Profile, current: &State) -> Self {
-        Self { proof: state::PlayerMeleeProof::genesis(profile, current), last_error: 0 }
+        Self {
+            proof: state::PlayerMeleeProof::genesis(profile, current),
+            last_error: 0,
+        }
     }
 }
 fn current_fields(current: &State) -> Result<state::MeleeFields, NativeError> {
-    let selected = current.player_melee.as_ref().ok_or(NativeError::InvalidState)?;
-    let timers = &current.combat.as_ref().ok_or(NativeError::InvalidState)?.melee_timers;
+    let selected = current
+        .player_melee
+        .as_ref()
+        .ok_or(NativeError::InvalidState)?;
+    let timers = &current
+        .combat
+        .as_ref()
+        .ok_or(NativeError::InvalidState)?
+        .melee_timers;
     Ok(state::MeleeFields {
-        lifecycle: state::Lifecycle { victim: timers.victim(), melee_attacking: timers.melee_attacking() },
-        remaining_ms: timers.remaining_ms(), last_error: selected.last_error,
+        lifecycle: state::Lifecycle {
+            victim: timers.victim(),
+            melee_attacking: timers.melee_attacking(),
+        },
+        remaining_ms: timers.remaining_ms(),
+        last_error: selected.last_error,
     })
 }
 pub(in crate::native) fn refuse_spell_concurrency(
@@ -138,45 +186,73 @@ pub(in crate::native) fn refuse_spell_concurrency(
     current: &State,
 ) -> Result<(), NativeError> {
     if profile.player_melee.is_some()
-        && current.combat
-        .as_ref()
-        .is_some_and(|combat| combat.melee_timers.melee_attacking()) {
-        return Err(NativeError::UnsupportedMechanic("player melee concurrent spell/projectile/aura"));
+        && current
+            .combat
+            .as_ref()
+            .is_some_and(|combat| combat.melee_timers.melee_attacking())
+    {
+        return Err(NativeError::UnsupportedMechanic(
+            "player melee concurrent spell/projectile/aura",
+        ));
     }
     Ok(())
 }
 fn validate_no_concurrency(_profile: &Profile, current: &State) -> Result<(), NativeError> {
     let combat = current.combat.as_ref().ok_or(NativeError::InvalidState)?;
-    if !current.casts.is_empty() || combat.has_channeled_spell || combat.has_auto_repeat_spell
-
-            || current.npcs.values().any(|npc| !npc.auras.is_empty()
-            || npc.events.spells().next().is_some())
-        || current.player_slow.as_ref().is_some_and(|slow| slow.holders().next().is_some())
+    if !current.casts.is_empty()
+        || combat.has_channeled_spell
+        || combat.has_auto_repeat_spell
+        || current
+            .npcs
+            .values()
+            .any(|npc| !npc.auras.is_empty() || npc.events.spells().next().is_some())
+        || current
+            .player_slow
+            .as_ref()
+            .is_some_and(|slow| slow.holders().next().is_some())
     {
-        return Err(NativeError::UnsupportedMechanic("player melee concurrent spell/projectile/aura"));
+        return Err(NativeError::UnsupportedMechanic(
+            "player melee concurrent spell/projectile/aura",
+        ));
     }
     Ok(())
 }
 
 fn key(current: &State, phase: state::Phase) -> Result<state::CauseKey, NativeError> {
-    Ok(state::CauseKey { tick: current.tick, phase, action: current.player_melee
-        .as_ref()
-        .ok_or(NativeError::InvalidState)?.proof.next_action()? })
+    Ok(state::CauseKey {
+        tick: current.tick,
+        phase,
+        action: current
+            .player_melee
+            .as_ref()
+            .ok_or(NativeError::InvalidState)?
+            .proof
+            .next_action()?,
+    })
 }
 fn commit_cause(
     profile: &Profile,
     current: &mut State,
     phase: state::Phase,
-    cause: source::SourceCause
+    cause: source::SourceCause,
 ) -> Result<(), NativeError> {
-    let proof = current.player_melee
+    let proof = current
+        .player_melee
         .as_ref()
-        .ok_or(NativeError::InvalidState)?.proof.apply(profile, current, phase, cause)?;
+        .ok_or(NativeError::InvalidState)?
+        .proof
+        .apply(profile, current, phase, cause)?;
     let fields = proof.expected(profile, current, phase)?;
-    current.combat
+    current
+        .combat
         .as_mut()
-        .ok_or(NativeError::InvalidState)?.melee_timers.write_source_fields(fields.lifecycle.victim, fields.remaining_ms)?;
-    current.player_melee = Some(PlayerMeleeState { proof, last_error: fields.last_error });
+        .ok_or(NativeError::InvalidState)?
+        .melee_timers
+        .write_source_fields(fields.lifecycle.victim, fields.remaining_ms)?;
+    current.player_melee = Some(PlayerMeleeState {
+        proof,
+        last_error: fields.last_error,
+    });
     Ok(())
 }
 pub(in crate::native) fn start(
@@ -184,20 +260,28 @@ pub(in crate::native) fn start(
     current: &mut State,
     target: NpcId,
 ) -> Result<(Vec<Event>, Option<Rejection>), NativeError> {
-    profile.player_melee
+    profile
+        .player_melee
         .as_ref()
-        .ok_or(NativeError::UnsupportedMechanic("player melee policy not selected"))?.validate(profile)?;
+        .ok_or(NativeError::UnsupportedMechanic(
+            "player melee policy not selected",
+        ))?
+        .validate(profile)?;
     validate_no_concurrency(profile, current)?;
     validate_fields(profile, current, state::Phase::PreUnit)?;
     let before = current_fields(current)?;
-    let npc = current.npcs
+    let npc = current
+        .npcs
         .get(&target.spawn)
         .filter(|npc| npc.id == target)
         .ok_or(NativeError::UnknownTarget)?;
     let context = context::SourceContext::capture(profile, current, npc, before)?;
     let resolved = context.replay(profile, current)?;
     if !resolved.can_attack_now {
-        return Ok((vec![Event::PlayerAttackStop { target }], Some(Rejection::AttackDenied)));
+        return Ok((
+            vec![Event::PlayerAttackStop { target }],
+            Some(Rejection::AttackDenied),
+        ));
     }
     // Unit::Attack rejects an evading victim after the handler check, without
     // sending that handler's MeleeAttackStop or switching the current victim.
@@ -215,7 +299,7 @@ pub(in crate::native) fn start(
     let cause = source::SourceCause::Start {
         key: key(current, state::Phase::PreUnit)?,
         input_sequence: current.next_sequence,
-        context: Box::new(context)
+        context: Box::new(context),
     };
     commit_cause(profile, current, state::Phase::PreUnit, cause)?;
     Ok((events, None))
@@ -225,14 +309,16 @@ pub(in crate::native) fn stop(
     current: &mut State,
 ) -> Result<Vec<Event>, NativeError> {
     if profile.player_melee.is_none() {
-        return Err(NativeError::UnsupportedMechanic("player melee policy not selected"));
+        return Err(NativeError::UnsupportedMechanic(
+            "player melee policy not selected",
+        ));
     }
     validate_fields(profile, current, state::Phase::PreUnit)?;
     let previous = current_fields(current)?.lifecycle.victim;
     let cause = source::SourceCause::Stop {
         key: key(current, state::Phase::PreUnit)?,
         input_sequence: current.next_sequence,
-        previous
+        previous,
     };
     commit_cause(profile, current, state::Phase::PreUnit, cause)?;
     let mut events = vec![];
@@ -241,14 +327,23 @@ pub(in crate::native) fn stop(
     }
     Ok(events)
 }
-fn validate_fields(profile: &Profile, current: &State, phase: state::Phase) -> Result<(), NativeError> {
-    let owner = current.player_melee.as_ref().ok_or(NativeError::InvalidState)?;
-    current.combat
+fn validate_fields(
+    profile: &Profile,
+    current: &State,
+    phase: state::Phase,
+) -> Result<(), NativeError> {
+    let owner = current
+        .player_melee
         .as_ref()
-        .ok_or(NativeError::InvalidState)?.validate_melee_timer_fields(profile.combat
+        .ok_or(NativeError::InvalidState)?;
+    current
+        .combat
         .as_ref()
-        .ok_or(NativeError::InvalidState)?)?;
-    owner.proof.validate(profile, current, phase, current_fields(current)?)
+        .ok_or(NativeError::InvalidState)?
+        .validate_melee_timer_fields(profile.combat.as_ref().ok_or(NativeError::InvalidState)?)?;
+    owner
+        .proof
+        .validate(profile, current, phase, current_fields(current)?)
 }
 pub(in crate::native) fn validate_current(
     profile: &Profile,
@@ -260,23 +355,38 @@ pub(in crate::native) fn validate_current(
         (Some(policy), Some(_)) => {
             policy.validate(profile)?;
             validate_fields(profile, current, state::Phase::PostUnit)?;
-            current.player_melee
+            current
+                .player_melee
                 .as_ref()
-                .ok_or(NativeError::InvalidState)?.proof.validate_closed(current)?;
-            if let Some(reset) = current.combat
+                .ok_or(NativeError::InvalidState)?
+                .proof
+                .validate_closed(current)?;
+            if let Some(reset) = current
+                .combat
                 .as_ref()
-                .and_then(|combat| combat.melee_reset
-                .as_ref()) {
+                .and_then(|combat| combat.melee_reset.as_ref())
+            {
                 let (at, _) = reset.source_origin();
-                let tick = at.checked_sub(profile.clock_origin_ms)
-                    .ok_or(NativeError::InvalidState)? / u64::from(profile.tick_ms);
-                current.player_melee.as_ref().unwrap().proof.validate_latest_reset(reset, tick)?;
+                let tick = at
+                    .checked_sub(profile.clock_origin_ms)
+                    .ok_or(NativeError::InvalidState)?
+                    / u64::from(profile.tick_ms);
+                current
+                    .player_melee
+                    .as_ref()
+                    .unwrap()
+                    .proof
+                    .validate_latest_reset(reset, tick)?;
             }
-            if current.combat
+            if current
+                .combat
                 .as_ref()
-                .is_some_and(|combat| combat.melee_timers.melee_attacking()) { validate_no_concurrency(profile, current)?; }
+                .is_some_and(|combat| combat.melee_timers.melee_attacking())
+            {
+                validate_no_concurrency(profile, current)?;
+            }
             Ok(())
-        },
+        }
         _ => Err(NativeError::InvalidState),
     }
 }
@@ -288,12 +398,16 @@ pub(in crate::native) fn record_spell_reset(
     if profile.player_melee.is_none() {
         return Ok(());
     }
-    let witness = current.combat
+    let witness = current
+        .combat
         .as_ref()
-        .and_then(|combat| combat.melee_reset
-        .as_ref())
-        .ok_or(NativeError::InvalidState)?.clone();
-    let cause = source::SourceCause::SpellReset { key: key(current, state::Phase::PreUnit)?, witness: Box::new(witness) };
+        .and_then(|combat| combat.melee_reset.as_ref())
+        .ok_or(NativeError::InvalidState)?
+        .clone();
+    let cause = source::SourceCause::SpellReset {
+        key: key(current, state::Phase::PreUnit)?,
+        witness: Box::new(witness),
+    };
     commit_cause(profile, current, state::Phase::PreUnit, cause)
 }
 
@@ -338,7 +452,8 @@ pub(in crate::native) fn prepare_tick(
     if before.remaining_ms[0] != 0 {
         return Ok((None, vec![]));
     }
-    let npc = current.npcs
+    let npc = current
+        .npcs
         .get(&target.spawn)
         .filter(|npc| npc.id == target)
         .ok_or(NativeError::InvalidState)?;
@@ -347,13 +462,35 @@ pub(in crate::native) fn prepare_tick(
     let key = key(current, state::Phase::PostUnit)?;
     let (error, executes) = source::ready_decision(&resolved);
     if executes && resolved.target_evading {
-        return Err(NativeError::UnsupportedMechanic("player melee evade damage"));
+        return Err(NativeError::UnsupportedMechanic(
+            "player melee evade damage",
+        ));
     }
     if executes {
-        return Ok((Some(PendingSwing { key, context, resolved }), vec![]));
+        return Ok((
+            Some(PendingSwing {
+                key,
+                context,
+                resolved,
+            }),
+            vec![],
+        ));
     }
-    let events = if error != before.last_error { vec![Event::PlayerSwingError { code: error }] } else { vec![] };
-    commit_cause(profile, current, state::Phase::PostUnit, source::SourceCause::Ready { key, context: Box::new(context), swing: None })?;
+    let events = if error != before.last_error {
+        vec![Event::PlayerSwingError { code: error }]
+    } else {
+        vec![]
+    };
+    commit_cause(
+        profile,
+        current,
+        state::Phase::PostUnit,
+        source::SourceCause::Ready {
+            key,
+            context: Box::new(context),
+            swing: None,
+        },
+    )?;
     Ok((None, events))
 }
 pub(in crate::native) fn record_npc_reactive(
@@ -363,11 +500,20 @@ pub(in crate::native) fn record_npc_reactive(
     draws: Vec<Draw>,
     result: &benilla_sim::player_melee::MeleeResolution,
 ) -> Result<(), NativeError> {
-    if let Some(proof) = NpcDefenseReactive::capture(profile, current, pending.context.clone(), pending.key, draws, result)? {
-        current.npcs
+    if let Some(proof) = NpcDefenseReactive::capture(
+        profile,
+        current,
+        pending.context.clone(),
+        pending.key,
+        draws,
+        result,
+    )? {
+        current
+            .npcs
             .get_mut(&pending.target().spawn)
             .filter(|npc| npc.id == pending.target())
-            .ok_or(NativeError::InvalidState)?.defense_reactive = Some(proof);
+            .ok_or(NativeError::InvalidState)?
+            .defense_reactive = Some(proof);
     }
     Ok(())
 }
@@ -382,15 +528,35 @@ pub(in crate::native) fn finish_swing(
 ) -> Result<Vec<Event>, NativeError> {
     let old_error = pending.resolved.predecessor.last_error;
     let after = MeleeExecutionBinding::capture(profile, current)?;
-    let after_equipment = current.combat
+    let after_equipment = current
+        .combat
         .as_ref()
-        .ok_or(NativeError::InvalidState)?.equipment.snapshot();
-    let witness = source::SwingWitness { draws, after_damage, after, after_equipment, loot };
-    commit_cause(profile, current, state::Phase::PostUnit, source::SourceCause::Ready {
-        key: pending.key, context: Box::new(pending.context), swing: Some(Box::new(witness)),
-    })?;
+        .ok_or(NativeError::InvalidState)?
+        .equipment
+        .snapshot();
+    let witness = source::SwingWitness {
+        draws,
+        after_damage,
+        after,
+        after_equipment,
+        loot,
+    };
+    commit_cause(
+        profile,
+        current,
+        state::Phase::PostUnit,
+        source::SourceCause::Ready {
+            key: pending.key,
+            context: Box::new(pending.context),
+            swing: Some(Box::new(witness)),
+        },
+    )?;
     // Source value0 is also NOT_IN_RANGE, even following a successful swing.
-    Ok(if old_error != 0 { vec![Event::PlayerSwingError { code: 0 }] } else { vec![] })
+    Ok(if old_error != 0 {
+        vec![Event::PlayerSwingError { code: 0 }]
+    } else {
+        vec![]
+    })
 }
 
 #[cfg(test)]

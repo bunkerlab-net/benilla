@@ -137,10 +137,9 @@ impl<A: Authority> Frame<'_, A> {
                 }
                 d::DeathAction::CombatStop => {
                     if let Some(pending) = &self.pending_player_melee_death {
-                        self.events.extend(pending.repeated_stop(
-                            self.state,
-                            self.player_melee_unit_updated,
-                        )?);
+                        self.events.extend(
+                            pending.repeated_stop(self.state, self.player_melee_unit_updated)?,
+                        );
                     } else {
                         let (pending, events) = player_melee::death::begin(
                             self.profile,

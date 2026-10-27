@@ -16,12 +16,12 @@
 mod geometry;
 mod numeric;
 mod skill;
+use crate::classic::software_armor_reduced_damage;
+use crate::classic_spell::SpellFloat;
 pub use geometry::{
     mainhand_parry_haste, npc_shield_block, player_in_melee_range, PlayerMeleeGeometry,
 };
 pub use skill::{resolve_weapon_gain, weapon_gain_chance, WeaponSkill, WeaponSkillResolution};
-use crate::classic::software_armor_reduced_damage;
-use crate::classic_spell::SpellFloat;
 
 pub const PLAYER_MELEE_POLICY_ID: &str = "cmangos-8ec338a1-mage-npc-mainhand-softfloat-v1";
 const MAX_AMOUNT: u32 = 1_000_000;

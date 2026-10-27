@@ -171,12 +171,12 @@ impl ProgressionBinding {
         if self.owner != owner {
             return Err(NativeError::InvalidCheckpoint);
         }
-        let training_calls = self
-            .training_prefix
-            .resolve(owner, "training", &current.training.calls)?;
-        let derived_calls = self
-            .derived_prefix
-            .resolve(owner, "derived", &current.derived_calls)?;
+        let training_calls =
+            self.training_prefix
+                .resolve(owner, "training", &current.training.calls)?;
+        let derived_calls =
+            self.derived_prefix
+                .resolve(owner, "derived", &current.derived_calls)?;
         let prior = pg::State::restore(&g.levels, self.player.clone())?;
         let p = prior.view();
         g.validate_live_skills(p)?;
@@ -407,7 +407,12 @@ impl ExecutionBinding {
                 if profile.ability(self.ability.id) == Some(&self.ability)
                     && self.level == profile.player.level => {}
             (Some(g), Some(current), Some(binding)) => {
-                current.validate_weapon_policy(profile.player_melee.as_ref().map(PlayerMeleePolicy::weapon_skill_gain))?;
+                current.validate_weapon_policy(
+                    profile
+                        .player_melee
+                        .as_ref()
+                        .map(PlayerMeleePolicy::weapon_skill_gain),
+                )?;
                 let (prior, training) = binding.validate(g, current, self.level, identity)?;
                 let p = prior.view();
                 if g.resolve_execution_ability(&training, p, self.ability.id)? != self.ability {

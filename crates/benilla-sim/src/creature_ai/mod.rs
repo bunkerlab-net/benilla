@@ -469,8 +469,11 @@ impl SoloCreatureAi {
     /// not an attack authorization and accepts no caller-authored timer value.
     pub fn apply_player_mainhand_parry_haste(&mut self) -> Result<(), AiError> {
         self.require_finished_generation()?;
-        if self.pending_receipts.is_some() || matches!(self.phase, Phase::Corpse | Phase::Despawned) {
-            return Err(AiError::Invalid("player parry outside live finished AI state"));
+        if self.pending_receipts.is_some() || matches!(self.phase, Phase::Corpse | Phase::Despawned)
+        {
+            return Err(AiError::Invalid(
+                "player parry outside live finished AI state",
+            ));
         }
         let next = crate::player_melee::mainhand_parry_haste(
             self.mainhand_ms,

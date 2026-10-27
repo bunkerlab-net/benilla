@@ -63,12 +63,14 @@ impl ReplayedCause {
             || self.key.action == 0
             || self.key.tick > state.tick
             || (self.key.tick == state.tick && self.key.phase > phase)
-            || self.stamps().into_iter().flatten().any(|stamp| {
-                stamp.cause != self.key || stamp.subphase == 0 || stamp.subphase > 16
-            })
-            || self.lifecycle.is_some_and(|write| {
-                write.value.melee_attacking != write.value.victim.is_some()
-            })
+            || self
+                .stamps()
+                .into_iter()
+                .flatten()
+                .any(|stamp| stamp.cause != self.key || stamp.subphase == 0 || stamp.subphase > 16)
+            || self
+                .lifecycle
+                .is_some_and(|write| write.value.melee_attacking != write.value.victim.is_some())
             || self.base.is_some_and(|write| write.value > MAX_TIMER_MS)
             || self.off.is_some_and(|write| write.value > MAX_TIMER_MS)
             || self.last_error.is_some_and(|write| write.value > 3)
@@ -149,7 +151,11 @@ where
 }
 
 impl PlayerMeleeProof {
-    pub(super) fn validate_latest_reset(&self, reset: &crate::native::melee_reset::MeleeResetWitness, tick: u64) -> Result<(), NativeError> {
+    pub(super) fn validate_latest_reset(
+        &self,
+        reset: &crate::native::melee_reset::MeleeResetWitness,
+        tick: u64,
+    ) -> Result<(), NativeError> {
         let base = self.origins[1].ok_or(NativeError::InvalidCheckpoint)?;
         if (base.cause.tick, base.cause.phase) < (tick, Phase::PreUnit) {
             return Err(NativeError::InvalidCheckpoint);

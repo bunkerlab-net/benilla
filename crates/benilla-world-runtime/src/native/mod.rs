@@ -674,5 +674,7 @@ mod distinct_quest_tests;
 mod quest_seven_tests;
 
 impl From<benilla_sim::player_melee::MeleeError> for NativeError {
-    fn from(error: benilla_sim::player_melee::MeleeError) -> Self { Self::PlayerMelee(error) }
+    fn from(error: benilla_sim::player_melee::MeleeError) -> Self {
+        Self::PlayerMelee(error)
+    }
 }

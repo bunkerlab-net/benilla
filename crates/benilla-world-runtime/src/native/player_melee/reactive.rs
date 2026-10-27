@@ -93,7 +93,10 @@ impl NpcDefenseReactive {
     }
 
     pub(in crate::native) fn replay_work(&self) -> u64 {
-        self.context.replay_work().saturating_mul(2).saturating_add(3)
+        self.context
+            .replay_work()
+            .saturating_mul(2)
+            .saturating_add(3)
     }
 
     /// End-of-NPC-Unit-update value only. Before that update a newly minted
@@ -173,7 +176,9 @@ impl NpcDefenseReactive {
 
 fn writes_defense(class: u32, outcome: MeleeOutcome, survived: bool) -> Result<bool, NativeError> {
     if !matches!(class, 1 | 2 | 4 | 8) {
-        return Err(NativeError::UnsupportedMechanic("NPC defense reactive class"));
+        return Err(NativeError::UnsupportedMechanic(
+            "NPC defense reactive class",
+        ));
     }
     Ok(survived
         && match outcome {

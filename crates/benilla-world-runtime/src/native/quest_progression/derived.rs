@@ -227,9 +227,9 @@ pub(in crate::native) fn validate_weapon_policy(
     calls: &[DerivedCall],
     expected_gain: Option<u16>,
 ) -> Result<(), NativeError> {
-    if calls.iter().any(|call| {
-        matches!(call, DerivedCall::Weapon { gain, .. } if Some(*gain) != expected_gain)
-    }) {
+    if calls.iter().any(
+        |call| matches!(call, DerivedCall::Weapon { gain, .. } if Some(*gain) != expected_gain),
+    ) {
         return Err(NativeError::InvalidCheckpoint);
     }
     Ok(())
@@ -946,8 +946,8 @@ mod tests {
             let before = state.derived.clone();
             let live = resources(state.player.view());
             let current = combat.skills.get_mut(&136).unwrap();
-            current.value = (u32::from(current.value) + u32::from(gain))
-                .min(u32::from(current.maximum)) as u16;
+            current.value =
+                (u32::from(current.value) + u32::from(gain)).min(u32::from(current.maximum)) as u16;
             state
                 .weapon_skill_change(&g, &combat, 136, gain, live.health, live.mana)
                 .unwrap();
@@ -964,7 +964,9 @@ mod tests {
             state.validate_derived(&g, &combat).unwrap();
             state.validate_weapon_policy(Some(gain)).unwrap();
             assert!(state.validate_weapon_policy(None).is_err());
-            assert!(state.validate_weapon_policy(Some(gain.wrapping_add(1))).is_err());
+            assert!(state
+                .validate_weapon_policy(Some(gain.wrapping_add(1)))
+                .is_err());
             let mut forged = state.clone();
             let DerivedCall::Weapon { skill, .. } = forged.derived_calls.last_mut().unwrap() else {
                 unreachable!()
@@ -986,7 +988,14 @@ mod tests {
         let live = resources(state.player.view());
         let original = state.clone();
         assert!(state
-            .weapon_skill_change(&g, &combat, combat::DEFENSE_SKILL, 0, live.health, live.mana)
+            .weapon_skill_change(
+                &g,
+                &combat,
+                combat::DEFENSE_SKILL,
+                0,
+                live.health,
+                live.mana
+            )
             .is_err());
         assert_eq!(state, original);
         state

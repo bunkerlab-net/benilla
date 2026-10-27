@@ -137,56 +137,48 @@ fn player_mainhand_rejects_invalid_and_extra_draws() {
     for roll in [0, 10001] {
         assert!(plan.outcome(roll).is_err());
     }
-    assert!(
-        resolve(
-            plan,
-            MeleeRolls {
-                damage: 9,
-                outcome: 1,
-                glance: None,
-            },
-        )
-        .is_err()
-    );
-    assert!(
-        resolve(
-            plan,
-            MeleeRolls {
-                damage: 10,
-                outcome: 1,
-                glance: Some(1),
-            },
-        )
-        .is_err()
-    );
+    assert!(resolve(
+        plan,
+        MeleeRolls {
+            damage: 9,
+            outcome: 1,
+            glance: None,
+        },
+    )
+    .is_err());
+    assert!(resolve(
+        plan,
+        MeleeRolls {
+            damage: 10,
+            outcome: 1,
+            glance: Some(1),
+        },
+    )
+    .is_err());
     let glance_roll = plan.chances().miss
         + plan.chances().dodge
         + plan.chances().parry
         + plan.chances().block
         + 1;
     assert!(plan.glance_range(glance_roll).unwrap().is_some());
-    assert!(
-        resolve(
-            plan,
-            MeleeRolls {
-                damage: 10,
-                outcome: glance_roll,
-                glance: None,
-            },
-        )
-        .is_err()
-    );
-    assert!(
-        resolve(
-            plan,
-            MeleeRolls {
-                damage: 10,
-                outcome: glance_roll,
-                glance: Some(101),
-            },
-        )
-        .is_err()
-    );
+    assert!(resolve(
+        plan,
+        MeleeRolls {
+            damage: 10,
+            outcome: glance_roll,
+            glance: None,
+        },
+    )
+    .is_err());
+    assert!(resolve(
+        plan,
+        MeleeRolls {
+            damage: 10,
+            outcome: glance_roll,
+            glance: Some(101),
+        },
+    )
+    .is_err());
     let mut invalid = sample();
     invalid.attacker.minimum_damage = sf(-1.0);
     assert!(prepare(invalid).is_err());
