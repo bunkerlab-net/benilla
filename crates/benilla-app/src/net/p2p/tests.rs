@@ -575,7 +575,12 @@ fn absent_and_preintro_peers_cannot_move_chat_or_overwrite_an_entity() {
     let other = fixture(2, 2, "Otherchar");
     let (tx, rx) = crossbeam_channel::unbounded();
     let mut peers = BTreeMap::new();
-    let say = Frame::Say { text: "hi".into() }.encode().unwrap();
+    let say = Frame::Say {
+        language: 7,
+        text: "hi".into(),
+    }
+    .encode()
+    .unwrap();
     apply_peer_frame(
         &tx,
         other.owner_id,
@@ -658,6 +663,7 @@ fn different_map_peer_stays_admitted_without_local_events_and_rejoin_can_be_visi
             time: 1,
         },
         Frame::Say {
+            language: 7,
             text: "not local chat".into(),
         },
         Frame::TextEmote {
@@ -731,6 +737,7 @@ fn frame_codec_is_versioned_bounded_and_does_not_echo_payload_errors() {
         .contains("private"));
     assert!(Frame::decode(
         &Frame::Say {
+            language: 7,
             text: "x".repeat(MAX_CHAT + 1)
         }
         .encode()
@@ -738,6 +745,60 @@ fn frame_codec_is_versioned_bounded_and_does_not_echo_payload_errors() {
     )
     .is_err());
     assert!(validate_pose(&[f32::NAN, 0.0, 0.0], 0.0).is_err());
+}
+
+#[test]
+fn spoken_language_frames_reject_legacy_and_unlearned_language_without_emission() {
+    assert!(Frame::decode(b"kind = 'Say'\ntext = 'old universal speech'").is_err());
+    assert_eq!(CONTENT_VERSION, "benilla-saved-exploration-languages-v8");
+    let own = fixture(1, 1, "Listener");
+    let mut other = fixture(2, 2, "Speaker");
+    other.race = 5;
+    // Peer admission owns this immutable race. The frame cannot substitute a different race.
+    let mut peers = [(other.owner_id, Some(other.clone()))].into();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for language in [0, 7, u32::MAX, 999] {
+        let frame = Frame::Say {
+            language,
+            text: "forged fluent speech".into(),
+        }
+        .encode()
+        .unwrap();
+        assert!(apply_peer_frame(
+            &tx,
+            other.owner_id,
+            &frame,
+            &mut peers,
+            &own,
+            &AvatarCatalog::fixture()
+        )
+        .is_err());
+        assert!(rx.is_empty());
+    }
+    for language in [1, 33] {
+        let frame = Frame::Say {
+            language,
+            text: "native tongue".into(),
+        }
+        .encode()
+        .unwrap();
+        apply_peer_frame(
+            &tx,
+            other.owner_id,
+            &frame,
+            &mut peers,
+            &own,
+            &AvatarCatalog::fixture(),
+        )
+        .unwrap();
+        let SessionEvent::Chat(chat) = rx.try_recv().unwrap() else {
+            panic!("speech")
+        };
+        assert_eq!(chat.sender_guid, character_guid(&other));
+        assert_eq!(chat.language, language);
+        assert_eq!(chat.text, "native tongue");
+        assert!(rx.is_empty());
+    }
 }
 
 #[test]
@@ -1546,4 +1607,83 @@ fn installed_creation_dials_fit_profile_and_avatar_validation() {
             }
         }
     }
+}
+
+#[test]
+fn human_and_forsaken_peers_refuse_whispers_both_ways_and_preserve_say_languages() {
+    use benilla_protocol::messages::{CHAT_MSG_SAY, CHAT_MSG_WHISPER, CHAT_MSG_WHISPER_INFORM};
+    let human_dir = Temp::new();
+    let undead_dir = Temp::new();
+    let endpoint = free_endpoint();
+    let (human, human_start) = open(&human_dir.profile(), settings(endpoint, &[]));
+    listed(&human);
+    let human_id = create(&human, "Humanpeer", 1, 1, 0);
+    enter(&human, human_id);
+    let (undead, undead_start) = open(
+        &undead_dir.profile(),
+        settings(free_endpoint(), &[endpoint]),
+    );
+    listed(&undead);
+    let undead_id = create(&undead, "Forsakenpeer", 5, 1, 0);
+    enter(&undead, undead_id);
+    next_matching(
+        &human,
+        |event| matches!(event, SessionEvent::ObjectCreate { guid, .. } if *guid == undead_id),
+    );
+    next_matching(
+        &undead,
+        |event| matches!(event, SessionEvent::ObjectCreate { guid, .. } if *guid == human_id),
+    );
+
+    for (sender, receiver, target, sender_id, language) in [
+        (&human, &undead, "Forsakenpeer", human_id, 7),
+        (&undead, &human, "Humanpeer", undead_id, 1),
+    ] {
+        sender
+            .commands
+            .send(ClientCommand::Chat {
+                kind: ChatKind::Whisper,
+                target: Some(target.into()),
+                text: "forbidden private line".into(),
+                language: None,
+            })
+            .unwrap();
+        next_matching(sender, |event| {
+            if let SessionEvent::Chat(chat) = event {
+                assert!(!matches!(
+                    chat.chat_type,
+                    CHAT_MSG_WHISPER | CHAT_MSG_WHISPER_INFORM
+                ));
+            }
+            matches!(event, SessionEvent::ChatWrongFaction)
+        });
+        // A subsequent public line fences the peer transport without assuming a sleep duration.
+        sender
+            .commands
+            .send(ClientCommand::Chat {
+                kind: ChatKind::Say,
+                target: None,
+                text: "language fence".into(),
+                language: None,
+            })
+            .unwrap();
+        next_matching(receiver, |event| {
+            let SessionEvent::Chat(chat) = event else {
+                return false;
+            };
+            assert!(!matches!(
+                chat.chat_type,
+                CHAT_MSG_WHISPER | CHAT_MSG_WHISPER_INFORM
+            ));
+            if chat.chat_type == CHAT_MSG_SAY
+                && chat.sender_guid == sender_id
+                && chat.text == "language fence"
+            {
+                assert_eq!(chat.language, language);
+                return true;
+            }
+            false
+        });
+    }
+    drop((human_start, undead_start));
 }

@@ -8,6 +8,8 @@ description = "Source-level app solo-world controller harness without Bevy linki
 [lints]
 workspace = true
 [dev-dependencies]
+anyhow.workspace = true
+benilla-p2p = { path = "../benilla-p2p" }
 benilla-native-vmap-source = { path = "../benilla-native-vmap-source", features = ["synthetic-map-tests"] }
 benilla-ui = { path = "../benilla-ui" }
 rand = "0.8"

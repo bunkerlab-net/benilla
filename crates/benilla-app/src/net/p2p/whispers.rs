@@ -41,6 +41,13 @@ impl Packet {
         }
     }
 }
+// CMaNGOS 8ec338a ChatHandler.cpp: normal players cannot whisper across teams
+// with AllowTwoSide.Interaction.Chat=0. This P2P mode grants no GM/chat override.
+fn same_team(own: &Character, other: &Character) -> bool {
+    (1..=8).contains(&own.race)
+        && (1..=8).contains(&other.race)
+        && crate::ui_unit::race_pvp_team(own.race) == crate::ui_unit::race_pvp_team(other.race)
+}
 fn valid_text(text: &str) -> bool {
     !text.is_empty() && text.len() <= 255 && !text.chars().any(char::is_control)
 }
@@ -138,6 +145,9 @@ impl State {
                 ),
             );
         }
+        if !same_team(own, recipient) {
+            return emit(events, SessionEvent::ChatWrongFaction);
+        }
         let now = Instant::now();
         if self.pending.len() >= MAX_PENDING || !self.outgoing.admit(now) {
             return emit(
@@ -193,6 +203,11 @@ impl State {
         };
         if other.owner_id != owner {
             bail!("private chat owner mismatch");
+        }
+        // Check admitted identities again on ingress, including delivery receipts.
+        // A modified peer cannot bypass the outgoing refusal or cause a false self-echo.
+        if !same_team(own, other) {
+            bail!("private chat wrong faction");
         }
         match packet {
             Packet::Tell {
@@ -333,6 +348,147 @@ mod tests {
             text: "private text".into(),
         }
     }
+    #[test]
+    fn classic_race_pairs_reject_cross_faction_without_sending_or_charging_a_rate_slot() {
+        for from_race in 1..=8 {
+            for to_race in 1..=8 {
+                let mut a = avatar(1, "Human");
+                let mut b = avatar(2, "Forsaken");
+                a.race = from_race;
+                b.race = to_race;
+                let alliance = |race| matches!(race, 1 | 3 | 4 | 7);
+                let allowed = alliance(from_race) == alliance(to_race);
+                let (tx, rx) = crossbeam_channel::bounded(8);
+                let mut state = State::default();
+                let mut sent = 0;
+                state
+                    .send(
+                        &tx,
+                        &a,
+                        &peers(std::slice::from_ref(&b)),
+                        Some(&b.name),
+                        "private".into(),
+                        |owner, _| {
+                            assert_eq!(owner, b.owner_id);
+                            sent += 1;
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(sent, usize::from(allowed), "races {from_race} -> {to_race}");
+                if allowed {
+                    assert!(rx.is_empty(), "delivery echo still waits for receipt");
+                    assert_eq!(state.pending.len(), 1);
+                } else {
+                    assert!(matches!(rx.recv().unwrap(), SessionEvent::ChatWrongFaction));
+                    assert!(rx.is_empty(), "no whisper echo or chime event");
+                    assert!(state.pending.is_empty());
+                    assert_eq!(state.next, 0);
+                    assert_eq!(state.outgoing.count, 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_races_cannot_send_even_to_the_same_unknown_race() {
+        for race in [0, 9, 255] {
+            let mut own = avatar(1, "Local");
+            own.race = race;
+            let (tx, rx) = crossbeam_channel::bounded(4);
+            let mut state = State::default();
+            state
+                .send(
+                    &tx,
+                    &own,
+                    &BTreeMap::new(),
+                    Some(&own.name),
+                    "no".into(),
+                    |_, _| panic!("invalid race send"),
+                )
+                .unwrap();
+            assert!(matches!(rx.recv().unwrap(), SessionEvent::ChatWrongFaction));
+            assert!(rx.is_empty());
+        }
+    }
+
+    #[test]
+    fn cross_faction_or_unknown_admitted_races_cannot_deliver_tells_or_receipts() {
+        for (own_race, other_race) in [(1, 5), (5, 1), (1, 0), (0, 1), (9, 1), (1, 9), (255, 255)] {
+            let mut own = avatar(1, "Local");
+            let mut other = avatar(2, "Remote");
+            own.race = own_race;
+            other.race = other_race;
+            let (tx, rx) = crossbeam_channel::bounded(8);
+            let mut state = State::default();
+            state.pending.insert(
+                1,
+                Pending {
+                    owner: other.owner_id,
+                    recipient: other.clone(),
+                    text: "must not echo".into(),
+                    sent: Instant::now(),
+                },
+            );
+            for packet in [
+                tell(&other, &own, 1),
+                Packet::Receipt {
+                    sender: other.id,
+                    recipient: own.id,
+                    sequence: 1,
+                },
+            ] {
+                assert!(state
+                    .receive(
+                        &tx,
+                        &own,
+                        &peers(std::slice::from_ref(&other)),
+                        other.owner_id,
+                        packet,
+                        |_, _| panic!("no receipt to refused tell")
+                    )
+                    .is_err());
+                assert!(rx.is_empty(), "no display/name/sound-producing chat event");
+                assert!(state.incoming.is_empty());
+                assert_eq!(state.pending.len(), 1, "refusal cannot claim delivery");
+            }
+        }
+    }
+
+    #[test]
+    fn different_racial_languages_on_the_same_team_still_deliver_universal_whispers() {
+        for (from_race, to_race) in [(1, 4), (3, 7), (2, 5), (6, 8)] {
+            let mut a = avatar(1, "Sender");
+            let mut b = avatar(2, "Recipient");
+            a.race = from_race;
+            b.race = to_race;
+            let (tx, rx) = crossbeam_channel::bounded(8);
+            let mut state = State::default();
+            let mut receipts = 0;
+            state
+                .receive(
+                    &tx,
+                    &b,
+                    &peers(std::slice::from_ref(&a)),
+                    a.owner_id,
+                    tell(&a, &b, 1),
+                    |_, _| {
+                        receipts += 1;
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            assert_eq!(receipts, 1);
+            assert!(matches!(
+                rx.recv().unwrap(),
+                SessionEvent::PlayerName { .. }
+            ));
+            assert!(matches!(rx.recv().unwrap(), SessionEvent::Chat(m)
+                if m.language == 0 && m.chat_type == messages::CHAT_MSG_WHISPER && m.text == "private text"));
+            assert!(rx.is_empty());
+        }
+    }
+
     #[test]
     fn private_tell_routes_one_owner_and_echoes_only_after_bound_receipt_across_maps() {
         let a = avatar(1, "Alice");

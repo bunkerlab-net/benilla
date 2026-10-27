@@ -124,6 +124,17 @@ impl AvatarCatalog {
                     },
                 ),
                 (
+                    (5, 0),
+                    Body {
+                        // Synthetic envelope for cross-faction transport tests, not asset data.
+                        display: 57,
+                        faction: 5,
+                        classes: vec![1, 4, 5, 8, 9],
+                        ranges: [4; 5],
+                        hair_colors: vec![4; 4],
+                    },
+                ),
+                (
                     (3, 0),
                     Body {
                         display: 53,

@@ -1117,6 +1117,7 @@ dependencies = [
 name = "benilla-world-controller-tests"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "benilla-config",
  "benilla-formats",
  "benilla-native-nav",
@@ -1124,6 +1125,7 @@ dependencies = [
  "benilla-native-terrain",
  "benilla-native-vmap",
  "benilla-native-vmap-source",
+ "benilla-p2p",
  "benilla-profile",
  "benilla-protocol",
  "benilla-sim",

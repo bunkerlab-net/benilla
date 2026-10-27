@@ -21,3 +21,23 @@ mod creature_anim {
         include!(concat!(env!("OUT_DIR"), "/move_flags.rs"));
     }
 }
+
+mod ui_unit {
+    include!(concat!(env!("OUT_DIR"), "/race_team.rs"));
+}
+
+mod whisper_support {
+    use anyhow::Result;
+    use benilla_profile::Character;
+    use benilla_protocol::SessionEvent;
+    use crossbeam_channel::Sender;
+    use sha2::{Digest, Sha256};
+    include!(concat!(env!("OUT_DIR"), "/whisper_support.rs"));
+}
+
+#[path = "../../benilla-app/src/net/p2p/whispers.rs"]
+mod whispers;
+use whisper_support::{character_guid, character_name, chat, emit, MAX_CHAT};
+
+#[path = "../../benilla-app/src/net/p2p/speech.rs"]
+mod speech;

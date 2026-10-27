@@ -29,6 +29,7 @@ mod native_geometry;
 mod recovery_actions;
 use character_actions::character_guid;
 mod profile;
+mod speech;
 mod whispers;
 mod world_setup;
 // Native entry is deliberately closed until a supported compiler/runtime profile exists.
@@ -37,7 +38,7 @@ pub(super) use native_geometry::plugin as native_geometry_plugin;
 use profile::AvatarCatalog;
 
 // Version of this fixed exploration world contract, not an attestation of local WoW assets.
-const CONTENT_VERSION: &str = "benilla-saved-exploration-emotes-whispers-v7";
+const CONTENT_VERSION: &str = "benilla-saved-exploration-languages-v8";
 const MAX_CHAT: usize = 255;
 const SPAWN: [f32; 3] = [-8949.95, -132.49, 83.9];
 /// Public connection metadata plus the local setup mailbox; no signing keys or PSKs.
@@ -108,6 +109,7 @@ enum Frame {
         time: u32,
     },
     Say {
+        language: u32,
         text: String,
     },
     Whisper {
@@ -186,7 +188,7 @@ impl Frame {
                     bail!("invalid P2P stand state");
                 }
             }
-            Self::Say { text } => {
+            Self::Say { text, .. } => {
                 if text.is_empty() || text.len() > MAX_CHAT || text.chars().any(char::is_control) {
                     bail!("invalid P2P chat");
                 }
@@ -597,7 +599,7 @@ fn character_avatar(character: &Character, catalog: &AvatarCatalog) -> Result<Se
     let appearance = character.appearance;
     // Exploration baselines only, not a claimed implementation of racial/class starting stats.
     let (current, maximum) = if power == 1 { (0, 1000) } else { (100, 100) };
-    let fields = ObjectFields::from_pairs(&[
+    let mut field_pairs = vec![
         (0, id as u32),
         (1, (id >> 32) as u32),
         (2, 25),
@@ -630,8 +632,10 @@ fn character_avatar(character: &Character, catalog: &AvatarCatalog) -> Result<Se
         (194, u32::from(appearance.facial_hair) | (2 << 24)),
         (716, 0),
         (717, 400),
-    ])
-    .into_created(benilla_protocol::messages::ObjectType::Player);
+    ];
+    speech::append_skills(character.race, &mut field_pairs);
+    let fields = ObjectFields::from_pairs(&field_pairs)
+        .into_created(benilla_protocol::messages::ObjectType::Player);
     Ok(SessionEvent::ObjectCreate {
         guid: id,
         kind: EntityKind::Player,
@@ -774,13 +778,13 @@ fn apply_decoded_peer_frame(
                 },
             )?;
         }
-        Frame::Say { text } if joined.is_some() => emit(
-            events,
-            chat(
-                character_guid(joined.as_ref().expect("admitted character")),
-                text,
-            ),
-        )?,
+        Frame::Say { language, text } if joined.is_some() => {
+            let sender = joined.as_ref().expect("admitted character");
+            emit(
+                events,
+                speech::message(character_guid(sender), sender.race, language, text)?,
+            )?;
+        }
         Frame::TextEmote { text_id, target } if joined.is_some() => {
             emotes::emit_text_emote(
                 events,
@@ -1030,6 +1034,7 @@ fn run_exploration_character(
     emit(events, creation_start::worldport(character))?;
     emit(events, character_name(character))?;
     emit(events, character_avatar(character, catalog)?)?;
+    emit(events, speech::spell_book(character.race))?;
     // Fork deviation: exploration follows its configured IANA zone (UTC by default),
     // rather than restarting at noon. Realm and synthetic encounter clocks are unchanged.
     let mut clock_sample = settings
@@ -1282,6 +1287,7 @@ fn run_exploration_character(
                     ClientCommand::Chat {
                         kind: ChatKind::Say,
                         text,
+                        language,
                         ..
                     } => {
                         if text.len() > MAX_CHAT
@@ -1298,8 +1304,23 @@ fn run_exploration_character(
                             )?;
                             continue;
                         }
-                        emit(events, chat(character_guid(character), text.clone()))?;
-                        Some(Frame::Say { text })
+                        let Ok(language) = speech::language(character.race, language) else {
+                            emit(
+                                events,
+                                chat(0, "Your character does not know that language.".into()),
+                            )?;
+                            continue;
+                        };
+                        emit(
+                            events,
+                            speech::message(
+                                character_guid(character),
+                                character.race,
+                                language,
+                                text.clone(),
+                            )?,
+                        )?;
+                        Some(Frame::Say { language, text })
                     }
                     ClientCommand::TextEmote { text_id, target } => {
                         if !catalog.1.contains_text(text_id) {

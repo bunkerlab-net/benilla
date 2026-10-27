@@ -27,6 +27,41 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(benilla_headless_geometry)");
     println!("cargo::rustc-cfg=benilla_headless_geometry");
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    // Exercise the real whisper state machine without linking the Bevy renderer.
+    let mut support = String::new();
+    for (path, functions) in [
+        ("net/p2p.rs", &["chat", "emit", "character_name"][..]),
+        ("net/p2p/character_actions.rs", &["character_guid"][..]),
+    ] {
+        let path = root.join("crates/benilla-app/src").join(path);
+        println!("cargo:rerun-if-changed={}", path.display());
+        let source = fs::read_to_string(&path).unwrap();
+        if path.ends_with("p2p.rs") {
+            support.push_str("pub(crate) ");
+            support.push_str(
+                source
+                    .lines()
+                    .find(|line| line.starts_with("const MAX_CHAT:"))
+                    .expect("actual chat bound"),
+            );
+            support.push('\n');
+        }
+        for name in functions {
+            support.push_str("pub(crate) ");
+            support.push_str(&function(&source, name));
+            support.push('\n');
+        }
+    }
+    let path = root.join("crates/benilla-app/src/ui_unit.rs");
+    println!("cargo:rerun-if-changed={}", path.display());
+    let source = fs::read_to_string(path).unwrap();
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap());
+    fs::write(out.join("whisper_support.rs"), support).unwrap();
+    fs::write(
+        out.join("race_team.rs"),
+        format!("pub(crate) {}", function(&source, "race_pvp_team")),
+    )
+    .unwrap();
     let flags = root.join("crates/benilla-app/src/creature_anim/select.rs");
     println!("cargo:rerun-if-changed={}", flags.display());
     let flags = fs::read_to_string(flags).unwrap();
@@ -115,4 +150,11 @@ fn main() {
         generated,
     )
     .unwrap();
+}
+
+fn function(source: &str, name: &str) -> String {
+    let declaration = format!("fn {name}(");
+    let tail = &source[source.find(&declaration).expect("actual app function")..];
+    let brace = tail.find('{').unwrap();
+    format!("{}{{{}}}", &tail[..brace], block_body(tail, &declaration))
 }
