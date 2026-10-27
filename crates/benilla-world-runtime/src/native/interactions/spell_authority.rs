@@ -1109,7 +1109,7 @@ impl<'a> CurrentSpell<'a> {
         let combat = state.combat.as_ref().ok_or(NativeError::InvalidState)?;
         let genesis = profile.combat.as_ref().ok_or(NativeError::InvalidState)?;
         if profile.player_melee.is_some() {
-            player_melee::refuse_spell_concurrency(profile, state)?;
+            crate::native::player_melee::refuse_spell_concurrency(profile, state)?;
             combat.validate_melee_timer_fields(genesis)?;
         } else {
             combat.validate_melee_timers(genesis)?;

@@ -2,6 +2,7 @@
 // CMaNGOS Classic 8ec338a1 CombatHandler.cpp and Unit/Player melee callbacks.
 //! Owner-side mainhand policy. Selecting source operands does not grant admission.
 use super::*;
+use crate::NpcId;
 use serde::{Deserialize, Serialize};
 mod context;
 pub(in crate::native) mod death;

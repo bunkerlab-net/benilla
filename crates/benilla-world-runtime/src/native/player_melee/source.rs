@@ -2,6 +2,7 @@
 // CMaNGOS Classic 8ec338a1 Unit.cpp Attack/AttackStop/UpdateMeleeAttackingState.
 //! Source-replayed latest writers. Context is reachable, not a trajectory proof.
 use super::*;
+use crate::NpcId;
 use super::context::{SourceContext, ReplayedContext};
 use benilla_sim::player_melee as melee;
 use super::state::{CauseKey, Phase, ReplayedCause, Lifecycle, Write, WriteStamp};

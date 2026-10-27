@@ -554,7 +554,7 @@ impl<A: Authority> Frame<'_, A> {
         chance_purpose: DrawPurpose,
         slot_purpose: DrawPurpose,
     ) -> Result<(), NativeError> {
-        use benilla_sim::npc_melee as m;
+        use benilla_sim::{npc_melee as m, starter_init as init};
         // Source rand_chance runs even when configured chance is exactly zero.
         let fraction = self.state.draw_range(
             0,
@@ -1687,7 +1687,7 @@ impl<A: Authority> Frame<'_, A> {
         npc_orientation: Option<Orientation>,
         working: Option<&interactions::WorkingNpc<'_>>,
     ) -> Result<(), NativeError> {
-        use benilla_sim::{npc_melee as m, starter_init as init};
+        use benilla_sim::npc_melee as m;
         let attack = p
             .combat
             .as_ref()
