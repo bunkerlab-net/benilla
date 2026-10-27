@@ -1328,6 +1328,24 @@ class ExactProofTests(unittest.TestCase):
         self.assertIn('"build benilla-native-nav-generator before scoped tests"', fixture_source)
         self.assertIn('"benilla-native-navigation{}"', fixture_source)
 
+    def test_f05_diagnostic_cache_namespace_is_separate_from_canonical_jobs(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        expected = {
+            "workspace-gates": "ci-ubuntu26-v1",
+            "f05-private-diagnostic": "ci-f05-private-diagnostic-ubuntu26-v1",
+            "workspace-tests": "ci-workspace-tests-ubuntu26-v1",
+            "player-gates": "ci-player-ubuntu26-v1",
+        }
+        actual = {}
+        for job, generation in expected.items():
+            section = workflow.split(f"  {job}:\n", 1)[1]
+            section = re.split(r"\n  [a-z][a-z0-9-]*:\n", section, maxsplit=1)[0]
+            values = re.findall(r"^          cache-generation: (.+)$", section, re.M)
+            self.assertEqual(values, [generation], job)
+            self.assertNotRegex(section, r"(?m)^          (?:cache-key|cache-key-suffix|restore-keys):", job)
+            actual[job] = values[0]
+        self.assertEqual(len(set(actual.values())), len(actual))
+
     def test_f05_release_gate_builds_matching_profile_navigation_helper(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         normal = workflow.split("  workspace-gates:\n", 1)[1].split("\n  f05-private-diagnostic:", 1)[0]

@@ -950,7 +950,7 @@ jobs:
           version: latest
           backend: github
           github-cache-mode: target
-          cache-generation: ci-ubuntu26-v1
+          cache-generation: ci-f05-private-diagnostic-ubuntu26-v1
           # Same-repository PR writes stay in that PR's cache scope; forks never save.
           save-on-pull-request: true
           save-on-workflow-dispatch: true
